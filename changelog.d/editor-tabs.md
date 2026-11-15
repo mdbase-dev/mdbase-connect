@@ -1,0 +1,3 @@
+## Added
+
+- The Editor opens notes in tabs on desktop and tablet. Each tab keeps its own Back and Forward history and unsaved edits. A note opens in a new tab from its list menu, a middle click on its row or a rendered link, Ctrl or ⌘ and a click on a rendered link, Shift+Enter in quick open, or Alt+T. Alt+W closes the tab, and Alt+PageDown and Alt+PageUp move between tabs; every shortcut can be changed in Settings. Renamed notes follow into every tab. Deleting a note takes background tabs back to their previous note, and closes those that had none. Each device reopens the tabs it had in a collection, replacing the single last-opened note. Phones still show one note at a time.

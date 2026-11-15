@@ -9,7 +9,7 @@ import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 export function writerInteractions(
   linkTargets: () => LinkTargets | undefined,
   files: () => CollectionFile[],
-  onOpenLink: () => ((path: string) => void) | undefined,
+  onOpenLink: () => ((path: string, options?: { newTab?: boolean }) => void) | undefined,
   onOpenFileLink: () => ((file: CollectionFile) => void) | undefined,
   onCreateLink: () => ((target: string, label: string | undefined, format: "wikilink" | "markdown") => void) | undefined,
   onPreviewLink: () => ((path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void) | undefined,
@@ -25,49 +25,60 @@ export function writerInteractions(
     view.dom.classList.remove("cm-hovering-link");
     onDismissLinkPreview()?.();
   };
+  /** Follows the link clicked at `position`: a note opens in a new tab when `newTab` asks for one. */
+  const follow = (event: MouseEvent, view: EditorView, position: number, newTab: boolean): boolean => {
+    const link = markdownReferenceAt(view.state.doc.toString(), position, "link", syntaxTree(view.state));
+    if (!link) return false;
+    if (/^https?:\/\//i.test(link.target)) {
+      event.preventDefault();
+      window.open(link.target, "_blank", "noopener,noreferrer");
+      return true;
+    }
+    const targets = linkTargets();
+    if (!link.target || !internalLink(link.target) || !targets) return false;
+    const raw = view.state.sliceDoc(link.from, link.to);
+    event.preventDefault();
+    dismissPreview(view);
+    const open = (target: LinkTarget) => {
+      if (target.kind === "note") onOpenLink()?.(target.path, { newTab });
+      else if (target.kind === "file") {
+        const file = files().find(candidate => candidate.path === target.path);
+        if (file) onOpenFileLink()?.(file);
+      } else if (target.kind === "missing") onCreateLink()?.(link.target, link.label, link.format);
+    };
+    const known = targets.get(raw);
+    if (known) open(known);
+    // A failed lookup is shown on the link by the reference diagnostics.
+    else void targets.resolve(raw).then(open, () => undefined);
+    return true;
+  };
+  const renderedLink = (event: MouseEvent) => event.target instanceof Element
+    ? event.target.closest<HTMLElement>(".cm-lp-link") ?? undefined
+    : undefined;
   return EditorView.domEventHandlers({
     mousedown(event) {
-      const renderedLink = event.target instanceof Element
-        ? event.target.closest(".cm-lp-link")
-        : null;
-      if (!renderedLink || event.button !== 0) return false;
+      // The middle button opens a rendered link in a new tab; its press would otherwise paste or scroll.
+      if (!renderedLink(event) || (event.button !== 0 && event.button !== 1)) return false;
       event.preventDefault();
       return true;
     },
+    // A rendered link follows on a click, and opens in a new tab with Ctrl or ⌘. The source of a link
+    // follows only with Ctrl or ⌘, since a plain click there places the cursor.
     click(event, view) {
-      const rendered = event.target instanceof Element
-        ? event.target.closest<HTMLElement>(".cm-lp-link")
-        : null;
-      if (!rendered && !event.metaKey && !event.ctrlKey) return false;
+      const rendered = renderedLink(event);
+      const modifier = event.metaKey || event.ctrlKey;
+      if (!rendered && !modifier) return false;
       const renderedFrom = rendered ? Number(rendered.dataset.linkFrom) : undefined;
       const position = Number.isFinite(renderedFrom)
         ? renderedFrom!
         : view.posAtCoords({ x: event.clientX, y: event.clientY });
       if (position === null) return false;
-      const link = markdownReferenceAt(view.state.doc.toString(), position, "link", syntaxTree(view.state));
-      if (!link) return false;
-      if (/^https?:\/\//i.test(link.target)) {
-        event.preventDefault();
-        window.open(link.target, "_blank", "noopener,noreferrer");
-        return true;
-      }
-      const targets = linkTargets();
-      if (!link.target || !internalLink(link.target) || !targets) return false;
-      const raw = view.state.sliceDoc(link.from, link.to);
-      event.preventDefault();
-      dismissPreview(view);
-      const follow = (target: LinkTarget) => {
-        if (target.kind === "note") onOpenLink()?.(target.path);
-        else if (target.kind === "file") {
-          const file = files().find(candidate => candidate.path === target.path);
-          if (file) onOpenFileLink()?.(file);
-        } else if (target.kind === "missing") onCreateLink()?.(link.target, link.label, link.format);
-      };
-      const known = targets.get(raw);
-      if (known) follow(known);
-      // A failed lookup is shown on the link by the reference diagnostics.
-      else void targets.resolve(raw).then(follow, () => undefined);
-      return true;
+      return follow(event, view, position, Boolean(rendered) && modifier);
+    },
+    auxclick(event, view) {
+      const position = Number(renderedLink(event)?.dataset.linkFrom);
+      if (event.button !== 1 || !Number.isFinite(position)) return false;
+      return follow(event, view, position, true);
     },
     mousemove(event, view) {
       const position = view.posAtCoords({ x: event.clientX, y: event.clientY });

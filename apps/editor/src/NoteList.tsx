@@ -26,7 +26,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selecting = false, onStartSelecting, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
+export function NoteList({ entries, selection, onSelection, selecting = false, onStartSelecting, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, onOpenInNewTab, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -72,6 +72,8 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   onRetryFiles: () => void;
   onSelect: (path: string, options?: { keyboard?: boolean }) => void;
   onSelectFile: (file: CollectionFile) => void;
+  /** Opens a note in a new tab, from a middle click on its row; without it, the row ignores the middle button. */
+  onOpenInNewTab?: (path: string) => void;
   filter?: NoteFilter;
   tags?: SearchFacet[];
   filterTypes?: SearchFacet[];
@@ -321,6 +323,10 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
             if (status?.disabled) return;
             if (selecting) onSelection?.(selectNote(currentSelection, note.path, selectablePaths, "toggle"));
             else chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single");
+          }} onMouseDown={(event) => { if (event.button === 1 && onOpenInNewTab) event.preventDefault(); }} onAuxClick={(event) => {
+            if (event.button !== 1 || !onOpenInNewTab || status?.disabled) return;
+            event.preventDefault();
+            onOpenInNewTab(note.path);
           }}>
           <span className="note-title-line">{typeIcons && <span className="note-type-icon" aria-hidden="true">{icon && <Suspense fallback={null}><PhosphorIcon name={icon} /></Suspense>}</span>}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span>{compact && status?.label && <span className="note-transition">{status.label}</span>}</span>
           {!compact && <>

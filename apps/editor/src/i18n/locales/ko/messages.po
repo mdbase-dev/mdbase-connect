@@ -1454,6 +1454,10 @@ msgstr "선택 지우기"
 msgid "Clear type search"
 msgstr "유형 검색 지우기"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "{name} 닫기"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "댓글 닫기"
@@ -1469,6 +1473,10 @@ msgstr "노트 미리보기 닫기"
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "속성 닫기"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "탭 닫기"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2445,20 @@ msgid "Filter links by type"
 msgstr "유형별 링크 필터"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "제목이나 경로로 노트 찾기"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "제목이나 경로로 노트를 찾거나, 작업을 보려면 >를 입력하세요"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "노트 또는 작업 찾기"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "새 탭에서 열 노트 찾기"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -3359,6 +3375,10 @@ msgstr "다음 노트"
 msgid "Next note in the list"
 msgstr "목록의 다음 노트"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "다음 탭"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "추가 텍스트 없음"
@@ -3459,6 +3479,10 @@ msgstr "일치하는 스키마 속성이 없습니다."
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "아직 중첩 필드가 없습니다."
+
+#: src/App.tsx
+msgid "No note"
+msgstr "노트 없음"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3730,10 @@ msgstr "{name} 열기"
 msgid "Open {primaryTypeLabel}"
 msgstr "{primaryTypeLabel} 열기"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "새 탭에서 노트 열기"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "댓글을 달려면 노트를 여세요."
@@ -3726,6 +3754,12 @@ msgstr "문서 열기"
 msgid "open files"
 msgstr "파일 열기"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "새 탭에서 열기"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "노트 열기"
@@ -3742,6 +3776,10 @@ msgstr "원본 열기"
 #: src/NoteCommentsPanel.tsx
 msgid "Open Settings"
 msgstr "설정 열기"
+
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "열린 탭"
 
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
@@ -4042,6 +4080,10 @@ msgstr "이전 노트"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "목록의 이전 노트"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "이전 탭"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"

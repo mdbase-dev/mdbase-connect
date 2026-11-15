@@ -8,12 +8,14 @@ import { searchNoteResults, searchTextRanges, type NoteSearchEntry, type NoteSea
 import { SearchMatchText } from "./SearchMatchText";
 import { commandDefinitions, commandShortcuts, filterCommands, rememberCommand, useShortcuts, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
 
-export function quickOpenResults({ index, recentPaths, types, commands, onSelect, onCreate }: {
+export function quickOpenResults({ index, recentPaths, types, commands, onSelect, onOpenInNewTab, onCreate }: {
   index: NoteSearchEntry[];
   recentPaths: string[];
   types: CollectionTypeDescriptor[];
   commands: EditorCommand[];
   onSelect: (path: string) => void;
+  /** Shift+Enter's alternative to `onSelect`. */
+  onOpenInNewTab?: ((path: string) => void) | undefined;
   onCreate?: ((title: string) => void) | undefined;
 }, query: string): Command[] {
   const commandMode = query.trimStart().startsWith(">");
@@ -27,7 +29,8 @@ export function quickOpenResults({ index, recentPaths, types, commands, onSelect
         {result.context.kind === "title"
           ? <small className="search-result-context path"><SearchMatchText text={result.note.path} ranges={searchTextRanges(result.note.path, commandQuery)} /></small>
           : <small className={`search-result-context ${result.context.kind}`}><SearchMatchText text={result.context.text} ranges={result.context.ranges} /></small>}</>,
-      run: () => onSelect(result.note.path)
+      run: () => onSelect(result.note.path),
+      alternate: onOpenInNewTab && { label: t`Open in new tab`, run: () => onOpenInNewTab(result.note.path) }
     };
   });
   // A search can always become a note, unless a note already has exactly that title.

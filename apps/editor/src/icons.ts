@@ -3,6 +3,7 @@ export { ArrowLeftIcon } from "@phosphor-icons/react/ArrowLeft";
 export { ArrowLineLeftIcon } from "@phosphor-icons/react/ArrowLineLeft";
 export { ArrowRightIcon } from "@phosphor-icons/react/ArrowRight";
 export { BracketsCurlyIcon } from "@phosphor-icons/react/BracketsCurly";
+export { BrowsersIcon } from "@phosphor-icons/react/Browsers";
 export { CaretDownIcon } from "@phosphor-icons/react/CaretDown";
 export { CaretRightIcon } from "@phosphor-icons/react/CaretRight";
 export { CheckIcon } from "@phosphor-icons/react/Check";

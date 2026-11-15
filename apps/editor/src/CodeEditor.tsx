@@ -83,7 +83,8 @@ interface CodeEditorProps {
   recentPaths?: string[];
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
-  onOpenLink?: (path: string) => void;
+  /** Opens a linked note, in a new tab when the click asked for one. */
+  onOpenLink?: (path: string, options?: { newTab?: boolean }) => void;
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink?: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview?: () => void;

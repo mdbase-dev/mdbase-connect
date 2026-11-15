@@ -10,17 +10,20 @@ import type { CollectionFile } from "./model";
 import { collectionFileTitle, formatFileSize } from "./collection-browser";
 import { EmbedPdfViewer } from "./EmbedPdfViewer";
 
-export function FileWorkspace({ file, asset, leadingActions, onBack, onRetry }: {
+export function FileWorkspace({ file, asset, tabs, leadingActions, onBack, onRetry }: {
   file: CollectionFile;
   asset: FileAssetSnapshot;
+  /** The open tabs, shown above the file's bar. */
+  tabs?: ReactNode;
   leadingActions?: ReactNode;
   onBack: () => void;
   onRetry: () => void;
 }) {
   useLingui();
   const filename = collectionFileTitle(file);
-  return <main className="editor-pane file-workspace" aria-label={t`File viewer, ${filename}`}>
+  return <main className={`editor-pane file-workspace${tabs ? " has-tabs" : ""}`} aria-label={t`File viewer, ${filename}`}>
     <h1 className="sr-only">{filename}</h1>
+    {tabs}
     <header className="editor-bar">
       <button className="mobile-back icon-button" aria-label={t`Back to notes and files`} onClick={onBack}><ArrowLeft aria-hidden="true" /></button>
       {leadingActions}

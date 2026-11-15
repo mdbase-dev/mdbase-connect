@@ -1454,6 +1454,10 @@ msgstr "清除选择"
 msgid "Clear type search"
 msgstr "清除类型搜索"
 
+#: src/NoteTabs.tsx
+msgid "Close {name}"
+msgstr "关闭 {name}"
+
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "关闭评论"
@@ -1469,6 +1473,10 @@ msgstr "关闭笔记预览"
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "关闭属性"
+
+#: src/editor-commands.ts
+msgid "Close tab"
+msgstr "关闭标签页"
 
 #: src/code-editor-completions.ts
 msgid "Code block"
@@ -2437,12 +2445,20 @@ msgid "Filter links by type"
 msgstr "按类型筛选链接"
 
 #: src/App.tsx
+msgid "Find a note by title or path"
+msgstr "按标题或路径查找笔记"
+
+#: src/App.tsx
 msgid "Find a note by title or path, or type > for actions"
 msgstr "按标题或路径查找笔记，或输入 > 查找操作"
 
 #: src/App.tsx
 msgid "Find a note or action"
 msgstr "查找笔记或操作"
+
+#: src/App.tsx
+msgid "Find a note to open in a new tab"
+msgstr "查找要在新标签页中打开的笔记"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Find a property"
@@ -3359,6 +3375,10 @@ msgstr "下一条笔记"
 msgid "Next note in the list"
 msgstr "列表中的下一条笔记"
 
+#: src/editor-commands.ts
+msgid "Next tab"
+msgstr "下一个标签页"
+
 #: src/NoteList.tsx
 msgid "No additional text"
 msgstr "无其他文本"
@@ -3459,6 +3479,10 @@ msgstr "没有匹配的架构属性。"
 #: src/TypeBrowser.tsx
 msgid "No nested fields yet."
 msgstr "暂无嵌套字段。"
+
+#: src/App.tsx
+msgid "No note"
+msgstr "无笔记"
 
 #. placeholder {0}: reference.target
 #: src/code-editor-reference-diagnostics.ts
@@ -3706,6 +3730,10 @@ msgstr "打开 {name}"
 msgid "Open {primaryTypeLabel}"
 msgstr "打开 {primaryTypeLabel}"
 
+#: src/editor-commands.ts
+msgid "Open a note in a new tab"
+msgstr "在新标签页中打开笔记"
+
 #: src/use-note-comments.ts
 msgid "Open a note to comment on it."
 msgstr "打开一篇笔记即可评论。"
@@ -3726,6 +3754,12 @@ msgstr "打开文档"
 msgid "open files"
 msgstr "打开文件"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/QuickOpen.tsx
+msgid "Open in new tab"
+msgstr "在新标签页中打开"
+
 #: src/ConnectionScreens.tsx
 msgid "open notes"
 msgstr "打开笔记"
@@ -3742,6 +3776,10 @@ msgstr "打开原文件"
 #: src/NoteCommentsPanel.tsx
 msgid "Open Settings"
 msgstr "打开设置"
+
+#: src/NoteTabs.tsx
+msgid "Open tabs"
+msgstr "已打开的标签页"
 
 #: src/main.tsx
 #: src/SdkEditorRoot.tsx
@@ -4042,6 +4080,10 @@ msgstr "上一条笔记"
 #: src/editor-commands.ts
 msgid "Previous note in the list"
 msgstr "列表中的上一条笔记"
+
+#: src/editor-commands.ts
+msgid "Previous tab"
+msgstr "上一个标签页"
 
 #: src/ConnectionScreens.tsx
 msgid "Previously opened in mdbase editor"

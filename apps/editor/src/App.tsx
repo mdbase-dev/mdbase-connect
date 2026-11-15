@@ -20,7 +20,8 @@ import {
   TrashIcon as Trash2,
   TagIcon as Tag,
   PushPinIcon as Pin,
-  XIcon as X
+  XIcon as X,
+  BrowsersIcon as Browsers
 } from "./icons";
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
 import {
@@ -44,7 +45,7 @@ import { MoveNoteDialog } from "./MoveNoteDialog";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
-import { useCollectionBrowserEntries } from "./collection-browser";
+import { collectionFileTitle, useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail, ConnectionStatus, connectWorkspaceUrl, type ShownConnectionState } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
@@ -115,6 +116,7 @@ import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, noteVi
 import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
 import { isObject } from "./field-reference";
 import { NoteList } from "./NoteList";
+import { NoteTabs } from "./NoteTabs";
 import {
   beginNewNote,
   changedNewNote,
@@ -164,7 +166,7 @@ import { useFileWorkspace } from "./use-file-workspace";
 import { useEmbeddedNoteReferences } from "./note-embeds";
 import { useVisibleEmbedKeys } from "./use-visible-embed-keys";
 import { useSessionLifecycle } from "./use-session-lifecycle";
-import { emptyNoteHistory, historyStep, lastOpenNote, rememberOpenNote, renameInHistory, returnToNote, useNoteHistory, visitNote } from "./workspace";
+import { activeTab, adjacentTab, changeActiveHistory, closeTab, emptyWorkspace, historyStep, loadWorkspace, openTab, renameInWorkspace, returnToNote, saveWorkspace, selectTab, tabNote, useWorkspace, visitNote, type NoteTab } from "./workspace";
 import {
   BacklinksPanel,
   EmptyEditor,
@@ -298,7 +300,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [renamePlan, setRenamePlan] = useState<RenamePlan>();
   const [quickOpen, setQuickOpen] = useState(false);
   const [peekPath, setPeekPath] = useState<string>();
-  const [paletteMode, setPaletteMode] = useState<"notes" | "commands" | "new-note">("notes");
+  const [paletteMode, setPaletteMode] = useState<"notes" | "commands" | "new-note" | "tab">("notes");
   const [editorAutoFocus, setEditorAutoFocus] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const shortcutPrefix = useRef<{ key: string; at: number }>(undefined);
@@ -306,7 +308,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const paletteCommands = useRef<EditorCommand[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
-  const { history: noteHistoryState, latest: noteHistory, changeHistory: changeNoteHistory } = useNoteHistory();
+  const { workspace, latest: latestWorkspace, changeWorkspace } = useWorkspace();
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   // Labels and palette shortcuts follow this device's shortcuts as Settings changes them.
@@ -496,10 +498,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     publishNewNotes({ notes: notes.filter((note) => note.id !== open || newNoteStarted(note) || newNoteWrites.current.has(note.id)) });
   }, [publishNewNotes]);
 
-  /** Records an opened note: a new visit, or the one Back or Forward was going to. */
+  /** Records a note opened in the active tab: a new visit, or the one Back, Forward or the tab itself was going to. */
   const recordNoteNavigation = useCallback((path: string, historyIndex?: number) => {
-    changeNoteHistory((history) => historyIndex === undefined ? visitNote(history, path) : returnToNote(history, historyIndex, path));
-  }, [changeNoteHistory]);
+    changeWorkspace((current) => changeActiveHistory(current, (history) => historyIndex === undefined ? visitNote(history, path) : returnToNote(history, historyIndex, path)));
+  }, [changeWorkspace]);
 
   const touchSession = useCallback((session: NoteSession) => {
     if (noteSessions.current.active === session) setSaveState(session.activity === "saving" ? "saving" : session.saveState);
@@ -589,7 +591,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     closeNewNote();
     setEditingPath(false);
     setNotice(session.error);
-    rememberOpenNote(mutationScope.current.token().collectionId!, session.document.path);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
   }, [closeNewNote]);
 
@@ -695,8 +696,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let descriptionLoaded = false;
     try {
       const descriptionLoad = refreshDescription(current);
-      const remembered = lastOpenNote(mutationScope.current.token().collectionId!);
-      // Open the remembered note alongside description; otherwise query the newest.
+      const restored = loadWorkspace(mutationScope.current.token().collectionId!);
+      changeWorkspace(() => restored);
+      const remembered = tabNote(activeTab(restored));
+      // Open the active tab's note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
       const [nextDescription, newestPath] = await Promise.all([
         descriptionLoad, remembered ? undefined : gateway.mostRecentNote().catch(() => undefined)
@@ -727,7 +730,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       if (!descriptionLoaded) ++documentGeneration.current;
       setPhase(descriptionLoaded && gateway.sessionSnapshot().status === "ready" ? "ready" : "disconnected");
     }
-  }, [fileController, gateway, indexController, openNote, refreshDescription]);
+  }, [changeWorkspace, fileController, gateway, indexController, openNote, refreshDescription]);
 
   const { transition: transitionCollection, authorize: authorizeCollection, acceptSnapshot } = useCollectionTransition({
     gateway, scope: mutationScope.current, currentOwner: () => mutationScope.current.token().collectionId,
@@ -847,9 +850,57 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   function navigateNoteHistory(direction: -1 | 1) {
-    const step = historyStep(noteHistory.current, direction);
+    const step = historyStep(activeTab(latestWorkspace.current).history, direction);
     if (step) navigateToNote(step.path, { historyIndex: step.index });
   }
+
+  /** Shows the active tab's note, where the tab's own history stands. */
+  function showActiveTab() {
+    const tab = activeTab(latestWorkspace.current);
+    const path = tabNote(tab);
+    if (path) navigateToNote(path, { historyIndex: tab.history.index });
+  }
+
+  function switchTab(tab: NoteTab) {
+    changeWorkspace((current) => selectTab(current, tab.id));
+    showActiveTab();
+  }
+
+  function closeNoteTab(tab: NoteTab) {
+    const active = latestWorkspace.current.active;
+    changeWorkspace((current) => closeTab(current, tab.id));
+    if (latestWorkspace.current.active !== active) showActiveTab();
+  }
+
+  /** Phones show one note at a time, so a note asked for in a new tab opens in place there. */
+  function openInNewTab(path: string) {
+    if (mobileLayout) {
+      navigateToNote(path);
+      return;
+    }
+    changeWorkspace((current) => openTab(current, path));
+    showActiveTab();
+  }
+
+  /** Tabs are for notes, on screens wide enough to show them. */
+  function tabCommands(): Partial<Record<CommandId, () => void>> {
+    if (surface !== "notes" || mobileLayout) return {};
+    return {
+      "new-tab": () => { setShortcutsOpen(false); setPaletteMode("tab"); setQuickOpen(true); },
+      ...(latestWorkspace.current.tabs.length > 1 ? {
+        "close-tab": () => closeNoteTab(activeTab(latestWorkspace.current)),
+        "next-tab": () => switchTab(adjacentTab(latestWorkspace.current, 1)),
+        "previous-tab": () => switchTab(adjacentTab(latestWorkspace.current, -1))
+      } : {})
+    };
+  }
+
+  // This device reopens the collection's tabs where they stood. Leaving a collection clears its
+  // description with its tabs, so the empty tabs that follow are not saved over them.
+  const collectionDescribed = Boolean(description);
+  useEffect(() => {
+    if (collectionDescribed) saveWorkspace(mutationScope.current.token().collectionId!, workspace);
+  }, [collectionDescribed, workspace]);
 
   useEffect(() => {
     const beforeUnload = (event: BeforeUnloadEvent) => {
@@ -977,7 +1028,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     noteOrder: visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path),
     typeDescriptors, document, pathDraft, canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes,
     createSession, flushSession, runNoteOperation, touchSession, updateNoteSummary, refreshCachedNote,
-    openNote, navigateToNote, changeNoteHistory, remapPin, setPin, pinnedPaths, onRestore: setArrivingNotePath,
+    openNote, navigateToNote, changeWorkspace, remapPin, setPin, pinnedPaths, onRestore: setArrivingNotePath,
     clearSelection: () => { setSelection(undefined); setBulkPropertyKind(undefined); },
     focusNoteList,
     setDocument, setDraft, setPathDraft, setEditingPath, setRenamePlan, setRecentPaths, setNotice
@@ -1039,7 +1090,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
     noteSessions.current.clear();
-    changeNoteHistory(() => emptyNoteHistory);
+    changeWorkspace(() => emptyWorkspace());
     linkCreations.current.clear();
     linkCreationIds.current.clear();
     typeDescriptorsRef.current = emptyTypeDescriptors;
@@ -1436,10 +1487,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           updateNoteSummary(renamed, move.from);
           if (noteSessions.current.active === session) {
             setDocument(renamed); setPathDraft(renamed.path);
-            rememberOpenNote(token.collectionId!, renamed.path);
           }
           setRecentPaths((current) => rememberRecentPath(forgetRecentPath(current, move.from), renamed.path));
-          changeNoteHistory((history) => renameInHistory(history, move.from, renamed.path));
+          changeWorkspace((current) => renameInWorkspace(current, move.from, renamed.path));
           remapPin(move.from, renamed.path);
           touchSession(session);
           result.moved += 1;
@@ -1757,7 +1807,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           notes: () => selectSurface("notes"),
           types: () => selectSurface("types"),
           settings: () => selectSurface("settings"),
-          "focus-search": () => { selectSurface("notes"); requestAnimationFrame(() => globalThis.document.querySelector<HTMLInputElement>(".search-field input")?.focus()); }
+          "focus-search": () => { selectSurface("notes"); requestAnimationFrame(() => globalThis.document.querySelector<HTMLInputElement>(".search-field input")?.focus()); },
+          ...tabCommands()
         }).find(entry => matchesCommandShortcut(entry.id as CommandId, event, prefix));
         if (navigation) { event.preventDefault(); navigation.run(); return; }
         if (!typing && !chord && !event.shiftKey && sequencePrefixes().has(key)) { shortcutPrefix.current = { key, at: event.timeStamp }; return; }
@@ -1899,8 +1950,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   ));
   const collectionTrack = Math.min(preferredCollectionTrack, collectionResizeMax);
   const listTrack = Math.min(preferredListTrack, listResizeMax);
-  const historyBackPath = historyStep(noteHistoryState, -1)?.path;
-  const historyForwardPath = historyStep(noteHistoryState, 1)?.path;
+  const historyBackPath = historyStep(activeTab(workspace).history, -1)?.path;
+  const historyForwardPath = historyStep(activeTab(workspace).history, 1)?.path;
   const activeRemoteDocument = noteSessions.current.active?.remoteDocument;
   const activeRemoteDraft = activeRemoteDocument ? editableNote(activeRemoteDocument, typeDescriptors) : undefined;
   const activePendingRename = pendingRenameRecovery?.plan.session === noteSessions.current.active ? pendingRenameRecovery : undefined;
@@ -1923,6 +1974,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     notes: () => selectSurface("notes"),
     connect: () => { location.href = connectWorkspaceUrl(description.collectionId); },
     "switch-collection": collectionSwitcher ? openCollectionSwitcher : undefined,
+    ...tabCommands(),
     ...(multipleSelected && !mutationsFrozen && !bulkBusy && !recoveryBusy ? {
       "move-selected": canRenameNotes ? () => setMovePaths(listSelection.paths) : undefined,
       "delete-selected": canDeleteNotes ? () => void deleteSelectedNotes(listSelection.paths) : undefined,
@@ -1933,6 +1985,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     ...(multipleSelected ? { "clear-selection": () => { setSelection({ ...listSelection, paths: [] }); setBulkPropertyKind(undefined); } } : {}),
     ...(document && draft && surface === "notes" && !openNew && !selectedCollectionFile ? {
       rename: canRenameNotes && !mutationsFrozen ? () => void renameNote(document.path) : undefined,
+      "open-in-new-tab": mobileLayout ? undefined : () => openInNewTab(document.path),
       move: canRenameNotes && !mutationsFrozen && !multipleSelected ? () => setMovePaths([document.path]) : undefined,
       duplicate: canCreateNotes && !mutationsFrozen ? () => void duplicateNote(document.path) : undefined,
       delete: canDeleteNotes && !mutationsFrozen && !bulkBusy && !multipleSelected ? () => void requestDelete(document.path) : undefined,
@@ -1954,7 +2007,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const activeToasts = buildToastItems({ notice, recoveryId: recoveryToastId, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const liveUndo = activeToasts.find(toast => toast.id === recoveryToastId)?.action;
   const commandContext = multipleSelected ? t`Selected notes` : document && !openNew ? noteTitle(document, typeDescriptors) : undefined;
-  const noteCommandIds = new Set(["rename", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "comments", "comment", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
+  const noteCommandIds = new Set(["rename", "open-in-new-tab", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "comments", "comment", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
   for (const entry of quickOpenCommands) if (noteCommandIds.has(entry.id)) entry.context = commandContext;
   paletteCommands.current = quickOpenCommands;
   if (liveUndo && !liveUndo.busy) quickOpenCommands.unshift({ ...command("undo", liveUndo.onAction, liveUndo.label), context: recoveryAction?.kind === "pin" ? recoveryAction.path : recoveryAction?.kind === "delete" ? noteTitle(recoveryAction.document, typeDescriptors) : recoveryMessage });
@@ -1981,6 +2034,19 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const editing = openNew && openNewForm
     ? { key: newNoteEditorKey(openNew), path: newNotePath(openNew, openNewForm, takenPaths), title: openNew.title, body: openNew.body }
     : document && draft ? { key: noteSessions.current.active?.editorSessionKey ?? document.path, path: document.path, title: draft.title, body: draft.body } : undefined;
+  /** A tab is named for its note; the active one for whatever the pane shows instead, a file or a new note. */
+  const tabLabel = (tab: NoteTab): string => {
+    if (tab.id === workspace.active && selectedCollectionFile) return collectionFileTitle(selectedCollectionFile);
+    if (tab.id === workspace.active && openNew) return openNew.title.trim() || t`New note`;
+    const path = tabNote(tab);
+    if (!path) return t`No note`;
+    if (path === document?.path && draft?.title.trim()) return draft.title;
+    const note = allNotes.find((candidate) => candidate.path === path);
+    return note ? noteTitle(note, typeDescriptors) : path.split("/").at(-1)!.replace(/\.md$/i, "");
+  };
+  const noteTabs = !mobileLayout && workspace.tabs.length > 1
+    ? <NoteTabs tabs={workspace.tabs} active={workspace.active} label={tabLabel} onSelect={switchTab} onClose={closeNoteTab} />
+    : undefined;
   const notePathControl = openNew ? <p className={mobileLayout ? "mobile-note-path" : "note-path-pending"} title={editing!.path}><PathLabel path={editing!.path} /></p> : document && (editingPath ? <form onSubmit={(event) => { event.preventDefault(); void requestRename(); }} onKeyDown={(event) => {
     if (event.key !== "Escape" || event.nativeEvent.isComposing) return;
     event.preventDefault();
@@ -2112,11 +2178,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           navigateToNote(path, { keepList: options?.keyboard });
         }}
         onSelectFile={navigateToFile}
+        onOpenInNewTab={mobileLayout ? undefined : openInNewTab}
         filter={noteFilter}
         tags={tagFacets}
         filterTypes={typeFacets}
         onFilter={setNoteFilter}
-        noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths) : noteActions(path)}
+        noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths)
+          : mobileLayout ? noteActions(path) : [menuCommand("open-in-new-tab", <Browsers aria-hidden="true" />, () => openInNewTab(path)), ...noteActions(path)]}
         onRename={(path) => void renameNote(path)}
         onPeek={(path) => { if (peekPath) closePeek(); else setPeekPath(path); }}
         onClosePeek={closePeek}
@@ -2135,10 +2203,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       {selectedCollectionFile && selectedFileAsset ? <Suspense fallback={<PaneSkeleton label={t`Loading file viewer`} leadingActions={editorLeadingActions} variant="canvas" />}><FileWorkspace
         file={selectedCollectionFile}
         asset={selectedFileAsset}
+        tabs={noteTabs}
         leadingActions={editorLeadingActions}
         onBack={() => returnToMobilePane("notes")}
         onRetry={() => void fileAssetStore.retry(selectedCollectionFile)}
-      /></Suspense> : <main className="editor-pane" aria-label={t`Note editor`} data-save-state={openNew ? "saved" : saveState}>
+      /></Suspense> : <main className={`editor-pane${noteTabs ? " has-tabs" : ""}`} aria-label={t`Note editor`} data-save-state={openNew ? "saved" : saveState}>
+        {noteTabs}
         {noteLoading && !editing ? <NoteSkeleton leadingActions={editorLeadingActions} /> : editing ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => { closeNewNote(); returnToMobilePane("notes"); }}><ArrowLeft aria-hidden="true" /></button>
@@ -2256,7 +2326,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={!openNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={!openNew && attachments.insertion?.editorKey === editing.key ? attachments.insertion : undefined} onTitleVisibilityChange={setNoteTitleVisible} onTitleChange={(title) => editNote({ title })}
-            onBodyChange={(body) => editNote({ body })} onOpenLink={navigateToNote}
+            onBodyChange={(body) => editNote({ body })} onOpenLink={(path, options) => options?.newTab ? openInNewTab(path) : navigateToNote(path)}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}
             onVisibleFileEmbeds={updateVisibleFileEmbeds} onVisibleNoteEmbeds={updateVisibleNoteEmbeds} {...(openNew ? {} : noteComments.editor)} />
@@ -2394,12 +2464,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           .filter(({ name, type }) => !wanted || name.toLocaleLowerCase().includes(wanted) || type?.toLocaleLowerCase().includes(wanted))
           .map(({ id, name, type, detail }) => ({ id, label: name, detail, group: t`New note`, run: () => openNewNoteOfType(type) }));
       }} onClose={() => setQuickOpen(false)} /> : <CommandPalette open={quickOpen} commands={[]} key={paletteMode} initialQuery={paletteMode === "commands" ? ">" : ""}
-      label={t`Quick open`} inputLabel={t`Find a note or action`} placeholder={t`Find a note by title or path, or type > for actions`}
-      getResults={query => quickOpenResults({ index: searchIndex,
-        recentPaths, types: typeDescriptors, commands: quickOpenCommands,
-        onCreate: canCreateNotes && !mutationsFrozen ? title => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), title }) : undefined,
-        onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
-      }, query)} onClose={() => setQuickOpen(false)} />}
+      {...paletteMode === "tab" ? { label: t`Open in new tab`, inputLabel: t`Find a note to open in a new tab`, placeholder: t`Find a note by title or path` }
+        : { label: t`Quick open`, inputLabel: t`Find a note or action`, placeholder: t`Find a note by title or path, or type > for actions` }}
+      getResults={query => paletteMode === "tab"
+        ? quickOpenResults({ index: searchIndex, recentPaths, types: typeDescriptors, commands: [], onSelect: openInNewTab }, query)
+        : quickOpenResults({ index: searchIndex,
+          recentPaths, types: typeDescriptors, commands: quickOpenCommands,
+          onCreate: canCreateNotes && !mutationsFrozen ? title => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), title }) : undefined,
+          onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); },
+          onOpenInNewTab: mobileLayout ? undefined : path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); openInNewTab(path); }
+        }, query)} onClose={() => setQuickOpen(false)} />}
     {shortcutsOpen && <ShortcutHelp canRename={canRenameNotes && !mutationsFrozen && Boolean(selectedPath) && !selectedCollectionFile && !openNew} onClose={() => setShortcutsOpen(false)} onCustomize={() => {
       setShortcutsOpen(false);
       selectSurface("settings");
