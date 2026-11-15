@@ -1,4 +1,6 @@
 //! Actual signed explicit capture, placement, authenticated snapshot and reopen.
+#[path = "native_activation/attachment_deletes.rs"]
+mod attachment_deletes;
 #[path = "native_activation/binary_holds.rs"]
 mod binary_holds;
 

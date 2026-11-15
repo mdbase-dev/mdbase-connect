@@ -1,5 +1,6 @@
 //! Observation entry points and the resource-source observation tasks.
 
+use super::check::Found;
 use super::*;
 
 /// How a path came to be checked in one pass.
@@ -63,6 +64,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
         self.deliver_evidence(out).await?;
         let settings = self.inner.settings()?;
         let mut todo: BTreeMap<String, Source> = BTreeMap::new();
+        // A full walk lists every file and checks every known one: nothing to
+        // expand.
+        let full_walk = paths.is_none() && self.rescan;
         match paths {
             Some(ps) => todo.extend(ps.iter().map(|p| (p.clone(), Source::Known))),
             None => {
@@ -99,29 +103,117 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
                 }
             }
         }
+        let mut checked = BTreeSet::new();
+        let mut folders = Vec::new();
         for (p, source) in todo {
-            // Preserve the completed quiet window before retiring its marker.
-            let quiet_recheck = self.dirty.get(&p).is_some_and(|due| *due <= now_ms);
-            if quiet_recheck {
-                self.dirty.remove(&p);
+            let named = matches!(source, Source::Known);
+            let found = self
+                .check_source(&p, source, &settings, now_ms, changes, out)
+                .await?;
+            if named
+                && !full_walk
+                && let Some(found) = found.filter(|f| *f != Found::Other)
+            {
+                folders.push((p.clone(), found));
             }
-            let listed = match source {
-                Source::Walked(meta) => meta,
-                Source::Known => {
-                    let Ok(rp) = RelPath::new(p.clone()) else {
-                        continue;
-                    };
-                    if self.excluded(&rp, &settings) {
-                        continue;
-                    }
-                    None
-                }
-            };
-            self.check_path(&p, &settings, changes, out, quiet_recheck, listed)
+            checked.insert(p);
+        }
+        // A path the watcher named that is a folder now, or is gone: its files
+        // were not named (Linux reports a folder renamed, moved out of the
+        // collection or moved in once, for the folder's path).
+        for (dir, found) in folders {
+            self.check_folder(&dir, found, &settings, now_ms, &mut checked, changes, out)
                 .await?;
         }
         self.settle_moves(changes, out).await?;
         self.reoffer_outstanding(out).await?;
+        Ok(())
+    }
+
+    /// Check one path of a pass. `None`: left out without a look.
+    async fn check_source(
+        &mut self,
+        p: &str,
+        source: Source,
+        settings: &Option<FileInclusion>,
+        now_ms: u64,
+        changes: &mut Vec<Change>,
+        out: &mut Vec<Observation>,
+    ) -> StoreResult<Option<Found>> {
+        // Preserve the completed quiet window before retiring its marker.
+        let quiet_recheck = self.dirty.get(p).is_some_and(|due| *due <= now_ms);
+        if quiet_recheck {
+            self.dirty.remove(p);
+        }
+        let listed = match source {
+            Source::Walked(meta) => meta,
+            Source::Known => {
+                let Ok(rp) = RelPath::new(p.to_string()) else {
+                    return Ok(None);
+                };
+                if self.excluded(&rp, settings) {
+                    return Ok(None);
+                }
+                None
+            }
+        };
+        self.check_path(p, settings, changes, out, quiet_recheck, listed)
+            .await
+            .map(Some)
+    }
+
+    /// Expand a named path that turned out to be a folder, or gone, to the
+    /// files beneath it. Gone: every file the store knows beneath it is
+    /// checked, so each goes missing (a delete, or one end of a move). A
+    /// folder the store knows nothing beneath (renamed or moved in) is walked,
+    /// so each file appears (a create, or the far end of a move). A folder
+    /// with known files is left alone: an event for the folder itself (a
+    /// Windows parent modification, a permission change) is not a reason to
+    /// walk it, and its files carry their own events.
+    #[allow(clippy::too_many_arguments)]
+    async fn check_folder(
+        &mut self,
+        dir: &str,
+        found: Found,
+        settings: &Option<FileInclusion>,
+        now_ms: u64,
+        checked: &mut BTreeSet<String>,
+        changes: &mut Vec<Change>,
+        out: &mut Vec<Observation>,
+    ) -> StoreResult<()> {
+        let prefix = format!("{dir}/");
+        let beneath = |m: &BTreeMap<String, DiskState>| {
+            m.range(prefix.clone()..)
+                .take_while(|(p, _)| p.starts_with(&prefix))
+                .map(|(p, _)| p.clone())
+                .collect::<Vec<_>>()
+        };
+        let known: BTreeSet<String> = beneath(&self.disk)
+            .into_iter()
+            .chain(beneath(&self.seen))
+            .collect();
+        let mut todo: BTreeMap<String, Source> = BTreeMap::new();
+        match found {
+            Found::Gone => todo.extend(known.into_iter().map(|p| (p, Source::Known))),
+            Found::Folder if known.is_empty() => {
+                let Ok(rp) = RelPath::new(dir.to_string()) else {
+                    return Ok(());
+                };
+                let mut listed = BTreeMap::new();
+                let mut unsupported = BTreeMap::new();
+                self.walk(&rp, settings, &mut listed, &mut unsupported)
+                    .await?;
+                self.stats.unsupported_paths.extend(unsupported);
+                todo.extend(listed.into_iter().map(|(p, m)| (p, Source::Walked(m))));
+            }
+            Found::Folder | Found::Other => {}
+        }
+        for (p, source) in todo {
+            if checked.insert(p.clone()) {
+                self.check_source(&p, source, settings, now_ms, changes, out)
+                    .await?;
+            }
+        }
         Ok(())
     }
 

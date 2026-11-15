@@ -397,6 +397,40 @@ impl MemFs {
         }
     }
 
+    /// Rename a folder with everything beneath it, the inodes kept; `None`
+    /// moves it out of this file system (another folder, the trash).
+    pub fn rename_dir(&self, from: &str, to: Option<&str>) {
+        let mut st = self.st.borrow_mut();
+        let from_key = self.key(from);
+        let prefix = format!("{from_key}/");
+        let moved = |k: &String| *k == from_key || k.starts_with(&prefix);
+        let files: Vec<(String, (String, u64))> = st
+            .files
+            .iter()
+            .filter(|(k, _)| moved(k))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        let dirs: Vec<String> = st.dirs.iter().filter(|k| moved(k)).cloned().collect();
+        for (k, _) in &files {
+            st.files.remove(k);
+        }
+        for d in &dirs {
+            st.dirs.remove(d);
+        }
+        let Some(to) = to else {
+            return;
+        };
+        for d in dirs {
+            let rest = &d[from_key.len()..];
+            st.dirs.insert(self.key(&format!("{to}{rest}")));
+        }
+        for (_, (display, ino)) in files {
+            let path = format!("{to}{}", &display[from.len()..]);
+            self.mkparents(&mut st, &path);
+            st.files.insert(self.key(&path), (path, ino));
+        }
+    }
+
     fn meta_of(&self, st: &State, ino: u64) -> FileMeta {
         let i = &st.inodes[&ino];
         FileMeta {

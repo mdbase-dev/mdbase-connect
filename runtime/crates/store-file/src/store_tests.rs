@@ -2447,6 +2447,135 @@ fn an_attachment_rename_pairs_as_a_move_without_reading_it_whole() {
     assert_eq!(w.p.fs.synthetic_whole_reads(), 0);
 }
 
+/// Two acknowledged files under `dir`: an attachment-class one and a note.
+fn known_folder(w: &World, s: &mut Fs, dir: &str) -> [(String, mdbn_wire::common::Hash); 2] {
+    let files = [
+        (
+            format!("{dir}/task.schema.json"),
+            b"{\"title\":\"task\"}".to_vec(),
+        ),
+        (format!("{dir}/notes/a.md"), b"a note\n".to_vec()),
+    ];
+    for (path, bytes) in &files {
+        w.p.fs.write_replace(path, bytes).unwrap();
+    }
+    s.request_rescan();
+    let obs = settle_obs(w, s);
+    assert_eq!(obs.len(), 2, "{obs:?}");
+    ack(s, &obs);
+    files.map(|(path, bytes)| {
+        let rev = revision(&bytes);
+        assert_eq!(s.disk_revision(&path), Some(rev));
+        (path, rev)
+    })
+}
+
+/// Observe at the store's own wakeups, never with a requested rescan: the
+/// quiet window, the missing re-check, then the move window.
+fn observe_windows(w: &World, s: &mut Fs) -> Vec<Observation> {
+    let mut obs = Vec::new();
+    for step in [150, 300, 3_000, 500] {
+        w.clock.advance(step);
+        obs.extend(s.observe(None).unwrap());
+    }
+    obs
+}
+
+/// Linux reports a folder renamed or moved out of the collection once, for
+/// the folder's path (#1530). Its files are deleted after the usual re-check
+/// and move window, without waiting for a periodic full rescan.
+#[test]
+fn a_folder_moved_out_of_the_collection_deletes_the_files_it_held() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open();
+    let known = known_folder(&w, &mut s, "_schemas/tasknotes");
+    w.p.fs.rename_dir("_schemas/tasknotes", None);
+    s.on_events(&[event("_schemas/tasknotes")]);
+    let mut obs = observe_windows(&w, &mut s);
+    obs.sort_by(|a, b| a.path.cmp(&b.path));
+    let mut want: Vec<_> = known.to_vec();
+    want.sort();
+    assert_eq!(
+        obs.iter()
+            .map(|o| (o.path.clone(), o.base, o.now.is_none()))
+            .collect::<Vec<_>>(),
+        want.into_iter()
+            .map(|(path, rev)| (path, Some(rev), true))
+            .collect::<Vec<_>>(),
+        "a delete for each file"
+    );
+    ack(&mut s, &obs);
+    for (path, _) in &known {
+        assert!(s.disk_state(path).is_none());
+    }
+}
+
+/// The far end of a folder rename is reported for the folder path too: its
+/// files pair with the ones that disappeared, as moves.
+#[test]
+fn a_folder_renamed_inside_the_collection_moves_the_files_it_held() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open();
+    let known = known_folder(&w, &mut s, "_schemas/tasknotes");
+    w.p.fs.rename_dir("_schemas/tasknotes", Some("archive/tn"));
+    s.on_events(&[event("_schemas/tasknotes"), event("archive/tn")]);
+    let obs = observe_windows(&w, &mut s);
+    assert_eq!(obs.len(), 2, "{obs:?}");
+    for (from, rev) in &known {
+        let to = from.replace("_schemas/tasknotes/", "archive/tn/");
+        let o = obs
+            .iter()
+            .find(|o| o.path == to)
+            .unwrap_or_else(|| panic!("{to}: {obs:?}"));
+        assert_eq!(o.moved_from.as_deref(), Some(from.as_str()));
+        assert_eq!(o.base, Some(*rev));
+    }
+    ack(&mut s, &obs);
+    for (from, rev) in &known {
+        let to = from.replace("_schemas/tasknotes/", "archive/tn/");
+        assert!(s.disk_state(from).is_none());
+        assert_eq!(s.disk_revision(&to), Some(*rev));
+    }
+}
+
+/// A folder moved in from outside the collection is reported once, for the
+/// folder's path: its files are observed now, not at the next full rescan.
+#[test]
+fn a_folder_moved_into_the_collection_reports_its_files() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open();
+    assert!(settle_obs(&w, &mut s).is_empty());
+    w.p.fs.write_replace("inbox/x.bin", &[5u8; 32]).unwrap();
+    w.p.fs.write_replace("inbox/sub/y.md", b"y\n").unwrap();
+    s.on_events(&[event("inbox")]);
+    let mut obs = observe_windows(&w, &mut s);
+    obs.sort_by(|a, b| a.path.cmp(&b.path));
+    assert_eq!(
+        obs.iter().map(|o| o.path.as_str()).collect::<Vec<_>>(),
+        ["inbox/sub/y.md", "inbox/x.bin"]
+    );
+    assert_eq!(text(&obs[0]), Some("y\n"));
+    assert_eq!(attachment(&obs[1]).map(|a| a.0), Some(revision(&[5u8; 32])));
+}
+
+/// An event for a folder that is still there and holds known files (a
+/// Windows parent-folder modification, a permission change) walks nothing
+/// and reports nothing: its files carry their own events.
+#[test]
+fn an_event_for_a_known_folder_does_not_walk_it() {
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let mut s = w.open();
+    known_folder(&w, &mut s, "media");
+    let ops = w.p.fs.ops();
+    s.on_events(&[event("media")]);
+    assert!(observe_windows(&w, &mut s).is_empty());
+    let listed = w.p.fs.log()[ops as usize..]
+        .iter()
+        .filter(|l| l.split(' ').nth(1) == Some("list"))
+        .count();
+    assert_eq!(listed, 0, "{:?}", &w.p.fs.log()[ops as usize..]);
+}
+
 /// A deferred-durability window covers plain commits (ingest acknowledgements)
 /// and is closed, as a barrier, before anything touches files: a publish, an
 /// observe (retained/move settlement), or the caller closing it.
