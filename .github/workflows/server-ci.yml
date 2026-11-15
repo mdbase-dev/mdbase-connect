@@ -132,6 +132,26 @@ jobs:
       # Workspace packages publish their declarations from dist, so build the
       # dependency graph before checking downstream consumers.
       - run: pnpm build
+      - name: Record Editor bundle sizes
+        id: performance_editor
+        continue-on-error: true
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: node scripts/performance-report.mjs --app apps/editor --out "$RUNNER_TEMP/editor-sizes.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.performance_editor.outcome == 'success'
+        continue-on-error: true
+        with:
+          name: performance-editor-sizes
+          path: ${{ runner.temp }}/editor-sizes.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish Editor size history
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.performance_editor.outcome == 'success'
+        continue-on-error: true
+        uses: ./.github/actions/post-performance
+        with:
+          report: ${{ runner.temp }}/editor-sizes.json
+          token: ${{ secrets.OPS_BENCHMARK_TOKEN }}
       # Browser-only provider boundaries run alongside the slower Rust and
       # system suites instead of extending their critical path.
       # `--with-deps` pulls system packages from distribution mirrors. On

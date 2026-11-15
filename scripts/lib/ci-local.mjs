@@ -59,6 +59,7 @@ export function selectSteps(requestedTiers, native) {
  * first command line. Each needs a reason a reviewer can check.
  */
 export const ciOnlySteps = [
+  { prefix: "node scripts/performance-report.mjs", reason: "main-only observations require Actions run provenance; collector regressions run in pnpm test" },
   { prefix: "node scripts/ci/prefetch-worker-tools.mjs", reason: "authenticated binary bootstrap for worker-build; local LAB uses the ops front door" },
   { prefix: "if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]", reason: "merge-queue qualification reuse" },
   { prefix: "echo \"revision=$(tr -d", reason: "exports the mdbase-rs pin for checkout; local builds use the sibling ../mdbase-rs" },

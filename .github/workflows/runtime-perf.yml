@@ -50,6 +50,7 @@ jobs:
       - name: gate
         run: ./target/release/mdbn-perf gate --baseline tools/perf/baseline.json
       - name: full 1k report
+        id: report
         if: always()
         run: ./target/release/mdbn-perf run --sizes 1000 --iters 15 --out perf-report.json
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -58,3 +59,29 @@ jobs:
           name: perf-report
           path: runtime/perf-report.json
           if-no-files-found: ignore
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        id: performance_node
+        continue-on-error: true
+        if: always() && steps.report.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        with:
+          node-version: '24'
+      - name: Normalize runtime history
+        id: performance_report
+        continue-on-error: true
+        if: always() && steps.report.outcome == 'success' && steps.performance_node.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: node ../scripts/performance-report.mjs --runtime perf-report.json --out "$RUNNER_TEMP/runtime-performance.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && steps.performance_report.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        continue-on-error: true
+        with:
+          name: performance-runtime
+          path: ${{ runner.temp }}/runtime-performance.json
+          retention-days: 90
+          if-no-files-found: error
+      - name: Publish runtime history
+        if: always() && steps.performance_report.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        continue-on-error: true
+        uses: ./.github/actions/post-performance
+        with:
+          report: ${{ runner.temp }}/runtime-performance.json
+          token: ${{ secrets.OPS_BENCHMARK_TOKEN }}
