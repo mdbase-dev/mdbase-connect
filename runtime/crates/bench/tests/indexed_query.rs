@@ -1460,12 +1460,11 @@ fn all_pages(node: &mut Node, query: &[(&str, Value)]) -> Vec<mdbn_wire::client:
     let mut pages: Vec<mdbn_wire::client::QueryResult> = Vec::new();
     loop {
         let mut request = query.to_vec();
-        match pages.last() {
-            Some(page) => match &page.cursor {
+        if let Some(page) = pages.last() {
+            match &page.cursor {
                 Some(cursor) => request.push(("cursor", Value::Text(cursor.clone()))),
                 None => return pages,
-            },
-            None => {}
+            }
         }
         let page = node.r.query(node.s, q(&request), none()).expect("a page");
         assert!(page.complete);
@@ -1496,7 +1495,10 @@ fn constrained_host_pages_a_body_search_in_query_order() {
             let word = if i % 20 == 1 { "Needle" } else { "hay" };
             (
                 format!("tasks/t{i:05}.md"),
-                format!("---\nstatus: open\npriority: {}\n---\nTask {i}, {word}.\n", i % 7),
+                format!(
+                    "---\nstatus: open\npriority: {}\n---\nTask {i}, {word}.\n",
+                    i % 7
+                ),
             )
         }
     });
@@ -1538,7 +1540,10 @@ fn constrained_host_pages_a_body_search_in_query_order() {
     let pages = all_pages(&mut node, &search("needle", 7, false));
     assert!(pages.iter().all(|p| p.records.len() <= 7));
     assert_eq!(paths(&pages), unordered);
-    assert_eq!(paths(&all_pages(&mut node, &search("needle", 1000, true))), ordered);
+    assert_eq!(
+        paths(&all_pages(&mut node, &search("needle", 1000, true))),
+        ordered
+    );
     // No match anywhere: pages that still advance, then the end.
     let pages = all_pages(&mut node, &search("zzzznomatch", 1000, false));
     assert!(pages.len() > 1 && paths(&pages).is_empty());

@@ -36,7 +36,7 @@ pub struct SemInfo {
 }
 
 /// The semantics version this build plans under.
-pub const SEM: Sem = Sem { major: 1, minor: 2 };
+pub const SEM: Sem = Sem { major: 1, minor: 3 };
 
 /// Every semantics version this crate has shipped, oldest first. Only the last
 /// row has a planner; the rest are kept for diagnostics.
@@ -55,8 +55,13 @@ pub const SEMANTICS: &[SemInfo] = &[
     // and lifecycle/path ordering on create. Replicas apply recorded results, so
     // this interleaves safely; a major would void every older writer's entries.
     SemInfo {
-        sem: SEM,
+        sem: Sem { major: 1, minor: 2 },
         spec: "0.3.0-rc.6",
+        tzdb: Some(crate::cel::time::tzdb::RELEASE),
+    },
+    SemInfo {
+        sem: SEM,
+        spec: "0.3.0",
         tzdb: Some(crate::cel::time::tzdb::RELEASE),
     },
 ];

@@ -1,0 +1,501 @@
+name: "v0.3 CEL profile conformance"
+spec_version: "0.3.0"
+fixture_set: cel
+category: cel
+spec_ref: "v0.3/10, v0.3/11, runtime/0.2"
+
+groups:
+  - name: "record query host bindings"
+    setup:
+      config: |
+        spec_version: "0.3.0"
+      types:
+        task.md: |
+          ---
+          kind: mdbase.type
+          name: task
+          version: 1
+          match:
+            path_glob: "tasks/**/*.md"
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                type: { const: task }
+                title: { type: string }
+                status: { enum: [open, done] }
+                due: { type: string, format: date }
+                tags:
+                  type: array
+                  items: { type: string }
+          collection:
+            read_defaults:
+              status: open
+          ---
+        cel-matched.md: |
+          ---
+          kind: mdbase.type
+          name: cel_matched
+          version: 1
+          match:
+            path_glob: "cel-matched/**/*.md"
+            expr:
+              $expr: 'has(raw.marker) && marker == "selected" && status == null'
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                marker: { type: string }
+                status: { type: string }
+          collection:
+            read_defaults:
+              status: open
+          ---
+      files:
+        tasks/open.md: |
+          ---
+          type: task
+          title: Open task
+          due: "2026-06-20"
+          tags: [project/alpha, urgent]
+          ---
+          Body mentions runtime.
+        tasks/done.md: |
+          ---
+          type: task
+          title: Done task
+          status: done
+          tags: [project/beta]
+          ---
+        tasks/null-status.md: |
+          ---
+          type: task
+          title: Null status
+          status:
+          ---
+        cel-matched/selected.md: |
+          ---
+          marker: selected
+          ---
+        cel-matched/rejected.md: |
+          ---
+          marker: other
+          ---
+        other/selected.md: |
+          ---
+          marker: selected
+          ---
+    tests:
+      - name: "query where uses CEL over effective values"
+        id: cel.query_effective_values
+        covers:
+          - cel.portable_evaluation
+          - cel_query.query_context
+          - cel_query.query_filtering
+        operation: query
+        input:
+          types: [task]
+          where: 'status == "open"'
+          order_by:
+            - field: file.path
+        expect:
+          valid: true
+          results:
+            - path: "tasks/open.md"
+
+      - name: "has() distinguishes missing from effective default"
+        id: cel.presence_maps
+        covers:
+          - cel.context_bindings
+          - cel.missing_and_null
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: '!has(raw.status) && has(record.status)'
+        expect:
+          valid: true
+          value: true
+
+      - name: "explicit null is not replaced by read default"
+        id: cel.explicit_null_not_defaulted
+        operation: evaluate_cel
+        input:
+          path: "tasks/null-status.md"
+          expression: 'status == null'
+        expect:
+          valid: true
+          value: true
+
+      - name: "evaluation errors yield a null projection value with a diagnostic"
+        id: cel.query_evaluation_error
+        covers:
+          - cel.expression_diagnostics
+          - cel_query.query_evaluation_diagnostics
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'due + 1'
+        expect:
+          valid: true
+          value: null
+          diagnostics:
+            - code: expression_evaluation_error
+
+      - name: "selecting a missing map key is an evaluation error"
+        id: cel.missing_key_error
+        covers:
+          - cel.standard_error_semantics
+          - cel.expression_diagnostics
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'raw.status == "open"'
+        expect:
+          valid: true
+          value: null
+          diagnostics:
+            - code: expression_evaluation_error
+
+      - name: "logical operators absorb errors commutatively"
+        id: cel.error_absorption
+        covers:
+          - cel.standard_error_semantics
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'raw.status == "open" || true'
+        expect:
+          valid: true
+          value: true
+          diagnostics: []
+
+      - name: "optional selection gives null-safe access"
+        id: cel.optional_selection
+        covers:
+          - cel.optional_types
+          - cel.missing_and_null
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'raw.?status.orValue("none") == "none" && record.?status.hasValue()'
+        expect:
+          valid: true
+          value: true
+
+      - name: "date strings compare chronologically and support calendar methods"
+        id: cel.date_strings
+        covers:
+          - cel.date_and_duration
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'due < "2026-07-01" && due.addMonths(1) == "2026-07-20" && due.addDays(11) == "2026-07-01" && due.daysUntil("2026-06-25") == 5 && due.year() == 2026 && due.month() == 6 && due.day() == 20 && due.dayOfWeek() == 6'
+        expect:
+          valid: true
+          value: true
+
+      - name: "month arithmetic clamps to the end of the month"
+        id: cel.date_month_clamp
+        covers:
+          - cel.date_and_duration
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: '"2026-01-31".addMonths(1) == "2026-02-28" && "2024-02-29".addYears(1) == "2025-02-28"'
+        expect:
+          valid: true
+          value: true
+
+      - name: "lower and upper use Unicode case mappings"
+        id: cel.text_case
+        covers:
+          - cel.text_helpers
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: '"Éclair Body".lower() == "éclair body" && "Straße".upper() == "STRASSE" && "Mission Body".lower().contains("mission body")'
+        expect:
+          valid: true
+          value: true
+
+      - name: "timestamps and durations use standard CEL types"
+        id: cel.standard_duration
+        covers:
+          - cel.date_and_duration
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'timestamp("2026-06-20T00:00:00Z") + duration("36h") == timestamp("2026-06-21T12:00:00Z")'
+        expect:
+          valid: true
+          value: true
+
+      - name: "date methods reject a receiver that is not a full-date"
+        id: cel.invalid_date_receiver
+        covers:
+          - cel.date_and_duration
+          - cel.standard_error_semantics
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'title.addDays(1) == "x"'
+        expect:
+          valid: true
+          value: null
+          diagnostics:
+            - code: expression_evaluation_error
+
+      - name: "date and timestamp conversions use the effective timezone"
+        id: cel.date_timestamp_conversion
+        covers:
+          - cel.date_and_duration
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          timezone: "Australia/Melbourne"
+          expression: 'startOfDay(due) == timestamp("2026-06-19T14:00:00Z") && date(timestamp("2026-06-20T15:30:00Z")) == "2026-06-21"'
+        expect:
+          valid: true
+          value: true
+
+      - name: "comparing a date string with a timestamp is an evaluation error"
+        id: cel.date_timestamp_mixing
+        covers:
+          - cel.date_and_duration
+          - cel.standard_error_semantics
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'due < now()'
+        expect:
+          valid: true
+          value: null
+          diagnostics:
+            - code: expression_evaluation_error
+
+      - name: "query filter errors exclude only the failing records"
+        id: cel_query.filter_error_excludes_record
+        covers:
+          - cel_query.query_filtering
+          - cel_query.query_evaluation_diagnostics
+        operation: query
+        input:
+          types: [task]
+          where: 'raw.status == "done"'
+          order_by:
+            - field: file.path
+        expect:
+          valid: true
+          results:
+            - path: "tasks/done.md"
+          diagnostics_contain:
+            - code: expression_evaluation_error
+              severity: warning
+
+      - name: "file host binding exposes path and folder helpers"
+        id: cel.file_path_folder_helpers
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'file.path == "tasks/open.md" && file.inFolder("tasks")'
+        expect:
+          valid: true
+          value: true
+
+      - name: "file tag helper uses segment prefix semantics"
+        id: cel.file_tag_segment_prefix
+        operation: evaluate_cel
+        input:
+          path: "tasks/open.md"
+          expression: 'file.hasTag("project") && !file.hasTag("proj")'
+        expect:
+          valid: true
+          value: true
+
+      - name: "file body can be filtered without being returned"
+        id: cel.query_body_filter
+        operation: query
+        input:
+          where: 'file.body.contains("runtime")'
+          include_body: false
+        expect:
+          valid: true
+          results:
+            - path: "tasks/open.md"
+          body_returned: false
+
+      - name: "CEL match evaluates raw candidate fields before read defaults"
+        id: cel_match.raw_candidate
+        covers:
+          - cel_match.raw_candidate_context
+          - cel_match.boolean_match_result
+        operation: get_types
+        input:
+          path: "cel-matched/selected.md"
+        expect:
+          valid: true
+          types: [cel_matched]
+
+      - name: "CEL match false result is a non-match"
+        id: cel_match.false_result
+        operation: get_types
+        input:
+          path: "cel-matched/rejected.md"
+        expect:
+          valid: true
+          types: []
+
+      - name: "CEL match combines with structured match members using AND"
+        id: cel_match.combined_match
+        covers: [cel_match.combined_match_semantics]
+        operation: get_types
+        input:
+          path: "other/selected.md"
+        expect:
+          valid: true
+          types: []
+
+  - name: "runtime expression host bindings"
+    setup:
+      event:
+        specversion: "1.0"
+        type: canvas.drop
+        id: evt_01J0V1CANVASDROP
+        time: "2026-06-14T08:15:00Z"
+        source: urn:mdbase:app:canvas:canvas-bases
+        data:
+          file:
+            path: tasks/card-001.md
+          types: [pickle_request]
+          zone:
+            id: doing
+      steps:
+        patch-task-status:
+          status: succeeded
+          output:
+            path: tasks/card-001.md
+    tests:
+      - name: "event payload binding works in workflow context"
+        id: cel.workflow_event_binding
+        operation: evaluate_cel
+        input:
+          context: workflow
+          expression: 'event.data.file.path == "tasks/card-001.md" && event.data.zone.id == "doing"'
+        expect:
+          valid: true
+          value: true
+
+      - name: "record event type membership uses the CEL in operator"
+        id: cel.record_type_membership
+        covers:
+          - cel.portable_evaluation
+        operation: evaluate_cel
+        input:
+          context: workflow
+          expression: '"pickle_request" in event.data.types'
+        expect:
+          valid: true
+          value: true
+
+      - name: "workflow CEL supports presence and comprehension macros"
+        id: cel.workflow_macros
+        covers:
+          - cel.portable_evaluation
+          - cel.context_bindings
+        operation: evaluate_cel
+        input:
+          context: workflow
+          expression: 'has(event.data.file) && !has(event.data.missing) && event.data.types.exists(t, t == "pickle_request")'
+        expect:
+          valid: true
+          value: true
+
+      - name: "step result binding works in workflow context"
+        id: cel.workflow_step_binding
+        operation: evaluate_cel
+        input:
+          context: workflow
+          expression: 'steps["patch-task-status"].status == "succeeded"'
+        expect:
+          valid: true
+          value: true
+
+      - name: "workflow input expression object is evaluated but plain strings are not"
+        id: cel.workflow_input_expression
+        operation: evaluate_workflow_input
+        input:
+          template:
+            path:
+              $expr: 'event.data.file.path'
+            literal: 'event.data.file.path'
+        expect:
+          valid: true
+          value:
+            path: tasks/card-001.md
+            literal: event.data.file.path
+
+  - name: "invocation context links"
+    setup:
+      config: |
+        spec_version: "0.3.0"
+      types:
+        project.md: |
+          ---
+          kind: mdbase.type
+          name: project
+          version: 1
+          match:
+            path_glob: "projects/*.md"
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                lead: { type: string }
+                sibling: { type: string }
+          collection:
+            links:
+              lead: {}
+              sibling: {}
+          ---
+      files:
+        projects/alpha.md: |
+          ---
+          lead: "[Bob](people/bob.md)"
+          sibling: "[[./beta]]"
+          ---
+        projects/beta.md: |
+          ---
+          title: Beta
+          ---
+        projects/people/bob.md: |
+          ---
+          name: Bob
+          ---
+        tasks/t1.md: |
+          ---
+          title: T1
+          ---
+    tests:
+      - name: "context links resolve relative to the context record"
+        id: cel_query.context_links
+        covers:
+          - cel_query.invocation_context
+          - links.filename_resolution
+        operation: query
+        input:
+          context:
+            this:
+              path: "projects/alpha.md"
+          where: >-
+            file.inFolder("tasks") &&
+            this.lead.asFile() != null &&
+            this.lead.asFile().file.path == "projects/people/bob.md" &&
+            this.sibling.asFile() != null &&
+            this.sibling.asFile().file.path == "projects/beta.md"
+        expect:
+          valid: true
+          results:
+            - path: "tasks/t1.md"

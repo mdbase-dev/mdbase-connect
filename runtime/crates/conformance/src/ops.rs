@@ -78,6 +78,42 @@ pub fn run(operation: &str, group: Group<'_>, input: &Value) -> Result<Value, Un
         "validate" => crate::ops_b::validate(group, input),
         "get_types" => crate::ops_b::get_types(group, input),
         "load_types" => crate::ops_b::load_types(group, input, group.expect),
+        "json_document_valid"
+        | "inspect_yaml"
+        | "type_pack_resources_validate"
+        | "markdown_frontmatter_schema_validate"
+        | "yaml_document_schema_validate"
+        | "json_document_schema_validate" => {
+            crate::ops_artifacts::run(operation, input, group.expect)
+        }
+        "json_schema_meta_validate" | "embedded_json_schema_validate" => {
+            Err(Unsupported::NotImplemented(
+                "Core implements a declared JSON Schema subset, not the full 2020-12 metaschema",
+            ))
+        }
+        "list_views" | "execute_view" => Err(Unsupported::NotImplemented(
+            "portable saved-view discovery and invocation are not implemented; Obsidian Bases is a different format",
+        )),
+        "migrate_type" => Err(Unsupported::NotImplemented(
+            "legacy type migration is not a Core collection operation",
+        )),
+        "runtime_validate_record" => Err(Unsupported::NotImplemented(
+            "runtime companion legacy-record admission is not a Core collection operation",
+        )),
+        "runtime_admit_workflow"
+        | "runtime_preflight_workflow"
+        | "runtime_admit_event"
+        | "runtime_execute_event"
+        | "runtime_race_workers"
+        | "runtime_recover_dispatch"
+        | "runtime_transition_run"
+        | "runtime_fire_timer"
+        | "runtime_prune_journal" => Err(Unsupported::NotImplemented(
+            "runtime companion workflow admission, execution and journal transport are not engine features",
+        )),
+        operation if operation.starts_with("interop_") => Err(Unsupported::NotImplemented(
+            "event/action transport, provider registration and capability authorization are not Core engine features",
+        )),
         other => Err(Unsupported::UnknownOperation(other.to_owned())),
     }
 }
@@ -263,16 +299,20 @@ fn evaluate_cel(group: Group<'_>, input: &Value) -> Value {
 /// The same captured fixture clock for CEL record/workflow and template input.
 /// Never reads the host clock, and unavailable zones never silently become UTC.
 fn captured_clock(input: &Value) -> mdbn_core::cel::Clock {
-    use mdbn_core::cel::time::{FixedOffset, Timestamp, Utc};
+    use mdbn_core::cel::time::{FixedOffset, NamedZone, Timestamp, Utc};
     use std::sync::Arc;
-    // IANA rules remain unavailable until the pinned tzdb integration lands.
     let tz: Option<Arc<dyn mdbn_core::cel::time::TimeZoneRules>> =
         match input["timezone"].as_str().unwrap_or("UTC") {
             "UTC" | "Z" => Some(Arc::new(Utc)),
-            zone => Timestamp::parse(&format!("1970-01-01T00:00:00{zone}"))
+            zone => NamedZone::get(zone)
                 .ok()
-                .and_then(|t| i32::try_from(-t.seconds).ok())
-                .map(|offset| Arc::new(FixedOffset(offset)) as Arc<_>),
+                .map(|zone| Arc::new(zone) as Arc<_>)
+                .or_else(|| {
+                    Timestamp::parse(&format!("1970-01-01T00:00:00{zone}"))
+                        .ok()
+                        .and_then(|t| i32::try_from(-t.seconds).ok())
+                        .map(|offset| Arc::new(FixedOffset(offset)) as Arc<_>)
+                }),
         };
     mdbn_core::cel::Clock {
         instant: input["clock"]["instant"]
@@ -536,7 +576,7 @@ mod tests {
         let actual = evaluate_cel(
             group,
             &json!({
-                "context": "workflow", "timezone": "Australia/Melbourne", "expression": "date(now())"
+                "context": "workflow", "timezone": "Invalid/Zone", "expression": "date(now())"
             }),
         );
         assert_eq!(
@@ -610,7 +650,7 @@ mod tests {
         let unsupported = run(
             "evaluate_workflow_input",
             group,
-            &json!({"timezone": "Australia/Melbourne", "template": {"$expr": "date(now())"}}),
+            &json!({"timezone": "Invalid/Zone", "template": {"$expr": "date(now())"}}),
         )
         .unwrap();
         assert_eq!(

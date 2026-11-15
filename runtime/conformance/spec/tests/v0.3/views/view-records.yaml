@@ -1,0 +1,694 @@
+name: "v0.3 saved view record semantics"
+spec_version: "0.3.0"
+fixture_set: views
+category: views
+spec_ref: "v0.3/10, v0.3/11, v0.3/14"
+
+groups:
+  - name: "ordinary view records and invocation context"
+    setup:
+      config: |
+        spec_version: "0.3.0"
+      types:
+        task.md: |
+          ---
+          kind: mdbase.type
+          name: task
+          version: 1
+          match:
+            where:
+              type: task
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                type: { const: task }
+                title: { type: string }
+                status: { type: string }
+                project_id: { type: string }
+                priority: { type: integer }
+          ---
+        project.md: |
+          ---
+          kind: mdbase.type
+          name: project
+          version: 1
+          match:
+            where:
+              type: project
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                type: { const: project }
+                id: { type: string }
+                title: { type: string }
+                category: { type: string }
+                missing: { type: string }
+                record: { type: string }
+          collection:
+            read_defaults:
+              category: defaulted
+          ---
+        view.md: |
+          ---
+          kind: mdbase.type
+          name: view
+          version: 1
+          match:
+            where:
+              type: view
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                id: {}
+                version: {}
+                name: {}
+                query: {}
+                properties: {}
+                views: {}
+          implements:
+            - contract: mdbase.view
+              version: 1.0.0
+              fields:
+                id: id
+                version: version
+                name: name
+                query: query
+                properties: properties
+                views: views
+          ---
+      contracts:
+        mdbase.view.md: |
+          ---
+          kind: mdbase.contract
+          contract_type: record
+          id: mdbase.view
+          version: 1.0.0
+          record_schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              required: [id, version, name, views]
+              properties:
+                id: {}
+                version: {}
+                name: {}
+                description: {}
+                query: {}
+                properties: {}
+                summary_functions: {}
+                views: {}
+          ---
+      files:
+        projects/alpha.md: |
+          ---
+          type: project
+          id: alpha
+          title: Alpha
+          record: project-record
+          ---
+        projects/beta.md: |
+          ---
+          type: project
+          id: beta
+          title: Beta
+          ---
+        tasks/alpha-open.md: |
+          ---
+          type: task
+          title: Alpha open
+          status: open
+          project_id: alpha
+          priority: 2
+          ---
+        tasks/alpha-done.md: |
+          ---
+          type: task
+          title: Alpha done
+          status: done
+          project_id: alpha
+          priority: 1
+          ---
+        tasks/beta-open.md: |
+          ---
+          type: task
+          title: Beta open
+          status: open
+          project_id: beta
+          priority: 3
+          ---
+        tasks/archived.md: |
+          ---
+          type: task
+          title: Archived
+          status: archived
+          project_id: alpha
+          priority: 4
+          ---
+        views/tasks.md: |
+          ---
+          type: view
+          id: task.views
+          version: 1
+          name: Task views
+          properties:
+            title:
+              label: Task
+            projection.contextual_title:
+              label: Contextual title
+          query:
+            types: [task]
+            where: 'status != "archived"'
+            context:
+              this:
+                on_missing: view
+          views:
+            - id: project-open
+              name: Open tasks for project
+              context:
+                this:
+                  on_missing: error
+                  types: [project]
+              projections:
+                contextual_title:
+                  expr: 'this.title + ": " + title'
+              where: 'status == "open" && project_id == this.id'
+              select: [title, projection.contextual_title]
+              order_by:
+                - field: priority
+                  direction: desc
+              group_by:
+                - field: status
+                  direction: asc
+              summaries:
+                - field: title
+                  function: count
+                  name: task_count
+              presentation:
+                type: tasknotes.task-list
+            - id: direct
+              name: Direct invocation
+              where: 'this.type == "view"'
+              select: [title]
+            - id: optional
+              name: Optional context
+              context:
+                this:
+                  on_missing: "null"
+              where: 'this == null && status == "open"'
+              select: [title]
+            - id: context-shape
+              name: Complete context shape
+              context:
+                this:
+                  on_missing: error
+                  types: [project]
+              where: 'project_id == this.id'
+              select:
+                - name: direct
+                  expr: 'this.title'
+                - name: record_alias
+                  expr: 'this.record.title'
+                - name: raw_value
+                  expr: 'this.raw.title'
+                - name: default_value
+                  expr: 'this.category'
+                - name: effective_present
+                  expr: 'has(this.record.category)'
+                - name: raw_present
+                  expr: 'has(this.raw.category)'
+                - name: missing_is_absent
+                  expr: '!has(this.record.missing)'
+                - name: context_path
+                  expr: 'this.file.path'
+                - name: reserved_collision
+                  expr: 'this.record.record'
+          ---
+        views/duplicate.md: |
+          ---
+          type: view
+          id: duplicate.views
+          version: 1
+          name: Duplicate views
+          views:
+            - id: same
+              name: First
+            - id: same
+              name: Second
+          ---
+    tests:
+      - name: "view discovery returns stable source and named-view descriptors"
+        operation: list_views
+        input: {}
+        expect:
+          valid: true
+          views:
+            - id: task.views
+              name: Task views
+              source:
+                path: views/tasks.md
+                format: mdbase.view
+                writable: true
+              views:
+                - id: project-open
+                  name: Open tasks for project
+                  properties:
+                    - key: title
+                      label: Task
+                    - key: contextual_title
+                      label: Contextual title
+                  presentation:
+                    type: tasknotes.task-list
+                - id: direct
+                  name: Direct invocation
+                - id: optional
+                  name: Optional context
+                - id: context-shape
+                  name: Complete context shape
+          meta:
+            total_count: 1
+          diagnostics:
+            - code: invalid_view
+              severity: warning
+
+      - name: "explicit context is fixed while candidates change"
+        id: views.explicit_context
+        covers:
+          - cel.context_bindings
+          - cel_query.invocation_context
+          - cel_query.named_projections
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: project-open
+          context:
+            path: projects/alpha.md
+          render: false
+        expect:
+          valid: true
+          results:
+            - path: tasks/alpha-open.md
+              values:
+                title: Alpha open
+                contextual_title: "Alpha: Alpha open"
+          meta:
+            view:
+              path: views/tasks.md
+              id: project-open
+            context:
+              path: projects/alpha.md
+            groups:
+              - values:
+                  status: open
+                count: 1
+                summaries:
+                  task_count: 1
+
+      - name: "grouping and summaries describe the complete match set"
+        id: views.grouping_summaries
+        covers:
+          - cel_query.grouping_and_summaries
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: project-open
+          context:
+            path: projects/alpha.md
+          limit: 0
+        expect:
+          valid: true
+          results: []
+          meta:
+            total_count: 1
+            has_more: true
+            groups:
+              - values:
+                  status: open
+                count: 1
+                summaries:
+                  task_count: 1
+
+      - name: "record and named-view filters combine with AND"
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: project-open
+          context:
+            path: projects/alpha.md
+        expect:
+          valid: true
+          paths: [tasks/alpha-open.md]
+
+      - name: "direct invocation defaults this to the view record"
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: direct
+        expect:
+          valid: true
+          context:
+            path: views/tasks.md
+          paths:
+            - tasks/alpha-done.md
+            - tasks/alpha-open.md
+            - tasks/beta-open.md
+
+      - name: "an explicit null context overrides the view default"
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: direct
+          context: null
+        expect:
+          valid: true
+          context: null
+          paths: []
+
+      - name: "optional missing context binds this to null"
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: optional
+        expect:
+          valid: true
+          context: null
+          paths:
+            - tasks/alpha-open.md
+            - tasks/beta-open.md
+
+      - name: "invocation context exposes effective raw presence and file namespaces"
+        id: views.context_shape
+        covers:
+          - cel.context_bindings
+          - cel_query.invocation_context
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: context-shape
+          context:
+            path: projects/alpha.md
+        expect:
+          valid: true
+          results:
+            - path: tasks/alpha-done.md
+              values:
+                direct: Alpha
+                record_alias: Alpha
+                raw_value: Alpha
+                default_value: defaulted
+                effective_present: true
+                raw_present: false
+                missing_is_absent: true
+                context_path: projects/alpha.md
+                reserved_collision: project-record
+            - path: tasks/alpha-open.md
+              values:
+                direct: Alpha
+                record_alias: Alpha
+                raw_value: Alpha
+                default_value: defaulted
+                effective_present: true
+                raw_present: false
+                missing_is_absent: true
+                context_path: projects/alpha.md
+                reserved_collision: project-record
+
+      - name: "required invocation context fails before candidate evaluation"
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: project-open
+        expect:
+          valid: false
+          diagnostics:
+            - code: context_required
+
+      - name: "context type constraints are enforced"
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: project-open
+          context:
+            path: tasks/alpha-open.md
+        expect:
+          valid: false
+          diagnostics:
+            - code: context_type_mismatch
+
+      - name: "unknown presentation does not block headless execution"
+        operation: execute_view
+        input:
+          path: views/tasks.md
+          view: project-open
+          context:
+            path: projects/beta.md
+          render: false
+        expect:
+          valid: true
+          paths: [tasks/beta-open.md]
+
+      - name: "duplicate stable named-view ids invalidate the record"
+        operation: execute_view
+        input:
+          path: views/duplicate.md
+          view: same
+        expect:
+          valid: false
+          diagnostics:
+            - code: invalid_view
+
+      - name: "cyclic named projections fail query preflight"
+        operation: query
+        input:
+          types: [task]
+          projections:
+            first:
+              expr: 'projection.second'
+            second:
+              expr: 'projection.first'
+          select: [projection.first]
+        expect:
+          valid: false
+          diagnostics:
+            - code: invalid_query
+
+      - name: "computed named-projection references participate in cycle detection"
+        operation: query
+        input:
+          types: [task]
+          projections:
+            first:
+              expr: 'projection["second"]'
+            second:
+              expr: 'projection["first"]'
+          select: [projection.first]
+        expect:
+          valid: false
+          diagnostics:
+            - code: invalid_query
+
+      - name: "projection-like text inside a string is not a dependency"
+        operation: query
+        input:
+          types: [task]
+          projections:
+            first:
+              expr: '"projection.second"'
+            second:
+              expr: 'projection.first'
+          select: [projection.second]
+        expect:
+          valid: true
+          results:
+            - path: tasks/alpha-done.md
+              values:
+                second: projection.second
+            - path: tasks/alpha-open.md
+              values:
+                second: projection.second
+            - path: tasks/archived.md
+              values:
+                second: projection.second
+            - path: tasks/beta-open.md
+              values:
+                second: projection.second
+
+      - name: "invalid CEL syntax fails query preflight"
+        operation: query
+        input:
+          types: [missing-type]
+          where: 'status =='
+        expect:
+          valid: false
+          diagnostics:
+            - code: invalid_query
+
+      - name: "selection output names must be unique"
+        operation: query
+        input:
+          types: [task]
+          projections:
+            title:
+              expr: 'title + "!"'
+          select: [title, projection.title]
+        expect:
+          valid: false
+          diagnostics:
+            - code: invalid_query
+
+  - name: "views are identified through the mdbase.view contract"
+    setup:
+      config: |
+        spec_version: "0.3.0"
+      contracts:
+        mdbase.view.md: |
+          ---
+          kind: mdbase.contract
+          contract_type: record
+          id: mdbase.view
+          version: 1.0.0
+          record_schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              required: [id, version, name, views]
+              properties:
+                id: {}
+                version: {}
+                name: {}
+                description: {}
+                query: {}
+                properties: {}
+                summary_functions: {}
+                views: {}
+          ---
+      types:
+        note.md: |
+          ---
+          kind: mdbase.type
+          name: note
+          version: 1
+          match:
+            where:
+              type: note
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                type: { const: note }
+                title: { type: string }
+          ---
+        saved-query.md: |
+          ---
+          kind: mdbase.type
+          name: saved_query
+          version: 1
+          match:
+            where:
+              kind: saved-query
+          schema:
+            dialect: json-schema-2020-12
+            value:
+              type: object
+              properties:
+                kind: { const: saved-query }
+                id: {}
+                version: {}
+                label: {}
+                views: {}
+          implements:
+            - contract: mdbase.view
+              version: 1.0.0
+              fields:
+                id: id
+                version: version
+                name: label
+                views: views
+          ---
+      files:
+        notes/a.md: |
+          ---
+          type: note
+          title: A
+          ---
+        notes/b.md: |
+          ---
+          type: note
+          title: B
+          ---
+        queries/notes.md: |
+          ---
+          kind: saved-query
+          id: note.views
+          version: 1
+          label: Note views
+          views:
+            - id: all
+              name: All notes
+              types: [note]
+              select: [title]
+              order_by:
+                - field: title
+                  direction: desc
+          ---
+        views/unclaimed.md: |
+          ---
+          type: view
+          id: unclaimed.views
+          version: 1
+          name: Unclaimed views
+          views:
+            - id: all
+              name: All
+              types: [note]
+          ---
+    tests:
+      - name: "discovery follows contract implementations and mapped fields"
+        id: views.contract_discovery
+        operation: list_views
+        input: {}
+        expect:
+          valid: true
+          views:
+            - id: note.views
+              name: Note views
+              source:
+                path: queries/notes.md
+                format: mdbase.view
+                writable: true
+              views:
+                - id: all
+                  name: All notes
+          meta:
+            total_count: 1
+
+      - name: "a view record with a custom type name executes through its contract view"
+        id: views.contract_execution
+        operation: execute_view
+        input:
+          path: queries/notes.md
+          view: all
+        expect:
+          valid: true
+          paths: [notes/b.md, notes/a.md]
+          meta:
+            view:
+              path: queries/notes.md
+              id: all
+
+      - name: "type view frontmatter without an implementing type is not a view"
+        id: views.unclaimed_type_value
+        operation: execute_view
+        input:
+          path: views/unclaimed.md
+          view: all
+        expect:
+          valid: false
+          diagnostics:
+            - code: view_not_found

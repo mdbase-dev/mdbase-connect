@@ -513,6 +513,12 @@ impl<S: Store> StateView for ValidationView<'_, S> {
             _ => Some(holder),
         }
     }
+    fn records_at_path_key(&self, path: &str) -> Vec<RecordId> {
+        if !self.charge(1 + self.replica.layer.touched_count(), self.overlay_bytes) {
+            return vec![];
+        }
+        self.list(self.base.records_at_path_key(path))
+    }
     fn alias(&self, path: &str) -> Option<RecordId> {
         self.charge(1, path.len())
             .then(|| self.base.alias(path))

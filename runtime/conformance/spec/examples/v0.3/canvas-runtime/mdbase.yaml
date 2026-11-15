@@ -1,0 +1,12 @@
+spec_version: "0.3.0"
+
+settings:
+  types_folder: _types
+  contracts_folder: _contracts
+  record_extensions: [md]
+  validation: error
+  explicit_type_keys: [type, types]
+  id_field: id
+  exclude:
+    - ".git/**"
+    - ".mdbase/**"

@@ -1,6 +1,6 @@
 //! The spec conformance runner and its ratchet.
 //!
-//! Fixtures are the vendored rc.5 files under `conformance/spec/tests/` (see
+//! Fixtures are the full vendored 0.3.0 suite under `conformance/spec/tests/` (see
 //! `conformance/spec/SOURCE` and `scripts/sync-spec-fixtures.sh`). Every test has a
 //! stable `id`; `conformance/spec-expectations.txt` records one status per id:
 //!

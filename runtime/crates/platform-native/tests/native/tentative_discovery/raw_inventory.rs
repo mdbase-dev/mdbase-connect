@@ -2,7 +2,7 @@
 use super::*;
 
 #[test]
-fn tentative_discovery_primary_inventory_with_clock_match_and_no_query_projection() {
+fn tentative_discovery_primary_inventory_with_match_and_no_query_projection() {
     let path = scratch("tentative-primary-clock-inventory").join("app.db");
     let service = log();
     let (mut app, session, _) = open(&path, Rc::new(Probe::default()));
@@ -13,7 +13,7 @@ fn tentative_discovery_primary_inventory_with_clock_match_and_no_query_projectio
         session,
         vec![Op::ResourcePut(ResourcePut {
             path: "_types/overdue/1.md".into(),
-            doc: "---\nkind: mdbase.type\nname: overdue\nversion: 1\nmatch:\n  expr: 'has(raw.due) && raw.due < today()'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n".into(),
+            doc: "---\nkind: mdbase.type\nname: overdue\nversion: 1\nmatch:\n  expr: 'has(raw.due)'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n".into(),
             base_revision: None,
             must_not_exist: None,
         })],

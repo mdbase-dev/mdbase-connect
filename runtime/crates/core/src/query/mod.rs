@@ -815,6 +815,18 @@ impl QueryPlan {
         env: &QueryEnv,
         links: Option<&dyn crate::cel::LinkHost>,
     ) -> Evaluated {
+        self.evaluate_with_context(record, env, links, None)
+    }
+
+    /// Evaluate with the context candidate resolved once by the query executor.
+    /// Its origin is retained for relative links; the path is not link syntax.
+    pub fn evaluate_with_context(
+        &self,
+        record: &QueryRecord<'_>,
+        env: &QueryEnv,
+        links: Option<&dyn crate::cel::LinkHost>,
+        context: Option<&crate::cel::CelValue>,
+    ) -> Evaluated {
         use crate::cel::{CelMap, CelValue, Key};
         let values =
             self.value_catalog
@@ -858,6 +870,19 @@ impl QueryPlan {
             return out;
         }
         let effective = self.effective(record);
+        let context = match self.query.context_path.as_deref() {
+            Some(_) => match context {
+                Some(value) if !matches!(value, CelValue::Null) => value.clone(),
+                _ => {
+                    out.verdict = Verdict::Error(issue(
+                        "context record not found".into(),
+                        "context.this.path",
+                    ));
+                    return out;
+                }
+            },
+            None => CelValue::Null,
+        };
         let mut file = file_value(record.path, record.body);
         if let (Value::Map(m), Some(body)) = (&mut file, record.body) {
             m.insert(
@@ -878,6 +903,7 @@ impl QueryPlan {
                 "projection",
                 CelValue::Map(std::sync::Arc::new(projections.clone())),
             );
+            act.bind("this", context.clone());
             if let Some(host) = links {
                 act.with_links(host);
             }
@@ -1299,6 +1325,18 @@ pub fn execute(
 ) -> Result<QueryPage, QueryError> {
     let catalog = state.catalog();
     let links = crate::links::CelLinks::new(state);
+    let context = plan
+        .query
+        .context_path
+        .as_deref()
+        .map(|path| {
+            links.candidate(path).ok_or_else(|| QueryError {
+                code: "context_not_found".into(),
+                message: format!("context record `{path}` not found"),
+                location: Some("context.this.path".into()),
+            })
+        })
+        .transpose()?;
     let mut rows: Vec<(RecordId, String, Evaluated)> = Vec::new();
     let mut diagnostics = Vec::new();
     let mut metadata_budget = groups::Budget::default();
@@ -1312,7 +1350,7 @@ pub fn execute(
         let types = catalog
             .membership_at(&rec.path, &fm, Some(&env.op_clock()))
             .types;
-        let mut ev = plan.evaluate(
+        let mut ev = plan.evaluate_with_context(
             &QueryRecord {
                 path: &rec.path,
                 types: &types,
@@ -1321,6 +1359,7 @@ pub fn execute(
             },
             env,
             Some(&links),
+            context.as_ref(),
         );
         diagnostics.append(&mut ev.diagnostics);
         match &ev.verdict {

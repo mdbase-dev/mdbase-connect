@@ -155,16 +155,16 @@ architecture bounds are unaffected.
 
 ## Spec conformance ratchet
 
-`conformance/spec/` vendors the spec fixtures the core must pass: three-way merge,
-body edits, the regex profile, paths, and move detection, plus the suite README
-that defines their format. `conformance/spec/SOURCE` records the spec commit.
-Refresh them with `scripts/sync-spec-fixtures.sh`.
+`conformance/spec/` vendors the complete 0.3.0 suite and its referenced artifacts,
+including optional companion profiles. `conformance/spec/SOURCE` records the
+exact spec commit. Refresh them with `scripts/sync-spec-fixtures.sh`.
+See `docs/spec-0.3.0-conformance.md` for the release audit and explicit limitations.
 
 `conformance/spec-expectations.txt` gives every fixture id a status:
 
 - `pass`: a failure is a regression and fails CI;
 - `pending`: expected to fail; an unexpected pass also fails CI until it is
-  recorded;
+  recorded; each pending case states its out-of-scope reason;
 - `skip`: not run.
 
 To land a passing fixture, implement the core function, call it from
