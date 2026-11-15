@@ -90,7 +90,13 @@ approvals. UI repins change only the manifest and regenerated lock.
 1. Workflow-owned ancestry checks run in dispatch and input jobs, before reading
    any candidate data. Every protected job checks out helpers from `github.sha`
    on main. The upload job checks out the candidate separately and reads it only
-   as data; no helper, module, tool lock or hosting policy comes from that tree.
+   as data; no helper, module or tool lock comes from that tree. The hosting
+   controls `_headers` and `_redirects` are the candidate's reviewed source: the
+   workflow-owned helpers re-prove that `SOURCE_SHA` is a main ancestor and read
+   both files as Git blobs at that exact commit, never from the artifact or from
+   main's later copies. The same policy judges the artifact before upload and
+   the served headers on both origins, so main moving during a run cannot
+   refuse a candidate.
    The input job exports only the protected public trust hash. The build has no
    GitHub environment, persisted checkout credentials, deployment secrets or
    OIDC permissions. SDK authentication and original inventories precede install.

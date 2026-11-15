@@ -15,7 +15,7 @@ import { prepareInstall } from './install-inputs.mjs';
 import { capturePrevious, rollback } from './rollback.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
-import { headersPolicy, redirectsPolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
+import { sourcePolicy, assertHostingSource, verifyHosting, verifyPublication } from './hosting.mjs';
 import { assertBuiltManifest, captureDeployment, createReceipt } from './publisher.mjs';
 const repoRoot=fileURLToPath(new URL('../../../../',import.meta.url));
 const hashes={EDITOR_TRUST_ASSET_SHA256:'7912e40838213e60b65848350d319a48019021317b112e3326429b250f0133d7'};
@@ -27,6 +27,9 @@ const metadata={id:10,expired:false,digest:expected.digest,name:'editor-native-b
 const run={id:30,head_sha:tree,run_attempt:1,event:expected.event,head_branch:'main',path:'.github/workflows/editor-pages.yml',repository:{id:20,full_name:expected.repository}};
 const deployment={id:uuid,url:'https://12345678.mdbase-editor.pages.dev',sourceSha:source,pagesBranch:'staging'};
 const sha=b=>createHash('sha256').update(b).digest('hex');
+// Test data only: production code reads the candidate commit's blobs (sourcePolicy).
+const policy=Object.freeze({'_headers':await readFile(join(repoRoot,'apps/editor/public/_headers')),'_redirects':await readFile(join(repoRoot,'apps/editor/public/_redirects'))});
+const headersPolicy=policy._headers.toString('utf8');
 
 it('admits an exact clean ancestor even when main and the dispatch SHA move ahead',async()=>{
  const root=await mkdtemp(join(tmpdir(),'editor-ancestry-'));
@@ -300,18 +303,18 @@ for(const target of ['staging','production']) it(`retains BOTH ${target} callbac
  const other=target==='production'?'staging':'production';
  assert.throws(()=>assertBuiltManifest({...manifest,installation_origins:{[other]:{'app-runtime':[origin]}}},plan));
 });
-async function fixture() {
+async function fixture(controls=policy) {
  const root=await mkdtemp(join(tmpdir(),'editor-publisher-'));
- const files={'index.html':'<html>editor</html>','404.html':'missing','_headers':headersPolicy,'_redirects':redirectsPolicy,'assets/a.js':'export const value=1;','.well-known/mdbase-app.json':'{}'};
+ const files={'index.html':'<html>editor</html>','404.html':'missing','_headers':controls._headers,'_redirects':controls._redirects,'assets/a.js':'export const value=1;','.well-known/mdbase-app.json':'{}'};
  for(const [path,body] of Object.entries(files)){await mkdir(join(root,path,'..'),{recursive:true});await writeFile(join(root,path),body);}
  return {root,files,inventory:await inventoryDirectory(root)};
 }
-function transport(files,bad=false) {return async url=>{
+function transport(files,bad=false,served=headersPolicy) {return async url=>{
  const path=new URL(url).pathname;let key=path.slice(1),status=200;
  if(path==='/' || path==='/connect' || path==='/connect/retired')key='index.html';
  if(!(key in files)||key.startsWith('_')){key='404.html';status=404;}
  const headers=new Headers();let section;
- for(const line of headersPolicy.split('\n')){if(line&&!line.startsWith(' '))section=line;const match=/^  ([^:]+): (.+)$/.exec(line);if(section==='/*'&&match)headers.set(match[1],match[2]);}
+ for(const line of served.split('\n')){if(line&&!line.startsWith(' '))section=line;const match=/^  ([^:]+): (.+)$/.exec(line);if(section==='/*'&&match)headers.set(match[1],match[2]);}
  if(path.startsWith('/assets/'))headers.set('cache-control','public, max-age=0, must-revalidate');
  if(path==='/.well-known/mdbase-app.json')headers.set('cache-control','no-store');
  headers.set('content-type',key.endsWith('.js')?'application/javascript':key.endsWith('.json')?'application/json':'text/html');
@@ -320,8 +323,8 @@ function transport(files,bad=false) {return async url=>{
 };}
 it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses tamper and wrong live policy',async()=>{
  const f=await fixture();try{
-  await assertHostingSource(f.root,f.inventory);
-  const report=await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:transport(f.files)});
+  await assertHostingSource(f.root,f.inventory,policy);
+  const report=await verifyHosting({origin,inventory:f.inventory,deployment,policy,fetchImpl:transport(f.files)});
   assert.equal(report.ok,true);assert.equal(report.verified.length+report.controls.length,f.inventory.length);assert.equal(report.unverified.length,0);assert.equal(report.controls.length,2);
   const plan={sha:source,tree,target:'staging',origin,pagesBranch:'staging'};
   const receiptEnv={...env,...hashes,GITHUB_REPOSITORY:expected.repository,GITHUB_REPOSITORY_ID:expected.repositoryId,GITHUB_RUN_ID:expected.run,GITHUB_RUN_ATTEMPT:expected.attempt,ARTIFACT_ID:expected.id,ARTIFACT_DIGEST:expected.digest};
@@ -331,7 +334,7 @@ it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses t
   assert.equal(createReceipt({...evidence,verification:{...verification,origins:verification.origins.slice(0,1)}}).status,'failed-or-incomplete');
   assert.equal(createReceipt({...evidence,artifact:{...evidence.artifact,runAfter:{...run,run_attempt:2}}}).status,'failed-or-incomplete');
   const badUrls=[],badTransport=transport(f.files,true);
-  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:async(...args)=>{badUrls.push(String(args[0]));return badTransport(...args);}})).ok,false);
+  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,policy,fetchImpl:async(...args)=>{badUrls.push(String(args[0]));return badTransport(...args);}})).ok,false);
   assert.equal(new Set(badUrls).size,badUrls.length,'Security-header failures must not be retried as transient transport errors');
   const staleEdge=match=>async(url,init)=>{
    const response=await transport(f.files)(url,init);
@@ -340,17 +343,64 @@ it('accounts for ALL static bytes plus SOURCE-owned headers/redirects; refuses t
    return response;
   };
   const staleAsset=staleEdge(path=>path==='/assets/a.js');
-  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleAsset})).ok,true,'unchanged asset may keep previous headers on the alias');
-  const immutableStale=await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,fetchImpl:staleAsset});
+  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,policy,fetchImpl:staleAsset})).ok,true,'unchanged asset may keep previous headers on the alias');
+  const immutableStale=await verifyHosting({origin:deployment.url,inventory:f.inventory,deployment,policy,fetchImpl:staleAsset});
   assert.equal(immutableStale.ok,false,'the immutable URL proves the policy on every file');
   assert.deepEqual(immutableStale.failures.find(x=>x.path==='/assets/a.js'),{path:'/assets/a.js',reason:'trusted-live-header-policy-failed',
    detail:'Live source-owned header policy mismatch: Content-Security-Policy'},'the report names the rule, never the served value');
   const staleDocument=staleEdge((path,response)=>response.headers.get('content-type')==='text/html');
-  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,fetchImpl:staleDocument})).ok,false,'documents prove the policy on the alias');
+  assert.equal((await verifyHosting({origin,inventory:f.inventory,deployment,policy,fetchImpl:staleDocument})).ok,false,'documents prove the policy on the alias');
   await writeFile(join(f.root,'_headers'),headersPolicy+'# changed\n');
-  await assert.rejects(assertHostingSource(f.root,f.inventory),/changed/);
-  await assert.rejects(verifyHosting({origin,inventory:[...f.inventory,{path:'nested/_headers',bytes:0,sha256:sha('')}],deployment}),/Unreviewed/);
+  await assert.rejects(assertHostingSource(f.root,f.inventory,policy),/changed/);
+  await assert.rejects(verifyHosting({origin,inventory:[...f.inventory,{path:'nested/_headers',bytes:0,sha256:sha('')}],deployment,policy}),/Unreviewed/);
+  await assert.rejects(verifyHosting({origin,inventory:[...f.inventory,{path:'_routes.json',bytes:2,sha256:sha('{}')}],deployment,policy}),/Unreviewed executing/);
  }finally{await rm(f.root,{recursive:true,force:true});}
+});
+it('judges hosting controls by the candidate commit, not a main that moved after selection',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'editor-policy-'));
+ const git=(...args)=>execFileSync('git',args,{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']}).trim();
+ const commit=async(headers,message)=>{
+  await writeFile(join(root,'apps/editor/public/_headers'),headers);
+  git('add','-A');git('commit','-m',message);return git('rev-parse','HEAD');
+ };
+ const files=[];
+ try {
+  git('init');git('config','user.email','test@example.invalid');git('config','user.name','Test');
+  await mkdir(join(root,'apps/editor/public'),{recursive:true});
+  await writeFile(join(root,'apps/editor/public/_redirects'),policy._redirects);
+  const candidateHeaders=headersPolicy.replace(/'sha256-[^']+'/,"'sha256-candidate'");
+  assert.notEqual(candidateHeaders,headersPolicy);
+  const candidate=await commit(candidateHeaders,'candidate');
+  await commit(headersPolicy,'main moved: reviewed CSP change');
+  git('update-ref','refs/remotes/origin/main','HEAD');
+  const chosen=sourcePolicy(candidate,root);
+  assert.equal(chosen._headers.toString('utf8'),candidateHeaders);
+  assert.ok(chosen._redirects.equals(policy._redirects));
+  assert.ok(sourcePolicy(git('rev-parse','HEAD'),root)._headers.equals(policy._headers),'main reads its own copy');
+  // Artifact built from the candidate passes before upload and on both origins after.
+  const built=await fixture(chosen);files.push(built.root);
+  await assertHostingSource(built.root,built.inventory,chosen);
+  for(const target of [origin,deployment.url])
+   assert.equal((await verifyHosting({origin:target,inventory:built.inventory,deployment,policy:chosen,fetchImpl:transport(built.files,false,candidateHeaders)})).ok,true);
+  const plan={sha:candidate,tree,target:'staging',origin,pagesBranch:'staging'};
+  const published=await verifyPublication({plan,inventory:built.inventory,deployment:{...deployment,sourceSha:candidate},policy:chosen,
+   verify:options=>verifyHosting({...options,fetchImpl:transport(built.files,false,candidateHeaders)})});
+  assert.equal(published.ok,true,'pre-upload and served checks use the same candidate policy');
+  // Live headers that follow main rather than the candidate fail the immutable URL.
+  const mainServed=await verifyHosting({origin:deployment.url,inventory:built.inventory,deployment,policy:chosen,fetchImpl:transport(built.files,false,headersPolicy)});
+  assert.equal(mainServed.ok,false);
+  // An artifact whose _headers differs from the candidate's is refused, including main's newer copy.
+  for(const headers of [headersPolicy,candidateHeaders+'# changed\n']) {
+   const tampered=await fixture({...chosen,'_headers':Buffer.from(headers)});files.push(tampered.root);
+   await assert.rejects(assertHostingSource(tampered.root,tampered.inventory,chosen),/Unreviewed hosting control _headers/);
+   await assert.rejects(verifyHosting({origin,inventory:tampered.inventory,deployment,policy:chosen}),/Unreviewed hosting control _headers/);
+  }
+  await assert.rejects(assertHostingSource(built.root,[...built.inventory,{path:'_routes.json',bytes:2,sha256:sha('{}')}],chosen),/Unreviewed executing/);
+  // Policy is read only from an admitted main ancestor named by a full SHA.
+  git('checkout','-q','--orphan','unadmitted');await commit(candidateHeaders,'not on main');
+  assert.throws(()=>sourcePolicy(git('rev-parse','HEAD'),root),/ancestor of origin\/main/);
+  assert.throws(()=>sourcePolicy(candidate.slice(0,12),root),/full source SHA/);
+ } finally {for(const path of [root,...files])await rm(path,{recursive:true,force:true});}
 });
 it('checks complete immutable directory contents and retains incomplete receipts as failures',async()=>{
  const f=await fixture();try{
@@ -386,8 +436,8 @@ it('re-verifies only the custom alias inside a bounded settle window after the i
  const report=ok=>({ok,verified:[],controls:[],unverified:[],probes:[],failures:ok?[]:[{path:'/',reason:'trusted-live-header-policy-failed'}]});
  const harness=outcomes=>{
   let clock=0;const calls=[],sleeps=[];
-  return {calls,sleeps,options:{plan,inventory:[],deployment,now:()=>clock,sleep:async ms=>{sleeps.push(ms);clock+=ms;},
-   verify:async({origin:target,totalTimeoutMs})=>{calls.push({origin:target,totalTimeoutMs});clock+=1000;return report(outcomes(target,calls.length));}}};
+  return {calls,sleeps,options:{plan,inventory:[],deployment,policy,now:()=>clock,sleep:async ms=>{sleeps.push(ms);clock+=ms;},
+   verify:async({origin:target,totalTimeoutMs,policy:used})=>{assert.equal(used,policy);calls.push({origin:target,totalTimeoutMs});clock+=1000;return report(outcomes(target,calls.length));}}};
  };
  // Alias still serving the previous deployment twice, then converged.
  const settling=harness((target,n)=>target===deployment.url || n>=4);

@@ -1,31 +1,39 @@
 // Source-owned Pages STATIC policy, never an artifact-provided auth/control flag.
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { verifyServedBytes } from './native-publish-bytes.mjs';
-export const headersPolicy=readFileSync(new URL('../../public/_headers',import.meta.url),'utf8');
-export const redirectsPolicy=readFileSync(new URL('../../public/_redirects',import.meta.url),'utf8');
+import { assertAncestor } from './refs.mjs';
+const repoRoot=fileURLToPath(new URL('../../../../',import.meta.url));
 const hash=bytes=>createHash('sha256').update(bytes).digest('hex');
 const controlNames=new Set(['_headers','_redirects','_routes.json']);
 const isControl=path=>controlNames.has(path.split('/').at(-1));
-function assertPolicyInventory(inventory) {
- const expected={'_headers':headersPolicy,'_redirects':redirectsPolicy};
- for(const name of Object.keys(expected)) {
-  const bytes=Buffer.from(expected[name]),item=inventory.find(a=>a.path===name);
+// The policy is the candidate commit's reviewed source, read as Git object data
+// (no filters, no candidate execution) after re-proving it is a main ancestor.
+// Main can move during a publication; its later copies never judge a candidate.
+export function sourcePolicy(sha,root=repoRoot) {
+ if(!/^[a-f0-9]{40}$/.test(sha??''))throw Error('Hosting policy requires a full source SHA');
+ assertAncestor({sha},root);
+ const blob=name=>execFileSync('git',['cat-file','blob',`${sha}:apps/editor/public/${name}`],{cwd:root,stdio:['ignore','pipe','pipe'],maxBuffer:1024*1024});
+ return Object.freeze({'_headers':blob('_headers'),'_redirects':blob('_redirects')});
+}
+function assertPolicyInventory(inventory,policy) {
+ for(const [name,bytes] of Object.entries(policy)) {
+  const item=inventory.find(a=>a.path===name);
   if(item?.sha256!==hash(bytes) || item.bytes!==bytes.length)throw Error('Unreviewed hosting control '+name);
  }
  for(const item of inventory) {
-  if((isControl(item.path) && !Object.hasOwn(expected,item.path)) || item.path==='_worker.js' || item.path.startsWith('_worker.js/') || item.path.startsWith('functions/'))
+  if((isControl(item.path) && !Object.hasOwn(policy,item.path)) || item.path==='_worker.js' || item.path.startsWith('_worker.js/') || item.path.startsWith('functions/'))
    throw Error('Unreviewed executing Pages Worker/route/control '+item.path);
  }
- return expected;
 }
-export async function assertHostingSource(root,inventory) {
- for(const [name,bytes] of Object.entries(assertPolicyInventory(inventory)))if(await readFile(join(root,name),'utf8')!==bytes)throw Error('Source policy bytes changed '+name);
+export async function assertHostingSource(root,inventory,policy) {
+ assertPolicyInventory(inventory,policy);
+ for(const [name,bytes] of Object.entries(policy))if(!(await readFile(join(root,name))).equals(bytes))throw Error('Source policy bytes changed '+name);
 }
-function checkHeaders(response,path,immutable) {
+function checkHeaders(response,path,immutable,headersPolicy) {
  // Pages canonical HTML redirects are validated by the shared helper. Header
  // policy applies to the final static response, not CDN-generated redirects.
  if([301,302,303,307,308].includes(response.status))return;
@@ -52,11 +60,12 @@ function checkHeaders(response,path,immutable) {
  if(/\.(m?js)$/.test(path) && !['text/javascript','application/javascript'].includes(type))throw Error('Live JS MIME policy mismatch');
  if(path.endsWith('.json') && type!=='application/json')throw Error('Live JSON MIME policy mismatch');
 }
-export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch,totalTimeoutMs=180000,...options}) {
+export async function verifyHosting({origin,inventory,deployment,policy,fetchImpl=fetch,totalTimeoutMs=180000,...options}) {
  if(!['https://editor-staging.mdbase.dev','https://editor.mdbase.dev'].includes(origin)
    && !(origin===deployment?.url && /^https:\/\/[a-f0-9]{8,32}\.mdbase-editor\.pages\.dev$/.test(origin)))throw Error('Nonapproved verification origin');
  if(!/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(deployment?.id??''))throw Error('Actual deployment UUID required BEFORE served checks');
- assertPolicyInventory(inventory);
+ assertPolicyInventory(inventory,policy);
+ const headersPolicy=policy._headers.toString('utf8');
  const duration=Math.min(totalTimeoutMs,180000);
  if(!Number.isFinite(duration) || duration<=0)throw Error('Invalid verification deadline');
  const deadline=performance.now()+duration;
@@ -64,7 +73,7 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
  const failures=[],probes=[];
  const transport=async(url,init)=>{
   const response=await fetchImpl(url,init);
-  try {checkHeaders(response,new URL(url).pathname,origin===deployment.url);}
+  try {checkHeaders(response,new URL(url).pathname,origin===deployment.url,headersPolicy);}
   catch(error) {
    // A security-policy refusal is terminal policy evidence, NOT a transient
    // network exception. Still account for the body, without refetching it.
@@ -121,19 +130,21 @@ export async function verifyHosting({origin,inventory,deployment,fetchImpl=fetch
 const ALIAS_SETTLE_MS=300000,ALIAS_RETRY_DELAY_MS=15000,ALIAS_MIN_ATTEMPT_MS=30000;
 const attemptSummary=(report,startedMs)=>({startedMs:Math.round(startedMs),ok:report.ok===true,
  failures:(report.failures??[]).slice(0,20),failureCount:report.failures?.length??0,unverifiedCount:report.unverified?.length??0});
-export async function verifyPublication({plan,inventory,deployment,verify=verifyHosting,now=()=>performance.now(),
+export async function verifyPublication({plan,inventory,deployment,policy,verify=verifyHosting,now=()=>performance.now(),
   sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms)),deploymentTimeoutMs=180000,aliasSettleMs=ALIAS_SETTLE_MS,
   aliasRetryDelayMs=ALIAS_RETRY_DELAY_MS,aliasMinAttemptMs=ALIAS_MIN_ATTEMPT_MS}) {
  if(deployment?.sourceSha!==plan?.sha || deployment?.pagesBranch!==plan?.pagesBranch)throw Error('Deployment/source/target mismatch');
+ // One candidate policy for the immutable URL and every alias attempt.
+ policy??=sourcePolicy(plan.sha);
  const start=now(),reports=[],aliasAttempts=[];
- const immutable={origin:deployment.url,...await verify({origin:deployment.url,inventory,deployment,totalTimeoutMs:deploymentTimeoutMs})};
+ const immutable={origin:deployment.url,...await verify({origin:deployment.url,inventory,deployment,policy,totalTimeoutMs:deploymentTimeoutMs})};
  reports.push(immutable);
  if(plan.origin!==deployment.url) {
   const deadline=now()+aliasSettleMs;
   let alias;
   for(;;) {
    const startedMs=now()-start;
-   alias={origin:plan.origin,...await verify({origin:plan.origin,inventory,deployment,totalTimeoutMs:Math.min(180000,Math.max(1,deadline-now()))})};
+   alias={origin:plan.origin,...await verify({origin:plan.origin,inventory,deployment,policy,totalTimeoutMs:Math.min(180000,Math.max(1,deadline-now()))})};
    aliasAttempts.push(attemptSummary(alias,startedMs));
    // A failed immutable deployment is not waited out: record one alias report only.
    if(alias.ok===true || immutable.ok!==true || deadline-now()<aliasRetryDelayMs+aliasMinAttemptMs)break;
