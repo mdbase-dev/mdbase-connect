@@ -47,7 +47,7 @@ describe("stored announcements", () => {
     await createAnnouncement(db, {
       slug: "plus",
       subject: "mdbase Plus",
-      body: "Hi {name},\n\nPlus is here: https://connect.example/account.\n\nBest,\nCallum.",
+      body: "Hi {name},\n\nUpgrade from your [account page](https://connect.example/account?tab=plan&x=1).\n\nBest,\nCallum.",
       betaBody: "Hi {name},\n\nPlus is here, and your beta allowance stays.\n\nBest,\nCallum."
     }, MUTATION);
     const { sent, worker } = sender(db);
@@ -79,9 +79,11 @@ describe("stored announcements", () => {
       ["beta-person@example.com", "mdbase Plus"]
     ]));
     const standardMessage = announced.find((message) => message.to === "standard-person@example.com")!;
-    expect(standardMessage.text).toContain("Hi Standard Person,\n\nPlus is here: https://connect.example/account.");
+    expect(standardMessage.text).toContain(
+      "Hi Standard Person,\n\nUpgrade from your account page (https://connect.example/account?tab=plan&x=1)."
+    );
     expect(standardMessage.html).toContain(
-      '<a href="https://connect.example/account" style="color:#1f5fbf">https://connect.example/account</a>.'
+      'Upgrade from your <a href="https://connect.example/account?tab=plan&amp;x=1" style="color:#1f5fbf">account page</a>.'
     );
 
     expect(await scheduleAnnouncement(db, "plus", null, MUTATION))

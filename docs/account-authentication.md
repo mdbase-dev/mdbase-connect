@@ -187,8 +187,8 @@ GiB live hosted storage, three hosted collections), and invitation-based
 
 One-off announcements are stored copy, not code: `auth-admin announcements
 create` saves a subject and a body (paragraphs separated by blank lines, with
-`{name}` for the recipient's name, and optionally a separate body for accounts
-with a beta grant) as the next immutable version in `email_announcements`.
+`{name}` for the recipient's name, `[text](https://…)` for a link, and optionally
+a separate body for accounts with a beta grant) as the next immutable version in `email_announcements`.
 `show --user` prints exactly what one account would receive, and `test-send`
 queues the latest version for one account without using up its real send.
 `schedule --all enabled` queues the latest version once for every unsuspended

@@ -195,7 +195,7 @@ function renderAccountEmail(
   return {
     to: input.email,
     subject,
-    text: [...paragraphs, ...footer ? [footer] : []].join("\n\n"),
+    text: [...paragraphs.map(textLinks), ...footer ? [footer] : []].join("\n\n"),
     html: renderHtml(subject, paragraphs, input.unsubscribeUrl)
   };
 }
@@ -206,7 +206,7 @@ function renderHtml(
   unsubscribeUrl: string | null
 ): string {
   const body = paragraphs.map((paragraph) => {
-    const lines = linkify(escapeHtml(paragraph)).replaceAll("\n", "<br>");
+    const lines = htmlLinks(escapeHtml(paragraph)).replaceAll("\n", "<br>");
     return `    <p style="margin:0 0 20px">${lines}</p>`;
   }).join("\n");
   const footer = unsubscribeUrl
@@ -227,10 +227,16 @@ ${body}${footer}
 </html>`;
 }
 
-/** Links each https URL in escaped text, leaving trailing punctuation outside. */
-function linkify(escaped: string): string {
-  return escaped.replace(/https:\/\/[^\s<]*[^\s<.,;:!?)]/gu,
-    (url) => `<a href="${url}" style="color:#1f5fbf">${url}</a>`);
+/** A link written `[text](https://…)`; its text and address are single-line. */
+const LINK_PATTERN = /\[([^[\]\n]+)\]\((https:\/\/[^\s()<>]+)\)/gu;
+
+function textLinks(paragraph: string): string {
+  return paragraph.replace(LINK_PATTERN, "$1 ($2)");
+}
+
+/** Links in escaped text; escaping leaves the brackets and parentheses intact. */
+function htmlLinks(escaped: string): string {
+  return escaped.replace(LINK_PATTERN, '<a href="$2" style="color:#1f5fbf">$1</a>');
 }
 
 function escapeHtml(value: string): string {
