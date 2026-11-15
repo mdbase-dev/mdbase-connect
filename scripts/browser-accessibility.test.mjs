@@ -355,7 +355,7 @@ async function auditPortalSignup() {
   assert.equal(submitted.name, "Chosen Name");
   assert.equal(submitted.terms_version, "terms-v1");
   assert.equal(submitted.privacy_version, "privacy-v1");
-  assert.equal(typeof submitted.timezone, "string");
+  assert.equal("timezone" in submitted, false, "public signup no longer sends a timezone");
   assert.equal(submitted.product_updates, false);
   assert.equal("password" in submitted, false);
   assert.equal("credential" in submitted, false);
