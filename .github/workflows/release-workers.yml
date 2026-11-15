@@ -183,6 +183,15 @@ jobs:
         env:
           LOGSVC_BENCH: ../../target/debug/logsvc-bench
         run: npm test
+      - name: Local log runtime diagnostics on failure (wrangler.log only)
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: logsvc-do-runtime-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          include-hidden-files: true
+          path: runtime/deploy/cloudflare-do/.wrangler/runtime-test-*/wrangler.log
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Qualify fresh hosted and staging escrow bytes, real Postgres, zero skips
         working-directory: runtime/deploy/hosted-worker
         env:

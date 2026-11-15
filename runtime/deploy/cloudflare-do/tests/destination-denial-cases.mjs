@@ -3,7 +3,15 @@ import assert from 'node:assert/strict';
 import { createPrivateKey, createPublicKey, sign } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 
-export async function destinationDenialCases({ base, token, transport, encode, decode, map, sha, h, restart }) {
+// Over-the-wire requests use the runtime's evidence-gated `fetch`. This file
+// deliberately sends bodies the Worker refuses before reading (413), and under
+// load wrangler's dev ProxyWorker can then hand a later request a lost pooled
+// UserWorker connection. It replays only GET/HEAD, so a POST would fail as a
+// proxy 500 that no Worker produced. createProxyFetch replays such a request
+// once, only when wrangler.log names that exact request's disconnect.
+// A signed request that did reach the Worker fails its replay on the spent
+// nonce, so a replay cannot turn a real failure into a pass.
+export async function destinationDenialCases({ base, token, transport, encode, decode, map, sha, h, restart, fetch = globalThis.fetch }) {
   const id = label => sha(Buffer.from(`destination-denial/${label}`)).subarray(0, 16);
   const c = id('collection'), deletion = id('deletion'), nil = Buffer.alloc(16);
   const epoch = (1n << 64n) - 1n;
@@ -133,7 +141,8 @@ export async function destinationDenialCases({ base, token, transport, encode, d
     // An unknown-length body needs the whole cap up front.
     const overlappingPositive = await signed('set_quota',quota);
     const unsized = new ReadableStream({ start(c) { c.enqueue(overlappingPositive.body); c.close(); } });
-    assert.equal((await fetch(`${base}/v1/rpc`,{method:'POST',headers:overlappingPositive.headers,body:unsized,duplex:'half'})).status,503,
+    // A stream body is not replayable: send it directly.
+    assert.equal((await globalThis.fetch(`${base}/v1/rpc`,{method:'POST',headers:overlappingPositive.headers,body:unsized,duplex:'half'})).status,503,
       'paused producer retains original ingress reservation; ordinary admission not weakened');
     const overlappingCloses = await Promise.all([
       call('collection_destination_close',close()),call('collection_destination_close',close()),
