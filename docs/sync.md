@@ -207,8 +207,8 @@ recovery worker, which writes the connector-scoped abort receipt after the
 provider confirms. Migration `0036_authority_import_source_repair` and its
 operator command still repair such rows (see `docs/hosted-provider.md`).
 
-Moving back to local authority is implemented as an explicit, browser-confirmed
-handoff from a full writable mirror:
+Moving back to local authority was an explicit, browser-confirmed handoff from
+a full writable mirror:
 
 1. `mdbase-mirror promote <directory>` synchronizes the mirror and creates a
    short-lived transfer request using its renewal credential.
@@ -231,6 +231,13 @@ retired recovery copy until the owner explicitly deletes it, but it cannot
 resume writing in the old epoch. Applications must authorize the new local
 authority explicitly. This is a product action, not a background merge between
 two writers.
+
+The portal's approval pages for this handoff (`/transfer/:id`) and for mirror
+pairing (`/mirror/:id`) were removed on 2026-11-15. Only the legacy connector,
+deleted on 2026-11-10, could start either flow, so a legacy account can no
+longer approve a new mirror or a move of the main copy. An old link to either
+page opens the portal app instead. The server routes remain until a following
+change removes them.
 
 ## Replication data model
 

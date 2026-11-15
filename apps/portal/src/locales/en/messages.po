@@ -233,11 +233,6 @@ msgstr "{0} uses mdbase {1}. Upgrade a copy to mdbase 0.3 and verify it before a
 msgid "{0} v{1}"
 msgstr "{0} v{1}"
 
-#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" }))
-#: src/authority-workflows.tsx
-msgid "{0} will begin syncing automatically. You can close this page."
-msgstr "{0} will begin syncing automatically. You can close this page."
-
 #. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {1}: literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
@@ -275,18 +270,6 @@ msgstr "{applicationName} needs a {0} type"
 #: src/authority-workflows.tsx
 msgid "{appName} on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust {appName} with that password."
 msgstr "{appName} on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust {appName} with that password."
-
-#: src/authority-workflows.tsx
-msgid "{collectionName} now lives on your computer."
-msgstr "{collectionName} now lives on your computer."
-
-#: src/authority-workflows.tsx
-msgid "{collectionName} remains hosted. Its main copy did not move."
-msgstr "{collectionName} remains hosted. Its main copy did not move."
-
-#: src/authority-workflows.tsx
-msgid "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
-msgstr "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount}"
@@ -749,10 +732,6 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "Approving…"
 
-#: src/authority-workflows.tsx
-msgid "Apps"
-msgstr "Apps"
-
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -865,10 +844,6 @@ msgstr "Cancel sign-in"
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
 msgstr "Cancel this collection invitation?"
-
-#: src/authority-workflows.tsx
-msgid "Cancel transfer"
-msgstr "Cancel transfer"
 
 #. placeholder {0}: collection.display_name ?? collection.id
 #: src/ConnectApp.tsx
@@ -1259,10 +1234,6 @@ msgstr "Create"
 msgid "Create a collection"
 msgstr "Create a collection"
 
-#: src/authority-workflows.tsx
-msgid "Create a hosted collection before approving this folder."
-msgstr "Create a hosted collection before approving this folder."
-
 #: src/authorization-review.tsx
 msgid "Create a new collection…"
 msgstr "Create a new collection…"
@@ -1643,14 +1614,6 @@ msgctxt "Connect interface"
 msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone."
 msgstr "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone."
 
-#: src/authority-workflows.tsx
-msgid "Existing access is revoked. Connect apps again to use the local collection."
-msgstr "Existing access is revoked. Connect apps again to use the local collection."
-
-#: src/authority-workflows.tsx
-msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-msgstr "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-
 #: src/authorization-review.tsx
 msgid "Existing type"
 msgstr "Existing type"
@@ -1718,19 +1681,6 @@ msgstr "Filter sessions"
 msgid "Finishing collection setup…"
 msgstr "Finishing collection setup…"
 
-#: src/authority-workflows.tsx
-msgid "Folder"
-msgstr "Folder"
-
-#: src/authority-workflows.tsx
-msgid "Folder approved"
-msgstr "Folder approved"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Folder sync"
-msgstr "Folder sync"
-
 #: src/auth-view.tsx
 msgid "Forgot your password?"
 msgstr "Forgot your password?"
@@ -1793,28 +1743,10 @@ msgstr "Home"
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 
-#: src/authority-workflows.tsx
-msgid "Hosted collection"
-msgstr "Hosted collection"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Hosted collection"
-msgstr "Hosted collection"
-
-#: src/authority-workflows.tsx
-msgid "Hosted service"
-msgstr "Hosted service"
-
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Hosted storage"
 msgstr "Hosted storage"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Hosted writes are paused"
-msgstr "Hosted writes are paused"
 
 #: src/authorization-review.tsx
 msgid "How this type behaves in {applicationName}"
@@ -1861,10 +1793,6 @@ msgstr "If the value is already present, mdbase leaves the collection unchanged.
 #: src/auth-view.tsx
 msgid "If this address can be used, we’ve sent a one-time link to it."
 msgstr "If this address can be used, we’ve sent a one-time link to it."
-
-#: src/authority-workflows.tsx
-msgid "If verification fails or this request expires, hosted writes resume."
-msgstr "If verification fails or this request expires, hosted writes resume."
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -1950,10 +1878,6 @@ msgctxt "Application access approval"
 msgid "Keep an offline replica"
 msgstr "Keep an offline replica"
 
-#: src/authority-workflows.tsx
-msgid "Keep it hosted"
-msgstr "Keep it hosted"
-
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "Keep your current records and explain which fields mean the same thing."
@@ -2038,10 +1962,6 @@ msgstr "Main copy"
 msgid "Main copy moved to a computer"
 msgstr "Main copy moved to a computer"
 
-#: src/authority-workflows.tsx
-msgid "Main copy on {mirrorName}"
-msgstr "Main copy on {mirrorName}"
-
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Manage and delete files"
@@ -2098,10 +2018,6 @@ msgstr "Management access does not give apps access to collection content. Each 
 msgid "Markdown and file usage is temporarily unavailable."
 msgstr "Markdown and file usage is temporarily unavailable."
 
-#: src/authority-workflows.tsx
-msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-msgstr "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-
 #: src/ConnectPrimitives.tsx
 msgid "mdbase Connect could not be reached. Check your connection and try again."
 msgstr "mdbase Connect could not be reached. Check your connection and try again."
@@ -2109,10 +2025,6 @@ msgstr "mdbase Connect could not be reached. Check your connection and try again
 #: src/portal-model.ts
 msgid "mdbase Connect could not reach the service. Check your connection and try again."
 msgstr "mdbase Connect could not reach the service. Check your connection and try again."
-
-#: src/authority-workflows.tsx
-msgid "mdbase Connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr "mdbase Connect is checking the latest hosted changes, registering the folder, and making it the main copy."
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
@@ -2159,15 +2071,6 @@ msgstr "More regular updates about new features and improvements."
 msgctxt "Application access approval"
 msgid "Move and rename files"
 msgstr "Move and rename files"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Move main copy"
-msgstr "Move main copy"
-
-#: src/authority-workflows.tsx
-msgid "Move the main copy"
-msgstr "Move the main copy"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2248,10 +2151,6 @@ msgstr "New password"
 #: src/AccountManagement.tsx
 msgid "New passwords do not match."
 msgstr "New passwords do not match."
-
-#: src/authority-workflows.tsx
-msgid "New synced folder"
-msgstr "New synced folder"
 
 #: src/auth-view.tsx
 msgid "New to mdbase? <0>Create an account</0>"
@@ -2487,10 +2386,6 @@ msgstr "Open this through Tailscale"
 msgid "Open your account"
 msgstr "Open your account"
 
-#: src/authority-workflows.tsx
-msgid "Open your collections"
-msgstr "Open your collections"
-
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
 msgstr "Open, search, validate, and follow changes to records and saved views."
@@ -2695,10 +2590,6 @@ msgstr "Reauthorization required"
 msgid "Recently used"
 msgstr "Recently used"
 
-#: src/authority-workflows.tsx
-msgid "Recovery"
-msgstr "Recovery"
-
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
@@ -2876,10 +2767,6 @@ msgstr "Return to {applicationName}"
 msgid "Return to {applicationName} and connect again to start a new request."
 msgstr "Return to {applicationName} and connect again to start a new request."
 
-#: src/authority-workflows.tsx
-msgid "Return to {mirrorName}."
-msgstr "Return to {mirrorName}."
-
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
@@ -2888,14 +2775,6 @@ msgstr "Return to sign in"
 #: src/authority-workflows.tsx
 msgid "Return to the app."
 msgstr "Return to the app."
-
-#: src/authority-workflows.tsx
-msgid "Return to your account"
-msgstr "Return to your account"
-
-#: src/authority-workflows.tsx
-msgid "Return to your computer."
-msgstr "Return to your computer."
 
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
@@ -3349,11 +3228,6 @@ msgstr "Sync folder"
 msgid "Sync folder · {0}"
 msgstr "Sync folder · {0}"
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Sync this collection"
-msgstr "Sync this collection"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
@@ -3411,11 +3285,6 @@ msgstr "The app’s {0} value."
 msgid "The cloud copy is available to the editor."
 msgstr "The cloud copy is available to the editor."
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "The collection"
-msgstr "The collection"
-
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
 msgstr "The collection cannot allow all required record and file permissions together. Choose another collection."
@@ -3436,10 +3305,6 @@ msgstr "the computer holding this collection"
 #: src/ConnectApp.tsx
 msgid "The editor can reach this collection through {0}."
 msgstr "The editor can reach this collection through {0}."
-
-#: src/authority-workflows.tsx
-msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous app connections were revoked."
-msgstr "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous app connections were revoked."
 
 #: src/ConnectApp.tsx
 msgid "The folder remains the authority for this collection."
@@ -3475,10 +3340,6 @@ msgstr "The link is invalid, expired, already used, or password sign-in is tempo
 msgid "The main copy has moved to a computer."
 msgstr "The main copy has moved to a computer."
 
-#: src/authority-workflows.tsx
-msgid "The main copy stayed hosted."
-msgstr "The main copy stayed hosted."
-
 #: src/portal-model.ts
 msgid "The mdbase Connect app on this computer needs to be updated before you can continue."
 msgstr "The mdbase Connect app on this computer needs to be updated before you can continue."
@@ -3500,17 +3361,8 @@ msgid "The rules run inside the collection. A notification tells {applicationNam
 msgstr "The rules run inside the collection. A notification tells {applicationName} that something changed, not what changed."
 
 #: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "the selected computer"
-msgstr "the selected computer"
-
-#: src/authority-workflows.tsx
 msgid "The signed-in account changed. Start sign-in again from the app."
 msgstr "The signed-in account changed. Start sign-in again from the app."
-
-#: src/authority-workflows.tsx
-msgid "The synced Markdown folder becomes the main copy."
-msgstr "The synced Markdown folder becomes the main copy."
 
 #: src/ConnectApp.tsx
 msgid "The value has changed again. Undo is no longer available."
@@ -3583,11 +3435,6 @@ msgctxt "Collection connection"
 msgid "this collection"
 msgstr "this collection"
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "This collection"
-msgstr "This collection"
-
 #. placeholder {0}: new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(unavailable.map(contractLabel))
 #: src/compatibility.ts
 msgid "This collection does not provide {0}."
@@ -3612,10 +3459,6 @@ msgstr "This device can keep an offline copy of approved collections, including 
 #: src/authority-workflows.tsx
 msgid "This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased."
 msgstr "This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased."
-
-#: src/authority-workflows.tsx
-msgid "This folder will receive Markdown from mdbase and will not upload local edits."
-msgstr "This folder will receive Markdown from mdbase and will not upload local edits."
 
 #: src/ApplicationAccess.tsx
 msgid "This installation has no approved collections."
@@ -3675,18 +3518,6 @@ msgstr "This unsubscribe link can’t be opened"
 #: src/AccountManagement.tsx
 msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "Those browsers will need to sign in again. This browser stays signed in."
-
-#: src/authority-workflows.tsx
-msgid "Transfer approved"
-msgstr "Transfer approved"
-
-#: src/authority-workflows.tsx
-msgid "Transfer complete"
-msgstr "Transfer complete"
-
-#: src/authority-workflows.tsx
-msgid "Transfer ended"
-msgstr "Transfer ended"
 
 #: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
@@ -3847,10 +3678,6 @@ msgstr "Use at least 15 characters. Spaces are welcome."
 msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
 msgstr "Use the desktop app to keep an ordinary Markdown folder on a computer."
 
-#: src/authority-workflows.tsx
-msgid "Use the folder on {mirrorName} as the main copy?"
-msgstr "Use the folder on {mirrorName} as the main copy?"
-
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."
 msgstr "Use this when someone cannot invite your verified email address."
@@ -3893,11 +3720,6 @@ msgstr "Viewer"
 #: src/authorization-view.tsx
 msgid "Waiting for mdbase Connect"
 msgstr "Waiting for mdbase Connect"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Waiting for the computer"
-msgstr "Waiting for the computer"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3955,10 +3777,6 @@ msgstr "Work with files"
 #: src/authorization-view.tsx
 msgid "Workouts"
 msgstr "Workouts"
-
-#: src/authority-workflows.tsx
-msgid "Writes pause during verification, then hosted access is retired."
-msgstr "Writes pause during verification, then hosted access is retired."
 
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."

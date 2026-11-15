@@ -14,11 +14,7 @@ import {
   Signup,
   Unsubscribe
 } from "./auth-view";
-import {
-  AuthorityTransfer,
-  MirrorPairing,
-  Pairing
-} from "./authority-workflows";
+import { Pairing } from "./authority-workflows";
 import { Authorization, DeviceAuthorization } from "./authorization-view";
 import {
   capturePortalBootstrapSecrets,
@@ -34,8 +30,6 @@ import { clearOverviewPreview } from "./overview-cache";
 function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets }) {
   useLocaleRevision();
   const pairingId = location.pathname.match(/^\/pair\/([0-9a-f-]+)$/i)?.[1];
-  const mirrorPairingId = location.pathname.match(/^\/mirror\/([0-9a-f-]+)$/i)?.[1];
-  const authorityTransferId = location.pathname.match(/^\/transfer\/([0-9a-f-]+)$/i)?.[1];
   const authorizationId = location.pathname.match(/^\/authorize\/([0-9a-f-]+)$/i)?.[1];
   if (location.pathname === "/login") return <Login />;
   if (location.pathname === "/signup") return <Signup
@@ -48,8 +42,6 @@ function Portal({ bootstrapSecrets }: { bootstrapSecrets: PortalBootstrapSecrets
   if (location.pathname === "/unsubscribe") return <Unsubscribe unsubscribeToken={bootstrapSecrets.unsubscribeToken} />;
   if (location.pathname === "/device") return <DeviceAuthorization />;
   if (pairingId) return <Pairing pairingId={pairingId} />;
-  if (mirrorPairingId) return <MirrorPairing pairingId={mirrorPairingId} />;
-  if (authorityTransferId) return <AuthorityTransfer transferId={authorityTransferId} />;
   if (authorizationId) return <Authorization requestId={authorizationId} />;
   return <ConnectApp />;
 }

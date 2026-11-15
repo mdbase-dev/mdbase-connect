@@ -98,8 +98,9 @@ Two pieces of coverage for code that is still deployed went with the consumers:
   promotion scenario drove the legacy CLI's `mirror promote` and the portal's
   "Move main copy" page in a browser. The provider's fence, prove, complete and
   cancel steps are still tested at the API level, and the server keeps its unit
-  and Postgres tests, but nothing opens the confirmation page any more. Only a
-  legacy account can reach that flow; it goes in 2a.
+  and Postgres tests. The confirmation page itself was removed from the portal
+  on 2026-11-15 (see 2a). Only a legacy account can reach that flow; it goes in
+  2a.
 - **Durable history for the provider performance observation.** The monthly
   observation still runs and uploads its raw result as a workflow artifact, but
   the normalising and `performance-history` publishing steps went with
@@ -136,6 +137,17 @@ the provider and the tables below: the to-hosted expiry branch of
 (`POST /v1/connectors/sync`), the 0036 authority-import-source repair and its
 `auth-admin repairs authority-import-sources` command, adoption-row revocation in
 `instance-admin.ts` (with `abortAuthorityImport`), and the tables themselves.
+
+Also removed ahead of the provider (2026-11-15): the portal pages for **mirror
+pairing** (`/mirror/:id`) and the **hosted-to-local authority transfer**
+(`/transfer/:id`, "Move main copy"). Only the deleted legacy connector could
+start either flow. The pages, their styles and the portal's `AuthorityTransfer`
+type are gone, and an old link opens the portal app, as `/adopt/:id` does. The
+server routes (`features/mirrors/pairing-routes.ts` and
+`features/authority-transfer/hosted-to-local-routes.ts`) remain for a following
+change, so a rolled-back portal and the current server still work together. The
+portal keeps showing existing hosted collections and their synced folders, with
+**Disconnect**.
 
 | Unit | Lines | Consumers to remove first |
 | --- | --- | --- |

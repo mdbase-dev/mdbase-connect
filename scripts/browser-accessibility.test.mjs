@@ -393,8 +393,7 @@ async function auditPortalRecovery() {
     await page.close();
   }
   for (const [path, endpoint, data, heading] of [
-    ["pair", "pairing-requests", { pairing: { connector_name: "Retry computer", approved_at: null } }, "Retry computer"],
-    ["mirror", "mirror-pairing-requests", { pairing: { mirror_name: "Retry mirror", mode: "read_only", approved_at: null, consumed_at: null, collection_id: null }, collections: [{ id: "collection", display_name: "Notes" }] }, "Retry mirror"]
+    ["pair", "pairing-requests", { pairing: { connector_name: "Retry computer", approved_at: null } }, "Retry computer"]
   ]) {
     const page = await localPage();
     let calls = 0;
