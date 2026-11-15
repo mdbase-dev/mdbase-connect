@@ -71,7 +71,7 @@ function readChannel(release, directory) {
   return channel;
 }
 
-function releaseList() {
+export function releaseList() {
   return pages("releases?per_page=100").filter(release => !release.draft
     && release.assets.some(asset => asset.name === channelName))
     .sort((left, right) => Date.parse(right.published_at) - Date.parse(left.published_at));

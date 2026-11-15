@@ -223,6 +223,22 @@ Update state uses user-only permissions and atomic rename; its in-memory cache
 publishes a transition only after the durable write succeeds. Invalid state is
 quarantined.
 
+## Continuous check of macOS self-update
+
+After each tagged Desktop Release run succeeds, **Desktop macOS Update**
+(`.github/workflows/desktop-macos-update.yml`) installs the previous signed
+Apple Silicon release from its published `.dmg` on a fresh `macos-15` runner,
+launches it, and waits for its own first automatic check to find, verify and
+stage the newest release. It then presses **Restart and update** through the
+window's preload API (over Chromium's remote debugging port) and requires the
+app to relaunch from the same bundle, signed, reporting the new version. It
+uses only public release assets and never gates or changes a release. If
+either release is an explicitly unsigned macOS preview it skips, since those
+never update automatically. A dispatch can choose the older release (`from`);
+the newer one must be the newest published desktop release, because an
+installed app always updates to the newest. On failure the app, ShipIt and
+unified logs are uploaded as `desktop-macos-update-logs`.
+
 ## Release and recovery drills
 
 Before enabling a non-zero automatic rollout:
