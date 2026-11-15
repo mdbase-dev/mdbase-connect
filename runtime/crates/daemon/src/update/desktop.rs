@@ -23,6 +23,50 @@ fn report_path(state_dir: &Path) -> PathBuf {
     state_dir.join("updates").join("desktop.json")
 }
 
+/// A report is a few hundred bytes; anything past this is not one.
+const MAX_REPORT_BYTES: u64 = 64 * 1024;
+
+/// The report at `path`, which must be a regular file (not a link to one) of at
+/// most [`MAX_REPORT_BYTES`]. Opening never waits on a FIFO or device.
+fn read_report(path: &Path) -> std::io::Result<Vec<u8>> {
+    use std::io::{Error, ErrorKind, Read};
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK);
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Open a link or junction itself, so the type check below refuses it.
+        options.custom_flags(windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT);
+    }
+    let file = options.open(path).map_err(|e| {
+        #[cfg(unix)]
+        if e.raw_os_error() == Some(libc::ELOOP) {
+            return Error::new(ErrorKind::InvalidInput, "it is a symbolic link");
+        }
+        e
+    })?;
+    if !file.metadata()?.is_file() {
+        return Err(Error::new(
+            ErrorKind::InvalidInput,
+            "it is not a regular file",
+        ));
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_REPORT_BYTES + 1).read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > MAX_REPORT_BYTES {
+        return Err(Error::new(
+            ErrorKind::InvalidData,
+            format!("it is larger than {} KiB", MAX_REPORT_BYTES / 1024),
+        ));
+    }
+    Ok(bytes)
+}
+
 /// Schema 1. Fields this daemon does not know are ignored.
 #[derive(Debug, Deserialize)]
 struct Report {
@@ -55,12 +99,15 @@ enum Install {
     Other,
 }
 
+/// Every string the report supplies reaches `detail` or `action`, so both are
+/// made safe to print here.
 fn check(status: &str, detail: String, action: Option<String>) -> Check {
+    use crate::control::terminal_text;
     Check {
         id: "update".into(),
         status: status.into(),
-        detail,
-        action,
+        detail: terminal_text(&detail).into_owned(),
+        action: action.map(|a| terminal_text(&a).into_owned()),
     }
 }
 
@@ -69,7 +116,7 @@ fn check(status: &str, detail: String, action: Option<String>) -> Check {
 /// warning that says what to do.
 pub fn doctor_check(version: &str, state_dir: &Path, now: OffsetDateTime) -> Check {
     let path = report_path(state_dir);
-    let bytes = match std::fs::read(&path) {
+    let bytes = match read_report(&path) {
         Ok(bytes) => bytes,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             return check(
@@ -261,6 +308,88 @@ mod tests {
         assert_eq!(
             c.action.as_deref(),
             Some("Open mdbase connect to install it.")
+        );
+    }
+
+    fn unreadable(c: &Check, why: &str) {
+        assert_eq!(c.status, "warn");
+        assert!(c.detail.contains("could not be read"), "{}", c.detail);
+        assert!(c.detail.contains(why), "{}", c.detail);
+    }
+
+    fn scratch_with(make: impl FnOnce(&Path)) -> (Scratch, Check) {
+        let (dir, _) = with_report(None);
+        std::fs::create_dir_all(dir.0.join("updates")).unwrap();
+        make(&report_path(&dir.0));
+        let now = OffsetDateTime::parse("2026-11-14T06:00:00Z", &Rfc3339).unwrap();
+        let check = doctor_check("0.1.0-beta.185", &dir.0, now);
+        (dir, check)
+    }
+
+    const VALID: &str = r#"{"schema_version":1,"app_version":"0.1.0-beta.185","checked_at":"2026-11-14T03:00:00Z"}"#;
+
+    #[test]
+    fn a_report_larger_than_the_limit_is_not_loaded() {
+        let padded = format!("{}{}", VALID, " ".repeat(MAX_REPORT_BYTES as usize));
+        let (_dir, c) = with_report(Some(&padded));
+        unreadable(&c, "larger than 64 KiB");
+        let exact = format!(
+            "{}{}",
+            VALID,
+            " ".repeat(MAX_REPORT_BYTES as usize - VALID.len())
+        );
+        let (_dir, c) = with_report(Some(&exact));
+        assert_eq!(c.status, "ok", "{}", c.detail);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_or_a_fifo_is_not_read() {
+        let (_dir, c) = scratch_with(|path| {
+            let target = path.with_file_name("elsewhere.json");
+            std::fs::write(&target, VALID).unwrap();
+            std::os::unix::fs::symlink(&target, path).unwrap();
+        });
+        unreadable(&c, "symbolic link");
+        // Opening a FIFO with no writer would wait forever if it were waited on.
+        let (_dir, c) = scratch_with(|path| {
+            let made = std::process::Command::new("mkfifo")
+                .arg(path)
+                .status()
+                .unwrap();
+            assert!(made.success());
+        });
+        unreadable(&c, "not a regular file");
+        let (_dir, c) = scratch_with(|path| std::fs::create_dir(path).unwrap());
+        unreadable(&c, "not a regular file");
+    }
+
+    #[test]
+    fn control_characters_from_the_report_are_escaped() {
+        let (_dir, c) = with_report(Some(
+            r#"{"schema_version":1,"app_version":"0.1.0\u001b[2J\u001b]0;title\u0007","checked_at":"2026-11-14T03:00:00Z",
+               "available":{"version":"9\u001b[31m","install":"package","release_url":"https://example.com/\u001b[0m\r\n"}}"#,
+        ));
+        for text in [c.detail.as_str(), c.action.as_deref().unwrap()] {
+            assert!(!text.chars().any(char::is_control), "{text:?}");
+        }
+        assert!(
+            c.detail
+                .contains(r"mdbase connect 9\u{1b}[31m is available"),
+            "{}",
+            c.detail
+        );
+        assert_eq!(
+            c.action.as_deref(),
+            Some(r"Install the new package: https://example.com/\u{1b}[0m\r\n")
+        );
+        let (_dir, c) = with_report(Some(
+            r#"{"schema_version":1,"app_version":"0.1.0\u001b[2J","checked_at":"2026-11-14T03:00:00Z"}"#,
+        ));
+        assert!(
+            c.detail.contains(r"mdbase connect 0.1.0\u{1b}[2J checked"),
+            "{}",
+            c.detail
         );
     }
 
