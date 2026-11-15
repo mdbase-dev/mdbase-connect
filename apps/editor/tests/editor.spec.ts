@@ -714,6 +714,43 @@ test("opens notes in tabs from links, the list and quick open, and reopens them"
   await expect(tabs.nth(1)).toHaveAttribute("aria-selected", "true");
 });
 
+test("splits the editor into two panes with their own notes, focus and tabs", async ({ page }) => {
+  await page.goto("?demo=12");
+  const focused = page.getByRole("main", { name: "Note editor" });
+  const other = page.getByRole("region", { name: "Note editor" });
+  const body = focused.getByRole("textbox", { name: "Note body" });
+  await replaceOpeningNoteBody(body, "[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
+
+  await page.locator(".body-editor .cm-lp-link").filter({ hasText: "Garden notes 2" }).click({ modifiers: ["ControlOrMeta", "Alt"] });
+  await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  await expect(other.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+  const left = await other.boundingBox(), right = await focused.boundingBox();
+  expect(right!.x).toBeGreaterThan(left!.x + left!.width - 2);
+
+  await other.getByRole("textbox", { name: "Note body" }).click();
+  await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+  await page.keyboard.press("End");
+  await page.keyboard.type(" Left pane.");
+  await expect(focused).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
+  await page.getByRole("option").filter({ hasText: "A quiet interface 3" }).click({ button: "middle" });
+  await expect(focused.getByRole("tablist", { name: "Open tabs" }).getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
+  await expect(other.getByRole("tab")).toHaveText(["Garden notes 2"]);
+
+  await page.keyboard.press("Alt+O");
+  await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  await expect(page.locator(".editor-pane[data-focused] .cm-content")).toBeFocused();
+
+  await page.reload();
+  await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+  await expect(other.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3");
+  await page.keyboard.press("Control+k");
+  await page.getByRole("dialog", { name: "Quick open" }).getByRole("combobox").fill(">Close pane");
+  await page.keyboard.press("Enter");
+  await expect(other).toHaveCount(0);
+  await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3");
+  await expect(page.getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
+});
+
 test("previews internal editor links on hover, but not sidebar rows", async ({ page }) => {
   await page.goto("?demo=12");
   const gardenRow = page.getByRole("option").filter({ hasText: "Garden notes 2" });

@@ -1470,6 +1470,10 @@ msgstr "Cerrar la vista previa del archivo"
 msgid "Close note peek"
 msgstr "Cerrar vista previa de la nota"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Cerrar panel"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Cerrar las propiedades"
@@ -2505,6 +2509,10 @@ msgstr "Corrige el código YAML antes de volver al editor de campos."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Modo de enfoque"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Ir al otro panel"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3791,6 +3799,10 @@ msgid "Open to find mentions."
 msgstr "Abre esta sección para buscar menciones."
 
 #: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Abrir al lado"
+
+#: src/editor-commands.ts
 msgid "Open Types"
 msgstr "Abrir Tipos"
 
@@ -4904,6 +4916,14 @@ msgstr "El código fuente se guarda cuando el editor pierde el foco"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Especificación"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Dividir hacia abajo"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Dividir a la derecha"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

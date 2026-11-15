@@ -1470,6 +1470,10 @@ msgstr "Dateivorschau schließen"
 msgid "Close note peek"
 msgstr "Notizvorschau schließen"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Bereich schließen"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Eigenschaften schließen"
@@ -2505,6 +2509,10 @@ msgstr "Korrigieren Sie den YAML-Quelltext, bevor Sie zum Feldeditor zurückkehr
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Fokusmodus"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Zum anderen Bereich wechseln"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3791,6 +3799,10 @@ msgid "Open to find mentions."
 msgstr "Öffnen, um Erwähnungen zu finden."
 
 #: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Daneben öffnen"
+
+#: src/editor-commands.ts
 msgid "Open Types"
 msgstr "Typen öffnen"
 
@@ -4904,6 +4916,14 @@ msgstr "Quelltext wird beim Verlassen des Editors gespeichert"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Spezifikation"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Nach unten teilen"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Nach rechts teilen"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

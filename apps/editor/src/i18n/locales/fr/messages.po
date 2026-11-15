@@ -1470,6 +1470,10 @@ msgstr "Fermer l’aperçu du fichier"
 msgid "Close note peek"
 msgstr "Fermer l’aperçu de la note"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Fermer le volet"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Fermer les propriétés"
@@ -2505,6 +2509,10 @@ msgstr "Corrigez la source YAML avant de revenir à l’éditeur de champs."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Mode focus"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Passer à l’autre volet"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3791,6 +3799,10 @@ msgid "Open to find mentions."
 msgstr "Ouvrez pour trouver les mentions."
 
 #: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Ouvrir sur le côté"
+
+#: src/editor-commands.ts
 msgid "Open Types"
 msgstr "Ouvrir les types"
 
@@ -4904,6 +4916,14 @@ msgstr "La source est enregistrée lorsque le focus quitte l’éditeur"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Spécification"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Diviser vers le bas"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Diviser à droite"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

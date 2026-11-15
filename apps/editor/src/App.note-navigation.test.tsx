@@ -338,6 +338,56 @@ describe("note navigation ownership and recovery", () => {
     expect(JSON.parse(localStorage.getItem(TABS_KEY)!)).toEqual({ tabs: [{ paths: [third.path], index: 0 }], active: 0 });
   });
 
+  it("splits the editor into two panes that keep their own notes and tabs, and reopens them", async () => {
+    const { first, second, third, select } = await harness();
+    const focusedTitle = () => within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note title" });
+    const otherPane = () => screen.getByRole("region", { name: "Note editor" });
+    select(/Garden notes 2/);
+    await screen.findByDisplayValue("Garden notes 2");
+
+    fireEvent.contextMenu(screen.getByRole("option", { name: /A quiet interface 3/ }));
+    fireEvent.click(within(screen.getByRole("menu", { name: /note actions$/ })).getByRole("menuitem", { name: "Open to the side" }));
+    await waitFor(() => expect(focusedTitle()).toHaveValue("A quiet interface 3"));
+    expect(within(otherPane()).getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
+    expect(screen.getAllByRole("tablist", { name: "Open tabs" })).toHaveLength(2);
+
+    // A click in the other pane gives it the focus; the list then opens notes there.
+    fireEvent.pointerDown(within(otherPane()).getByRole("textbox", { name: "Note title" }));
+    expect(focusedTitle()).toHaveValue("Garden notes 2");
+    select(/The shape of useful tools/);
+    await waitFor(() => expect(focusedTitle()).toHaveValue("The shape of useful tools"));
+    expect(within(otherPane()).getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3");
+
+    // Writing in a pane changes its own note, whichever pane has the focus.
+    fireEvent.change(within(otherPane()).getByRole("textbox", { name: "Note body" }), { target: { value: "Written beside" } });
+    expect(within(otherPane()).getByRole("textbox", { name: "Note body" })).toHaveValue("Written beside");
+    fireEvent.keyDown(window, { key: "o", code: "KeyO", altKey: true });
+    expect(focusedTitle()).toHaveValue("A quiet interface 3");
+    expect(within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note body" })).toHaveValue("Written beside");
+
+    expect(JSON.parse(localStorage.getItem(TABS_KEY)!)).toEqual({
+      tabs: [{ paths: [first.path, second.path, first.path], index: 2 }], active: 0,
+      split: { tabs: [{ paths: [third.path], index: 0 }], active: 0, direction: "right", focused: true }
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Close A quiet interface 3" }));
+    await waitFor(() => expect(screen.queryByRole("region", { name: "Note editor" })).not.toBeInTheDocument());
+    expect(focusedTitle()).toHaveValue("The shape of useful tools");
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    expect(JSON.parse(localStorage.getItem(TABS_KEY)!)).toEqual({ tabs: [{ paths: [first.path, second.path, first.path], index: 2 }], active: 0 });
+  });
+
+  it("reopens a saved split with each pane's own note", async () => {
+    const { notes } = await new DemoCollectionGateway(3).list();
+    localStorage.setItem(TABS_KEY, JSON.stringify({
+      tabs: [{ paths: [notes[0]!.path], index: 0 }], active: 0,
+      split: { tabs: [{ paths: [notes[2]!.path], index: 0 }], active: 0, direction: "down", focused: false }
+    }));
+    await harness();
+    expect(within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    await waitFor(() => expect(within(screen.getByRole("region", { name: "Note editor" })).getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3"));
+    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-down");
+  });
+
   it("does not surface a stale read failure after a newer note has opened", async () => {
     const { gateway, read, select } = await harness();
     const originalRead = DemoCollectionGateway.prototype.read.bind(gateway);

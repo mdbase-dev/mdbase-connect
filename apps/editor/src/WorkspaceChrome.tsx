@@ -52,7 +52,9 @@ export function SaveIndicator({ state, activity, detail, identity, savedOnDevice
   const tone: SaveTone = attention ? "attention" : state === "recovery" ? "pending" : "saving";
   return <div className="save-indicator"><SaveNotice tone={tone} label={label} />{state === "error" && onRetry && <button className="cancel-operation mdbase-button is-secondary" onClick={onRetry}><Trans>Retry save</Trans></button>}{onCancel && <button className="cancel-operation mdbase-button is-secondary" onClick={onCancel}><Trans>Cancel</Trans></button>}</div>;
 }
-export function BacklinksPanel({ notes, types, loading, error, onRetry, onOpen, mentions = [], mentionsLoading, mentionsError, onFindMentions, onRetryMentions, onLinkMention, linking }: {
+export function BacklinksPanel({ id = "linked-from", notes, types, loading, error, onRetry, onOpen, mentions = [], mentionsLoading, mentionsError, onFindMentions, onRetryMentions, onLinkMention, linking }: {
+  /** Unique on the page: each editor pane has its own. */
+  id?: string;
   notes: NoteSummary[];
   types: CollectionTypeDescriptor[];
   loading: boolean;
@@ -72,7 +74,7 @@ export function BacklinksPanel({ notes, types, loading, error, onRetry, onOpen, 
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const visibleMentions = showAll ? mentions : mentions.slice(0, 5);
-  return <section id="linked-from" tabIndex={-1} className="linked-from" aria-label={t`Linked from`} aria-busy={loading}>
+  return <section id={id} tabIndex={-1} className="linked-from" aria-label={t`Linked from`} aria-busy={loading}>
     <h2><Trans>Linked from</Trans></h2>
     {error && <p role="alert">{error} {onRetry && <button onClick={onRetry}><Trans>Retry backlinks</Trans></button>}</p>}
     <div className="backlink-list">

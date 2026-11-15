@@ -1470,6 +1470,10 @@ msgstr "Close file preview"
 msgid "Close note peek"
 msgstr "Close note peek"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Close pane"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Close properties"
@@ -2505,6 +2509,10 @@ msgstr "Fix the YAML source before returning to the field editor."
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Focus mode"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Focus other pane"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3791,6 +3799,10 @@ msgid "Open to find mentions."
 msgstr "Open to find mentions."
 
 #: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Open to the side"
+
+#: src/editor-commands.ts
 msgid "Open Types"
 msgstr "Open Types"
 
@@ -4904,6 +4916,14 @@ msgstr "Source saves when focus leaves the editor"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Specification"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Split down"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Split right"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

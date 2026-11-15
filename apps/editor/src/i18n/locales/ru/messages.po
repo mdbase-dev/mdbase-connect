@@ -1470,6 +1470,10 @@ msgstr "Закрыть предпросмотр файла"
 msgid "Close note peek"
 msgstr "Закрыть предпросмотр заметки"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "Закрыть панель"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "Закрыть свойства"
@@ -2505,6 +2509,10 @@ msgstr "Исправьте исходный YAML, прежде чем верну
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "Режим сосредоточения"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "Перейти к другой панели"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3791,6 +3799,10 @@ msgid "Open to find mentions."
 msgstr "Откройте, чтобы найти упоминания."
 
 #: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "Открыть сбоку"
+
+#: src/editor-commands.ts
 msgid "Open Types"
 msgstr "Открыть типы"
 
@@ -4904,6 +4916,14 @@ msgstr "Исходный текст сохраняется при потере �
 msgctxt "settings view"
 msgid "Specification"
 msgstr "Спецификация"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "Разделить вниз"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "Разделить вправо"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

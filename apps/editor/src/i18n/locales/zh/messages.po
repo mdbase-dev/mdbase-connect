@@ -1470,6 +1470,10 @@ msgstr "关闭文件预览"
 msgid "Close note peek"
 msgstr "关闭笔记预览"
 
+#: src/editor-commands.ts
+msgid "Close pane"
+msgstr "关闭窗格"
+
 #: src/PropertiesPanel.tsx
 msgid "Close properties"
 msgstr "关闭属性"
@@ -2505,6 +2509,10 @@ msgstr "返回字段编辑器前，请修正 YAML 源码。"
 #: src/editor-commands.ts
 msgid "Focus mode"
 msgstr "专注模式"
+
+#: src/editor-commands.ts
+msgid "Focus other pane"
+msgstr "切换到另一个窗格"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -3791,6 +3799,10 @@ msgid "Open to find mentions."
 msgstr "展开以查找提及。"
 
 #: src/editor-commands.ts
+msgid "Open to the side"
+msgstr "在侧边打开"
+
+#: src/editor-commands.ts
 msgid "Open Types"
 msgstr "打开类型"
 
@@ -4904,6 +4916,14 @@ msgstr "焦点离开编辑器时保存源码"
 msgctxt "settings view"
 msgid "Specification"
 msgstr "规范"
+
+#: src/editor-commands.ts
+msgid "Split down"
+msgstr "向下拆分"
+
+#: src/editor-commands.ts
+msgid "Split right"
+msgstr "向右拆分"
 
 #: src/code-editor-completions.ts
 msgid "Start a checkable task"

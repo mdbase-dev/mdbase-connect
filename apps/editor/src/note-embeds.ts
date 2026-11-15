@@ -20,7 +20,7 @@ export type ResolvedNoteEmbed = MarkdownReference & {
 const EMPTY_REFERENCES: MarkdownReference[] = [];
 const NO_TARGETS = { subscribe: () => () => undefined, getVersion: () => 0 };
 
-type EmbedCacheOwner = { collectionId: string | undefined; epoch: number };
+export type EmbedCacheOwner = { collectionId: string | undefined; epoch: number };
 type EmbedCacheStore = {
   gateway: Pick<CollectionGateway, "read">;
   collectionId: string | undefined;

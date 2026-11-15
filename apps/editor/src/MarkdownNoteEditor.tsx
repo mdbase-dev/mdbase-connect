@@ -14,11 +14,14 @@ import type { EditorPreferences } from "./preferences";
 import type { ResolvedFileReference } from "./use-file-assets";
 import type { AttachmentUploader } from "./AttachmentUpload";
 import type { ParsedEmbeds } from "./code-editor-embed-positions";
+import type { LinkOpening } from "./code-editor-writer-interactions";
 
 const CodeEditor = lazy(() => import("./CodeEditor").then((module) => ({ default: module.CodeEditor })));
 
 interface MarkdownNoteEditorProps {
   editorKey: string;
+  /** The title field's id, unique on the page: each editor pane has its own. */
+  titleId?: string;
   footer: ReactNode;
   draft: Pick<Draft, "title" | "body">;
   preferences: EditorPreferences;
@@ -38,7 +41,7 @@ interface MarkdownNoteEditorProps {
   onTitleChange: (title: string) => void;
   onTitleVisibilityChange: (visible: boolean) => void;
   onBodyChange: (body: string) => void;
-  onOpenLink: (path: string, options?: { newTab?: boolean }) => void;
+  onOpenLink: (path: string, options?: LinkOpening) => void;
   onCreateLink: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
   onPreviewLink: (path: string, anchor: NotePreviewAnchor, source: NotePreviewSource) => void;
   onDismissLinkPreview: () => void;
@@ -63,6 +66,7 @@ interface MarkdownNoteEditorProps {
 
 interface NoteHeaderProps {
   title: string;
+  titleId: string;
   readOnly: boolean;
   provenance?: ReactNode;
   /** What an empty title asks for: a new note of a type names its title field. */
@@ -83,7 +87,7 @@ interface NoteHeaderProps {
 
 interface TitleCaret { editorKey: string; start: number; end: number }
 
-function NoteHeader({ title, readOnly, provenance, titlePlaceholder, focusTitle, properties, onTitleChange, onTitleCommit, onTitleVisibilityChange, caret, editorKey }: NoteHeaderProps) {
+function NoteHeader({ title, titleId, readOnly, provenance, titlePlaceholder, focusTitle, properties, onTitleChange, onTitleCommit, onTitleVisibilityChange, caret, editorKey }: NoteHeaderProps) {
   const field = useRef<HTMLDivElement>(null);
   const input = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -119,10 +123,10 @@ function NoteHeader({ title, readOnly, provenance, titlePlaceholder, focusTitle,
   return <>
     {provenance && <div className="note-provenance">{provenance}</div>}
     <div className="note-heading" onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) onTitleCommit?.(); }}>
-      <label className="sr-only" htmlFor="note-title"><Trans>Note title</Trans></label>
+      <label className="sr-only" htmlFor={titleId}><Trans>Note title</Trans></label>
       <div className="note-title-field" ref={field}>
         <span className="note-title-measure" aria-hidden="true">{title || placeholder}{" "}</span>
-        <textarea id="note-title" className="title-input" rows={1} value={title} ref={input}
+        <textarea id={titleId} className="title-input" rows={1} value={title} ref={input}
           onChange={(event) => onTitleChange(event.target.value.replace(/[\r\n]+/g, " "))}
           onKeyDown={(event) => {
             if (event.key !== "Enter" || event.nativeEvent.isComposing) return;
@@ -136,7 +140,7 @@ function NoteHeader({ title, readOnly, provenance, titlePlaceholder, focusTitle,
   </>;
 }
 
-export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, currentPath, linkTargets, recentPaths,
+export function MarkdownNoteEditor({ editorKey, titleId = "note-title", draft, preferences, documentId, currentPath, linkTargets, recentPaths,
   linkSuggestions, linkTypes, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onTitleVisibilityChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
   onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance,
@@ -144,7 +148,7 @@ export function MarkdownNoteEditor({ editorKey, draft, preferences, documentId, 
   commentAnchors, activeComment, commentReveal, onCommentAnchor, commentCard }: MarkdownNoteEditorProps) {
   useLingui();
   const titleCaret = useRef<TitleCaret | undefined>(undefined);
-  const header = <NoteHeader title={draft.title} readOnly={readOnly} provenance={provenance} titlePlaceholder={titlePlaceholder} focusTitle={focusTitle} caret={titleCaret} editorKey={editorKey}
+  const header = <NoteHeader title={draft.title} titleId={titleId} readOnly={readOnly} provenance={provenance} titlePlaceholder={titlePlaceholder} focusTitle={focusTitle} caret={titleCaret} editorKey={editorKey}
     properties={titleProperties} onTitleChange={onTitleChange} onTitleCommit={onTitleCommit} onTitleVisibilityChange={onTitleVisibilityChange} />;
   return <article className="writing-surface" style={{ "--editor-font-size": `${preferences.fontSize}px` } as CSSProperties}>
     <Suspense fallback={<div className="note-loading"><div className="note-header">{header}</div><div className="body-editor code-editor-loading" role="status" aria-label={t`Loading note editor`} aria-busy="true"><Trans>Preparing editor…</Trans></div></div>}>
