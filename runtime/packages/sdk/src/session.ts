@@ -40,6 +40,14 @@ export function withMutation(e: unknown, what: string, ids: MdbaseErrorContext):
   return new MdbaseError(schemaToError(e, what).toProblem(), { ...ids, cause: e });
 }
 
+/** @internal Proof from the write producer that this attempt applied nothing.
+ * Error codes alone cannot distinguish a refusal from a lost submit response. */
+export class WriteRefusal extends MdbaseError {
+  constructor(error: unknown, context: MdbaseErrorContext = {}) {
+    super(schemaToError(error, "submit").toProblem(), { ...context, cause: error });
+  }
+}
+
 const replicaProblems=new WeakSet<MdbaseError>();
 /** @internal Only an authenticated request response, not cancellation/close/codec errors. */
 export const isReplicaResponseProblem=(e:unknown):e is MdbaseError=>e instanceof MdbaseError&&replicaProblems.has(e);

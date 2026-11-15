@@ -9,6 +9,12 @@ import type { FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { embedActions, focusEmbedOnPointer } from "./embed-actions";
+import { embedPositions } from "./code-editor-embed-positions";
+
+const fileEmbeds = embedPositions<ResolvedFileReference>();
+
+/** Gives the editor a parse of the note's file embeds; see `embedPositions`. */
+export const parsedFileEmbeds = fileEmbeds.parsed;
 
 class FileEmbedWidget extends WidgetType {
   readonly locale = i18n.locale;
@@ -325,14 +331,14 @@ export function clipboardAttachments(data: Pick<DataTransfer, "files" | "items">
 }
 
 export function fileEmbedPresentation(
-  references: () => ResolvedFileReference[],
   onOpen: () => ((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void) | undefined,
   onVisible: () => ((keys: string[]) => void) | undefined = () => undefined
 ): Extension {
   return [
-    EditorView.decorations.compute(["doc", livePreviewReveal], (state) => {
-      const ranges = references().flatMap((reference): Range<Decoration>[] => {
-        if (!reference.block || reference.to > state.doc.length) return [];
+    fileEmbeds.field,
+    EditorView.decorations.compute([fileEmbeds.field, livePreviewReveal], (state) => {
+      const ranges = state.field(fileEmbeds.field).flatMap((reference): Range<Decoration>[] => {
+        if (!reference.block) return [];
         const line = state.doc.lineAt(reference.from);
         if (isRevealed(state, line.from, line.to)) return [];
         return [Decoration.replace({
@@ -348,11 +354,11 @@ export function fileEmbedPresentation(
       constructor(view: EditorView) { this.report(view); }
 
       update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged) this.report(update.view);
+        if (update.docChanged || update.viewportChanged || update.startState.field(fileEmbeds.field) !== update.state.field(fileEmbeds.field)) this.report(update.view);
       }
 
       private report(view: EditorView) {
-        const keys = references()
+        const keys = view.state.field(fileEmbeds.field)
           .filter((reference) => view.visibleRanges.some((range) => reference.from <= range.to && reference.to >= range.from))
           .map((reference) => fileAssetKey(reference.file));
         const fingerprint = keys.join("\n");

@@ -97,3 +97,31 @@ test("drops multiple files at the coordinates rather than the current caret", as
   await expect(body).toHaveText("Before.After.");
   await data.dispose();
 });
+
+test("asks before a shared link or text becomes a note", async ({ page }) => {
+  await page.goto("?demo=4&new=Groceries&text=Milk+and+eggs&url=https%3A%2F%2Fexample.com%2Flist");
+  const dialog = page.getByRole("alertdialog", { name: "Create a note from what was shared?" });
+  await expect(dialog).toContainText("Groceries");
+  await expect(dialog).toContainText("Milk and eggs");
+  await expect(page).not.toHaveURL(/[?&](new|text|url)=/);
+  await expect(page.locator(".list-header p")).toContainText("4 notes");
+
+  await dialog.getByRole("button", { name: "Create note" }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Groceries");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await expect(body).toContainText("Milk and eggs");
+  await expect(body).toContainText("https://example.com/list");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
+});
+
+test("writes nothing when a shared note is declined", async ({ page }) => {
+  await page.goto("?demo=4&new=Unwanted&text=From+another+site");
+  const dialog = page.getByRole("alertdialog", { name: "Create a note from what was shared?" });
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.getByRole("textbox", { name: "Note title" })).not.toHaveValue("Unwanted");
+  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await page.reload();
+  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+});

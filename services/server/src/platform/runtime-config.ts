@@ -10,6 +10,10 @@ import type { AccountBackend } from "../features/next/account-backend-flip.js";
 
 import { DEFAULT_CLIENT_UPDATE_POLICY, type ClientUpdatePolicy } from "../features/next/cutover-problems.js";
 import { parsePasswordSignupIpMaxAttempts, passwordSignupIpRule } from "../features/auth/password-signup-limit.js";
+import {
+  opsMetricsPushSetting,
+  type OpsMetricsPushSetting
+} from "../features/usage/ops-metrics-push.js";
 
 export type RegistrationMode = "closed" | "invite" | "open";
 
@@ -66,6 +70,8 @@ export interface RuntimeConfig {
   clientUpdate?: ClientUpdatePolicy;
   /** Backend of newly created accounts (MDBASE_NEW_ACCOUNT_BACKEND); next when absent. */
   newAccountBackend?: AccountBackend;
+  /** Usage report push to the operations ingest; never refuses startup. */
+  opsMetricsPush?: OpsMetricsPushSetting;
 }
 
 export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
@@ -368,11 +374,12 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     );
   }
   const nextControlPlane = parseNextControlPlaneEnv(env);
+  const environment = env.MDBASE_CONNECT_ENVIRONMENT?.trim() || "unspecified";
   return validateRuntimeConfig({
     host,
     publicUrl: env.PUBLIC_URL ?? `http://${host}:${port}`,
     identityIssuer: env.MDBASE_CONNECT_IDENTITY_ISSUER?.trim() ?? "",
-    environment: env.MDBASE_CONNECT_ENVIRONMENT?.trim() || "unspecified",
+    environment,
     devAuth: env.MDBASE_CONNECT_DEV_AUTH === "1",
     tailscaleAuth: env.MDBASE_CONNECT_TAILSCALE_AUTH === "1",
     githubAuth: githubConfigured ? { clientId, clientSecret, allowedUserIds } : null,
@@ -415,7 +422,8 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     nextTimers: parseNextTimersEnv(env),
     pushTargetSeal: parsePushTargetSealerEnv(env),
     clientUpdate: parseClientUpdateEnv(env),
-    newAccountBackend: parseNewAccountBackendEnv(env, nextControlPlane)
+    newAccountBackend: parseNewAccountBackendEnv(env, nextControlPlane),
+    opsMetricsPush: opsMetricsPushSetting(env, environment)
   });
 }
 

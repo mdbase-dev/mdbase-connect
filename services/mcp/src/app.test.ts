@@ -15,10 +15,10 @@ import type { McpRuntimeConfig } from "./config.js";
 import { SecretBox, pkceChallenge } from "./security.js";
 
 const MCP_CAPABILITIES = {
-  contract_version: 2 as const,
-  required: ["collection.read"] as const,
-  optional: ["records.create", "records.edit", "records.delete", "definitions.manage"] as const
-};
+  contract_version: 2,
+  required: ["collection.read"],
+  optional: ["records.create", "records.edit", "records.delete", "definitions.manage"]
+} satisfies Parameters<typeof applicationOperationSelectionIsAtomic>[0];
 
 const applicationId = "10000000-0000-4000-8000-000000000001";
 const firstCollectionId = "20000000-0000-4000-8000-000000000001";

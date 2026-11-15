@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import "../test/dialog.js";
+import { finishingAnimation } from "../test/dialog.js";
 import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -27,7 +27,7 @@ it("waits for every actual exit animation, including cancellation", async () => 
   let cancelTransform!: (cause: Error) => void;
   const opacity = new Promise<void>(resolve => { finishOpacity = resolve; });
   const transform = new Promise<void>((_resolve, reject) => { cancelTransform = reject; });
-  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: opacity }, { finished: transform }] as Animation[]);
+  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([finishingAnimation(opacity), finishingAnimation(transform)]);
   await act(async () => root.render(<Overlay open />));
   await act(async () => root.render(<Overlay open={false} />));
   expect(host.firstChild).not.toBeNull();
@@ -39,7 +39,7 @@ it("waits for every actual exit animation, including cancellation", async () => 
 
 it("does not let a stale exit remove a reopened overlay", async () => {
   let finish!: () => void;
-  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([{ finished: new Promise<void>(resolve => { finish = resolve; }) }] as Animation[]);
+  vi.spyOn(HTMLElement.prototype, "getAnimations").mockReturnValue([finishingAnimation(new Promise<void>(resolve => { finish = resolve; }))]);
   await act(async () => root.render(<Overlay open />));
   await act(async () => root.render(<Overlay open={false} />));
   await act(async () => root.render(<Overlay open />));

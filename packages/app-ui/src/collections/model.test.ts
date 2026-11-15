@@ -31,7 +31,7 @@ function snapshot(phase: MdbasePhase, extra: Partial<MdbaseSnapshot> = {}): Mdba
 const app = { appName: "TaskNotes" };
 
 describe("collectionView", () => {
-  it.each([
+  it.each<[NonNullable<Extract<MdbasePhase, { kind: "opening" }>["progress"]>, string]>([
     ["joining", "Connecting your collection…"], ["opening_store", "Preparing your offline copy…"],
     ["connecting_log", "Connecting to sync…"], ["syncing", "Syncing your collection…"],
     ["loading_snapshot", "Loading the collection snapshot…"], ["replaying", "Applying collection updates…"],
@@ -43,8 +43,9 @@ describe("collectionView", () => {
     expect(collectionView(snapshot({...phase, slow: true}), app)).toMatchObject({kind: "opening", lead: `${lead}\nThis is taking longer than usual.`, slow: true});
   });
   it("keeps the older-SDK fallback and never renders unknown progress text", () => {
+    // Deliberately pass unknown runtime progress from an older/newer SDK.
     for (const progress of [undefined, "private document name", "__proto__", "constructor"]) {
-      const phase = {kind: "opening" as const, collectionId: A, displayName: "Notes", slow: true, progress};
+      const phase = {kind: "opening" as const, collectionId: A, displayName: "Notes", slow: true, progress: progress as Extract<MdbasePhase, { kind: "opening" }>["progress"]};
       expect(collectionView(snapshot(phase), app).lead).toBe("This is taking longer than usual.");
       expect(collectionView(snapshot({...phase, slow: false}), app).lead).toBeNull();
     }
@@ -111,7 +112,7 @@ describe("collectionView", () => {
 describe("problemControl", () => {
   const signedInOpen = { collectionId: A, signedIn: true, open: true };
   it("gives every SDK action one control or none", () => {
-    const of = (action: string, updateUrl: string | null = null, context = signedInOpen) =>
+    const of = (action: string, updateUrl: string | null = null, context: Parameters<typeof problemControl>[1] = signedInOpen) =>
       problemControl({ action: action as never, actionLabel: "Go", updateUrl }, context)?.kind ?? null;
     expect(of("sign_in")).toBe("sign_in");
     expect(of("approve")).toBe("approve");

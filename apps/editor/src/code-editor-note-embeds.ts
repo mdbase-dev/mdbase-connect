@@ -5,6 +5,12 @@ import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import { embedActions, focusEmbedOnPointer } from "./embed-actions";
+import { embedPositions } from "./code-editor-embed-positions";
+
+const noteEmbeds = embedPositions<ResolvedNoteEmbed>();
+
+/** Gives the editor a parse of the note's transclusions; see `embedPositions`. */
+export const parsedNoteEmbeds = noteEmbeds.parsed;
 
 class NoteEmbedWidget extends WidgetType {
   readonly locale = i18n.locale;
@@ -78,14 +84,13 @@ class NoteEmbedWidget extends WidgetType {
 }
 
 export function noteEmbedPresentation(
-  references: () => ResolvedNoteEmbed[],
   onOpen: () => ((path: string) => void) | undefined,
   onVisible: () => ((keys: string[]) => void) | undefined
 ): Extension {
   return [
-    EditorView.decorations.compute(["doc", livePreviewReveal], (state) => {
-      const ranges = references().flatMap((reference): Range<Decoration>[] => {
-        if (reference.to > state.doc.length) return [];
+    noteEmbeds.field,
+    EditorView.decorations.compute([noteEmbeds.field, livePreviewReveal], (state) => {
+      const ranges = state.field(noteEmbeds.field).flatMap((reference): Range<Decoration>[] => {
         const line = state.doc.lineAt(reference.from);
         if (isRevealed(state, line.from, line.to)) return [];
         return [Decoration.replace({
@@ -101,11 +106,11 @@ export function noteEmbedPresentation(
       constructor(view: EditorView) { this.report(view); }
 
       update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged) this.report(update.view);
+        if (update.docChanged || update.viewportChanged || update.startState.field(noteEmbeds.field) !== update.state.field(noteEmbeds.field)) this.report(update.view);
       }
 
       private report(view: EditorView) {
-        const keys = references()
+        const keys = view.state.field(noteEmbeds.field)
           .filter((reference) => view.visibleRanges.some((range) => reference.from <= range.to && reference.to >= range.from))
           .map((reference) => reference.key);
         const fingerprint = keys.join("\n");

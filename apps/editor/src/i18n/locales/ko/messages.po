@@ -1190,6 +1190,7 @@ msgstr "블록 · {0}"
 msgid "Body differences"
 msgstr "본문 차이"
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Bold"
 msgstr "굵게"
@@ -1203,6 +1204,7 @@ msgid "Browse ready-made types"
 msgstr "준비된 유형 찾아보기"
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Bulleted list"
 msgstr "글머리 기호 목록"
 
@@ -1890,6 +1892,10 @@ msgstr "{name}을(를) 업로드할 수 없습니다. .md로 끝나는 파일은
 msgid "Create a note for yourself, starting from your account name."
 msgstr "계정 이름으로 시작해 나를 나타내는 노트를 만드세요."
 
+#: src/App.tsx
+msgid "Create a note from what was shared?"
+msgstr "공유된 내용으로 노트를 만들까요?"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "설치된 계약과 일치하는 필드를 만듭니다. 나중에 이름을 바꾸고 다시 매핑할 수 있습니다."
@@ -1897,6 +1903,10 @@ msgstr "설치된 계약과 일치하는 필드를 만듭니다. 나중에 이�
 #: src/YourPersonPanel.tsx
 msgid "Create my person record"
 msgstr "내 사람 레코드 만들기"
+
+#: src/App.tsx
+msgid "Create note"
+msgstr "노트 만들기"
 
 #. placeholder {0}: query.trim()
 #: src/QuickOpen.tsx
@@ -2129,7 +2139,9 @@ msgstr "문서 개요"
 msgid "Documentation"
 msgstr "문서"
 
+#: src/App.tsx
 #: src/FolderChangeDialog.tsx
+#: src/writing-toolbar.tsx
 msgid "Done"
 msgstr "완료"
 
@@ -2507,6 +2519,10 @@ msgstr "이 브라우저에서 잊기"
 msgid "Format"
 msgstr "형식"
 
+#: src/writing-toolbar.tsx
+msgid "Formatting"
+msgstr "서식"
+
 #: src/editor-commands.ts
 msgid "Forward"
 msgstr "앞으로"
@@ -2570,6 +2586,10 @@ msgstr "노트 제목으로 이동"
 msgid "Guide compatible tools when they create or rename records of this type."
 msgstr "호환 도구가 이 유형의 레코드를 만들거나 이름을 바꿀 때 참고하도록 안내합니다."
 
+#: src/CodeEditor.tsx
+msgid "Heading"
+msgstr "제목"
+
 #: src/code-editor-completions.ts
 msgid "Heading 1"
 msgstr "제목 1"
@@ -2630,6 +2650,10 @@ msgstr "목록에"
 #: src/type-contracts.ts
 msgid "Incompatible"
 msgstr "호환되지 않음"
+
+#: src/CodeEditor.tsx
+msgid "Indent"
+msgstr "들여쓰기"
 
 #: src/editor-commands.ts
 msgid "Inline code"
@@ -2699,6 +2723,7 @@ msgstr "잘못된 JSON입니다."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "추가된 이후 편집되지 않아 새 기본 유형으로 대체됩니다."
 
+#: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
 msgstr "기울임꼴"
@@ -2809,6 +2834,10 @@ msgstr "이 레코드를 나에게 연결"
 #: src/code-editor-reference-diagnostics.ts
 msgid "Link to {title}"
 msgstr "{title}에 링크"
+
+#: src/CodeEditor.tsx
+msgid "Link to note"
+msgstr "노트에 연결"
 
 #: src/code-editor-completions.ts
 msgid "Link to note or file"
@@ -3764,6 +3793,10 @@ msgstr "기타 컬렉션 규칙"
 msgid "Other fields are allowed"
 msgstr "다른 필드도 허용됩니다."
 
+#: src/CodeEditor.tsx
+msgid "Outdent"
+msgstr "내어쓰기"
+
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "텍스트 입력란 외부"
@@ -4574,6 +4607,10 @@ msgstr "섹션 제목"
 msgid "Section in note"
 msgstr "노트 내 섹션"
 
+#: src/NoteList.tsx
+msgid "Select"
+msgstr "선택"
+
 #: src/WorkspaceChrome.tsx
 msgid "Select a note, or start a new one."
 msgstr "노트를 선택하거나 새 노트를 시작하세요."
@@ -4833,6 +4870,7 @@ msgid "Tags must be text or a list of text before they can be changed together."
 msgstr "태그를 함께 변경하려면 텍스트 또는 텍스트 목록이어야 합니다."
 
 #: src/code-editor-completions.ts
+#: src/CodeEditor.tsx
 msgid "Task"
 msgstr "작업"
 

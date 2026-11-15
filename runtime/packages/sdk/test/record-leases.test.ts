@@ -1,6 +1,6 @@
 // Real SDK over MemoryReplica: protocol/lease grammar, not native/LAB qualification.
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MdbaseError, type MdbaseClient, type RecordLease } from "../src/index.js";
+import { MdbaseError, mdbaseError, type MdbaseClient, type RecordLease } from "../src/index.js";
 import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
 const clients: MdbaseClient[] = [];
@@ -8,8 +8,8 @@ afterEach(() => {
     for (const client of clients.splice(0)) client.close();
     vi.restoreAllMocks();
 });
-async function fixture(pending = false) {
-    const replica = new MemoryReplica({ confirmDelayMs: pending ? null : 0 });
+async function fixture(pending = false, role: "owner" | "viewer" = "owner") {
+    const replica = new MemoryReplica({ confirmDelayMs: pending ? null : 0, role });
     const record = replica.seed({
         path: "notes/writing.md",
         body: "Original body\n",
@@ -181,6 +181,102 @@ describe("shared native record leases", () => {
         expect((await f.client.pendingWrites())[0]!.receipt.mutation).toBe(mid);
         f.replica.confirmAll();
         expect(await lease.session.flush()).toMatchObject({ ok: true });
+        expect(update).toHaveBeenCalledTimes(1);
+        lease.release();
+    });
+    it.each(["receipt", "response"])("resolves a concurrent CAS conflict after capture (%s), including release/reopen", async (answer) => {
+        const f = await fixture();
+        let lease = await f.client.records.open(f.record.id);
+        const original = f.client.update.bind(f.client);
+        const update = vi.spyOn(f.client, "update").mockImplementationOnce(async (...args) => {
+            expect(lease.session.getSnapshot().recovery).not.toBeNull();
+            f.replica.editElsewhere(f.record.id, { body: "Theirs\n" });
+            // MemoryReplica's CAS planner returns a rejected receipt, as does
+            // the native planner. Also exercise a submit-level refusal.
+            if (answer === "response")
+                f.replica.failNextWrite(mdbaseError("conflict", "revision changed", "revision").toProblem());
+            return original(...args);
+        });
+        lease.session.setBody("Mine\n");
+        lease.session.patchFrontmatter({ title: "Mine" });
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code: "conflict" } });
+        expect(lease.session.getSnapshot()).toMatchObject({
+            state: "conflict", body: "Mine\n", frontmatter: { title: "Mine" },
+            dirty: true, recovery: null, remote: { body: "Theirs\n" },
+        });
+        lease.release();
+        lease = await f.client.records.open(f.record.id);
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "conflict", recovery: null, dirty: true });
+        lease.session.resolve({ keep: "mine" });
+        expect(await lease.session.flush()).toMatchObject({ ok: true });
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "saved", body: "Mine\n", frontmatter: { title: "Mine" }, dirty: false });
+        expect(update).toHaveBeenCalledTimes(2);
+        lease.release();
+    });
+    it.each(["invalid_record", "forbidden"] as const)("keeps a refused %s draft editable across release/reopen and permits a deliberate save", async (code) => {
+        const f = await fixture();
+        let lease = await f.client.records.open(f.record.id);
+        const update = vi.spyOn(f.client, "update"),
+            receipt = vi.spyOn(f.client, "awaitReceipt");
+        lease.session.setBody("Unsent\n");
+        lease.session.patchFrontmatter({ title: "Invalid" });
+        // The kit has no schema-validation planner; inject the native refusal
+        // at the submit boundary, without fabricating a session/client error.
+        f.replica.failNextWrite(mdbaseError(code, "write refused").toProblem());
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code } });
+        expect(lease.session.getSnapshot()).toMatchObject({
+            state: "error", body: "Unsent\n", frontmatter: { title: "Invalid" }, dirty: true, recovery: null,
+        });
+        expect(receipt).not.toHaveBeenCalled();
+        expect((await f.client.get(f.record.id, { include: { body: true } })).body).toBe("Original body\n");
+        lease.release();
+        lease = await f.client.records.open(f.record.id);
+        expect(lease.session.getSnapshot()).toMatchObject({ body: "Unsent\n", frontmatter: { title: "Invalid" }, dirty: true, recovery: null });
+        lease.session.patchFrontmatter({ title: "Fixed" });
+        expect(await lease.session.flush()).toMatchObject({ ok: true });
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "saved", body: "Unsent\n", frontmatter: { title: "Fixed" }, dirty: false, recovery: null });
+        expect(update).toHaveBeenCalledTimes(2);
+        expect(update.mock.calls[1]![2]!.mutationId).not.toBe(update.mock.calls[0]![2]!.mutationId);
+        lease.release();
+    });
+    it("classifies a submit-level not_found as deleted without losing the draft", async () => {
+        const f = await fixture(), lease = await f.client.records.open(f.record.id);
+        lease.session.setBody("Unsent\n");
+        f.replica.failNextWrite(mdbaseError("not_found", "record deleted").toProblem());
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code: "not_found" } });
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "deleted", dirty: true, body: "Unsent\n", recovery: null });
+        lease.release();
+    });
+    it("clears capture on the client's local view-only refusal", async () => {
+        const f = await fixture(false, "viewer"), lease = await f.client.records.open(f.record.id);
+        lease.session.setBody("Unsent\n");
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code: "forbidden", reason: "read_only" } });
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "error", dirty: true, body: "Unsent\n", recovery: null });
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code: "forbidden", reason: "read_only" } });
+        lease.release();
+    });
+    it.each(["outcome_unknown", "unavailable", "cancelled", "internal"] as const)("retains a captured mutation after an ambiguous %s response and settles it after reopen", async (code) => {
+        const f = await fixture(true);
+        let lease = await f.client.records.open(f.record.id);
+        const original = f.client.update.bind(f.client);
+        const update = vi.spyOn(f.client, "update").mockImplementationOnce(async (...args) => {
+            const write = await original(...args);
+            // A later submit of the same MID gets an uncertain response even
+            // though the first request really captured it.
+            f.replica.failNextWrite(mdbaseError(code, "capture uncertain").toProblem());
+            await original(...args);
+            return write;
+        });
+        lease.session.setBody("Captured\n");
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code } });
+        const mid = lease.session.getSnapshot().recovery!.mutationId;
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "recovery", dirty: true });
+        lease.release();
+        lease = await f.client.records.open(f.record.id);
+        expect(lease.session.getSnapshot().recovery!.mutationId).toBe(mid);
+        f.replica.confirmAll();
+        expect(await lease.session.flush()).toMatchObject({ ok: true });
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "saved", body: "Captured\n", recovery: null, dirty: false });
         expect(update).toHaveBeenCalledTimes(1);
         lease.release();
     });

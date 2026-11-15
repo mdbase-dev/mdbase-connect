@@ -16,11 +16,11 @@ const targets = linkTargets("Shared/source.md", { "![[Target]]": { kind: "note",
 const summary = (body?: string) => ({ ...document(body ?? ""), ...(body === undefined ? { body: undefined } : {}) });
 function embedHarness(read: (path: string) => Promise<ReturnType<typeof document>>, body?: string) {
   const props = { gateway: { read }, owner: { collectionId: "a" as string | undefined, epoch: 1 }, notes: [summary(body)] };
-  const hook = renderHook(() => useEmbeddedNoteReferences(props.gateway, props.owner, "![[Target]]", props.notes as never, targets));
+  const hook = renderHook(() => useEmbeddedNoteReferences(props.gateway, props.owner, "![[Target]]", props.notes as never, targets).references);
   return { props, ...hook };
 }
 
-async function ready(result: { current: ReturnType<typeof useEmbeddedNoteReferences> }, text: string) {
+async function ready(result: { current: ReturnType<typeof useEmbeddedNoteReferences>["references"] }, text: string) {
   await waitFor(() => expect(result.current[0]).toMatchObject({ status: "ready", body: text }));
 }
 
@@ -128,7 +128,7 @@ describe("embedded note owner cache", () => {
         attemptedB += 1;
         throw suspendedB.promise;
       }
-      return embeds;
+      return embeds.references;
     }, {
       wrapper: ({ children }: { children: ReactNode }) => createElement(Suspense, { fallback: null }, children)
     });

@@ -99,8 +99,9 @@ describe("describeError", () => {
     for (const value of ["collection_setup_conflict", {code: "collection_setup_conflict"},
       new MdbaseError({code: "invalid_request", recovery: "none", message: "raw diagnostic", reason: "collection_setup_conflict"})]) {
       const described = describeError(value)!;
-      expect(described).toMatchObject({key: "collection_setup_conflict", title: "Collection setup conflicts", action: "choose_collection", severity: "warning"});
-      expect(described.message).toContain("review");
+      expect(described).toMatchObject({key: "collection_setup_conflict", title: "Collection setup conflicts", action: "retry", severity: "warning"});
+      expect(described.message).toContain("nothing was changed");
+      expect(described.message).not.toMatch(/owner/i);
       expect(described.message).not.toMatch(/raw diagnostic|unexpected problem|Reload/);
     }
   });

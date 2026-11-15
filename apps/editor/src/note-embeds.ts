@@ -2,6 +2,7 @@ import { t } from "@lingui/core/macro";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LinkTargets } from "./collection-links";
 import type { MarkdownReference } from "./markdown-references";
+import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { markdownFragment } from "./markdown-fragments";
 import type { CollectionGateway, NoteDocument, NoteSummary } from "./model";
 import { basename, noteTitle } from "./note";
@@ -36,7 +37,7 @@ export function useEmbeddedNoteReferences(
   notes: readonly NoteSummary[],
   linkTargets: LinkTargets | undefined,
   visibleKeys?: ReadonlySet<string>
-): ResolvedNoteEmbed[] {
+): ParsedEmbeds<ResolvedNoteEmbed> {
   const [cacheVersion, rerender] = useState(0);
   const targets = linkTargets ?? NO_TARGETS;
   const targetsVersion = useSyncExternalStore(targets.subscribe, targets.getVersion, targets.getVersion);
@@ -60,7 +61,8 @@ export function useEmbeddedNoteReferences(
   const errors = store.errors;
 
   const [parsed, setParsed] = useState<{ source: string; references: MarkdownReference[] }>(() => ({ source: "", references: EMPTY_REFERENCES }));
-  const references = parsed.source === source ? parsed.references : EMPTY_REFERENCES;
+  // The last parse stands until the next one lands; the editor keeps its positions current meanwhile.
+  const { references } = parsed;
   useEffect(() => {
     let active = true;
     void import("./markdown-references").then(({ markdownReferences }) => {
@@ -86,7 +88,7 @@ export function useEmbeddedNoteReferences(
     const key = `${reference.from}:${reference.to}`;
     const named = (reference.label ?? reference.target) || t`Missing note`;
     const target = reference.target
-      ? linkTargets?.get(source.slice(reference.from, reference.to))
+      ? linkTargets?.get(parsed.source.slice(reference.from, reference.to))
       : sourcePath ? { kind: "note" as const, path: sourcePath } : undefined;
     if (!target) {
       const failure = linkTargets?.failure;
@@ -135,7 +137,7 @@ export function useEmbeddedNoteReferences(
       revision: cached?.revision
     }];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- targetsVersion marks new answers in linkTargets
-  }), [references, source, linkTargets, targetsVersion, sourcePath, notesByPath, store, cache, errors, cacheVersion]);
+  }), [references, parsed.source, linkTargets, targetsVersion, sourcePath, notesByPath, store, cache, errors, cacheVersion]);
 
   const requests = resolved.filter((reference) => (
     reference.status === "loading"
@@ -170,7 +172,7 @@ export function useEmbeddedNoteReferences(
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store, requestKey]);
 
-  return resolved;
+  return useMemo(() => ({ source: parsed.source, references: resolved }), [parsed.source, resolved]);
 }
 
 function clearStore(store: EmbedCacheStore | undefined): void {

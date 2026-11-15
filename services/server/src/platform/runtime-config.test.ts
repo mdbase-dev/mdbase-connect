@@ -44,6 +44,24 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
 }
 
 describe("public runtime configuration", () => {
+  it("never refuses startup over the ops metrics push", () => {
+    const local = {
+      PUBLIC_URL: "http://localhost:8787",
+      MDBASE_CONNECT_DEV_AUTH: "1",
+      MDBASE_CONNECT_ENVIRONMENT: "local"
+    };
+    expect(legacyConfigFromEnv(local).opsMetricsPush).toEqual({ enabled: false, reason: null });
+    expect(legacyConfigFromEnv({
+      ...local,
+      OPS_METRICS_INGEST_URL: "https://ingest.example.test/v1/snapshots",
+      OPS_METRICS_INGEST_TOKEN: "test-ingest-bearer-value"
+    }).opsMetricsPush).toEqual({ enabled: false, reason: "MDBASE_CONNECT_ENVIRONMENT is not production" });
+    expect(legacyConfigFromEnv({
+      ...local,
+      OPS_METRICS_INGEST_TOKEN: "test-ingest-bearer-value"
+    }).opsMetricsPush).toEqual({ enabled: false, reason: "OPS_METRICS_INGEST_URL is not set" });
+  });
+
   it("normalizes and validates the non-secret environment identity", () => {
     expect(validateRuntimeConfig(config({
       environment: " lab ",

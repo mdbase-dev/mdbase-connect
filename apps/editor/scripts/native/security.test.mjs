@@ -93,6 +93,19 @@ it('protected jobs only execute workflow-owned helpers, with ancestry checks bef
  assert.equal(smokeJob.needs,'native-deploy');
  const recovery=jobs['production-recovery'];
  assert.match(recovery.if,/^always\(\)/);
+ // Implicit deployments would record this run's main head instead of the built source.
+ for(const name of ['native-inputs','native-deploy','production-recovery'])assert.equal(jobs[name].environment.deployment,false,name);
+ const record=jobs['deployment-record'];
+ assert.equal(record.environment,undefined);
+ assert.deepEqual(record.permissions,{deployments:'write'});
+ assert.deepEqual(record.needs,['native-deploy','smoke','production-recovery']);
+ assert.match(record.if,/^always\(\)/);assert.match(record.if,/native-deploy.result != 'skipped'/);
+ assert.equal(record.env.PUBLISHED,"${{ needs.native-deploy.result == 'success' && needs.smoke.result == 'success' }}");
+ const script=record.steps.map(s=>s.run).join('\n');
+ assert.match(script,/ref: \$sha/);assert.match(script,/source_sha: \$sha/);
+ assert.match(script,/--arg suffix "-\$\{SOURCE_SHA:0:12\}\.js"/);
+ assert.match(script,/required_contexts: \[\]/);assert.match(script,/auto_merge: false/);
+ assert.doesNotMatch(script,/GITHUB_SHA|github\.sha/);
  assert.match(recovery.if,/native-deploy.result != 'skipped'/);
  assert.match(recovery.if,/needs\.smoke\.result != 'success'/);
  assert.doesNotMatch(recovery.if,/native-deploy.result == 'success'/);

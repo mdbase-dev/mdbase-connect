@@ -30,7 +30,7 @@ import { LiveListener, LiveQueryState, LiveResult } from "./live.js";
 import { RecordSet, type RecordSetOptions } from "./record-set.js";
 import { PresenceApi } from "./presence.js";
 import { rememberWitness, witnessesFor } from "./witness.js";
-import { API_VERSIONS, problemCodec, schemaToError, Session, withMutation } from "./session.js";
+import { API_VERSIONS, isReplicaResponseProblem, problemCodec, schemaToError, Session, withMutation, WriteRefusal } from "./session.js";
 import type { Connector } from "./transport/port.js";
 import { usesNextRelayFence } from "./transport/read-fence-policy.js";
 import { applyTypePack, planTypePack, type TypePackApplyResult, type TypePackOptions, type TypePackPlan, type TypePackProvision } from "./type-packs.js";
@@ -845,6 +845,7 @@ export class MdbaseClient {
     // SAME codec passed to dispatch, not caller options mutated while pending.
     const codec = o.codec;
     const read = this.fenceReads && READ_METHODS.has(method);
+    let retried = false;
     for (;;) {
       const s = read ? await this.readyForRead(o.signal, !o.retry) : o.retry ? await this.ready({ signal: o.signal }) : this.currentSession();
       try {
@@ -865,7 +866,13 @@ export class MdbaseClient {
         return r;
       } catch (e) {
         const lost = isMdbaseError(e, "unavailable") && s.closed;
-        if (!(o.retry && lost && this.opts.reconnect !== false && !this.closing)) throw e;
+        if (!(o.retry && lost && this.opts.reconnect !== false && !this.closing)) {
+          // A refusal of the retry cannot prove the first attempt applied
+          // nothing. Strip response provenance, retaining the actual problem.
+          if (retried && isReplicaResponseProblem(e)) throw new MdbaseError(e.toProblem(), { cause: e });
+          throw e;
+        }
+        retried = true;
       }
     }
   }
@@ -1841,7 +1848,7 @@ export class MdbaseClient {
 
   /** Submit operations as one mutation: they apply together or not at all. */
   async submit(ops: Op[], o: WriteOptions = {}): Promise<Write> {
-    if (this.hello.version.minor >= 3 && this.hello.grant.role === "viewer") throw mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only");
+    if (this.hello.version.minor >= 3 && this.hello.grant.role === "viewer") throw new WriteRefusal(mdbaseError("forbidden", "You have view access, so changes can't be saved.", "read_only"));
     if (o.intent !== undefined && o.mutationId === undefined) o = { ...o, mutationId: (await intentIds(this.collectionId, o.intent))[0] };
     const mutationId = o.mutationId ?? uuidv7();
     const p: SubmitParams = { ops, mutationId };
@@ -1868,10 +1875,17 @@ export class MdbaseClient {
       if (receipts.length !== 1) throw mdbaseError("internal", "submit answered without exactly one receipt", "invalid_submit_response");
       receipt = receipts[0]!;
     } catch (e) {
-      // A dry run captures nothing. Otherwise the request may have been captured
-      // whatever the code says: report the original identity, never a new one.
+      // Only an explicit submit refusal proves nothing applied. Storage failures,
+      // cancellation and unknown/internal outcomes can follow capture, including
+      // when delivered as response problems. A lost earlier attempt also lacks
+      // response provenance (see call's retry boundary).
       if (o.dryRun) throw e;
       void this.writeLedger.settle(mutationId);
+      if (isReplicaResponseProblem(e) && [
+        "invalid_request", "invalid_record", "not_found", "conflict",
+        "unauthenticated", "forbidden", "collection_invalid", "rate_limited",
+        "too_large", "upgrade_required",
+      ].includes(e.code)) throw new WriteRefusal(e, { mutationId });
       throw withMutation(e, "submit", { mutationId });
     }
     return o.dryRun ? new Write(receipt) : this._track(receipt);

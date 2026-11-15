@@ -154,6 +154,15 @@ approvals. UI repins change only the manifest and regenerated lock.
     in one asset means rollback did not succeed. The run stays failed even after a verified restore; a failed
     recovery is retained, not hidden. Production is successful only when both
     publication and smoke pass.
+11. Protected jobs use their environment with `deployment: false`; an implicit
+    GitHub deployment would name the run's main head, not the built source. A
+    final job without environment or Cloudflare credentials creates one GitHub
+    deployment per publication attempt with `ref`/`sha` = `source_sha` and a
+    payload carrying `source_sha`, `entry_asset_suffix` (`-<sha12>.js`) and the
+    run ID. Its status is `success`, with the Editor origin, only when upload and
+    smoke passed; otherwise `failure`, leaving the previous success active.
+    A staging smoke failure still serves its bytes; check the served entry
+    asset, not the record, when that distinction matters.
 
 Receipts retain the plan, authenticated intake, immutable artifact binding,
 complete inventory, project/deployment identity, verification attempts, previous
