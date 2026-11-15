@@ -136,8 +136,8 @@ describe("typed note properties", () => {
     vi.useFakeTimers();
     let reject!: (error: Error) => void;
     const onSave = vi.fn().mockImplementationOnce(() => new Promise<void>((_done, fail) => { reject = fail; })).mockResolvedValue(undefined);
-    const view = render(<PropertiesPanel note={eventNote} types={[eventType]} wordCount={42} onClose={() => {}} onSave={onSave} />);
-    expect(screen.getByText("Words").nextElementSibling).toHaveTextContent("42");
+    const view = render(<PropertiesPanel note={eventNote} types={[eventType]} body="Forty two words would be a lot to write out here." onClose={() => {}} onSave={onSave} />);
+    expect(screen.getByText("Words").nextElementSibling).toHaveTextContent("11");
     const input = screen.getByLabelText("event_date value");
     input.focus();
     fireEvent.change(input, { target: { value: "2026-07-23" } });

@@ -20,6 +20,7 @@ import {
 import { forEachDiagnostic, lintGutter, setDiagnosticsEffect, linter, lintKeymap, type Diagnostic } from "@codemirror/lint";
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
+import { changedSpan } from "./changed-span";
 import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension } from "@codemirror/state";
 import {
   Decoration,
@@ -770,15 +771,6 @@ const mdbaseHighlightStyle = HighlightStyle.define([
   { tag: tags.monospace, fontFamily: "var(--mono)", fontSize: "0.9em" },
   { tag: tags.invalid, color: "var(--danger)" }
 ]);
-
-function changedSpan(before: string, after: string) {
-  let start = 0;
-  const shortest = Math.min(before.length, after.length);
-  while (start < shortest && before.charCodeAt(start) === after.charCodeAt(start)) start++;
-  let end = 0;
-  while (end < shortest - start && before.charCodeAt(before.length - 1 - end) === after.charCodeAt(after.length - 1 - end)) end++;
-  return { from: start, to: before.length - end, insert: after.slice(start, after.length - end) };
-}
 
 function writerPresentationFor(variant: EditorVariant, quietMarkdown: boolean): Extension {
   if (variant !== "writer") return [];

@@ -43,6 +43,7 @@
     "@codemirror/view": "^6.43.12",
     "@embedpdf/pdfium": "2.15.1",
     "@embedpdf/react-pdf-viewer": "2.15.1",
+    "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
     "@lingui/core": "6.9.0",
     "@lingui/react": "6.9.0",

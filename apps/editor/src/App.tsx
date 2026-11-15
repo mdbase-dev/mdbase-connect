@@ -91,7 +91,6 @@ import {
   createdBody,
   editableNote,
   noteHeadings,
-  noteWordCount,
   noteTags,
   noteTitle,
   noteNeedsBodyTitle,
@@ -1965,7 +1964,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canCreateNotes, canRenameNotes, description, document, focusMode, newNotes, takenPaths, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, recoveryAction, recoveryBusy, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
-  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const usable = phase === "ready" && Boolean(description);
   // First usable render: only now may the offline shell install and precache.
   useEffect(() => { if (usable) offlineShell.ready(); }, [usable]);
@@ -2471,7 +2469,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} /> : <PropertiesPanel
           key={document.path}
           note={document}
-          wordCount={wordCount}
+          body={draft?.body}
           types={description.types}
           recordPaths={allNotes.map((note) => note.path)}
           error={propertiesError}
