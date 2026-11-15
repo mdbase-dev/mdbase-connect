@@ -145,7 +145,7 @@ import { initialEditorSurface, loadPreferences, savePreferences, type EditorPref
 import { takeQuickCapture } from "./quick-capture";
 import { activeEditorSelection, revealMarkdownLine } from "./code-editor-reveal";
 import { forgetRecentPath, rememberRecentPath, useRecentPaths } from "./recent-notes";
-import { buildEditorCommands, command, matchesCommandShortcut, type CommandId } from "./editor-commands";
+import { buildEditorCommands, command, commandDefinitions, isCommandId, matchesCommandShortcut, sequencePrefixes, useShortcuts, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { quickOpenResults, ShortcutHelp } from "./QuickOpen";
@@ -305,12 +305,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [paletteMode, setPaletteMode] = useState<"notes" | "commands" | "new-note">("notes");
   const [editorAutoFocus, setEditorAutoFocus] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const shortcutPrefix = useRef(0);
+  const shortcutPrefix = useRef<{ key: string; at: number }>(undefined);
+  // The palette's commands as last rendered, for custom shortcuts on commands without a built-in one.
+  const paletteCommands = useRef<EditorCommand[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
   const [noteHistoryState, setNoteHistoryState] = useState<NoteNavigationHistory>({ paths: [], index: -1 });
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
+  // Labels and palette shortcuts follow this device's shortcuts as Settings changes them.
+  useShortcuts();
   const [layout, setLayout] = useState<LayoutPreferences>(loadLayoutPreferences);
   const [noteSortPreference, setNoteSortPreference] = useState<NoteSortPreference>({ key: defaultNoteSort.key, direction: defaultNoteSort.direction });
   const [resizingPane, setResizingPane] = useState<"collection" | "list" | "inspector">();
@@ -1738,12 +1742,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const onKeyDown = (event: KeyboardEvent) => {
       globalThis.document.querySelector<HTMLElement>(".app-shell")?.setAttribute("data-keyboard", "true");
       if (event.isComposing || event.defaultPrevented) return;
+      // Settings is recording a new shortcut from this key.
+      if (event.target instanceof Element && event.target.closest("[data-shortcut-recorder]")) return;
       const modifier = event.metaKey || event.ctrlKey;
       const key = event.key.toLocaleLowerCase();
       const typing = event.target instanceof HTMLElement && (event.target.isContentEditable
         || Boolean(event.target.closest("input, textarea, select, [role='textbox'], [contenteditable='true']")));
-      const prefix = !typing && shortcutPrefix.current > 0 && event.timeStamp - shortcutPrefix.current < 1000 ? "g" : "";
-      shortcutPrefix.current = 0;
+      const pending = shortcutPrefix.current;
+      const prefix = !typing && pending && event.timeStamp - pending.at < 1000 ? pending.key : "";
+      shortcutPrefix.current = undefined;
       if (event.key === "Escape" && (quickOpen || shortcutsOpen)) {
         event.preventDefault();
         setQuickOpen(false); setShortcutsOpen(false);
@@ -1756,8 +1763,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         setQuickOpen(true);
         return;
       }
-      // Ctrl+K belongs to the writer's link insertion; elsewhere in a field it must not reach the browser.
-      if (modifier && !event.altKey && !event.shiftKey && key === "k"
+      // In text the palette's chord belongs to the writer's link insertion; elsewhere in a field it must not reach the browser.
+      if (matchesCommandShortcut("command-palette", event)
           && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
         event.preventDefault();
         return;
@@ -1790,7 +1797,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         focusNoteList();
         return;
       }
-      if (!typing && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
+      // Keys without a modifier are text inside fields; chords work everywhere.
+      const chord = modifier || event.altKey;
+      if ((!typing || chord) && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))) {
         const navigation = buildEditorCommands({
           notes: () => selectSurface("notes"),
           types: () => selectSurface("types"),
@@ -1798,7 +1807,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           "focus-search": () => { selectSurface("notes"); requestAnimationFrame(() => globalThis.document.querySelector<HTMLInputElement>(".search-field input")?.focus()); }
         }).find(entry => matchesCommandShortcut(entry.id as CommandId, event, prefix));
         if (navigation) { event.preventDefault(); navigation.run(); return; }
-        if (!modifier && !event.altKey && !event.shiftKey && key === "g") { shortcutPrefix.current = event.timeStamp; return; }
+        if (!typing && !chord && !event.shiftKey && sequencePrefixes().has(key)) { shortcutPrefix.current = { key, at: event.timeStamp }; return; }
       }
       if (event.key === "Escape" && focusMode && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"], .cm-panels, .cm-tooltip'))) {
         event.preventDefault();
@@ -1832,7 +1841,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       if ((matchesCommandShortcut("history-back", event) || matchesCommandShortcut("history-forward", event))
           && surface === "notes") {
         event.preventDefault();
-        navigateNoteHistory(event.key === "ArrowLeft" ? -1 : 1);
+        navigateNoteHistory(matchesCommandShortcut("history-back", event) ? -1 : 1);
         return;
       }
       if ((matchesCommandShortcut("next-note", event) || matchesCommandShortcut("previous-note", event)) && surface === "notes") {
@@ -1840,7 +1849,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         const selectedIndex = visibleBrowserEntries.findIndex((entry) => entry.kind === "note"
           ? !selectedCollectionFile && entry.path === selectedPath
           : entry.path === selectedCollectionFile?.path);
-        const direction = key === "j" ? 1 : -1;
+        const direction = matchesCommandShortcut("next-note", event) ? 1 : -1;
         const fallback = direction > 0 ? 0 : visibleNotes.length - 1;
         const nextIndex = selectedIndex < 0
           ? fallback
@@ -1854,6 +1863,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         event.preventDefault();
         setQuickOpen(false);
         setShortcutsOpen(true);
+        return;
+      }
+      // A shortcut someone gave a command that has no built-in one runs it wherever the palette could.
+      const custom = (!typing || chord) && !(event.target instanceof Element && event.target.closest('[role="dialog"], [role="alertdialog"], [role="menu"]'))
+        ? paletteCommands.current.find((entry) => isCommandId(entry.id) && !(commandDefinitions[entry.id] as CommandDefinition).shortcut && matchesCommandShortcut(entry.id, event))
+        : undefined;
+      if (custom) {
+        event.preventDefault();
+        custom.run();
       }
     };
     window.addEventListener("keydown", onKeyDown, true);
@@ -1985,6 +2003,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const commandContext = multipleSelected ? t`Selected notes` : document && !openNew ? noteTitle(document, typeDescriptors) : undefined;
   const noteCommandIds = new Set(["rename", "move", "duplicate", "delete", "copy-link", "copy-path", "attach-file", "pin", "unpin", "focus", "properties", "comments", "comment", "outline", "backlinks", "check-note", "move-selected", "delete-selected", "add-tag", "remove-tag", "set-property", "clear-selection"]);
   for (const entry of quickOpenCommands) if (noteCommandIds.has(entry.id)) entry.context = commandContext;
+  paletteCommands.current = quickOpenCommands;
   if (liveUndo && !liveUndo.busy) quickOpenCommands.unshift({ ...command("undo", liveUndo.onAction, liveUndo.label), context: recoveryAction?.kind === "pin" ? recoveryAction.path : recoveryAction?.kind === "delete" ? noteTitle(recoveryAction.document, typeDescriptors) : recoveryMessage });
   const pendingNoteMutations = gateway.pendingNoteMutations();
   const peekNote = allNotes.find((note) => note.path === peekPath);
@@ -2428,7 +2447,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onCreate: canCreateNotes && !mutationsFrozen ? title => openNewNote({ ...newNoteContext(noteFilter, typeDescriptors), title }) : undefined,
         onSelect: path => { setSearch(""); setNoteFilter(undefined); setSurface("notes"); navigateToNote(path); }
       }, query)} onClose={() => setQuickOpen(false)} />}
-    {shortcutsOpen && <ShortcutHelp canRename={canRenameNotes && !mutationsFrozen && Boolean(selectedPath) && !selectedCollectionFile && !openNew} onClose={() => setShortcutsOpen(false)} />}
+    {shortcutsOpen && <ShortcutHelp canRename={canRenameNotes && !mutationsFrozen && Boolean(selectedPath) && !selectedCollectionFile && !openNew} onClose={() => setShortcutsOpen(false)} onCustomize={() => {
+      setShortcutsOpen(false);
+      selectSurface("settings");
+      requestAnimationFrame(() => globalThis.document.getElementById("keyboard-shortcuts")?.scrollIntoView({ block: "start" }));
+    }} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
