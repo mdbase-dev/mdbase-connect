@@ -97,7 +97,7 @@ an investigation boundary, never permission to replace assets or move a tag.
 Consumers still verify exact source identity, signatures, attestations and
 lockfile integrity; repository protections supplement those checks.
 
-## Upgrade predecessor and historical regressions
+## Upgrade predecessor and the beta95 server regression
 
 `.github/previous-release.env` identifies a versioned published upgrade fixture,
 not a live newest-release pointer. Advance its annotated tag, full commit and
@@ -111,23 +111,23 @@ fallback or verification bypass exists.
 
 These checks prove compatibility with the recorded fixture, not the currently
 deployed predecessor. The actual deployment pair remains independently bound
-and qualified by private release preparation and staging below. The retained
-beta95 and beta94 lanes do not move. A fixture refresh itself neither publishes
-nor deploys a release.
+and qualified by private release preparation and staging below. A fixture
+refresh itself neither publishes nor deploys a release.
 The current fixture is beta105 (`21d035cc31b9b16548c3a57b51ecdc3c1b8c9dde`),
 with server/provider images from verified publication run `35313866662`.
 
-Historical regressions and candidate qualification are separate. The beta94
-schema-38→41 prelude and beta95 retained-v2 provider rollback scenarios use the
-immutable beta99/schema41 successor pinned in `test/upgrade/historical-provider.sh`.
-The historical predecessor pins, complete scenarios and deadlines remain intact;
-both sides now identify real historical images rather than permanently requiring
-current migrations to equal beta95. The beta95 pending-server regression remains
-required independently. Historical image digests, source labels, published release
-metadata and annotated origin tags are checked. These tests do not qualify the
-current candidate or authorize restoring beta95/beta99 in production.
+The `retained-v2-server-pending` job (`test/upgrade/server-from-previous
+--retained-v2-pending`, `.github/retained-v2-predecessor.env`) is separate from
+fixture qualification. It builds the candidate server, runs the candidate's
+migrations, then starts the immutable beta95 server on the candidate-migrated
+database and re-upgrades. It is currently the only lane that starts an older
+server on the candidate's control-plane schema, so it stays required until a
+check against the merge-base server replaces it. Its release metadata, annotated
+origin tag and image identity are checked. It does not authorize restoring
+beta95 in production.
 
-The same required provider CI job separately runs `--current-upgrade` against
+The required `current-provider-upgrade` CI job runs
+`test/upgrade/provider-from-previous --current-upgrade` against
 `.github/previous-release.env`, retaining exact published-fixture identity
 verification. It exercises predecessor-issued v1/v2 authority and exact receipts through
 candidate migration and restart, verifies an unchanged historical ledger prefix
@@ -142,7 +142,7 @@ successful rollback. No migration is reversed or removed to make the test pass.
 For migration0042, beta99's startup rejects the unknown ledger. This is a
 forward-recovery candidate, not an image-only rollback-compatible release.
 Private release preparation must bind the actual last known-good deployed
-artifacts, not infer them from the newest published fixture or historical tests.
+artifacts, not infer them from the newest published fixture.
 Staging must qualify the exact deployment pair and its explicitly registered
 recovery mode before production. CI's non-authorizing fixture evidence cannot
 register a transition, waive migration checks, or grant deployment permission.

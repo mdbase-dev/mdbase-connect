@@ -1,4 +1,4 @@
-{"entries":46,"rejected":0,"digest":"7edbca42512dea23","results":[
+{"entries":53,"rejected":0,"digest":"bd325a0b0fb24c1f","results":[
 {"value":50400000},
 {"value":"2026-06-10"},
 {"value":"2026-06-10T12:34:56"},
@@ -44,5 +44,12 @@
 {"refusal":"view_unsupported_construct","detail":"date_format_token"},
 {"refusal":"view_unsupported_construct","detail":"date_format_literal"},
 {"refusal":"query_budget_exceeded","detail":"date_source_bytes"},
-{"refusal":"query_budget_exceeded","detail":"date_pattern_bytes"}
+{"refusal":"query_budget_exceeded","detail":"date_pattern_bytes"},
+{"value":"2025-10-06T22:32:00"},
+{"value":1759750320000},
+{"value":"2025-10-06"},
+{"value":1759789935120},
+{"value":1759782735123},
+{"refusal":"view_unsupported_construct","detail":"date_syntax"},
+{"refusal":"view_unsupported_construct","detail":"local_time_gap"}
 ]}

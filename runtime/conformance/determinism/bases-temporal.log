@@ -45,3 +45,10 @@
 {"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"[bad"}
 {"op":"bases_temporal","action":"parse","timezone":"UTC","date":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
 {"op":"bases_temporal","action":"format","timezone":"UTC","date":"2026-06-10","pattern":"---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------"}
+{"op":"bases_temporal","action":"parse","timezone":"Australia/Melbourne","date":"2025-10-06T22:32"}
+{"op":"bases_temporal","action":"number","timezone":"Australia/Melbourne","date":"2025-10-06 22:32"}
+{"op":"bases_temporal","action":"date","timezone":"America/New_York","date":"2025-10-06T22:32"}
+{"op":"bases_temporal","action":"number","timezone":"UTC","date":"2025-10-06T22:32:15.12"}
+{"op":"bases_temporal","action":"number","timezone":"UTC","date":"2025-10-06 22:32:15.123+0200"}
+{"op":"bases_temporal","action":"parse","timezone":"UTC","date":"2025-10-06t22:32:15Z"}
+{"op":"bases_temporal","action":"parse","timezone":"Australia/Melbourne","date":"2026-10-04T02:30"}

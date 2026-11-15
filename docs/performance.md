@@ -6,16 +6,8 @@ removed with the legacy connector; their measurements remain in this file's Git
 history. Runtime contention invariants are recorded in
 [runtime contention fixes](benchmarks/runtime-contention/report.md).
 
-## GitHub performance observations
-
-`.github/workflows/performance-observations.yml` runs the hosted-provider system
-suite with 10,000 records on the first day of each month and on dispatch. It is
-informational: its timings are not merge or release gates. The raw provider
-report and a runner fingerprint are retained as GitHub artifacts for 90 days.
-
-GitHub-hosted runners vary in CPU model, storage, and host contention. Compare
-results only when their workload, runtime, and runner fingerprints are
-comparable, and prefer repeated trends over individual runs.
+The monthly GitHub `performance-observations.yml` workflow was removed; the
+provider observation below runs on demand.
 
 ## Hosted-provider observation
 

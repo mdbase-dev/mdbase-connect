@@ -10,9 +10,10 @@ const run = (args, cwd = root, env = process.env) => new Promise((done, reject) 
   child.on("error", reject);
   child.on("close", (code) => done(code === 0));
 });
-// Keep the harness's parallelism: stress selects full names with libtest's
-// union of exact filters, rather than serializing each individual test.
-let passed = await run(["scripts/ci/cargo-test.mjs", "--stress", String(iterations), "--match",
+// The hosted provider ships only as a Linux container, so its Rust stress
+// runs on Linux only. Keep the harness's parallelism: stress selects full names
+// with libtest's union of exact filters, rather than serializing each test.
+let passed = process.platform !== "linux" || await run(["scripts/ci/cargo-test.mjs", "--stress", String(iterations), "--match",
   "stress|concurrent|claim_recovery|batch_settlement|durab|lifecycle|recovery|restart|cancellation|replay",
   "--locked", "-p", "mdbase-connect-hosted-provider"]);
 const suites = [

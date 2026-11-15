@@ -119,7 +119,7 @@ test("native selection retains explicit dispatch checks and includes Rust input 
 
 test("same-configuration Rust checks run once and remain required for qualification", () => {
   const server = workflow("server-ci");
-  const rust = server.split("  hosted-provider-rust:\n")[1].split("  binary-transfer-benchmark:\n")[0];
+  const rust = server.split("  hosted-provider-rust:\n")[1].split("  hosted-provider-system:\n")[0];
   const shards = server.split("  hosted-provider-system:\n")[1].split("  qualification:\n")[0];
   for (const command of ["cargo fmt --all --check", "scripts/check-cargo-features", "cargo clippy --locked --workspace --all-targets -- -D warnings", "node scripts/ci/cargo-test.mjs --locked --workspace"]) {
     assert.ok(rust.includes(command), command);
@@ -143,15 +143,20 @@ test("same-configuration Rust checks run once and remain required for qualificat
   assert.doesNotMatch(shards, /needs: hosted-provider-rust/);
 });
 
-test("binary transfer remains opt-in and outside the qualification gate", () => {
-  const server = workflow("server-ci");
-  assert.match(server, /\.name == "ci:full" or \.name == "ci:benchmark-binaries"/);
-  assert.match(server, /compression-level: 1/);
-  const benchmark = server.split("  binary-transfer-benchmark:\n")[1].split("  hosted-provider-system:\n")[0];
-  assert.match(benchmark, /needs: hosted-provider-rust/);
-  assert.match(benchmark, /github.event_name == 'pull_request' && contains/);
-  assert.match(benchmark, /\.\/mdbase-connect-hosted-provider --help/);
-  assert.doesNotMatch(server.split("  qualification:\n")[1], /binary-transfer-benchmark/);
+test("only system shards that start the provider or its cargo tests build Rust", () => {
+  const shards = workflow("server-ci").split("  hosted-provider-system:\n")[1].split("  runtime-native:\n")[0];
+  const entries = [...shards.matchAll(/- shard: ([\w-]+)\n\s+suites: [\w-]+\n\s+rust: (true|false)\n/g)];
+  assert.deepEqual(Object.fromEntries(entries.map(([, shard, rust]) => [shard, rust === "true"])), {
+    relay: false, sync: false, provider: true, files: true, "files-adversarial": true,
+    "projection-scale": true, "linux-packages": false
+  });
+  for (const step of ["repository: callumalpass/mdbase-rs", "rustup toolchain install 1.94.0", "rustup override set 1.94.0",
+    "cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock", "Swatinem/rust-cache@", "cargo build --locked --workspace"]) {
+    const at = shards.indexOf(step);
+    assert.ok(at >= 0, step);
+    const block = shards.slice(shards.lastIndexOf("\n      - ", at), at);
+    assert.match(block, /if: matrix\.rust\n/, step);
+  }
 });
 
 test("pull requests changing native or system-suite inputs run full Server CI", () => {
@@ -202,8 +207,8 @@ test("Rust caches are restored by CI jobs and written only by rust-caches.yml fr
     }
   }
   // hosted-provider-rust, the migration rollback gate's previous release,
-  // and the system, desktop and flake-stress consumers.
-  assert.equal(consumers, 6);
+  // and the system and desktop consumers.
+  assert.equal(consumers, 5);
 });
 
 test("Windows headless smoke reuses the Store package job's daemon build", () => {
