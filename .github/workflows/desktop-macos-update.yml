@@ -75,7 +75,7 @@ jobs:
           dir="$RUNNER_TEMP/older"
           gh release download "$FROM" --repo "$GITHUB_REPOSITORY" --dir "$dir" \
             --pattern "$DMG" --pattern "SHA256SUMS-macos-$ARCH"
-          (cd "$dir" && grep -F "  $DMG" "SHA256SUMS-macos-$ARCH" | shasum -a 256 -c -)
+          (cd "$dir" && awk -v name="$DMG" '$2 == name' "SHA256SUMS-macos-$ARCH" | shasum -a 256 -c -)
           hdiutil attach -nobrowse -noautoopen -readonly -mountpoint "$dir/volume" "$dir/$DMG"
           ditto "$dir/volume/mdbase connect.app" "$app"
           hdiutil detach "$dir/volume"
