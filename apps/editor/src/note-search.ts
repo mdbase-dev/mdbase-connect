@@ -142,7 +142,7 @@ function noteScore(entry: NoteSearchEntry, tokens: SearchToken[]): number {
     // Substring positions are nonnegative: these fields cannot improve a
     // score already at or below their minimum weight.
     if (tokenScore > 2) tokenScore = Math.min(tokenScore, substringScore(entry.metadata, token) + 2);
-    if (tokenScore > 4) tokenScore = Math.min(tokenScore, substringScore(entry.body, token) + 4);
+    if (tokenScore > 4) tokenScore = Math.min(tokenScore, bodyScore(entry, token) + 4);
     if (!Number.isFinite(tokenScore)) return Number.POSITIVE_INFINITY;
     score += tokenScore;
   }
@@ -176,6 +176,22 @@ function fuzzyScore(value: string, token: SearchToken): number {
   }
   if (queryIndex !== query.length) return Number.POSITIVE_INFINITY;
   return 2.2 + (last - first - query.length + 1) * 0.08 + first * 0.005;
+}
+
+/** Terms each body is known not to contain, newest last. A body without
+ * "lant" has no "lantern" either, so as a search is typed out, each body is
+ * read in full about once per word rather than once per keystroke. */
+const bodyMisses = new WeakMap<NoteSearchEntry, string[]>();
+const REMEMBERED_MISSES = 8;
+
+function bodyScore(entry: NoteSearchEntry, token: SearchToken): number {
+  const misses = bodyMisses.get(entry);
+  if (misses?.some((miss) => token.text.includes(miss))) return Number.POSITIVE_INFINITY;
+  const score = substringScore(entry.body, token);
+  if (score !== Number.POSITIVE_INFINITY) return score;
+  if (!misses) bodyMisses.set(entry, [token.text]);
+  else if (misses.push(token.text) > REMEMBERED_MISSES) misses.shift();
+  return score;
 }
 
 function substringScore(value: string, token: SearchToken): number {
