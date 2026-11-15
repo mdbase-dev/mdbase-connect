@@ -144,5 +144,5 @@ test("refuses a shared text that is too long instead of cutting it", async ({ pa
   await expect(page.getByText("What was shared is too long to create a note from.", { exact: false })).toBeVisible();
   await expect(page.getByRole("alertdialog")).toHaveCount(0);
   await expect(page).not.toHaveURL(/[?&](new|text|url)=/);
-  await expect(page.locator(".list-header p")).toContainText("4 notes");
+  await expect(page.locator(".list-header p")).toContainText("5 notes");
 });
