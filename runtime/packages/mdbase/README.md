@@ -13,11 +13,11 @@ or read and write your records. This replaces standalone helper use of
 ## Quickstart
 
 ```sh
-npm install mdbase
+npm install @mdbase-dev/mdbase
 ```
 
 ```ts
-import { contractDigest, loadCatalog, validateRecord } from "mdbase";
+import { contractDigest, loadCatalog, validateRecord } from "@mdbase-dev/mdbase";
 
 const contract = await contractDigest({
   frontmatter: {
@@ -63,7 +63,7 @@ Every function is `async` (the engine loads on first use) and throws
 `MdbaseError` with a stable `code`, a `message` and a `help` line:
 
 ```ts
-import { contractDigest, MdbaseError } from "mdbase";
+import { contractDigest, MdbaseError } from "@mdbase-dev/mdbase";
 try {
   await contractDigest("---\nkind: not-a-contract\n---\n");
 } catch (e) {
@@ -79,8 +79,8 @@ browsers fetch it. Bundlers may relocate JavaScript, so explicitly include the
 exported WASM asset. For example, with Vite:
 
 ```ts
-import { init } from "mdbase";
-import wasmUrl from "mdbase/wasm/mdbase-core.wasm?url";
+import { init } from "@mdbase-dev/mdbase";
+import wasmUrl from "@mdbase-dev/mdbase/wasm/mdbase-core.wasm?url";
 
 await init({ wasm: fetch(wasmUrl) });
 ```
@@ -90,9 +90,9 @@ URL or response to `init`. Node callers can supply bytes:
 
 ```ts
 import { readFile } from "node:fs/promises";
-import { init } from "mdbase";
+import { init } from "@mdbase-dev/mdbase";
 
-await init({ wasm: await readFile(new URL(import.meta.resolve("mdbase/wasm/mdbase-core.wasm"))) });
+await init({ wasm: await readFile(new URL(import.meta.resolve("@mdbase-dev/mdbase/wasm/mdbase-core.wasm"))) });
 ```
 
 `init` also accepts a `WebAssembly.Module`, a URL or a byte array. The WASM module

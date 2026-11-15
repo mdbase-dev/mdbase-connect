@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tarball:
-        description: Reviewed obsidian-runtime or mdbase archive under runtime/npm (SDK forbidden)
+        description: Reviewed @mdbase-dev/obsidian-runtime or @mdbase-dev/mdbase archive under runtime/npm (SDK forbidden)
         type: string
         required: true
       tag:

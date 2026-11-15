@@ -1,6 +1,6 @@
 # The standalone mdbase library (Rust + JS)
 
-The first npm release, `mdbase@0.5.0`, contains only the universal WebAssembly
+The first npm release, `@mdbase-dev/mdbase@0.5.0`, contains only the universal WebAssembly
 helpers. Native Node collections are planned work, not part of this archive.
 The Rust crates and Node source remain in this repository; their publication is
 independent of the npm helper version.
@@ -18,28 +18,28 @@ collection is a **local-only** replica (`SyncMode::LocalOnly`) over
 | crate `mdbase` | `crates/mdbase` | crates.io (name is free) | core, wire, replica, store-file, platform-native |
 | crate `mdbase-wasm` → `mdbase-core.wasm` | `crates/mdbase-wasm` | never (ships inside the npm package) | core |
 | crate `mdbase-node` (napi addon) | `crates/mdbase-node` | not shipped in 0.5.0; future native release | mdbase |
-| npm `mdbase@0.5.0` | `packages/mdbase` | npm: universal helper JS, declarations and `wasm/mdbase-core.wasm` only | nothing at runtime |
+| npm `@mdbase-dev/mdbase@0.5.0` | `packages/mdbase` | npm: universal helper JS, declarations and `wasm/mdbase-core.wasm` only | nothing at runtime |
 
-`mdbase@0.5.0` on npm exports:
+`@mdbase-dev/mdbase@0.5.0` on npm exports:
 
-- `mdbase` — **universal helpers** (browser, Node, workers) over `mdbase-core.wasm`:
+- `@mdbase-dev/mdbase` — **universal helpers** (browser, Node, workers) over `mdbase-core.wasm`:
   digests, JSON Schema, config/types/catalog loading, pack assess/apply, record
   validation, query parsing. Pure functions over strings and JSON.
-- `mdbase/wasm/mdbase-core.wasm` — the matching asset for bundlers or explicit
+- `@mdbase-dev/mdbase/wasm/mdbase-core.wasm` — the matching asset for bundlers or explicit
   `init({wasm})` loading.
 
 ## Collections on Node (planned, not shipped)
 
-The source-only `mdbase/node` entry point implements `Collection.open/init`,
+The source-only `@mdbase-dev/mdbase/node` entry point implements `Collection.open/init`,
 typed CRUD, query, validate, links, changes and batch over a native napi addon.
-It is not exported or included in `mdbase@0.5.0`. Before releasing it, build and
+It is not exported or included in `@mdbase-dev/mdbase@0.5.0`. Before releasing it, build and
 qualify prebuilt addons for Linux x64/arm64 (glibc), macOS x64/arm64 and Windows
 x64. There is currently no prebuild release workflow or consuming application.
 
 The intended collection API is:
 
 ```ts
-import { Collection } from "mdbase/node";
+import { Collection } from "@mdbase-dev/mdbase/node";
 
 const col = await Collection.open("./notes");
 const task = await col.create({
@@ -123,7 +123,7 @@ mutation, and keeps it through drain, stop and join.
 1. takes `host.lock`. If it is held, reads `host.json` and fails with
    `Error::AlreadyHosted { host: Daemon | Library, .. }` whose message says what to do
    ("the mdbase daemon hosts this folder; connect through it with
-   `Collection::connect` / `mdbase/node` `connectDaemon()`, or open read-only with
+   `Collection::connect` / `@mdbase-dev/mdbase/node` `connectDaemon()`, or open read-only with
    `OpenOptions::read_only()`");
 2. if the lock is free but a `host.json` from another host exists, fails with
    `AlreadyHosted { host: Obsidian, stale: bool }` whether or not its heartbeat is
@@ -136,7 +136,7 @@ mutation, and keeps it through drain, stop and join.
    metadata) but scans the folder with the core and answers reads from that
    snapshot.
 
-Routing through the daemon: `mdbase/node` already can, via `@mdbase-dev/sdk`'s
+Routing through the daemon: `@mdbase-dev/mdbase/node` already can, via `@mdbase-dev/sdk`'s
 `ipcConnector` (Noise IK over `replica.sock`); a `Collection.connect()` wrapper lands
 in the Node package PR. Rust routing needs `mdbn-noise` and an IPC client; it is a
 follow-up after the daemon's replica endpoint is live.
@@ -225,10 +225,10 @@ fn main() -> Result<(), Error> {
 - Re-exports: `mdbase::core` (= `mdbn_core`: `Catalog`, `TypeDef`, `Issue`, contracts,
   packs, jsonschema) for the pure helpers natively.
 
-## TS API sketch (`mdbase`)
+## TS API sketch (`@mdbase-dev/mdbase`)
 
 ```ts
-import { Collection, MdbaseError } from "mdbase/node";
+import { Collection, MdbaseError } from "@mdbase-dev/mdbase/node";
 
 const col = await Collection.open("./notes");                   // or Collection.init("./notes", { name: "Notes" })
 try {
@@ -250,13 +250,13 @@ try {
 }
 
 // Universal helpers (work in the browser too)
-import { contractDigest, implementationDigest, compileSchema, loadCatalog, assessTypePack, applyTypePack, validateRecord, parseQuery } from "mdbase";
+import { contractDigest, implementationDigest, compileSchema, loadCatalog, assessTypePack, applyTypePack, validateRecord, parseQuery } from "@mdbase-dev/mdbase";
 const digest = contractDigest(frontmatterOfContractFile);      // "sha256:…", resolved wrappers as the registry does
 const catalog = loadCatalog({ "mdbase.yaml": cfgText, "_types/task.md": typeText });
 const schema = compileSchema(doc, "#"); schema.validate(instance) // Issue[]
 ```
 
-- Async everywhere on `mdbase/node` (napi runs the engine off the event loop);
+- Async everywhere on `@mdbase-dev/mdbase/node` (napi runs the engine off the event loop);
   helpers are synchronous (WASM, no I/O).
 - Errors: `class MdbaseError extends Error { code: ErrorCode; help: string; details?: unknown }`
   with a string-literal union `ErrorCode`, same names as the Rust variants in snake_case.
@@ -280,7 +280,7 @@ versions, `collection.display` in implementation digests, assessment digests.
 - Rust crate and npm package share one version line, starting at **0.5.0-rc.1**
   (crates.io `mdbase` is free; the old Rust engine stopped at 0.4.0-rc.4 and the old
   TS engine at 0.3.0-rc.9, so 0.5 is above both).
-- Semver on the public API of `mdbase` (Rust) and `mdbase` (npm). crates.io only
+- Semver on the public API of `mdbase` (Rust) and `@mdbase-dev/mdbase` (npm). crates.io only
   accepts registry dependencies, so publishing `mdbase` also publishes the five
   crates it is composed of (`mdbn-core`, `mdbn-wire`, `mdbn-replica`,
   `mdbn-store-file`, `mdbn-platform-native`) at the same version, with `=`-pinned
@@ -303,6 +303,6 @@ versions, `collection.display` in implementation digests, assessment digests.
    raw / 444 KB gzip.
 2. **Rust facade** (`crates/mdbase`): open/init, host lock, CRUD, query, validate,
    catalog, links, batch, changes, holds; examples; clean-install test.
-3. **Node engine** (`crates/mdbase-node`, `mdbase/node`): napi addon, TS wrapper,
+3. **Node engine** (`crates/mdbase-node`, `@mdbase-dev/mdbase/node`): napi addon, TS wrapper,
    `connectDaemon`, examples, clean-install test.
 4. **Packaging prep**: versions, licences, release workflow drafts (no publish).
