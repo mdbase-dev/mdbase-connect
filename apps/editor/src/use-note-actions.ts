@@ -456,6 +456,34 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     }
   }
 
+  /** Write an earlier version's text over the note once its pending edits have
+   * saved. The text it replaces stays in history. */
+  async function restoreVersion(path: string, source: string): Promise<boolean> {
+    if (mutationScope.current.isFrozen || !canEditNotes) return false;
+    const token = mutationScope.current.token();
+    const session = noteSessions.current.get(path);
+    if (!session || session.deleted) return false;
+    try {
+      await flushSession(session);
+      if (!mutationScope.current.isCurrent(token)) return false;
+      const updated = await runNoteOperation(session, "saving", () => gateway.updateDocument(
+        session.document.path,
+        source,
+        session.document.revision
+      ));
+      if (!mutationScope.current.isCurrent(token)) return false;
+      session.record.accept(updated);
+      session.error = undefined;
+      touchSession(session);
+      return true;
+    } catch (error) {
+      if (!mutationScope.current.isCurrent(token)) return false;
+      setNotice(t`Couldn’t restore “${session.draft.title || session.document.path}”. ${gatewayError(error)}`);
+      touchSession(session);
+      return false;
+    }
+  }
+
   async function validateNote() {
     if (mutationScope.current.isFrozen) return;
     const token = mutationScope.current.token();
@@ -687,7 +715,7 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     setRecoveryAction({ kind: "pin", id: crypto.randomUUID(), path, pinned });
   }
   return { recoveryMessage, togglePin, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
-    onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
+    onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource, restoreVersion,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,
     clearRenameRequest, resetNoteActions };
