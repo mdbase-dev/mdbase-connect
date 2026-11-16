@@ -84,7 +84,6 @@ async function visit(page, app, collection, cold, collectionName) {
     await page.waitForFunction(() => Number.isFinite(window.appTimings?.firstRecords), null, {timeout: 45000});
   } catch {
     // Never serialize browser exceptions: their messages contain URLs and IDs.
-    if (!cold && !page.isClosed() && await page.getByRole('button', {name: 'Sign in', exact: true}).isVisible()) return failed('auth', 'auth_expired', build);
     error = {stage, code: page.isClosed() ? 'browser_closed' : 'timeout'};
   }
   try {
@@ -136,7 +135,7 @@ async function cleanup(context, installationIds) {
 try {
   const auth = await browser.newContext({storageState: portalState});
   const preflight = await auth.request.get('https://connect.mdbase.dev/v1/me?native_storage=omit');
-  const authError = preflight.status() === 401 ? 'auth_expired' : preflight.ok() ? null : 'auth_unavailable';
+  let authError = preflight.status() === 401 ? 'auth_expired' : preflight.ok() ? null : 'auth_unavailable';
   if (!authError) await auth.storageState({path: config.portal_state});
   if (!authError) {
     const pending = (await readFile(config.ledger_file, 'utf8').catch(error => {if (error.code === 'ENOENT') return ''; throw error;})).trim().split('\n').filter(Boolean);
@@ -168,12 +167,16 @@ try {
         const cold = await visit(page, app, config.collections[size], true, config.collection_names[size]);
         samples.cold.push(cold);
         // Same context, second navigation: HTTP cache, IDB, storage and service worker retained.
-        samples.warm.push(cold.error ? failed('cold', 'prerequisite_failed', cold.revision, false) : await visit(page, app, config.collections[size], false, config.collection_names[size]));
-        await cleanup(context, installationIds);
-        await writeFile(config.ledger_file, '', {mode: 0o600});
+        if (cold.error?.stage === 'auth') authError = cold.error.code;
+        const warm = authError ? failed('auth', authError, cold.revision, false) : await visit(page, app, config.collections[size], false, config.collection_names[size]);
+        samples.warm.push(warm);
+        // An expired session cannot revoke installations; retain their ledger
+        // for authenticated recovery before the next run.
+        if (!authError) {
+          await cleanup(context, installationIds);
+          await writeFile(config.ledger_file, '', {mode: 0o600});
+        }
       } finally {await context.close();}
-      // A failed sample is a finding, never retried or hidden by a passing median.
-      if (samples.cold.at(-1).error || samples.warm.at(-1).error) break;
     }
     for (const mode of ['cold', 'warm']) {
       const timing = result(`${app}.${size}.${mode}`, samples[mode], new Date().toISOString());

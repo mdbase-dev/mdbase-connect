@@ -76,13 +76,14 @@ the separate SDK change lands.
 
 A served `mdbase-build` meta tag or the source suffix of the served entry script
 supplies the revision. Missing identity fails the sample; mixed revisions fail
-the cell. Report per-stage medians from three complete samples. Any failed
-sample fails the cell and ends further samples for that cell. A failed cold
-visit skips the warm visit and reports `cold/prerequisite_failed` for it. The
-local sample count is zero for skipped visits, including an expired preflight. Failed or missing
-measurements have duration 0 with failed status; 0 is not a measured latency.
-A timeout uses `first_records/timeout`. None of these error tokens
-contains exception text or URLs.
+the cell. Each cell attempts three independent cold/second-visit pairs. A failed
+sample fails the cell; it is never hidden by an operational median. The second
+visit retains whatever state the first visit cached, even when its records timed
+out: it is not a claim that the collection cache is complete. Authentication
+failures stop further sign-in attempts and report zero visits for skipped cells.
+Failed or missing measurements have duration 0 with failed status; 0 is not a
+measured latency. A record timeout uses `first_records/timeout`. None of these
+error tokens contains exception text or URLs.
 
 The runner POSTs the version-1 app timing envelope to
 `https://ops-ingest.mdbase.dev/v1/timings`, using a bearer token read from a 0600
