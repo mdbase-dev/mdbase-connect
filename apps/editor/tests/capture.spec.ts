@@ -24,7 +24,7 @@ test("pastes a screenshot through the attachment pipeline and undoes only its re
   await expect(preview).toBeVisible();
   await expect(body).toContainText("Before");
   await expect(body).toContainText("after.");
-  await expect(body.locator(":scope > .cm-file-embed-image")).toHaveCount(1); // its own block, not inside a prose line
+  await expect(body.locator(":scope > .cm-embed-block > .cm-file-embed-image")).toHaveCount(1); // its own block, not inside a prose line
   // The uploaded collection file is not deleted by undoing the note reference.
   await body.press("Control+z");
   await expect(preview).toHaveCount(0);
@@ -60,7 +60,7 @@ test("drops an image mid-paragraph as a block embed", async ({ page }) => {
   });
   await body.dispatchEvent("drop", { dataTransfer: data, ...coordinates });
   await expect(body.getByRole("img", { name: "Screenshot.png", exact: true })).toBeVisible();
-  await expect(body.locator(":scope > .cm-file-embed-image")).toHaveCount(1);
+  await expect(body.locator(":scope > .cm-embed-block > .cm-file-embed-image")).toHaveCount(1);
   await expect(body.locator(".cm-line").first()).toHaveText("Before ");
   await expect(body.locator(".cm-line").last()).toHaveText("after.");
   await body.press("Control+z");

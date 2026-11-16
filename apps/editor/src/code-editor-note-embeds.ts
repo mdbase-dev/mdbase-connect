@@ -4,7 +4,7 @@ import { i18n } from "@lingui/core";
 import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
 import type { ResolvedNoteEmbed } from "./note-embeds";
-import { embedActions, focusEmbedOnPointer } from "./embed-actions";
+import { embedActions, focusEmbedOnPointer, blockEmbed } from "./embed-actions";
 import { embedPositions } from "./code-editor-embed-positions";
 
 const noteEmbeds = embedPositions<ResolvedNoteEmbed>();
@@ -75,7 +75,7 @@ class NoteEmbedWidget extends WidgetType {
               : reference.error ?? t`The transcluded note could not be opened.`;
       region.append(status);
     }
-    return region;
+    return blockEmbed(region);
   }
 
   ignoreEvent(event: Event) {
