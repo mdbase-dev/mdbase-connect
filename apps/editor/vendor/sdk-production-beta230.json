@@ -1,20 +1,20 @@
 {
   "schema": "tnapp/production-sdk-original/1",
-  "artifact": "sdk-fd376e2a-production-beta228.tgz",
-  "version": "0.1.0-beta.228",
-  "sourceCommit": "fd376e2a38b19612cb45be8c72d08f98cadf962e",
+  "artifact": "sdk-4712fff2-production-beta230.tgz",
+  "version": "0.1.0-beta.230",
+  "sourceCommit": "4712fff2cdc84f950bd292cc476e3011f7a7602a",
   "environment": "production",
-  "bytes": 4853865,
-  "sha256": "be8469508c0a304cd8ce6a0a3db0a5b9d3b8159c176e37574d2d25e9abd65ed4",
-  "sri": "sha512-fou+LL/vMrMy7FbT+J8M3dKI7qIPKMrh8AGh/Z2vYgsK8hoVZCZ4/EhliwjT1o79Np30vraLV5dVoLHeQ1zl+A==",
+  "bytes": 4853864,
+  "sha256": "8330cce0e1de4db0ba28e3e852b80dfea51a2efa16c3003104a9b958a4f0eeca",
+  "sri": "sha512-1zNHNl0P//fqsCeT9EUsdQiR6ZeLLI/QlfLE/cbsovNhvttKXVFWbWpojEVhMUyQe7sjWAfhD1OVLNSe6x1XJQ==",
   "publication": {
     "repository": "mdbase-dev/mdbase-connect",
     "workflow": ".github/workflows/publish-sdk-npm.yml",
-    "ref": "refs/tags/v0.1.0-beta.228",
-    "npm": "@mdbase-dev/sdk@0.1.0-beta.228",
-    "integrity": "sha512-fou+LL/vMrMy7FbT+J8M3dKI7qIPKMrh8AGh/Z2vYgsK8hoVZCZ4/EhliwjT1o79Np30vraLV5dVoLHeQ1zl+A==",
-    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.1.0-beta.228.tgz",
-    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.1.0-beta.228"
+    "ref": "refs/tags/v0.1.0-beta.230",
+    "npm": "@mdbase-dev/sdk@0.1.0-beta.230",
+    "integrity": "sha512-1zNHNl0P//fqsCeT9EUsdQiR6ZeLLI/QlfLE/cbsovNhvttKXVFWbWpojEVhMUyQe7sjWAfhD1OVLNSe6x1XJQ==",
+    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.1.0-beta.230.tgz",
+    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.1.0-beta.230"
   },
   "trust": {
     "package": "@mdbase-dev/sdk",
@@ -43,6 +43,6 @@
       "sha256": "e901144b8d93dc96fcf71d9d8f85dddbf647e9908913be21191c484e9224bb98"
     }
   ],
-  "artifactFacts": "sdk-fd376e2a-production-beta228.facts.json",
-  "artifactFactsSha256": "dc3cbf5c8920904eaedf4eab80cf95ae3a089a56bfb8d162df42af9c8a8c290a"
+  "artifactFacts": "sdk-4712fff2-production-beta230.facts.json",
+  "artifactFactsSha256": "062870fe46206cd91c96eb06dabc04c44c97b2141948b0d5d6fa293911bbd19a"
 }
