@@ -285,6 +285,30 @@ test("renders linked collection images inline and in the file preview", async ({
   await expect(preview).not.toBeAttached();
 });
 
+test("moves the caret one line at a time below an image embed", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await replaceOpeningNoteBody(body, "Before\n\nOne\nTwo\nThree\nFour");
+  await body.locator(".cm-line").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.insertText("\n\n![[Assets/frontmatter.svg]]");
+  const line = (text: string) => body.locator(".cm-line", { hasText: new RegExp(`^${text}$`) });
+  await line("One").click();
+  const image = body.locator(".cm-file-embed.ready img");
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true);
+  // The editor must measure the space around the embed: a margin it cannot see
+  // shifts every later line, and the arrows skip lines.
+  const caretLine = () => page.evaluate(() => document.getSelection()?.focusNode?.parentElement?.closest(".cm-line")?.textContent);
+  for (const text of ["Two", "Three", "Four"]) {
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(caretLine).toBe(text);
+  }
+  for (const text of ["Three", "Two", "One"]) {
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(caretLine).toBe(text);
+  }
+});
+
 test("focuses embedded PDFs in place and opens PDF wikilinks in the file workspace", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
