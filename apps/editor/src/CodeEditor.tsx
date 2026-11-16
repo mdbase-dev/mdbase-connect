@@ -8,7 +8,7 @@ import { t } from "@lingui/core/macro";
 import { commandShortcuts, matchesChord } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
 import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
-import { markdown, markdownKeymap, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
+import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
   defaultHighlightStyle,
@@ -35,7 +35,7 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { cycleHeading, insertNoteLink, toggleBulletList, toggleTask } from "./writing-commands";
+import { cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask } from "./writing-commands";
 import { WritingToolbar, type WritingAction } from "./writing-toolbar";
 import { LinkIcon, ListBulletsIcon, ListChecksIcon, TextBIcon, TextHTwoIcon, TextIndentIcon, TextItalicIcon, TextOutdentIcon } from "./icons";
 import { createPortal } from "react-dom";
@@ -712,9 +712,20 @@ function contentAttributes(label: string, variant: EditorVariant, language: stri
 /** GitHub-flavoured Markdown (tables, strikethrough, autolinks, task lists),
  * matching the read-only renderer and the reference parser, with JSON and YAML
  * highlighting inside fenced code, and `$…$`/`$$…$$` math for the live preview. */
-function markdownSupport() {
-  return markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages, extensions: [markdownMath] });
+function markdownSupport(): Extension {
+  return [
+    markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages, extensions: [markdownMath], addKeymap: false }),
+    Prec.high(keymap.of(markdownKeymap))
+  ];
 }
+
+// The language's own keymap, except that Enter on an empty item or quoted line
+// ends the list or quote, however loose the list.
+const markdownKeymap: KeyBinding[] = [
+  { key: "Enter", run: exitEmptyQuote },
+  { key: "Enter", run: insertNewlineContinueMarkupCommand({ nonTightLists: false }) },
+  { key: "Backspace", run: deleteMarkupBackward }
+];
 
 const fencedCodeLanguages = [
   LanguageDescription.of({ name: "JSON", alias: ["json5", "jsonc"], extensions: ["json"], load: () => import("@codemirror/lang-json").then((module) => module.json()) }),
@@ -755,8 +766,7 @@ const writerKeymap: KeyBinding[] = [
     return match ? markdownFormatCommand(match[1])(view) : false;
   } },
   { key: "Tab", run: indentListItem },
-  { key: "Shift-Tab", run: outdentListItem },
-  ...markdownKeymap
+  { key: "Shift-Tab", run: outdentListItem }
 ];
 
 const mdbaseHighlightStyle = HighlightStyle.define([
