@@ -932,3 +932,126 @@ label.schema-value {
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
 }
+
+/* Note history, in the inspector. */
+.history-panel-body {
+  min-height: 0;
+  flex: 1;
+  margin: var(--space-3) calc(-1 * var(--space-2)) 0;
+  padding: 0 var(--space-2) var(--space-2);
+  overflow-y: auto;
+}
+
+.history-day + .history-day {
+  margin-top: var(--space-3);
+}
+
+.history-day h3 {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-1);
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.history-day ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-row {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 7px var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  text-align: left;
+}
+
+.history-row:hover {
+  background: var(--hover);
+}
+
+.history-row-author {
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-row-meta,
+.history-version-meta,
+.history-horizon,
+.history-status {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+}
+
+.history-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-status,
+.history-horizon {
+  padding: var(--space-2) var(--space-1);
+}
+
+.history-older {
+  margin-top: var(--space-2);
+}
+
+.history-notice {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  font-size: var(--font-size-ui);
+}
+
+.history-notice p {
+  margin: 0;
+}
+
+.history-version h3 {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+}
+
+.history-version-meta {
+  margin-top: var(--space-1);
+}
+
+.history-version .diff-legend {
+  margin-top: var(--space-3);
+}
+
+.history-version .line-diff {
+  font-size: var(--font-size-caption);
+}
+
+.history-version .history-status {
+  padding: var(--space-3) 0;
+}
+
+.history-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.history-back svg {
+  width: 14px;
+  height: 14px;
+}
+
+.history-restore {
+  margin-top: var(--space-3);
+}

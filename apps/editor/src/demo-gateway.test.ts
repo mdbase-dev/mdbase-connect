@@ -58,3 +58,33 @@ it("installs the canonical Person pack into the demo's configured folders", asyn
   expect(applied.receipt?.resources).toEqual(assessment.desired.resources);
   expect((await gateway.readType("person")).path).toBe("_mdbase/types/person.md");
 });
+
+describe("DemoCollectionGateway history", () => {
+  it("keeps each note's versions, newest first, with their texts", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const created = await gateway.create({ path: "Notes/Kept.md", title: "Kept", body: "First", properties: {} });
+    const edited = await gateway.updateDocument(created.path, "# Kept\n\nSecond\n", created.revision);
+    const moved = await gateway.rename(created.path, "Archive/Kept.md", edited.revision);
+
+    const { versions, next } = await gateway.noteHistory.list(moved.path);
+    expect(versions.map((version) => [version.kind, version.path])).toEqual([
+      ["moved", "Archive/Kept.md"], ["edited", "Notes/Kept.md"], ["created", "Notes/Kept.md"]
+    ]);
+    expect(next).toBeUndefined();
+    expect(await gateway.noteHistory.version(moved.path, versions[1]!.seq)).toBe("# Kept\n\nSecond\n");
+    expect(await gateway.noteHistory.version(moved.path, versions[2]!.seq)).toBe(created.document);
+  });
+
+  it("pages older versions and refuses a position it never kept", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    let note = await gateway.create({ path: "Notes/Busy.md", title: "Busy", body: "", properties: {} });
+    for (let save = 1; save <= 60; save += 1) note = await gateway.updateDocument(note.path, `# Busy\n\n${save}\n`, note.revision);
+
+    const first = await gateway.noteHistory.list(note.path);
+    expect(first.versions).toHaveLength(50);
+    const rest = await gateway.noteHistory.list(note.path, { before: first.next });
+    expect(rest.versions.at(-1)?.kind).toBe("created");
+    expect(rest.next).toBeUndefined();
+    await expect(gateway.noteHistory.version(note.path, 0)).rejects.toMatchObject({ code: "not_found", reason: "version_compacted" });
+  });
+});

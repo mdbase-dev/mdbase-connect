@@ -172,6 +172,56 @@ export type LinkTarget =
   /** Not a link the collection can follow (for example, it leaves the collection). */
   | { kind: "invalid" };
 
+/** Who wrote a note version: the signing device and its account, and the app
+ * grant the write went through. */
+export interface NoteVersionAuthor {
+  /** The all-zero service account when the hosted device signed. */
+  account: string;
+  device: string;
+  grant?: string;
+  /** The grant's account, only when the hosted device signed. */
+  grantAccount?: string;
+}
+
+/** One version of a note that the collection log still keeps. */
+export interface NoteVersion {
+  /** Its log position: what `NoteHistoryReader.version` reads, and `before` pages past. */
+  seq: number;
+  /** The writer's capture time (ms). */
+  time: number;
+  author: NoteVersionAuthor;
+  kind: "created" | "edited" | "moved" | "deleted";
+  /** The note's path after this version (before it, for a deletion). */
+  path: string;
+  /** Absent for a deletion. */
+  revision?: string;
+  /** `external`: an edit made in the folder, outside mdbase. */
+  source: "api" | "external";
+  /** The signing device's kind, such as `desktop`, `mobile` or `app_runtime`. */
+  deviceKind: string;
+  /** The grant's app ID. */
+  app?: string;
+}
+
+/** One page of a note's versions, newest first. */
+export interface NoteHistory {
+  versions: NoteVersion[];
+  /** The lowest log position read. */
+  from: number;
+  /** When the oldest kept entry was written (ms), if known. */
+  fromTime?: number;
+  /** Present while older versions may exist: pass it as `before`. */
+  next?: number;
+}
+
+/** A note's history, read from the collection log by the note's current path. */
+export interface NoteHistoryReader {
+  /** One page of the note's kept versions, newest first. */
+  list(path: string, options?: { before?: number; signal?: AbortSignal }): Promise<NoteHistory>;
+  /** The exact text of the note's version at log position `seq`. */
+  version(path: string, seq: number, options?: { signal?: AbortSignal }): Promise<string>;
+}
+
 export interface CollectionGateway {
   pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[];
   /** Undefined only when the exact recovered operation was a confirmed delete. */
@@ -188,8 +238,11 @@ export interface CollectionGateway {
   ): Promise<void>;
   forgetConnection(collectionId: string): void | Promise<void>;
   describe(options?: DescribeOptions): Promise<CollectionDescription>;
-  /** Demo collections have no authenticated account. Members are never read here. */
-  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory>;
+  /** Demo collections have no authenticated account. Members are never read here.
+   * Native collections also report the account's ID, which history authors carry. */
+  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory & { account: { accountId?: string } }>;
+  /** Absent where the gateway serves no history. */
+  readonly noteHistory?: NoteHistoryReader;
   /** Every page of one contract/type projection. */
   queryContract?(
     contract: import("@mdbase-dev/connect").DataContractSelector,
