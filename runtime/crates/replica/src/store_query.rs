@@ -351,6 +351,11 @@ pub struct QueryRecordSize {
     pub encoded_bytes: u64,
 }
 /// One request owns ONE budget across every page/retry/restart; no refunds.
+/// Exception: saved-view discovery (`replica::bases::discovery`) serves several
+/// pages of one frozen cut per request, each page under its OWN budget, and
+/// bounds the request by host-clock time across pages instead. It reads every
+/// record, and on a Private collection each request is a relayed round trip
+/// (tasknotes-app#436), so a byte-bounded request cost a round trip per MiB.
 #[derive(Debug, PartialEq, Eq)]
 pub struct QueryBudget {
     records_left: u32,
@@ -362,7 +367,8 @@ impl QueryBudget {
         records_left: 1000,
         bytes_left: 1 << 20,
     };
-    /// Tighten the binding profile, never widen it for any replica mode.
+    /// Tighten the binding profile, never widen it for any replica mode. The
+    /// profile binds each page; only discovery spans pages per request.
     pub fn new(records: u32, bytes: u64) -> Self {
         Self {
             records_left: records.min(1000),

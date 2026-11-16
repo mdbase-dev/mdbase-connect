@@ -1,0 +1,3 @@
+## Changed
+
+- A saved-view discovery request now reads on through further pages of the same collection snapshot until it finds a view, reaches the end of the collection, or has spent about 1.5 seconds, instead of replying after every page. Each page keeps the same 1000-record / 1 MiB bound, classifies every record, refuses unreadable sources and confirms its Bases. On a Private collection each request is a round trip through the relay, so finding views in a large vault of notes now takes one or two round trips instead of one per MiB. Older clients are unaffected: the continuation and reply format are unchanged.
