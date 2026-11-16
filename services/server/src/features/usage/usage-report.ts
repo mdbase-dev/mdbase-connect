@@ -1,3 +1,4 @@
+import { MAX_AUTHORIZATION_LIFETIME_MS } from "../../application-authorization.js";
 import type { DatabasePool } from "../../db.js";
 import {
   isoTimestamp,
@@ -106,12 +107,16 @@ export async function usageReport(
     transports,
     authorizations,
     pairings,
+    pairingChallenges,
     storageAccounts,
     hostedUsage
   ] = await Promise.all([
-    db.query<{ id: string; created_at: Timestamp; suspended_at: Timestamp | null }>(
-      "SELECT id, created_at, suspended_at FROM users"
-    ),
+    db.query<{
+      id: string;
+      created_at: Timestamp;
+      suspended_at: Timestamp | null;
+      test_account: boolean;
+    }>("SELECT id, created_at, suspended_at, test_account FROM users"),
     db.query<{ user_id: string; normalized_email: string }>(
       "SELECT user_id, normalized_email FROM email_identities WHERE retired_at IS NULL"
     ),
@@ -237,16 +242,19 @@ export async function usageReport(
       application_id: string;
       application_installation_id: string;
       flow: string;
+      authorization_nonce: string | null;
       expires_at: Timestamp;
       completed_at: Timestamp | null;
       denied_at: Timestamp | null;
     }>(
       `SELECT user_id, application_id, application_installation_id, flow,
+              application_authorization->'binding'->>'authorization_nonce' AS authorization_nonce,
               expires_at, completed_at, denied_at
        FROM authorization_requests WHERE expires_at >= $1`,
       [since]
     ),
     db.query<{
+      user_id: string | null;
       created_at: Timestamp;
       approved_at: Timestamp | null;
       consumed_at: Timestamp | null;
@@ -254,12 +262,23 @@ export async function usageReport(
       installation_pairing_id: string | null;
       app_id: string | null;
     }>(
-      `SELECT p.created_at, p.approved_at, p.consumed_at, p.expires_at,
+      `SELECT p.user_id, p.created_at, p.approved_at, p.consumed_at, p.expires_at,
               i.pairing_id AS installation_pairing_id, i.app_id
        FROM pairing_requests p
        LEFT JOIN installation_device_pairings i ON i.pairing_id = p.id
        WHERE p.created_at >= $1`,
       [since]
+    ),
+    // An app pairing prepares a Native companion authorization, bound to the
+    // pairing's challenge, in case the person picks a Private collection. It
+    // is part of that pairing, not a consent of its own. A companion is made
+    // while its pairing is live, so it outlives the pairing by at most its own
+    // lifetime.
+    db.query<{ challenge: Buffer }>(
+      `SELECT i.challenge FROM installation_device_pairings i
+       JOIN pairing_requests p ON p.id = i.pairing_id
+       WHERE p.expires_at >= $1`,
+      [new Date(start - MAX_AUTHORIZATION_LIFETIME_MS)]
     ),
     db.query<{ user_id: string; provider_account_id: string }>(
       "SELECT user_id, provider_account_id FROM account_storage_accounts"
@@ -268,6 +287,39 @@ export async function usageReport(
     // keeps their protocol counts per storage account.
     context.hostedProvider?.protocolUsage() ?? null
   ]);
+
+  // Test accounts exercise production through the real apps. None of their
+  // rows count; requests nobody has signed in to yet cannot be told apart.
+  const testAccounts = new Set(
+    users.rows.filter((user) => user.test_account).map((user) => user.id)
+  );
+  const withoutTestAccounts = <Row extends object>(
+    result: { rows: Row[] },
+    owner: (row: Row) => string | null
+  ) => {
+    result.rows = result.rows.filter((row) => {
+      const userId = owner(row);
+      return userId === null || !testAccounts.has(userId);
+    });
+  };
+  withoutTestAccounts(users, (row) => row.id);
+  withoutTestAccounts(emailIdentities, (row) => row.user_id);
+  withoutTestAccounts(externalIdentities, (row) => row.user_id);
+  withoutTestAccounts(connectors, (row) => row.user_id);
+  withoutTestAccounts(localCollections, (row) => row.user_id);
+  withoutTestAccounts(hostedCollections, (row) => row.user_id);
+  withoutTestAccounts(nativeCollections, (row) => row.owner_user_id);
+  withoutTestAccounts(grants, (row) => row.user_id);
+  withoutTestAccounts(installations, (row) => row.user_id);
+  withoutTestAccounts(deviceDays, (row) => row.user_id);
+  withoutTestAccounts(signedIn, (row) => row.user_id);
+  withoutTestAccounts(transports, (row) => row.user_id);
+  withoutTestAccounts(authorizations, (row) => row.user_id);
+  withoutTestAccounts(pairings, (row) => row.user_id);
+  withoutTestAccounts(storageAccounts, (row) => row.user_id);
+  const companionNonces = new Set(
+    pairingChallenges.rows.map((row) => row.challenge.toString("base64url"))
+  );
 
   const pairedUsers = new Set(connectors.rows.map((row) => row.user_id));
   const collectionUsers = new Set([
@@ -410,10 +462,12 @@ export async function usageReport(
   }
   const consentByFlow = new Map<string, ConsentCounts>();
   for (const request of authorizations.rows) {
-    const outcome: ConsentOutcome = request.completed_at
-      ? "approved"
-      : request.denied_at
-        ? "denied"
+    if (request.authorization_nonce !== null && companionNonces.has(request.authorization_nonce)) continue;
+    // A denial also sets completed_at, so it is checked first.
+    const outcome: ConsentOutcome = request.denied_at
+      ? "denied"
+      : request.completed_at
+        ? "approved"
         : instant(request.expires_at) <= now
           ? "abandoned"
           : "pending";

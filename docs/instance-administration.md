@@ -153,6 +153,20 @@ Restore never revives old credentials. The user must sign in again, pair new
 computers, and re-authorize applications. This prevents an accidentally leaked
 credential from becoming valid when an account is restored.
 
+Mark each registered test account so the usage report leaves it out:
+
+```bash
+pnpm --filter @mdbase/connect-server instance:admin -- \
+  users mark-test \
+  --user test-account@example.com \
+  --operation-id "$(uuidgen)" \
+  --actor operator:example \
+  --reason "Agent test account"
+```
+
+`users unmark-test` takes the same flags and clears a mark made by mistake.
+Neither changes what the account can do.
+
 ## Invitations and policy
 
 Policy updates use optimistic concurrency. Read the current revision, then pass
