@@ -1,39 +1,35 @@
 #!/usr/bin/env node
 
-import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { access, lstat, open, realpath, stat } from "node:fs/promises";
+import { access, stat } from "node:fs/promises";
 import { constants } from "node:fs";
-import { isAbsolute, posix, resolve, sep } from "node:path";
+import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { promisify } from "node:util";
 
-const execFileAsync = promisify(execFile);
-const MAX_OUTPUT_BYTES = 1024 * 1024;
-const MAX_MARKER_BYTES = 1024 * 1024;
+import {
+  CanaryError,
+  OVERRIDES,
+  UUID,
+  ENVIRONMENT,
+  accountState,
+  collectionOf,
+  configError,
+  elapsed,
+  inputReader,
+  isCollectionPath,
+  isOrigin,
+  isTimeout,
+  readCollectionFile,
+  reportedEnvironment,
+  runCli as runCliIn,
+  syncState
+} from "./lib/hosted-canary.mjs";
+
 const POLL_INTERVAL_MS = 250;
 // `daemon stop` waits for the daemon's 10 s shutdown grace plus 5 s. Cleanup
 // keeps its own bound so an exhausted probe deadline still stops the daemon.
 const SHUTDOWN_TIMEOUT_MS = 30_000;
-// Only the daemon's stable error codes and start/stop reasons may cross the
-// canary boundary. Never reflect messages, account problems, identifiers,
-// paths, or arbitrary code tokens.
-const CLI_ERROR_CODES = new Set([
-  "daemon_not_running", "daemon_unreachable", "start_failed", "not_ready",
-  "invalid_request", "not_found", "unauthenticated", "forbidden", "unavailable",
-  "rate_limited", "upgrade_required", "cancelled", "internal"
-]);
-// Stable `account.last_error` codes worth distinguishing while waiting for the
-// account link; anything else is `account_error`.
-const ACCOUNT_ERRORS = new Set([
-  "device_registration_failed", "sign_in_expired", "authentication_required",
-  "system_clock_wrong"
-]);
-// Variables that would select another profile, environment, or secret store.
-const OVERRIDES = ["MDBASE_HOME", "MDBASE_ENV", "MDBASE_SECRET_BACKEND"];
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 const DIGEST = /^sha256:[0-9a-f]{64}$/u;
-const ENVIRONMENT = /^[a-z0-9][a-z0-9_-]{0,63}$/u;
 
 const INPUTS = {
   environment: "MDBASE_HOSTED_CANARY_ENVIRONMENT",
@@ -47,41 +43,8 @@ const INPUTS = {
   "timeout-ms": "MDBASE_HOSTED_CANARY_TIMEOUT_MS"
 };
 
-class CanaryError extends Error {
-  constructor(stage, code, exitCode = 1) {
-    super(code);
-    this.stage = stage;
-    this.code = code;
-    this.exitCode = exitCode;
-  }
-}
-
-function configError(code = "invalid_config") {
-  return new CanaryError("config", code, 2);
-}
-
 function parseArguments(argv, environmentVariables) {
-  const supplied = new Map();
-  for (let index = 0; index < argv.length; index += 2) {
-    const flag = argv[index];
-    const value = argv[index + 1];
-    if (!flag?.startsWith("--") || value === undefined || value.startsWith("--")) {
-      throw configError();
-    }
-    const name = flag.slice(2);
-    if (!Object.hasOwn(INPUTS, name) || supplied.has(name)) throw configError();
-    supplied.set(name, value);
-  }
-
-  const value = (name) => {
-    const argument = supplied.get(name);
-    const environmentValue = environmentVariables[INPUTS[name]];
-    if (argument !== undefined && environmentValue !== undefined) throw configError();
-    const result = argument ?? environmentValue;
-    if (result === undefined || result === "") throw configError();
-    return result;
-  };
-
+  const { value } = inputReader(argv, environmentVariables, INPUTS);
   const environment = value("environment");
   const cli = value("cli");
   const stateDir = value("state-dir");
@@ -91,29 +54,16 @@ function parseArguments(argv, environmentVariables) {
   const markerPath = value("marker-path");
   const expectedMarkerSha256 = value("expected-marker-sha256");
   const timeoutText = value("timeout-ms");
-  const timeoutMs = Number(timeoutText);
 
-  let parsedOrigin;
-  try {
-    parsedOrigin = new URL(expectedOrigin);
-  } catch {
-    throw configError();
-  }
   if (!ENVIRONMENT.test(environment)
       || !isAbsolute(cli)
       || !isAbsolute(stateDir)
-      || !["https:", "http:"].includes(parsedOrigin.protocol)
-      || parsedOrigin.origin !== expectedOrigin
+      || !isOrigin(expectedOrigin)
       || !UUID.test(collectionId)
       || expectedCollectionName.length > 200
-      || markerPath.length > 1024
-      || posix.isAbsolute(markerPath)
-      || markerPath.includes("\\")
-      || markerPath.split("/").some((part) => part === "" || part === "." || part === "..")
+      || !isCollectionPath(markerPath)
       || !DIGEST.test(expectedMarkerSha256)
-      || !/^[1-9][0-9]*$/u.test(timeoutText)
-      || !Number.isSafeInteger(timeoutMs)
-      || timeoutMs > 300_000) {
+      || !isTimeout(timeoutText)) {
     throw configError();
   }
 
@@ -126,118 +76,13 @@ function parseArguments(argv, environmentVariables) {
     expectedCollectionName,
     markerPath,
     expectedMarkerSha256,
-    timeoutMs
+    timeoutMs: Number(timeoutText)
   };
-}
-
-function elapsed(started) {
-  return Math.max(0, Math.round(performance.now() - started));
-}
-
-function cliFailureCode(error) {
-  if (error?.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") return "output_limit";
-  if (error?.killed || error?.code === "ETIMEDOUT") return "timeout";
-  if (error?.code === "ENOENT" || error?.code === "EACCES") return "cli_unavailable";
-  if (error?.signal) return "cli_signaled";
-  try {
-    // `--json` prints `{"error": {code, reason?, message}}` on stdout.
-    const failure = JSON.parse(error?.stdout)?.error;
-    if (CLI_ERROR_CODES.has(failure?.reason)) return failure.reason;
-    if (CLI_ERROR_CODES.has(failure?.code)) return failure.code;
-  } catch {
-    // Non-JSON output is deliberately discarded, not searched for messages.
-  }
-  return "cli_failed";
 }
 
 /** The marker's exact bytes, as a `sha256:` digest. */
 export function markerSha256(bytes) {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
-}
-
-function accountState(status, options) {
-  const account = status?.account;
-  if (status?.secret_backend !== "keychain") return { terminal: "insecure_secret_backend" };
-  if (account?.signed_in !== true || account.pairing) return { terminal: "not_signed_in" };
-  if (account.server !== options.expectedOrigin) return { terminal: "origin_mismatch" };
-  if (account.last_error) {
-    return { waiting: ACCOUNT_ERRORS.has(account.last_error) ? account.last_error : "account_error" };
-  }
-  // The relay is a device-bound, authenticated control-plane session; this
-  // daemon was started by this run, so `online` proves a fresh round trip.
-  if (account.online !== true) return { waiting: "account_offline" };
-  return { done: true };
-}
-
-function collectionOf(status, options, stage) {
-  const matching = Array.isArray(status?.collections)
-    ? status.collections.filter((item) => item?.id === options.collectionId)
-    : [];
-  if (matching.length !== 1) throw new CanaryError(stage, "missing_collection");
-  const collection = matching[0];
-  if (collection.name !== options.expectedCollectionName
-      || collection.mode !== "synced"
-      || collection.log !== "hosted") {
-    throw new CanaryError(stage, "collection_mismatch");
-  }
-  return collection;
-}
-
-function syncState(collection) {
-  if (collection.state === "failed" || collection.state === "paused") {
-    return { terminal: `collection_${collection.state}` };
-  }
-  if (collection.state !== "ready") {
-    return { waiting: collection.state === "unavailable" ? "collection_unavailable" : "collection_opening" };
-  }
-  const sync = collection.sync;
-  if (!sync) return { waiting: "collection_opening" };
-  if (sync.holds !== 0) return { terminal: "holds_present" };
-  if (sync.unresolved !== 0) return { terminal: "conflicts_present" };
-  // A freshly opened hosted replica starts `connecting`; it turns `online`
-  // only on an authenticated read or subscribe reply from the hosted log.
-  if (sync.connection !== "online") return { waiting: "log_offline" };
-  if (sync.resyncing
-      || !Number.isSafeInteger(sync.head_known)
-      || sync.head_known < 1
-      || sync.confirmed_through !== sync.head_known) {
-    return { waiting: "not_caught_up" };
-  }
-  if (sync.pending !== 0) return { waiting: "local_changes_pending" };
-  return { done: true };
-}
-
-async function readMarker(collection, markerPath) {
-  if (typeof collection.root !== "string" || !isAbsolute(collection.root)) {
-    throw new CanaryError("read", "invalid_response");
-  }
-  let root;
-  let target;
-  try {
-    root = await realpath(collection.root);
-    target = resolve(root, ...markerPath.split("/"));
-    const entry = await lstat(target);
-    if (!entry.isFile()) throw new CanaryError("read", "marker_mismatch");
-    if (!(await realpath(target)).startsWith(`${root}${sep}`)) {
-      throw new CanaryError("read", "marker_mismatch");
-    }
-    if (entry.size > MAX_MARKER_BYTES) throw new CanaryError("read", "marker_too_large");
-  } catch (error) {
-    if (error instanceof CanaryError) throw error;
-    throw new CanaryError("read", error?.code === "ENOENT" ? "marker_missing" : "marker_unreadable");
-  }
-  let handle;
-  try {
-    handle = await open(target, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
-    const bytes = await handle.readFile();
-    if (bytes.length > MAX_MARKER_BYTES) throw new CanaryError("read", "marker_too_large");
-    return bytes;
-  } catch (error) {
-    if (error instanceof CanaryError) throw error;
-    throw new CanaryError("read", "marker_unreadable");
-  } finally {
-    await handle?.close();
-  }
 }
 
 export async function runCanary(
@@ -247,11 +92,7 @@ export async function runCanary(
   const started = performance.now();
   const checkedAt = new Date().toISOString();
   const stages = [];
-  const environmentArgument = argv.indexOf("--environment");
-  const suppliedEnvironment = environmentArgument === -1
-    ? environmentVariables[INPUTS.environment]
-    : argv[environmentArgument + 1];
-  let environment = ENVIRONMENT.test(suppliedEnvironment ?? "") ? suppliedEnvironment : "unknown";
+  let environment = reportedEnvironment(argv, environmentVariables, INPUTS.environment);
   let currentStage = "config";
   let failure;
 
@@ -270,19 +111,12 @@ export async function runCanary(
 
   let options;
   let daemonOwned = false;
-  const runCli = async (stage, argumentsList, timeout) => {
-    try {
-      const { stdout } = await execFileAsync(
-        options.cli,
-        ["--state-dir", options.stateDir, "--json", ...argumentsList],
-        { env: environmentVariables, timeout, maxBuffer: MAX_OUTPUT_BYTES, windowsHide: true }
-      );
-      return JSON.parse(stdout);
-    } catch (error) {
-      if (error instanceof SyntaxError) throw new CanaryError(stage, "malformed_json");
-      throw new CanaryError(stage, cliFailureCode(error));
-    }
-  };
+  const runCli = (stage, argumentsList, timeout) => runCliIn(
+    { cli: options.cli, stateDir: options.stateDir, environmentVariables },
+    stage,
+    argumentsList,
+    timeout
+  );
 
   try {
     options = await runStage("config", async () => {
@@ -356,7 +190,7 @@ export async function runCanary(
       "describe"
     ));
 
-    const bytes = await runStage("read", () => readMarker(synced, options.markerPath));
+    const bytes = await runStage("read", () => readCollectionFile(synced, options.markerPath, "read"));
 
     await runStage("digest", async () => {
       if (markerSha256(bytes) !== options.expectedMarkerSha256) {
