@@ -94,6 +94,24 @@ describe("touch formatting bar", () => {
   });
 });
 
+describe("undo and redo", () => {
+  it("redoes with Ctrl Shift Z as well as Ctrl Y", () => {
+    const onChange = vi.fn();
+    render(<CodeEditor value="a" label="Note body" language="markdown" variant="writer" onChange={onChange} />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    const view = EditorView.findFromDOM(body)!;
+    view.focus();
+    view.dispatch({ changes: { from: 1, insert: "b" }, userEvent: "input.type" });
+    fireEvent.keyDown(body, { key: "z", code: "KeyZ", keyCode: 90, ctrlKey: true });
+    expect(onChange).toHaveBeenLastCalledWith("a");
+    fireEvent.keyDown(body, { key: "Z", code: "KeyZ", keyCode: 90, ctrlKey: true, shiftKey: true });
+    expect(onChange).toHaveBeenLastCalledWith("ab");
+    fireEvent.keyDown(body, { key: "z", code: "KeyZ", keyCode: 90, ctrlKey: true });
+    fireEvent.keyDown(body, { key: "y", code: "KeyY", keyCode: 89, ctrlKey: true });
+    expect(onChange).toHaveBeenLastCalledWith("ab");
+  });
+});
+
 describe("rendered Markdown links", () => {
   it("opens a rendered link without moving the caret into its source", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
