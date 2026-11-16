@@ -179,7 +179,7 @@ test("rejects missing, malformed, duplicate, or unsafe configuration before runn
     const result = await invoke(options, overrides);
     assert.equal(result.code, 2, JSON.stringify(overrides));
     assert.deepEqual(result.json.error, { stage: "config", code: "invalid_config" });
-    assert.deepEqual(result.json.stages, []);
+    assert.deepEqual(shape(result.json.stages), [{ name: "config", status: "failed" }]);
   }
   const mixed = await invoke(options, {}, { MDBASE_SYNC_CANARY_COLLECTION: COLLECTION });
   assert.equal(mixed.code, 2);
@@ -223,7 +223,7 @@ test("refuses to write unless both devices are ready, distinct and on one accoun
     assert.equal(result.code, 1, mode);
     assert.equal(result.json.status, "failed", mode);
     assert.deepEqual(result.json.error, { stage: "preflight", code }, mode);
-    assert.deepEqual(result.json.stages, [], mode);
+    assert.deepEqual(shape(result.json.stages), [{ name: "preflight", status: "failed" }], mode);
     assert.equal(await readFile(resolve(options.writer, PROBE_PATH), "utf8"), probeDocument("initial"), mode);
     assertPrivate(result, options);
   }

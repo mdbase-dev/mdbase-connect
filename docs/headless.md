@@ -253,8 +253,8 @@ The probe prints one JSON line: `schema_version` 1, `source` `sync`,
 `component` `hosted`, `environment`, `checked_at`, `status`, `duration_ms`
 (write to the reader's copy, or to the failure; before a write, how long the
 run took), the stages that completed and the one that failed, and on failure an
-`error` with its stage and a fixed code. Failures before timing starts use the
-stage `config` (exit `2`), `preflight` (for example `account_mismatch`,
+`error` with its stage and a fixed code. A failure before timing starts is the
+run's only stage, `config` (exit `2`), `preflight` (for example `account_mismatch`,
 `same_device`, `heads_differ`, `log_offline` or a CLI code) or `write`. A stage
 that outlasts the timeout reports the device's last blocking reason
 (`log_offline`, `account_offline`, `collection_opening`) or `timeout`; holds,

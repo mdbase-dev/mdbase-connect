@@ -306,6 +306,9 @@ export async function runCanary(
     }
   } catch (error) {
     failure = error instanceof CanaryError ? error : new CanaryError("internal", "internal_error");
+    // A failure before timing started is the run's one stage: the timings
+    // contract needs at least one.
+    if (stages.length === 0) stages = [{ name: failure.stage, status: "failed", duration_ms: elapsed(started) }];
   }
 
   return {
@@ -320,9 +323,7 @@ export async function runCanary(
       status: failure ? "failed" : "operational",
       // From the write to the reader's copy (or the failed stage); a run that
       // failed before timing started reports how long it took.
-      duration_ms: stages.length > 0
-        ? stages.reduce((sum, stage) => sum + stage.duration_ms, 0)
-        : elapsed(started),
+      duration_ms: stages.reduce((sum, stage) => sum + stage.duration_ms, 0),
       stages,
       ...(failure ? { error: { stage: failure.stage, code: failure.code } } : {})
     }
