@@ -31,6 +31,13 @@ fn discovery_actor(source: &str) -> (Replica<ProjectionStore>, SessionId) {
 /// A replica whose primary inventory is `records` (created in batches with
 /// the given IDs) plus a three-view Base at the largest identity.
 fn inventory_actor(records: &[(B16, String, String)]) -> (Replica<ProjectionStore>, SessionId) {
+    inventory_universe(records, true)
+}
+/// `records`, plus the three-view late Base only when `late`.
+fn inventory_universe(
+    records: &[(B16, String, String)],
+    late: bool,
+) -> (Replica<ProjectionStore>, SessionId) {
     let (svc, mut a, _) = configured();
     // Batches stay within one mutation's bounds: 100 records or ~256 KiB.
     let mut batches: Vec<&[(B16, String, String)]> = Vec::new();
@@ -65,8 +72,10 @@ fn inventory_actor(records: &[(B16, String, String)]) -> (Replica<ProjectionStor
         .unwrap();
         settle(&mut [&mut a]);
     }
-    a.create(255, "Views/late.base", THREE);
-    settle(&mut [&mut a]);
+    if late {
+        a.create(255, "Views/late.base", THREE);
+        settle(&mut [&mut a]);
+    }
     let mut r = projected(&svc, a);
     r.store().armed.set(false);
     let (session, _) = r
@@ -143,6 +152,8 @@ fn record_bound_page_without_views_makes_real_progress_before_eof() {
         })
         .collect();
     let (mut r, session) = inventory_actor(&records);
+    // Spend the request's time budget on the first page.
+    r.store().tick.set(2_000);
     let (views, next) = discovery_page(&mut r, session, None);
     assert!(views.is_empty());
     assert!(next.is_some());
@@ -164,6 +175,8 @@ fn source_bytes_bound_a_page_and_its_continuation_is_exact() {
         })
         .collect();
     let (mut r, session) = inventory_actor(&records);
+    // One page per request, so each request shows one page's byte bound.
+    r.store().tick.set(2_000);
     let mut pages = 0;
     let mut views = Vec::new();
     let mut next = None;
@@ -223,6 +236,7 @@ fn a_base_whose_reread_no_longer_fits_starts_the_next_page() {
         format!("{comment}{THREE}"),
     ));
     let (mut r, session) = inventory_actor(&records);
+    r.store().tick.set(2_000);
     let (views, next) = discovery_page(&mut r, session, None);
     assert!(views.is_empty());
     let (views, next) = discovery_page(&mut r, session, next);
@@ -231,6 +245,72 @@ fn a_base_whose_reread_no_longer_fits_starts_the_next_page() {
     expected.extend(LATE);
     assert_eq!(views, expected);
     assert!(next.is_none());
+}
+fn tiny_notes(count: u16) -> Vec<(B16, String, String)> {
+    (0..count)
+        .map(|n| {
+            (
+                task_id(n),
+                format!("Notes/{n}.md"),
+                "---\ntags: [note]\n---\n".into(),
+            )
+        })
+        .collect()
+}
+#[test]
+fn one_request_reads_on_until_a_late_view() {
+    // 2200 notes are three record-bound pages before the only Base. On a
+    // Private collection each request is a relayed round trip, so the pages
+    // must not each cost one (tasknotes-app#436).
+    let (mut r, session) = inventory_actor(&tiny_notes(2200));
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert_eq!(views, LATE.to_vec());
+    assert!(next.is_none());
+}
+#[test]
+fn a_universe_without_views_ends_in_one_request() {
+    let (mut r, session) = inventory_universe(&tiny_notes(2200), false);
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert!(views.is_empty());
+    assert!(next.is_none());
+}
+#[test]
+fn the_request_time_budget_stops_between_pages_with_a_continuation() {
+    // Each 1000-record page hydrates in 8 calls; at 100 ms per call the first
+    // page leaves budget for a second, and the second spends it.
+    let (mut r, session) = inventory_actor(&tiny_notes(3300));
+    r.store().tick.set(100);
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert!(views.is_empty());
+    assert!(next.is_some());
+    let (views, next) = discovery_page(&mut r, session, next);
+    assert_eq!(views, LATE.to_vec());
+    assert!(next.is_none());
+}
+#[test]
+fn a_refusal_on_a_later_page_fails_the_request_and_its_continuation() {
+    let (mut r, session) = inventory_actor(&tiny_notes(1100));
+    // Planning rejects malformed frontmatter before storing it; inject a real
+    // store-row fault on the second page instead.
+    let mut row = r.store().inner.record(&task_id(1050)).unwrap().unwrap();
+    row.doc = "---\ntags: [\n---\n".into();
+    row.revision = mdbn_wire::hash::sha256(row.doc.as_bytes());
+    r.store_mut()
+        .inner
+        .commit(crate::store::Tx {
+            records_put: vec![row],
+            ..Default::default()
+        })
+        .unwrap();
+    let encoded = Cell::new(false);
+    assert!(
+        r.encode_bases_discovery_page(session, Some("UTC"), 128, None, |_, _, _| {
+            encoded.set(true);
+            Ok(())
+        })
+        .is_err()
+    );
+    assert!(!encoded.get());
 }
 #[test]
 fn native_discovery_slots_are_globally_bounded_and_close_releases_only_residency() {

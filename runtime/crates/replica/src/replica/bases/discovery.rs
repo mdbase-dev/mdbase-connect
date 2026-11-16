@@ -7,18 +7,29 @@ use std::collections::BTreeMap;
 /// Identities per metadata read and per hydration call; the local source
 /// helpers accept at most 128.
 const METADATA_ROWS: u32 = 128;
-/// A page's source work is the whole binding 1000-record / 1 MiB profile, under
-/// ONE ledger. Every selected source is read once to classify it; only a source
-/// that classifies as a Base is read again by the final CAS, and the page
-/// reserves that reread before it keeps the Base. Discovery reads every record in
-/// the collection, one relayed round trip per page, so its round trips scale
-/// with the collection's bytes over this bound (tasknotes-app#436).
+/// One page's source work is the whole binding 1000-record / 1 MiB profile,
+/// under ONE ledger, and that profile still binds every page. Every selected
+/// source is read once to classify it; only a source that classifies as a Base
+/// is read again by the page's final CAS, and the page reserves that reread
+/// before it keeps the Base.
 const PAGE_ROWS: u32 = 1000;
 const PAGE_BYTES: u64 = 1 << 20;
 /// The largest source a page may select: half the page, so a Base can always
 /// be classified and reread within one page.
 const INITIAL_BYTES: u64 = PAGE_BYTES / 2;
 const SLOT_BYTES: u64 = 4096;
+/// A discovery REQUEST is bounded by time across pages, not by one page's
+/// bytes: it serves further pages of the same frozen cut until one has a view,
+/// the universe ends, or about this much host-clock time has passed since the
+/// request started. Discovery reads every record, and on a Private collection
+/// each request is a relayed round trip, so one page per request cost a round
+/// trip per MiB of notes before the first view (tasknotes-app#436, ~33 round
+/// trips and 19.5 s). Each page stays bounded by the profile above.
+const REQUEST_WORK_MS: i64 = 1_500;
+/// Backstop for a host clock that does not advance (it need not be monotonic):
+/// at most this many pages, each bounded by the profile, per request.
+const MAX_PAGES_PER_REQUEST: u32 = 256;
+
 const MAX_SLOTS: usize = 64;
 
 /// A separate native discovery continuation, never a Query/execution cursor.
@@ -45,6 +56,14 @@ pub struct BasesViewSource {
     pub clock: OpClock,
     /// Trusted collection revision.
     pub collection_revision: Hash,
+}
+/// One classified page, before its final CAS and (for the replying page) codec.
+struct ScannedPage {
+    views: Vec<BasesViewDescriptor>,
+    reread: Vec<(QueryRecordSize, LocalRecord)>,
+    reserved_bytes: u64,
+    sources: QueryBudget,
+    more: bool,
 }
 struct Entry {
     token: BasesDiscoveryHandle,
@@ -155,9 +174,11 @@ impl<S: Store> Replica<S> {
         }
         Ok(entry)
     }
-    /// Read one bounded page and encode INSIDE the original publication fence.
-    /// A supplied handle is single-use. Drift/failed consumption requires fresh
-    /// discovery, never an implicit new-cut retry. Caller uses zeroizing output.
+    /// Read bounded pages of one frozen cut until a page has a view, the
+    /// universe ends or the request's time budget is spent, and encode that
+    /// page INSIDE the original publication fence. A supplied handle is
+    /// single-use. Drift/failed consumption requires fresh discovery, never an
+    /// implicit new-cut retry. Caller uses zeroizing output.
     pub fn encode_bases_discovery_page<T>(
         &mut self,
         session: SessionId,
@@ -197,6 +218,41 @@ impl<S: Store> Replica<S> {
         if timezone.is_some_and(|zone| zone != entry.clock.tz) {
             return Err(invalid());
         }
+        // Serve pages under the SAME frozen cut until one has a view, the
+        // universe ends, or the request's time budget is spent. Each page is
+        // exactly one bounded page (its own source profile and ledger, every
+        // record classified, its own final CAS); only the page that replies is
+        // encoded. Without this, a vault of notes cost one relayed round trip
+        // per page before the first view (tasknotes-app#436).
+        let started = self.now();
+        let mut pages = 0u32;
+        loop {
+            pages += 1;
+            let mut scan = self.discovery_scan_page(session, &mut entry, limit, &mut ledger)?;
+            let spent = pages >= MAX_PAGES_PER_REQUEST
+                || self.now().saturating_sub(started) >= REQUEST_WORK_MS;
+            if !scan.views.is_empty() || !scan.more || spent {
+                return self.publish_discovery_page(session, entry, scan, ledger, encode);
+            }
+            // A page without views still proves its own Bases before the next
+            // page reads on; nothing of it is published.
+            self.recheck_discovery(session, &entry)?;
+            self.discovery_final_cas(&entry, &mut scan, &mut ledger)?;
+            self.recheck_discovery(session, &entry)?;
+            ledger = IncrementalBasesBudget::new();
+            ledger.retain(SLOT_BYTES).map_err(failure)?;
+        }
+    }
+    /// Select, read and classify one bounded page of the frozen discovery
+    /// universe, advancing `entry` past every processed record. Nothing is
+    /// published or encoded here.
+    fn discovery_scan_page(
+        &mut self,
+        session: SessionId,
+        entry: &mut Entry,
+        limit: u32,
+        ledger: &mut IncrementalBasesBudget,
+    ) -> ApiResult<ScannedPage> {
         // Select, read and classify the longest identity-ordered prefix that
         // fits the page's source work, one metadata read at a time. Each
         // metadata read is precharged before it runs, each hydration is
@@ -286,9 +342,9 @@ impl<S: Store> Replica<S> {
             if rows.len() != admitted.len() {
                 return Err(invalid());
             }
-            self.recheck_discovery(session, &entry)?;
+            self.recheck_discovery(session, entry)?;
             for (row, meta) in rows.into_iter().zip(admitted) {
-                self.check_discovery_source(&row, meta.id, meta.encoded_bytes, &mut ledger)?;
+                self.check_discovery_source(&row, meta.id, meta.encoded_bytes, ledger)?;
                 if entry
                     .unfinished
                     .is_some_and(|(id, revision, _)| id != row.id || revision != row.revision)
@@ -410,9 +466,60 @@ impl<S: Store> Replica<S> {
         // Only a short metadata read establishes EOF. Empty views with next
         // are valid actual progress.
         let more = entry.unfinished.is_some() || processed < selected || !exhausted;
+        Ok(ScannedPage {
+            views,
+            reread,
+            reserved_bytes,
+            sources,
+            more,
+        })
+    }
+    /// FINAL source CAS: reread every Base the page classified, on the SAME
+    /// ledger and source meter. Every other selected source yielded nothing,
+    /// and the caller's fence and head recheck cover it.
+    fn discovery_final_cas(
+        &self,
+        entry: &Entry,
+        scan: &mut ScannedPage,
+        ledger: &mut IncrementalBasesBudget,
+    ) -> ApiResult<()> {
+        if scan.reread.is_empty() {
+            return Ok(());
+        }
+        ledger
+            .retain(scan.reserved_bytes + (scan.reread.len() as u64) * 512)
+            .map_err(failure)?;
+        let ids: Vec<_> = scan.reread.iter().map(|(meta, _)| meta.id).collect();
+        let final_rows = self.discovery_hydrate(&ids, entry.head, &mut scan.sources)?;
+        if final_rows.len() != scan.reread.len() {
+            return Err(stale_discovery());
+        }
+        for (actual, (meta, expected)) in final_rows.iter().zip(&scan.reread) {
+            self.check_discovery_source(actual, expected.id, meta.encoded_bytes, ledger)?;
+            if actual.path != expected.path
+                || actual.path_key != expected.path_key
+                || actual.revision != expected.revision
+                || actual.doc != expected.doc
+            {
+                return Err(stale_discovery());
+            }
+        }
+        Ok(())
+    }
+    /// Encode the replying page INSIDE the original publication fence, then
+    /// run its final CAS after codec and publish or release the slot.
+    fn publish_discovery_page<T>(
+        &mut self,
+        session: SessionId,
+        mut entry: Entry,
+        mut scan: ScannedPage,
+        mut ledger: IncrementalBasesBudget,
+        encode: impl FnOnce(&mut Self, &BasesDiscoveryPage, &mut IncrementalBasesBudget) -> ApiResult<T>,
+    ) -> ApiResult<T> {
+        let more = scan.more;
         self.host.entropy.fill(&mut entry.token.0);
         let page = BasesDiscoveryPage {
-            views,
+            views: std::mem::take(&mut scan.views),
             clock: entry.clock.clone(),
             collection_revision: entry.fence.collection_revision(),
             next: more.then_some(entry.token),
@@ -420,29 +527,7 @@ impl<S: Store> Replica<S> {
         self.recheck_discovery(session, &entry)?;
         let output = encode(self, &page, &mut ledger)?;
         self.recheck_discovery(session, &entry)?;
-        // FINAL source CAS rereads every Base this page classified, on the SAME
-        // ledger and source meter after codec. Every other selected source
-        // yielded nothing, and the fence and head recheck below cover it.
-        if !reread.is_empty() {
-            ledger
-                .retain(reserved_bytes + (reread.len() as u64) * 512)
-                .map_err(failure)?;
-            let ids: Vec<_> = reread.iter().map(|(meta, _)| meta.id).collect();
-            let final_rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
-            if final_rows.len() != reread.len() {
-                return Err(stale_discovery());
-            }
-            for (actual, (meta, expected)) in final_rows.iter().zip(&reread) {
-                self.check_discovery_source(actual, expected.id, meta.encoded_bytes, &mut ledger)?;
-                if actual.path != expected.path
-                    || actual.path_key != expected.path_key
-                    || actual.revision != expected.revision
-                    || actual.doc != expected.doc
-                {
-                    return Err(stale_discovery());
-                }
-            }
-        }
+        self.discovery_final_cas(&entry, &mut scan, &mut ledger)?;
         self.recheck_discovery(session, &entry)?;
         if more {
             // The public encoder may re-enter and publish other sessions' slots.
