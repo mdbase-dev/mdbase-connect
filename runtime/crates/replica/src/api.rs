@@ -248,6 +248,18 @@ impl std::error::Error for ApiError {}
 /// API result.
 pub type ApiResult<T> = Result<T, ApiError>;
 
+/// The `unavailable` reason of a history read still waiting on log reads. The
+/// frame layer holds such a request; it never reaches a client.
+pub const HISTORY_LOADING: &str = "history_loading";
+
+/// Refusal of a replica that serves no record history (`replica-client-api.md` §4.4).
+pub fn history_unsupported() -> ApiError {
+    ErrorCode::UpgradeRequired.err_with_reason(
+        "history_unsupported",
+        "this replica does not serve record history",
+    )
+}
+
 // ------------------------------------------------------------------ sessions
 
 /// A client session on this replica.
@@ -880,6 +892,26 @@ pub trait ClientApi {
         session: SessionId,
         request: Backlinks,
     ) -> ApiResult<mdbn_wire::client::BacklinksResult>;
+    /// One record's versions in the retained log, newest first
+    /// (`replica-client-api.md` §4.4). While log reads are outstanding this
+    /// answers `unavailable` / [`HISTORY_LOADING`]; the frame layer holds the
+    /// request and asks again.
+    fn record_history(
+        &mut self,
+        _session: SessionId,
+        _params: mdbn_wire::client::RecordHistoryParams,
+    ) -> ApiResult<mdbn_wire::client::RecordHistory> {
+        Err(history_unsupported())
+    }
+    /// One version's exact document, read from its own log entry. Pending
+    /// like [`ClientApi::record_history`].
+    fn record_version(
+        &mut self,
+        _session: SessionId,
+        _params: mdbn_wire::client::RecordVersionParams,
+    ) -> ApiResult<mdbn_wire::client::RecordVersion> {
+        Err(history_unsupported())
+    }
     /// A query (spec 11 query object) over the local view.
     fn query(
         &mut self,

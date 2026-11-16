@@ -2678,6 +2678,11 @@ msgstr "Читать содержимое файлов"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
+msgid "Read record history"
+msgstr "Читать историю записей"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
 msgid "Read records and files"
 msgstr "Читать записи и файлы"
 
@@ -3087,6 +3092,10 @@ msgstr "видеть участников коллекции"
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
 msgstr "Видеть идентификаторы учётных записей, имена и роли участников коллекции"
+
+#: src/authorization-capabilities.ts
+msgid "See earlier versions of records, including text that has since been changed or deleted."
+msgstr "Просматривать прежние версии записей, включая текст, который с тех пор изменён или удалён."
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"

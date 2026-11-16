@@ -2678,6 +2678,11 @@ msgstr "Leer contenido de archivos"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
+msgid "Read record history"
+msgstr "Leer el historial de registros"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
 msgid "Read records and files"
 msgstr "Leer registros y archivos"
 
@@ -3087,6 +3092,10 @@ msgstr "ver miembros de la colección"
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
 msgstr "Ver las identidades de cuenta, los nombres y los roles de los miembros de la colección"
+
+#: src/authorization-capabilities.ts
+msgid "See earlier versions of records, including text that has since been changed or deleted."
+msgstr "Ver versiones anteriores de los registros, incluido texto que ya se ha modificado o eliminado."
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"

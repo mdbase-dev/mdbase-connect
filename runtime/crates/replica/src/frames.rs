@@ -9,6 +9,8 @@
 //! - [`Push`]es → `c-push` frames, with the push type names of [`Push::kind`];
 //! - `await` and `submit` with `wait: confirmed` or `wait: published` are held here
 //!   until their receipt criterion is satisfied (or the timeout), from [`Push::Receipt`];
+//! - native upload calls and the history reads are held while the replica's own work
+//!   for them is outstanding, and asked again on every pump (`frames/deferred.rs`);
 //! - `cancel {0: id}` answers a held request with `cancelled`;
 //! - [`Push::FenceApply`] becomes a replica → client `c-request`; the client's
 //!   `c-response` becomes [`ClientApi::fence_result`] (§14).
@@ -38,8 +40,8 @@ use crate::api::{
     Target,
 };
 
-mod file_uploads;
-use file_uploads::{FileCall, HeldFile};
+mod deferred;
+use deferred::{Call, Deferred};
 
 /// The longest `await`, `wait: confirmed` or `wait: published` is held. At the limit
 /// the request is answered with the current receipt(s), so a held request always answers even if
@@ -98,7 +100,7 @@ struct SessionState {
 pub struct Frames {
     sessions: BTreeMap<SessionId, SessionState>,
     held: Vec<Held>,
-    file_holds: Vec<HeldFile>,
+    deferred: Vec<Deferred>,
     out: Vec<QueuedFrame>,
     closed: Vec<SessionId>,
     now_ms: i64,
@@ -398,7 +400,7 @@ impl Frames {
             });
             self.respond(h.session, h.request, result);
         }
-        self.file_pump(api);
+        self.deferred_pump(api);
     }
 
     /// Open a session from an encoded `hello` request frame.
@@ -464,7 +466,7 @@ impl Frames {
             // apply recovery closes a session; never flush stale plaintext.
             self.out.retain(|frame| frame.session != session);
             self.held.retain(|h| h.session != session);
-            self.file_close(session);
+            self.deferred_close(session);
             self.closed.push(session);
         }
     }
@@ -483,7 +485,7 @@ impl Frames {
                 self.settle(&r);
             }
         }
-        self.file_pump(api);
+        self.deferred_pump(api);
     }
 
     fn forward(&mut self, api: &mut dyn ClientApi, session: SessionId, push: Push) {
@@ -654,20 +656,28 @@ impl Frames {
                     );
                 }
                 if let Ok(t) = target {
-                    self.file_cancel(session, t);
+                    self.deferred_cancel(session, t);
                 }
                 self.respond(session, id, Ok(Cbor::Null));
             }
             "open_upload" => match dec::<OpenUploadParams>(&r.params) {
-                Ok(params) => self.file_request(api, session, id, FileCall::Open(params)),
+                Ok(params) => self.defer(api, session, id, Call::Open(params)),
                 Err(error) => self.respond(session, id, Err(error)),
             },
             "upload_chunk" => match dec::<UploadChunkParams>(&r.params) {
-                Ok(params) => self.file_request(api, session, id, FileCall::Chunk(params)),
+                Ok(params) => self.defer(api, session, id, Call::Chunk(params)),
                 Err(error) => self.respond(session, id, Err(error)),
             },
             "commit_upload" => match fields(&r.params).and_then(|m| dec::<Uuid>(req(m, 0)?)) {
-                Ok(transfer) => self.file_request(api, session, id, FileCall::Commit(transfer)),
+                Ok(transfer) => self.defer(api, session, id, Call::Commit(transfer)),
+                Err(error) => self.respond(session, id, Err(error)),
+            },
+            "record_history" => match record_history_params(&r.params) {
+                Ok(params) => self.defer(api, session, id, Call::History(params)),
+                Err(error) => self.respond(session, id, Err(error)),
+            },
+            "record_version" => match record_version_params(&r.params) {
+                Ok(params) => self.defer(api, session, id, Call::Version(params)),
                 Err(error) => self.respond(session, id, Err(error)),
             },
             "submit" => match SubmitParams::from_cbor(&r.params).map_err(schema) {
@@ -731,6 +741,31 @@ impl Frames {
             }
         }
     }
+}
+
+/// The most versions one `record_history` page returns (§4.4).
+const MAX_HISTORY_LIMIT: u64 = 200;
+
+fn record_history_params(params: &Cbor) -> ApiResult<mdbn_wire::client::RecordHistoryParams> {
+    let m = fields(params)?;
+    if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=2))) {
+        return Err(ErrorCode::InvalidRequest
+            .err_with_reason("unknown_param", "record_history supports only params 0–2"));
+    }
+    let p: mdbn_wire::client::RecordHistoryParams = dec(params)?;
+    if p.limit.is_some_and(|l| l == 0 || l > MAX_HISTORY_LIMIT) {
+        return Err(bad("record_history limit must be 1–200"));
+    }
+    Ok(p)
+}
+
+fn record_version_params(params: &Cbor) -> ApiResult<mdbn_wire::client::RecordVersionParams> {
+    let m = fields(params)?;
+    if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=1))) {
+        return Err(ErrorCode::InvalidRequest
+            .err_with_reason("unknown_param", "record_version supports only params 0–1"));
+    }
+    dec(params)
 }
 
 fn fence_result(c: &Cbor) -> Option<FenceResult> {

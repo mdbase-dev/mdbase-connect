@@ -66,6 +66,7 @@ function capabilityLabel(capability: string): string {
     case "definitions.manage": return t(i18n)({ message: "manage types and collection setup", context: "Confirmation dialog" });
     case "background.schedule": return t(i18n)({ message: "run scheduled background tasks", context: "Confirmation dialog" });
     case "offline.replica": return t(i18n)({ message: "keep an offline copy", context: "Confirmation dialog" });
+    case "history.read": return t(i18n)({ message: "read earlier versions of records", context: "Confirmation dialog" });
     default: return capability;
   }
 }

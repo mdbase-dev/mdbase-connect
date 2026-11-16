@@ -33,7 +33,7 @@ export const COLLECTION_MEMBERSHIP_ROLES = ["viewer", "editor"] as const;
 export type CollectionMembershipRole = (typeof COLLECTION_MEMBERSHIP_ROLES)[number];
 export type CollectionRole = "owner" | CollectionMembershipRole;
 
-const COLLECTION_MEMBERSHIP_PRESET_VERSION = 2;
+const COLLECTION_MEMBERSHIP_PRESET_VERSION = 3;
 
 const FILE_ACTIONS = ["list", "read", "add", "replace", "move", "delete"] as const;
 
@@ -66,7 +66,8 @@ const EDITOR_OPERATIONS = [
       "views.manage",
       "definitions.manage",
       "background.schedule",
-      "offline.replica"
+      "offline.replica",
+      "history.read"
     ]
   }),
   ...APPLICATION_SETUP_OPERATIONS

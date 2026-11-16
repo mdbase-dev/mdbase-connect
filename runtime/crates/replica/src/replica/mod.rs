@@ -96,6 +96,7 @@ mod client_uploads;
 mod disk;
 pub mod gen0;
 mod handover;
+mod history;
 mod hosted;
 mod hosted_attachment_read;
 pub mod migration_log;
@@ -593,6 +594,8 @@ pub struct Replica<S: Store> {
     pub(crate) attachment_uploads: attachment_upload::Uploads,
     pub(crate) unindexed_uploads: unindexed_upload::Uploads,
     pub(crate) reverse_text_sources: unindexed_reverse_text::Sources,
+    /// Record history over the retained log (`replica-client-api.md` §4.4).
+    pub(crate) history: history::History,
     pub(crate) unindexed_reverse_uploads: unindexed_reverse_upload::Uploads,
     pub(crate) attachment_fetches: attachment_fetch::Fetches,
     /// One ephemeral file lane; allocated only when native file I/O is used.
@@ -925,6 +928,7 @@ impl<S: Store> Replica<S> {
             attachment_uploads: attachment_upload::Uploads::default(),
             unindexed_uploads: unindexed_upload::Uploads::default(),
             reverse_text_sources: unindexed_reverse_text::Sources::default(),
+            history: history::History::default(),
             unindexed_reverse_uploads: unindexed_reverse_upload::Uploads::default(),
             attachment_fetches: attachment_fetch::Fetches::default(),
             client_files: None,

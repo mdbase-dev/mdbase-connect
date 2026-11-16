@@ -2678,6 +2678,11 @@ msgstr "读取文件内容"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
+msgid "Read record history"
+msgstr "读取记录历史"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
 msgid "Read records and files"
 msgstr "读取记录和文件"
 
@@ -3087,6 +3092,10 @@ msgstr "查看集合成员"
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
 msgstr "查看集合成员的账户身份、姓名和角色"
+
+#: src/authorization-capabilities.ts
+msgid "See earlier versions of records, including text that has since been changed or deleted."
+msgstr "查看记录的早期版本，包括之后已更改或删除的文本。"
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"

@@ -61,6 +61,10 @@ rule_for() {
     client/confirmed-head) echo confirmed-head ;;
     client/applied-prefix-params) echo applied-prefix-params ;;
     client/applied-prefix-ahead|client/applied-prefix-behind) echo applied-prefix ;;
+    client/record-history-params) echo record-history-params ;;
+    client/record-history) echo record-history ;;
+    client/record-version-params) echo record-version-params ;;
+    client/record-version) echo record-version ;;
     client/query-result-*) echo query-result ;;
     client/query-update-*) echo query-update ;;
     client/hold-file) echo hold ;;

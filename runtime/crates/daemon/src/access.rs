@@ -72,6 +72,7 @@ pub fn plain_capability(capability: &str) -> &str {
         "definitions.manage" => "manage types and collection setup",
         "background.schedule" => "run scheduled background tasks",
         "offline.replica" => "keep an offline copy",
+        "history.read" => "read earlier versions of records",
         other => other,
     }
 }

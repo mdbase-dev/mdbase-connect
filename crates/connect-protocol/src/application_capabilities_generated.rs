@@ -11,6 +11,7 @@ pub const APPLICATION_CAPABILITY_IDS: &[&str] = &[
     "definitions.manage",
     "background.schedule",
     "offline.replica",
+    "history.read",
 ];
 
 pub const APPLICATION_SETUP_OPERATIONS: &[&str] =
@@ -50,6 +51,7 @@ pub fn application_capability_operations(capability: &str) -> Option<&'static [&
             "reconcile_timers",
         ]),
         "offline.replica" => Some(&["sync"]),
+        "history.read" => Some(&["record_history", "record_version"]),
         _ => None,
     }
 }
