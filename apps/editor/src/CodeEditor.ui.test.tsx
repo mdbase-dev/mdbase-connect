@@ -72,6 +72,28 @@ describe("writer Enter", () => {
   });
 });
 
+describe("touch formatting bar", () => {
+  it("shows while the note has focus, even when a transaction follows the tap", async () => {
+    const coarse = vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaQueryList));
+    try {
+      render(<CodeEditor value="A note" label="Note body" language="markdown" variant="writer" />);
+      const body = screen.getByRole("textbox", { name: "Note body" });
+      const view = EditorView.findFromDOM(body)!;
+      // A tap focuses the note and places the caret; another update lands in the same task.
+      await act(async () => {
+        body.focus();
+        view.dispatch({ selection: { anchor: 1 }, userEvent: "select.pointer" });
+        view.dispatch({ selection: { anchor: 2 } });
+      });
+      expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
+      await act(async () => { body.blur(); });
+      expect(screen.queryByRole("toolbar", { name: "Formatting" })).not.toBeInTheDocument();
+    } finally {
+      coarse.mockRestore();
+    }
+  });
+});
+
 describe("rendered Markdown links", () => {
   it("opens a rendered link without moving the caret into its source", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);

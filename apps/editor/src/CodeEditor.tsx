@@ -351,8 +351,10 @@ export function CodeEditor({
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
       phraseMode.current.of(EditorState.phrases.of(englishCodeMirrorPhrases)),
       EditorView.scrollMargins.of(() => ({ bottom: covered.current })),
+      // The note's own focus events: CodeMirror drops its focus update when another
+      // transaction follows a tap before the update is dispatched.
+      EditorView.domEventHandlers({ focus: () => { setFocused(true); }, blur: () => { setFocused(false); } }),
       EditorView.updateListener.of((update) => {
-        if (update.focusChanged) setFocused(update.view.hasFocus);
         if (update.docChanged && !syncing.current) {
           onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
         }
