@@ -367,7 +367,8 @@
 .cm-lp-code-first { border-radius: var(--radius-md) var(--radius-md) 0 0; padding-top: 0.5em !important; }
 .cm-lp-code-last { border-radius: 0 0 var(--radius-md) var(--radius-md); padding-bottom: 0.5em !important; }
 .cm-lp-code-first.cm-lp-code-last { border-radius: var(--radius-md); }
-.cm-lp-code-fence-end { line-height: 0; min-height: 0; }
+/* An opening fence shown as source is as tall as the header it replaces, so the code below stays put. */
+.cm-lp-code-first::before { content: ""; display: inline-block; height: 28px; vertical-align: middle; }
 .cm-lp-code-header { display: inline-flex; width: 100%; vertical-align: middle; align-items: center; justify-content: space-between; gap: 1em; min-height: 28px; color: var(--color-text-muted); font-family: var(--sans); font-size: var(--font-size-caption); }
 .cm-lp-code-header button, .cm-lp-callout-header button { border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; min-width: 28px; min-height: 28px; font: inherit; }
 .cm-lp-code-header button:hover, .cm-lp-callout-header button:hover { background: var(--color-surface); color: var(--color-text); }
