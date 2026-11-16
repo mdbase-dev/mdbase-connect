@@ -26,6 +26,7 @@ mod resolve_links;
 mod resource_list;
 mod resources;
 mod snapshot_attachments;
+mod snapshot_fallback;
 mod snapshot_text;
 mod snapshot_trust;
 mod type_packs;

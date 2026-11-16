@@ -1,0 +1,25 @@
+{
+  "_type": "ManifestPayload",
+  "fmt": 1,
+  "seq": 20000,
+  "chain": "h'c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6c6'",
+  "state_digest": "h'd0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0d0'",
+  "bucket_bits": 0,
+  "sections": [
+    {
+      "_type": "Section",
+      "kind": "Index",
+      "chunks": []
+    }
+  ],
+  "horizon": {
+    "_type": "Horizon",
+    "seq_floor": 0,
+    "time_floor": 0
+  },
+  "sem": {"_type": "Version", "major": 1, "minor": 0},
+  "record_count": 0,
+  "file_count": 0,
+  "control_chain": "h'0707070707070707070707070707070707070707070707070707070707070707'",
+  "sem_ratchet": 1
+}

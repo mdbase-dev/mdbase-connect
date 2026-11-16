@@ -83,7 +83,8 @@ wire_struct! {
         5 req1 sections: Vec<Section>,
         /// Horizon applied.
         6 req horizon: Horizon,
-        /// Builder's semantics version (informational).
+        /// Builder's semantics version: a reader of a lower major does not
+        /// install the snapshot (snapshot.md §8).
         7 req sem: Sem,
         /// Number of records.
         8 req record_count: u64,
@@ -93,6 +94,10 @@ wire_struct! {
         10 opt previous: Hash,
         /// `ctl(seq)`, the control-item accumulator (snapshot.md §8.1).
         11 req control_chain: Hash,
+        /// The log's semantics ratchet at `seq`: the highest `sem.major` of the
+        /// entries applied through it (00-overview.md §6.3). Key 12 is the
+        /// fmt-2 ref-index list (`ref_index.rs`).
+        13 opt sem_ratchet: u64,
     }
 }
 

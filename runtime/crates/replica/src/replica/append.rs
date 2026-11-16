@@ -1796,9 +1796,7 @@ impl<S: Store> Replica<S> {
                 }
                 _ => {}
             },
-            Inflight::SnapPut => {
-                self.on_snap_put(matches!(reply, Ok(LogResponse::PutObject { .. })))
-            }
+            Inflight::SnapPut => self.on_snap_put(&reply),
             Inflight::AdoptPut => self.on_adopt_put(&reply),
             Inflight::SnapRegister => self.on_snap_registered(&reply),
             Inflight::Install => self.on_install_reply(reply),

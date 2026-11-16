@@ -109,6 +109,7 @@ pub(super) fn runtime_manifest() -> r::ManifestPayload {
         file_count: 3,
         previous: Some(b32(0xa6)),
         control_chain: b32(0xa7),
+        sem_ratchet: None,
     }
 }
 fn file_chunk() -> r::ChunkPayload {
