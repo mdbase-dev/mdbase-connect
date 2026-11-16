@@ -36,6 +36,7 @@ else if (mode === "malformed" && command === "status") process.stdout.write("${S
 else if (mode === "start-failed" && command === "daemon start") fail("unavailable", "start_failed");
 else if (mode === "unknown-reason" && command === "daemon start") fail("unavailable", "${SECRET}");
 else if (mode === "stop-failed" && command === "daemon stop") fail("unavailable", "daemon_unreachable");
+else if (mode === "invalid-start" && command === "daemon start") process.stdout.write(JSON.stringify({started:"${SECRET}"}));
 else if (command === "daemon start") process.stdout.write(JSON.stringify({readiness:{ready:true},started:mode !== "already-running"}));
 else if (command === "daemon stop") process.stdout.write(JSON.stringify({stopped:true}));
 else if (command === "status") {
@@ -125,6 +126,7 @@ test("reports a fresh hosted read of the marker and stops its daemon", async (t)
   assert.equal(result.code, 0);
   assert.deepEqual(result.json.stages.map(({ name, status }) => ({ name, status })), [
     { name: "config", status: "operational" },
+    { name: "daemon_start", status: "operational" },
     { name: "registration", status: "operational" },
     { name: "connections", status: "operational" },
     { name: "describe", status: "operational" },
@@ -197,10 +199,11 @@ test("accepts every input from its environment variable", async (t) => {
 
 test("classifies probe failures with fixed codes and always stops an owned daemon", async (t) => {
   for (const [mode, stage, code] of [
-    ["start-failed", "registration", "start_failed"],
-    ["unknown-reason", "registration", "unavailable"],
-    ["cli-failure", "registration", "cli_failed"],
-    ["signal", "registration", "cli_signaled"],
+    ["start-failed", "daemon_start", "start_failed"],
+    ["invalid-start", "daemon_start", "invalid_response"],
+    ["unknown-reason", "daemon_start", "unavailable"],
+    ["cli-failure", "daemon_start", "cli_failed"],
+    ["signal", "daemon_start", "cli_signaled"],
     ["insecure", "registration", "insecure_secret_backend"],
     ["signed-out", "registration", "not_signed_in"],
     ["other-origin", "registration", "origin_mismatch"],
@@ -221,6 +224,7 @@ test("classifies probe failures with fixed codes and always stops an owned daemo
     assert.equal(result.code, 1, mode);
     assert.equal(result.json.status, "failed", mode);
     assert.deepEqual(result.json.error, { stage, code }, mode);
+    assert.deepEqual(result.json.stages.filter((item) => item.status === "failed").map((item) => item.name), [stage], mode);
     assert.equal(result.json.stages.at(-1).name, "shutdown", mode);
     assert.equal((await calls(options)).at(-1), "daemon stop", mode);
     assertPrivate(result, options);
@@ -231,7 +235,7 @@ test("never stops a daemon this run did not start", async (t) => {
   const options = await fixture(t);
   const result = await invoke(options, {}, { FAKE_CLI_MODE: "already-running" });
   assert.equal(result.code, 1);
-  assert.deepEqual(result.json.error, { stage: "registration", code: "daemon_already_running" });
+  assert.deepEqual(result.json.error, { stage: "daemon_start", code: "daemon_already_running" });
   assert.deepEqual(await calls(options), ["daemon start"]);
 });
 
@@ -241,7 +245,7 @@ test("reports a failed shutdown after an otherwise operational probe", async (t)
   assert.equal(result.code, 1);
   assert.equal(result.json.status, "failed");
   assert.deepEqual(result.json.error, { stage: "shutdown", code: "daemon_unreachable" });
-  assert.ok(result.json.stages.slice(0, 6).every((stage) => stage.status === "operational"));
+  assert.ok(result.json.stages.slice(0, -1).every((stage) => stage.status === "operational"));
 });
 
 test("a deadline that expires during a poll reports why the probe was waiting", async (t) => {

@@ -330,16 +330,19 @@ export async function runCanary(
       }
     };
 
-    await runStage("registration", async () => {
+    await runStage("daemon_start", async () => {
       // Every run starts its own daemon, so each online state below is new.
       daemonOwned = true;
-      const start = await runCli("registration", ["daemon", "start"], remainingTime("registration"));
+      const start = await runCli("daemon_start", ["daemon", "start"], remainingTime("daemon_start"));
       if (start?.started !== true) {
         daemonOwned = start?.started !== false;
-        throw new CanaryError("registration", start?.started === false
+        throw new CanaryError("daemon_start", start?.started === false
           ? "daemon_already_running"
           : "invalid_response");
       }
+    });
+
+    await runStage("registration", async () => {
       await awaitStatus("registration", (current) => accountState(current, options));
     });
 
