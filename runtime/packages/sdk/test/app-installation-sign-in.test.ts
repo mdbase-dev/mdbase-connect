@@ -661,6 +661,59 @@ describe("fresh scoped recovery receipt constraints", () => {
     await expect(AppProtectedInstallationSignIn.open({...f.options, mode: "existing", recoveryFor: undefined})).rejects.toMatchObject({reason: "recovery_required"});
     expect(f.read()).toEqual(saved);
   });
+  // A recovered collection asks again for itself (to turn reminders on): the same
+  // credential, the protected CID on START and on every receipt, and nothing wider.
+  const other = "99999999-9999-4999-8999-999999999999", grant = {grant_id: "77777777-7777-4777-8777-777777777777", collection_id: collection, declaration_digest: "ab".repeat(32)};
+  async function recovered() {const f = await scoped(); await f.flow.exchange(); return f;}
+  function recoveryConsentStart(f: Awaited<ReturnType<typeof fixture>>) {
+    vi.mocked(f.request).mockImplementationOnce(async (_input, init) => {
+      const s = f.read(), r = s.consentRequest;
+      expect((init!.headers as Record<string,string>).authorization).toBe(`Bearer ${s.token}`);
+      expect(JSON.parse(String(init!.body))).toEqual({installation: {app_id: s.appId, request_id: r.requestId, pairing_secret: r.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: false, recovery_collection_id: collection, reconsent: true}, collection_hint: collection});
+      return new Response(JSON.stringify({pairing_id: r.requestId, pairing_secret: r.secret, verification_uri: `${cpOrigin}/pair/${r.requestId}?collection_hint=${collection}`, expires_in: 600, installation_device: true, app_id: s.appId, app_origin: origin, app_name: appName, recovery_collection_id: collection}), {status: 201});
+    });
+  }
+  // What Connect answers for the recovered collection approved again with reminders.
+  const recoveryReceipt = (v: Record<string, unknown>) => Object.assign(v, {recovery_collection_id: collection, added_collection_ids: [collection], approved_create_collections: false, account_email: "owner@example.test", account_selection_confirmed: true,
+    selected_collection_id: collection, created_collection_ids: [], timer_consent: true, timer_grants: [grant]});
+  it("asks again for its own collection only and keeps exactly that collection with its reminder grant", async () => {
+    const f = await recovered(), before = f.read();
+    recoveryConsentStart(f);
+    await f.flow.startCollectionConsent(f.installation, false, {collectionHint: collection});
+    consentExchange(f, recoveryReceipt);
+    expect(await f.flow.exchangeCollectionConsent(f.installation)).toMatchObject({state: "scope_updated", addedCollectionIds: [collection], approvedCreateCollections: false});
+    const saved = f.read();
+    expect(saved).toMatchObject({recoveryFor, collectionIds: [collection], createCollections: false, collectionSelection: {selectedCollectionId: collection, createdCollectionIds: []},
+      timerConsent: {approved: true, grants: [{grantId: grant.grant_id, collectionId: collection, declarationDigest: grant.declaration_digest}]}});
+    for (const key of ["installationId", "deviceId", "token", "proof", "selection"]) expect(saved[key]).toEqual(before[key]);
+    await f.flow.close();
+    // The protected ledger still restores as a recovery slot.
+    const resumed = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    expect(resumed.view().timerConsent?.approved).toBe(true); await resumed.close();
+  });
+  it.each([
+    ["no hint", false, {}, false], ["another collection", false, {collectionHint: other}, false],
+    ["creation", true, {collectionHint: collection}, false], ["Private device access it never held", false, {collectionHint: collection}, true],
+  ] as const)("refuses %s before any request", async (_name, create, hint, device) => {
+    const f = await recovered(), before = f.read(), requests = f.requests.length, calls = vi.mocked(f.request).mock.calls.length;
+    await expect(f.flow.startCollectionConsent(f.installation, create, hint, device)).rejects.toMatchObject({reason: "binding"});
+    expect(f.read()).toEqual(before); expect(f.requests).toHaveLength(requests); expect(f.request).toHaveBeenCalledTimes(calls); await f.flow.close();
+  });
+  it.each(["added-other", "picked-other", "create", "missing-target", "wrong-target"])("refuses a %s receipt and keeps the slot as it was", async defect => {
+    const f = await recovered();
+    recoveryConsentStart(f); await f.flow.startCollectionConsent(f.installation, false, {collectionHint: collection});
+    const before = f.read();
+    consentExchange(f, v => {
+      recoveryReceipt(v);
+      if (defect === "added-other") v.added_collection_ids = [collection, other];
+      if (defect === "picked-other") Object.assign(v, {added_collection_ids: [other], selected_collection_id: other, timer_grants: [{...grant, collection_id: other}]});
+      if (defect === "create") v.approved_create_collections = true;
+      if (defect === "missing-target") delete v.recovery_collection_id;
+      if (defect === "wrong-target") v.recovery_collection_id = other;
+    });
+    await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toBeInstanceOf(AppInstallationSignInError);
+    expect(f.read()).toEqual(before); await f.flow.close();
+  });
   it("rejects a switched account before selection commit, native signing or credential authority", async () => {
     const f = await fixture(false, {owner: "bundle:notes:scope:original-local-reference", recoveryFor});
     f.setSelected(); f.change(v => {v.account_id = connector;});

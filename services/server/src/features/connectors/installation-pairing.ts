@@ -661,7 +661,14 @@ export async function approveInstallationPairing(
     // Device access to Private collections is its own explicit list: only when the
     // original request asked for it, and never mixed with an app grant or file access.
     const deviceIds = [...(consent.private_device_collection_ids ?? [])].sort();
-    if (consent.selected_collection_kind!=="private") requireRecoveryScope(r,consent.collection_ids,consent.selected_collection_id??null,consent.create_collections,deviceIds);
+    // A recovery asking again for the collection it already holds (to turn on
+    // reminders, say) adds nothing new, so the portal sends only that selection.
+    // It is still exactly the recovered collection, and is recorded as one.
+    const heldRecovery = r.scope_only && r.recovery_collection_id!==null && consent.selected_collection_kind!=="private" && !consent.collection_ids.length && !deviceIds.length &&
+      consent.selected_collection_id===r.recovery_collection_id &&
+      (await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 AND NOT private_device",[r.connector_id,r.recovery_collection_id])).rows.length>0;
+    const collectionIds = heldRecovery ? [r.recovery_collection_id!] : consent.collection_ids;
+    if (consent.selected_collection_kind!=="private") requireRecoveryScope(r,collectionIds,consent.selected_collection_id??null,consent.create_collections,deviceIds);
     if (deviceIds.length && (consent.selected_collection_kind==="private" || consent.file_actions || r.file_access_collection_id)) fail("installation_invalid_scope",400);
     if (deviceIds.length && !r.requested_private_device) privateDeviceRefused();
     if (r.file_access_collection_id || consent.file_actions) return approveFileAccess(c, r, user, consent);
@@ -685,7 +692,7 @@ export async function approveInstallationPairing(
       }
       return {ok:true,...(native.fresh ? {native_authorization_uri:`/oauth/authorize?request_id=${native.authorization_request_id}`} : {})};
     }
-    const ids = [...consent.collection_ids].sort();
+    const ids = [...collectionIds].sort();
     if (new Set(ids).size!==ids.length || ids.length>1000 || (consent.create_collections && !r.requested_create_collections)) return fail("installation_invalid_scope",400);
     if (new Set(deviceIds).size!==deviceIds.length || deviceIds.length>1000 || deviceIds.some(collection=>ids.includes(collection) || collection===selected)) return fail("installation_invalid_scope",400);
     if (r.approved_at && (r.approved_create_collections!==consent.create_collections || r.selected_collection_id!==selected || JSON.stringify([...r.approved_collection_ids].sort())!==JSON.stringify(ids)

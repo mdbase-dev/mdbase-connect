@@ -513,9 +513,12 @@ export class ApplicationWorkerHost {
       case "authorize":await this.session.authorize({collectionHint:payload as string|null});break;
       case "renewExpiredPairing":await this.session.renewExpiredPairing();break;
       case "select":{
-        // This tab's own selection: other tabs keep theirs open.
+        // This tab's own selection: other tabs keep theirs open. A tab lets go of
+        // its ports before it asks (even for the collection it showed, say after a
+        // failed approval blocked it), so it gets new ones on this request or, for
+        // a collection still open, at the reconcile after it.
         const id=payload as string;
-        if(client.selected!==id){this.leave(client);client.selected=id;}
+        this.leave(client);client.selected=id;
         try{await this.session.openCollection(id);}finally{this.collect();}
         break;
       }
