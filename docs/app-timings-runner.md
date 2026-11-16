@@ -17,7 +17,7 @@ create firewall rules or expose browser/debugging ports.
 ```sh
 gcloud compute resource-policies create instance-schedule "$schedule" \
   --project=mdbase-connect --region=us-central1 \
-  --vm-start-schedule='30 16 * * *' --vm-stop-schedule='0 17 * * *' \
+  --vm-start-schedule='30 16 * * *' --vm-stop-schedule='15 17 * * *' \
   --timezone=Etc/UTC
 gcloud compute instances create "$runner" \
   --project=mdbase-connect --zone=us-central1-a \
@@ -51,19 +51,20 @@ sudo sh scripts/app-timings/install-service.sh <runner-user>
 ```
 
 The service starts on boot after networking, runs one suite, and powers the VM
-off whether the suite succeeds or fails. `TimeoutStartSec=24min` caps a hung run
+off whether the suite succeeds or fails. `TimeoutStartSec=40min` caps a hung run
 and also executes the poweroff hook. There is no restart policy. The independent
-17:00 UTC instance stop is the backstop if the service or guest fails.
+17:15 UTC instance stop is the backstop if the service or guest fails.
 Before the first daily run, validate the unit with `systemd-analyze verify`,
 verify the schedule has both actions, and test an actual scheduled stop. Confirm
 Compute Engine reports `TERMINATED`; an SSH disconnect alone is not stop proof.
-Restore the daily 16:30/17:00 cron after any temporary schedule test.
+Restore the daily 16:30/17:15 cron after any temporary schedule test.
 
-A 30-minute daily window is about 15 VM hours/month: roughly $1.01 compute at
-$0.067/hour, $1 for 10 GB balanced disk, and $0.08 for active external IPv4 at
-$0.005/hour (before tax/egress). Approximate total $2.10/month. Scheduled actions
-can be delayed; the guest's 24-minute timeout bounds normal late starts. Check
-actual run duration, stop status and billing after the first week.
+A 45-minute daily window accommodates three cold/second-visit pairs per cell,
+including record timeouts. It is about 22.5 VM hours/month: roughly $1.51 compute
+at $0.067/hour, $1 for 10 GB balanced disk, and $0.11 for active external IPv4 at
+$0.005/hour (before tax/egress), approximately $2.62/month. Scheduled actions can
+be delayed; the guest's 40-minute timeout bounds normal late starts. Check actual
+run duration, stop status and billing after the first week.
 
 ## Fixture preparation and credentials
 
