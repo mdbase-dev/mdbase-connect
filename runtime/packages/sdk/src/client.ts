@@ -1416,7 +1416,8 @@ export class MdbaseClient {
 
   /**
    * Record history (§4.4, API 1.4): the versions of a record that the log still
-   * retains. Needs the `history.read` capability. A replica without history,
+   * retains. Needs `collection.read` and `history.read` through a grant without
+   * a folder scope. A replica without history,
    * the hosted replica and a local-only collection refuse with
    * `upgrade_required` / `history_unsupported`.
    */
