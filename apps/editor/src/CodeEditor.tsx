@@ -7,7 +7,7 @@ import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18
 import { t } from "@lingui/core/macro";
 import { commandShortcuts, matchesChord } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore, redo } from "@codemirror/commands";
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
@@ -752,6 +752,9 @@ const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
     ...(variant === "source" ? closeBracketsKeymap : []),
     ...searchKeymap,
     ...defaultKeymap,
+    // Ctrl Shift Z redoes on Windows too; CodeMirror binds it only on macOS and Linux,
+    // and elsewhere the Shift falls through to undo.
+    { key: "Mod-Shift-z", run: redo, preventDefault: true },
     ...historyKeymap,
     ...lintKeymap
   ])
