@@ -1,7 +1,7 @@
 import { startCompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
 import { EditorSelection, type ChangeSpec, type EditorState } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 /** Rewrites the start of every line a selection touches; `next` returns the replacement for the part `pattern` matched. */
 function rewriteLineStarts(view: EditorView, pattern: RegExp, next: (match: RegExpExecArray, lines: RegExpExecArray[]) => string): boolean {
@@ -92,3 +92,20 @@ export function exitEmptyQuote(view: EditorView): boolean {
   view.dispatch({ changes: { from: line.from, to: line.to, insert }, selection: EditorSelection.cursor(line.from + insert.length), scrollIntoView: true, userEvent: "input" });
   return true;
 }
+
+const wrapping: Record<string, string> = { "*": "*", "_": "_", "`": "`", "~": "~", "(": ")", "[": "]", "\"": "\"" };
+
+/**
+ * Typing an emphasis mark, a backtick, an opening bracket or a quote over selected text
+ * wraps the text instead of replacing it, and keeps it selected, so `*` twice makes it bold.
+ */
+export const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, text) => {
+  const close = wrapping[text];
+  const { main } = view.state.selection;
+  if (!close || main.empty || from !== main.from || to !== main.to) return false;
+  view.dispatch(view.state.changeByRange((range) => range.empty
+    ? { changes: { from: range.from, insert: text }, range: EditorSelection.cursor(range.from + text.length) }
+    : { changes: [{ from: range.from, insert: text }, { from: range.to, insert: close }], range: EditorSelection.range(range.anchor + 1, range.head + 1) }
+  ), { scrollIntoView: true, userEvent: "input.type" });
+  return true;
+});
