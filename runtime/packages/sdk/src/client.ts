@@ -219,6 +219,7 @@ function accountSecret(secret: Uint8Array): void {
 
 /** The `hello` feature that lets `validate` page through every record. */
 const VALIDATE_PAGE = "validate-page-v1";
+const BASES_DISCOVERY_UNREADABLE = "bases-discovery-unreadable-v1";
 
 function params(entries: [number, CborValue | undefined][]): Map<number, CborValue> {
   const m = new Map<number, CborValue>();
@@ -723,7 +724,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE, BASES_DISCOVERY_UNREADABLE])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1861,15 +1862,22 @@ export class MdbaseClient {
 
   /** One bounded native discovery page. Empty views do not mean EOF when a
    * continuation is present. Supplied handles never silently restart/retry.
+   * With `reportUnreadable`, a replica that grants
+   * `bases-discovery-unreadable-v1` skips records it cannot classify and names
+   * them in `unreadable`; an older replica refuses the discovery as before, so
+   * an empty `unreadable` on success always means none were skipped.
    * `o.signal` cancels the read. */
   async listAppBasesViews(request: AppBasesDiscoveryRequest, o: ReadOptions = {}): Promise<AppBasesDiscoveryResult> {
     const signal = o.signal;
-    const limit = request.limit, bytes = encodeAppBasesDiscoveryRequest(request);
+    const limit = request.limit;
+    encodeAppBasesDiscoveryRequest(request); // Refuse bad input before waiting for a session.
     const session = await this.readyForRead(signal);
+    const reportUnreadable = request.reportUnreadable === true && session.hello.features.includes(BASES_DISCOVERY_UNREADABLE);
+    const bytes = encodeAppBasesDiscoveryRequest({...request, reportUnreadable});
     const reply = await session.readAppBasesDiscovery("list-views",bytes,signal);
     try {
       if (session !== this.session || session.closed || this.readFencedAt !== null) throw mdbaseError("unavailable", "original Bases session is no longer current");
-      return decodeAppBasesDiscoveryResult(reply,limit);
+      return decodeAppBasesDiscoveryResult(reply,limit,reportUnreadable);
     } catch (error) { throw schemaToError(error,"app Bases discovery"); }
     finally { reply.fill(0); }
   }

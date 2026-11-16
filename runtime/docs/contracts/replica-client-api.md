@@ -94,7 +94,9 @@ not a negative feature result. Absence of an unrequested marker says nothing abo
 support. Do not use a prior session's hello to certify a new session.
 
 The current Replica producer's marker list is `presence`, `validate-page-v1`
-(`validate` pages, §4) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
+(`validate` pages, §4), `file-stream-failure-v1`, `bases-discovery-unreadable-v1`
+(app Bases discovery request version 2, which skips and names records it cannot
+classify instead of refusing) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
 `attachment-v1.materialize` directions when that replica admits them.
 `attachment-v1.write` is not granted by this producer. Directions are not implied
 by the bare codec marker. This source list is not a qualification of a deployed

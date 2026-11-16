@@ -3,12 +3,19 @@
 use super::*;
 
 fn discovery_error(app: &mut App, session: SessionId) -> Option<(String, Option<String>, String)> {
-    app.encode_bases_discovery_page(session, Some("UTC"), 64, None, |_, _, _| Ok(()))
-        .err()
-        .map(|e| {
-            let p = e.problem();
-            (p.code.clone(), p.reason.clone(), p.message.clone())
-        })
+    app.encode_bases_discovery_page(
+        session,
+        Some("UTC"),
+        64,
+        None,
+        mdbn_store_file::testing::replica::replica::UnreadableSources::Refuse,
+        |_, _, _| Ok(()),
+    )
+    .err()
+    .map(|e| {
+        let p = e.problem();
+        (p.code.clone(), p.reason.clone(), p.message.clone())
+    })
 }
 
 #[test]
