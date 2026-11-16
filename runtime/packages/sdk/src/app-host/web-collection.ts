@@ -66,6 +66,12 @@ export interface AppWebNativeCollection {
   attach?(): AppWebCollectionHandoff | null;
   /** That tab left: close its ports. The replica and other tabs stay open. */
   detach?(handoff: AppWebCollectionHandoff): void;
+  /** The reminder consent changed since this tab's ports were made (granted
+   * after the collection opened, or withdrawn or replaced, which fences its
+   * timer port): its new ports onto the SAME replica, with the timer port the
+   * consent now gives, and its old ones detached. Null when nothing changed
+   * or the ports are not this collection's. */
+  renewTimers?(handoff: AppWebCollectionHandoff): AppWebCollectionHandoff | null;
 }
 export interface AppWebCollectionAdapterOptions {
   readonly joinDatabaseName: string;
@@ -135,6 +141,10 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     let ended: AppLogPushEnd | null = null;
     /** Tabs attached after the first: their ports, closed with the connection. */
     const attached = new Map<MessagePort, {data: MessageChannel; command: MessageChannel; control: ReturnType<typeof attachAppCollectionControl>; timers: ReturnType<typeof host.openTimersPort>}>();
+    /** Each tab's ports, by data port: the reminder consent its timer port was made under. */
+    const timerKeys = new Map<MessagePort, string | null>();
+    /** Undefined when the consent cannot be read now (closing). */
+    const timerKey = (): string | null | undefined => { try { return host.timerConsentKey(scope.collection); } catch { return undefined; } };
     let problem: AppServerProblem | null = null;
     const listeners = new Set<() => void>();
     const current = () => {
@@ -414,6 +424,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       // Set by the shared tail below; a locked collection has neither.
       let attachOpened: (() => AppWebCollectionHandoff | null) | null = null;
       let detachOpened: ((handoff: AppWebCollectionHandoff) => void) | null = null;
+      let renewOpened: ((handoff: AppWebCollectionHandoff) => AppWebCollectionHandoff | null) | null = null;
       if (isPrivate) {
         // An enrolled device is not a keyed one. Decide from the native applied
         // policy BEFORE any verified read, which an unkeyed device cannot reach.
@@ -471,9 +482,11 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           assess(state) {check(); assessment = state; changed();}, foreground, onProtocolFailure: failed,
           ...(withPeople ? {peopleAuthority: host.peopleAuthority()} : {})});
       timers = host.openTimersPort({scope,generation,signal:life.signal}); check();
+      const openedKey = timerKey() ?? null;
       data = new MessageChannel(); command = new MessageChannel();
       control = controlFor(data.port1, command.port1, setForeground, abort); check();
       const detach = (handoff: AppWebCollectionHandoff) => {
+        timerKeys.delete(handoff.dataPort);
         if (data && command && handoff.dataPort === data.port2) {
           // The tab that opened it left while another tab still shows it: its
           // data facade (subscriptions and pushes), control and timer port go
@@ -494,7 +507,8 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
         void other.control.close().catch(() => {});
         for (const port of [other.data.port1, other.command.port1]) {try {port.close();} catch { /* already closed */ }}
       };
-      const attach = (): AppWebCollectionHandoff | null => {
+      // A follower never auto-applies setup; it may still apply explicitly.
+      const attach = (mode: AppWebCollectionHandoff["setupMode"] = setupMode === "reconcile-original" ? setupMode : "inspect"): AppWebCollectionHandoff | null => {
         if (!current() || ended !== null) return null;
         const d = new MessageChannel(), c = new MessageChannel();
         let t: ReturnType<typeof host.openTimersPort> = null, ctl: ReturnType<typeof attachAppCollectionControl> | null = null;
@@ -503,12 +517,12 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           let value: AppWebCollectionHandoff | null = null;
           // A follower's protocol failure detaches that tab only. Visibility is
           // the Worker host's, across tabs; a tab's control cannot set it.
+          const key = timerKey() ?? null;
           ctl = controlFor(d.port1, c.port1, () => {}, () => { if (value) detach(value); });
-          // A follower never auto-applies setup; it may still apply explicitly.
           value = Object.freeze({schema: "mdbn-app-collection/1" as const, scope, generation, displayName,
-            setupMode: setupMode === "reconcile-original" ? setupMode : "inspect" as const, dataPort: d.port2, controlPort: c.port2,
+            setupMode: mode, dataPort: d.port2, controlPort: c.port2,
             ...people, ...(t ? {timerPort: t.port} : {})});
-          attached.set(d.port2, {data: d, command: c, control: ctl, timers: t});
+          attached.set(d.port2, {data: d, command: c, control: ctl, timers: t}); timerKeys.set(d.port2, key);
           return value;
         } catch {
           try {host.detachDataFacade(d.port1);} catch { /* not attached */ }
@@ -517,14 +531,26 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           return null;
         }
       };
-      attachOpened = attach; detachOpened = detach;
+      // The same tab's ports again (its setup mode kept), made under the current
+      // consent. The replica, its pending writes and the other tabs stay as they are.
+      const renew = (handoff: AppWebCollectionHandoff): AppWebCollectionHandoff | null => {
+        if (!current() || !timerKeys.has(handoff.dataPort)) return null;
+        const key = timerKey();
+        if (key === undefined || key === timerKeys.get(handoff.dataPort)) return null;
+        const value = attach(handoff.setupMode);
+        if (value) detach(handoff);
+        return value;
+      };
+      attachOpened = attach; detachOpened = detach; renewOpened = renew;
+      timerKeys.set(data.port2, openedKey);
       options.handoff(Object.freeze({schema: "mdbn-app-collection/1", scope, generation, displayName, setupMode, dataPort: data.port2, controlPort: command.port2,
         ...people, ...(timers ? {timerPort:timers.port} : {})}));
       check(); schedule();
       };
       const connection: AppWebNativeCollection = Object.freeze({scope, generation, isCurrent: current, setForeground,
         attach: () => attachOpened ? attachOpened() : null,
-        detach: (handoff: AppWebCollectionHandoff) => { detachOpened?.(handoff); }});
+        detach: (handoff: AppWebCollectionHandoff) => { detachOpened?.(handoff); },
+        renewTimers: (handoff: AppWebCollectionHandoff) => renewOpened ? renewOpened(handoff) : null});
       /** Account-key unlock of the locked collection. A typed unlock refusal
        * (wrong password, strict account, unreachable service) leaves it locked
        * with `problem` set and resolves. Any other failure closed this adapter.

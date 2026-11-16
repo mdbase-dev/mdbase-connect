@@ -626,6 +626,17 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
         await expect(api.list("reminders")).rejects.toMatchObject({code:"unauthenticated"});expect(c.request).not.toHaveBeenCalled();
         api.close();await opened.close();await c.host.close();
     });
+    it("names the consent a timer port is bound to: it changes exactly when a held port is fenced",async()=>{
+        const c=await timerFixture(),collection=c.options.scope.collection,key=c.host.timerConsentKey(collection);
+        expect(key).toBe(JSON.stringify(c.consent));
+        expect(c.host.timerConsentKey("88888888-8888-4888-8888-888888888888")).toBeNull();
+        const opened=c.host.openTimersPort(c.timerOptions)!,api=new TimersApi(appTimerPortClient(opened.port,c.timerOptions,{signal:c.child.signal,onClose:()=>{}}));
+        c.consent.requestId="99999999-9999-4999-8999-999999999999";
+        expect(c.host.timerConsentKey(collection)).not.toBe(key);
+        await expect(api.list("reminders")).rejects.toMatchObject({code:"unauthenticated"});
+        c.consent.approved=false;expect(c.host.timerConsentKey(collection)).toBeNull();expect(c.host.openTimersPort(c.timerOptions)).toBeNull();
+        expect(c.request).not.toHaveBeenCalled();api.close();await opened.close();await c.host.close();
+    });
     it("people metadata requires adopted collection and an already pinned CP transport", async () => {
         const c = await collectionFixture();
         expect(() => c.host.peopleAuthority()).toThrow("fenced");
