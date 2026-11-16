@@ -73,7 +73,11 @@ async function visit(page, app, collection, cold, collectionName) {
       await popup.waitForLoadState('domcontentloaded');
       if (new URL(popup.url()).pathname === '/login') return failed('auth', 'auth_expired', build);
       await popup.getByRole('option', {name: collectionName, exact: true}).click({timeout: 30000});
-      await popup.locator('.approval-actions button.is-primary').click({timeout: 30000});
+      const [approved] = await Promise.all([
+        popup.waitForResponse(response => response.request().method() === 'POST' && /^https:\/\/connect\.mdbase\.dev\/v1\/pairing-requests\/[^/]+\/approve$/.test(response.url()), {timeout: 30000}),
+        popup.locator('.approval-actions button.is-primary').click({timeout: 30000}),
+      ]);
+      if (!approved.ok()) return failed(approved.status() === 401 ? 'auth' : 'approval', approved.status() === 401 ? 'auth_expired' : `http_${approved.status()}`, build);
       await page.bringToFront();
     }
     stage = 'first_records';

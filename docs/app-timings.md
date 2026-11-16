@@ -34,7 +34,8 @@ this public repository and reports.
 A cold context has empty app storage, HTTP cache and service-worker state. Only
 the saved Connect login cookies are supplied. The script follows the app's Sign
 in button and approves the requested fixture in the portal, then brings the app
-tab to the foreground so its animation frames run as they do for the person. Thus cold elapsed
+tab to the foreground after the portal confirms approval, so the consent flow
+and app animation frames each run in the foreground as they do for the person. Thus cold elapsed
 measurements **include automated consent**; they are not an already-authorized
 open with an empty collection cache. The second navigation uses the same context
 and retains app installation, collection storage, cache and service worker.
