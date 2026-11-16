@@ -467,7 +467,16 @@ export function registerAuthorizationRoutes(
   });
 
   app.post("/oauth/authorization_request", {
-    config: { rateLimit: { max: 30, timeWindow: "1 minute" } }
+    config: { rateLimit: { max: 30, timeWindow: "1 minute" } },
+    // A refused request never reaches consent, so the usage report cannot see
+    // it. Log the server-authored refusal so operators can tell why.
+    onSend: async (request, reply, payload) => {
+      if (reply.statusCode >= 400 && reply.statusCode < 500 && typeof payload === "string") {
+        const refusal = refusalOf(payload);
+        if (refusal) request.log.warn({ status: reply.statusCode, ...refusal }, "authorization request refused");
+      }
+      return payload;
+    }
   }, async (request, reply) => {
     const input = z.object({
       client_id: z.uuid(),
@@ -992,5 +1001,15 @@ async function hostedTypeCandidates(
     return await provider.collectionTypeCandidates(collectionId);
   } catch {
     return [];
+  }
+}
+
+function refusalOf(payload: string): { code: string; message: string } | null {
+  try {
+    const body = JSON.parse(payload) as { error?: { code?: unknown; message?: unknown } };
+    const { code, message } = body.error ?? {};
+    return typeof code === "string" && typeof message === "string" ? { code, message } : null;
+  } catch {
+    return null;
   }
 }
