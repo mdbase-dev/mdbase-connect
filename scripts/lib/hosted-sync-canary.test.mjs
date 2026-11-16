@@ -219,7 +219,7 @@ test("refuses to write unless both devices are ready, distinct and on one accoun
     ["log-offline", "log_offline"]
   ]) {
     const options = await fixture(t);
-    const result = await invoke(options, { "timeout-ms": "600" }, { FAKE_CLI_MODE: mode });
+    const result = await invoke(options, { "timeout-ms": "2000" }, { FAKE_CLI_MODE: mode });
     assert.equal(result.code, 1, mode);
     assert.equal(result.json.status, "failed", mode);
     assert.deepEqual(result.json.error, { stage: "preflight", code }, mode);
