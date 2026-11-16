@@ -674,6 +674,8 @@ const GRANTABLE_FEATURES: &[&str] = &[
     super::attachment_runtime::ATTACHMENT_V1_FEATURE,
     super::client_files::FILE_STREAM_FAILURE_FEATURE,
     "validate-page-v1",
+    // Bases discovery request version 2 names unreadable records.
+    "bases-discovery-unreadable-v1",
 ];
 
 impl<S: Store> Replica<S> {

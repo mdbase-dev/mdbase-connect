@@ -39,8 +39,9 @@ mod collection_setup;
 pub use bases::{
     BasesDiscoveryHandle, BasesDiscoveryPage, BasesExecutionGroup, BasesExecutionPolicies,
     BasesExecutionResult, BasesExecutionRow, BasesExecutionWindow, BasesGroupPlacement,
-    BasesImplementationDescriptor, BasesReadRequest, BasesViewDescriptor, BasesViewSelection,
-    BasesViewSource, BasesWindowInfo, CapturedBasesDiscovery, CapturedBasesExecutionInputs,
+    BasesImplementationDescriptor, BasesReadRequest, BasesUnreadableSource, BasesViewDescriptor,
+    BasesViewSelection, BasesViewSource, BasesWindowInfo, CapturedBasesDiscovery,
+    CapturedBasesExecutionInputs, UnreadableSources,
 };
 pub(crate) mod unindexed_apply;
 mod unindexed_blob_fetch;

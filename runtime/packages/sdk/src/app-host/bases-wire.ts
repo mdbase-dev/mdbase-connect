@@ -246,12 +246,19 @@ export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBase
   return {kind: "success", view, columns, unavailableColumns, rows, groups, clock, collectionRevision: hash.dec(m.get(6)!), ...(window === undefined ? {} : {window}), ...(summaries === undefined ? {} : {summaries})};
 }
 
-/** Native discovery is a separate same-cut continuation, never a Query cursor. */
-export interface AppBasesDiscoveryRequest {captureTimezone: string; limit: number; continuation?: Uint8Array | null}
+/** Native discovery is a separate same-cut continuation, never a Query cursor.
+ * `reportUnreadable` asks for request version 2: a record the replica cannot
+ * classify (malformed YAML, bad `views`) is skipped and named in `unreadable`
+ * instead of refusing the whole discovery. Version 1 still refuses. */
+export interface AppBasesDiscoveryRequest {captureTimezone: string; limit: number; continuation?: Uint8Array | null; reportUnreadable?: boolean}
+/** A record skipped by discovery. `reason` is the refusal reason version 1
+ * would have returned (`view_metadata_unavailable`, `view_unsupported_construct`);
+ * `detail` is the machine-readable cause, such as `base_raw_frontmatter_unavailable`. */
+export interface AppBasesUnreadableSource {record: Uuid; path: string; sourceRevision: Hash; reason: string; detail: string}
 export interface AppBasesSourceRequest {record: Uuid; sourceRevision: Hash; ordinal: number; captureTimezone: string}
 export type AppBasesDiscoveryResult =
   | {kind: "refusal"; problem: Problem}
-  | {kind: "success"; views: readonly AppBasesDescriptor[]; clock: OpClock; collectionRevision: Hash; continuation: Uint8Array | null};
+  | {kind: "success"; views: readonly AppBasesDescriptor[]; unreadable: readonly AppBasesUnreadableSource[]; clock: OpClock; collectionRevision: Hash; continuation: Uint8Array | null};
 export type AppBasesSourceResult =
   | {kind: "refusal"; problem: Problem}
   | {kind: "success"; view: AppBasesDescriptor; source: string; clock: OpClock; collectionRevision: Hash};
@@ -262,7 +269,7 @@ function discoveryHandle(value: Uint8Array | null | undefined): Uint8Array | nul
 }
 export function encodeAppBasesDiscoveryRequest(request: AppBasesDiscoveryRequest): Uint8Array {
   const limit = unsigned(request.limit, 128); if (!limit) throw bad("discovery limit must be positive");
-  return encode(new Map<number, CborValue>([[0, 1], [1, text(request.captureTimezone, 128)], [2, limit], [3, discoveryHandle(request.continuation)]]));
+  return encode(new Map<number, CborValue>([[0, request.reportUnreadable ? 2 : 1], [1, text(request.captureTimezone, 128)], [2, limit], [3, discoveryHandle(request.continuation)]]));
 }
 export function encodeAppBasesSourceRequest(request: AppBasesSourceRequest): Uint8Array {
   return encode(new Map<number, CborValue>([[0, 1], [1, uuid.enc(request.record)], [2, hash.enc(request.sourceRevision)], [3, unsigned(request.ordinal, 0xffffffff)], [4, text(request.captureTimezone, 128)]]));
@@ -283,11 +290,18 @@ function discoveryClock(value: CborValue | undefined): OpClock {
   const clock = opClock.dec(value!); if (!Number.isSafeInteger(clock.instant)) throw bad("clock instant exceeds JS-safe range");
   text(clock.tz,128); text(clock.localDate,128); return clock;
 }
-export function decodeAppBasesDiscoveryResult(bytes: Uint8Array, expectedLimit = 128): AppBasesDiscoveryResult {
+function unreadableSource(value: CborValue | undefined): AppBasesUnreadableSource {
+  const m = fields(value,[0,1,2,3,4]);
+  return {record:uuid.dec(m.get(0)!),path:text(m.get(1)),sourceRevision:hash.dec(m.get(2)!),reason:text(m.get(3),128),detail:text(m.get(4),128)};
+}
+/** `reportUnreadable` must match the request: version 2 replies carry key 5. */
+export function decodeAppBasesDiscoveryResult(bytes: Uint8Array, expectedLimit = 128, reportUnreadable = false): AppBasesDiscoveryResult {
   const limit = unsigned(expectedLimit,128); if (!limit) throw bad("discovery limit must be positive");
   const value = discoveryEnvelope(bytes);
   if (value.has(7)) {const m = fields(value,[0,7]); return {kind:"refusal",problem:problem.dec(m.get(7)!)};}
-  const m = fields(value,[0,1,2,3,4]);
+  const m = fields(value,reportUnreadable ? [0,1,2,3,4,5] : [0,1,2,3,4]);
+  const unreadable = reportUnreadable ? list(m.get(5),128).map(unreadableSource) : [];
+  for (let i = 1; i < unreadable.length; i++) if (unreadable[i-1]!.record >= unreadable[i]!.record) throw bad("unreadable sources must ascend by record");
   const views = list(m.get(1),limit).map(discoveryDescriptor);
   for (let i = 1; i < views.length; i++) {
     const previous = views[i-1]!, next = views[i]!;
@@ -295,7 +309,7 @@ export function decodeAppBasesDiscoveryResult(bytes: Uint8Array, expectedLimit =
     if (previous.record === next.record && (previous.path !== next.path || previous.sourceRevision !== next.sourceRevision)) throw bad("one source identity cannot have two revisions/paths within a page");
   }
   const token = m.get(4); if (token !== null && !(token instanceof Uint8Array)) throw bad("native discovery handle required");
-  return {kind:"success",views,clock:discoveryClock(m.get(2)),collectionRevision:hash.dec(m.get(3)!),continuation:discoveryHandle(token as Uint8Array|null)};
+  return {kind:"success",views,unreadable,clock:discoveryClock(m.get(2)),collectionRevision:hash.dec(m.get(3)!),continuation:discoveryHandle(token as Uint8Array|null)};
 }
 export function decodeAppBasesSourceResult(bytes: Uint8Array, expected?: AppBasesSourceRequest): AppBasesSourceResult {
   const value = discoveryEnvelope(bytes);

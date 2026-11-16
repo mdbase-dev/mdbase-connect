@@ -56,8 +56,8 @@ pub use captured::{
 };
 pub use date_value::EvaluatedDate;
 pub use discovery::{
-    BASES_CONTRACT, BaseFields, BaseView, DiscoveredBase, MAX_BASE_IMPLEMENTATIONS,
-    MAX_DISCOVERED_VIEWS, discover_base_record,
+    BASES_CONTRACT, BaseFields, BaseRecord, BaseView, DiscoveredBase, MAX_BASE_IMPLEMENTATIONS,
+    MAX_DISCOVERED_VIEWS, classify_base_record, discover_base_record,
 };
 pub use duration::{DurationValue, MAX_DURATION_COMPONENT, MAX_DURATION_SOURCE_BYTES};
 pub use duration_value::EvaluatedDuration;

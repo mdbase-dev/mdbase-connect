@@ -1022,6 +1022,7 @@ AppBasesRow -> AppBasesRow@app-host/bases-wire.ts
 AppBasesScalar -> AppBasesScalar@app-host/bases-wire.ts
 AppBasesSourceRequest -> AppBasesSourceRequest@app-host/bases-wire.ts
 AppBasesSourceResult -> AppBasesSourceResult@app-host/bases-wire.ts
+AppBasesUnreadableSource -> AppBasesUnreadableSource@app-host/bases-wire.ts
 AppBasesWindow -> AppBasesWindow@app-host/bases-wire.ts
 AppBasesWindowInfo -> AppBasesWindowInfo@app-host/bases-wire.ts
 AppBootstrap -> AppBootstrap@app-host/wasm-runtime.ts
@@ -1412,6 +1413,7 @@ problemCodeOf -> problemCodeOf@describe-error.ts
   export AppBasesGroupPlacement
   export AppBasesDiscoveryRequest
   export AppBasesDiscoveryResult
+  export AppBasesUnreadableSource
   export AppBasesSourceRequest
   export AppBasesSourceResult
   export AppBasesPage
@@ -1972,9 +1974,10 @@ AppBasesDiscoveryRequest@app-host/bases-wire.ts
   captureTimezone: string
   continuation?: Uint8Array<ArrayBufferLike> | null | undefined
   limit: number
+  reportUnreadable?: boolean | undefined
 
 AppBasesDiscoveryResult@app-host/bases-wire.ts
-  = { kind: 'refusal'; problem: Problem; } | { kind: 'success'; views: readonly AppBasesDescriptor[]; clock: OpClock; collectionRevision: Hash; continuation: Uint8Array | null; }
+  = { kind: 'refusal'; problem: Problem; } | { kind: 'success'; views: readonly AppBasesDescriptor[]; unreadable: readonly AppBasesUnreadableSource[]; clock: OpClock; collectionRevision: Hash; continuation: Uint8Array | null; }
 
 AppBasesGroupKey@app-host/bases-wire.ts
   = { kind: 'null'; } | { kind: 'boolean'; value: boolean; } | { kind: 'number'; value: number; } | { kind: 'text'; value: string; } | { kind: 'date'; millis: number; display: string; authoritativeZone: string; dateOnly: boolean; } | { kind: 'list'; values: readonly AppBasesGroupKey[]; }
@@ -2020,6 +2023,13 @@ AppBasesSourceRequest@app-host/bases-wire.ts
 
 AppBasesSourceResult@app-host/bases-wire.ts
   = { kind: 'refusal'; problem: Problem; } | { kind: 'success'; view: AppBasesDescriptor; source: string; clock: OpClock; collectionRevision: Hash; }
+
+AppBasesUnreadableSource@app-host/bases-wire.ts
+  detail: string
+  path: string
+  reason: string
+  record: string
+  sourceRevision: string
 
 AppBasesWindow@app-host/bases-wire.ts
   limit: number
@@ -6331,7 +6341,7 @@ decodeAppBasesCell@app-host/bases-wire.ts
   : (c: CborValue, depth?: number) => AppBasesCell
 
 decodeAppBasesDiscoveryResult@app-host/bases-wire.ts
-  : (bytes: Uint8Array, expectedLimit?: number) => AppBasesDiscoveryResult
+  : (bytes: Uint8Array, expectedLimit?: number, reportUnreadable?: boolean) => AppBasesDiscoveryResult
 
 decodeAppBasesResult@app-host/bases-wire.ts
   : (bytes: Uint8Array, expectedWindow?: AppBasesWindow | null) => AppBasesResult

@@ -31,6 +31,31 @@ const REQUEST_WORK_MS: i64 = 1_500;
 const MAX_PAGES_PER_REQUEST: u32 = 256;
 
 const MAX_SLOTS: usize = 64;
+/// Unreadable records one page may name. A page that reaches it ends there,
+/// as one that reaches its view limit does.
+const MAX_UNREADABLE: usize = 32;
+
+/// What discovery does with a record it cannot classify: one whose own
+/// frontmatter, types or Bases fields are unusable (`BaseRecord::Unreadable`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnreadableSources {
+    /// Refuse the whole discovery, as request version 1 always has.
+    Refuse,
+    /// Skip the record and name it in the page, so the result is complete
+    /// except for the records it names (request version 2).
+    Report,
+}
+/// A record discovery skipped. Whether it declares views is unknown.
+pub struct BasesUnreadableSource {
+    /// The record's identity.
+    pub record: Uuid,
+    /// Its path under the frozen cut.
+    pub path: String,
+    /// Its source revision under the frozen cut.
+    pub revision: Hash,
+    /// Why it could not be classified.
+    pub problem: EvaluationFailure,
+}
 
 /// A separate native discovery continuation, never a Query/execution cursor.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -39,6 +64,9 @@ pub struct BasesDiscoveryHandle(pub [u8; 32]);
 pub struct BasesDiscoveryPage {
     /// Exact source identities and original declaration ordinals.
     pub views: Vec<BasesViewDescriptor>,
+    /// Records skipped as unreadable, in identity order. Always empty under
+    /// `UnreadableSources::Refuse`.
+    pub unreadable: Vec<BasesUnreadableSource>,
     /// Native frozen membership clock, shared only within discovery.
     pub clock: OpClock,
     /// Trusted collection revision.
@@ -60,6 +88,7 @@ pub struct BasesViewSource {
 /// One classified page, before its final CAS and (for the replying page) codec.
 struct ScannedPage {
     views: Vec<BasesViewDescriptor>,
+    unreadable: Vec<BasesUnreadableSource>,
     reread: Vec<(QueryRecordSize, LocalRecord)>,
     reserved_bytes: u64,
     sources: QueryBudget,
@@ -185,6 +214,7 @@ impl<S: Store> Replica<S> {
         timezone: Option<&str>,
         limit: u32,
         resume: Option<BasesDiscoveryHandle>,
+        unreadable: UnreadableSources,
         encode: impl FnOnce(&mut Self, &BasesDiscoveryPage, &mut IncrementalBasesBudget) -> ApiResult<T>,
     ) -> ApiResult<T> {
         self.authorize_bases_read(session)?;
@@ -228,10 +258,13 @@ impl<S: Store> Replica<S> {
         let mut pages = 0u32;
         loop {
             pages += 1;
-            let mut scan = self.discovery_scan_page(session, &mut entry, limit, &mut ledger)?;
+            let mut scan =
+                self.discovery_scan_page(session, &mut entry, limit, unreadable, &mut ledger)?;
             let spent = pages >= MAX_PAGES_PER_REQUEST
                 || self.now().saturating_sub(started) >= REQUEST_WORK_MS;
-            if !scan.views.is_empty() || !scan.more || spent {
+            // Only the replying page is published, so a page that names an
+            // unreadable record replies as one with a view does.
+            if !scan.views.is_empty() || !scan.unreadable.is_empty() || !scan.more || spent {
                 return self.publish_discovery_page(session, entry, scan, ledger, encode);
             }
             // A page without views still proves its own Bases before the next
@@ -251,6 +284,7 @@ impl<S: Store> Replica<S> {
         session: SessionId,
         entry: &mut Entry,
         limit: u32,
+        mode: UnreadableSources,
         ledger: &mut IncrementalBasesBudget,
     ) -> ApiResult<ScannedPage> {
         // Select, read and classify the longest identity-ordered prefix that
@@ -266,6 +300,7 @@ impl<S: Store> Replica<S> {
         let mut reread: Vec<(QueryRecordSize, LocalRecord)> = Vec::new();
         let (mut reserved_rows, mut reserved_bytes) = (0u32, 0u64);
         let mut views = Vec::new();
+        let mut unreadable = Vec::new();
         let mut processed = 0usize;
         let mut stopped = false;
         while !stopped {
@@ -363,12 +398,12 @@ impl<S: Store> Replica<S> {
                 ledger
                     .retain(footprint.estimated_heap_bytes)
                     .map_err(failure)?;
-                let base = ledger
+                let classified = ledger
                     .admit(|work| {
                         if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
                             return Err(work.failure().expect("discovery structure"));
                         }
-                        discover_base_record(
+                        classify_base_record(
                             self.bases_read_catalog(),
                             &row.path,
                             &document,
@@ -377,6 +412,33 @@ impl<S: Store> Replica<S> {
                         )
                     })
                     .map_err(failure)?;
+                let base = match classified {
+                    BaseRecord::NotBase => None,
+                    BaseRecord::Base(base) => Some(base),
+                    BaseRecord::Unreadable(problem) if mode == UnreadableSources::Refuse => {
+                        return Err(failure(problem));
+                    }
+                    BaseRecord::Unreadable(problem) => {
+                        let retained = row.path.len() as u64 + 256;
+                        ledger.retain(retained).map_err(failure)?;
+                        ledger
+                            .admit(|work| {
+                                if work.charge(1, retained) {
+                                    Ok(())
+                                } else {
+                                    Err(work.failure().expect("unreadable source"))
+                                }
+                            })
+                            .map_err(failure)?;
+                        unreadable.push(BasesUnreadableSource {
+                            record: row.id,
+                            path: row.path.clone(),
+                            revision: row.revision,
+                            problem,
+                        });
+                        None
+                    }
+                };
                 let start = entry
                     .unfinished
                     .map_or(0, |(_, _, ordinal)| ordinal as usize);
@@ -457,7 +519,7 @@ impl<S: Store> Replica<S> {
                 }
                 entry.after = Some(row_id);
                 processed += 1;
-                if views.len() == limit as usize {
+                if views.len() == limit as usize || unreadable.len() == MAX_UNREADABLE {
                     stopped = true;
                     break;
                 }
@@ -468,6 +530,7 @@ impl<S: Store> Replica<S> {
         let more = entry.unfinished.is_some() || processed < selected || !exhausted;
         Ok(ScannedPage {
             views,
+            unreadable,
             reread,
             reserved_bytes,
             sources,
@@ -520,6 +583,7 @@ impl<S: Store> Replica<S> {
         self.host.entropy.fill(&mut entry.token.0);
         let page = BasesDiscoveryPage {
             views: std::mem::take(&mut scan.views),
+            unreadable: std::mem::take(&mut scan.unreadable),
             clock: entry.clock.clone(),
             collection_revision: entry.fence.collection_revision(),
             next: more.then_some(entry.token),
