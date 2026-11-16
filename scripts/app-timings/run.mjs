@@ -55,7 +55,7 @@ async function instrument(page, selector) {
         if ([...document.querySelectorAll(selector)].some(visible)) {sample.firstRecords = performance.now(); observer.disconnect();}
       }));
     });
-    observer.observe(document, {subtree: true, childList: true, attributes: true});
+    observer.observe(document, {subtree: true, childList: true, attributes: true, characterData: true});
     window.appTimings = sample;
   }, {selector});
 }
