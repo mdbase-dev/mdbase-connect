@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-<!-- Add release notes in changelog.d; assembled by pnpm version:set. -->
+<!-- Add release notes in changelog.d; a Breaking fragment makes the next release a minor bump. -->
 
 ## 0.1.0-beta.152
 

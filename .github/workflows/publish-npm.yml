@@ -45,7 +45,7 @@ jobs:
 
   plan:
     needs: validate
-    # On main: coordinate. On a coordinator-reserved v0.1.0-beta.N tag: publish
+    # On main: coordinate. On a coordinator-reserved v<version> tag: publish
     # that tag's commit, which is this run's own commit.
     if: >-
       github.repository == 'mdbase-dev/mdbase-connect' &&
@@ -53,7 +53,7 @@ jobs:
       (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))) ||
-      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')))
+      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')))
     runs-on: ubuntu-24.04
     outputs:
       commit: ${{ steps.plan.outputs.commit }}
@@ -115,7 +115,7 @@ jobs:
 
   pack:
     needs: plan
-    if: startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && needs.plan.outputs.changed == 'true'
+    if: startsWith(github.ref, 'refs/tags/v') && needs.plan.outputs.changed == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -143,7 +143,7 @@ jobs:
   publish:
     name: Publish changed SDK packages
     needs: [plan, pack]
-    if: startsWith(github.ref, 'refs/tags/v0.1.0-beta.') && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
+    if: startsWith(github.ref, 'refs/tags/v') && needs.plan.outputs.changed == 'true' && (github.event_name != 'workflow_dispatch' || !inputs.dry_run)
     runs-on: ubuntu-24.04
     environment: npm
     permissions:

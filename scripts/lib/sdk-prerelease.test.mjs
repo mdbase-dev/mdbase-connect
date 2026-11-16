@@ -52,7 +52,7 @@ function fixture(context) {
           name: new URL(url).searchParams.get("name"), size: options.body.length, state: "uploaded",
         }];
         else if (options.method === "PATCH" && pathname === "releases/42") {
-          result = [200, { tag_name: tag, draft: false, prerelease: true }];
+          result = [200, { tag_name: tag, draft: false, prerelease: false }];
         } else throw new Error(`Unexpected synthetic request: ${url}`);
       }
       return { status: result[0], json: async () => result[1] };
@@ -61,18 +61,18 @@ function fixture(context) {
   return { directory, pack, calls, options, requestWith };
 }
 
-test("one new tag and prerelease bind both exact packages and bundles, never Latest", async context => {
+test("one new tag and release bind both exact packages and bundles, never Latest", async context => {
   const value = fixture(context);
   await publishSdkPrerelease({ ...value.options, request: value.requestWith() });
   assert.deepEqual(value.calls.find(call => call.pathname === "git/refs").body, { ref: `refs/tags/${tag}`, sha: commit });
   const create = value.calls.find(call => call.pathname === "releases").body;
   assert.equal(create.tag_name, tag);
   assert.equal(create.target_commitish, commit);
-  assert.equal(create.prerelease, true);
+  assert.equal(create.prerelease, false);
   assert.equal(create.draft, true);
   assert.equal(create.make_latest, "false");
   assert.equal(value.calls.filter(call => call.pathname === "releases/42/assets").length, 4);
-  assert.deepEqual(value.calls.at(-1).body, { draft: false, prerelease: true, make_latest: "false" });
+  assert.deepEqual(value.calls.at(-1).body, { draft: false, prerelease: false, make_latest: "false" });
   assert(!value.calls.some(call => call.method === "DELETE"));
 });
 

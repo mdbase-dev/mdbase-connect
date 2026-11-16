@@ -4,7 +4,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { api, checkoutProductionCommit, gh, git, nextBetaVersion, pages, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, pages, releaseTag, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const channelName = "mdbase-connect-channel-v1.json";
 const marker = "Continuous desktop status: stopped";
@@ -27,22 +27,30 @@ export function desktopChanged(paths, contents) {
     })());
 }
 
-const betaNumber = tag => {
-  const match = /^v0\.1\.0-beta\.([1-9][0-9]*)$/.exec(tag);
-  if (!match) throw new Error("Invalid desktop release tag.");
-  return BigInt(match[1]);
+// Tags are v<version>; legacy v0.1.0-beta.N reservations still order below releases.
+const tagVersion = tag => {
+  if (!/^v[0-9]/.test(tag)) throw new Error("Invalid desktop release tag.");
+  return tag.slice(1);
 };
 
-export function desktopPlan({ latest, reservations, changed, acknowledged = "", now = Date.now() }) {
-  const reconciled = acknowledged ? betaNumber(acknowledged) : 0n;
-  if (reservations.some(item => !item.published && betaNumber(item.tag) > reconciled)) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
+// The desktop workflow runs the prepare step committed at its tag. Transition
+// guard: a commit whose prepare step predates semver tags cannot publish one.
+// Remove once production contains semver desktop releases.
+export function semverPrepare(commit, runGit = git) {
+  return runGit("show", `${commit}:scripts/continuous-desktop-release.mjs`).includes("assert.match(tag, releaseTag);");
+}
+
+export function desktopPlan({ latest, reservations, changed, acknowledged = "", semver = true, now = Date.now() }) {
+  const unreconciled = item => !acknowledged || compareVersions(tagVersion(item.tag), tagVersion(acknowledged)) > 0;
+  if (reservations.some(item => !item.published && unreconciled(item))) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
   if (latest?.body?.includes(marker)) throw new Error("Desktop line is latched stopped; release-owner review required.");
   if (latest) {
     const age = now - Date.parse(latest.published_at);
     if (!Number.isFinite(age) || age < 0) throw new Error("Invalid desktop publication time.");
     if (age < day) return { operation: "wait", reason: "daily limit" };
   }
-  return changed ? { operation: "release" } : { operation: "wait", reason: "desktop tree unchanged" };
+  if (!changed) return { operation: "wait", reason: "desktop tree unchanged" };
+  return semver ? { operation: "release" } : { operation: "wait", reason: "selected commit predates semver releases" };
 }
 
 function reservations(releases) {
@@ -104,16 +112,15 @@ export async function coordinate(env = process.env) {
       catch (error) { if (error.status === 128) return undefined; throw error; }
     };
     const changed = desktopChanged(paths, path => ({ before: base ? readAt(base, path) : undefined, after: readAt(env.GITHUB_SHA, path) }));
-    const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG });
+    const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG, semver: semverPrepare(env.GITHUB_SHA) });
     console.log(JSON.stringify(plan));
     if (plan.operation === "wait") return;
     await verifyCompatibility(env);
     assert.equal(api("actions/workflows/desktop-release.yml").state, "active", "Desktop publication workflow has been stopped.");
     const versions = git("tag", "--list", "v*").split("\n").filter(tag => /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)).map(tag => tag.slice(1));
-    versions.push(JSON.parse(readFileSync("package.json", "utf8")).version,
-      ...all.map(release => release.tag_name.slice(1)));
+    versions.push(...all.map(release => release.tag_name.slice(1)));
     assert.match(env.GITHUB_RUN_ID ?? "", /^[1-9][0-9]*$/);
-    const tag = `v${nextBetaVersion(versions)}`;
+    const tag = `v${allocateVersion(versions, env.GITHUB_SHA)}`;
     const object = writeApi("git/tags", { tag, object: env.GITHUB_SHA, type: "commit",
       message: JSON.stringify({ schema: "mdbase-desktop-release/1", commit: env.GITHUB_SHA,
         reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
@@ -128,7 +135,7 @@ export function prepareDesktop(env = process.env) {
   requireRunning(env.DESKTOP_RELEASE_STOPPED);
   assert.equal(env.GITHUB_EVENT_NAME, "workflow_dispatch");
   const tag = env.GITHUB_REF_NAME;
-  assert.match(tag, /^v0\.1\.0-beta\.[1-9][0-9]*$/);
+  assert.match(tag, releaseTag);
   assert.equal(env.GITHUB_REF, `refs/tags/${tag}`);
   assert.equal(remoteTagCommit(tag), env.GITHUB_SHA);
   const reference = api(`git/ref/tags/${tag}`);
