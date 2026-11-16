@@ -1,17 +1,17 @@
 import { autocompletion, completionStatus } from "@codemirror/autocomplete";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
-import { EditorSelection, EditorState } from "@codemirror/state";
+import { EditorSelection, EditorState, type Extension } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
-import { cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask } from "./writing-commands";
+import { cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
 
 /** `¦` marks the caret; two of them mark a selection. */
-function editor(source: string) {
+function editor(source: string, extensions: Extension = []) {
   const [anchor, head] = [source.indexOf("¦"), source.indexOf("¦", source.indexOf("¦") + 1)];
   const doc = source.replaceAll("¦", "");
   const selection = head < 0 ? EditorSelection.cursor(anchor) : EditorSelection.range(anchor, head - 1);
   return new EditorView({
-    state: EditorState.create({ doc, selection, extensions: [markdown({ base: markdownLanguage }), autocompletion({ override: [() => null] })] }),
+    state: EditorState.create({ doc, selection, extensions: [markdown({ base: markdownLanguage }), autocompletion({ override: [() => null] }), extensions] }),
     parent: document.body
   });
 }
@@ -72,5 +72,29 @@ describe("exitEmptyQuote", () => {
     expect(exitEmptyQuote(editor("> a¦"))).toBe(false);
     expect(exitEmptyQuote(editor("> a\n>¦ "))).toBe(false);
     expect(exitEmptyQuote(editor("> ```\n> code\n> ¦\n> ```"))).toBe(false);
+  });
+});
+
+describe("wrapSelectionOnType", () => {
+  /** Types `text` the way a DOM input reaches CodeMirror's input handlers. */
+  function type(source: string, typed: string) {
+    const view = editor(source, wrapSelectionOnType);
+    const { from, to } = view.state.selection.main;
+    const insert = () => view.state.update({ changes: { from, to, insert: typed }, selection: { anchor: from + typed.length } });
+    if (!view.state.facet(EditorView.inputHandler).some((handler) => handler(view, from, to, typed, insert))) view.dispatch(insert());
+    const { from: start, to: end } = view.state.selection.main;
+    return { doc: text(view), selected: view.state.sliceDoc(start, end) };
+  }
+
+  it("wraps selected text in marks, brackets and quotes and keeps it selected", () => {
+    expect(type("a ¦word¦ b", "*")).toEqual({ doc: "a *word* b", selected: "word" });
+    expect(type("a ¦word¦ b", "`")).toEqual({ doc: "a `word` b", selected: "word" });
+    expect(type("a ¦word¦ b", "[")).toEqual({ doc: "a [word] b", selected: "word" });
+    expect(type("a ¦word¦ b", "\"")).toEqual({ doc: "a \"word\" b", selected: "word" });
+  });
+
+  it("replaces the selection with other characters and types marks at a caret", () => {
+    expect(type("a ¦word¦ b", "x")).toEqual({ doc: "a x b", selected: "" });
+    expect(type("a ¦ b", "*")).toEqual({ doc: "a * b", selected: "" });
   });
 });
