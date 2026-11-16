@@ -1,8 +1,9 @@
 import { autocompletion, completionStatus } from "@codemirror/autocomplete";
+import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
-import { cycleHeading, insertNoteLink, toggleBulletList, toggleTask } from "./writing-commands";
+import { cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask } from "./writing-commands";
 
 /** `¦` marks the caret; two of them mark a selection. */
 function editor(source: string) {
@@ -10,7 +11,7 @@ function editor(source: string) {
   const doc = source.replaceAll("¦", "");
   const selection = head < 0 ? EditorSelection.cursor(anchor) : EditorSelection.range(anchor, head - 1);
   return new EditorView({
-    state: EditorState.create({ doc, selection, extensions: autocompletion({ override: [() => null] }) }),
+    state: EditorState.create({ doc, selection, extensions: [markdown({ base: markdownLanguage }), autocompletion({ override: [() => null] })] }),
     parent: document.body
   });
 }
@@ -53,5 +54,23 @@ describe("touch formatting commands", () => {
     expect(text(empty)).toBe("See [[");
     expect(empty.state.selection.main.head).toBe(6);
     expect(completionStatus(empty.state)).not.toBeNull();
+  });
+});
+
+describe("exitEmptyQuote", () => {
+  it("ends the quote on an empty quoted line, one level at a time", () => {
+    const view = editor("> a\n> ¦");
+    expect(exitEmptyQuote(view)).toBe(true);
+    expect(text(view)).toBe("> a\n");
+    expect(view.state.selection.main.head).toBe(4);
+    const nested = editor("> > a\n> > ¦");
+    exitEmptyQuote(nested);
+    expect(text(nested)).toBe("> > a\n> ");
+  });
+
+  it("leaves quoted text, a caret before the end and quoted code to the usual Enter", () => {
+    expect(exitEmptyQuote(editor("> a¦"))).toBe(false);
+    expect(exitEmptyQuote(editor("> a\n>¦ "))).toBe(false);
+    expect(exitEmptyQuote(editor("> ```\n> code\n> ¦\n> ```"))).toBe(false);
   });
 });

@@ -161,6 +161,12 @@ impl<S: Store> Replica<S> {
         // policy at that position.
         self.verify_manifest(bytes, &item, &m, &self.policy)
             .map_err(|why| Stop::Differs(why.into()))?;
+        // An installer takes its semantics ratchet from the manifest (§8).
+        if m.sem_ratchet.is_some_and(|r| r != self.sem_ratchet) {
+            return Err(Stop::Differs(
+                "its semantics ratchet is not this replica's".into(),
+            ));
+        }
         match state_digest_within(&self.store, self.snapshot_record_bytes)? {
             None => return Err(Stop::Decline),
             Some(ours) if ours != m.state_digest => {

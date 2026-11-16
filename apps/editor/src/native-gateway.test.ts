@@ -327,6 +327,30 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
   });
 
+  it("asks the replica's body query and collects every page of paths", async () => {
+    // MemoryReplica is not the runtime: this evaluator stands in for its index
+    // and only checks the query the gateway sends.
+    const asked: string[] = [];
+    const where = (expr: string, record: { body: string }) => {
+      asked.push(expr);
+      const term = JSON.parse(/^file\.body\.lower\(\)\.contains\((.*)\)$/.exec(expr)![1]) as string;
+      return record.body.toLowerCase().includes(term);
+    };
+    const f = await fixture({ where }, replica => {
+      for (let index = 0; index < 1002; index++) {
+        replica.seed({ path: `notes/${String(index).padStart(4, "0")}.md`, types: ["note"], frontmatter: {}, body: index % 2 ? "The Launch is near." : "Nothing here." });
+      }
+      replica.seed({ path: "notes/quoted.md", types: ["note"], frontmatter: {}, body: 'Say "launch".' });
+    });
+    const paths = await f.gateway.searchBodies("launch");
+    // More matches than one page holds.
+    expect(paths).toHaveLength(502);
+    expect(new Set(paths).size).toBe(502);
+    expect(paths).toContain("notes/quoted.md");
+    expect(asked.every((expr) => expr === 'file.body.lower().contains("launch")')).toBe(true);
+    expect(await f.gateway.searchBodies('"launch"')).toEqual(["notes/quoted.md"]);
+  });
+
   it("restarts backlink paging when the view changes between pages", async () => {
     const f = await fixture({}, replica => {
       replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });

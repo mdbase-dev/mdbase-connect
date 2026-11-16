@@ -193,6 +193,40 @@ async fn scenario<B: Backend, O: ObjectStore>(
         i += n;
     }
     let early_seq = 4u64;
+    // Compaction leaves the log readable from the older of the two retained
+    // snapshots (`snapshot.md` §5.1): an older one, just below the newest.
+    let older = a.manifest(c, 1, vec![chunk], filler("m0", 100));
+    let mo = sha256(&older);
+    svc.call(
+        &dev(&a),
+        "put_object",
+        &PutObjectParams {
+            collection: c,
+            address: mo,
+            kind: ItemKind::Manifest,
+            size: older.len() as u64,
+            checksum: mo,
+            bytes: Some(Bytes(older)),
+        }
+        .to_cbor(),
+        t0,
+    )
+    .await
+    .unwrap();
+    svc.call(
+        &dev(&a),
+        "put_snapshot",
+        &PutSnapshotParams {
+            collection: c,
+            seq: head - 1,
+            manifest: mo,
+            refs: vec![chunk],
+        }
+        .to_cbor(),
+        t0,
+    )
+    .await
+    .unwrap();
     let manifest = a.manifest(c, 1, vec![chunk], filler("m", 100));
     let ma = sha256(&manifest);
     svc.call(
@@ -236,7 +270,7 @@ async fn scenario<B: Backend, O: ObjectStore>(
     // A single-device rule does not apply: two personal devices are enrolled.
     assert_eq!(r.unwrap().result, map(vec![(0, Cbor::Uint(1))]));
 
-    // Endorsed by B, eight days later: C = min(S_e − 10,000, last seq older than 7 days).
+    // Endorsed by B, eight days later: C = min(S_o, S_e − 10,000, last seq older than 7 days).
     let late = t0 + 8 * DAY;
     let (orphan_new, p4) = put("orphan-new", ItemKind::BlobPart);
     svc.call(&dev(&a), "put_object", &p4.to_cbor(), late)

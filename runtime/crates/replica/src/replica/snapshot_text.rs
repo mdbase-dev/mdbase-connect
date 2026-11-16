@@ -13,6 +13,9 @@ use mdbn_wire::{
     intent::BlobRef,
 };
 use std::collections::{BTreeSet, VecDeque};
+/// A source object of the snapshot being installed that the service answers
+/// `not_found` for. The snapshot is refused; asking again is no use.
+pub(crate) const MISSING: &str = "the service does not have a source object";
 #[derive(Default)]
 pub(crate) struct Sources {
     queue: VecDeque<Row>,
@@ -225,6 +228,8 @@ impl<S: Store> Replica<S> {
             Ok(LogResponse::GetObject { .. }) => {
                 Some(Err(StreamError::Corrupt("incomplete snapshot text object")))
             }
+            // The snapshot's refs name it and the service does not have it.
+            Err(e) if e.object_missing() => Some(Err(StreamError::Corrupt(MISSING))),
             _ => None,
         };
         match result {

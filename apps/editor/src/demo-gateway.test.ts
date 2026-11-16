@@ -20,6 +20,14 @@ describe("DemoCollectionGateway indexing", () => {
     expect(progressSnapshots).toEqual([structure.snapshot]);
     expect(content.notes.every((note) => note.body !== undefined)).toBe(true);
   });
+
+  it("answers body searches as the runtime does: lower-cased text contains the term", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const created = await gateway.create({ path: "Notes/Mixed.md", title: "Mixed", body: "Mixed CASE Body", properties: {} });
+    expect(await gateway.searchBodies("case body")).toEqual([created.path]);
+    // The term is matched as given: an upper-case term matches no lower-cased text.
+    expect(await gateway.searchBodies("CASE")).toEqual([]);
+  });
 });
 
 describe("DemoCollectionGateway metadata layout", () => {

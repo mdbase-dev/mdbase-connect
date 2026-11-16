@@ -288,6 +288,9 @@ impl<S: Store> Replica<S> {
             Ok(LogResponse::GetObject { .. }) => Some(Err(StreamError::Corrupt(
                 "incomplete snapshot native object",
             ))),
+            Err(e) if e.object_missing() => {
+                Some(Err(StreamError::Corrupt(super::snapshot_text::MISSING)))
+            }
             _ => None,
         };
         match result {

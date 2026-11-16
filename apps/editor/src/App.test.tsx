@@ -571,31 +571,32 @@ describe("mdbase editor", () => {
     expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
 
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
-    expect(await screen.findByText(/searching 0 of 13/)).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
-    gateway.releaseContent();
-    expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
+    // Body matches come from the collection: no note text is loaded for them,
+    // so a title taken from that text is not shown yet.
+    expect(await screen.findByRole("option", { name: /a-quiet-interface-3/ })).toBeInTheDocument();
     await user.clear(screen.getByRole("combobox", { name: "Search notes and files" }));
     expect(await screen.findByText("13 notes · 2 files")).toBeInTheDocument();
     expect(gateway.listCalls).toBe(1);
   });
 
-  it("defers full text until search is requested and reports search progress", async () => {
+  it("asks the collection for body matches and reads text only for their excerpts", async () => {
     const gateway = new DemandContentGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
 
     expect(await screen.findByText("4 notes · 2 files")).toBeInTheDocument();
-    expect(gateway.hydrateCalls).toBe(0);
-    await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
-    await waitFor(() => expect(gateway.hydrateCalls).toBe(1));
+    await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Remains lightweight");
+    // Each word is asked once typing pauses, not once per keystroke.
+    await waitFor(() => expect(gateway.searched).toEqual(["remains", "lightweight"]));
+    expect(screen.getAllByText("Searching").length).toBeGreaterThan(0);
+    expect(screen.queryByRole("option", { name: /a-quiet-interface-3/ })).not.toBeInTheDocument();
+    gateway.releaseSearch();
 
-    expect(await screen.findByText(/searching 1 of 4/)).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /A quiet interface 3/ })).not.toBeInTheDocument();
-    gateway.releaseContent();
-
-    expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
+    const match = await screen.findByRole("option", { name: /a-quiet-interface-3/ });
     expect(screen.getByText("1 found · relevance")).toBeInTheDocument();
+    await waitFor(() => expect(match).toHaveTextContent("Record 3 remains lightweight"));
+    expect(gateway.hydrateCalls).toBe(0);
+    expect(gateway.searched).toHaveLength(2);
   });
 
   it("lists backlinks without loading note text and keeps failed lookups actionable", async () => {
@@ -622,7 +623,7 @@ describe("mdbase editor", () => {
     expect(linked()).toHaveLength(1);
   });
 
-  it("keeps a failed full-text search actionable and retries it", async () => {
+  it("keeps a failed body search actionable and retries it", async () => {
     const gateway = new RetryingContentGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -630,11 +631,13 @@ describe("mdbase editor", () => {
     await screen.findByText("4 notes · 2 files");
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
     const retry = await screen.findByRole("button", { name: "Retry search" });
-    expect(retry).toHaveAttribute("title", "The full-text index could not be read.");
+    expect(retry).toHaveAttribute("title", "The body search failed.");
+    expect(screen.getByText(/found so far · incomplete/)).toBeInTheDocument();
     await user.click(retry);
 
-    expect(await screen.findByRole("option", { name: /A quiet interface 3/ })).toBeInTheDocument();
-    expect(gateway.hydrateCalls).toBe(2);
+    expect(await screen.findByRole("option", { name: /a-quiet-interface-3/ })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry search" })).not.toBeInTheDocument();
+    expect(gateway.hydrateCalls).toBe(0);
   });
 
   it("uses the create response for editing and targeted reconciliation without re-listing", async () => {
@@ -675,7 +678,7 @@ describe("mdbase editor", () => {
     expect(gateway.listCalls).toBe(listCalls);
   });
 
-  it("searches note content in the loaded index without another query or watcher", async () => {
+  it("searches note text through the collection without re-listing or another watcher", async () => {
     const gateway = new CountingGateway();
     const user = userEvent.setup();
     render(<App gateway={gateway} />);
@@ -1409,7 +1412,9 @@ class RetryingListGateway extends DemoCollectionGateway {
 
 class DemandContentGateway extends DemoCollectionGateway {
   private fullNotes: NoteSummary[] = [];
-  private release?: () => void;
+  private openSearch!: () => void;
+  private readonly searchGate = new Promise<void>((resolve) => { this.openSearch = resolve; });
+  readonly searched: string[] = [];
   hydrateCalls = 0;
 
   constructor() {
@@ -1426,15 +1431,17 @@ class DemandContentGateway extends DemoCollectionGateway {
 
   override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
     this.hydrateCalls += 1;
-    options.onProgress?.({ notes: this.fullNotes.slice(0, 1), snapshot: options.snapshot, structureComplete: true, complete: false, contentComplete: false, contentLoaded: 1, total: this.fullNotes.length });
-    await new Promise<void>((resolve) => { this.release = resolve; });
-    options.signal?.throwIfAborted();
-    options.onProgress?.({ notes: this.fullNotes, snapshot: options.snapshot, structureComplete: true, complete: true, contentComplete: true, contentLoaded: this.fullNotes.length, total: this.fullNotes.length });
-    return { notes: this.fullNotes, snapshot: options.snapshot };
+    return super.hydrateContent(options);
   }
 
-  releaseContent() {
-    this.release?.();
+  override async searchBodies(term: string): Promise<string[]> {
+    this.searched.push(term);
+    await this.searchGate;
+    return super.searchBodies(term);
+  }
+
+  releaseSearch() {
+    this.openSearch();
   }
 }
 
@@ -1442,6 +1449,13 @@ class RetryingContentGateway extends DemoCollectionGateway {
   private fullNotes: NoteSummary[] = [];
   hydrateCalls = 0;
   backlinksCalls = 0;
+  searchCalls = 0;
+
+  override async searchBodies(term: string): Promise<string[]> {
+    this.searchCalls += 1;
+    if (this.searchCalls === 1) throw new Error("The body search failed.");
+    return super.searchBodies(term);
+  }
 
   override async backlinks(path: string): Promise<string[]> {
     this.backlinksCalls += 1;
@@ -1616,8 +1630,6 @@ class SlowDescriptionGateway extends DemoCollectionGateway {
 
 class ProgressiveListGateway extends DemoCollectionGateway {
   private releaseStructurePage?: () => void;
-  private releaseContentPage?: () => void;
-  private content: NoteSummary[] = [];
   listCalls = 0;
 
   override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
@@ -1628,24 +1640,12 @@ class ProgressiveListGateway extends DemoCollectionGateway {
     options.onProgress?.({ notes: structure.slice(0, 1), snapshot: result.snapshot, structureComplete: false, complete: false, total: notes.length });
     await new Promise<void>((resolve) => { this.releaseStructurePage = resolve; });
     options.signal?.throwIfAborted();
-    this.content = notes;
     options.onProgress?.({ notes: structure, snapshot: result.snapshot, structureComplete: true, complete: true, total: notes.length });
     return { notes: structure, snapshot: result.snapshot };
   }
 
-  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
-    options.onProgress?.({ notes: [], structureComplete: true, complete: false, total: this.content.length });
-    await new Promise<void>((resolve) => { this.releaseContentPage = resolve; });
-    options.signal?.throwIfAborted();
-    return { notes: this.content };
-  }
-
   releaseStructure() {
     this.releaseStructurePage?.();
-  }
-
-  releaseContent() {
-    this.releaseContentPage?.();
   }
 }
 
