@@ -33,7 +33,8 @@ this public repository and reports.
 
 A cold context has empty app storage, HTTP cache and service-worker state. Only
 the saved Connect login cookies are supplied. The script follows the app's Sign
-in button and approves the requested fixture in the portal. Thus cold elapsed
+in button and approves the requested fixture in the portal, then brings the app
+tab to the foreground so its animation frames run as they do for the person. Thus cold elapsed
 measurements **include automated consent**; they are not an already-authorized
 open with an empty collection cache. The second navigation uses the same context
 and retains app installation, collection storage, cache and service worker.
@@ -62,7 +63,7 @@ observer installed before navigation detects records. Here it waits two animatio
 frames and requires a visible row in the viewport. `first_records` is elapsed
 navigation time to that observation, not full indexing or synchronization.
 TTFB is navigation `responseStart - requestStart`. FCP and buffered LCP are read
-at the first-records observation; LCP is therefore **LCP at first records**, not
+at the first-records observation (or timeout); LCP is therefore **LCP at first records**, not
 an eventual page-lifetime LCP. JS heap uses Chromium's `JSHeapUsedSize` at that
 point and is reported separately in bytes in the local report.
 
@@ -75,14 +76,19 @@ the separate SDK change lands.
 A served `mdbase-build` meta tag or the source suffix of the served entry script
 supplies the revision. Missing identity fails the sample; mixed revisions fail
 the cell. Report per-stage medians from three complete samples. Any failed
-sample fails the cell and ends further samples for that cell. Failed or missing
+sample fails the cell and ends further samples for that cell. A failed cold
+visit skips the warm visit and reports `cold/prerequisite_failed` for it. The
+local sample count is zero for skipped visits, including an expired preflight. Failed or missing
 measurements have duration 0 with failed status; 0 is not a measured latency.
 A timeout uses `first_records/timeout`. None of these error tokens
 contains exception text or URLs.
 
 The runner POSTs the version-1 app timing envelope to
 `https://ops-ingest.mdbase.dev/v1/timings`, using a bearer token read from a 0600
-file. Only fixed component/stage/error names, numeric durations, timestamp and
+file. An explicit `--collect-only` third argument records local results without
+reading the ingest token or posting, for qualification while the ingest route is
+unavailable; it is never selected automatically or used by the daily service.
+Only fixed component/stage/error names, numeric durations, timestamp and
 served build identity leave the runner. Heap bytes and sample count remain in
 the local JSON report because the ingestion stages have units of milliseconds.
 A failed POST stops the run, without retrying or printing response bodies or the

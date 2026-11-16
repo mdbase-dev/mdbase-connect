@@ -32,3 +32,13 @@ test('rejects tokens that could disclose identifiers or URLs', () => {
   assert.throws(() => result('https://example.invalid', [sample(10)], at), /invalid_result_token/);
   assert.throws(() => result('editor.100.cold', [sample(10, 'secret/path')], at), /invalid_result_token/);
 });
+test('retains page-load measurements when first records times out', () => {
+  const payload = result('editor.10k.cold', [{revision: 'abc123', stages: {ttfb: 50, fcp: 200, lcp: 350}, error: {stage: 'first_records', code: 'timeout'}}], at);
+  assert.equal(payload.status, 'failed');
+  assert.deepEqual(payload.stages, [
+    {name: 'ttfb', status: 'operational', duration_ms: 50},
+    {name: 'fcp', status: 'operational', duration_ms: 200},
+    {name: 'lcp', status: 'operational', duration_ms: 350},
+    {name: 'first_records', status: 'failed', duration_ms: 0},
+  ]);
+});

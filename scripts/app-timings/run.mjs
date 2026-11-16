@@ -7,19 +7,20 @@ import {apps, sizes, result, median} from './results.mjs';
 
 const configPath = resolve(process.argv[2] ?? '');
 const config = JSON.parse(await readFile(configPath, 'utf8'));
+const collectOnly = process.argv[3] === '--collect-only';
 const samplesPerCell = config.samples ?? 3;
 if (!Number.isInteger(samplesPerCell) || samplesPerCell < 3 || samplesPerCell > 7) throw Error('invalid_sample_count');
 for (const size of sizes) if (!/^[0-9a-f-]{36}$/.test(config.collections[size])) throw Error('invalid_collection_config');
 const portalState = JSON.parse(await readFile(config.portal_state, 'utf8'));
 // Only the control-plane login is reused. Every cold app origin starts empty.
 if (portalState.origins?.length || portalState.cookies.some(cookie => cookie.domain !== 'connect.mdbase.dev')) throw Error('invalid_portal_state');
-const ingestToken = (await readFile(config.token_file, 'utf8')).trim();
-if (!ingestToken || /\s/.test(ingestToken)) throw Error('invalid_ingest_token');
+const ingestToken = collectOnly ? null : (await readFile(config.token_file, 'utf8')).trim();
+if (!collectOnly && (!ingestToken || /\s/.test(ingestToken))) throw Error('invalid_ingest_token');
 const output = resolve(config.output);
 await mkdir(dirname(output), {recursive: true, mode: 0o700});
 const report = [];
 const browser = await chromium.launch({headless: true, args: ['--enable-precise-memory-info']});
-const failed = (stage, code, revision = 'unavailable') => ({stages: {}, revision, error: {stage, code}});
+const failed = (stage, code, revision = 'unavailable', visited = true) => ({stages: {}, revision, visited, error: {stage, code}});
 
 async function revision(page) {
   return page.evaluate(() => {
@@ -56,7 +57,7 @@ async function instrument(page, selector) {
 }
 
 async function visit(page, app, collection, cold, collectionName) {
-  let build = 'unavailable', stage = 'navigation';
+  let build = 'unavailable', stage = 'navigation', error;
   try {
     await page.goto(`${apps[app].origin}/?collection=${encodeURIComponent(collection)}`, {waitUntil: 'domcontentloaded', timeout: 45000});
     build = await revision(page);
@@ -73,20 +74,28 @@ async function visit(page, app, collection, cold, collectionName) {
       if (new URL(popup.url()).pathname === '/login') return failed('auth', 'auth_expired', build);
       await popup.getByRole('option', {name: collectionName, exact: true}).click({timeout: 30000});
       await popup.locator('.approval-actions button.is-primary').click({timeout: 30000});
+      await page.bringToFront();
     }
     stage = 'first_records';
     await page.waitForFunction(() => Number.isFinite(window.appTimings?.firstRecords), null, {timeout: 45000});
+  } catch {
+    // Never serialize browser exceptions: their messages contain URLs and IDs.
+    if (!cold && !page.isClosed() && await page.getByRole('button', {name: 'Sign in', exact: true}).isVisible()) return failed('auth', 'auth_expired', build);
+    error = {stage, code: page.isClosed() ? 'browser_closed' : 'timeout'};
+  }
+  try {
     const data = await page.evaluate(() => {
       const nav = performance.getEntriesByType('navigation')[0];
       const firstRecords = window.appTimings.firstRecords;
-      const stages = {ttfb: nav.responseStart - nav.requestStart, first_records: firstRecords};
+      const stages = {ttfb: nav.responseStart - nav.requestStart};
+      if (Number.isFinite(firstRecords)) stages.first_records = firstRecords;
       const fcp = performance.getEntriesByName('first-contentful-paint')[0]?.startTime;
       if (fcp !== undefined) stages.fcp = fcp;
       if (window.appTimings.lcp !== null) stages.lcp = window.appTimings.lcp;
       const marks = Object.fromEntries(['requested', 'approved', 'ready'].map(name => [name,
         performance.getEntriesByName(`mdbase:open:${name}`, 'mark')[0]?.startTime]));
       if (marks.requested !== undefined) {
-        stages.open_first_records = firstRecords - marks.requested;
+        if (Number.isFinite(firstRecords)) stages.open_first_records = firstRecords - marks.requested;
         if (marks.approved !== undefined) stages.open_approved = marks.approved - marks.requested;
         if (marks.ready !== undefined) stages.open_ready = marks.ready - marks.requested;
         const query = performance.getEntriesByName('mdbase:query:first-result', 'mark').find(entry => entry.startTime >= marks.requested);
@@ -99,13 +108,11 @@ async function visit(page, app, collection, cold, collectionName) {
     const metrics = await session.send('Performance.getMetrics');
     await session.detach();
     const heap = metrics.metrics.find(metric => metric.name === 'JSHeapUsedSize')?.value;
-    if (build === 'unavailable') return failed('revision', 'revision_missing', build);
-    if (data.stages.fcp === undefined || data.stages.lcp === undefined || !Number.isFinite(heap)) return failed('measurement', 'metrics_missing', build);
-    return {...data, revision: build, heap_bytes: heap};
+    if (build === 'unavailable') error ??= {stage: 'revision', code: 'revision_missing'};
+    if (data.stages.fcp === undefined || data.stages.lcp === undefined || !Number.isFinite(heap)) error ??= {stage: 'measurement', code: 'metrics_missing'};
+    return {...data, revision: build, heap_bytes: heap, ...(error ? {error} : {})};
   } catch {
-    // Never serialize browser exceptions: their messages contain URLs and IDs.
-    if (!cold && !page.isClosed() && await page.getByRole('button', {name: 'Sign in', exact: true}).isVisible()) return failed('auth', 'auth_expired', build);
-    return failed(stage, page.isClosed() ? 'browser_closed' : 'timeout', build);
+    return failed('measurement', 'browser_unavailable', build);
   }
 }
 
@@ -137,7 +144,7 @@ try {
     const samples = {cold: [], warm: []};
     for (let index = 0; index < samplesPerCell; index++) {
       if (authError) {
-        for (const mode of ['cold', 'warm']) samples[mode].push(failed('auth', authError));
+        for (const mode of ['cold', 'warm']) samples[mode].push(failed('auth', authError, 'unavailable', false));
         continue;
       }
       const context = await browser.newContext({storageState: portalState, viewport: {width: 1440, height: 900}, locale: 'en-US'});
@@ -157,7 +164,7 @@ try {
         const cold = await visit(page, app, config.collections[size], true, config.collection_names[size]);
         samples.cold.push(cold);
         // Same context, second navigation: HTTP cache, IDB, storage and service worker retained.
-        samples.warm.push(cold.error ? failed(cold.error.stage, cold.error.code, cold.revision) : await visit(page, app, config.collections[size], false, config.collection_names[size]));
+        samples.warm.push(cold.error ? failed('cold', 'prerequisite_failed', cold.revision, false) : await visit(page, app, config.collections[size], false, config.collection_names[size]));
         await cleanup(context, installationIds);
         await writeFile(config.ledger_file, '', {mode: 0o600});
       } finally {await context.close();}
@@ -167,12 +174,14 @@ try {
     for (const mode of ['cold', 'warm']) {
       const timing = result(`${app}.${size}.${mode}`, samples[mode], new Date().toISOString());
       const heaps = samples[mode].map(sample => sample.heap_bytes).filter(Number.isFinite);
-      report.push({timing, samples: samples[mode].length, heap_bytes_median: heaps.length === samplesPerCell ? median(heaps) : null});
+      report.push({timing, samples: samples[mode].filter(sample => sample.visited !== false).length, heap_bytes_median: heaps.length ? median(heaps) : null});
       await writeFile(output, JSON.stringify(report, null, 2) + '\n', {mode: 0o600});
-      const response = await fetch('https://ops-ingest.mdbase.dev/v1/timings', {
-        method: 'POST', headers: {Authorization: `Bearer ${ingestToken}`, 'Content-Type': 'application/json'}, body: JSON.stringify(timing), signal: AbortSignal.timeout(15000),
+      if (!collectOnly) {
+        const response = await fetch('https://ops-ingest.mdbase.dev/v1/timings', {
+          method: 'POST', headers: {Authorization: `Bearer ${ingestToken}`, 'Content-Type': 'application/json'}, body: JSON.stringify(timing), signal: AbortSignal.timeout(15000),
       });
       if (!response.ok) throw Error(`ingest_http_${response.status}`);
+      }
       console.log(JSON.stringify(timing));
     }
   }
