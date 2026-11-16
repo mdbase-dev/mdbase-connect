@@ -218,10 +218,8 @@ function build(state: EditorState): DecorationSet {
     } else if (!block.fenced) {
       ranges.push(Decoration.widget({ widget: new CodeHeader("", block.code.replace(/^(?: {4}|\t)/gm, "")), side: -1 }).range(first.from));
     }
-    if (block.closed && !isRevealed(state, last.from, last.to)) {
-      ranges.push(Decoration.line({ class: "cm-lp-code-fence-end" }).range(last.from));
-      ranges.push(hide.range(last.from, last.to));
-    }
+    // The hidden closing fence keeps its line, so showing it moves nothing below.
+    if (block.closed && !isRevealed(state, last.from, last.to)) ranges.push(hide.range(last.from, last.to));
   }
   for (const callout of callouts) {
     const folded = callout.fold ? (foldState.get(callout.from) ?? callout.fold === "-") : false;
