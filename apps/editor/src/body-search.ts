@@ -1,4 +1,5 @@
 import type { CollectionGateway, NoteSummary } from "./model";
+import { parseSearchQuery } from "./search-query";
 
 /** Shorter terms match too much of any body to be worth a query, and the
  * runtime's index answers only terms of three or more characters. */
@@ -24,7 +25,7 @@ export function bodySearchTerm(word: string): string | undefined {
 }
 
 export function bodySearchTerms(query: string): string[] {
-  return [...new Set(query.trim().split(/\s+/).flatMap((word) => bodySearchTerm(word) ?? []))];
+  return [...new Set(parseSearchQuery(query).words.flatMap((word) => bodySearchTerm(word) ?? []))];
 }
 
 export interface BodySearchSnapshot {

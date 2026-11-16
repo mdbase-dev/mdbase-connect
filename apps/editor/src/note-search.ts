@@ -1,8 +1,9 @@
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { noteAliases } from "./links";
-import { basename, noteTags, noteTitle } from "./note";
+import { basename, noteHasTag, noteHasType, noteTags, noteTitle } from "./note";
 import { bodySearchTerm } from "./body-search";
+import { parseSearchQuery } from "./search-query";
 
 /** Body matches answered by the collection's runtime instead of the text the
  * page holds (`BodySearch`). */
@@ -106,17 +107,22 @@ export function searchNoteResults(
   bonus?: (note: NoteSummary) => number,
   bodies?: IndexedBodies
 ): NoteSearchResult[] {
-  const tokens = query.trim().split(/\s+/).flatMap((word) => {
+  const parsed = parseSearchQuery(query);
+  const tokens = parsed.words.flatMap((word) => {
     const text = normalize(word);
     return text ? [{
       text,
       term: bodySearchTerm(word),
+      exact: parsed.phrases.has(word),
       wordStart: new RegExp(`(?:^|[\\s/_.-])${escapeRegExp(text)}`)
     }] : [];
   });
-  const contextTokens = highlightTokens(query);
+  const contextTokens = highlightTokens(parsed.words);
+  const candidates = parsed.tags.length || parsed.types.length
+    ? index.filter(({ note }) => parsed.tags.every((tag) => noteHasTag(note, tag)) && parsed.types.every((type) => noteHasType(note, type)))
+    : index;
   if (!tokens.length) {
-    return index.slice(0, limit).map((entry) => {
+    return candidates.slice(0, limit).map((entry) => {
       let context: NoteSearchContext | undefined;
       return {
         note: entry.note,
@@ -126,7 +132,7 @@ export function searchNoteResults(
       };
     });
   }
-  return index
+  return candidates
     .map((entry, order) => ({ entry, order, score: noteScore(entry, tokens, bodies) - (bonus?.(entry.note) ?? 0) }))
     .filter((candidate) => Number.isFinite(candidate.score))
     .sort((left, right) => left.score - right.score || left.order - right.order)
@@ -146,6 +152,8 @@ interface SearchToken {
   text: string;
   /** The word as the runtime matches it in note text, if long enough. */
   term?: string;
+  /** A quoted phrase: matched as written, never as scattered letters. */
+  exact: boolean;
   wordStart: RegExp;
 }
 
@@ -183,6 +191,7 @@ function fuzzyScore(value: string, token: SearchToken): number {
   if (wordIndex >= 0) return 0.8 + wordIndex / 1_000;
   const substring = value.indexOf(query);
   if (substring >= 0) return 1.4 + substring / 1_000;
+  if (token.exact) return Number.POSITIVE_INFINITY;
 
   let queryIndex = 0;
   let first = -1;
@@ -243,13 +252,13 @@ function collectSearchValues(value: unknown, values: string[]) {
   }
 }
 
-function highlightTokens(query: string): string[] {
-  return [...new Set(normalize(query.trim()).split(/\s+/).filter(Boolean))]
+function highlightTokens(words: string[]): string[] {
+  return [...new Set(words.map(normalize).filter(Boolean))]
     .sort((left, right) => right.length - left.length);
 }
 
 export function searchTextRanges(text: string, query: string): SearchTextRange[] {
-  return textRanges(text, highlightTokens(query));
+  return textRanges(text, highlightTokens(parseSearchQuery(query).words));
 }
 
 function textRanges(text: string, tokens: string[]): SearchTextRange[] {

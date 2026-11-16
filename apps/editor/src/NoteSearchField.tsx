@@ -25,9 +25,9 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
   const [browse, setBrowse] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const [active, setActive] = useState(0);
-  const token = /(?:^|\s)(#([^\s]*)|type:([^\s]*))$/.exec(search);
-  const kind = token ? token[1].startsWith("#") ? "tag" : "type" : undefined;
-  const needle = (token?.[2] ?? token?.[3] ?? "").toLocaleLowerCase();
+  const token = /(?:^|\s)(type:|tag:#?|#)(\S*)$/i.exec(search);
+  const kind = token ? token[1].toLowerCase() === "type:" ? "type" : "tag" : undefined;
+  const needle = (token?.[2] ?? "").toLocaleLowerCase();
   const suggestions: Array<{ filter: NoteFilter & { kind: "tag" | "type" }; count: number }> = [
     ...(kind !== "type" ? tags.map(({ name, count }) => ({ filter: { kind: "tag" as const, value: name }, count })) : []),
     ...(kind !== "tag" ? types.map(({ name, count }) => ({ filter: { kind: "type" as const, value: name }, count })) : [])

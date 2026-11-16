@@ -267,6 +267,44 @@ describe("note search", () => {
     expect(mixed.note.path).toBe("C.md");
     expect(mixed.context.kind).toBe("body");
   });
+
+  it("matches a quoted phrase as written, in the page's text and through indexed answers", () => {
+    const listed = buildNoteSearchIndex([
+      summary("Plain.md", {}, [], "We write ordinary markdown files."),
+      summary("Scattered.md", {}, [], "Ordinary notes, and markdown elsewhere."),
+      summary("Ordinary markdown guide.md", {}, [], "")
+    ]);
+    expect(searchNotes(listed, '"ordinary markdown"').map((note) => note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    // An unclosed quote is a phrase still being typed.
+    expect(searchNotes(listed, '"ordinary  mark').map((note) => note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    // Unquoted, the words match separately; quoted, never as scattered letters.
+    expect(searchNotes(listed, "ordinary markdown").map((note) => note.path)).toContain("Scattered.md");
+    expect(searchNotes(listed, '"omd"')).toEqual([]);
+    const asked: string[] = [];
+    const bodies = { paths: (term: string) => { asked.push(term); return term === "ordinary markdown" ? new Set(["Plain.md"]) : undefined; }, text: () => undefined };
+    expect(searchNoteResults(listed, '"Ordinary Markdown"', Infinity, undefined, bodies).map((result) => result.note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    expect(new Set(asked)).toEqual(new Set(["ordinary markdown"]));
+    expect(searchTextRanges("Some ordinary markdown here", '"ordinary markdown" here')).toEqual([{ from: 5, to: 22 }, { from: 23, to: 27 }]);
+  });
+
+  it("filters by typed #tag, tag: and type:, including nested tags and any case", () => {
+    const listed = buildNoteSearchIndex([
+      summary("Garden.md", { tags: ["Notes/garden"] }, ["note"], "Seeds."),
+      summary("Inline.md", {}, ["project"], "Seeds."),
+      summary("Notebook.md", { tags: ["notebook"] }, [], "Seeds.")
+    ].map((note) => note.path === "Inline.md" ? { ...note, file: { ...note.file, tags: ["#notes"] } } : note));
+    const paths = (query: string) => searchNotes(listed, query).map((note) => note.path);
+    expect(paths("tag:notes")).toEqual(["Garden.md", "Inline.md"]);
+    expect(paths("#notes")).toEqual(["Garden.md", "Inline.md"]);
+    expect(paths("tag:#NOTES/garden")).toEqual(["Garden.md"]);
+    expect(paths("type:Project seeds")).toEqual(["Inline.md"]);
+    expect(paths("tag:notes type:note")).toEqual(["Garden.md"]);
+    expect(paths("#nothing")).toEqual([]);
+    // A filter still being typed restricts nothing yet.
+    expect(paths("tag:")).toHaveLength(3);
+    // Filters are not text to find or highlight.
+    expect(searchTextRanges("tag: notes", "#notes")).toEqual([]);
+  });
 });
 
 function displayType(name: string): CollectionTypeDescriptor {
