@@ -1504,6 +1504,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "Dateien lesen und hinzufügen"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "frühere Versionen von Datensätzen lesen"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"

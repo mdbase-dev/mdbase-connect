@@ -27,7 +27,9 @@
     { "id": "put_timer", "input_schema_version": 1, "mutation": "always", "requires_timer_criterion": true },
     { "id": "cancel_timer", "input_schema_version": 1, "mutation": "always", "requires_timer_criterion": true },
     { "id": "reconcile_timers", "input_schema_version": 1, "mutation": "always", "requires_timer_criterion": true },
-    { "id": "sync", "input_schema_version": 1, "mutation": "sync_action" }
+    { "id": "sync", "input_schema_version": 1, "mutation": "sync_action" },
+    { "id": "record_history", "input_schema_version": 1, "mutation": "never" },
+    { "id": "record_version", "input_schema_version": 1, "mutation": "never" }
   ],
   "file_control_messages": [
     { "id": "list_files", "input_schema_version": 1, "mutation": false },

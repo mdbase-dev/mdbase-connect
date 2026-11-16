@@ -637,6 +637,105 @@ wire_struct! {
     }
 }
 
+wire_struct! {
+    /// `record_history` parameters (replica-client-api.md §4.4, API 1.4).
+    pub struct RecordHistoryParams {
+        /// The record's ID.
+        0 req record: Uuid,
+        /// Only versions at log positions below this one.
+        1 opt before: u64,
+        /// At most this many versions, 1–200 (default 50).
+        2 opt limit: u64,
+    }
+}
+
+wire_enum! {
+    /// What one version did to its record.
+    pub enum VersionKind {
+        /// The record was created, or came back after a deletion.
+        Created = 0,
+        /// Its document changed at the same path.
+        Edited = 1,
+        /// Its path changed (and possibly its document).
+        Moved = 2,
+        /// It was deleted.
+        Deleted = 3,
+    }
+}
+
+wire_struct! {
+    /// Who wrote a log entry, resolved from its signer and grant against policy.
+    pub struct AuthorRef {
+        /// The signing device's account (the service account for the hosted device).
+        0 req account: Uuid,
+        /// The signing device.
+        1 req device: Uuid,
+        /// The app grant the write was made through.
+        2 opt grant: Uuid,
+        /// The grant's account; present only when the hosted device signed.
+        3 opt grant_account: Uuid,
+    }
+}
+
+wire_struct! {
+    /// One version of a record: the entry that changed it.
+    pub struct HistoryVersion {
+        /// The entry's log position.
+        0 req seq: u64,
+        /// The writer's capture time, ms since the Unix epoch.
+        1 req time: i64,
+        /// Who wrote it.
+        2 req author: AuthorRef,
+        /// What it did.
+        3 req kind: VersionKind,
+        /// The record's path after it (before it, for a deletion).
+        4 req path: String,
+        /// SHA-256 of the document it wrote; absent for a deletion.
+        5 opt revision: Hash,
+        /// API write or ingested file change.
+        6 req source: crate::intent::Source,
+        /// The signing device's kind.
+        7 req device_kind: crate::policy::DeviceKind,
+        /// The grant's app ID, when written through an app grant.
+        8 opt app: String,
+    }
+}
+
+wire_struct! {
+    /// `record_history` result (replica-client-api.md §4.4).
+    pub struct RecordHistory {
+        /// Versions, newest first.
+        0 req versions: Vec<HistoryVersion>,
+        /// The lowest log position read: every version from here up is listed
+        /// in this page or at `next`.
+        1 req from: u64,
+        /// Capture time of the entry at `from`, when it was readable.
+        2 opt from_time: i64,
+        /// Pass as `before` for older versions; absent when there are none to read.
+        3 opt next: u64,
+    }
+}
+
+wire_struct! {
+    /// `record_version` parameters (replica-client-api.md §4.4).
+    pub struct RecordVersionParams {
+        /// The record's ID.
+        0 req record: Uuid,
+        /// The version's log position, from `record_history`.
+        1 req seq: u64,
+    }
+}
+
+wire_struct! {
+    /// `record_version` result: one version's exact document.
+    pub struct RecordVersion {
+        /// The record's path at that version.
+        0 req path: String,
+        /// The document's exact text.
+        1 req document: String,
+    }
+}
+
 wire_enum! {
     /// Live query update kind.
     pub enum UpdateKind {

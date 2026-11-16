@@ -10,6 +10,7 @@ fn hello_negotiates_file_identity_minor_without_dropping_older_clients() {
         (vec![0, 9, 1], 1),
         (vec![0, 9, 2, 1], 2),
         (vec![0, 1, 2, 3], 3),
+        (vec![0, 1, 2, 3, 4], 4),
     ] {
         let params = HelloParams {
             versions: minors
@@ -32,7 +33,7 @@ fn hello_negotiates_file_identity_minor_without_dropping_older_clients() {
         a.r.close(session);
     }
     let params = HelloParams {
-        versions: vec![Version { major: 1, minor: 4 }],
+        versions: vec![Version { major: 1, minor: 5 }],
         client_name: "future-only".into(),
         client_version: "0".into(),
         features: None,

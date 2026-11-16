@@ -70,7 +70,11 @@ const COLLECTION_OPERATION_POLICIES = {
   put_timer: policy({ requiresWriteReplica: true }),
   cancel_timer: policy({ requiresWriteReplica: true }),
   reconcile_timers: policy({ requiresWriteReplica: true }),
-  sync: policy()
+  sync: policy(),
+  // History spans deleted records and earlier paths, which a folder scope
+  // cannot evaluate.
+  record_history: policy({ requiresFullCollection: true }),
+  record_version: policy({ requiresFullCollection: true })
 } as const satisfies Record<CollectionOperation, CollectionOperationPolicy>;
 
 export function requiresFullCollectionAccess(

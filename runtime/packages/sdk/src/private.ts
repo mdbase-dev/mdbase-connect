@@ -24,8 +24,9 @@ export interface PendingDevice {
 }
 
 const kinds = enumOf<DeviceKind>("device-kind", DEVICE_KINDS);
-/** Unknown kinds (a newer control plane) display as "unknown" rather than failing the list. */
-const deviceKind: Codec<string> = {
+/** @internal Unknown kinds (a newer control plane) display as "unknown" rather
+ * than failing the list. */
+export const deviceKind: Codec<DeviceKind | "unknown"> = {
   name: "device-kind",
   enc: (v) => kinds.enc(v as DeviceKind),
   dec: (c) => {

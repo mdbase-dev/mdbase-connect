@@ -36,7 +36,7 @@ Retries retain the original barrier and confirmation timestamp. Neither a queued
 trigger nor an HTTP success response proves that log policy has appended.
 
 ## No authority broadening
-A synced next grant must have a nonempty **exact union** of semantic capability v2 operation groups, a full-collection scope, a valid installation UUID and an attested 32-byte Noise key. Collection setup's paired assess/apply operations are accepted only with definitions.manage. offline.replica is not a thin-client grant.
+A synced next grant must have a nonempty **exact union** of semantic capability v2 operation groups, a full-collection scope, a valid installation UUID and an attested 32-byte Noise key. Collection setup's paired assess/apply operations are accepted only with definitions.manage. offline.replica is not a thin-client grant. history.read (`record_history`, `record_version`) is offered only to owners and editors: memberships created from preset 3 carry it, earlier editor memberships do not, and the legacy hosted provider never receives it.
 
 File actions must also match that union exactly:
 
