@@ -9,7 +9,7 @@ User=RUNNER_USER
 WorkingDirectory=/opt/app-timings
 UMask=0077
 ExecStart=/usr/bin/node /opt/app-timings/run.mjs /opt/app-timings/config.json
-TimeoutStartSec=40min
+TimeoutStartSec=80min
 ExecStopPost=+/usr/sbin/poweroff
 
 [Install]
