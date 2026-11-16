@@ -157,12 +157,12 @@ The timeout bounds the probe; stopping the daemon afterwards has its own
 
 The probe prints one JSON line: `schema_version` 1, `environment`, component
 `hosted_canary`, `status`, `checked_at`, `duration_ms`, the stages `config`,
-`registration` (fresh daemon; keyring-backed account at the expected origin;
-relay online), `connections` (the collection is registered once, synced, with
-the expected name), `describe` (hosted log online and caught up), `read`,
-`digest` and `shutdown`, and on failure an `error` with its stage and a fixed
-code. Exit `0` is operational, `1` is a probe failure, and `2` is invalid or
-unsafe configuration. A scheduler should retain only that line.
+`daemon_start` (start a fresh daemon), `registration` (wait for the
+keyring-backed account at the expected origin to be online), `connections` (the
+collection is registered once, synced, with the expected name), `describe`
+(hosted log online and caught up), `read`, `digest` and `shutdown`, and on
+failure an `error` with its stage and a fixed code. Exit `0` is operational,
+`1` is a probe failure, and `2` is invalid or unsafe configuration. A scheduler should retain only that line.
 
 Failed CLI commands contribute only the daemon's stable error code or a fixed
 start/stop reason (for example `start_failed`, `daemon_unreachable` or
