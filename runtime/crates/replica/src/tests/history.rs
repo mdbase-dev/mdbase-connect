@@ -279,7 +279,11 @@ fn history_stops_at_the_compaction_point() {
     put(&mut a, Some(("a.md", "v3")));
     settle(&mut [&mut a]);
 
-    // Indexed before the compaction: listed, but the text is gone.
+    // Indexed before the compaction: no longer listed, and the text is gone.
+    let after = history(&mut a, s, None, None).unwrap();
+    let revisions: Vec<_> = after.versions.iter().map(|v| v.revision).collect();
+    assert_eq!(revisions, [Some(revision("v3"))]);
+    assert_eq!((after.from, after.next), (cut + 1, None));
     let gone = version(&mut a, s, before.versions[1].seq).unwrap_err();
     assert_eq!(gone.code(), Some(ErrorCode::NotFound));
     assert_eq!(reason(&gone), Some("version_compacted"));
@@ -318,7 +322,24 @@ fn history_needs_its_own_capability_and_names_the_writing_app() {
     let mut a = node(&svc, 1, MemStore::new());
     settle(&mut [&mut a]);
     let (reader, writer) = (B16([0x61; 16]), B16([0x62; 16]));
+    let (blind, scoped) = (B16([0x63; 16]), B16([0x64; 16]));
     let mut cp = TestControlPlane::new(COL);
+    cp.approved_grant(
+        &svc,
+        blind,
+        [0x63; 32],
+        &["records.create", "history.read"],
+        None,
+        B16([101; 16]),
+    );
+    cp.approved_grant(
+        &svc,
+        scoped,
+        [0x64; 32],
+        &["collection.read", "history.read"],
+        Some(vec!["notes".into()]),
+        B16([101; 16]),
+    );
     cp.approved_grant(
         &svc,
         reader,
@@ -342,6 +363,8 @@ fn history_needs_its_own_capability_and_names_the_writing_app() {
     };
     let (r, _) = a.r.hello(auth(reader), hello()).unwrap();
     let (w, info) = a.r.hello(auth(writer), hello()).unwrap();
+    let (no_read, _) = a.r.hello(auth(blind), hello()).unwrap();
+    let (folders, _) = a.r.hello(auth(scoped), hello()).unwrap();
     assert_eq!(info.version, Version { major: 1, minor: 4 });
     assert!(info.grant.capabilities.iter().any(|c| c == "history.read"));
     submit(
@@ -358,27 +381,40 @@ fn history_needs_its_own_capability_and_names_the_writing_app() {
     );
     settle(&mut [&mut a]);
 
-    for e in [
-        a.r.record_history(
-            r,
-            RecordHistoryParams {
-                record: B16([ID; 16]),
-                before: None,
-                limit: None,
-            },
-        )
-        .unwrap_err(),
-        a.r.record_version(
-            r,
-            RecordVersionParams {
-                record: B16([ID; 16]),
-                seq: a.r.head().seq,
-            },
-        )
-        .unwrap_err(),
-    ] {
+    let refusals = |a: &mut Node, session: SessionId| {
+        [
+            a.r.record_history(
+                session,
+                RecordHistoryParams {
+                    record: B16([ID; 16]),
+                    before: None,
+                    limit: None,
+                },
+            )
+            .unwrap_err(),
+            a.r.record_version(
+                session,
+                RecordVersionParams {
+                    record: B16([ID; 16]),
+                    seq: a.r.head().seq,
+                },
+            )
+            .unwrap_err(),
+        ]
+    };
+    for e in refusals(&mut a, r) {
         assert_eq!(e.code(), Some(ErrorCode::Forbidden));
         assert!(e.problem().message.contains("history.read"));
+    }
+    // The newest version is the current document: reading it needs collection.read.
+    for e in refusals(&mut a, no_read) {
+        assert_eq!(e.code(), Some(ErrorCode::Forbidden));
+        assert!(e.problem().message.contains("collection.read"), "{e:?}");
+    }
+    // History spans deleted records and earlier paths, outside any folder scope.
+    for e in refusals(&mut a, folders) {
+        assert_eq!(e.code(), Some(ErrorCode::Forbidden));
+        assert_eq!(reason(&e), Some("history_full_collection_required"));
     }
     let h = history(&mut a, w, None, None).unwrap();
     let author = &h.versions[0].author;
@@ -615,4 +651,180 @@ fn a_promoted_records_blob_text_reads_from_the_log_objects() {
     let e = version(&mut a, s, v.seq).unwrap_err();
     assert_eq!(e.code(), Some(ErrorCode::NotFound));
     assert_eq!(reason(&e), Some("version_text_unavailable"));
+}
+
+/// B edits the record, then rewrites its own entry as written on behalf of a
+/// grant that lacks `records.edit`. Every replica voids it at apply (V6).
+fn forge_unauthorized_edit(svc: &FakeLogService, a: &mut Node, b: &mut Node) {
+    use crate::log::{LogClient, LogPort, LogRequest};
+    use mdbn_wire::entry::EntryPayload;
+    let gid = B16([0x55; 16]);
+    TestControlPlane::new(COL).approved_grant(
+        svc,
+        gid,
+        [0x57; 32],
+        &["collection.read", "records.create", "history.read"],
+        None,
+        B16([101; 16]),
+    );
+    settle(&mut [&mut *a, &mut *b]);
+    let s = b.s;
+    let base = crate::Store::record(b.r.store(), &B16([ID; 16]))
+        .unwrap()
+        .map(|r| DocVersion {
+            path: r.path,
+            doc: Text::Inline(r.doc),
+        });
+    submit(
+        b,
+        s,
+        Op::Document(Document {
+            id: B16([ID; 16]),
+            base,
+            new: Some(DocVersion {
+                path: "a.md".into(),
+                doc: Text::Inline("FORGED".into()),
+            }),
+            if_revision: None,
+        }),
+    );
+    for mut call in b.r.take_log_calls() {
+        if let LogRequest::Append(ref mut params) = call.request {
+            for raw in params.items.iter_mut() {
+                let mut item = Item::from_bytes(&raw.0).unwrap();
+                if item.kind == mdbn_wire::envelope::ItemKind::Entry {
+                    let mut payload = EntryPayload::from_bytes(&item.body.0).unwrap();
+                    payload.mutation.on_behalf = Some(gid);
+                    item.body.0 = payload.to_bytes().unwrap();
+                    raw.0 = item.to_bytes().unwrap();
+                }
+            }
+        }
+        let result = b.log.call(call.request);
+        b.r.on_log_reply(call.id, result);
+    }
+}
+
+#[test]
+fn an_entry_the_replica_voided_is_not_a_version() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let mut b = node(&svc, 2, MemStore::new());
+    settle(&mut [&mut a, &mut b]);
+    create(&mut a);
+    settle(&mut [&mut a, &mut b]);
+    let voided = a.r.stats.voided;
+    forge_unauthorized_edit(&svc, &mut a, &mut b);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(a.r.stats.voided, voided + 1, "A voided the forged edit");
+    assert_eq!(a.doc(ID).as_deref(), Some("v1"));
+    let forged = a.r.head().seq;
+    put(&mut a, Some(("a.md", "v2")));
+    settle(&mut [&mut a, &mut b]);
+
+    let check = |n: &mut Node| {
+        let s = n.s;
+        let h = history(n, s, None, None).unwrap();
+        let listed: Vec<_> = h.versions.iter().map(|v| (v.kind, v.revision)).collect();
+        assert_eq!(
+            listed,
+            [
+                (VersionKind::Edited, Some(revision("v2"))),
+                (VersionKind::Created, Some(revision("v1"))),
+            ]
+        );
+        assert_eq!(h.next, None);
+        let e = version(n, s, forged).unwrap_err();
+        assert_eq!(reason(&e), Some("version_not_found"));
+    };
+    check(&mut a);
+    // The verdict is persisted with the head: a reopened replica still skips it.
+    let mut a = node(&svc, 1, a.r.into_store());
+    settle(&mut [&mut a]);
+    check(&mut a);
+}
+
+#[test]
+fn history_starts_where_this_replicas_verdicts_begin() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    create(&mut a);
+    put(&mut a, Some(("a.md", "v2")));
+    // As a store written before verdicts were recorded: nothing below the head
+    // was judged by a verdict this replica kept.
+    crate::Store::commit(
+        a.r.store_mut(),
+        crate::store::Tx {
+            meta: vec![(crate::replica::verdicts::META.into(), None)],
+            ..Default::default()
+        },
+    )
+    .unwrap();
+    let start = a.r.head().seq;
+    put(&mut a, Some(("a.md", "v3")));
+    let s = a.s;
+    let h = history(&mut a, s, None, None).unwrap();
+    let listed: Vec<_> = h.versions.iter().map(|v| v.revision).collect();
+    assert_eq!(listed, [Some(revision("v3"))]);
+    assert_eq!((h.from, h.next), (start + 1, None));
+    let e = version(&mut a, s, start).unwrap_err();
+    assert_eq!(reason(&e), Some("version_not_found"));
+}
+
+/// `n` more records, one log position each.
+fn others(n: &mut Node, count: u8) {
+    for i in 0..count {
+        n.create(ID + 1 + i, &format!("other-{i}.md"), "x");
+    }
+    settle(&mut [n]);
+}
+
+#[test]
+fn one_call_reads_a_bounded_span_and_refuses_a_stale_cursor() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    create(&mut a);
+    let created = a.r.head().seq;
+    others(&mut a, 80);
+    let head = a.r.head().seq;
+    let s = a.s;
+
+    // No version within the span: an empty page that continues below it.
+    let page = history(&mut a, s, None, None).unwrap();
+    assert!(page.versions.is_empty());
+    let next = page.next.expect("older versions may exist");
+    assert!(next <= head + 1 - 20 && next > created, "{next}");
+    let mut before = Some(next);
+    let found = loop {
+        let page = history(&mut a, s, before, None).unwrap();
+        if let Some(v) = page.versions.first() {
+            assert_eq!(page.next, None);
+            break v.clone();
+        }
+        assert!(page.next < before, "each page moves down");
+        before = page.next;
+    };
+    assert_eq!(found.seq, created);
+
+    // A fresh index (a reopened replica) does not read down to an old cursor.
+    let mut a = node(&svc, 1, a.r.into_store());
+    settle(&mut [&mut a]);
+    let s = a.s;
+    for e in [
+        history(&mut a, s, Some(2), None).unwrap_err(),
+        version(&mut a, s, created).unwrap_err(),
+    ] {
+        assert_eq!(e.code(), Some(ErrorCode::InvalidRequest));
+        assert_eq!(reason(&e), Some("history_cursor_stale"));
+    }
+    let fresh = history(&mut a, s, None, Some(1)).unwrap();
+    // The page reads one span below the head, plus at most one range: the
+    // refusals before it read nothing.
+    assert!(fresh.from + 20 + 8 > head, "{fresh:?}");
+    // A cursor within the span below the floor is reached.
+    let near = history(&mut a, s, Some(fresh.from - 10), None).unwrap();
+    assert!(near.versions.is_empty());
+    assert!(near.next.is_some_and(|n| n < fresh.from - 10));
 }

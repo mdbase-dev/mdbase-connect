@@ -19,6 +19,7 @@
 //! | `submit.rs` | capture and optimistic planning (`replica-client-api.md` §5) |
 //! | `append.rs` | the append loop (`log-entry.md` §3) and log replies |
 //! | `apply.rs` | applying items: integrity, stall, void, effects, receipts, rebase (§4) |
+//! | `verdicts.rs` | the positions this replica applied or voided, for record history |
 //! | `base.rs` | the generation-0 `base` item: build and import/install validity (`snapshot.md` §7) |
 //! | `client.rs` | the [`crate::ClientApi`] implementation |
 //! | `hosted.rs` | hosted mode: log-ACK barrier, RAM-only pending, log-derived receipts |
@@ -137,6 +138,7 @@ mod snapshot_text;
 #[cfg(test)]
 pub(crate) use snapshot::Install as TestInstall;
 mod submit;
+pub(crate) mod verdicts;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;

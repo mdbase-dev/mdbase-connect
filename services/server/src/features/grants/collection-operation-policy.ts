@@ -1,7 +1,6 @@
 import type { CollectionOperation } from "@mdbase-dev/connect-protocol";
 
 interface CollectionOperationPolicy {
-  requiresFullCollection: boolean;
   requiresPortableProfile: boolean;
   requiresWriteReplica: boolean;
 }
@@ -17,52 +16,33 @@ const COLLECTION_OPERATION_POLICIES = {
   changes: policy(),
   read: policy(),
   query: policy({ requiresPortableProfile: true }),
-  list_views: policy({
-    requiresFullCollection: true,
-    requiresPortableProfile: true
-  }),
-  execute_view: policy({
-    requiresFullCollection: true,
-    requiresPortableProfile: true
-  }),
+  list_views: policy({ requiresPortableProfile: true }),
+  execute_view: policy({ requiresPortableProfile: true }),
   read_view_source: policy(),
   create_view_source: policy({ requiresWriteReplica: true }),
   update_view_source: policy({ requiresWriteReplica: true }),
   delete_view_source: policy({ requiresWriteReplica: true }),
-  validate: policy({ requiresFullCollection: true }),
+  validate: policy(),
   create: policy({ requiresWriteReplica: true }),
   update: policy({ requiresWriteReplica: true }),
   delete: policy({ requiresWriteReplica: true }),
   rename: policy({ requiresWriteReplica: true }),
-  read_type: policy({
-    requiresFullCollection: true,
-    requiresPortableProfile: true
-  }),
+  read_type: policy({ requiresPortableProfile: true }),
   create_type: policy({
-    requiresFullCollection: true,
     requiresPortableProfile: true,
     requiresWriteReplica: true
   }),
   update_type: policy({
-    requiresFullCollection: true,
     requiresPortableProfile: true,
     requiresWriteReplica: true
   }),
-  assess_type_pack: policy({
-    requiresFullCollection: true,
-    requiresPortableProfile: true
-  }),
+  assess_type_pack: policy({ requiresPortableProfile: true }),
   apply_type_pack: policy({
-    requiresFullCollection: true,
     requiresPortableProfile: true,
     requiresWriteReplica: true
   }),
-  assess_collection_setup: policy({
-    requiresFullCollection: true,
-    requiresPortableProfile: true
-  }),
+  assess_collection_setup: policy({ requiresPortableProfile: true }),
   apply_collection_setup: policy({
-    requiresFullCollection: true,
     requiresPortableProfile: true,
     requiresWriteReplica: true
   }),
@@ -71,17 +51,10 @@ const COLLECTION_OPERATION_POLICIES = {
   cancel_timer: policy({ requiresWriteReplica: true }),
   reconcile_timers: policy({ requiresWriteReplica: true }),
   sync: policy(),
-  // History spans deleted records and earlier paths, which a folder scope
-  // cannot evaluate.
-  record_history: policy({ requiresFullCollection: true }),
-  record_version: policy({ requiresFullCollection: true })
+  // The replica refuses a folder-scoped session (replica-client-api.md §4.4).
+  record_history: policy(),
+  record_version: policy()
 } as const satisfies Record<CollectionOperation, CollectionOperationPolicy>;
-
-export function requiresFullCollectionAccess(
-  operation: CollectionOperation
-): boolean {
-  return COLLECTION_OPERATION_POLICIES[operation].requiresFullCollection;
-}
 
 export function requiresPortableProfile(
   operation: CollectionOperation
@@ -99,7 +72,6 @@ function policy(
   overrides: Partial<CollectionOperationPolicy> = {}
 ): CollectionOperationPolicy {
   return {
-    requiresFullCollection: false,
     requiresPortableProfile: false,
     requiresWriteReplica: false,
     ...overrides

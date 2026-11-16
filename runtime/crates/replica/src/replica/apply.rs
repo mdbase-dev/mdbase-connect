@@ -26,6 +26,7 @@ use mdbn_wire::log_service::SeqItem;
 use mdbn_wire::schema::{SchemaError, Wire};
 use mdbn_wire::snapshot::EntityKind;
 
+use super::verdicts::Verdict;
 use super::{Replica, i64_meta};
 use crate::api::{ClientApi, ErrorCode, Push};
 use crate::convert::{self, CResult, ConvertError};
@@ -61,6 +62,15 @@ pub(crate) enum Outcome {
     Void(&'static str),
     /// Applied.
     Applied,
+}
+
+/// The verdict a control item's outcome records: it is `Applied` or `Void` here.
+fn verdict(o: &Outcome) -> Verdict {
+    if matches!(o, Outcome::Void(_)) {
+        Verdict::Void
+    } else {
+        Verdict::Applied
+    }
 }
 
 fn text_resolver<'a>(
@@ -418,6 +428,7 @@ impl<S: Store> Replica<S> {
                     .collect(),
                 ..Tx::default()
             },
+            Verdict::Void,
         )?;
         self.note_genesis(head);
         Ok(Outcome::Void(reason))
@@ -487,7 +498,7 @@ impl<S: Store> Replica<S> {
             self.store.commit(tx)?;
             self.head = head;
         } else {
-            self.commit_retained(head, tx)?;
+            self.commit_retained(head, tx, Verdict::Void)?;
         }
         self.note_genesis(head);
         if own && !self.apply_fault {
@@ -631,6 +642,7 @@ impl<S: Store> Replica<S> {
                 meta,
                 ..Tx::default()
             },
+            verdict(&outcome),
         );
         if let Err(e) = committed {
             self.discard_staged_key_grants();
@@ -843,6 +855,7 @@ impl<S: Store> Replica<S> {
                     .collect(),
                 ..Tx::default()
             },
+            verdict(&outcome),
         )?;
         self.note_genesis(head);
         Ok(outcome)
@@ -982,6 +995,7 @@ impl<S: Store> Replica<S> {
                     head: Some(head),
                     ..Tx::default()
                 },
+                Verdict::Applied,
             )?;
             return Ok(Outcome::Applied);
         }
@@ -1896,7 +1910,7 @@ impl<S: Store> Replica<S> {
             self.store.commit(tx)?;
             self.head = head;
         } else {
-            self.commit_retained(head, tx)?;
+            self.commit_retained(head, tx, Verdict::Applied)?;
         }
         if self.apply_fault {
             // The head/receipt/own handover committed, but a defensive read

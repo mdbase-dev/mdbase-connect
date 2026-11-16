@@ -162,7 +162,8 @@ digest, and is not exposed as `file.mtime` to queries or Bases.
 
 ## 4. Reads, live queries and change feeds
 
-All of these require `collection.read`, except the history reads (§4.4).
+All of these require `collection.read`. The history reads (§4.4) also require
+`history.read` and a session without a folder scope.
 
 | Method | Params | Result |
 |---|---|---|
@@ -179,8 +180,8 @@ All of these require `collection.read`, except the history reads (§4.4).
 | `query` | `{0: query, ? 1: include}` | `query-result` |
 | `backlinks` | `{0: uuid / path, ? 1: include, ? 2: 1..1000 limit, ? 3: tstr cursor}` | `backlinks-result` (§4.2): the records whose links resolve to the target, one page at a time |
 | `resolve_links` | `{0: path from, 1: [1*512 tstr] links}` | `resolve-links-result` (§4.3): where each link, written in `from`, resolves in the local view |
-| `record_history` | `record-history-params` (§4.4) | `record-history` (§4.4): one record's versions in the retained log, newest first. Requires `history.read` instead of `collection.read` (API 1.4) |
-| `record_version` | `record-version-params` (§4.4) | `record-version` (§4.4): one version's exact document. Requires `history.read` instead of `collection.read` (API 1.4) |
+| `record_history` | `record-history-params` (§4.4) | `record-history` (§4.4): one record's versions in the retained log, newest first. Also requires `history.read` (API 1.4) |
+| `record_version` | `record-version-params` (§4.4) | `record-version` (§4.4): one version's exact document. Also requires `history.read` (API 1.4) |
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
@@ -514,20 +515,23 @@ appends a new entry.
   (`log-service-api.md` §5), opens each entry and keeps a small in-memory index of
   record, position, time, author, change and path, with no texts. It builds the
   index on first use, extends it towards older positions as callers page back,
-  and drops it when the replica closes or its store generation changes. Nothing is
-  persisted.
+  and drops it when the replica closes or its store generation changes. The index
+  is not persisted; the apply verdicts it lists from are (below).
 - **Chain.** Every page is checked against the replica's own verified chain: the
   items read must link by `prev` to `chain(H)` at a position the replica already
   applied. A page that does not link refuses with `unavailable` /
   `history_integrity`. Positions above the replica's applied head are not read.
-- **Which entries are versions.** An entry that the replica can open, that is
-  signed by a device ever enrolled with a content-writing kind (desktop, mobile,
-  app-runtime, CLI or hosted), and whose `on_behalf` grant, if any, belongs to the
-  device's account (any account for the hosted device). The replica keeps no
-  per-position void verdicts, so an entry voided at apply by a time-dependent
-  rule (a signer already revoked, a role already lowered) can still be listed.
-  Honest writers cannot produce such entries: conditional append and the log ACL
-  refuse them. Entries that fail to open, decode or attribute are skipped.
+- **Which entries are versions.** Exactly the entries this replica applied
+  (`log-entry.md` §4.4). A void entry (§4.3) is never a version. Whether an entry
+  applied depends on the state before it, so the history reader does not judge
+  entries again: the apply path records its verdicts, in the same transaction as
+  each item's head, as a device-local record of the run of positions it judged
+  and which of them were void. The run starts where this replica began applying
+  items itself: its first apply, a snapshot install, a lost-tail rollback, or a
+  store written by a build that kept no record. History stops there. When more
+  than 256 positions in the run are void, the run starts after the oldest, so the
+  record stays small. An entry that the replica applied but that no longer opens,
+  decodes or names an enrolled signer is an internal fault.
 - **Kinds.** `deleted` for `remove-record`, and for a record that becomes an
   unindexed file. `created` for the entry that creates the record (a `create`, or
   a promotion of an unindexed or ordinary file) and for a put after a deletion.
@@ -543,11 +547,18 @@ appends a new entry.
   (default: the replica's applied head and below). One call reads at most 10,000
   log positions below `before`; `limit` (1–200, default 50) caps the versions.
   `next` is present while older versions may exist: pass it as `before`. `from` is
-  the lowest position read, and `from_time` the capture time of the oldest
+  the lowest position listed, and `from_time` the capture time of the oldest
   readable entry at or above it. History stops at the log's compaction point
-  (`retained_from`) and below the oldest epoch this device can open; when `next`
-  is absent and the oldest version is not `created`, the record's earlier history
-  is no longer retained. Archived segments and migrated pre-history are not read.
+  (`retained_from`), below the oldest epoch this device can open, and where this
+  replica's verdicts begin; when `next` is absent and the oldest version is not
+  `created`, the record's earlier history is no longer available here. Versions
+  the log compacts after they were listed drop out of later pages. Archived
+  segments and migrated pre-history are not read.
+- **Stale cursors.** A `before`, or a `record_version` position, more than 10,000
+  positions below the oldest position the index has read refuses with
+  `invalid_request` / `history_cursor_stale`: the index was rebuilt since it
+  issued that cursor (the replica reopened, or the log was compacted under it),
+  and reaching it would read without bound. List from the newest version again.
 - **Versions.** `record_version` takes a position from `record_history`. Each
   version's document is read from its own entry, inline or from the entry's blob
   text, and checked against its `revision`. It refuses with `not_found` /
@@ -562,8 +573,11 @@ appends a new entry.
   (at most 8 at once, each at most 5 minutes) and answers when the reads finish.
   A log read that fails refuses with `unavailable` / `history_offline`; a hold that
   reaches its deadline refuses with `unavailable` / `history_timeout`.
-- **Capability.** Both methods require `history.read` (`policy.md` §5), not
-  `collection.read`: history includes text that has since been deleted.
+- **Capability.** Both methods require `history.read` (`policy.md` §5) as well as
+  `collection.read`: history includes text that has since been deleted, and its
+  newest version is the current document. A session whose grant has a folder
+  scope refuses with `forbidden` / `history_full_collection_required`: history
+  spans deleted records and earlier paths, which a scope cannot evaluate.
 - **Unsupported.** The hosted replica and local-only collections (which keep no
   log) refuse with `upgrade_required` / `history_unsupported`. A replica without
   these methods answers `invalid_request` / `unknown_method`; the SDK reports that
