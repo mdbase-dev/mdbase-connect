@@ -1,7 +1,7 @@
-import { startCompletion } from "@codemirror/autocomplete";
+import { closeBrackets, closeBracketsKeymap, startCompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
-import { EditorSelection, type ChangeSpec, type EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorSelection, EditorState, Prec, type ChangeSpec, type Extension } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
 
 /** Rewrites the start of every line a selection touches; `next` returns the replacement for the part `pattern` matched. */
 function rewriteLineStarts(view: EditorView, pattern: RegExp, next: (match: RegExpExecArray, lines: RegExpExecArray[]) => string): boolean {
@@ -109,3 +109,15 @@ export const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, t
   ), { scrollIntoView: true, userEvent: "input.type" });
   return true;
 });
+
+/**
+ * Brackets and double quotes typed at a caret close themselves, as they wrap selected text.
+ * Typing the closing one steps over it, and Backspace inside an empty pair deletes both.
+ * Apostrophes, backticks and emphasis marks type as they are: in prose they rarely come in
+ * pairs, and three backticks open a code fence.
+ */
+export const closeBracketsAtCaret: Extension = [
+  closeBrackets(),
+  EditorState.languageData.of(() => [{ closeBrackets: { brackets: ["(", "[", "\""] } }]),
+  Prec.high(keymap.of(closeBracketsKeymap))
+];

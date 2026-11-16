@@ -156,6 +156,13 @@ describe("object link completion", () => {
     expect(complete("hello@example.com")).toBeNull();
   });
 
+  it("replaces the link's closing brackets already after the caret", () => {
+    const doc = "See [[Ada]]";
+    const result = linkCompletion(new CompletionContext(EditorState.create({ doc }), doc.indexOf("]]"), false), suggestions, types) as CompletionResult;
+    expect(result).toMatchObject({ from: doc.indexOf("Ada"), to: doc.length });
+    expect(result.options[0]).toMatchObject({ apply: "People/ada]]" });
+  });
+
   it("completes note and file transclusions", () => {
     const files: CollectionFile[] = [{
       fileId: "00000000-0000-4000-8000-000000000001",

@@ -887,6 +887,8 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(body).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+  // Typing `[[` closed the link; the completion's own `]]` replaced those.
+  await expect(body).not.toContainText("]]]");
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
 });
 
@@ -916,6 +918,7 @@ for (const trigger of ["@", "[["] as const) {
 
     await page.keyboard.press("Enter");
     await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+    await expect(body).not.toContainText("]]]");
     await expect(saveState).toHaveAttribute("data-save-state", "waiting");
     await expect(saveState).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
     await expect(page.getByText(/Couldn’t save/)).toHaveCount(0);
