@@ -141,6 +141,7 @@ import {
   IncrementalNoteSearchIndex,
   searchNoteResults
 } from "./note-search";
+import { BodySearch, bodySearchTerms, EXCERPT_READS } from "./body-search";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { takeQuickCapture } from "./quick-capture";
 import { activeEditorSelection, revealMarkdownLine } from "./code-editor-reveal";
@@ -233,7 +234,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     structureComplete, structureError,
     contentComplete,
     contentIndexing,
-    contentLoaded,
     contentError, revision: collectionRevision
   } = collectionIndex;
   const [phase, setPhase] = useState<AppPhase>("starting");
@@ -469,6 +469,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [indexController]);
 
   const loadContentIndex = useCallback(() => indexController.hydrate(), [indexController]);
+  const bodySearch = useMemo(() => new BodySearch(gateway), [gateway]);
+  const bodySearchState = useSyncExternalStore(bodySearch.subscribe, bodySearch.getSnapshot, bodySearch.getSnapshot);
+  useEffect(() => () => { bodySearch.reset(); }, [bodySearch]);
 
   const refreshDescription = useCallback(async (isCurrent: () => boolean = () => true) => {
     const epoch = collectionEpoch.current;
@@ -772,9 +775,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   useEffect(() => {
     if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
-    if (!deferredSearch.trim() && !mentionsOpen && !allNotes.some(note => noteNeedsBodyTitle(note, typeDescriptors))) return;
+    if (!mentionsOpen && !allNotes.some(note => noteNeedsBodyTitle(note, typeDescriptors))) return;
     void loadContentIndex();
-  }, [allNotes, mentionsOpen, contentComplete, contentError, contentIndexing, deferredSearch, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
+  }, [allNotes, mentionsOpen, contentComplete, contentError, contentIndexing, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
+
+  // The list's body matches are the runtime's, asked again whenever a record changes.
+  useEffect(() => {
+    if (phase === "ready") bodySearch.search(bodySearchTerms(deferredSearch), collectionRevision);
+  }, [bodySearch, collectionRevision, deferredSearch, phase]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -1014,8 +1022,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors, i18n.locale]);
   const searchedResults = useMemo(() => {
-    return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch) : undefined;
-  }, [deferredSearch, searchIndex, i18n.locale]);
+    return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch, undefined, undefined, bodySearch) : undefined;
+  }, [bodySearch, bodySearchState.version, deferredSearch, searchIndex, i18n.locale]);
+  // Leading body matches show an excerpt, so their text is read when the page lacks it.
+  useEffect(() => {
+    if (searchedResults) bodySearch.readTexts(searchedResults.slice(0, EXCERPT_READS).filter((result) => result.context.kind === "body").map((result) => result.note));
+  }, [bodySearch, searchedResults]);
   const searchedNotes = useMemo(() => searchedResults
     ? searchedResults.map((result) => result.note)
     : allNotes, [allNotes, searchedResults, i18n.locale]);
@@ -1164,6 +1176,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function clearCollectionWorkspace() {
     collectionEpoch.current += 1; startGeneration.current += 1;
     indexController.reset();
+    bodySearch.reset();
     fileController.reset();
     fileAssetStore.reset();
     attachments.reset();
@@ -2396,11 +2409,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         structureLoading={foldersLoading} structureError={structureError}
         filesLoading={fileInventory.loading}
         fileError={fileInventory.error}
-        contentIndexing={contentIndexing}
-        contentLoaded={contentLoaded}
+        searchPending={bodySearchState.pending}
+        searchError={bodySearchState.error === undefined ? undefined : gatewayError(bodySearchState.error)}
         contentError={contentError}
         total={noteFilter ? undefined : collectionTotal}
-        contentTotal={collectionTotal}
         selectedPath={selectedCollectionFile || openNew ? undefined : selectedPath}
         drafts={newNotes.notes.map((note) => {
           const write = newNoteWrites.current.get(note.id);
@@ -2427,6 +2439,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => { setPaletteMode("commands"); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
+        onRetrySearch={() => bodySearch.retry()}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={(path, options) => {

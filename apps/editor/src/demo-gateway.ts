@@ -194,6 +194,10 @@ export class DemoCollectionGateway implements CollectionGateway {
     return { notes, snapshot };
   }
 
+  async searchBodies(term: string): Promise<string[]> {
+    return this.notes.filter((note) => (note.body ?? "").toLowerCase().includes(term)).map((note) => note.path);
+  }
+
   async backlinks(path: string): Promise<string[]> {
     await delay(5);
     const target = path.replace(/\.md$/i, "");

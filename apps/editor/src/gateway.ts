@@ -24,6 +24,7 @@ import {
   connectServerUrl
 } from "./connect-endpoint";
 import { createdBody } from "./note";
+import { bodySearchWhere } from "./body-search";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
@@ -184,6 +185,14 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return this.requireConnection().observe({ frontmatterMode: "both" }, {
       firstPageSize: FIRST_PAGE_SIZE, pageSize: PAGE_SIZE, ...options
     });
+  }
+
+  async searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    const paths: string[] = [];
+    for await (const outcome of this.requireConnection().queryPages({ where: bodySearchWhere(term), includeBody: false }, { signal: options.signal, pageSize: PAGE_SIZE })) {
+      paths.push(...requireOutcome(outcome).results.map((record) => record.path));
+    }
+    return paths;
   }
 
   async backlinks(): Promise<string[]> {
