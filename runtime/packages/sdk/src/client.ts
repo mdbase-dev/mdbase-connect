@@ -557,7 +557,7 @@ const READ_METHODS = new Set([
   "get", "query", "query_contract_v1", "subscribe", "changes", "backlinks", "list_resources", "get_resource",
   "describe", "describe_typing", "list_files", "get_file", "read_file",
   "list_holds", "list_conflicts", "validate", "new_type_file", "get_contract_v1", "map_contract_write_v1",
-  "plan_type_pack_v1",
+  "plan_type_pack_v1", "record_history", "record_version",
 ]);
 
 export class MdbaseClient {
