@@ -1,18 +1,23 @@
 //! Bounded primary UUID inventory discovery. No type-index shortcut or fallback.
 use super::*;
-use crate::{api::SessionId, store::Head};
+use crate::{api::SessionId, store::Head, store_query::QueryRecordSize};
 use mdbn_core::views::bases::IncrementalBasesBudget;
 use std::collections::BTreeMap;
 
 /// Identities per metadata read and per hydration call; the local source
 /// helpers accept at most 128.
 const METADATA_ROWS: u32 = 128;
-/// A page reads each selected source twice (classification, then the final
-/// CAS) under ONE ledger, so it selects at most half of the binding 1000-record
-/// / 1 MiB source profile. A page is bounded by this source work, not by a
-/// fixed record count, so a typical collection is one round trip.
-const PAGE_ROWS: usize = 500;
-const INITIAL_BYTES: u64 = 512 * 1024;
+/// A page's source work is the whole binding 1000-record / 1 MiB profile, under
+/// ONE ledger. Every selected source is read once to classify it; only a source
+/// that classifies as a Base is read again by the final CAS, and the page
+/// reserves that reread before it keeps the Base. Discovery reads every record in
+/// the collection, one relayed round trip per page, so its round trips scale
+/// with the collection's bytes over this bound (tasknotes-app#436).
+const PAGE_ROWS: u32 = 1000;
+const PAGE_BYTES: u64 = 1 << 20;
+/// The largest source a page may select: half the page, so a Base can always
+/// be classified and reread within one page.
+const INITIAL_BYTES: u64 = PAGE_BYTES / 2;
 const SLOT_BYTES: u64 = 4096;
 const MAX_SLOTS: usize = 64;
 
@@ -192,13 +197,22 @@ impl<S: Store> Replica<S> {
         if timezone.is_some_and(|zone| zone != entry.clock.tz) {
             return Err(invalid());
         }
-        // Select the longest identity-ordered prefix that fits the page's source
-        // work. Each metadata read is precharged before it runs.
-        let mut metadata = Vec::new();
-        let mut bytes = 0u64;
+        // Select, read and classify the longest identity-ordered prefix that
+        // fits the page's source work, one metadata read at a time. Each
+        // metadata read is precharged before it runs, each hydration is
+        // admitted against what is left after the rereads already reserved,
+        // and a Base is kept only when its own reread still fits.
+        let mut sources = QueryBudget::new(PAGE_ROWS, PAGE_BYTES);
+        let resumed = entry.unfinished;
+        let mut selected = 0usize;
         let mut exhausted = false;
         let mut previous = entry.after;
-        'scan: while metadata.len() < PAGE_ROWS {
+        let mut reread: Vec<(QueryRecordSize, LocalRecord)> = Vec::new();
+        let (mut reserved_rows, mut reserved_bytes) = (0u32, 0u64);
+        let mut views = Vec::new();
+        let mut processed = 0usize;
+        let mut stopped = false;
+        while !stopped {
             let (steps, cost) = self.bases_local_metadata_cost(METADATA_ROWS)?;
             ledger.retain(cost).map_err(failure)?;
             ledger
@@ -223,143 +237,179 @@ impl<S: Store> Replica<S> {
                 return Err(invalid());
             }
             let short = chunk.len() < METADATA_ROWS as usize;
+            let total = chunk.len();
+            let mut admitted = Vec::new();
+            let (mut rows_left, mut bytes_left) = (
+                sources.records_left().saturating_sub(reserved_rows),
+                sources.bytes_left().saturating_sub(reserved_bytes),
+            );
             for row in chunk {
                 if previous.is_some_and(|id| row.id <= id) {
                     return Err(invalid());
                 }
                 previous = Some(row.id);
-                let next = bytes.checked_add(row.encoded_bytes).ok_or_else(invalid)?;
-                if next > INITIAL_BYTES || metadata.len() == PAGE_ROWS {
-                    if metadata.is_empty() {
-                        return Err(budget("bases_discovery_source_bytes"));
-                    }
-                    break 'scan;
+                if rows_left == 0 || row.encoded_bytes > bytes_left {
+                    break;
                 }
-                bytes = next;
-                metadata.push(row);
+                if selected == 0 && admitted.is_empty() && row.encoded_bytes > INITIAL_BYTES {
+                    return Err(budget("bases_discovery_source_bytes"));
+                }
+                rows_left -= 1;
+                bytes_left -= row.encoded_bytes;
+                admitted.push(row);
             }
-            // A short metadata read is the universe's end. A page that stops on
-            // its own bound needs a later page (possibly an empty EOF probe).
-            if short {
-                exhausted = true;
-                break;
-            }
-        }
-        if let Some((id, _, _)) = entry.unfinished
-            && metadata.first().is_none_or(|row| row.id != id)
-        {
-            return Err(stale_discovery());
-        }
-        // The metadata bound and ONE shared source meter precede hydration.
-        ledger
-            .retain(bytes + (metadata.len() as u64) * 512)
-            .map_err(failure)?;
-        let ids: Vec<_> = metadata.iter().map(|row| row.id).collect();
-        let mut sources = QueryBudget::new(2 * PAGE_ROWS as u32, 2 * INITIAL_BYTES);
-        let rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
-        if rows.len() != metadata.len() {
-            return Err(invalid());
-        }
-        self.recheck_discovery(session, &entry)?;
-        let mut views = Vec::new();
-        let mut processed = 0usize;
-        for (row, meta) in rows.iter().zip(&metadata) {
-            self.check_discovery_source(row, meta.id, meta.encoded_bytes, &mut ledger)?;
-            if entry
-                .unfinished
-                .is_some_and(|(id, revision, _)| id != row.id || revision != row.revision)
+            if selected == 0
+                && let Some((id, _, _)) = resumed
+                && admitted.first().is_none_or(|row| row.id != id)
             {
                 return Err(stale_discovery());
             }
-            let (document, footprint) = ledger
-                .admit(|work| {
-                    if !work.charge(row.doc.len() as u64, row.doc.len() as u64) {
-                        return Err(work.failure().expect("discovery source"));
-                    }
-                    Document::parse_at_bounded(&row.path, &row.doc)
-                        .map_err(|_| EvaluationFailure::BudgetExceeded("base_source_structure"))
-                })
-                .map_err(failure)?;
-            ledger
-                .retain(footprint.estimated_heap_bytes)
-                .map_err(failure)?;
-            let base = ledger
-                .admit(|work| {
-                    if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
-                        return Err(work.failure().expect("discovery structure"));
-                    }
-                    discover_base_record(
-                        self.bases_read_catalog(),
-                        &row.path,
-                        &document,
-                        &entry.clock,
-                        work,
-                    )
-                })
-                .map_err(failure)?;
-            let start = entry
-                .unfinished
-                .map_or(0, |(_, _, ordinal)| ordinal as usize);
-            let declared = base.as_ref().map_or(0, |base| base.views.len());
-            if start > declared || (entry.unfinished.is_some() && start == declared) {
-                return Err(stale_discovery());
+            if selected == 0 && admitted.is_empty() && total > 0 {
+                return Err(budget("bases_discovery_source_bytes"));
             }
-            if let Some(base) = base {
-                let take = (limit as usize - views.len()).min(base.views.len() - start);
-                for view in base.views.iter().skip(start).take(take) {
-                    let retained = row.path.len()
-                        + view.view_type.len()
-                        + view.name.map_or(0, str::len)
-                        + base
-                            .implementations
-                            .iter()
-                            .map(|i| i.type_name.len() + 256)
-                            .sum::<usize>()
-                        + 256;
-                    ledger.retain(retained as u64).map_err(failure)?;
-                    ledger
-                        .admit(|work| {
-                            if work.charge(1, retained as u64) {
-                                Ok(())
-                            } else {
-                                Err(work.failure().expect("discovery descriptor"))
-                            }
-                        })
-                        .map_err(failure)?;
-                    views.push(BasesViewDescriptor {
-                        record: row.id,
-                        path: row.path.clone(),
-                        revision: row.revision,
-                        index: view.index,
-                        name: view.name.map(str::to_owned),
-                        view_type: view.view_type.to_owned(),
-                        implementations: base
-                            .implementations
-                            .iter()
-                            .map(|implementation| BasesImplementationDescriptor {
-                                type_name: implementation.type_name.clone(),
-                                version: implementation.version.to_string(),
-                                contract_digest: B32(implementation.contract_digest.0),
-                                implementation_digest: B32(implementation.digest.0),
-                            })
-                            .collect(),
-                    });
+            // A short metadata read is the universe's end only when the page
+            // took all of it. A page that stops on its own bound needs a later
+            // page (possibly an empty EOF probe).
+            exhausted = short && admitted.len() == total;
+            stopped = admitted.len() < total || short;
+            if admitted.is_empty() {
+                break;
+            }
+            selected += admitted.len();
+            let bytes = admitted.iter().map(|row| row.encoded_bytes).sum::<u64>();
+            // The metadata bound and the page's ONE source meter precede hydration.
+            ledger
+                .retain(bytes + (admitted.len() as u64) * 512)
+                .map_err(failure)?;
+            let ids: Vec<_> = admitted.iter().map(|row| row.id).collect();
+            let rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
+            if rows.len() != admitted.len() {
+                return Err(invalid());
+            }
+            self.recheck_discovery(session, &entry)?;
+            for (row, meta) in rows.into_iter().zip(admitted) {
+                self.check_discovery_source(&row, meta.id, meta.encoded_bytes, &mut ledger)?;
+                if entry
+                    .unfinished
+                    .is_some_and(|(id, revision, _)| id != row.id || revision != row.revision)
+                {
+                    return Err(stale_discovery());
                 }
-                if start + take < declared {
-                    entry.unfinished = Some((row.id, row.revision, (start + take) as u32));
+                let (document, footprint) = ledger
+                    .admit(|work| {
+                        if !work.charge(row.doc.len() as u64, row.doc.len() as u64) {
+                            return Err(work.failure().expect("discovery source"));
+                        }
+                        Document::parse_at_bounded(&row.path, &row.doc)
+                            .map_err(|_| EvaluationFailure::BudgetExceeded("base_source_structure"))
+                    })
+                    .map_err(failure)?;
+                ledger
+                    .retain(footprint.estimated_heap_bytes)
+                    .map_err(failure)?;
+                let base = ledger
+                    .admit(|work| {
+                        if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
+                            return Err(work.failure().expect("discovery structure"));
+                        }
+                        discover_base_record(
+                            self.bases_read_catalog(),
+                            &row.path,
+                            &document,
+                            &entry.clock,
+                            work,
+                        )
+                    })
+                    .map_err(failure)?;
+                let start = entry
+                    .unfinished
+                    .map_or(0, |(_, _, ordinal)| ordinal as usize);
+                let declared = base.as_ref().map_or(0, |base| base.views.len());
+                if start > declared || (entry.unfinished.is_some() && start == declared) {
+                    return Err(stale_discovery());
+                }
+                let base_found = base.is_some();
+                let mut unfinished = None;
+                if let Some(base) = base {
+                    // The final CAS rereads this Base. When that reread no
+                    // longer fits, the Base starts the next page instead.
+                    if sources.records_left() <= reserved_rows
+                        || meta.encoded_bytes > sources.bytes_left() - reserved_bytes
+                    {
+                        if processed == 0 {
+                            return Err(budget("bases_discovery_source_bytes"));
+                        }
+                        stopped = true;
+                        exhausted = false;
+                        break;
+                    }
+                    reserved_rows += 1;
+                    reserved_bytes += meta.encoded_bytes;
+                    let take = (limit as usize - views.len()).min(base.views.len() - start);
+                    for view in base.views.iter().skip(start).take(take) {
+                        let retained = row.path.len()
+                            + view.view_type.len()
+                            + view.name.map_or(0, str::len)
+                            + base
+                                .implementations
+                                .iter()
+                                .map(|i| i.type_name.len() + 256)
+                                .sum::<usize>()
+                            + 256;
+                        ledger.retain(retained as u64).map_err(failure)?;
+                        ledger
+                            .admit(|work| {
+                                if work.charge(1, retained as u64) {
+                                    Ok(())
+                                } else {
+                                    Err(work.failure().expect("discovery descriptor"))
+                                }
+                            })
+                            .map_err(failure)?;
+                        views.push(BasesViewDescriptor {
+                            record: row.id,
+                            path: row.path.clone(),
+                            revision: row.revision,
+                            index: view.index,
+                            name: view.name.map(str::to_owned),
+                            view_type: view.view_type.to_owned(),
+                            implementations: base
+                                .implementations
+                                .iter()
+                                .map(|implementation| BasesImplementationDescriptor {
+                                    type_name: implementation.type_name.clone(),
+                                    version: implementation.version.to_string(),
+                                    contract_digest: B32(implementation.contract_digest.0),
+                                    implementation_digest: B32(implementation.digest.0),
+                                })
+                                .collect(),
+                        });
+                    }
+                    if start + take < declared {
+                        unfinished = Some((row.id, row.revision, (start + take) as u32));
+                    }
+                }
+                let row_id = row.id;
+                if base_found {
+                    reread.push((meta, row));
+                }
+                entry.unfinished = unfinished;
+                if entry.unfinished.is_some() {
+                    stopped = true;
+                    exhausted = false;
                     break;
                 }
-            }
-            entry.unfinished = None;
-            entry.after = Some(row.id);
-            processed += 1;
-            if views.len() == limit as usize {
-                break;
+                entry.after = Some(row_id);
+                processed += 1;
+                if views.len() == limit as usize {
+                    stopped = true;
+                    break;
+                }
             }
         }
         // Only a short metadata read establishes EOF. Empty views with next
         // are valid actual progress.
-        let more = entry.unfinished.is_some() || processed < metadata.len() || !exhausted;
+        let more = entry.unfinished.is_some() || processed < selected || !exhausted;
         self.host.entropy.fill(&mut entry.token.0);
         let page = BasesDiscoveryPage {
             views,
@@ -370,16 +420,19 @@ impl<S: Store> Replica<S> {
         self.recheck_discovery(session, &entry)?;
         let output = encode(self, &page, &mut ledger)?;
         self.recheck_discovery(session, &entry)?;
-        // FINAL source CAS uses the SAME 1000-record/1MiB ledger after codec.
-        if !ids.is_empty() {
+        // FINAL source CAS rereads every Base this page classified, on the SAME
+        // ledger and source meter after codec. Every other selected source
+        // yielded nothing, and the fence and head recheck below cover it.
+        if !reread.is_empty() {
             ledger
-                .retain(bytes + (metadata.len() as u64) * 512)
+                .retain(reserved_bytes + (reread.len() as u64) * 512)
                 .map_err(failure)?;
+            let ids: Vec<_> = reread.iter().map(|(meta, _)| meta.id).collect();
             let final_rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
-            if final_rows.len() != rows.len() {
+            if final_rows.len() != reread.len() {
                 return Err(stale_discovery());
             }
-            for ((actual, expected), meta) in final_rows.iter().zip(&rows).zip(&metadata) {
+            for (actual, (meta, expected)) in final_rows.iter().zip(&reread) {
                 self.check_discovery_source(actual, expected.id, meta.encoded_bytes, &mut ledger)?;
                 if actual.path != expected.path
                     || actual.path_key != expected.path_key
