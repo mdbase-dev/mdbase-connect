@@ -66,6 +66,15 @@ export interface RecordVersion {
   document: string;
 }
 
+/** Options for `client.history.list`. */
+export interface HistoryOptions {
+  /** Only versions at log positions below this one (a previous page's `next`). */
+  before?: number;
+  /** At most this many versions, 1–200 (default 50). */
+  limit?: number;
+  signal?: AbortSignal;
+}
+
 /** @internal */
 export interface RecordHistoryParams {
   record: Uuid;
