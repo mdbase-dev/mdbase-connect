@@ -1,14 +1,9 @@
 import { readFile } from "node:fs/promises";
 
-import { packagePaths, lockPaths, sdkVersionFields, betaVersion, versionedCrateNames } from "./lib/release-version.mjs";
+import { packagePaths, lockPaths, sdkVersionFields, versionedCrateNames } from "./lib/release-version.mjs";
 
 const root = JSON.parse(await readFile("package.json", "utf8"));
 const version = root.version;
-if (!betaVersion.test(version)) {
-  throw new Error(
-    `Development releases must use 0.1.0-beta.N before 0.1.0; found ${version}.`
-  );
-}
 
 for (const path of packagePaths) {
   const manifest = JSON.parse(await readFile(path, "utf8"));
@@ -51,11 +46,4 @@ if (!mcpSource.includes(`version: "${version}"`)) {
   throw new Error("The MCP server's advertised version does not match the release version.");
 }
 
-const expectedTag = `v${version}`;
-const suppliedTag = process.argv[2]
-  || (process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : "");
-if (suppliedTag && suppliedTag !== expectedTag) {
-  throw new Error(`Release tag ${suppliedTag} does not match ${expectedTag}.`);
-}
-
-console.log(`Release version ${version} is consistent (${expectedTag}).`);
+console.log(`Workspace version ${version} is consistent.`);

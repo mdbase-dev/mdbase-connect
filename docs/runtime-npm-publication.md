@@ -54,7 +54,7 @@ may keep the versions above to match existing vendored manifests. Do not publish
 multiple different archives at the same name/version: npm versions are immutable.
 Publish the qualified SDK through its source-build workflow before its runtime
 peer. The SDK version and the Obsidian runtime's SDK peer/lock follow the
-Connect release version through `pnpm version:set`; the Obsidian runtime's own
+Connect workspace version (`pnpm version:check`); the Obsidian runtime's own
 version stays independent. `@mdbase-dev/mdbase@0.5.0` is the first stable helpers release and
 uses `latest`. Publish previews,
 including the initial `0.0.0` versions, only to `next`. Reserve `latest` for an

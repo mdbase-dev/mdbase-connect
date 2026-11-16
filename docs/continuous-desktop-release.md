@@ -32,12 +32,16 @@ verification remain in place. The Linux build also runs desktop regressions,
 browser UI/accessibility flows and the packaged daemon CLI smoke. The required
 full Server CI qualification retains the existing client end-to-end lanes.
 
-CI allocates the next `0.1.0-beta.N` above the source version, every existing
-`v*` version tag and every published desktop version, so the desktop stays on
-the same numbered beta line as earlier releases. Tags cannot be deleted or
-moved, so a reserved number is never reused. A published version that
-cannot be exceeded on this beta line stops allocation for release-agent review. An
-annotated `v0.1.0-beta.N` tag reserves the version on the qualified main commit;
+CI allocates the next semver version above every existing `v*` version tag and
+every published desktop version, shared with the npm lines. The first release
+after the `0.1.0-beta.N` line is `0.1.0`; after that a `## Breaking`
+`changelog.d` fragment added since the highest version's tag bumps the minor
+version, and anything else the patch. Tags cannot be deleted or moved, so a
+reserved version is never reused. A version form it cannot order, or a 1.0
+release, stops allocation for release-agent review. Until production contains
+semver tag support, the coordinator waits rather than reserve a tag whose tag
+worker would refuse it. An annotated `v<version>` tag reserves the version on
+the qualified main commit;
 the tag records the originating run and time. The source tree is not rewritten
 and no version PR is created. The tag worker stamps the root and desktop
 package versions only in its disposable build checkout; `MDBN_RELEASE_VERSION`

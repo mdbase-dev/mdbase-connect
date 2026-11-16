@@ -21,7 +21,7 @@ export const APP = "/Applications/mdbase connect.app";
 const EXECUTABLE = "mdbase-connect";
 const MINUTE = 60_000;
 
-/** `v0.1.0-beta.190` from `0.1.0-beta.190` or `v0.1.0-beta.190`; undefined when empty. */
+/** `v0.1.0` from `0.1.0` or `v0.1.0`; undefined when empty. */
 export function releaseTag(input) {
   const value = (input ?? "").trim();
   if (!value) return undefined;
@@ -214,8 +214,8 @@ export async function drive(env = process.env) {
   // with Check now, at most twice and 30 seconds apart, through the same feed.
   let checksLeft = CHECK_RETRIES;
   let retryAt = 0;
-  // When Check now was pressed; a check that failed too fast to be seen
-  // checking again counts as failed after 90 seconds.
+  // When Check now was pressed. A check that fails again between two polls
+  // shows no phase change, so it counts as failed after 90 seconds.
   let pressedAt = 0;
   await until("the update to be downloaded and staged", 10 * MINUTE, async () => {
     if (!alive(older.pid)) throw new Error("The app exited before its update was ready.");
@@ -224,18 +224,20 @@ export async function drive(env = process.env) {
       phase = status.phase;
       step(`update ${phase}${status.target_version ? ` ${status.target_version}` : ""}: ${status.message}`);
       pressedAt = 0;
-      if (phase === "failed" && checksLeft > 0) retryAt = Date.now() + 30_000;
+      retryAt = 0;
     }
     if (phase === "idle" && status.checked_at) throw new Error("The app found no newer release.");
-    if (phase === "failed" && (retryAt || Date.now() - pressedAt < 90_000)) {
-      if (retryAt && Date.now() >= retryAt) {
-        checksLeft -= 1;
-        retryAt = 0;
-        pressedAt = Date.now();
-        console.log(`::warning title=Update check retried::${status.message} Pressing Check now (${CHECK_RETRIES - checksLeft} of ${CHECK_RETRIES}).`);
-        // Not awaited: the check also downloads, which outlasts one evaluation.
-        older.window.send("window.mdbaseConnect.checkForUpdates()");
-      }
+    if (phase === "failed" && pressedAt && Date.now() - pressedAt < 90_000) return false;
+    if (phase === "failed" && checksLeft > 0) {
+      pressedAt = 0;
+      retryAt ||= Date.now() + 30_000;
+      if (Date.now() < retryAt) return false;
+      checksLeft -= 1;
+      retryAt = 0;
+      pressedAt = Date.now();
+      console.log(`::warning title=Update check retried::${status.message} Pressing Check now (${CHECK_RETRIES - checksLeft} of ${CHECK_RETRIES}).`);
+      // Not awaited: the check also downloads, which outlasts one evaluation.
+      older.window.send("window.mdbaseConnect.checkForUpdates()");
       return false;
     }
     if (["failed", "external", "deferred", "unavailable"].includes(phase)) throw new Error(`The update stopped: ${phase}.`);

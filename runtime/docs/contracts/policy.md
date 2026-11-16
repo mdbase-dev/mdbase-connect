@@ -347,7 +347,13 @@ these contracts:
 | `definitions.manage` | `submit` | `resource_put`, `resource_delete`, `sync_settings` |
 | `background.schedule` | none on a replica: the control plane's timer service (`timer-service-api.md`) and push channel registration check it | — |
 | `offline.replica` | — | permits enrolling an `app-runtime` device for the app; any app may declare it, and the member's consent decides (below) |
+| `history.read` | `record_history`, `record_version` | — |
 
+- **`history.read` is separate from `collection.read`** because a record's history
+  includes text that has since been deleted. Its methods need `collection.read`
+  too, and a grant without a folder scope (`replica-client-api.md` §4.4). Like
+  every capability but `collection.read`, it needs an editor or owner: a viewer's
+  grant holding it is void, and the control plane never offers it to viewers.
 - **Private app grants use account consent alone** (§5.1). The control plane
   authors the `grant` op. A signed-in serving device automatically materializes
   the exact sealed scope; there is no second computer-side user decision.

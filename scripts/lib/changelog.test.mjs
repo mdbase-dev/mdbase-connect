@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { assembleChangelog, fragments, parseFragment } from "./changelog.mjs";
 
-const changelog = "# Changelog\n\n## Unreleased\n\n<!-- Add release notes in changelog.d; assembled by pnpm version:set. -->\n\n## 0.1.0-beta.1\n\n- History.\n";
+const changelog = "# Changelog\n\n## Unreleased\n\n<!-- Add release notes in changelog.d; a Breaking fragment makes the next release a minor bump. -->\n\n## 0.1.0-beta.1\n\n- History.\n";
 
 test("fragments support one section and multiline bullets, reject malformed input", () => {
   assert.deepEqual(parseFragment("123-fix.md", "## Fixed\n\n- Fixed a bug.\n  Migration detail.\n"), {

@@ -2678,6 +2678,11 @@ msgstr "ファイルの内容を読み取る"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
+msgid "Read record history"
+msgstr "レコードの履歴を読み取る"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
 msgid "Read records and files"
 msgstr "レコードとファイルを読み取る"
 
@@ -3087,6 +3092,10 @@ msgstr "コレクションのメンバーを表示"
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
 msgstr "コレクションのメンバーのアカウント識別子、名前、役割を表示"
+
+#: src/authorization-capabilities.ts
+msgid "See earlier versions of records, including text that has since been changed or deleted."
+msgstr "レコードの以前のバージョンを表示します。その後変更または削除されたテキストも含まれます。"
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"

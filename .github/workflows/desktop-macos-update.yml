@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       from:
-        description: Older release to install (default the one before the newest), e.g. 0.1.0-beta.190
+        description: Older release to install (default the one before the newest), e.g. 0.1.0
         type: string
         default: ''
       to:

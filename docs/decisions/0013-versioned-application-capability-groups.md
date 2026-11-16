@@ -61,7 +61,7 @@ operations.
 
 ## Decision
 
-Application capability contract version 2 has eight public capability groups.
+Application capability contract version 2 has nine public capability groups.
 Each versioned identifier has one immutable exact expansion:
 
 | Capability | Internal operations |
@@ -74,6 +74,14 @@ Each versioned identifier has one immutable exact expansion:
 | `definitions.manage` | `create_type`, `update_type`, `assess_type_pack`, `apply_type_pack` |
 | `background.schedule` | `list_timers`, `put_timer`, `cancel_timer`, `reconcile_timers` |
 | `offline.replica` | `sync` |
+| `history.read` | `record_history`, `record_version` |
+
+`history.read` was added on 2026-11-16, after the first eight. Adding a group
+changes no existing expansion, so it needs no new contract version; an
+application declares it only once the server, portal and runtime that know it
+have shipped. It is separate from `collection.read` because history includes
+text that has since been changed or deleted, and Connect offers it only to
+owners and editors.
 
 The three record-mutation groups remain visually summarized as write access when
 an application requests them together. They stay independently requestable

@@ -29,7 +29,9 @@ export const COLLECTION_OPERATIONS = [
   "put_timer",
   "cancel_timer",
   "reconcile_timers",
-  "sync"
+  "sync",
+  "record_history",
+  "record_version"
 ] as const;
 
 export type CollectionOperation = typeof COLLECTION_OPERATIONS[number];
@@ -76,7 +78,9 @@ const COLLECTION_MUTATION_RULES = {
   "put_timer": "always",
   "cancel_timer": "always",
   "reconcile_timers": "always",
-  "sync": "sync_action"
+  "sync": "sync_action",
+  "record_history": "never",
+  "record_version": "never"
 } as const;
 
 const COLLECTION_INPUT_SCHEMA_VERSIONS = {
@@ -106,7 +110,9 @@ const COLLECTION_INPUT_SCHEMA_VERSIONS = {
   "put_timer": 1,
   "cancel_timer": 1,
   "reconcile_timers": 1,
-  "sync": 1
+  "sync": 1,
+  "record_history": 1,
+  "record_version": 1
 } as const;
 
 const FILE_CONTROL_INPUT_SCHEMA_VERSIONS = {

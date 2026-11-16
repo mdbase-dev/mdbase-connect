@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkoutProductionCommit, contractSensitive, nextBetaVersion, proveCompatibility, repository, requireRunning } from "./continuous-client-release.mjs";
+import { allocateVersion, checkoutProductionCommit, compareVersions, contractSensitive, latestRelease, nextVersion, proveCompatibility, repository, requireRunning } from "./continuous-client-release.mjs";
 
 const sha = value => value.repeat(40);
 const selectionEnv = { GITHUB_REPOSITORY: repository, GITHUB_REF: "refs/heads/main", GITHUB_SHA: sha("f") };
@@ -102,12 +102,60 @@ test("real Git ancestry selects the production-contained source, not main's newe
   assert.equal(runGit("rev-parse", "origin/main"), commits[4]);
 });
 
-test("CI beta allocation advances every published and source version without numeric overflow", () => {
-  assert.equal(nextBetaVersion(["0.1.0-beta.9", "0.1.0-beta.152", "0.1.0-beta.101"]), "0.1.0-beta.153");
-  assert.equal(nextBetaVersion(["0.0.1-next.0", "0.1.0-beta.152"]), "0.1.0-beta.153");
-  assert.equal(nextBetaVersion(["0.1.0-beta.9007199254740999"]), "0.1.0-beta.9007199254741000");
-  for (const version of ["0.1.0", "0.2.0-beta.1", "garbage", "0.1.0-beta.01"]) {
-    assert.throws(() => nextBetaVersion([version]), /release-owner review/);
+test("semver orders every release above the legacy beta line and 0.0.x bootstrap versions", () => {
+  assert.equal(compareVersions("0.1.0", "0.1.0-beta.213"), 1);
+  assert.equal(compareVersions("0.1.0-beta.213", "0.1.0-beta.9"), 1);
+  assert.equal(compareVersions("0.1.0-beta.9007199254740999", "0.1.0"), -1);
+  assert.equal(compareVersions("0.0.1-next.0", "0.1.0-beta.1"), -1);
+  assert.equal(compareVersions("0.1.10", "0.1.9"), 1);
+  assert.equal(compareVersions("0.2.0", "0.1.99"), 1);
+  assert.equal(compareVersions("0.1.1", "0.1.1"), 0);
+  for (const version of ["0.2.0-beta.1", "0.1.0-rc.1", "garbage", "0.1.0-beta.01", "01.0.0", "v0.1.0"]) {
+    assert.throws(() => compareVersions(version, "0.1.0"), /release-owner review/);
+  }
+});
+
+test("the first release after the beta line is 0.1.0; later releases bump patch, or minor when breaking", () => {
+  assert.equal(latestRelease(["0.1.0-beta.215", "0.0.1-next.0"]), null);
+  assert.equal(nextVersion(["0.1.0-beta.213", "0.1.0-beta.215"], true), "0.1.0");
+  assert.equal(nextVersion(["0.1.0-beta.215", "0.1.0", "0.1.9", "0.1.10"], false), "0.1.11");
+  assert.equal(nextVersion(["0.1.10", "0.1.0-beta.215"], true), "0.2.0");
+  assert.equal(nextVersion(["0.9007199254740999.3"], true), "0.9007199254741000.0");
+  assert.throws(() => nextVersion(["1.0.0"], false), /release-owner decision/);
+  assert.throws(() => nextVersion(["0.1.0", "0.1.0-rc.1"], false), /release-owner review/);
+});
+
+test("allocation bumps by the changelog fragments added since the highest release's tag", () => {
+  const directory = mkdtempSync(join(tmpdir(), "client-version-allocation-"));
+  const runGit = (...args) => execFileSync("git", args, { cwd: directory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const commit = (name, section) => {
+    if (name) writeFileSync(join(directory, "changelog.d", name), `## ${section}\n\n- ${section} change.\n`);
+    runGit("add", "-A");
+    runGit("commit", "--allow-empty", "-qm", name ?? "empty");
+    return runGit("rev-parse", "HEAD");
+  };
+  try {
+    runGit("init", "-q", "-b", "main");
+    runGit("config", "user.email", "ci@example.invalid");
+    runGit("config", "user.name", "CI");
+    mkdirSync(join(directory, "changelog.d"));
+    commit("old-breaking.md", "Breaking");
+    runGit("tag", "v0.1.0-beta.215");
+    assert.equal(allocateVersion(["0.1.0-beta.215"], runGit("rev-parse", "HEAD"), runGit), "0.1.0");
+    const first = commit("fixed.md", "Fixed");
+    runGit("tag", "-a", "-m", "{}", "v0.1.0");
+    const patch = commit("added.md", "Added");
+    assert.equal(allocateVersion(["0.1.0-beta.215", "0.1.0"], patch, runGit), "0.1.1", "a fragment already released never counts again");
+    assert.equal(allocateVersion(["0.1.0"], first, runGit), "0.1.1", "a selected commit at or behind the release bumps the patch");
+    const breaking = commit("removed-api.md", "Breaking");
+    assert.equal(allocateVersion(["0.1.0"], breaking, runGit), "0.2.0");
+    runGit("tag", "v0.2.0");
+    assert.equal(allocateVersion(["0.1.0", "0.2.0"], commit(), runGit), "0.2.1");
+    assert.throws(() => allocateVersion(["0.2.0", "0.2.1"], breaking, runGit), "the highest release's tag must exist");
+    writeFileSync(join(directory, "changelog.d", "malformed.md"), "Breaking things\n");
+    assert.throws(() => allocateVersion(["0.2.0"], commit(), runGit), /changelog\.d|Section/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

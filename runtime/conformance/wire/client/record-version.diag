@@ -1,0 +1,4 @@
+/ RecordVersion / {
+  / path / 0: "notes/renamed.md",
+  / document / 1: "---\ntitle: A\n---\nBody\n"
+}

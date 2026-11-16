@@ -19,6 +19,7 @@
 //! | `submit.rs` | capture and optimistic planning (`replica-client-api.md` §5) |
 //! | `append.rs` | the append loop (`log-entry.md` §3) and log replies |
 //! | `apply.rs` | applying items: integrity, stall, void, effects, receipts, rebase (§4) |
+//! | `verdicts.rs` | the positions this replica applied or voided, for record history |
 //! | `base.rs` | the generation-0 `base` item: build and import/install validity (`snapshot.md` §7) |
 //! | `client.rs` | the [`crate::ClientApi`] implementation |
 //! | `hosted.rs` | hosted mode: log-ACK barrier, RAM-only pending, log-derived receipts |
@@ -97,6 +98,7 @@ mod client_uploads;
 mod disk;
 pub mod gen0;
 mod handover;
+mod history;
 mod hosted;
 mod hosted_attachment_read;
 pub mod migration_log;
@@ -137,6 +139,7 @@ mod snapshot_text;
 #[cfg(test)]
 pub(crate) use snapshot::Install as TestInstall;
 mod submit;
+pub(crate) mod verdicts;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -594,6 +597,8 @@ pub struct Replica<S: Store> {
     pub(crate) attachment_uploads: attachment_upload::Uploads,
     pub(crate) unindexed_uploads: unindexed_upload::Uploads,
     pub(crate) reverse_text_sources: unindexed_reverse_text::Sources,
+    /// Record history over the retained log (`replica-client-api.md` §4.4).
+    pub(crate) history: history::History,
     pub(crate) unindexed_reverse_uploads: unindexed_reverse_upload::Uploads,
     pub(crate) attachment_fetches: attachment_fetch::Fetches,
     /// One ephemeral file lane; allocated only when native file I/O is used.
@@ -926,6 +931,7 @@ impl<S: Store> Replica<S> {
             attachment_uploads: attachment_upload::Uploads::default(),
             unindexed_uploads: unindexed_upload::Uploads::default(),
             reverse_text_sources: unindexed_reverse_text::Sources::default(),
+            history: history::History::default(),
             unindexed_reverse_uploads: unindexed_reverse_upload::Uploads::default(),
             attachment_fetches: attachment_fetch::Fetches::default(),
             client_files: None,

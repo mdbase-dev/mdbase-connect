@@ -2,6 +2,7 @@
 //! it never affects deterministic authorization/void verdicts.
 
 use super::Replica;
+use super::verdicts::{Verdict, Verdicts};
 use crate::store::{Head, Store, StoreError, TailRetention, TailRow, Tx};
 
 impl<S: Store> Replica<S> {
@@ -17,7 +18,15 @@ impl<S: Store> Replica<S> {
     /// The candidate is scoped to ONE synchronous apply attempt. It is consumed
     /// here, or discarded by apply_items on every stop/error; never retry cached
     /// bytes at a changed position. Own handover fields share this transaction.
-    pub(crate) fn commit_retained(&mut self, head: Head, mut tx: Tx) -> Result<(), StoreError> {
+    ///
+    /// The item's verdict joins the record history lists from (`verdicts.rs`),
+    /// in the same transaction as its head.
+    pub(crate) fn commit_retained(
+        &mut self,
+        head: Head,
+        mut tx: Tx,
+        verdict: Verdict,
+    ) -> Result<(), StoreError> {
         let row = self.retaining.take().ok_or_else(|| {
             StoreError::Corrupt("synced head commit lacks exact apply bytes".into())
         })?;
@@ -25,6 +34,13 @@ impl<S: Store> Replica<S> {
             return Err(StoreError::Corrupt(
                 "retained bytes differ from applied head".into(),
             ));
+        }
+        // The hosted replica serves no history (§4.4), so it keeps no record.
+        if !self.is_hosted() {
+            let prior = Verdicts::load(&self.store)?;
+            let next = Verdicts::next(prior, self.head, head, verdict);
+            tx.meta
+                .push((super::verdicts::META.into(), Some(next.encode())));
         }
         self.expire_private_switch(head);
         tx.meta.push(self.private_switch_meta());
