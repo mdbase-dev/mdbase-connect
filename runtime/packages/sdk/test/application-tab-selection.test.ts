@@ -11,8 +11,8 @@ import * as WorkerSession from "../src/application/worker-session.js";
 import type {ApplicationWorkerSessionHost} from "../src/application/worker-session.js";
 import {ApplicationBrowserSelection,type ApplicationSelectionBrowserPort} from "../src/application/browser-selection.js";
 import {ApplicationCollectionSelection} from "../src/application/collection-selection.js";
-import {AppWebSignInSession,type AppWebSignInSnapshot} from "../src/app-host/web-sign-in-session.js";
-import {AppProtectedInstallationSignIn,type AppInstallationSignInView} from "../src/app-host/installation-sign-in.js";
+import {AppWebSignInSession,type AppWebSignInPortal,type AppWebSignInSnapshot} from "../src/app-host/web-sign-in-session.js";
+import {AppInstallationSignInError,AppProtectedInstallationSignIn,type AppInstallationSignInView} from "../src/app-host/installation-sign-in.js";
 import {AppWebCloudCopyHost} from "../src/app-host/cloud-copy-host.js";
 import type {AppWebCollectionHandoff,AppWebNativeCollection} from "../src/app-host/web-collection.js";
 import type {AppBundledReleaseTrust} from "../src/app-host/cloud-copy-bootstrap.js";
@@ -28,7 +28,7 @@ const cleanup:Array<()=>unknown>=[];
 afterEach(async()=>{for(const step of cleanup.splice(0).reverse())await step();vi.restoreAllMocks();});
 
 /** The leader's Worker: one paired session with two approved collections. */
-function leader(){
+function leader(approval:{openPortal?:()=>AppWebSignInPortal;startCollectionConsent?:()=>Promise<never>}={}){
   let state:AppInstallationSignInView["state"]="paired";
   const view=():AppInstallationSignInView=>({requestId:"44444444-4444-4444-8444-444444444444",installationId:installation,deviceId:"55555555-5555-4555-8555-555555555555",appId,kind:"app-runtime",
     verificationUri:`${cpOrigin}/pair/44444444-4444-4444-8444-444444444444`,state,accountId:state==="pending"?null:account,accountEmail:state==="pending"?null:"person@example.test",
@@ -36,7 +36,8 @@ function leader(){
   const flow={view,isCurrent:()=>true,collectionConsentView:()=>null,
     listApprovedCollections:vi.fn(async()=>[{collectionId:X,displayName:"Notes",role:"owner" as const},{collectionId:Y,displayName:"Work",role:"owner" as const}]),
     confirmedSelection:()=>({accountId:account,installationId:installation}),close:vi.fn(async()=>{}),
-    signOutInstallation:vi.fn(async()=>{state="pending";return "revoked" as const;}),hasWebPushChannel:()=>false};
+    signOutInstallation:vi.fn(async()=>{state="pending";return "revoked" as const;}),hasWebPushChannel:()=>false,
+    ...(approval.startCollectionConsent?{startCollectionConsent:approval.startCollectionConsent}:{})};
   vi.spyOn(AppProtectedInstallationSignIn,"open").mockImplementation(async()=>flow as unknown as AppProtectedInstallationSignIn);
   const hosts:Array<{close:ReturnType<typeof vi.fn>}>=[];
   vi.spyOn(AppWebCloudCopyHost,"openInstallationDevice").mockImplementation(async()=>{
@@ -62,7 +63,7 @@ function leader(){
   };
   const parent=new AbortController();cleanup.push(()=>parent.abort());
   const session=new AppWebSignInSession<AppWebNativeCollection>({appId,appName:"Notes",origin,cpOrigin,environment:"production",release,signal:parent.signal,locks:undefined,
-    loadRuntime:async()=>Uint8Array.of(1),autoSelect:"never",openPortal:()=>{throw new Error("no approval in this test");},
+    loadRuntime:async()=>Uint8Array.of(1),autoSelect:"never",openPortal:approval.openPortal??(()=>{throw new Error("no approval in this test");}),
     openCollection:async context=>{
       const id=context.scope.collection,generation=crypto.randomUUID(),listeners=new Set<()=>void>();
       let ended:"forbidden"|"revoked"|"gone"|null=null;
@@ -255,6 +256,26 @@ describe("per-tab collection selection",()=>{
     for(const record of worker.opened)expect(record.strays).toBe(0);
   });
 
+  it("a tab reopening the collection a failed approval blocked gets new ports for it",async()=>{
+    // Found in production: an approval that failed before its window opened
+    // blocked the open collection; its page let go of its ports, and opening
+    // the same, still-open collection again waited for ports that never came.
+    const worker=leader({openPortal:()=>({closed:false,navigate:()=>{},close:()=>{}}),startCollectionConsent:()=>Promise.reject(new AppInstallationSignInError("binding"))});
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    const x=worker.open(X)[0]!;holds(x,["opener"]);
+    await expect(a.client.request("authorize",X,new AbortController().signal)).rejects.toMatchObject({code:"binding"});
+    await vi.waitFor(()=>expect(a.snapshot()).toMatchObject({status:"blocked",problem:"binding",selectedCollectionId:X}));
+    // The page lets go of its ports, as the application runtime does, and asks again.
+    const received=a.received.length;
+    await a.selection.select(X);
+    await vi.waitFor(()=>{a.shows(X);expect(a.received.length).toBe(received+1);});
+    // The same open collection, not reopened, with new ports for this tab.
+    // (The blocked session could not name the connection the old ones were
+    // on, so those go when it closes.)
+    expect(worker.open(X)).toEqual([x]);expect(x.attached).toBe(1);expect(x.strays).toBe(0);
+    expect(a.received.at(-1)!.generation).toBe(x.generation);
+  });
   it("access ended on one collection blocks every tab showing it, not the others; sign-out reaches every tab",async()=>{
     const worker=leader();
     const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
