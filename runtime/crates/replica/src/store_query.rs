@@ -43,7 +43,16 @@ pub struct QueryIndexedRow {
     pub types: Vec<String>,
     /// Exactly one atom for EVERY configured field, including missing/null.
     pub fields: Vec<QueryFieldValue>,
+    /// The body's [`mdbn_core::query::body_index_text`], at most
+    /// [`MAX_ROW_BODY_BYTES`], when the generation indexes bodies.
+    pub body: Option<String>,
 }
+/// Longest body index text one record may have; a collection with a longer
+/// body is indexed without bodies. Well inside a hosted 2 MB SQLite value.
+pub const MAX_ROW_BODY_BYTES: usize = 1 << 20;
+/// Body index text one transaction may write. A hosted request carries at most
+/// 4 MiB; a larger write leaves the index unready until it is rebuilt.
+pub const MAX_TX_BODY_BYTES: usize = 2 << 20;
 /// Persistent materialization status, not permission to serve an app session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueryIndexState {
@@ -121,6 +130,9 @@ pub enum QueryPredicate {
     /// Complement of a predicate that cannot raise a CEL error (Core proves it).
     /// Every field/ID has a materialized atom, so there is no SQL NULL logic.
     Not(Box<QueryPredicate>),
+    /// The record's body index text contains this text, of at least three
+    /// characters. Only under a generation that indexes bodies.
+    BodyContains(String),
 }
 /// An explicit order term; the final path tie-break is always ascending.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -276,6 +288,15 @@ impl QueryIndexRequest {
                             key: value.key().to_vec(),
                         },
                     }
+                }
+                p::Predicate::BodyContains(needle) => {
+                    if !ctx.indexes_body() {
+                        return Err(StoreError::Io("query body is not materialized".into()));
+                    }
+                    if needle.len() > 8192 {
+                        return Err(StoreError::Full);
+                    }
+                    QueryPredicate::BodyContains(needle.clone())
                 }
             })
         }

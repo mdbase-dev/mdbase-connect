@@ -51,6 +51,9 @@ fn holds(p: &Predicate, c: &Catalog, r: &QueryRecord<'_>) -> bool {
         Predicate::And(a) => a.iter().all(|p| holds(p, c, r)),
         Predicate::Or(a) => a.iter().any(|p| holds(p, c, r)),
         Predicate::Not(p) => !holds(p, c, r),
+        Predicate::BodyContains(needle) => {
+            query::body_index_text(r.body.expect("a hydrated body")).contains(needle.as_str())
+        }
         Predicate::Compare { column, op, value } => {
             let a = atom(c, r, column);
             if a.kind() != value.kind() {
@@ -531,5 +534,76 @@ fn negation_over_erroring_subtrees_is_refused() {
             profile::lower(&plan(expr, &c), &c).is_err(),
             "{expr} must not lower"
         );
+    }
+}
+
+/// A lower-cased body search lowers exactly for the needles the body index
+/// finds, and the index text answers it as CEL does, whatever the body holds.
+#[test]
+fn lower_cased_body_searches_match_real_cel() {
+    let c = catalog();
+    let bodies = [
+        "",
+        "Meeting NOTES about the Café",
+        "ΟΔΟΣ οδος Σ",
+        "İstanbul \u{212a}elvin straße",
+        "nul\0here and \u{FFFD} there",
+        "line one\nline \"two\"",
+    ];
+    for (needle, exact) in [
+        ("notes", true),
+        ("café", true),
+        ("οδο", true),
+        ("i\u{307}st", true),
+        ("kel", true),
+        ("e \"tw", true),
+        ("one\nline", true),
+        ("Notes", false),
+        ("οδος", false),
+        ("οσ ", false),
+        ("ab", false),
+        ("l\0h", false),
+        ("\u{FFFD} t", false),
+    ] {
+        let literal = needle
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\0', "\\u0000");
+        for expr in [
+            format!("file.body.lower().contains(\"{literal}\")"),
+            format!("!file.body.lower().contains(\"{literal}\")"),
+            format!("priority == 4 && file.body.lower().contains(\"{literal}\")"),
+        ] {
+            let plan = plan(&expr, &c);
+            let Ok(profile) = profile::lower(&plan, &c) else {
+                assert!(!exact, "{expr} must lower");
+                continue;
+            };
+            assert!(exact, "{expr} must not lower");
+            assert!(profile.diagnostics_exact, "{expr}");
+            for body in bodies {
+                let fm = Map::new();
+                let r = QueryRecord {
+                    path: "a.md",
+                    types: &[],
+                    frontmatter: &fm,
+                    body: Some(body),
+                };
+                assert_eq!(
+                    holds(&profile.predicate, &c, &r),
+                    plan.matches(&r, &env()) == Verdict::Match,
+                    "{expr} {body:?}"
+                );
+            }
+        }
+    }
+    // Only the lower-cased body, with one literal.
+    for expr in [
+        "file.body.contains('notes')",
+        "file.body.lower().contains(status)",
+        "file.path.lower().contains('notes')",
+    ] {
+        assert!(profile::lower(&plan(expr, &c), &c).is_err(), "{expr}");
     }
 }

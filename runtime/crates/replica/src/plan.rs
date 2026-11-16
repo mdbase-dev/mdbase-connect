@@ -34,7 +34,7 @@ use sha2::{Digest, Sha256};
 use crate::convert;
 use crate::store::{Page, RecordMeta, RecordRow, Store, StoreError, TombstoneLast};
 use crate::store_query::{
-    QueryAtom, QueryField, QueryFieldValue, QueryGeneration, QueryIndexedRow,
+    MAX_ROW_BODY_BYTES, QueryAtom, QueryField, QueryFieldValue, QueryGeneration, QueryIndexedRow,
 };
 
 /// Plans mutations. Implementations must be deterministic: equal inputs, equal outputs.
@@ -174,12 +174,13 @@ pub fn project_record_index_fields(
     fields: &[FieldRef],
     max_key_bytes: usize,
 ) -> Result<Vec<(IndexFieldSpec, SortAtom)>, IndexKeyError> {
-    Ok(project_record_fields(catalog, row, fields, max_key_bytes)?.fields)
+    Ok(project_record_fields(catalog, row, fields, max_key_bytes, false)?.fields)
 }
 
 struct RecordFieldProjection {
     types: Vec<String>,
     fields: Vec<(IndexFieldSpec, SortAtom)>,
+    body: Option<String>,
 }
 
 fn project_record_fields(
@@ -187,6 +188,7 @@ fn project_record_fields(
     row: &RecordRow,
     fields: &[FieldRef],
     max_key_bytes: usize,
+    index_body: bool,
 ) -> Result<RecordFieldProjection, IndexKeyError> {
     let parsed = mdbn_core::doc::Document::parse_at(&row.path, &row.doc);
     let frontmatter = parsed.frontmatter();
@@ -202,15 +204,26 @@ fn project_record_fields(
         fields,
         max_key_bytes,
     )?;
+    let body = if index_body {
+        let text = mdbn_core::query::body_index_text(parsed.body());
+        if text.len() > MAX_ROW_BODY_BYTES {
+            return Err(IndexKeyError::TooWide);
+        }
+        Some(text)
+    } else {
+        None
+    };
     Ok(RecordFieldProjection {
         types: membership.types,
         fields,
+        body,
     })
 }
 
 /// The projection algorithm identity, independent of log position and key codec.
 /// Bump whenever membership/default/atom projection semantics change.
-pub const QUERY_PROJECTION_VERSION: u64 = 2;
+/// Version 3 adds the body index text.
+pub const QUERY_PROJECTION_VERSION: u64 = 3;
 
 /// Convert the supported configured fields to neutral store identities, preserving
 /// declared order. Duplicate or unsupported fields fail, never silently deduplicate.
@@ -313,9 +326,9 @@ fn query_generation_from_declarations(
     Ok(hash.finalize().into())
 }
 
-/// A complete neutral row projection for the SAME record/index transaction.
-/// Actual path/current types and every declared field are derived together from
-/// one document parse; no source document is carried into the index projection.
+/// A complete neutral row projection for the SAME record/index transaction,
+/// body included. Actual path/current types, every declared field and the body
+/// index text are derived together from one document parse.
 pub fn project_record_query_index_row(
     catalog: &Catalog,
     row: &RecordRow,
@@ -324,7 +337,7 @@ pub fn project_record_query_index_row(
 ) -> Result<QueryIndexedRow, IndexKeyError> {
     // Validate the declaration before parsing the record or allocating atoms.
     let declarations = query_index_fields(fields, max_key_bytes)?;
-    project_query_row(catalog, row, fields, &declarations, max_key_bytes)
+    project_query_row(catalog, row, fields, &declarations, max_key_bytes, true)
 }
 
 fn project_query_row(
@@ -333,8 +346,9 @@ fn project_query_row(
     fields: &[FieldRef],
     declarations: &[QueryField],
     max_key_bytes: usize,
+    index_body: bool,
 ) -> Result<QueryIndexedRow, IndexKeyError> {
-    let projected = project_record_fields(catalog, row, fields, max_key_bytes)?;
+    let projected = project_record_fields(catalog, row, fields, max_key_bytes, index_body)?;
     if projected.fields.len() != declarations.len() {
         return Err(IndexKeyError::Invalid);
     }
@@ -356,6 +370,7 @@ fn project_query_row(
         path: row.path.clone(),
         types: projected.types,
         fields,
+        body: projected.body,
     })
 }
 
@@ -426,6 +441,7 @@ pub struct QueryProjectionContext {
     declarations: Vec<QueryField>,
     generation: QueryGeneration,
     max_key_bytes: usize,
+    body: bool,
 }
 
 impl QueryProjectionContext {
@@ -477,7 +493,26 @@ impl QueryProjectionContext {
             declarations,
             generation,
             max_key_bytes,
+            body: true,
         })
+    }
+
+    /// The same capture without the body index, under its own generation: for
+    /// a collection holding a body longer than [`MAX_ROW_BODY_BYTES`].
+    pub fn without_body(mut self) -> Self {
+        if self.body {
+            let mut hash = Sha256::new();
+            hash.update(b"mdbase/v1/query-index-without-body\0");
+            hash.update(self.generation);
+            self.generation = hash.finalize().into();
+            self.body = false;
+        }
+        self
+    }
+
+    /// Whether rows carry their body index text.
+    pub fn indexes_body(&self) -> bool {
+        self.body
     }
 
     /// The catalog compiled from this capture's exact resources.
@@ -511,11 +546,14 @@ impl QueryProjectionContext {
             &self.fields,
             &self.declarations,
             self.max_key_bytes,
+            self.body,
         )
     }
 
-    /// The configured fields whose value in `row` is longer than an index key.
-    /// Empty when the row fails for any other reason, or projects.
+    /// The configured fields whose value in `row` is longer than an index key,
+    /// and `file.body` when its index text is longer than
+    /// [`MAX_ROW_BODY_BYTES`]. Empty when the row fails for any other reason,
+    /// or projects.
     pub fn too_wide_fields(&self, row: &RecordRow) -> Vec<FieldRef> {
         let parsed = mdbn_core::doc::Document::parse_at(&row.path, &row.doc);
         let frontmatter = parsed.frontmatter();
@@ -540,6 +578,11 @@ impl QueryProjectionContext {
                 )
             })
             .cloned()
+            .chain(
+                (self.body
+                    && mdbn_core::query::body_index_text(parsed.body()).len() > MAX_ROW_BODY_BYTES)
+                    .then(|| FieldRef::File("body".into())),
+            )
             .collect()
     }
 }

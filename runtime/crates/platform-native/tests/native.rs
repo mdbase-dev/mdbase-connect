@@ -5,6 +5,8 @@
 
 #[path = "native/apply_window.rs"]
 mod apply_window;
+#[path = "native/body_search.rs"]
+mod body_search;
 #[path = "native/file_reopen.rs"]
 mod file_reopen;
 #[path = "native/large_metadata.rs"]
