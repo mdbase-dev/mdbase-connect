@@ -10,6 +10,9 @@ const config = JSON.parse(await readFile(configPath, 'utf8'));
 const collectOnly = process.argv[3] === '--collect-only';
 const warmSamples = config.samples ?? 3;
 if (!Number.isInteger(warmSamples) || warmSamples < 3 || warmSamples > 7) throw Error('invalid_sample_count');
+// Cold record windows per size. Their sum over the apps, with the warm visits,
+// must stay under the runner's 80-minute service cap (docs/app-timings-runner.md).
+const coldWindowMs = {'100': 180000, '1k': 240000, '10k': 600000};
 for (const size of sizes) if (!/^[0-9a-f-]{36}$/.test(config.collections[size])) throw Error('invalid_collection_config');
 const portalState = JSON.parse(await readFile(config.portal_state, 'utf8'));
 // Only the control-plane login is reused. Every cold app origin starts empty.
@@ -166,7 +169,7 @@ try {
       try {
         const page = await context.newPage();
         await instrument(page, apps[app].selector);
-        const cold = await visit(page, app, config.collections[size], true, config.collection_names[size], size === '10k' ? 600000 : 180000);
+        const cold = await visit(page, app, config.collections[size], true, config.collection_names[size], coldWindowMs[size]);
         samples.cold.push(cold);
         checkedAt.cold = new Date().toISOString();
         if (cold.error?.stage === 'auth') authError = cold.error.code;

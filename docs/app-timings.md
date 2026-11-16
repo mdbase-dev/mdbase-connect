@@ -69,10 +69,12 @@ The init script follows Editor's `tests/startup-profile.spec.ts`: a mutation
 observer installed before navigation detects records. Here it waits two
 animation frames and requires a visible row in the viewport. `first_records`
 starts at approval response headers for cold and navigation for warm; it is not
-full indexing or synchronization. Cold record windows are 180 seconds at 100/1k
-and 600 seconds at 10k, allowing the SDK key-grant wait and large replay; warm
-has 45 seconds. All cells and visits are sequential, including on one
-collection.
+full indexing or synchronization. Cold record windows are 180 seconds at 100,
+240 seconds at 1k and 600 seconds at 10k, allowing the SDK key-grant wait and
+large replay; warm has 45 seconds. On the runner's two vCPUs a 1k cold open took
+up to 177 seconds, and a 10k one did not finish within ten minutes, so 10k cold
+cells record a timeout until issue #1648 is fixed. All cells and visits are
+sequential, including on one collection.
 
 The same observer accumulates time under fixed opening status text as
 `key_wait`, `snapshot` and `apply`. It stores only those fixed names and
