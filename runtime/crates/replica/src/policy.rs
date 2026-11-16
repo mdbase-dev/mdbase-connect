@@ -101,6 +101,8 @@ pub mod capability {
     pub const BACKGROUND: &str = "background.schedule";
     /// First-party offline replicas.
     pub const OFFLINE: &str = "offline.replica";
+    /// Record history, including text since deleted (`record_history`, `record_version`).
+    pub const HISTORY: &str = "history.read";
 }
 
 /// Why an item is void. `rule` is stable (`V1`..`V7`, or a policy rule name);

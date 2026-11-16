@@ -2678,6 +2678,11 @@ msgstr "파일 내용 읽기"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
+msgid "Read record history"
+msgstr "레코드 기록 읽기"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
 msgid "Read records and files"
 msgstr "레코드 및 파일 읽기"
 
@@ -3087,6 +3092,10 @@ msgstr "컬렉션 구성원 보기"
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
 msgstr "컬렉션 구성원의 계정 식별 정보, 이름 및 역할 보기"
+
+#: src/authorization-capabilities.ts
+msgid "See earlier versions of records, including text that has since been changed or deleted."
+msgstr "이후 변경되거나 삭제된 텍스트를 포함하여 레코드의 이전 버전을 봅니다."
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"

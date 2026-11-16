@@ -971,6 +971,44 @@ resolve-links-result = {
 }
 
 ; from docs/contracts/replica-client-api.md
+record-history-params = {
+  0: uuid,               ; record
+  ? 1: seq,              ; before: only versions at lower positions
+  ? 2: uint,             ; limit: 1..200, default 50
+}
+record-history = {
+  0: [* history-version], ; newest first
+  1: seq,                ; from: the lowest position read
+  ? 2: int,              ; from_time: capture time (ms) of the oldest readable entry read
+  ? 3: seq,              ; next: pass as `before` for older versions
+}
+history-version = {
+  0: seq,                ; the entry's log position
+  1: int,                ; time: the writer's capture time, ms
+  2: author-ref,
+  3: &( created: 0, edited: 1, moved: 2, deleted: 3 ),
+  4: path,               ; the path after the entry (before it, for a deletion)
+  ? 5: hash,             ; revision: SHA-256 of the document written; absent for a deletion
+  6: source,             ; intent.md §1
+  7: device-kind,        ; the signing device's kind (policy.md §4.2)
+  ? 8: tstr,             ; app: the grant's app ID
+}
+author-ref = {
+  0: uuid,               ; account: the signing device's account
+  1: uuid,               ; device: the signing device
+  ? 2: uuid,             ; grant: the app grant written through
+  ? 3: uuid,             ; grant_account: the grant's account, only when the hosted device signed
+}
+record-version-params = {
+  0: uuid,               ; record
+  1: seq,                ; a position from record_history
+}
+record-version = {
+  0: path,               ; the record's path at that version
+  1: tstr,               ; document: its exact text
+}
+
+; from docs/contracts/replica-client-api.md
 ; ---- describe (replica-client-api.md §4.1) ----
 describe-result = {
   0: tstr,                   ; spec_version the collection declares

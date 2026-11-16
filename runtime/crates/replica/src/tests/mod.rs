@@ -13,6 +13,7 @@ mod engine;
 mod fault_sealer;
 mod handover;
 mod handover_verify;
+mod history;
 mod hosted;
 mod join_ahead;
 mod large_metadata_open;

@@ -166,6 +166,10 @@ pub(crate) enum Inflight {
     AttachmentInventory(mdbn_wire::common::Hash),
     /// An adopt's generation-0 object upload.
     AdoptPut,
+    /// A page of the record history scan (`history.rs`).
+    History,
+    /// A record version's entry or blob part (`history.rs`).
+    HistoryVersion,
     Other,
 }
 
@@ -1831,6 +1835,8 @@ impl<S: Store> Replica<S> {
             Inflight::AttachmentInventory(manifest) => {
                 self.on_attachment_inventory_reply(manifest, id, reply)
             }
+            Inflight::History => self.on_history_reply(id, reply),
+            Inflight::HistoryVersion => self.on_history_version_reply(id, reply),
             Inflight::Other => {}
         }
         if failed {
