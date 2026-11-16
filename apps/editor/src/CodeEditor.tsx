@@ -35,7 +35,7 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
+import { closeBracketsAtCaret, cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
 import { WritingToolbar, type WritingAction } from "./writing-toolbar";
 import { LinkIcon, ListBulletsIcon, ListChecksIcon, TextBIcon, TextHTwoIcon, TextIndentIcon, TextItalicIcon, TextOutdentIcon } from "./icons";
 import { createPortal } from "react-dom";
@@ -346,7 +346,7 @@ export function CodeEditor({
         (id) => onCommentAnchorRef.current?.(id),
         (id) => commentCardRef.current?.(id) ?? null
       ) : [],
-      variant === "writer" && language === "markdown" ? wrapSelectionOnType : [],
+      variant === "writer" && language === "markdown" ? [wrapSelectionOnType, closeBracketsAtCaret] : [],
       interactionMode.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
       editorAttributes.current.of(EditorView.contentAttributes.of(contentAttributes(label, variant, language))),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
