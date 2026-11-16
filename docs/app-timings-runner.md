@@ -60,9 +60,10 @@ Compute Engine reports `TERMINATED`; an SSH disconnect alone is not stop proof.
 Restore the daily 16:30/18:00 cron after any temporary schedule test.
 
 A 90-minute daily window accommodates one cold open and three warm visits per
-app and size. Cold record windows are 180 seconds at 100/1k and 600 seconds at
-10k; warm windows are 45 seconds. Their total is 68.25 minutes, leaving margin
-for ordinary navigation, consent and cleanup under the 80-minute guest cap.
+app and size. Cold record windows are 180 seconds at 100, 240 seconds at 1k and
+600 seconds at 10k; warm windows are 45 seconds. Their total is 71.25 minutes,
+leaving margin for ordinary navigation, consent and cleanup under the 80-minute
+guest cap. Widen a window only together with this cap and the scheduled window.
 
 The scheduled window is about 45 VM hours/month: approximately $3.02 compute at
 $0.06701142/hour, $1 for 10 GB balanced disk, and $0.23 for
