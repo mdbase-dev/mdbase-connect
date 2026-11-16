@@ -42,3 +42,34 @@ test('retains page-load measurements when first records times out', () => {
     {name: 'first_records', status: 'failed', duration_ms: 0},
   ]);
 });
+test('separates consent from cold records while paint remains navigation-relative', async () => {
+  const {measuredStages} = await import('./results.mjs');
+  const observation = {timeOrigin: 100000, endedAt: 65000, ttfb: 70, fcp: 300, lcp: 900, firstRecords: 64000,
+    opening: [{name: 'key_wait', at: 3500}, {name: 'snapshot', at: 12000}, {name: 'apply', at: 18000}, {name: null, at: 62000}],
+    marks: {requested: 2000, approved: 4050, ready: 62000}, firstQuery: 62500};
+  assert.deepEqual(measuredStages(observation, 104000), {
+    ttfb: 70, consent: 4000, first_records: 60000, fcp: 300, lcp: 900,
+    key_wait: 8000, snapshot: 6000, apply: 44000,
+    open_first_records: 62000, open_approved: 2050, open_ready: 60000, render: 2000, first_query: 60500,
+  });
+  const warm = measuredStages({...observation, firstRecords: 2500, opening: [], marks: {}}, undefined);
+  assert.equal(warm.first_records, 2500);
+  assert.equal('consent' in warm, false);
+});
+test('opening status intervals include repeated phases without claiming a full SDK trace', async () => {
+  const {measuredStages} = await import('./results.mjs');
+  const stages = measuredStages({timeOrigin: 100000, endedAt: 20000, ttfb: 70, fcp: 300, lcp: 900, firstRecords: null,
+    opening: [{name: 'key_wait', at: 1000}, {name: 'apply', at: 5000}, {name: 'key_wait', at: 10000}, {name: 'apply', at: 12000}], marks: {}}, 102000);
+  assert.equal(stages.key_wait, 5000);
+  assert.equal(stages.apply, 13000);
+  assert.equal('first_records' in stages, false);
+});
+test('setup and skipped warm cells have distinct failures and a nonempty stage list', () => {
+  for (const [stage, code] of [['setup', 'setup_required'], ['first_records', 'cold_incomplete']]) {
+    const payload = result('writer.10k.warm', [{revision: 'abc123', stages: {}, error: {stage, code}}], at);
+    assert.equal(payload.status, 'failed');
+    assert.equal(payload.error.code, code);
+    assert.equal(payload.stages.length, 1);
+    assert.equal(payload.duration_ms, 0);
+  }
+});

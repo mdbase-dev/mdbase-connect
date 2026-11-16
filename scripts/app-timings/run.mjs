@@ -3,13 +3,13 @@ import {readFile, writeFile, mkdir} from 'node:fs/promises';
 import {appendFileSync} from 'node:fs';
 import {resolve, dirname} from 'node:path';
 import {chromium} from '@playwright/test';
-import {apps, sizes, result, median} from './results.mjs';
+import {apps, sizes, result, median, measuredStages} from './results.mjs';
 
 const configPath = resolve(process.argv[2] ?? '');
 const config = JSON.parse(await readFile(configPath, 'utf8'));
 const collectOnly = process.argv[3] === '--collect-only';
-const samplesPerCell = config.samples ?? 3;
-if (!Number.isInteger(samplesPerCell) || samplesPerCell < 3 || samplesPerCell > 7) throw Error('invalid_sample_count');
+const warmSamples = config.samples ?? 3;
+if (!Number.isInteger(warmSamples) || warmSamples < 3 || warmSamples > 7) throw Error('invalid_sample_count');
 for (const size of sizes) if (!/^[0-9a-f-]{36}$/.test(config.collections[size])) throw Error('invalid_collection_config');
 const portalState = JSON.parse(await readFile(config.portal_state, 'utf8'));
 // Only the control-plane login is reused. Every cold app origin starts empty.
@@ -34,7 +34,11 @@ async function revision(page) {
 
 async function instrument(page, selector) {
   await page.addInitScript(({selector}) => {
-    const sample = {firstRecords: null, lcp: null};
+    const sample = {firstRecords: null, lcp: null, setupRequired: false, opening: []};
+    const visible = element => {
+      const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && style.visibility === 'visible' && style.display !== 'none';
+    };
     new PerformanceObserver(list => {
       const entries = list.getEntries(); sample.lcp = entries.at(-1).startTime;
     }).observe({type: 'largest-contentful-paint', buffered: true});
@@ -44,11 +48,11 @@ async function instrument(page, selector) {
       checking = true;
       requestAnimationFrame(() => requestAnimationFrame(() => {
         checking = false;
-        const visible = [...document.querySelectorAll(selector)].some(element => {
-          const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
-          return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && style.visibility === 'visible' && style.display !== 'none';
-        });
-        if (visible) {sample.firstRecords = performance.now(); observer.disconnect();}
+        sample.setupRequired = [...document.querySelectorAll('.mdbase-collections-gate[data-phase="needs_setup"]')].some(visible);
+        const text = document.querySelector('.mdbase-opening small')?.textContent ?? '';
+        const name = text.includes('Preparing secure access') ? 'key_wait' : text.includes('Loading the collection snapshot') ? 'snapshot' : text.includes('Applying collection updates') ? 'apply' : null;
+        if (sample.opening.at(-1)?.name !== name) sample.opening.push({name, at: performance.now()});
+        if ([...document.querySelectorAll(selector)].some(visible)) {sample.firstRecords = performance.now(); observer.disconnect();}
       }));
     });
     observer.observe(document, {subtree: true, childList: true, attributes: true});
@@ -56,15 +60,15 @@ async function instrument(page, selector) {
   }, {selector});
 }
 
-async function visit(page, app, collection, cold, collectionName) {
-  let build = 'unavailable', stage = 'navigation', error;
+async function visit(page, app, collection, cold, collectionName, timeout) {
+  let build = 'unavailable', stage = 'navigation', error, approvalEpoch;
   try {
     await page.goto(`${apps[app].origin}/?collection=${encodeURIComponent(collection)}`, {waitUntil: 'domcontentloaded', timeout: 45000});
     build = await revision(page);
     stage = 'approval';
     if (cold) {
-      // Cold includes automated consent with a saved Connect login. No password
-      // or app installation state is injected into the measured origin.
+      // Automate consent with the saved portal login, then time cold records
+      // from the approval response. App storage starts empty.
       const signIn = page.getByRole('button', {name: 'Sign in', exact: true});
       await signIn.waitFor({state: 'visible', timeout: 30000});
       const popupPromise = page.waitForEvent('popup');
@@ -78,42 +82,39 @@ async function visit(page, app, collection, cold, collectionName) {
         popup.locator('.approval-actions button.is-primary').click({timeout: 30000}),
       ]);
       if (!approved.ok()) return failed(approved.status() === 401 ? 'auth' : 'approval', approved.status() === 401 ? 'auth_expired' : `http_${approved.status()}`, build);
+      const timing = approved.request().timing();
+      approvalEpoch = timing.startTime + timing.responseStart;
       await page.bringToFront();
     }
     stage = 'first_records';
-    await page.waitForFunction(() => Number.isFinite(window.appTimings?.firstRecords), null, {timeout: 45000});
+    await page.waitForFunction(() => Number.isFinite(window.appTimings?.firstRecords) || window.appTimings?.setupRequired, null, {timeout});
+    if (await page.evaluate(() => window.appTimings.setupRequired)) error = {stage: 'setup', code: 'setup_required'};
   } catch {
     // Never serialize browser exceptions: their messages contain URLs and IDs.
     error = {stage, code: page.isClosed() ? 'browser_closed' : 'timeout'};
   }
   try {
-    const data = await page.evaluate(() => {
+    const observation = await page.evaluate(() => {
       const nav = performance.getEntriesByType('navigation')[0];
-      const firstRecords = window.appTimings.firstRecords;
-      const stages = {ttfb: nav.responseStart - nav.requestStart};
-      if (Number.isFinite(firstRecords)) stages.first_records = firstRecords;
-      const fcp = performance.getEntriesByName('first-contentful-paint')[0]?.startTime;
-      if (fcp !== undefined) stages.fcp = fcp;
-      if (window.appTimings.lcp !== null) stages.lcp = window.appTimings.lcp;
       const marks = Object.fromEntries(['requested', 'approved', 'ready'].map(name => [name,
         performance.getEntriesByName(`mdbase:open:${name}`, 'mark')[0]?.startTime]));
-      if (marks.requested !== undefined) {
-        if (Number.isFinite(firstRecords)) stages.open_first_records = firstRecords - marks.requested;
-        if (marks.approved !== undefined) stages.open_approved = marks.approved - marks.requested;
-        if (marks.ready !== undefined) stages.open_ready = marks.ready - marks.requested;
-        const query = performance.getEntriesByName('mdbase:query:first-result', 'mark').find(entry => entry.startTime >= marks.requested);
-        if (query) stages.first_query = query.startTime - marks.requested;
-      }
-      return {stages};
+      const query = performance.getEntriesByName('mdbase:query:first-result', 'mark').find(entry => entry.startTime >= marks.requested);
+      return {
+        ...window.appTimings, timeOrigin: performance.timeOrigin, endedAt: performance.now(),
+        ttfb: nav.responseStart - nav.requestStart,
+        fcp: performance.getEntriesByName('first-contentful-paint')[0]?.startTime,
+        marks, firstQuery: query?.startTime,
+      };
     });
+    const stages = measuredStages(observation, approvalEpoch);
     const session = await page.context().newCDPSession(page);
     await session.send('Performance.enable');
     const metrics = await session.send('Performance.getMetrics');
     await session.detach();
     const heap = metrics.metrics.find(metric => metric.name === 'JSHeapUsedSize')?.value;
     if (build === 'unavailable') error ??= {stage: 'revision', code: 'revision_missing'};
-    if (data.stages.fcp === undefined || data.stages.lcp === undefined || !Number.isFinite(heap)) error ??= {stage: 'measurement', code: 'metrics_missing'};
-    return {...data, revision: build, heap_bytes: heap, ...(error ? {error} : {})};
+    if (stages.fcp === undefined || stages.lcp === undefined || !Number.isFinite(heap)) error ??= {stage: 'measurement', code: 'metrics_missing'};
+    return {stages, revision: build, heap_bytes: heap, ...(error ? {error} : {})};
   } catch {
     return failed('measurement', 'browser_unavailable', build);
   }
@@ -145,11 +146,12 @@ try {
   await auth.close();
   for (const app of Object.keys(apps)) for (const size of sizes) {
     const samples = {cold: [], warm: []};
-    for (let index = 0; index < samplesPerCell; index++) {
-      if (authError) {
-        for (const mode of ['cold', 'warm']) samples[mode].push(failed('auth', authError, 'unavailable', false));
-        continue;
-      }
+    const checkedAt = {};
+    if (authError) {
+      samples.cold.push(failed('auth', authError, 'unavailable', false));
+      for (let index = 0; index < warmSamples; index++) samples.warm.push(failed('auth', authError, 'unavailable', false));
+      checkedAt.cold = checkedAt.warm = new Date().toISOString();
+    } else {
       const context = await browser.newContext({storageState: portalState, viewport: {width: 1440, height: 900}, locale: 'en-US'});
       const installationIds = new Set();
       context.on('request', request => {
@@ -164,30 +166,36 @@ try {
       try {
         const page = await context.newPage();
         await instrument(page, apps[app].selector);
-        const cold = await visit(page, app, config.collections[size], true, config.collection_names[size]);
+        const cold = await visit(page, app, config.collections[size], true, config.collection_names[size], size === '10k' ? 600000 : 180000);
         samples.cold.push(cold);
-        // Same context, second navigation: HTTP cache, IDB, storage and service worker retained.
+        checkedAt.cold = new Date().toISOString();
         if (cold.error?.stage === 'auth') authError = cold.error.code;
-        const warm = authError ? failed('auth', authError, cold.revision, false) : await visit(page, app, config.collections[size], false, config.collection_names[size]);
-        samples.warm.push(warm);
-        // An expired session cannot revoke installations; retain their ledger
-        // for authenticated recovery before the next run.
-        if (!authError) {
-          await cleanup(context, installationIds);
-          await writeFile(config.ledger_file, '', {mode: 0o600});
+        // Warm visits use the fully opened cold context, never a partial cache.
+        for (let index = 0; index < warmSamples; index++) {
+          samples.warm.push(cold.error ? failed(authError ? 'auth' : 'first_records', authError ?? 'cold_incomplete', cold.revision, false)
+            : await visit(page, app, config.collections[size], false, config.collection_names[size], 45000));
         }
-      } finally {await context.close();}
+        checkedAt.warm = new Date().toISOString();
+      } finally {
+        try {
+          // Retain the journal if auth expired; authenticated recovery revokes it.
+          if (!authError) {
+            await cleanup(context, installationIds);
+            await writeFile(config.ledger_file, '', {mode: 0o600});
+          }
+        } finally {await context.close();}
+      }
     }
     for (const mode of ['cold', 'warm']) {
-      const timing = result(`${app}.${size}.${mode}`, samples[mode], new Date().toISOString());
+      const timing = result(`${app}.${size}.${mode}`, samples[mode], checkedAt[mode]);
       const heaps = samples[mode].map(sample => sample.heap_bytes).filter(Number.isFinite);
       report.push({timing, samples: samples[mode].filter(sample => sample.visited !== false).length, heap_bytes_median: heaps.length ? median(heaps) : null});
       await writeFile(output, JSON.stringify(report, null, 2) + '\n', {mode: 0o600});
       if (!collectOnly) {
         const response = await fetch('https://ops-ingest.mdbase.dev/v1/timings', {
           method: 'POST', headers: {Authorization: `Bearer ${ingestToken}`, 'Content-Type': 'application/json'}, body: JSON.stringify(timing), signal: AbortSignal.timeout(15000),
-      });
-      if (!response.ok) throw Error(`ingest_http_${response.status}`);
+        });
+        if (!response.ok) throw Error(`ingest_http_${response.status}`);
       }
       console.log(JSON.stringify(timing));
     }
