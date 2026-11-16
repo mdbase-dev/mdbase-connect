@@ -51,6 +51,27 @@ describe("writer shortcuts", () => {
   });
 });
 
+describe("writer Enter", () => {
+  it.each([
+    ["- item", "- item\n- ", "- item\n"],
+    ["1. step", "1. step\n2. ", "1. step\n"],
+    ["- [ ] task", "- [ ] task\n- [ ] ", "- [ ] task\n"],
+    ["- a\n\n- b", "- a\n\n- b\n\n- ", "- a\n\n- b\n\n"],
+    ["> quote", "> quote\n> ", "> quote\n"]
+  ])("continues %j, then ends it on an empty line", (value, continued, ended) => {
+    const onChange = vi.fn();
+    render(<CodeEditor value={value} label="Note body" language="markdown" variant="writer" onChange={onChange} />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    const view = EditorView.findFromDOM(body)!;
+    view.focus();
+    view.dispatch({ selection: { anchor: value.length } });
+    fireEvent.keyDown(body, { key: "Enter", code: "Enter", keyCode: 13 });
+    expect(onChange).toHaveBeenLastCalledWith(continued);
+    fireEvent.keyDown(body, { key: "Enter", code: "Enter", keyCode: 13 });
+    expect(onChange).toHaveBeenLastCalledWith(ended);
+  });
+});
+
 describe("rendered Markdown links", () => {
   it("opens a rendered link without moving the caret into its source", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);

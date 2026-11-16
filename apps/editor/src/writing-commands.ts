@@ -1,4 +1,5 @@
 import { startCompletion } from "@codemirror/autocomplete";
+import { syntaxTree } from "@codemirror/language";
 import { EditorSelection, type ChangeSpec, type EditorState } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 
@@ -71,5 +72,23 @@ export function insertNoteLink(view: EditorView): boolean {
   }
   view.dispatch({ changes: { from, insert: "[[" }, selection: EditorSelection.cursor(from + 2), scrollIntoView: true, userEvent: "input.type" });
   startCompletion(view);
+  return true;
+}
+
+/** Enter on an empty quoted line ends the quote (one level of it), as an empty item ends a list. */
+export function exitEmptyQuote(view: EditorView): boolean {
+  const { state } = view;
+  const { main } = state.selection;
+  if (state.readOnly || state.selection.ranges.length > 1 || !main.empty) return false;
+  const line = state.doc.lineAt(main.head);
+  if (main.head !== line.to || !/^\s*(?:>\s*)+$/.test(line.text)) return false;
+  // A blank line inside quoted code is code.
+  for (let node = syntaxTree(state).resolveInner(main.head, -1); node; node = node.parent!) {
+    if (node.name === "FencedCode" || node.name === "CodeBlock") return false;
+    if (!node.parent) break;
+  }
+  const outer = line.text.replace(/\s*>\s*$/, "");
+  const insert = outer ? `${outer} ` : "";
+  view.dispatch({ changes: { from: line.from, to: line.to, insert }, selection: EditorSelection.cursor(line.from + insert.length), scrollIntoView: true, userEvent: "input" });
   return true;
 }
