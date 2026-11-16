@@ -21,6 +21,7 @@ import { list, uint, uuid as uuidCodec, uuidFromBytes } from "./codec.js";
 import {recordValidations, captureValidation, bindValidation, type RecordValidation} from "./validation.js";
 import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
 import { FilesApi } from "./files.js";
+import { recordHistory, recordHistoryParams, recordVersion, recordVersionParams, type HistoryOptions, type RecordHistory, type RecordVersion } from "./history.js";
 import { settleWrite, type Settlement, type SettleOptions } from "./settle.js";
 import { readMany as readManyRecords, queryPages as readQueryPages, type ReadManyOptions } from "./read-helpers.js";
 import {RecordsApi, type Records, type RecordOpenOptions, type RecordLease} from "./records.js";
@@ -223,6 +224,16 @@ function params(entries: [number, CborValue | undefined][]): Map<number, CborVal
   const m = new Map<number, CborValue>();
   for (const [k, v] of entries) if (v !== undefined) m.set(k, v);
   return m;
+}
+
+/** A replica that predates record history answers `unknown_method` (§4.4). */
+function historyRead<T>(read: Promise<T>): Promise<T> {
+  return read.catch((e: unknown) => {
+    if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+      throw mdbaseError("upgrade_required", "This collection's replica has no record history.", "history_unsupported");
+    }
+    throw e;
+  });
 }
 
 function withCurrentGrant(hello: HelloResult, grant: HelloResult["grant"] | undefined): HelloResult {
@@ -1402,6 +1413,27 @@ export class MdbaseClient {
       throw e;
     });
   }
+
+  /**
+   * Record history (§4.4, API 1.4): the versions of a record that the log still
+   * retains. Needs the `history.read` capability. A replica without history,
+   * the hosted replica and a local-only collection refuse with
+   * `upgrade_required` / `history_unsupported`.
+   */
+  readonly history = {
+    /** One page of a record's versions, newest first. Pass `next` as `before`
+     * for older ones. `o.signal` cancels the read. */
+    list: (record: Uuid, o: HistoryOptions = {}): Promise<RecordHistory> =>
+      historyRead(this.call("record_history", recordHistoryParams.enc({ record, before: o.before, limit: o.limit }), {
+        codec: recordHistory, retry: true, ...(o.signal ? { signal: o.signal } : {}),
+      })),
+    /** The exact document of the version at log position `seq`, checked
+     * against its revision. `o.signal` cancels the read. */
+    version: (record: Uuid, seq: number, o: ReadOptions = {}): Promise<RecordVersion> =>
+      historyRead(this.call("record_version", recordVersionParams.enc({ record, seq }), {
+        codec: recordVersion, retry: true, ...(o.signal ? { signal: o.signal } : {}),
+      })),
+  };
 
   /** Definitions: `mdbase.yaml`, type files, contract files (§4.1). */
   readonly resources = {

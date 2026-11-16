@@ -92,7 +92,7 @@ export const PROBLEM_CODES = [
   "setup_required", "incompatible", "approval_required", "contract_mismatch", "contract_missing", "implementation_missing",
   "catalog_invalid", "catalog_response", "type_invalid", "readiness_budget", "readiness_unsupported",
   "notifications_consent_required", "timer_channel_reapproval_required", "notifications_unsupported",
-  "people_unsupported", "people_permission_declined", "people_access",
+  "people_unsupported", "people_permission_declined", "people_access", "history_unsupported",
   "configuration_conflict", "configuration_unavailable", "configuration_unsupported", "configuration_busy_timeout", "readiness_busy_timeout",
   // Setup review.
   "setup_forbidden", "setup_conflict", "setup_unresolved", "collection_setup_conflict", "collection_setup_namespace_conflict", "setup_records_forbidden", "setup_changed", "installed_newer",
@@ -199,6 +199,7 @@ const COPY = {
   people_unsupported: ["Sharing isn't available here", "People and sharing aren't supported for this collection yet.", "none", "info"],
   people_permission_declined: ["People aren't shown", "This app wasn't allowed to see who else is in this collection. Approve it again and allow people to show them here.", "approve", "info", false, "Approve again"],
   people_access: ["People can't be shown", "This app can't see the people in this collection right now. Everything else still works.", "none", "info"],
+  history_unsupported: ["History isn't available here", "Earlier versions of records in this collection can't be read here. Everything else still works.", "none", "info"],
   configuration_conflict: ["Settings changed elsewhere", "These settings were changed on another device. Review them and try again.", "retry", "warning"],
   // The collection's setup couldn't be assessed: not a network problem.
   configuration_unavailable: ["Couldn't check this collection's setup", "The app couldn't read how this collection is set up, so it didn't open it. Nothing in the collection was changed. Try again, and contact support if it keeps happening.", "retry", "warning"],
