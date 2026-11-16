@@ -55,6 +55,7 @@ import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 import type { CollectionFile, NoteSummary } from "./model";
 import { typewriterScrolling } from "./code-editor-typewriter";
+import { htmlPaste } from "./html-paste";
 import { commentAnchorRange, commentAnchors, showCommentAnchors, type CommentAnchor, type CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import { mdbasePopupTheme } from "@mdbase-dev/ui/codemirror";
 import { indentListItem, livePreview, markdownMath, outdentListItem } from "@mdbase-dev/ui/live-preview";
@@ -725,7 +726,7 @@ const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   search({ top: true }),
   highlightSelectionMatches({ minSelectionLength: 2 }),
   bracketMatching(),
-  variant === "writer" ? [hasFooter ? [] : scrollPastEnd(), pasteURLAsLink] : [
+  variant === "writer" ? [hasFooter ? [] : scrollPastEnd(), pasteURLAsLink, htmlPaste] : [
     lineNumbers(),
     indentOnInput(),
     closeBrackets(),
