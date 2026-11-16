@@ -735,11 +735,12 @@ textarea.mdbase-field {
 }
 
 @media (pointer: coarse) {
-  /* Expand the hit target, not the visual control or its containing row. */
+  /* Expand the hit target, not the visual control or its containing row. The inset
+     counts from inside the border: the checkbox's 16px plus 2 × 14px is 44px. */
   .mdbase-checkbox::before,
   .mdbase-switch::before {
     position: absolute;
-    inset: -13px;
+    inset: -14px;
     content: "";
   }
 }
