@@ -1,14 +1,15 @@
 # mdbase
 
 This plugin connects Claude to folders of markdown files that you approve in
-mdbase connect. Once a collection is connected, Claude can find, read and
-summarise its records, and create, update, rename or delete them if you allow
-it. Each file is a record, and the fields in its frontmatter can be searched
-and filtered. Changes are validated against the collection's type
-definitions, and an edit is rejected if the record changed since it was read.
-Each collection is approved separately with its own permissions. You can
-remove access at any time in mdbase connect. The plugin can also help build
-pages and small apps on top of a collection.
+mdbase connect, including an existing Obsidian vault. Once a collection is
+connected, Claude can find, read and summarise its records, and create,
+update, rename or delete them if you allow it. Each file is a record, and
+the fields in its frontmatter can be searched and filtered. Changes are
+validated against the collection's type definitions, and an edit is rejected
+if the record changed since it was read. Each collection is approved
+separately with its own permissions. You can remove access at any time in
+mdbase connect. The plugin can also help build pages and small apps on top
+of a collection.
 
 ## Use it
 
