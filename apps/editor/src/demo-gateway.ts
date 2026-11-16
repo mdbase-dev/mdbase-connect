@@ -1,4 +1,5 @@
 import { normalizeCollectionChange } from "@mdbase-dev/connect";
+import { mdbaseError } from "@mdbase-dev/sdk";
 import mdbaseReadme from "../../../templates/mdbase/README.md?raw";
 import { observeDemo } from "./demo-observe";
 import type {
@@ -32,7 +33,9 @@ import type {
   FileListRequest,
   FileReadRequest,
   FileUploadRequest,
+  NoteHistoryReader,
   NoteSummary,
+  NoteVersion,
   RenamePreflight,
   DeletePreflight,
   MutationOperationOptions,
@@ -49,6 +52,24 @@ export class DemoCollectionGateway implements CollectionGateway {
   private fileContents = new Map<string, Blob>(demoFileContents());
   private sequence = 1;
   private changeCursor = 0;
+  /** Every note's versions, oldest first, at positions in one demo log. */
+  private versions = new WeakMap<NoteDocument, DemoVersion[]>();
+  private logPosition = 0;
+  readonly noteHistory: NoteHistoryReader = {
+    list: async (path, { before } = {}) => {
+      const older = this.versions.get(this.required(path))!
+        .filter(({ version }) => before === undefined || version.seq < before)
+        .reverse();
+      const versions = older.slice(0, DEMO_HISTORY_PAGE).map(({ version }) => clone(version));
+      const next = older.length > versions.length ? versions.at(-1)!.seq : undefined;
+      return next === undefined ? { versions, from: 1 } : { versions, from: next, next };
+    },
+    version: async (path, seq) => {
+      const kept = this.versions.get(this.required(path))!.find(({ version }) => version.seq === seq);
+      if (!kept) throw mdbaseError("not_found", "This version is no longer kept.", "version_compacted");
+      return kept.document;
+    }
+  };
   private typeSequence = 1;
   private contractDescriptors: CollectionContractDescriptor[] = [];
   private packResources = new Map<string, string>();
@@ -67,6 +88,9 @@ export class DemoCollectionGateway implements CollectionGateway {
     const readme = demoDocument("_mdbase/README.md", "mdbase", mdbaseReadme.replace("# mdbase\n\n", ""), 1);
     readme.file.mtime = "2020-08-01T00:00:00Z";
     this.notes.push(readme);
+    // Every demo note starts its history created at its modified time.
+    const created = (note: NoteDocument) => Date.parse(note.file!.mtime!);
+    for (const note of [...this.notes].sort((a, b) => created(a) - created(b))) this.keep(note, "created", created(note));
     this.openingDelay = Math.max(0, Math.min(openingDelay, 10_000));
   }
 
@@ -285,6 +309,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       embeds: demoEmbeds(note.body)
     };
     this.notes.unshift(note);
+    this.keep(note, "created");
     this.emit("mdbase.record.created", { path: note.path, types: note.types });
     return clone(note);
   }
@@ -297,6 +322,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     restored.revision = `demo-${this.sequence++}`;
     restored.document ??= composeRecordSource(restored.frontmatter, restored.body ?? "");
     this.notes.unshift(restored);
+    this.keep(restored, "created");
     this.emit("mdbase.record.created", { path: restored.path, types: restored.types });
     return clone(restored);
   }
@@ -639,7 +665,18 @@ export class DemoCollectionGateway implements CollectionGateway {
       links: demoLinks(note.body ?? ""),
       embeds: demoEmbeds(note.body ?? "")
     };
+    this.keep(note, changeType === "mdbase.record.renamed" ? "moved" : "edited");
     this.emit(changeType, payload);
+  }
+
+  private keep(note: NoteDocument, kind: NoteVersion["kind"], time = Date.now()) {
+    const version: NoteVersion = {
+      seq: ++this.logPosition, time, author: DEMO_AUTHOR, kind, path: note.path, revision: note.revision,
+      source: "api", deviceKind: "app_runtime", app: "dev.mdbase.editor"
+    };
+    const kept = this.versions.get(note) ?? [];
+    kept.push({ version, document: note.document! });
+    this.versions.set(note, kept);
   }
 
   private emit(type: string, payload: JsonObject) {
@@ -659,6 +696,7 @@ export class DemoCollectionGateway implements CollectionGateway {
         .replaceAll(`](${from}`, `](${to}`);
       if (nextBody === note.body) continue;
       note.body = nextBody;
+      note.document = composeRecordSource(note.frontmatter, nextBody);
       this.bump(note);
     }
   }
@@ -675,6 +713,18 @@ export class DemoCollectionGateway implements CollectionGateway {
     });
   }
 }
+
+interface DemoVersion {
+  version: NoteVersion;
+  document: string;
+}
+
+const DEMO_HISTORY_PAGE = 50;
+const DEMO_AUTHOR = {
+  account: "6f1d2c3b-4a5e-4f60-8172-9a0b1c2d3e4f",
+  device: "0e9d8c7b-6a5f-4e3d-9c2b-1a0f9e8d7c6b",
+  grant: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f"
+};
 
 const DEMO_TYPE_SOURCE = `---
 kind: mdbase.type

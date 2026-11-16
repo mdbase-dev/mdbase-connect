@@ -639,6 +639,10 @@ msgstr "{references, plural, one {Also updated links in # note.} other {Also upd
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 
+#: src/NoteHistoryPanel.tsx
+msgid "{saves, plural, one {# save} other {# saves}}"
+msgstr "{saves, plural, one {# save} other {# saves}}"
+
 #. placeholder {0}: this.job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
@@ -721,6 +725,30 @@ msgstr "A {label} for “{name}” already exists."
 #: src/type-contracts.ts
 msgid "a checkbox"
 msgstr "a checkbox"
+
+#: src/note-history.ts
+msgid "A collaborator"
+msgstr "A collaborator"
+
+#: src/note-history.ts
+msgid "A collaborator, from the command line"
+msgstr "A collaborator, from the command line"
+
+#: src/note-history.ts
+msgid "A collaborator, in {app}"
+msgstr "A collaborator, in {app}"
+
+#: src/note-history.ts
+msgid "A collaborator, on desktop"
+msgstr "A collaborator, on desktop"
+
+#: src/note-history.ts
+msgid "A collaborator, on mobile"
+msgstr "A collaborator, on mobile"
+
+#: src/note-history.ts
+msgid "A collaborator, on the web"
+msgstr "A collaborator, on the web"
 
 #: src/type-contracts.ts
 msgid "A complex schema needs record-level validation."
@@ -1001,6 +1029,10 @@ msgstr "All notes"
 msgid "All notes, {0} total"
 msgstr "All notes, {0} total"
 
+#: src/NoteHistoryPanel.tsx
+msgid "All versions"
+msgstr "All versions"
+
 #: src/TypeBrowser.tsx
 msgid "Allow installs"
 msgstr "Allow installs"
@@ -1018,6 +1050,10 @@ msgstr "Allow person records in this collection?"
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
 msgstr "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Allow the editor to read this collection’s history to see earlier versions of your notes."
+msgstr "Allow the editor to read this collection’s history to see earlier versions of your notes."
 
 #: src/YourPersonPanel.tsx
 msgid "Allow the Editor to see your account identity"
@@ -1459,6 +1495,10 @@ msgstr "Close comments"
 msgid "Close file preview"
 msgstr "Close file preview"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Close history"
+msgstr "Close history"
+
 #: src/App.tsx
 msgid "Close note peek"
 msgstr "Close note peek"
@@ -1865,6 +1905,15 @@ msgstr "Couldn’t install {0}"
 msgid "Couldn’t link that mention. {0}"
 msgstr "Couldn’t link that mention. {0}"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Couldn’t load this note’s history."
+msgstr "Couldn’t load this note’s history."
+
+#. placeholder {0}: gatewayError(error)
+#: src/NoteHistoryPanel.tsx
+msgid "Couldn’t load this version. {0}"
+msgstr "Couldn’t load this version. {0}"
+
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t open “{path}”. {0}"
@@ -1884,6 +1933,12 @@ msgstr "Couldn’t reload rewritten links in “{0}”. {1}"
 #: src/use-note-actions.ts
 msgid "Couldn’t rename “{0}”. {message}"
 msgstr "Couldn’t rename “{0}”. {message}"
+
+#. placeholder {0}: session.draft.title || session.document.path
+#. placeholder {1}: gatewayError(error)
+#: src/use-note-actions.ts
+msgid "Couldn’t restore “{0}”. {1}"
+msgstr "Couldn’t restore “{0}”. {1}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
@@ -1961,6 +2016,10 @@ msgstr "Create the first type"
 #: src/TypeBrowser.tsx
 msgid "Create type"
 msgstr "Create type"
+
+#: src/note-history.ts
+msgid "Created"
+msgstr "Created"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
@@ -2043,6 +2102,10 @@ msgstr "Delete"
 msgid "delete notes"
 msgstr "delete notes"
 
+#: src/note-history.ts
+msgid "Deleted"
+msgstr "Deleted"
+
 #: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "Deleted {title}"
@@ -2102,6 +2165,10 @@ msgstr "Details"
 #: src/TypeBrowser.tsx
 msgid "Developer and infrastructure packs"
 msgstr "Developer and infrastructure packs"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Differences from the note now"
+msgstr "Differences from the note now"
 
 #: src/settings/SettingsView.tsx
 msgctxt "collection runtime"
@@ -2198,6 +2265,14 @@ msgstr "Each choice includes its portable contract and an editable local mapping
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "Each implementation needs an exact contract ID and version."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Earlier versions are no longer kept."
+msgstr "Earlier versions are no longer kept."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Earlier versions of notes in this collection can’t be read here. Everything else still works."
+msgstr "Earlier versions of notes in this collection can’t be read here. Everything else still works."
+
 #: src/note-sort.ts
 msgid "Earliest first"
 msgstr "Earliest first"
@@ -2225,6 +2300,10 @@ msgstr "Edit the underlying property values. Other apps use these values too."
 #: src/TypeBrowser.tsx
 msgid "Edit YAML"
 msgstr "Edit YAML"
+
+#: src/note-history.ts
+msgid "Edited outside mdbase"
+msgstr "Edited outside mdbase"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -2596,6 +2675,10 @@ msgstr "From {0}"
 msgid "From <0>{0}</0> to <1>{1}</1>. This changes paths across the collection, including subfolders."
 msgstr "From <0>{0}</0> to <1>{1}</1>. This changes paths across the collection, including subfolders."
 
+#: src/note-history.ts
+msgid "From the command line"
+msgstr "From the command line"
+
 #: src/TypeBrowser.tsx
 msgid "Frontmatter contains all"
 msgstr "Frontmatter contains all"
@@ -2667,6 +2750,18 @@ msgstr "Hide types sidebar"
 #: src/note-sort.ts
 msgid "High to low"
 msgstr "High to low"
+
+#: src/NoteHistoryPanel.tsx
+msgid "History"
+msgstr "History"
+
+#: src/NoteHistoryPanel.tsx
+msgid "History goes back to {since}."
+msgstr "History goes back to {since}."
+
+#: src/NoteHistoryPanel.tsx
+msgid "History isn’t available here"
+msgstr "History isn’t available here"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -2974,6 +3069,10 @@ msgstr "Loading file viewer"
 msgid "Loading folders…"
 msgstr "Loading folders…"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Loading history…"
+msgstr "Loading history…"
+
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "Loading note"
@@ -2994,6 +3093,10 @@ msgstr "Loading preview…"
 #: src/App.tsx
 msgid "Loading properties…"
 msgstr "Loading properties…"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Loading this version…"
+msgstr "Loading this version…"
 
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
@@ -3254,6 +3357,11 @@ msgstr "Move to…"
 msgid "Moved {0} of {1} notes. {2}"
 msgstr "Moved {0} of {1} notes. {2}"
 
+#. placeholder {0}: version.path
+#: src/note-history.ts
+msgid "Moved to {0}"
+msgstr "Moved to {0}"
+
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Moving"
@@ -3420,6 +3528,10 @@ msgstr "No declared values."
 #: src/App.tsx
 msgid "No earlier note"
 msgstr "No earlier note"
+
+#: src/NoteHistoryPanel.tsx
+msgid "No earlier versions of this note are kept."
+msgstr "No earlier versions of this note are kept."
 
 #: src/SchemaValueEditor.tsx
 msgid "No entries yet."
@@ -3659,6 +3771,10 @@ msgstr "Notes use this field to declare their type. Edit it in YAML if you need 
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Now"
+msgstr "Now"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
 msgstr "Null"
@@ -3707,9 +3823,33 @@ msgstr "Older"
 msgid "Oldest first"
 msgstr "Oldest first"
 
+#: src/note-history.ts
+msgid "On another device"
+msgstr "On another device"
+
+#: src/note-history.ts
+msgid "On desktop"
+msgstr "On desktop"
+
+#: src/note-history.ts
+msgid "On mobile"
+msgstr "On mobile"
+
+#: src/note-history.ts
+msgid "On the web"
+msgstr "On the web"
+
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
 msgstr "Only declared fields are allowed"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Only in this version:"
+msgstr "Only in this version:"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Only now:"
+msgstr "Only now:"
 
 #: src/BulkNoteProperties.tsx
 msgid "Only properties declared by every selected note’s type can be set."
@@ -4479,6 +4619,10 @@ msgstr "resources"
 msgid "resources[{index}].document is too large."
 msgstr "resources[{index}].document is too large."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Restore"
+msgstr "Restore"
+
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
 msgid "Restore default"
@@ -4489,6 +4633,14 @@ msgstr "Restore default"
 msgctxt "shortcut settings"
 msgid "Restore the default shortcut for {0}"
 msgstr "Restore the default shortcut for {0}"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Restore this version"
+msgstr "Restore this version"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Restore this version?"
+msgstr "Restore this version?"
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
@@ -4510,6 +4662,10 @@ msgstr "Restored selected notes."
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
 msgstr "Restored unlinked mention."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Restoring…"
+msgstr "Restoring…"
 
 #: src/Toasts.tsx
 msgid "Resume rename"
@@ -4855,6 +5011,10 @@ msgstr "Show notes in {0}, {1} or more notes"
 #: src/App.tsx
 msgid "Show notes sidebar"
 msgstr "Show notes sidebar"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Show older versions"
+msgstr "Show older versions"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
@@ -5278,6 +5438,10 @@ msgstr "The destination folder “{to}” already exists. Choose another name or
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
 msgstr "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
 
+#: src/NoteHistoryPanel.tsx
+msgid "The editor can’t read history yet"
+msgstr "The editor can’t read history yet"
+
 #: src/ConnectionScreens.tsx
 msgid "The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result."
 msgstr "The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result."
@@ -5384,6 +5548,10 @@ msgstr "The note or attachment index is refreshing. Wait for it to finish, then 
 #: src/App.tsx
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
+
+#: src/NoteHistoryPanel.tsx
+msgid "The note’s text is replaced with this version from {when}. The text it has now stays in history, so you can restore it later."
+msgstr "The note’s text is replaced with this version from {when}. The text it has now stays in history, so you can restore it later."
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
@@ -5782,6 +5950,26 @@ msgstr "This type changed after it was saved. Reload it before editing again."
 msgid "This value does not match the required format."
 msgstr "This value does not match the required format."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This version"
+msgstr "This version"
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version deleted the note, so it has no text."
+msgstr "This version deleted the note, so it has no text."
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version is no longer kept."
+msgstr "This version is no longer kept."
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version matches the note as it is now."
+msgstr "This version matches the note as it is now."
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version’s text isn’t available."
+msgstr "This version’s text isn’t available."
+
 #: src/note-sort.ts
 msgid "Title"
 msgstr "Title"
@@ -5795,6 +5983,7 @@ msgid "Title differences"
 msgstr "Title differences"
 
 #: src/collection-browser.ts
+#: src/note-history.ts
 msgid "Today"
 msgstr "Today"
 
@@ -5832,6 +6021,7 @@ msgid "True"
 msgstr "True"
 
 #: src/FileViewer.tsx
+#: src/NoteHistoryPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
@@ -6015,6 +6205,7 @@ msgid "Unversioned"
 msgstr "Unversioned"
 
 #: src/ConnectionScreens.tsx
+#: src/NoteHistoryPanel.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Update access"
 msgstr "Update access"
@@ -6133,6 +6324,12 @@ msgstr "Validation may change"
 msgid "Version {0}"
 msgstr "Version {0}"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/NoteHistoryPanel.tsx
+msgid "Version history"
+msgstr "Version history"
+
 #: src/NoteListViewOptions.tsx
 msgid "View options"
 msgstr "View options"
@@ -6196,6 +6393,7 @@ msgid "YAML"
 msgstr "YAML"
 
 #: src/collection-browser.ts
+#: src/note-history.ts
 msgid "Yesterday"
 msgstr "Yesterday"
 
@@ -6219,6 +6417,30 @@ msgstr "You don’t have permission to upload {name}."
 #: src/native-gateway.ts
 msgid "You have view access, so changes can't be saved."
 msgstr "You have view access, so changes can't be saved."
+
+#: src/note-history.ts
+msgid "You, from the command line"
+msgstr "You, from the command line"
+
+#: src/note-history.ts
+msgid "You, in {app}"
+msgstr "You, in {app}"
+
+#: src/note-history.ts
+msgid "You, on another device"
+msgstr "You, on another device"
+
+#: src/note-history.ts
+msgid "You, on desktop"
+msgstr "You, on desktop"
+
+#: src/note-history.ts
+msgid "You, on mobile"
+msgstr "You, on mobile"
+
+#: src/note-history.ts
+msgid "You, on the web"
+msgstr "You, on the web"
 
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."
