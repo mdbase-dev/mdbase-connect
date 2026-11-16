@@ -584,6 +584,9 @@ function cellDrag(view: EditorView, start: MouseEvent): MouseSelectionStyle | nu
 function keepCaretInCell(update: ViewUpdate) {
   const { view } = update;
   if (!(update.selectionSet || update.docChanged) || !view.hasFocus) return;
+  // Reading the DOM selection lays out the page: do it only for a caret in a table.
+  const { main } = update.state.selection;
+  if (!main.empty || !tableAt(update.state, main.head)) return;
   const selection = (view.root as Document).getSelection?.();
   const line = selection?.isCollapsed ? selection.anchorNode : null;
   if (!(line instanceof HTMLElement) || !line.classList.contains("cm-lp-tr")) return;
