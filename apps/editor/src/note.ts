@@ -258,6 +258,21 @@ export function noteTags(note: NoteSummary): string[] {
   return [...new Set([...fileTags, ...frontmatterTags].map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean))];
 }
 
+/** The note has `tag` or a tag nested under it (`project` covers
+ * `project/alpha`), in any letter case. */
+export function noteHasTag(note: NoteSummary, tag: string): boolean {
+  const wanted = tag.toLocaleLowerCase();
+  return noteTags(note).some((name) => {
+    const folded = name.toLocaleLowerCase();
+    return folded === wanted || folded.startsWith(`${wanted}/`);
+  });
+}
+
+export function noteHasType(note: NoteSummary, type: string): boolean {
+  const wanted = type.toLocaleLowerCase();
+  return note.types.some((name) => name.toLocaleLowerCase() === wanted);
+}
+
 export function tags(notes: NoteSummary[]): Array<{ name: string; count: number }> {
   const counts = new Map<string, number>();
   for (const note of notes) {

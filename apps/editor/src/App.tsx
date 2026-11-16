@@ -91,7 +91,8 @@ import {
   createdBody,
   editableNote,
   noteHeadings,
-  noteTags,
+  noteHasTag,
+  noteHasType,
   noteTitle,
   noteNeedsBodyTitle,
   summaryFromDocument,
@@ -1040,8 +1041,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       : noteFilter.kind === "folder"
         ? searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`))
         : noteFilter.kind === "tag"
-          ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
-          : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
+          ? searchedNotes.filter((note) => noteHasTag(note, noteFilter.value))
+          : searchedNotes.filter((note) => noteHasType(note, noteFilter.value));
   }, [noteFilter, searchedNotes, i18n.locale]);
   const noteSortFields = useMemo(() => sortableFields(visibleNotes, typeDescriptors), [visibleNotes, typeDescriptors, i18n.locale]);
   const noteSort = useMemo(() => resolveNoteSort(noteSortPreference, noteSortFields), [noteSortFields, noteSortPreference]);

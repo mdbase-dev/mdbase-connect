@@ -43,6 +43,10 @@ describe("body search terms", () => {
     expect(bodySearchTerms("😀😀 日本語")).toEqual(["日本語"]);
   });
 
+  it("asks a quoted phrase whole and leaves tag and type filters out", () => {
+    expect(bodySearchTerms('"Ordinary   Markdown" #notes tag:x type:note plain')).toEqual(["ordinary markdown", "plain"]);
+  });
+
   it("quotes the term as a CEL string literal", () => {
     expect(bodySearchWhere('say "hi"\\')).toBe('file.body.lower().contains("say \\"hi\\"\\\\")');
   });

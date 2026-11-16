@@ -120,6 +120,10 @@ revision's answer stays shown while the word is asked again. Only the leading
 matches are read for excerpts. Body matching is therefore case-insensitive but
 not accent-insensitive, and shorter words match titles, paths and metadata
 only. Quick open and unlinked mentions search only text already loaded.
+`parseSearchQuery` reads a search once for both paths: a "quoted phrase" is
+one term, asked of the index whole and never fuzzy-matched, and `#tag`,
+`tag:name` and `type:name` are filters (nested tags included, any case), the
+same predicate as the list's tag and type chips, never text to find.
 Unlinked mentions reuse the hydrated
 search entries (including their original display titles), caching syntax
 exclusions and paragraph bounds by entry identity. Snippets reuse the shared

@@ -30,6 +30,8 @@ describe("Search filters", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(input).toHaveValue("");
     expect(screen.getByRole("button", { name: "Remove type filter note" })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "tag:wri" } });
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["#writing2"]);
   });
 
   it("browses filters, supports arrow selection and Escape, and closes on outside focus", () => {
