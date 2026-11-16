@@ -1,6 +1,6 @@
 {
   "source": {
-    "commit": "7439dbd48279f5f64d89fbde9c4326a814c1259a",
+    "commit": "e6fcee0b73ad6bd3f6188e07875dc5aef15f6955",
     "path": "runtime/crates/replica/src/frames.rs"
   },
   "methods": [
@@ -48,6 +48,8 @@
     "query_contract_v1",
     "read_file",
     "receipt",
+    "record_history",
+    "record_version",
     "reject_device",
     "resolve_hold",
     "resolve_links",
