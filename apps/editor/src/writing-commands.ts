@@ -1,6 +1,7 @@
 import { startCompletion } from "@codemirror/autocomplete";
+import { syntaxTree } from "@codemirror/language";
 import { EditorSelection, type ChangeSpec, type EditorState } from "@codemirror/state";
-import type { EditorView } from "@codemirror/view";
+import { EditorView } from "@codemirror/view";
 
 /** Rewrites the start of every line a selection touches; `next` returns the replacement for the part `pattern` matched. */
 function rewriteLineStarts(view: EditorView, pattern: RegExp, next: (match: RegExpExecArray, lines: RegExpExecArray[]) => string): boolean {
@@ -73,3 +74,38 @@ export function insertNoteLink(view: EditorView): boolean {
   startCompletion(view);
   return true;
 }
+
+/** Enter on an empty quoted line ends the quote (one level of it), as an empty item ends a list. */
+export function exitEmptyQuote(view: EditorView): boolean {
+  const { state } = view;
+  const { main } = state.selection;
+  if (state.readOnly || state.selection.ranges.length > 1 || !main.empty) return false;
+  const line = state.doc.lineAt(main.head);
+  if (main.head !== line.to || !/^\s*(?:>\s*)+$/.test(line.text)) return false;
+  // A blank line inside quoted code is code.
+  for (let node = syntaxTree(state).resolveInner(main.head, -1); node; node = node.parent!) {
+    if (node.name === "FencedCode" || node.name === "CodeBlock") return false;
+    if (!node.parent) break;
+  }
+  const outer = line.text.replace(/\s*>\s*$/, "");
+  const insert = outer ? `${outer} ` : "";
+  view.dispatch({ changes: { from: line.from, to: line.to, insert }, selection: EditorSelection.cursor(line.from + insert.length), scrollIntoView: true, userEvent: "input" });
+  return true;
+}
+
+const wrapping: Record<string, string> = { "*": "*", "_": "_", "`": "`", "~": "~", "(": ")", "[": "]", "\"": "\"" };
+
+/**
+ * Typing an emphasis mark, a backtick, an opening bracket or a quote over selected text
+ * wraps the text instead of replacing it, and keeps it selected, so `*` twice makes it bold.
+ */
+export const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, text) => {
+  const close = wrapping[text];
+  const { main } = view.state.selection;
+  if (!close || main.empty || from !== main.from || to !== main.to) return false;
+  view.dispatch(view.state.changeByRange((range) => range.empty
+    ? { changes: { from: range.from, insert: text }, range: EditorSelection.cursor(range.from + text.length) }
+    : { changes: [{ from: range.from, insert: text }, { from: range.to, insert: close }], range: EditorSelection.range(range.anchor + 1, range.head + 1) }
+  ), { scrollIntoView: true, userEvent: "input.type" });
+  return true;
+});

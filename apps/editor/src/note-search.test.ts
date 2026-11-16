@@ -234,6 +234,39 @@ describe("note search", () => {
     const recent = (note: NoteSummary) => note.path === "B/Plan.md" || note.path === "Planning.md" ? 0.3 : 0;
     expect(searchNoteResults(index, "plan", Infinity, recent).map((result) => result.note.path)).toEqual(["B/Plan.md", "A/Plan.md", "Planning.md"]);
   });
+
+  it("takes body matches from indexed answers instead of the text the page holds", () => {
+    const listed = buildNoteSearchIndex([
+      summary("A.md", {}, [], ""),
+      summary("B.md", {}, [], "Mentions the launch in passing."),
+      { ...summary("C.md", {}, [], ""), body: undefined }
+    ]);
+    const answers = new Map([["launch", new Set(["A.md", "C.md"])], ["passing", new Set(["C.md"])]]);
+    const texts = new Map([["C.md", "Notes on the launch, passing through."]]);
+    const asked: string[] = [];
+    const bodies = {
+      paths: (term: string) => { asked.push(term); return answers.get(term); },
+      text: (note: NoteSummary) => texts.get(note.path)
+    };
+    // The page's own body for B is not consulted: the collection's answer decides.
+    expect(searchNoteResults(listed, "Launch", Infinity, undefined, bodies).map((result) => result.note.path)).toEqual(["A.md", "C.md"]);
+    expect(asked).toContain("launch");
+    // Every body term must match; a short word is not a body term and must match elsewhere.
+    expect(searchNoteResults(listed, "launch passing", Infinity, undefined, bodies).map((result) => result.note.path)).toEqual(["C.md"]);
+    expect(searchNoteResults(listed, "launch on", Infinity, undefined, bodies)).toEqual([]);
+    // An unanswered term matches nothing yet.
+    expect(searchNoteResults(listed, "pending", Infinity, undefined, bodies)).toEqual([]);
+    // The excerpt comes from text read for it; without text the excerpt is empty.
+    const [a, c] = searchNoteResults(listed, "launch", Infinity, undefined, bodies);
+    expect(a.context).toMatchObject({ kind: "body", text: "" });
+    expect(c.context.kind).toBe("body");
+    expect(c.context.text).toContain("launch");
+    expect(c.context.ranges.length).toBeGreaterThan(0);
+    // A short word matched elsewhere does not rule out the excerpt of the words asked.
+    const [mixed] = searchNoteResults(listed, "launch C", Infinity, undefined, bodies);
+    expect(mixed.note.path).toBe("C.md");
+    expect(mixed.context.kind).toBe("body");
+  });
 });
 
 function displayType(name: string): CollectionTypeDescriptor {

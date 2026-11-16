@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { CollectionChange, WatchStatus } from "@mdbase-dev/connect";
-import type { NoteContentRequest, NoteIndexRequest } from "./model";
+import type { NoteIndexRequest } from "./model";
 
 vi.mock("./CodeEditor", () => ({
   CodeEditor: ({ header, value, label }: { header?: ReactNode; value: string; label: string }) =>
@@ -40,12 +40,14 @@ it("shows a stopped connection and explicit retry after a permanent watch failur
   } finally { unmount(); }
 });
 
-it("retries the failed inventory and starts full-text indexing only after all notes load", async () => {
+it("retries the failed inventory and searches bodies without loading note text", async () => {
   class InterruptedGateway extends DemoCollectionGateway {
     fail = true;
+    paths: string[] = [];
     async list(options: NoteIndexRequest = {}) {
       const result = await super.list({ signal: options.signal });
       const notes = result.notes.map(({ body: _body, ...note }) => note);
+      this.paths = notes.map((note) => note.path);
       if (!this.fail) {
         options.onProgress?.({ notes, total: notes.length, structureComplete: true, complete: true, contentComplete: false });
         return { ...result, notes };
@@ -54,9 +56,8 @@ it("retries the failed inventory and starts full-text indexing only after all no
         structureComplete: false, complete: false, contentComplete: false });
       throw new Error("Third page unavailable");
     }
-    async hydrateContent(options: NoteContentRequest = {}) {
-      const result = await super.hydrateContent({ signal: options.signal });
-      return { ...result, notes: result.notes.map((note) => ({ ...note, body: "recoveryneedle" })) };
+    async searchBodies(term: string) {
+      return term === "recoveryneedle" ? this.paths : [];
     }
   }
   const gateway = new InterruptedGateway(600);
@@ -65,10 +66,10 @@ it("retries the failed inventory and starts full-text indexing only after all no
   expect(await screen.findByText("400 notes loaded · incomplete")).toBeInTheDocument();
   expect(hydrate).not.toHaveBeenCalled();
   fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "recoveryneedle" } });
-  expect(await screen.findByText("0 found so far · incomplete")).toBeInTheDocument();
+  expect(await screen.findByText("400 found so far · incomplete")).toBeInTheDocument();
   gateway.fail = false;
   fireEvent.click(screen.getByRole("button", { name: "Retry notes" }));
-  await waitFor(() => expect(hydrate).toHaveBeenCalledOnce());
   expect(await screen.findByText("601 found · relevance")).toBeInTheDocument();
+  expect(hydrate).not.toHaveBeenCalled();
   expect(screen.queryByRole("button", { name: "Retry notes" })).not.toBeInTheDocument();
 });

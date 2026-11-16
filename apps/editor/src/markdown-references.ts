@@ -16,20 +16,22 @@ export interface MarkdownReference {
   block: boolean;
 }
 
-/** The latest parses: panes and hooks reading one note's text share its tree. */
-const parses: Array<{ source: string; tree: Tree }> = [];
+interface Parse { source: string; tree: Tree; references?: readonly MarkdownReference[] }
+
+/** The latest parses: panes and hooks reading one note's text share its tree and references. */
+const parses: Parse[] = [];
 
 /**
  * Parses `source`, reusing the tree of the text it was edited from. An edit
  * reparses only around the changed span, so typing in a long note does not
  * parse the whole note again.
  */
-function parseMarkdown(source: string): Tree {
+function parseMarkdown(source: string): Parse {
   const index = parses.findIndex((parse) => parse.source === source);
   const parse = index >= 0 ? parses.splice(index, 1)[0]! : { source, tree: reparse(source, parses[0]) };
   parses.unshift(parse);
   parses.length = Math.min(parses.length, 4);
-  return parse.tree;
+  return parse;
 }
 
 function reparse(source: string, previous: { source: string; tree: Tree } | undefined): Tree {
@@ -44,7 +46,14 @@ function reparse(source: string, previous: { source: string; tree: Tree } | unde
  * Code spans and fenced code are ignored because they never produce Link/Image
  * nodes. Wiki embeds are parsed as Image nodes by the common Markdown grammar.
  */
-export function markdownReferences(source: string, tree: Tree = parseMarkdown(source)): MarkdownReference[] {
+export function markdownReferences(source: string, tree?: Tree): readonly MarkdownReference[] {
+  if (tree) return collectReferences(source, tree);
+  // Each keystroke would otherwise walk the whole note once per reader.
+  const parse = parseMarkdown(source);
+  return parse.references ??= collectReferences(source, parse.tree);
+}
+
+function collectReferences(source: string, tree: Tree): MarkdownReference[] {
   const references: MarkdownReference[] = [];
   const cursor = tree.cursor();
   const visit = () => {

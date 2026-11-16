@@ -1,3 +1,5 @@
+import { performanceMark } from "./performance-mark.js";
+
 /**
  * `MdbaseClient`: the SDK's main entry point over any transport.
  *
@@ -584,6 +586,7 @@ export class MdbaseClient {
   readonly presence: PresenceApi;
   private readonly writeLedger: WriteLedger;
   private ledgerStarted = false;
+  private queryAnswered = false;
   private transportDeferred = false;
 
   private constructor(
@@ -1310,7 +1313,15 @@ export class MdbaseClient {
         [2, o.contract],
       ]),
       { codec: queryResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
-    );
+    ).then(result => this.firstQueryResult(result));
+  }
+
+  private firstQueryResult<T>(result: T): T {
+    if (!this.queryAnswered) {
+      this.queryAnswered = true;
+      performanceMark("mdbase:query:first-result");
+    }
+    return result;
   }
 
   /** Canonical contract projections with validation issues and ordinary cursor
@@ -1329,7 +1340,7 @@ export class MdbaseClient {
     if (result.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract query result", "contract_query_version");
     if (result.records.length !== result.page.records.length || result.records.some((record, i) => record.id !== result.page.records[i]?.id))
       throw mdbaseError("unavailable", "invalid contract query record binding", "contract_query_response");
-    return result;
+    return this.firstQueryResult(result);
   }
 
   /**
@@ -1578,6 +1589,7 @@ export class MdbaseClient {
   live(query: Query, o: { include?: Include } = {}): LiveQuery {
     const l = new LiveQuery(this, query, o.include);
     this.lives.add(l);
+    void l.ready.then(() => { this.firstQueryResult(undefined); }, () => {});
     void this._resubscribeLive(l, true);
     return l;
   }

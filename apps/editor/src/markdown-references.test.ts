@@ -72,4 +72,13 @@ describe("Markdown references", () => {
       expect(markdownReferences(source)).toEqual(markdownReferences(source, markdownLanguage.parser.parse(source)));
     }
   });
+
+  it("walks a note's text once for every reader of it", () => {
+    const source = "Intro ![[Plan]] and [link](a.md).";
+    const first = markdownReferences(source);
+    expect(markdownReferences(source)).toBe(first);
+    const edited = `${source} ![[More]]`;
+    expect(markdownReferences(edited)).not.toBe(first);
+    expect(markdownReferences(edited).map((reference) => reference.target)).toEqual(["Plan", "a.md", "More"]);
+  });
 });

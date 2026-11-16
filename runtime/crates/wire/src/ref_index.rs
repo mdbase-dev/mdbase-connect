@@ -196,8 +196,12 @@ impl Wire for IndexedManifest {
                     *v = Cbor::Uint(MANIFEST_FMT_REF_INDEXED);
                 }
             }
-            // Key 12 sorts after every fmt-1 key.
-            m.push((Cbor::Uint(12), self.ref_indices.to_cbor()));
+            // Key 12 sorts after every fmt-1 key but 13.
+            let at = m
+                .iter()
+                .position(|(k, _)| matches!(k, Cbor::Uint(k) if *k > 12))
+                .unwrap_or(m.len());
+            m.insert(at, (Cbor::Uint(12), self.ref_indices.to_cbor()));
         }
         c
     }
@@ -233,7 +237,8 @@ impl Wire for IndexedManifest {
                         *v = Ann::Leaf(Cbor::Uint(MANIFEST_FMT_REF_INDEXED));
                     }
                 }
-                f.push((12, "ref_indices", self.ref_indices.annotate()));
+                let at = f.iter().position(|(k, _, _)| *k > 12).unwrap_or(f.len());
+                f.insert(at, (12, "ref_indices", self.ref_indices.annotate()));
                 Ann::Struct("IndexedManifest", f)
             }
             other => other,
@@ -329,6 +334,7 @@ mod tests {
             file_count: 0,
             previous: Some(addr(0xa6)),
             control_chain: addr(0xa7),
+            sem_ratchet: None,
         }
     }
 
@@ -372,6 +378,31 @@ mod tests {
         }
         let e = decode_manifest(&crate::cbor::encode(&f3).unwrap()).unwrap_err();
         assert!(e.is_unknown());
+    }
+
+    #[test]
+    fn the_semantics_ratchet_is_an_additive_key_in_both_formats() {
+        let old = manifest();
+        let without = old.to_bytes().unwrap();
+        assert_eq!(decode_manifest(&without).unwrap().0.sem_ratchet, None);
+        let m = ManifestPayload {
+            sem_ratchet: Some(2),
+            ..old
+        };
+        for idx in [vec![], vec![addr(1), addr(2)]] {
+            let bytes = encode_manifest(&m, &idx).unwrap();
+            // Canonical: key 12 before key 13.
+            crate::cbor::validate(&bytes).unwrap();
+            assert_eq!(decode_manifest(&bytes).unwrap(), (m.clone(), idx));
+        }
+        // Nothing else moves: without key 13 these are the bytes as before, so
+        // a decoder that predates the key (and ignores it, 00-overview.md
+        // §6.2) reads the same manifest.
+        let mut c = m.to_cbor();
+        if let Cbor::Map(v) = &mut c {
+            v.retain(|(k, _)| *k != Cbor::Uint(13));
+        }
+        assert_eq!(crate::cbor::encode(&c).unwrap(), without);
     }
 
     #[test]

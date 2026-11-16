@@ -26,6 +26,7 @@ import { NativeNoteObservation } from "./native-note-observation";
 import { downloadNativeFile, type NativeFileSelection } from "./native-file-download";
 import { fileAssetKey } from "./file-reference-resolution";
 import { NextEditorRecords } from "./next-editor-records";
+import { bodySearchWhere } from "./body-search";
 import type {
   CollectionAuthorizationOptions,
   CollectionAuthorizationTarget,
@@ -69,6 +70,7 @@ const PLAN_MEMORY = 8;
 const RECEIPT_TIMEOUT_MS = 30_000;
 /** Referring records per backlinks page; record views carry no body. */
 const BACKLINKS_PAGE = 500;
+const SEARCH_PAGE = 500;
 const BACKLINKS_ATTEMPTS = 3;
 /** Links per resolve_links request (the replica's bound). */
 const RESOLVE_LINKS_BATCH = 512;
@@ -286,6 +288,19 @@ export class NativeEditorGateway implements CollectionGateway {
   observe(): NoteObservation {
     this.check();
     return new NativeNoteObservation(this.client, () => this.current());
+  }
+
+  async searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    const signal = this.signal(options.signal);
+    const paths: string[] = [];
+    let complete = false;
+    for await (const page of this.client.pages({ where: bodySearchWhere(term), limit: SEARCH_PAGE }, { signal })) {
+      this.check();
+      for (const record of page.records) paths.push(record.path);
+      complete = page.complete && !page.cursor;
+    }
+    if (!complete) throw new Error(t`The collection did not return a complete list of notes.`);
+    return paths;
   }
 
   /** Every page of one backlinks answer. A local change between pages ends

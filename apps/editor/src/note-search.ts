@@ -2,6 +2,16 @@ import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import type { NoteSummary } from "./model";
 import { noteAliases } from "./links";
 import { basename, noteTags, noteTitle } from "./note";
+import { bodySearchTerm } from "./body-search";
+
+/** Body matches answered by the collection's runtime instead of the text the
+ * page holds (`BodySearch`). */
+export interface IndexedBodies {
+  /** Paths whose text contains `term`; undefined while it is unanswered. */
+  paths(term: string): ReadonlySet<string> | undefined;
+  /** The note's text, when it was read for an excerpt. */
+  text(note: NoteSummary): string | undefined;
+}
 
 export interface NoteSearchEntry {
   note: NoteSummary;
@@ -86,17 +96,24 @@ export function searchNotes(index: NoteSearchEntry[], query: string, limit = Num
   return searchNoteResults(index, query, limit).map((result) => result.note);
 }
 
-/** `bonus` lowers a note's score (ranks it higher); Quick open uses it for recent notes. */
+/** `bonus` lowers a note's score (ranks it higher); Quick open uses it for
+ * recent notes. With `bodies`, body matches are the runtime's answers;
+ * without, they are read from the text the page holds. */
 export function searchNoteResults(
   index: NoteSearchEntry[],
   query: string,
   limit = Number.POSITIVE_INFINITY,
-  bonus?: (note: NoteSummary) => number
+  bonus?: (note: NoteSummary) => number,
+  bodies?: IndexedBodies
 ): NoteSearchResult[] {
-  const tokens = normalize(query).split(/\s+/).filter(Boolean).map((text) => ({
-    text,
-    wordStart: new RegExp(`(?:^|[\\s/_.-])${escapeRegExp(text)}`)
-  }));
+  const tokens = query.trim().split(/\s+/).flatMap((word) => {
+    const text = normalize(word);
+    return text ? [{
+      text,
+      term: bodySearchTerm(word),
+      wordStart: new RegExp(`(?:^|[\\s/_.-])${escapeRegExp(text)}`)
+    }] : [];
+  });
   const contextTokens = highlightTokens(query);
   if (!tokens.length) {
     return index.slice(0, limit).map((entry) => {
@@ -110,7 +127,7 @@ export function searchNoteResults(
     });
   }
   return index
-    .map((entry, order) => ({ entry, order, score: noteScore(entry, tokens) - (bonus?.(entry.note) ?? 0) }))
+    .map((entry, order) => ({ entry, order, score: noteScore(entry, tokens, bodies) - (bonus?.(entry.note) ?? 0) }))
     .filter((candidate) => Number.isFinite(candidate.score))
     .sort((left, right) => left.score - right.score || left.order - right.order)
     .slice(0, limit)
@@ -119,7 +136,7 @@ export function searchNoteResults(
       return {
         note: candidate.entry.note,
         get context() {
-          return context ??= bestSearchContext(candidate.entry, contextTokens, tokens);
+          return context ??= bestSearchContext(candidate.entry, contextTokens, tokens, bodies);
         }
       };
     });
@@ -127,10 +144,12 @@ export function searchNoteResults(
 
 interface SearchToken {
   text: string;
+  /** The word as the runtime matches it in note text, if long enough. */
+  term?: string;
   wordStart: RegExp;
 }
 
-function noteScore(entry: NoteSearchEntry, tokens: SearchToken[]): number {
+function noteScore(entry: NoteSearchEntry, tokens: SearchToken[], bodies?: IndexedBodies): number {
   let score = 0;
   for (const token of tokens) {
     let tokenScore = Math.min(
@@ -142,7 +161,7 @@ function noteScore(entry: NoteSearchEntry, tokens: SearchToken[]): number {
     // Substring positions are nonnegative: these fields cannot improve a
     // score already at or below their minimum weight.
     if (tokenScore > 2) tokenScore = Math.min(tokenScore, substringScore(entry.metadata, token) + 2);
-    if (tokenScore > 4) tokenScore = Math.min(tokenScore, bodyScore(entry, token) + 4);
+    if (tokenScore > 4) tokenScore = Math.min(tokenScore, (bodies ? indexedBodyScore(entry, token, bodies) : bodyScore(entry, token)) + 4);
     if (!Number.isFinite(tokenScore)) return Number.POSITIVE_INFINITY;
     score += tokenScore;
   }
@@ -194,6 +213,17 @@ function bodyScore(entry: NoteSearchEntry, token: SearchToken): number {
   return score;
 }
 
+function indexedBodyScore(entry: NoteSearchEntry, token: SearchToken, bodies: IndexedBodies): number {
+  return token.term !== undefined && bodies.paths(token.term)?.has(entry.note.path) ? 0 : Number.POSITIVE_INFINITY;
+}
+
+/** Words too short to be asked of the index cannot rule a body excerpt out;
+ * every word that was asked must match. */
+function indexedBodyContextScore(entry: NoteSearchEntry, tokens: SearchToken[], bodies: IndexedBodies): number {
+  const asked = tokens.filter((token) => token.term !== undefined);
+  return asked.length ? combinedScore(entry.body, asked, (_, token) => indexedBodyScore(entry, token, bodies)) : Number.POSITIVE_INFINITY;
+}
+
 function substringScore(value: string, token: SearchToken): number {
   const index = value.indexOf(token.text);
   return index < 0 ? Number.POSITIVE_INFINITY : index / 10_000;
@@ -237,17 +267,19 @@ function textRanges(text: string, tokens: string[]): SearchTextRange[] {
   return ranges.sort((left, right) => left.from - right.from);
 }
 
-function bestSearchContext(entry: NoteSearchEntry, query: string[], tokens: SearchToken[]): NoteSearchContext {
+function bestSearchContext(entry: NoteSearchEntry, query: string[], tokens: SearchToken[], bodies?: IndexedBodies): NoteSearchContext {
   const fields = [
     { kind: "title" as const, score: combinedScore(entry.title, tokens, fuzzyScore) },
     { kind: "alias" as const, score: Math.min(Number.POSITIVE_INFINITY, ...entry.aliases.map((alias) => combinedScore(alias, tokens, fuzzyScore) + 0.1)) },
     { kind: "filename" as const, score: combinedScore(entry.filename, tokens, fuzzyScore) + 0.35 },
     { kind: "path" as const, score: combinedScore(entry.path, tokens, fuzzyScore) + 0.75 },
     { kind: "metadata" as const, score: combinedScore(entry.metadata, tokens, substringScore) + 2 },
-    { kind: "body" as const, score: combinedScore(entry.body, tokens, substringScore) + 4 }
+    { kind: "body" as const, score: bodies
+      ? indexedBodyContextScore(entry, tokens, bodies) + 4
+      : combinedScore(entry.body, tokens, substringScore) + 4 }
   ].sort((left, right) => left.score - right.score);
   const best = fields.find((field) => Number.isFinite(field.score))?.kind;
-  if (best === "body") return searchContext(entry.bodyText, query, "body", true);
+  if (best === "body") return searchContext(entry.note.body === undefined ? bodies?.text(entry.note) ?? "" : entry.bodyText, query, "body", true);
   if (best === "metadata" || best === "alias") return searchContext(entry.metadataText, query, "metadata", true);
   if (best === "title" || best === "filename") return { kind: "title", text: "", ranges: [] };
   return searchContext(entry.note.path, query, "path");
