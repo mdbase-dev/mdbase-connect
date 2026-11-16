@@ -133,7 +133,7 @@ fn a_few_hundred_records_are_discovered_in_one_page() {
 }
 #[test]
 fn record_bound_page_without_views_makes_real_progress_before_eof() {
-    let records: Vec<_> = (0..600)
+    let records: Vec<_> = (0..1100)
         .map(|n| {
             (
                 task_id(n),
@@ -152,9 +152,9 @@ fn record_bound_page_without_views_makes_real_progress_before_eof() {
 }
 #[test]
 fn source_bytes_bound_a_page_and_its_continuation_is_exact() {
-    // Each record is ~200 KiB, so a 512 KiB page holds two of them.
+    // Each record is ~200 KiB, so a 1 MiB page holds five of them.
     let body = "x".repeat(200 * 1024);
-    let records: Vec<_> = (0..5)
+    let records: Vec<_> = (0..12)
         .map(|n| {
             (
                 task_id(n),
@@ -179,6 +179,58 @@ fn source_bytes_bound_a_page_and_its_continuation_is_exact() {
     }
     assert_eq!(views, LATE.to_vec());
     assert_eq!(pages, 3);
+}
+#[test]
+fn a_page_classifies_the_whole_source_profile_and_rereads_only_bases() {
+    // Discovery reads every record, one relayed round trip per page, so a
+    // collection of ordinary notes must not cost a page per 512 KiB
+    // (tasknotes-app#436: ~33 round trips, 19.5 s, for a large vault). Only a
+    // Base is reread by the final CAS, so ~900 KiB of notes is one page.
+    let body = "x".repeat(30 * 1024);
+    let records: Vec<_> = (0..30)
+        .map(|n| {
+            (
+                task_id(n),
+                format!("Notes/{n}.md"),
+                format!("---\ntags: [note]\n---\n{body}\n"),
+            )
+        })
+        .collect();
+    let (mut r, session) = inventory_actor(&records);
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert_eq!(views, LATE.to_vec());
+    assert!(next.is_none());
+}
+#[test]
+fn a_base_whose_reread_no_longer_fits_starts_the_next_page() {
+    // Three ~200 KiB notes and a ~300 KiB Base fit one page's source work,
+    // but rereading the Base would not, so the page ends before the Base and
+    // the next page classifies and rereads it whole.
+    let filler = "x".repeat(200 * 1024);
+    let mut records: Vec<_> = (0..3)
+        .map(|n| {
+            (
+                task_id(n),
+                format!("Notes/{n}.md"),
+                format!("---\ntags: [note]\n---\n{filler}\n"),
+            )
+        })
+        .collect();
+    let comment = format!("# {}\n", "y".repeat(300 * 1024));
+    records.push((
+        task_id(3),
+        "Views/big.base".into(),
+        format!("{comment}{THREE}"),
+    ));
+    let (mut r, session) = inventory_actor(&records);
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert!(views.is_empty());
+    let (views, next) = discovery_page(&mut r, session, next);
+    let big: Vec<_> = (0..3).map(|i| (task_id(3), i)).collect();
+    let mut expected = big;
+    expected.extend(LATE);
+    assert_eq!(views, expected);
+    assert!(next.is_none());
 }
 #[test]
 fn native_discovery_slots_are_globally_bounded_and_close_releases_only_residency() {
