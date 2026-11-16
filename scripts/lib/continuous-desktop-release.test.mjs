@@ -139,6 +139,11 @@ test("publication reaches a skipped test selector only through explicit job resu
     assert.match(publish, new RegExp(`needs\\.${need}\\.result == 'success'`));
   }
   assert.match(job("website-update"), /if: \$\{\{ !cancelled\(\) && .*needs\.publish\.result == 'success' \}\}/);
+  // A GITHUB_TOKEN-started tag run raises no workflow_run event; the release dispatches the check.
+  const macosUpdate = job("macos-update");
+  assert.match(macosUpdate, /if: \$\{\{ !cancelled\(\) && .*needs\.publish\.result == 'success' \}\}/);
+  assert.match(macosUpdate, /continue-on-error: true/);
+  assert.match(macosUpdate, /gh workflow run desktop-macos-update\.yml .*-f to="\$GITHUB_REF_NAME"/);
 });
 
 test("coordinator pins production-contained source without changing the tag worker or compatibility recheck", () => {
