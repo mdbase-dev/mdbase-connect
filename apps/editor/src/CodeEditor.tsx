@@ -7,7 +7,7 @@ import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18
 import { t } from "@lingui/core/macro";
 import { commandShortcuts, matchesChord } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore, redo } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore, insertTab, redo } from "@codemirror/commands";
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
@@ -35,7 +35,7 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { closeBracketsAtCaret, cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
+import { closeBracketsAtCaret, cycleHeading, exitEmptyQuote, insertNoteLink, newLineInListItem, outdentEmptyListItem, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
 import { WritingToolbar, type WritingAction } from "./writing-toolbar";
 import { LinkIcon, ListBulletsIcon, ListChecksIcon, TextBIcon, TextHTwoIcon, TextIndentIcon, TextItalicIcon, TextOutdentIcon } from "./icons";
 import { createPortal } from "react-dom";
@@ -723,10 +723,13 @@ function markdownSupport(): Extension {
 }
 
 // The language's own keymap, except that Enter on an empty item or quoted line
-// ends the list or quote, however loose the list.
+// ends the list or quote, however loose the list, Backspace on an empty nested
+// item lifts it a level, and Shift-Enter stays in the item.
 const markdownKeymap: KeyBinding[] = [
   { key: "Enter", run: exitEmptyQuote },
   { key: "Enter", run: insertNewlineContinueMarkupCommand({ nonTightLists: false }) },
+  { key: "Shift-Enter", run: newLineInListItem },
+  { key: "Backspace", run: outdentEmptyListItem },
   { key: "Backspace", run: deleteMarkupBackward }
 ];
 
@@ -772,7 +775,10 @@ const writerKeymap: KeyBinding[] = [
     return match ? markdownFormatCommand(match[1])(view) : false;
   } },
   { key: "Tab", run: indentListItem },
-  { key: "Shift-Tab", run: outdentListItem }
+  { key: "Shift-Tab", run: outdentListItem },
+  // Outside a list, Tab types a tab; Escape then Tab still leaves the editor.
+  { key: "Tab", run: insertTab },
+  { key: "Shift-Tab", run: indentLess }
 ];
 
 const mdbaseHighlightStyle = HighlightStyle.define([
