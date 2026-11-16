@@ -706,10 +706,10 @@ wire_struct! {
     pub struct RecordHistory {
         /// Versions, newest first.
         0 req versions: Vec<HistoryVersion>,
-        /// The lowest log position read: every version from here up is listed
-        /// in this page or at `next`.
+        /// The lowest log position history covers: every version from here up
+        /// is listed in this page or at `next`.
         1 req from: u64,
-        /// Capture time of the entry at `from`, when it was readable.
+        /// Capture time of the oldest readable entry at or above `from`.
         2 opt from_time: i64,
         /// Pass as `before` for older versions; absent when there are none to read.
         3 opt next: u64,
