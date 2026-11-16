@@ -5,16 +5,19 @@
 //! (`store-file/src/sql_schema.rs`); rows are canonical CBOR blobs. The dumps
 //! here hold the schema and rows, not that number.
 //!
-//! - `fixtures/store-format-v2.sql` is a dump of the current on-disk format
+//! - `fixtures/store-format-v3.sql` is a dump of the current on-disk format
 //!   (schema and rows), pinned. [`current_writer_still_produces_the_pinned_format`]
 //!   fails as soon as the schema or any row encoding changes. Whoever changes
 //!   it must keep this file as the N-1 fixture (with an open test like the one
 //!   below pointing at it, so the upgrade path is proven), and pin a new one.
+//!   A virtual table's shadow tables are left out: SQLite creates and owns them.
+//! - `fixtures/store-format-v2.sql` is the format before the body search
+//!   index (store schema version 2, which the body index tables do not change).
 //! - `fixtures/store-format-v1.sql` is the format before the field index
 //!   carried the record path (store schema version 1, and the same schema
 //!   before stores were versioned).
-//!   [`pinned_v1_state_opens_with_data_and_sync_position`] opens that state
-//!   with the current code: records, pending writes, receipts, tombstones,
+//!   [`pinned_earlier_states_open_with_data_and_sync_position`] opens both
+//!   states with the current code: records, pending writes, receipts, tombstones,
 //!   resources, metadata and the applied head (the sync position) survive, and
 //!   the store stays writable.
 //! - [`first_format_state_upgrades_in_place`] opens the same state restricted
@@ -41,8 +44,10 @@ use mdbn_wire::intent::{Delete, Mutation, Op, OpClock, Source};
 use mdbn_wire::snapshot::EntityKind;
 
 /// The format the current code writes.
-const PINNED: &str = include_str!("fixtures/store-format-v2.sql");
+const PINNED: &str = include_str!("fixtures/store-format-v3.sql");
 /// The format before it (N-1).
+const V2: &str = include_str!("fixtures/store-format-v2.sql");
+/// The format before that.
 const V1: &str = include_str!("fixtures/store-format-v1.sql");
 
 /// Tables (and their indexes) the first `SqlStore` schema created
@@ -282,6 +287,7 @@ fn dump(path: &Path, rows: bool) -> String {
         .prepare(
             "SELECT type, name, sql FROM sqlite_master WHERE sql IS NOT NULL \
              AND name NOT LIKE 'sqlite_%' AND tbl_name <> 'mdbn_open' \
+             AND tbl_name NOT IN (SELECT name FROM pragma_table_list WHERE type = 'shadow') \
              ORDER BY CASE type WHEN 'table' THEN 0 WHEN 'index' THEN 1 ELSE 2 END, name",
         )
         .unwrap();
@@ -301,7 +307,8 @@ fn dump(path: &Path, rows: bool) -> String {
         };
         target.push_str(&sql.replace('\n', " "));
         target.push_str(";\n");
-        if ty == "table" {
+        // A virtual table's rows live in its shadow tables.
+        if ty == "table" && !sql.starts_with("CREATE VIRTUAL TABLE") {
             tables.push(name);
         }
     }
@@ -365,21 +372,21 @@ fn current_writer_still_produces_the_pinned_format() {
         );
         panic!(
             "the on-disk store format changed (schema or row encoding). Do not just \
-             re-pin: keep tests/fixtures/store-format-v2.sql as the N-1 fixture with \
+             re-pin: keep tests/fixtures/store-format-v3.sql as the N-1 fixture with \
              a test proving the current code opens it and keeps its data and head \
-             (an upgrade path), then pin the new format as store-format-v3.sql. The \
+             (an upgrade path), then pin the new format as store-format-v4.sql. The \
              current dump is printed above."
         );
     }
 }
 
 #[test]
-fn pinned_v1_state_opens_with_data_and_sync_position() {
-    // The same schema exists unversioned and as store schema version 1.
-    for version in [0, 1] {
-        let dir = scratch("v1");
+fn pinned_earlier_states_open_with_data_and_sync_position() {
+    // The v1 schema exists unversioned and as store schema version 1.
+    for (fixture, version) in [(V1, 0), (V1, 1), (V2, 2)] {
+        let dir = scratch("earlier");
         let path = dir.join("index.sqlite");
-        load(&path, statements(V1));
+        load(&path, statements(fixture));
         rusqlite::Connection::open(&path)
             .unwrap()
             .pragma_update(None, "user_version", version)

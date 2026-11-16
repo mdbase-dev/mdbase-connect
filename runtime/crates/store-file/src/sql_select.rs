@@ -133,6 +133,20 @@ impl Builder {
                 let parameter = self.parameter(SqlValue::Blob(value.key.clone()))?;
                 Ok(format!("({kind}={} AND {key}{cmp}{parameter})", value.kind))
             }
+            // An FTS5 phrase: the trigram tokenizer matches it as a substring.
+            // Shorter needles have no trigram; SQL text cannot hold a NUL.
+            QueryPredicate::BodyContains(needle) => {
+                if needle.chars().nth(2).is_none() || needle.contains('\0') {
+                    return Err(invalid());
+                }
+                let phrase = self.parameter(SqlValue::Text(format!(
+                    "\"{}\"",
+                    needle.replace('"', "\"\"")
+                )))?;
+                Ok(format!(
+                    "q.id IN (SELECT b.id FROM st_qbody_n b WHERE b.n IN (SELECT rowid FROM st_qbody WHERE st_qbody MATCH {phrase}))"
+                ))
+            }
             // Ready coverage has an explicit atom (Null255 for missing) for every
             // field/ID joined, so the inner clause is never SQL NULL.
             QueryPredicate::Not(inner) => {

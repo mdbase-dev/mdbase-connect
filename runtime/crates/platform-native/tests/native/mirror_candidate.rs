@@ -306,7 +306,8 @@ fn fixture(name: &str) -> (PathBuf, Ledger, Rc<RefCell<Injection>>, Request, Wor
 fn originals(s: &Ledger) -> Vec<Vec<SqlValue>> {
     read(
         s,
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'mi_%' ORDER BY name",
+        // A virtual table's rows are its shadow tables'.
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'mi_%' AND sql NOT LIKE 'CREATE VIRTUAL TABLE%' ORDER BY name",
     )
     .into_iter()
     .map(|v| {
