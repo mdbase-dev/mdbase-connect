@@ -402,8 +402,8 @@ test("recovers unsent note edits after reload without silently saving them", asy
   await page.clock.pauseAt(new Date(time.getTime() + 1_000));
   const draft = "Writing that never reached autosave.";
   await replaceOpeningNoteBody(body, draft);
-  // Let CodeMirror consume the DOM input, without reaching the 650ms autosave.
-  await page.clock.runFor(50);
+  // Reach the 300ms recovery checkpoint, without reaching the 650ms autosave.
+  await page.clock.runFor(350);
   await expect.poll(() => page.evaluate((text) => Object.keys(localStorage)
     .filter((key) => key.startsWith("mdbase-editor:draft:v1:"))
     .some((key) => JSON.parse(localStorage.getItem(key)!).body.endsWith(text)), draft)).toBe(true);

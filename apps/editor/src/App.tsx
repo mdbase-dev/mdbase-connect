@@ -565,8 +565,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let previous = session.record.snapshot;
     const collection = mutationScope.current.token().collectionId!;
     try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
-    catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
-    if (!draftRecovery && !privateCollection) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
+    catch { session.recoveryError = recoveryUnavailable(); }
+    if (!draftRecovery && !privateCollection) session.recoveryError = recoveryUnavailable();
+    const checkpointed = (ok: boolean) => {
+      const error = ok ? undefined : recoveryUnavailable();
+      if (session.recoveryError === error) return;
+      session.recoveryError = error;
+      touchSession(session);
+    };
     session.record.subscribe(() => {
       const current = session.record.snapshot;
       if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
@@ -574,24 +580,27 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (!session.recoveryDraft) {
         try {
+          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
           if (current.dirty) draftRecovery?.write(collection, current.record.path, {
             body: current.body, baseBody: current.record.body ?? "",
             patch: frontmatterPatch(current.record.frontmatter, current.frontmatter),
             baseFrontmatter: current.record.frontmatter
-          });
-          else draftRecovery?.remove(collection, current.record.path, current.record);
-          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
-          if (draftRecovery) session.recoveryError = undefined;
-        } catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
+          }, checkpointed);
+          else {
+            draftRecovery?.remove(collection, current.record.path, current.record);
+            if (draftRecovery) session.recoveryError = undefined;
+          }
+        } catch { session.recoveryError = recoveryUnavailable(); }
       }
       sessionChanged(session, previous);
       previous = current;
     });
     return session;
-  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords]);
+  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords, touchSession]);
 
   const activateSession = useCallback((session: NoteSession) => {
     const previous = noteSessions.current.active;
+    if (previous !== session) draftRecovery?.flush();
     // The old editor remains usable during a read. Save any edits made after
     // navigation started before adopting the newly loaded session.
     if (previous && previous !== session && sessionDirty(previous)) {
@@ -609,7 +618,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setEditingPath(false);
     setNotice(session.error);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
-  }, [closeNewNote]);
+  }, [closeNewNote, draftRecovery]);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
     activateSession(createSession(next));
@@ -908,6 +917,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     cancelNoteNavigation();
     saveCurrentInBackground();
     closeNewNote();
+    draftRecovery?.flush();
     noteSessions.current.deactivate();
     setDocument(undefined);
     setDraft(undefined);
@@ -1184,6 +1194,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     searchIndexCache.current.clear();
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
+    draftRecovery?.flush();
     noteSessions.current.clear();
     changeWorkspace(() => emptyWorkspace());
     linkCreations.current.clear();
@@ -2625,6 +2636,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     <NotePreviewCard preview={notePreviewController.preview} />
     <Toaster items={activeToasts} onDismiss={dismissToast} />
   </div>;
+}
+
+function recoveryUnavailable(): string {
+  return t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
 }
 
 function collectionExplicitTypeKeys(configuration: unknown): string[] {
