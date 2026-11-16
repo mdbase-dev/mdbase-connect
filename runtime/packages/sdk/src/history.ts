@@ -1,7 +1,11 @@
 /**
  * Record history (`replica-client-api.md` §4.4, API 1.4): the versions of one
  * record that the collection log still retains, newest first, and one
- * version's exact document. Both need the `history.read` capability.
+ * version's exact document. A version is an entry the replica applied; an entry
+ * it voided is never one. Both methods need the `collection.read` and
+ * `history.read` capabilities through a grant without a folder scope; a
+ * folder-scoped grant is refused with `forbidden` /
+ * `history_full_collection_required`.
  *
  * Restoring a version needs no method: write its document back with an
  * ordinary revision-checked update.
@@ -49,13 +53,18 @@ export interface HistoryVersion {
 export interface RecordHistory {
   /** Newest first. */
   versions: HistoryVersion[];
-  /** The lowest log position read. */
+  /** The lowest log position listed. History stops at the oldest retained
+   * entry, and at the position where this replica began recording its apply
+   * verdicts (an upgrade, a snapshot install). */
   from: number;
   /** The capture time (ms) of the oldest readable entry at or above `from`. */
   fromTime?: number;
-  /** Present while older versions may exist: pass it as `before`. When it is
-   * absent and the oldest version is not `created`, the record's earlier
-   * history is no longer retained. */
+  /** Present while older versions may exist: pass it as `before`. A page can
+   * be short or empty and still carry `next`. When it is absent and the oldest
+   * version is not `created`, the record's earlier history is not available
+   * here. A `before` far below the replica's history index (after a restart)
+   * is refused with `invalid_request` / `history_cursor_stale`: list from the
+   * newest version again. */
   next?: number;
 }
 
@@ -64,6 +73,15 @@ export interface RecordVersion {
   path: string;
   /** Its exact text. */
   document: string;
+}
+
+/** Options for `client.history.list`. */
+export interface HistoryOptions {
+  /** Only versions at log positions below this one (a previous page's `next`). */
+  before?: number;
+  /** At most this many versions, 1–200 (default 50). */
+  limit?: number;
+  signal?: AbortSignal;
 }
 
 /** @internal */

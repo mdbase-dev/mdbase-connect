@@ -978,8 +978,8 @@ record-history-params = {
 }
 record-history = {
   0: [* history-version], ; newest first
-  1: seq,                ; from: the lowest position read
-  ? 2: int,              ; from_time: capture time (ms) of the oldest readable entry read
+  1: seq,                ; from: the lowest position history covers
+  ? 2: int,              ; from_time: capture time (ms) of the oldest readable entry at or above from
   ? 3: seq,              ; next: pass as `before` for older versions
 }
 history-version = {
