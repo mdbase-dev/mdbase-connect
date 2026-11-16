@@ -16,6 +16,14 @@ operation; native operation checks remain authoritative. For write access after
 a read-only grant, show `missing` and call `reauthorize()`. Reauthorization still
 requires user approval and may return another restricted grant.
 
+An approval can also grant, withdraw or replace reminders (`connection.timers`)
+for the collection that is already open. The collection is not reopened. Each
+tab showing it gets new ports onto the same open replica, and pending writes
+stay there. The phase reads `opening` briefly while the tab takes the new
+ports, then `phase.connection` is a new connection whose `timers` follows the
+consent, and `subscribe` listeners are called. No reload is needed. An approval
+that leaves the reminder consent unchanged keeps the same connection.
+
 ## Optional file actions at the moment of use
 
 Declare a file action the app needs only sometimes (adding an image, say) in

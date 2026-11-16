@@ -261,14 +261,18 @@ export class ApplicationWorkerHost {
     const connection=this.connectionOf(collection);
     if(connection?.generation===handoff.generation)try{connection.detach?.(handoff);}catch{/* closed with the connection */}
   }
-  /** Give every tab without ports for its open collection its own. */
+  /** Give every tab without ports for its open collection its own, and new
+   * ones to a tab whose ports were made under a reminder consent that has
+   * since changed (an approval granted reminders while it was open). */
   private reconcile():void {
     if(this.stopping)return;
     for(const client of [...this.clients.values()]){
       if(client.gone||client.selected===null)continue;
       const connection=this.connectionOf(client.selected);
-      if(!connection?.isCurrent()||typeof connection.attach!=="function"||client.generation===connection.generation)continue;
-      const value=connection.attach();if(!value)continue;
+      if(!connection?.isCurrent()||typeof connection.attach!=="function")continue;
+      // Held ports of this generation are renewed only when the consent changed.
+      const value=client.generation!==connection.generation?connection.attach():client.handoff?connection.renewTimers?.(client.handoff)??null:null;
+      if(!value)continue;
       client.generation=connection.generation;client.handoff=value;client.collection=client.selected;
       // An unsolicited handoff is adopted against this tab's latest selection.
       this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"nativeSnapshot",0,this.view(client)]);
