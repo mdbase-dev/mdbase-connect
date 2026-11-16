@@ -237,8 +237,11 @@ quarantined.
 
 ## Continuous check of macOS self-update
 
-After each tagged Desktop Release run succeeds, **Desktop macOS Update**
-(`.github/workflows/desktop-macos-update.yml`) installs the previous signed
+After each tagged Desktop Release run publishes, its `macos-update` job
+dispatches **Desktop macOS Update**
+(`.github/workflows/desktop-macos-update.yml`) for the new tag. A
+`workflow_run` trigger would not fire, because the coordinator starts tag runs
+with `GITHUB_TOKEN`. The check installs the previous signed
 Apple Silicon release from its published `.dmg` on a fresh `macos-15` runner,
 launches it, and waits for its own first automatic check to find, verify and
 stage the newest release. It then presses **Restart and update** through the

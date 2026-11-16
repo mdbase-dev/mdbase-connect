@@ -751,6 +751,23 @@ jobs:
                 "repos/mdbase-dev/mdbase.dev/dispatches" \
                 --input -
 
+  macos-update:
+    # The coordinator starts tag runs with GITHUB_TOKEN, and a run started that
+    # way raises no workflow_run event, so the published release asks for its
+    # macOS self-update check here. The check never gates the release.
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release' && needs.publish.result == 'success' }}
+    name: Request macOS update check
+    needs: publish
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    permissions:
+      actions: write
+    steps:
+      - name: Dispatch Desktop macOS Update
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run desktop-macos-update.yml --repo "$GITHUB_REPOSITORY" --ref main -f to="$GITHUB_REF_NAME"
+
   headless-package-smoke:
     needs: select-tests
     if: ${{ !cancelled() && ((github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release') || (needs.select-tests.result == 'success' && needs.select-tests.outputs.headless == 'true')) }}
