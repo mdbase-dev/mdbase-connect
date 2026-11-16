@@ -27,6 +27,7 @@
     "check:workspace-pins": "node scripts/check-workspace-pins.mjs",
     "check:vendored-sdk": "node scripts/check-vendored-sdk.mjs",
     "canary:hosted-read": "node scripts/hosted-read-canary.mjs",
+    "canary:hosted-sync": "node scripts/hosted-sync-canary.mjs",
     "generate:changes": "node scripts/generate-change-events.mjs",
     "check:changes": "node scripts/generate-change-events.mjs --check",
     "generate:problems": "node scripts/generate-connect-problems.mjs",

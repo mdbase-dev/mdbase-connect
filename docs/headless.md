@@ -173,3 +173,97 @@ waited on, such as `account_offline`, `log_offline`, `not_caught_up` or
 `cli_failed`. No message, arbitrary code, account error text, identifier,
 response body, credential, path or record content is reflected. Keep the
 installed CLI and the canary script current together.
+
+## Hosted sync canary
+
+`scripts/hosted-sync-canary.mjs` measures how long one edit takes to travel
+from one computer to another through the hosted log: the core sync promise.
+Where the read canary starts a fresh daemon on every run (and so includes cold
+start), this probe drives two long-running daemons, a writer and a reader. Both
+are isolated profiles of the same mdbase binary on one machine, signed in to
+the same dedicated account as two devices, with the same small synced
+(cloud-copy) collection in their own folders.
+
+Each run checks that both daemons use the keyring, are signed in at the
+expected origin and online, are distinct devices of one account, and are
+caught up to the same head, with no pending changes, holds or conflicts. It
+then overwrites one probe file in the writer's folder in place with a fresh
+random nonce, as an editor saves, and polls both daemons' `status` and the
+reader's copy every 25 ms on one monotonic clock until the reader's file holds
+the nonce. The stages are:
+
+- `detect`: the writer's daemon has noticed the edit (`pending` above zero or
+  the head moved).
+- `upload`: the writer has nothing pending and has confirmed a new head.
+- `notify`: the reader has heard of that head (`head_known`).
+- `apply`: the reader's copy contains the nonce.
+
+Each milestone is its earliest evidence: a later one proves the earlier ones,
+so if the reader's copy changes before a status poll shows the new head, the
+skipped stages report `0`. Durations are therefore bounded by the poll interval
+plus one status call (a few milliseconds).
+
+Enrollment follows the read canary's, twice. Use a dedicated account, keep
+both state directories and folders persistent, and do not set
+`MDBASE_SECRET_BACKEND`; each isolated profile keeps its device identity in
+the keyring under its own namespace:
+
+```bash
+mdbase --state-dir /secure/persistent/sync-writer daemon start
+mdbase --state-dir /secure/persistent/sync-writer account sign-in
+mdbase --state-dir /secure/persistent/sync-writer account rename "Sync canary writer"
+mkdir -m 0700 -p /secure/persistent/sync-writer-files/status
+mdbase --state-dir /secure/persistent/sync-writer collection add \
+  --name "Sync canary" /secure/persistent/sync-writer-files
+mdbase --state-dir /secure/persistent/sync-writer sync enable \
+  --mode cloud-copy "Sync canary"
+mdbase --state-dir /secure/persistent/sync-writer status
+
+mdbase --state-dir /secure/persistent/sync-reader daemon start
+mdbase --state-dir /secure/persistent/sync-reader account sign-in
+mdbase --state-dir /secure/persistent/sync-reader account rename "Sync canary reader"
+mkdir -m 0700 /secure/persistent/sync-reader-files
+mdbase --state-dir /secure/persistent/sync-reader collection join \
+  <collection-id> /secure/persistent/sync-reader-files
+```
+
+Then run each daemon under the service manager with
+`mdbase --state-dir <dir> daemon run` instead of `daemon start`, and schedule
+the probe (every five minutes is plenty) with explicit non-secret inputs:
+
+```bash
+node scripts/hosted-sync-canary.mjs \
+  --environment production \
+  --cli /opt/mdbase/bin/mdbase \
+  --writer-state-dir /secure/persistent/sync-writer \
+  --reader-state-dir /secure/persistent/sync-reader \
+  --expected-origin https://connect.mdbase.dev \
+  --collection <collection-id> \
+  --expected-collection-name "Sync canary" \
+  --probe-path status/sync-probe.md \
+  --timeout-ms 60000
+```
+
+Every option also has an `MDBASE_SYNC_CANARY_*` environment-variable form, and
+the same override rules as the read canary apply. The probe never starts or
+stops a daemon; a daemon that is not running fails preflight with
+`daemon_not_running`. Nothing else should edit the collection.
+
+The probe prints one JSON line: `schema_version` 1, `source` `sync`,
+`component` `hosted`, `environment`, `checked_at`, `status`, `duration_ms`
+(write to the reader's copy, or to the failure; before a write, how long the
+run took), the stages that completed and the one that failed, and on failure an
+`error` with its stage and a fixed code. Failures before timing starts use the
+stage `config` (exit `2`), `preflight` (for example `account_mismatch`,
+`same_device`, `heads_differ`, `log_offline` or a CLI code) or `write`. A stage
+that outlasts the timeout reports the device's last blocking reason
+(`log_offline`, `account_offline`, `collection_opening`) or `timeout`; holds,
+conflicts or a failed collection end the run at once. Codes follow the read
+canary's privacy rules.
+
+With `--timings-url https://…` and `--timings-token-file <absolute path>`
+(both or neither), the probe also POSTs that line with
+`Authorization: Bearer <token>`. The token file must be a regular file readable
+only by its owner. A failed publication prints only `Timing publication
+failed:` with a fixed reason or the HTTP status to stderr and exits `1`, so the
+scheduler records the run as failed.
