@@ -74,7 +74,9 @@ release is different: the Desktop Release workflow automatically invokes
 `pnpm check:release-readiness -- --stable`, which fails until every gate is
 `complete` and includes a durable evidence reference. The required decision,
 operational drill, or publisher control must actually have happened; changing
-the status without evidence is itself rejected.
+the status without evidence is itself rejected. The encrypted backup and
+restore drill and platform signing and notarization gates were retired on
+2026-11-17 by the release owner as stale requirements, without being completed.
 
 ## Signing and publication
 

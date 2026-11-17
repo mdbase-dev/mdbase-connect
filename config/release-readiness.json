@@ -24,22 +24,6 @@
         "https://github.com/mdbase-dev/mdbase-cloud-ops/pull/50"
       ],
       "notes": "AWS KMS wrapping is active in staging. The recorded drill rewrapped all collection and provider-check envelopes from V1 to V2, proved cold operation while V1 was disabled, replaced and rejected the old workload credential, and passed exact-image health plus signed semantic acceptance. V1 remains enabled only as a retained recovery artifact and is unavailable to the active workload."
-    },
-    {
-      "id": "backup-encryption-and-restore-drill",
-      "title": "Encrypted backup and restore drill",
-      "owner": "Service operations owner",
-      "status": "required",
-      "evidence": [],
-      "notes": "Verify encrypted database and volume backups, restoration, key recovery, recovery objectives, and deletion behavior in the managed environment."
-    },
-    {
-      "id": "platform-signing-and-notarization",
-      "title": "Platform signing and notarization",
-      "owner": "Release owner",
-      "status": "required",
-      "evidence": [],
-      "notes": "Configure and verify canonical trust-channel signing for every supported desktop platform."
     }
   ]
 }

@@ -1,9 +1,11 @@
 # Security policy
 
 mdbase connect is prerelease software. Its security boundaries are actively
-tested, but beta builds are not a substitute for a signed stable release. The
-open stable-release gates are recorded in
-[`config/release-readiness.json`](config/release-readiness.json). An independent
+tested. The stable-release gates are recorded in
+[`config/release-readiness.json`](config/release-readiness.json). The encrypted
+backup and restore drill and platform signing and notarization gates were
+retired on 2026-11-17 by the release owner as stale requirements, without being
+completed. An independent
 security audit is planned separately and is not a stable-release gate.
 
 ## Reporting a vulnerability
