@@ -24,8 +24,9 @@ export function checkStyleTokens(css, filename) {
     const [, property, value] = match;
     const rawPixels = /(?:\d*\.)?\d+px\b/i.test(value);
     const rawShadow = property === "box-shadow" && !/^(?:var\(--[\w-]+\)|none|inherit|initial|unset|revert(?:-layer)?)(?:\s*!important)?\s*$/.test(value.trim());
+    // A radius derived from tokens, such as a padded surface's concentric corner, is a token.
     const rawRadius = property.endsWith("radius") && !/^(?:(?:0|50%|inherit|initial|unset|revert(?:-layer)?)(?:\s+|$))*$/.test(
-      value.replace(/var\(--[\w-]+\)|\s*!important/g, "").trim()
+      value.replace(/var\(--[\w-]+\)|\s*!important/g, "").replace(/calc\([\s\d.+\-*/()]*\)/g, "0").trim()
     );
     const forcedCase = property === "text-transform" && /\b(?:uppercase|capitalize)\b/.test(value);
     if (rawPixels || rawShadow || rawRadius || forcedCase) {
