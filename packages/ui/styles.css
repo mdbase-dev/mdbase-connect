@@ -508,7 +508,7 @@ code,
   }
 }
 
-/* The theme control is chrome, not a form field: its border shows only when it is used. */
+/* The language control is chrome, not a form field: its border shows only when it is used. */
 .theme-select.mdbase-select:not(:hover, [aria-expanded="true"]) { border-color: transparent; }
 
 .status-glyph {

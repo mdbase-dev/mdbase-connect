@@ -1076,8 +1076,8 @@ test("rename survives navigation and reload", async ({ page }, testInfo) => {
   await expect(receipt).toBeVisible();
   await receipt.hover();
   await expect(receipt).toHaveCSS("font-size", "13px");
-  await expect(receipt.getByRole("button", { name: "Undo", exact: true })).toHaveClass(/mdbase-button is-secondary/);
-  await expect(receipt.getByRole("button", { name: "Dismiss", exact: true })).toHaveClass(/mdbase-button is-tertiary/);
+  await expect(receipt.getByRole("button", { name: "Undo", exact: true })).toHaveClass("mdbase-button");
+  await expect(receipt.getByRole("button", { name: "Dismiss", exact: true })).toHaveClass("mdbase-icon-button");
   await page.screenshot({ path: testInfo.outputPath("rename-receipt.png") });
   await page.reload();
   await expect(page.getByText("Coastal research library", { exact: true }).first()).toBeVisible();

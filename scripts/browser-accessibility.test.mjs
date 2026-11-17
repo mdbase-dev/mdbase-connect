@@ -144,7 +144,7 @@ async function auditPortalLogin() {
   await auditPage(page, "portal signup", { keyboard: true });
   await assertAuthDesign(page, "portal signup");
   assert.equal(await page.locator("html").getAttribute("data-theme"), null, "portal signup: theme follows the operating system");
-  assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1, "portal signup: System/Light/Dark remains available");
+  assert.equal(await page.getByRole("radiogroup", { name: "Color theme" }).getByRole("radio").count(), 3, "portal signup: System/Light/Dark remains available");
   const authAlignment = await page.locator(".minimal-auth-page > .product-brand, .minimal-auth-footer").evaluateAll(
     (elements) => elements.map((element) => element.getBoundingClientRect().left)
   );
@@ -314,7 +314,7 @@ async function auditPortalSignup() {
           edges: [".minimal-auth-page > .product-brand", ".auth-providers", ".google-provider", ".github-button", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
           providersBottom: document.querySelector(".auth-providers").getBoundingClientRect().bottom,
           emailTop: document.querySelector(".password-auth-form").getBoundingClientRect().top,
-          googleScheme: getComputedStyle(document.querySelector(".google-provider")).colorScheme,
+          googleScheme: getComputedStyle(document.querySelector(".google-button")).colorScheme,
           overflow: document.documentElement.scrollWidth > innerWidth
         };
       });
@@ -378,10 +378,9 @@ async function auditPortalRecovery() {
     await page.getByRole("heading", { name: "Sign in" }).waitFor();
     assert.equal(await page.getByRole("alert").count(), 0, "successful config clears obsolete identification error");
     assert.equal(await page.locator("html").getAttribute("data-theme"), saved);
-    const theme = page.getByRole("combobox", { name: "Color theme" });
-    assert.equal(await theme.getAttribute("data-value"), saved, "the theme control shows the saved choice");
-    await theme.click();
-    await page.getByRole("option", { name: "System", exact: true }).click();
+    const theme = page.getByRole("radiogroup", { name: "Color theme" });
+    assert.equal(await theme.getByRole("radio", { checked: true }).getAttribute("value"), saved, "the theme control shows the saved choice");
+    await theme.getByText("System", { exact: true }).click();
     assert.equal(await page.locator("html").getAttribute("data-theme"), null);
     await page.goto(`${servers[0].origin}/login?auth_error=cancelled`);
     await page.getByRole("heading", { name: "Sign in", exact: true }).waitFor();
@@ -937,7 +936,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     await page.reload();
     await page.getByRole("button", { name: "Allow access" }).waitFor();
     assert.equal(await page.locator("html").getAttribute("data-theme"), saved, "authorization honors explicit theme despite OS preference");
-    assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1);
+    assert.equal(await page.getByRole("radiogroup", { name: "Color theme" }).count(), 1);
   }
   authorization.distribution = "portable";
   authorization.user_code = "ABCD-EFGH";
@@ -1218,11 +1217,14 @@ async function assertKeyboardReachability(page, label) {
         && bounds.width > 0
         && bounds.height > 0;
     };
+    // A radio group is one Tab stop, on its checked radio; arrow keys reach the others.
+    const arrowKeyRadio = (element) => element.matches('input[type="radio"]:not(:checked)')
+      && document.querySelector(`input[type="radio"][name="${CSS.escape(element.name)}"]:checked`) !== null;
     return [
       ...(document.querySelector("dialog:modal") ?? document).querySelectorAll(
         "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary"
       )
-    ].filter(visible).map((element, index) => {
+    ].filter(visible).filter((element) => !arrowKeyRadio(element)).map((element, index) => {
       const id = `a11y-${index}`;
       element.setAttribute("data-a11y-test", id);
       return { id, element: element.outerHTML.slice(0, 180) };
