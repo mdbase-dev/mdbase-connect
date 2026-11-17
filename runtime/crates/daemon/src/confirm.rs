@@ -341,12 +341,24 @@ mod tests {
     mod linux {
         use super::super::*;
         use crate::testutil::TestDir;
-        use std::os::unix::fs::PermissionsExt;
 
+        /// Writes a stub program through a child shell, so that this process
+        /// never holds the file open for writing. A descriptor opened here can
+        /// be copied into a child that another test thread forks at that
+        /// moment, and running the stub while the copy is open fails with
+        /// ETXTBSY, which `run` reports as `Unavailable`.
         fn program(dir: &TestDir, name: &str, body: &str) {
-            let path = dir.path().join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let written = std::process::Command::new("sh")
+                .args([
+                    "-c",
+                    r#"printf '#!/bin/sh\n%s\n' "$1" > "$2" && chmod 755 "$2""#,
+                    "sh",
+                    body,
+                ])
+                .arg(dir.path().join(name))
+                .status()
+                .unwrap();
+            assert!(written.success());
         }
 
         async fn ask(dir: &TestDir) -> Answer {
