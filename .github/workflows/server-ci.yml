@@ -15,6 +15,11 @@ concurrency:
   group: server-ci-${{ github.ref }}
   cancel-in-progress: true
 
+# Owned by operations. Do not remove or rename these.
+env:
+  RELEASE_AWS_ACCESS_KEY_ID: ${{ secrets.RELEASE_AWS_ACCESS_KEY_ID }}
+  RELEASE_AWS_SECRET_ACCESS_KEY: ${{ secrets.RELEASE_AWS_SECRET_ACCESS_KEY }}
+
 jobs:
   classify:
     name: Select qualification depth
