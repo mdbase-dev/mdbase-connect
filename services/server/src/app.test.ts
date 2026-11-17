@@ -2653,7 +2653,9 @@ describe("mdbase connect server", () => {
       url: `/v1/mirror-pairing-requests/${pairingId}/renew`,
       headers: { authorization: `Bearer ${secret}` }
     });
-    expect((await renew("another-secret")).statusCode).toBe(404);
+    const wrongSecret = await renew("another-secret");
+    expect(wrongSecret.statusCode).toBe(404);
+    expect(wrongSecret.json().error.code).toBe("mirror_pairing_not_found");
     expect(hostedProvider.rotateReplicaToken).not.toHaveBeenCalled();
     const renewed = await renew("mirror-refresh-secret");
     expect(renewed.statusCode, renewed.body).toBe(200);
@@ -2672,7 +2674,9 @@ describe("mdbase connect server", () => {
     expect(revoked.statusCode).toBe(200);
     expect(revoked.json()).toEqual({ ok: true, revocation_status: "revoked" });
     expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(replicaId);
-    expect((await renew("mirror-refresh-secret")).statusCode).toBe(404);
+    const afterRevocation = await renew("mirror-refresh-secret");
+    expect(afterRevocation.statusCode).toBe(404);
+    expect(afterRevocation.json().error.code).toBe("mirror_pairing_not_found");
     expect(hostedProvider.rotateReplicaToken).toHaveBeenCalledTimes(1);
     expect((await db.query("SELECT 1 FROM mirror_pairing_requests WHERE id = $1", [pairingId])).rows).toEqual([]);
 
