@@ -87,3 +87,37 @@ test("removing the old connector's runtime copies keeps the update state", async
   assert.deepEqual(await readdir(join(userData, "updates")), ["state.json"]);
   assert.equal((await new UpdateStateStore(store.path).load()).installation_id, installation_id);
 });
+
+test("early access, the running version and seen rollouts round-trip and are validated", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-state-"));
+  const path = join(directory, "state.json");
+  const store = new UpdateStateStore(path);
+  await store.update((state) => {
+    state.early_access = true;
+    state.current_version = { version: "0.1.0-beta.9", since: "2026-11-17T06:00:00.000Z" };
+    state.rollout_seen = { "v0.1.0-beta.9": "2026-11-17T06:00:00.000Z" };
+  });
+  const loaded = await new UpdateStateStore(path).load();
+  assert.equal(loaded.early_access, true);
+  assert.deepEqual(loaded.current_version, { version: "0.1.0-beta.9", since: "2026-11-17T06:00:00.000Z" });
+  assert.deepEqual(loaded.rollout_seen, { "v0.1.0-beta.9": "2026-11-17T06:00:00.000Z" });
+  const base = { schema_version: 1, installation_id: "installation" };
+  assert.throws(() => parsePersistedState({ ...base, early_access: "yes" }));
+  assert.throws(() => parsePersistedState({ ...base, current_version: { version: "../bad", since: "2026-11-17T06:00:00.000Z" } }));
+  assert.throws(() => parsePersistedState({ ...base, rollout_seen: { "not-a-tag": "2026-11-17T06:00:00.000Z" } }));
+  assert.throws(() => parsePersistedState({ ...base, rollout_seen: { "v0.1.0": "later" } }));
+});
+
+test("only the newest seen rollouts are kept", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-state-"));
+  const store = new UpdateStateStore(join(directory, "state.json"));
+  await store.update((state) => {
+    state.rollout_seen = Object.fromEntries(
+      Array.from({ length: 20 }, (_, index) => [`v0.1.${index}`, "2026-11-17T06:00:00.000Z"])
+    );
+  });
+  const kept = Object.keys((await store.load()).rollout_seen);
+  assert.equal(kept.length, 16);
+  assert.ok(kept.includes("v0.1.19"));
+  assert.ok(!kept.includes("v0.1.0"));
+});

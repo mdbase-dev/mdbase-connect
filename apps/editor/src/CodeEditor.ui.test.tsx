@@ -51,6 +51,129 @@ describe("writer shortcuts", () => {
   });
 });
 
+describe("writer Enter", () => {
+  it.each([
+    ["- item", "- item\n- ", "- item\n"],
+    ["1. step", "1. step\n2. ", "1. step\n"],
+    ["- [ ] task", "- [ ] task\n- [ ] ", "- [ ] task\n"],
+    ["- a\n\n- b", "- a\n\n- b\n\n- ", "- a\n\n- b\n\n"],
+    ["> quote", "> quote\n> ", "> quote\n"]
+  ])("continues %j, then ends it on an empty line", (value, continued, ended) => {
+    const onChange = vi.fn();
+    render(<CodeEditor value={value} label="Note body" language="markdown" variant="writer" onChange={onChange} />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    const view = EditorView.findFromDOM(body)!;
+    view.focus();
+    view.dispatch({ selection: { anchor: value.length } });
+    fireEvent.keyDown(body, { key: "Enter", code: "Enter", keyCode: 13 });
+    expect(onChange).toHaveBeenLastCalledWith(continued);
+    fireEvent.keyDown(body, { key: "Enter", code: "Enter", keyCode: 13 });
+    expect(onChange).toHaveBeenLastCalledWith(ended);
+  });
+});
+
+describe("touch formatting bar", () => {
+  it("shows while the note has focus, even when a transaction follows the tap", async () => {
+    const coarse = vi.spyOn(window, "matchMedia").mockImplementation((query) => ({ matches: query === "(pointer: coarse)", media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() } as unknown as MediaQueryList));
+    try {
+      render(<CodeEditor value="A note" label="Note body" language="markdown" variant="writer" />);
+      const body = screen.getByRole("textbox", { name: "Note body" });
+      const view = EditorView.findFromDOM(body)!;
+      // A tap focuses the note and places the caret; another update lands in the same task.
+      await act(async () => {
+        body.focus();
+        view.dispatch({ selection: { anchor: 1 }, userEvent: "select.pointer" });
+        view.dispatch({ selection: { anchor: 2 } });
+      });
+      expect(screen.getByRole("toolbar", { name: "Formatting" })).toBeInTheDocument();
+      await act(async () => { body.blur(); });
+      expect(screen.queryByRole("toolbar", { name: "Formatting" })).not.toBeInTheDocument();
+    } finally {
+      coarse.mockRestore();
+    }
+  });
+});
+
+describe("undo and redo", () => {
+  it("redoes with Ctrl Shift Z as well as Ctrl Y", () => {
+    const onChange = vi.fn();
+    render(<CodeEditor value="a" label="Note body" language="markdown" variant="writer" onChange={onChange} />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    const view = EditorView.findFromDOM(body)!;
+    view.focus();
+    view.dispatch({ changes: { from: 1, insert: "b" }, userEvent: "input.type" });
+    fireEvent.keyDown(body, { key: "z", code: "KeyZ", keyCode: 90, ctrlKey: true });
+    expect(onChange).toHaveBeenLastCalledWith("a");
+    fireEvent.keyDown(body, { key: "Z", code: "KeyZ", keyCode: 90, ctrlKey: true, shiftKey: true });
+    expect(onChange).toHaveBeenLastCalledWith("ab");
+    fireEvent.keyDown(body, { key: "z", code: "KeyZ", keyCode: 90, ctrlKey: true });
+    fireEvent.keyDown(body, { key: "y", code: "KeyY", keyCode: 89, ctrlKey: true });
+    expect(onChange).toHaveBeenLastCalledWith("ab");
+  });
+});
+
+describe("writer list editing", () => {
+  function press(value: string, caret: number, key: Record<string, unknown>) {
+    const onChange = vi.fn();
+    render(<CodeEditor value={value} label="Note body" language="markdown" variant="writer" onChange={onChange} />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    const view = EditorView.findFromDOM(body)!;
+    view.focus();
+    view.dispatch({ selection: { anchor: caret } });
+    fireEvent.keyDown(body, key);
+    return { onChange, view };
+  }
+  const backspace = { key: "Backspace", code: "Backspace", keyCode: 8 };
+  const shiftEnter = { key: "Enter", code: "Enter", keyCode: 13, shiftKey: true };
+  const tab = { key: "Tab", code: "Tab", keyCode: 9 };
+
+  it.each([
+    ["- a\n  - ", "- a\n- "],
+    ["- a\n  - [ ] ", "- a\n- [ ] "],
+    ["1. a\n   1. ", "1. a\n2. "],
+    ["- a\n  - b\n    - ", "- a\n  - b\n  - "]
+  ])("Backspace on the empty nested item in %j lifts it a level", (value, lifted) => {
+    expect(press(value, value.length, backspace).onChange).toHaveBeenLastCalledWith(lifted);
+  });
+
+  it("Backspace on an empty top-level item or after text keeps the Markdown behaviour", () => {
+    expect(press("- a\n- ", 6, backspace).onChange).toHaveBeenLastCalledWith("- a\n  ");
+  });
+
+  it.each([
+    ["- item", "- item\n  "],
+    ["  - nested", "  - nested\n    "],
+    ["10. tenth", "10. tenth\n    "],
+    ["- [ ] task", "- [ ] task\n  "],
+    ["> - quoted", "> - quoted\n>   "]
+  ])("Shift-Enter in %j continues the item at its text column", (value, continued) => {
+    const { onChange, view } = press(value, value.length, shiftEnter);
+    expect(onChange).toHaveBeenLastCalledWith(continued);
+    expect(view.state.selection.main.head).toBe(continued.length);
+  });
+
+  it.each([
+    ["- one two", 5, "- one\n   two"],
+    ["A paragraph", 11, "A paragraph\n"]
+  ])("Shift-Enter in %j at %i splits an item's text and leaves paragraphs alone", (value, caret, after) => {
+    expect(press(value, caret, shiftEnter).onChange).toHaveBeenLastCalledWith(after);
+  });
+
+  it.each([
+    ["A paragraph", 2, "A \tparagraph"],
+    ["- a\n- b", 7, "- a\n  - b"]
+  ])("Tab in %j types a tab outside a list and still nests list items", (value, caret, after) => {
+    expect(press(value, caret, tab).onChange).toHaveBeenLastCalledWith(after);
+  });
+
+  it("leaves Tab to the browser after Escape, so the keyboard can still leave the note", () => {
+    const { onChange } = press("A paragraph", 2, { key: "Escape", code: "Escape", keyCode: 27 });
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    expect(fireEvent.keyDown(body, tab)).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("rendered Markdown links", () => {
   it("opens a rendered link without moving the caret into its source", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);

@@ -28,10 +28,21 @@ pub(super) fn migrate(index: &mut impl IndexStorage) -> StoreResult<()> {
             "SQL store schema version {version} is newer than supported version {VERSION}; upgrade the runtime"
         )));
     }
+    // Derived tables a runtime of this schema version may lack; see
+    // `sql_fields::BODY_SCHEMA`.
+    let mut stmts: Vec<_> = crate::sql_fields::BODY_SCHEMA
+        .iter()
+        .map(|s| st(s, vec![]))
+        .collect();
     if version == VERSION {
-        return Ok(());
+        return index
+            .run(&Batch {
+                mode: BatchMode::Transaction,
+                stmts,
+            })
+            .map(|_| ())
+            .map_err(idx_err);
     }
-    let mut stmts = Vec::new();
     for next in version + 1..=VERSION {
         match next {
             // Version zero includes both fresh databases and the unversioned

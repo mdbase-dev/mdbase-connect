@@ -895,6 +895,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "Estos datos corresponden al último intento de sincronización, no a una comprobación actual de los archivos."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "Recibir actualizaciones antes"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "Ir a {label}"
 
@@ -938,6 +943,11 @@ msgstr "Imágenes"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "Instalar {0}"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "Instala cada versión en cuanto empiece su despliegue. Si no, las versiones llegan a los ordenadores por etapas y mdbase se actualiza como máximo una vez al día."
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -1504,6 +1514,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "leer y añadir archivos"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "leer versiones anteriores de los registros"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"
@@ -2026,6 +2041,16 @@ msgstr "Este ordenador ahora se llama {0}."
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "Este ordenador trasladó tus colecciones al nuevo motor de sincronización, pero tu cuenta de mdbase aún no se ha actualizado o la actualización está en pausa. Tus archivos están seguros en sus carpetas, pero es posible que los cambios hechos en este ordenador no lleguen a tus otras aplicaciones de mdbase hasta que se actualice tu cuenta."
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "Este ordenador ahora recibe cada versión en cuanto empieza su despliegue."
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "Este ordenador ahora recibe las versiones por etapas, como máximo una vez al día."
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "Este ordenador inició sesión"
@@ -2196,15 +2221,29 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "La versión {0} está disponible en el canal de paquetes firmados."
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "La versión {0} se está distribuyendo al {1}% de las instalaciones."
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "La versión {0} está verificada y lista para instalarse."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "La versión {version} está disponible primero para las instalaciones con acceso anticipado."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "La versión {version} está disponible. mdbase se actualiza como máximo una vez al día, así que se actualizará después de {after}."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "La versión {version} todavía no se está desplegando."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "La versión {version} está publicada, pero no se pudo verificar su despliegue. mdbase volverá a comprobarlo más tarde."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "La versión {version} se está desplegando en el {percentage} % de las instalaciones."
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"

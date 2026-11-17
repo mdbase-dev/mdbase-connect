@@ -895,6 +895,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "这些信息来自上次同步尝试，并非当前的文件检查结果。"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "提前获取更新"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "前往 {label}"
 
@@ -938,6 +943,11 @@ msgstr "图片"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "安装 {0}"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "每个版本一开始推送就安装。否则，版本会分阶段推送到计算机，mdbase 每天最多更新一次。"
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -1504,6 +1514,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "读取和添加文件"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "读取记录的早期版本"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"
@@ -2026,6 +2041,16 @@ msgstr "此电脑现已更名为 {0}。"
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "此电脑已将你的集合迁移到新同步引擎，但你的 mdbase 账户尚未升级，或升级已暂停。文件仍安全地保存在文件夹中，但此电脑上的更改可能要等到账户升级后，才能同步到其他 mdbase 应用。"
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "此计算机现在会在每个版本开始推送时立即获取。"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "此计算机现在分阶段获取版本，每天最多一次。"
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "此电脑已登录"
@@ -2196,15 +2221,29 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "可通过签名软件包渠道获取版本 {0}。"
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "版本 {0} 正逐步推送至 {1}% 的安装实例。"
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "版本 {0} 已通过验证，可供安装。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "版本 {version} 先向抢先体验安装提供。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "版本 {version} 已可用。mdbase 每天最多更新一次，因此将在 {after} 之后更新。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "版本 {version} 尚未开始推送。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "版本 {version} 已发布，但无法验证其推送状态。mdbase 稍后会再次检查。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "版本 {version} 正在向 {percentage}% 的安装推送。"
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"

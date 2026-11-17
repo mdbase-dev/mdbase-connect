@@ -426,7 +426,11 @@ h1 {
 
 .minimal-auth-page > .product-brand { width: 100%; margin-bottom: var(--space-8); }
 .minimal-auth-page .mdbase-button { --control-font-size: var(--font-size-ui); }
-.signed-out-preferences { display: flex; gap: var(--space-3); }
+.signed-out-preferences { display: flex; align-items: center; gap: var(--space-3); }
+/* Footer chrome: the theme control stays small beside the tall form above it. */
+.signed-out-preferences .mdbase-segmented { --control-font-size: var(--font-size-ui); }
+.signed-out-preferences .mdbase-segmented-option { padding-inline: 7px; }
+@media (pointer: fine) { .signed-out-preferences .mdbase-segmented { --control-height: 32px; } }
 .minimal-auth-footer { flex-wrap: wrap; align-items: center; }
 .minimal-auth-page .onboarding-actions { display: grid; gap: 12px; margin-top: var(--space-6); }
 .minimal-auth-page .onboarding-actions :is(.mdbase-button, .quiet-auth-link) { margin: 0; }
@@ -549,8 +553,6 @@ h1 {
 }
 
 .minimal-auth-page .google-provider {
-  /* Keep Google's iframe transparent, even on our dark canvas. */
-  color-scheme: light;
   position: relative;
   min-width: 0;
   min-height: 44px;
@@ -562,6 +564,12 @@ h1 {
 .minimal-auth-page .google-provider.busy {
   opacity: 0.55;
   pointer-events: none;
+}
+
+/* Keep Google's iframe transparent, even on our dark canvas. Only its own box is light, so
+   the placeholder beside it keeps the page's colours. */
+.minimal-auth-page .google-button {
+  color-scheme: light;
 }
 
 .minimal-auth-page .google-button,

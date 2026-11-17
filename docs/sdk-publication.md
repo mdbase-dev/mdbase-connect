@@ -13,12 +13,12 @@ keep their current originals until their guarded npm intake migration lands.
 | Environment | Embedded package identity | Distribution | Embedded trust |
 | --- | --- | --- | --- |
 | Production | `@mdbase-dev/sdk` | npmjs, exact version | Production only |
-| Staging | `@mdbase-dev/sdk-staging` | `sdk-v<version>/sdk-staging.tgz` prerelease asset | Staging only |
-| LAB | `@mdbase-dev/sdk-lab` | `sdk-v<version>/sdk-lab.tgz` prerelease asset | LAB only |
+| Staging | `@mdbase-dev/sdk-staging` | `sdk-v<version>/sdk-staging.tgz` GitHub release asset | Staging only |
+| LAB | `@mdbase-dev/sdk-lab` | `sdk-v<version>/sdk-lab.tgz` GitHub release asset | LAB only |
 
 Only production goes to `registry.npmjs.org`, with the `latest` tag.
 Dist-tags are discovery pointers, **not security boundaries**. Production apps
-pin a version, never a tag/range; staging/LAB pin the exact prerelease asset URL
+pin a version, never a tag/range; staging/LAB pin the exact release asset URL
 and lockfile integrity. These internal-environment packages are publicly
 downloadable assets, **not confidential packages**. Their trust roots are public.
 Neither internal package has an npm publication path: its manifest is private
@@ -135,7 +135,7 @@ historical tag is not modified. Never publish a placeholder or use an
 interactive local SDK publish. Do not create npm trusted publishers or registry
 entries for staging/LAB.
 
-### Pinned staging/LAB prerelease
+### Pinned staging/LAB release
 
 The same run's `attest-internal` job downloads the shared build artifact and
 attests each internal tarball individually. It has only `contents: read`,
@@ -152,7 +152,7 @@ credentials. GitHub's contents permission is repository-scoped, not per-release;
 the script limits its writes to one newly created `sdk-v<version>` tag/release
 and its fixed assets. It does not modify any other release or a latest pointer.
 
-The prerelease contains exactly:
+The release contains exactly:
 
 - `sdk-staging.tgz` and `sdk-staging.tgz.sigstore.json`;
 - `sdk-lab.tgz` and `sdk-lab.tgz.sigstore.json`.
@@ -162,19 +162,23 @@ commit, environment/trust metadata and the presence of both bundles. It requires
 404 absence proof for the exact tag and release; authorization/server errors
 are not absence. It atomically creates a new tag pointing at the full producer
 SHA, so a racing/pre-existing tag is an error, not a reused tag. It creates a
-new draft prerelease, refuses existing assets, uploads without replacement,
-rechecks the tag SHA, then publishes with `prerelease: true` and
-`make_latest: "false"`. Both creation and final publication explicitly refuse
+new draft release, refuses existing assets, uploads without replacement,
+rechecks the tag SHA, then publishes with `make_latest: "false"` and a
+`prerelease` flag that matches the version: `false` for plain semver
+(`sdk-v0.1.2`), `true` only for a suffixed version (`sdk-v0.1.0-beta.231`).
+Editor staging intake refuses a draft, a different tag, or a flag that does
+not match the version before downloading anything; trust still comes from the
+asset digests and the attestation check. Both creation and final publication explicitly refuse
 Latest status. No update/delete operation on an existing tag or asset exists.
 
 A partial failure stops: do not delete, retarget, replace or automatically replay
 the same version. A release agent reconciles it until the outcome is known,
-records the evidence, and prepares a new version if the tag was already created. The npm and prerelease jobs are not a transaction; one
+records the evidence, and prepares a new version if the tag was already created. The npm and GitHub release jobs are not a transaction; one
 may succeed while the other fails. Neither is silently republished or repaired.
 
 The active repository tag ruleset blocks updates and deletions of `v*` and
 `sdk-v*` tags with no bypass actors, while allowing tag creation. Repository
-immutable releases are enabled: these newly published prereleases lock their
+immutable releases are enabled: these newly published releases lock their
 tags and assets after all four files have been uploaded to the draft. Existing
 published releases are not retroactively locked. See
 [release tag and asset integrity](release-contract.md#release-tag-and-asset-integrity).

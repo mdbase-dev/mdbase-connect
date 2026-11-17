@@ -5,16 +5,14 @@ import { join } from "node:path";
 import test from "node:test";
 import { plan, releaseTag, updatePair } from "./desktop-macos-update.mjs";
 
-const signed = (number) => {
-  const version = `0.1.0-beta.${number}`;
-  return {
-    tag_name: `v${version}`,
-    assets: ["arm64", "x64"].flatMap((arch) => [
-      `mdbase-connect-${version}-macos-${arch}.dmg`,
-      `mdbase-connect-${version}-macos-${arch}.zip`
-    ]).map((name) => ({ name }))
-  };
-};
+const signedVersion = (version) => ({
+  tag_name: `v${version}`,
+  assets: ["arm64", "x64"].flatMap((arch) => [
+    `mdbase-connect-${version}-macos-${arch}.dmg`,
+    `mdbase-connect-${version}-macos-${arch}.zip`
+  ]).map((name) => ({ name }))
+});
+const signed = (number) => signedVersion(`0.1.0-beta.${number}`);
 const unsigned = (number) => {
   const version = `0.1.0-beta.${number}`;
   return {
@@ -29,6 +27,16 @@ const pair = (overrides = {}) => updatePair({ releases, arch: "arm64", ...overri
 test("by default the previous release updates to the newest", () => {
   assert.deepEqual(pair(), { from: "v0.1.0-beta.190", to: "v0.1.0-beta.208", dmg: "mdbase-connect-0.1.0-beta.190-macos-arm64.dmg" });
   assert.equal(pair({ arch: "x64" }).dmg, "mdbase-connect-0.1.0-beta.190-macos-x64.dmg");
+});
+
+test("the first stable release is tested from the last beta, whose updater takes stable releases", () => {
+  // Beta installations from connect#1566 on also accept stable releases, so the
+  // newest beta updates itself to 0.1.0; the next pair is two stable releases.
+  assert.deepEqual(updatePair({ releases: [signedVersion("0.1.0"), signed(224), signed(219)], arch: "arm64" }),
+    { from: "v0.1.0-beta.224", to: "v0.1.0", dmg: "mdbase-connect-0.1.0-beta.224-macos-arm64.dmg" });
+  assert.deepEqual(updatePair({ releases: [signedVersion("0.1.1"), signedVersion("0.1.0"), signed(224)], arch: "x64" }),
+    { from: "v0.1.0", to: "v0.1.1", dmg: "mdbase-connect-0.1.0-macos-x64.dmg" });
+  assert.equal(releaseTag("0.2.0"), "v0.2.0");
 });
 
 test("a dispatch chooses an older release, with or without the v", () => {

@@ -5,6 +5,7 @@ import { t } from "@lingui/core/macro";
 import type { BlockContext, InlineContext, Line, MarkdownConfig } from "@lezer/markdown";
 import "../i18n.js";
 import { lazily } from "./lazy.js";
+import { proseEdit } from "./prose-edit.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const DOLLAR = 36, BACKSLASH = 92, NEWLINE = 10;
@@ -178,9 +179,19 @@ function formulas(state: EditorState): Formula[] {
 
 const formulaField = StateField.define<Formula[]>({
   create: formulas,
-  update: (value, transaction) => transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
-    ? formulas(transaction.state)
-    : value
+  update(value, transaction) {
+    // Typing in prose only moves the formulas on other lines.
+    if (proseEdit(transaction)) {
+      const { changes } = transaction;
+      return value.map((formula) => ({
+        ...formula, from: changes.mapPos(formula.from), to: changes.mapPos(formula.to),
+        first: changes.mapPos(formula.first), lastTo: changes.mapPos(formula.lastTo)
+      }));
+    }
+    return transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
+      ? formulas(transaction.state)
+      : value;
+  }
 });
 
 /** Renders `markdownMath` formulas where the selection is not, and shows a rendered preview under a revealed display block. */

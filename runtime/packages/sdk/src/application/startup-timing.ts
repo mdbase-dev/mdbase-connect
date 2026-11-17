@@ -1,3 +1,4 @@
+import {performanceMark} from "../performance-mark.js";
 import type {MdbasePhase} from "./phase.js";
 
 const PREFIX="mdbase:startup:";
@@ -43,4 +44,19 @@ export class ApplicationStartupTiming {
     if(usable)this.measure("total",this.began,now);
     if(usable||WAITS.has(phase.kind))this.done=true;
   }
+}
+
+/** One mark at each observed open transition, including later selections.
+ * Compare the entry's existing snapshot; timing owns no lifecycle state. */
+export function markCollectionOpen(
+  selection: import("./collection-selection.js").ApplicationCollectionSelectionSnapshot,
+  phase: MdbasePhase,
+  previous?: {selection: import("./collection-selection.js").ApplicationCollectionSelectionSnapshot; phase: MdbasePhase},
+): void {
+  if(selection.requested.collectionId!==null){
+    const changed=selection.requested.collectionId!==previous?.selection.requested.collectionId;
+    if(changed)performanceMark("mdbase:open:requested");
+    if(selection.requested.approved&&(changed||!previous?.selection.requested.approved))performanceMark("mdbase:open:approved");
+  }
+  if(phase.kind==="ready"&&(previous?.phase.kind!=="ready"||previous.phase.connection!==phase.connection))performanceMark("mdbase:open:ready");
 }

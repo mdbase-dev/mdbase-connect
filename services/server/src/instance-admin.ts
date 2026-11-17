@@ -295,6 +295,29 @@ export class InstanceAdminService {
     );
   }
 
+  /** Marks or clears a test account, which the usage report leaves out. */
+  async setTestAccount(reference: string, testAccount: boolean, mutation: OperatorMutation) {
+    return this.withUserMutation(
+      testAccount ? "user.mark_test" : "user.unmark_test",
+      reference,
+      mutation,
+      async (connection, user) => {
+        const updated = await connection.query(
+          "UPDATE users SET test_account = $2 WHERE id = $1 AND test_account <> $2",
+          [user.id, testAccount]
+        );
+        const changed = updated.rowCount === 1;
+        await audit(connection, user.id, testAccount ? "account.marked_test" : "account.unmarked_test", user.id, {
+          actor: mutation.actor,
+          reason: mutation.reason,
+          operation_id: mutation.operationId,
+          changed
+        });
+        return { operation_id: mutation.operationId, user_id: user.id, test_account: testAccount, changed };
+      }
+    );
+  }
+
   async revokeUserSessions(reference: string, mutation: OperatorMutation) {
     return this.withUserMutation(
       "user.revoke_sessions",

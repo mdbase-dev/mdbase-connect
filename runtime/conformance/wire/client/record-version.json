@@ -1,0 +1,5 @@
+{
+  "_type": "RecordVersion",
+  "path": "notes/renamed.md",
+  "document": "---\ntitle: A\n---\nBody\n"
+}

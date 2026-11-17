@@ -1,3 +1,5 @@
+import { performanceMark } from "./performance-mark.js";
+
 /**
  * `MdbaseClient`: the SDK's main entry point over any transport.
  *
@@ -19,6 +21,7 @@ import { list, uint, uuid as uuidCodec, uuidFromBytes } from "./codec.js";
 import {recordValidations, captureValidation, bindValidation, type RecordValidation} from "./validation.js";
 import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
 import { FilesApi } from "./files.js";
+import { recordHistory, recordHistoryParams, recordVersion, recordVersionParams, type HistoryOptions, type RecordHistory, type RecordVersion } from "./history.js";
 import { settleWrite, type Settlement, type SettleOptions } from "./settle.js";
 import { readMany as readManyRecords, queryPages as readQueryPages, type ReadManyOptions } from "./read-helpers.js";
 import {RecordsApi, type Records, type RecordOpenOptions, type RecordLease} from "./records.js";
@@ -216,11 +219,22 @@ function accountSecret(secret: Uint8Array): void {
 
 /** The `hello` feature that lets `validate` page through every record. */
 const VALIDATE_PAGE = "validate-page-v1";
+const BASES_DISCOVERY_UNREADABLE = "bases-discovery-unreadable-v1";
 
 function params(entries: [number, CborValue | undefined][]): Map<number, CborValue> {
   const m = new Map<number, CborValue>();
   for (const [k, v] of entries) if (v !== undefined) m.set(k, v);
   return m;
+}
+
+/** A replica that predates record history answers `unknown_method` (§4.4). */
+function historyRead<T>(read: Promise<T>): Promise<T> {
+  return read.catch((e: unknown) => {
+    if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+      throw mdbaseError("upgrade_required", "This collection's replica has no record history.", "history_unsupported");
+    }
+    throw e;
+  });
 }
 
 function withCurrentGrant(hello: HelloResult, grant: HelloResult["grant"] | undefined): HelloResult {
@@ -544,7 +558,7 @@ const READ_METHODS = new Set([
   "get", "query", "query_contract_v1", "subscribe", "changes", "backlinks", "list_resources", "get_resource",
   "describe", "describe_typing", "list_files", "get_file", "read_file",
   "list_holds", "list_conflicts", "validate", "new_type_file", "get_contract_v1", "map_contract_write_v1",
-  "plan_type_pack_v1",
+  "plan_type_pack_v1", "record_history", "record_version",
 ]);
 
 export class MdbaseClient {
@@ -584,6 +598,7 @@ export class MdbaseClient {
   readonly presence: PresenceApi;
   private readonly writeLedger: WriteLedger;
   private ledgerStarted = false;
+  private queryAnswered = false;
   private transportDeferred = false;
 
   private constructor(
@@ -709,7 +724,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE, BASES_DISCOVERY_UNREADABLE])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1310,7 +1325,15 @@ export class MdbaseClient {
         [2, o.contract],
       ]),
       { codec: queryResult, retry: true, ...(o.signal ? { signal: o.signal } : {}) },
-    );
+    ).then(result => this.firstQueryResult(result));
+  }
+
+  private firstQueryResult<T>(result: T): T {
+    if (!this.queryAnswered) {
+      this.queryAnswered = true;
+      performanceMark("mdbase:query:first-result");
+    }
+    return result;
   }
 
   /** Canonical contract projections with validation issues and ordinary cursor
@@ -1329,7 +1352,7 @@ export class MdbaseClient {
     if (result.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract query result", "contract_query_version");
     if (result.records.length !== result.page.records.length || result.records.some((record, i) => record.id !== result.page.records[i]?.id))
       throw mdbaseError("unavailable", "invalid contract query record binding", "contract_query_response");
-    return result;
+    return this.firstQueryResult(result);
   }
 
   /**
@@ -1391,6 +1414,28 @@ export class MdbaseClient {
       throw e;
     });
   }
+
+  /**
+   * Record history (§4.4, API 1.4): the versions of a record that the log still
+   * retains. Needs `collection.read` and `history.read` through a grant without
+   * a folder scope. A replica without history,
+   * the hosted replica and a local-only collection refuse with
+   * `upgrade_required` / `history_unsupported`.
+   */
+  readonly history = {
+    /** One page of a record's versions, newest first. Pass `next` as `before`
+     * for older ones. `o.signal` cancels the read. */
+    list: (record: Uuid, o: HistoryOptions = {}): Promise<RecordHistory> =>
+      historyRead(this.call("record_history", recordHistoryParams.enc({ record, before: o.before, limit: o.limit }), {
+        codec: recordHistory, retry: true, ...(o.signal ? { signal: o.signal } : {}),
+      })),
+    /** The exact document of the version at log position `seq`, checked
+     * against its revision. `o.signal` cancels the read. */
+    version: (record: Uuid, seq: number, o: ReadOptions = {}): Promise<RecordVersion> =>
+      historyRead(this.call("record_version", recordVersionParams.enc({ record, seq }), {
+        codec: recordVersion, retry: true, ...(o.signal ? { signal: o.signal } : {}),
+      })),
+  };
 
   /** Definitions: `mdbase.yaml`, type files, contract files (§4.1). */
   readonly resources = {
@@ -1578,6 +1623,7 @@ export class MdbaseClient {
   live(query: Query, o: { include?: Include } = {}): LiveQuery {
     const l = new LiveQuery(this, query, o.include);
     this.lives.add(l);
+    void l.ready.then(() => { this.firstQueryResult(undefined); }, () => {});
     void this._resubscribeLive(l, true);
     return l;
   }
@@ -1816,15 +1862,22 @@ export class MdbaseClient {
 
   /** One bounded native discovery page. Empty views do not mean EOF when a
    * continuation is present. Supplied handles never silently restart/retry.
+   * With `reportUnreadable`, a replica that grants
+   * `bases-discovery-unreadable-v1` skips records it cannot classify and names
+   * them in `unreadable`; an older replica refuses the discovery as before, so
+   * an empty `unreadable` on success always means none were skipped.
    * `o.signal` cancels the read. */
   async listAppBasesViews(request: AppBasesDiscoveryRequest, o: ReadOptions = {}): Promise<AppBasesDiscoveryResult> {
     const signal = o.signal;
-    const limit = request.limit, bytes = encodeAppBasesDiscoveryRequest(request);
+    const limit = request.limit;
+    encodeAppBasesDiscoveryRequest(request); // Refuse bad input before waiting for a session.
     const session = await this.readyForRead(signal);
+    const reportUnreadable = request.reportUnreadable === true && session.hello.features.includes(BASES_DISCOVERY_UNREADABLE);
+    const bytes = encodeAppBasesDiscoveryRequest({...request, reportUnreadable});
     const reply = await session.readAppBasesDiscovery("list-views",bytes,signal);
     try {
       if (session !== this.session || session.closed || this.readFencedAt !== null) throw mdbaseError("unavailable", "original Bases session is no longer current");
-      return decodeAppBasesDiscoveryResult(reply,limit);
+      return decodeAppBasesDiscoveryResult(reply,limit,reportUnreadable);
     } catch (error) { throw schemaToError(error,"app Bases discovery"); }
     finally { reply.fill(0); }
   }

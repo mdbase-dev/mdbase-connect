@@ -1,18 +1,15 @@
 name: Desktop macOS Update
 
-# After Desktop Release publishes, the previous signed macOS release installs,
+# After Desktop Release publishes, its macos-update job dispatches this with the
+# new tag as `to`. The previous signed macOS release installs,
 # finds the new one through its own update channel, installs it and relaunches
 # on it (scripts/ci/desktop-macos-update.mjs). It reads only public release
 # assets and never gates or changes the release.
 on:
-  workflow_run:
-    workflows: [Desktop Release]
-    types: [completed]
-    branches: ['v*']
   workflow_dispatch:
     inputs:
       from:
-        description: Older release to install (default the one before the newest), e.g. 0.1.0-beta.190
+        description: Older release to install (default the one before the newest), e.g. 0.1.0
         type: string
         default: ''
       to:
@@ -29,15 +26,11 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-macos-update-${{ github.event.workflow_run.head_branch || github.ref }}
+  group: desktop-macos-update-${{ inputs.to || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   update:
-    # Only tagged release runs publish; coordinator and pull-request runs do not.
-    if: >-
-      github.event_name != 'workflow_run' || (github.event.workflow_run.conclusion == 'success' &&
-      github.event.workflow_run.event == 'workflow_dispatch')
     name: macOS arm64 update
     runs-on: macos-15
     timeout-minutes: 20
@@ -60,7 +53,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FROM: ${{ inputs.from }}
-          TO: ${{ github.event.workflow_run.head_branch || inputs.to }}
+          TO: ${{ inputs.to }}
         run: node scripts/ci/desktop-macos-update.mjs plan
 
       - name: Install the older signed release

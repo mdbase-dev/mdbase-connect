@@ -26,7 +26,7 @@ You can also build applications using the mdbase SDK. This is a way to make your
 
 Because you joined during the beta, your account has a 1 GB hosted-storage allowance that does not expire when the beta ends. It is shared across your Markdown files and other files. You can create up to 10 hosted collections, connect up to 10 replicas to each collection, store Markdown documents up to 1 MB, and store individual files up to 250 MB. I hope to offer paid plans with more storage later, and you'll be able to add one without losing your beta allowance.
 
-There will probably be some rough edges, so please let me know when something breaks, behaves unexpectedly, or is confusing. You can send an email to support@mdbase.dev or open an issue on GitHub. mdbase is early in its development and so feedback is super-helpful!
+If something breaks or is confusing, email support@mdbase.dev or open an issue on GitHub. Feedback is always welcome.
 
 Best,
 Callum.`;

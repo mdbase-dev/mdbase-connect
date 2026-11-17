@@ -11,8 +11,8 @@ import * as WorkerSession from "../src/application/worker-session.js";
 import type {ApplicationWorkerSessionHost} from "../src/application/worker-session.js";
 import {ApplicationBrowserSelection,type ApplicationSelectionBrowserPort} from "../src/application/browser-selection.js";
 import {ApplicationCollectionSelection} from "../src/application/collection-selection.js";
-import {AppWebSignInSession,type AppWebSignInSnapshot} from "../src/app-host/web-sign-in-session.js";
-import {AppProtectedInstallationSignIn,type AppInstallationSignInView} from "../src/app-host/installation-sign-in.js";
+import {AppWebSignInSession,type AppWebSignInPortal,type AppWebSignInSnapshot} from "../src/app-host/web-sign-in-session.js";
+import {AppInstallationSignInError,AppProtectedInstallationSignIn,type AppInstallationSignInView} from "../src/app-host/installation-sign-in.js";
 import {AppWebCloudCopyHost} from "../src/app-host/cloud-copy-host.js";
 import type {AppWebCollectionHandoff,AppWebNativeCollection} from "../src/app-host/web-collection.js";
 import type {AppBundledReleaseTrust} from "../src/app-host/cloud-copy-bootstrap.js";
@@ -28,7 +28,7 @@ const cleanup:Array<()=>unknown>=[];
 afterEach(async()=>{for(const step of cleanup.splice(0).reverse())await step();vi.restoreAllMocks();});
 
 /** The leader's Worker: one paired session with two approved collections. */
-function leader(){
+function leader(approval:{openPortal?:()=>AppWebSignInPortal;startCollectionConsent?:()=>Promise<never>}={}){
   let state:AppInstallationSignInView["state"]="paired";
   const view=():AppInstallationSignInView=>({requestId:"44444444-4444-4444-8444-444444444444",installationId:installation,deviceId:"55555555-5555-4555-8555-555555555555",appId,kind:"app-runtime",
     verificationUri:`${cpOrigin}/pair/44444444-4444-4444-8444-444444444444`,state,accountId:state==="pending"?null:account,accountEmail:state==="pending"?null:"person@example.test",
@@ -36,7 +36,8 @@ function leader(){
   const flow={view,isCurrent:()=>true,collectionConsentView:()=>null,
     listApprovedCollections:vi.fn(async()=>[{collectionId:X,displayName:"Notes",role:"owner" as const},{collectionId:Y,displayName:"Work",role:"owner" as const}]),
     confirmedSelection:()=>({accountId:account,installationId:installation}),close:vi.fn(async()=>{}),
-    signOutInstallation:vi.fn(async()=>{state="pending";return "revoked" as const;}),hasWebPushChannel:()=>false};
+    signOutInstallation:vi.fn(async()=>{state="pending";return "revoked" as const;}),hasWebPushChannel:()=>false,
+    ...(approval.startCollectionConsent?{startCollectionConsent:approval.startCollectionConsent}:{})};
   vi.spyOn(AppProtectedInstallationSignIn,"open").mockImplementation(async()=>flow as unknown as AppProtectedInstallationSignIn);
   const hosts:Array<{close:ReturnType<typeof vi.fn>}>=[];
   vi.spyOn(AppWebCloudCopyHost,"openInstallationDevice").mockImplementation(async()=>{
@@ -51,25 +52,33 @@ function leader(){
   });
   vi.spyOn(erasure,"eraseAppInstallationData").mockImplementation(async()=>({ledger:true,complete:true}));
   /** Every collection the session opened, newest last. */
-  const opened:Array<{id:string;generation:string;closed:boolean;attached:number;detached:number;live:Map<MessagePort,string>;strays:number;foreground:boolean[];end(reason:"forbidden"|"revoked"|"gone"):void}>=[];
+  const opened:Array<{id:string;generation:string;closed:boolean;attached:number;detached:number;renewed:number;live:Map<MessagePort,string>;strays:number;foreground:boolean[];end(reason:"forbidden"|"revoked"|"gone"):void}>=[];
+  /** The reminder consent per collection; each tab's ports note the one they were made under. */
+  const consents=new Map<string,string>(),made=new Map<MessagePort,string|null>();
   let callbacks:ApplicationWorkerSessionHost|undefined;
   const ports=(id:string,generation:string):AppWebCollectionHandoff=>{
     const data=new MessageChannel(),control=new MessageChannel();cleanup.push(()=>{data.port1.close();control.port1.close();});
-    return Object.freeze({schema:"mdbn-app-collection/1" as const,scope:Object.freeze({account,installation,collection:id}),generation,displayName:id===X?"Notes":"Work",setupMode:"inspect" as const,dataPort:data.port2,controlPort:control.port2});
+    const value=Object.freeze({schema:"mdbn-app-collection/1" as const,scope:Object.freeze({account,installation,collection:id}),generation,displayName:id===X?"Notes":"Work",setupMode:"inspect" as const,dataPort:data.port2,controlPort:control.port2});
+    made.set(value.dataPort,consents.get(id)??null);return value;
   };
   const parent=new AbortController();cleanup.push(()=>parent.abort());
   const session=new AppWebSignInSession<AppWebNativeCollection>({appId,appName:"Notes",origin,cpOrigin,environment:"production",release,signal:parent.signal,locks:undefined,
-    loadRuntime:async()=>Uint8Array.of(1),autoSelect:"never",openPortal:()=>{throw new Error("no approval in this test");},
+    loadRuntime:async()=>Uint8Array.of(1),autoSelect:"never",openPortal:approval.openPortal??(()=>{throw new Error("no approval in this test");}),
     openCollection:async context=>{
       const id=context.scope.collection,generation=crypto.randomUUID(),listeners=new Set<()=>void>();
       let ended:"forbidden"|"revoked"|"gone"|null=null;
       // live: every set of tab ports onto it ("opener", "attach1", ...), by data port.
-      const record={id,generation,closed:false,attached:0,detached:0,live:new Map<MessagePort,string>(),strays:0,foreground:[] as boolean[],end:(reason:"forbidden"|"revoked"|"gone")=>{ended=reason;for(const l of [...listeners])l();}};
+      const record={id,generation,closed:false,attached:0,detached:0,renewed:0,live:new Map<MessagePort,string>(),strays:0,foreground:[] as boolean[],end:(reason:"forbidden"|"revoked"|"gone")=>{ended=reason;for(const l of [...listeners])l();}};
       opened.push(record);
       const connection:AppWebNativeCollection=Object.freeze({scope:context.scope,generation,isCurrent:()=>!record.closed,
         setForeground:(value:boolean)=>{record.foreground.push(value);},
         attach:()=>{record.attached++;const value=ports(id,generation);record.live.set(value.dataPort,`attach${record.attached}`);return value;},
-        detach:(value:AppWebCollectionHandoff)=>{if(record.live.delete(value.dataPort))record.detached++;else record.strays++;}});
+        detach:(value:AppWebCollectionHandoff)=>{if(record.live.delete(value.dataPort))record.detached++;else record.strays++;},
+        renewTimers:(value:AppWebCollectionHandoff)=>{
+          if(!record.live.has(value.dataPort)||made.get(value.dataPort)===(consents.get(id)??null))return null;
+          record.renewed++;const next=ports(id,generation);record.live.set(next.dataPort,`renew${record.renewed}`);
+          record.live.delete(value.dataPort);record.detached++;return next;
+        }});
       // The tab that asked gets the original ports.
       const original=ports(id,generation);record.live.set(original.dataPort,"opener");
       callbacks!.handoff(original);
@@ -102,7 +111,7 @@ function leader(){
   const host=new ApplicationWorkerHost(primary.port1,"leader_binding_00001",declaration,packaged,undefined,null);
   cleanup.push(()=>host.stop().catch(()=>{}));
   const open=(id:string)=>opened.filter(value=>value.id===id&&!value.closed);
-  return {host,session,hosts,opened,open,primary:primary.port2,flow,U,unsynced,lifecycle};
+  return {host,session,hosts,opened,open,primary:primary.port2,flow,U,unsynced,lifecycle,consents};
 }
 
 /** One browser tab: its own URL and history, Worker client and selection. */
@@ -225,6 +234,48 @@ describe("per-tab collection selection",()=>{
     for(const record of worker.opened)expect(record.strays).toBe(0);
   });
 
+  it("reminders granted for an open collection renew the ports of every tab showing it, and no other tab's",async()=>{
+    const worker=leader(),signal=new AbortController().signal;
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    const b=tab(worker,"follower_binding_0001",`${origin}/?collection=${X}`);await b.ready();
+    const c=tab(worker,"follower_binding_0002",`${origin}/?collection=${Y}`);await c.ready();
+    await vi.waitFor(()=>{a.shows(X);b.shows(X);c.shows(Y);});
+    const x=worker.open(X)[0]!,y=worker.open(Y)[0]!;holds(x,["opener","attach1"]);holds(y,["opener"]);
+    const before=[a,b,c].map(t=>t.received.length);
+    // Nothing changed: re-reading the list hands no tab new ports.
+    await a.client.request("refreshCollections",null,signal);
+    expect([a,b,c].map(t=>t.received.length)).toEqual(before);
+    worker.consents.set(X,"reminders granted");
+    await a.client.request("refreshCollections",null,signal);
+    await vi.waitFor(()=>expect([a,b,c].map(t=>t.received.length)).toEqual([before[0]!+1,before[1]!+1,before[2]]));
+    // Same open replica, each tab on its own new ports; Y untouched.
+    expect(worker.open(X)).toEqual([x]);holds(x,["renew1","renew2"]);holds(y,["opener"]);
+    a.shows(X);b.shows(X);c.shows(Y);
+    await a.client.request("refreshCollections",null,signal);
+    expect(x.renewed).toBe(2);
+    for(const record of worker.opened)expect(record.strays).toBe(0);
+  });
+
+  it("a tab reopening the collection a failed approval blocked gets new ports for it",async()=>{
+    // Found in production: an approval that failed before its window opened
+    // blocked the open collection; its page let go of its ports, and opening
+    // the same, still-open collection again waited for ports that never came.
+    const worker=leader({openPortal:()=>({closed:false,navigate:()=>{},close:()=>{}}),startCollectionConsent:()=>Promise.reject(new AppInstallationSignInError("binding"))});
+    const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();
+    await vi.waitFor(()=>a.shows(X));
+    const x=worker.open(X)[0]!;holds(x,["opener"]);
+    await expect(a.client.request("authorize",X,new AbortController().signal)).rejects.toMatchObject({code:"binding"});
+    await vi.waitFor(()=>expect(a.snapshot()).toMatchObject({status:"blocked",problem:"binding",selectedCollectionId:X}));
+    // The page lets go of its ports, as the application runtime does, and asks again.
+    const received=a.received.length;
+    await a.selection.select(X);
+    await vi.waitFor(()=>{a.shows(X);expect(a.received.length).toBe(received+1);});
+    // The same open collection, not reopened, with new ports for this tab.
+    // (The blocked session could not name the connection the old ones were
+    // on, so those go when it closes.)
+    expect(worker.open(X)).toEqual([x]);expect(x.attached).toBe(1);expect(x.strays).toBe(0);
+    expect(a.received.at(-1)!.generation).toBe(x.generation);
+  });
   it("access ended on one collection blocks every tab showing it, not the others; sign-out reaches every tab",async()=>{
     const worker=leader();
     const a=tab(worker,"leader_binding_00001",`${origin}/?collection=${X}`,worker.primary);await a.ready();

@@ -380,6 +380,34 @@
       "identifier": null
     },
     {
+      "operation": "record_history",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "record_history",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "record_version",
+      "input": {},
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
+      "operation": "record_version",
+      "input": {
+        "dry_run": true
+      },
+      "schema_version": 1,
+      "identifier": null
+    },
+    {
       "operation": "sync",
       "input": {
         "action": "changes",

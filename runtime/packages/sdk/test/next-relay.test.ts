@@ -622,12 +622,14 @@ describe("next-relay-only consistency policy", () => {
   });
 
 
-  it("holds typed catalog and file-stream reads while status/receipt/proof probes stay usable", async () => {
+  it("holds typed catalog, history and file-stream reads while status/receipt/proof probes stay usable", async () => {
     const { c } = await failoverClient();
     try {
       const ac = new AbortController();
       const typed = c.describeTyping(["task"], ["due"], { signal: ac.signal });
       const stream = c.files.downloadStream({ path: "missing.bin" } as never, { signal: ac.signal });
+      const versions = c.history.list(uuidv7(), { signal: ac.signal });
+      const version = c.history.version(uuidv7(), 1, { signal: ac.signal });
       await c.getStatus();
       const observed = await c.receipt(uuidv7()).catch(e => e);
       expect(observed).toBeDefined();
@@ -636,6 +638,8 @@ describe("next-relay-only consistency policy", () => {
       ac.abort();
       await expect(typed).rejects.toMatchObject({ code: "cancelled" });
       await expect(stream.file).rejects.toMatchObject({ code: "cancelled" });
+      await expect(versions).rejects.toMatchObject({ code: "cancelled" });
+      await expect(version).rejects.toMatchObject({ code: "cancelled" });
     } finally { c.close(); }
   });
 

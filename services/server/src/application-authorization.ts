@@ -25,7 +25,7 @@ import { z } from "zod";
 import { isP256PublicKey } from "./security.js";
 
 const MAX_ENCODED_PROOF_BYTES = 16_384;
-const MAX_AUTHORIZATION_LIFETIME_MS = 15 * 60 * 1_000;
+export const MAX_AUTHORIZATION_LIFETIME_MS = 15 * 60 * 1_000;
 const MAX_FUTURE_SKEW_MS = 2 * 60 * 1_000;
 const P256_ORDER = BigInt(
   "0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"

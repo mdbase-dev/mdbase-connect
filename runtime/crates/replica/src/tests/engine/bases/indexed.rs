@@ -95,6 +95,8 @@ fn projected(svc: &FakeLogService, a: Node) -> Replica<ProjectionStore> {
         fail_page: Rc::new(Cell::new(usize::MAX)),
         ready: Rc::new(Cell::new(true)),
         armed: Rc::new(Cell::new(false)),
+        clock: clock.clone(),
+        tick: Rc::new(Cell::new(0)),
     };
     let mut r = Replica::open(
         cfg,

@@ -125,6 +125,49 @@ fn source_shapes_and_invalid_yaml_refuse_instead_of_missing_views_success() {
     ));
 }
 #[test]
+fn a_record_s_own_problem_is_unreadable_and_leaves_the_meter_live() {
+    let ty = type_source("alternative", "views");
+    let c = catalog(&ty);
+    let mut b = WorkBudget::new();
+    for (source, detail) in [
+        ("views: {}", "base_views_shape"),
+        ("other: true", "base_views_missing"),
+        ("views: [{name: Tasks}]", "base_view_type"),
+        ("views: [", "base_raw_frontmatter_unavailable"),
+        // Frontmatter-style lines on top of a Base make two YAML documents.
+        (
+            "---\nviews: TODO\n---\nviews:\n  - {type: table}\n",
+            "base_raw_frontmatter_unavailable",
+        ),
+    ] {
+        let d = Document::parse(source, RecordFormat::YamlDocument);
+        assert!(
+            matches!(
+                classify_base_record(&c, "x.base", &d, &clock(), &mut b),
+                Ok(BaseRecord::Unreadable(found)) if found.detail() == detail
+            ),
+            "{source}"
+        );
+        assert!(b.failure().is_none(), "{source}");
+    }
+    // The same meter still classifies the next record.
+    let d = Document::parse("views: [{type: table}]", RecordFormat::YamlDocument);
+    assert!(matches!(
+        classify_base_record(&c, "y.base", &d, &clock(), &mut b),
+        Ok(BaseRecord::Base(base)) if base.views.len() == 1
+    ));
+    // A catalog problem is not one record's: it still refuses, stickily.
+    let d = Document::parse("views: [{type: table}]", RecordFormat::YamlDocument);
+    let mut b = WorkBudget::new();
+    assert!(matches!(
+        classify_base_record(&Catalog::load([]), "x.base", &d, &clock(), &mut b),
+        Err(EvaluationFailure::MetadataUnavailable(
+            "bases_contract_not_installed"
+        ))
+    ));
+    assert!(b.failure().is_some());
+}
+#[test]
 fn unknown_renderer_and_user_metadata_are_preserved_not_admitted() {
     let ty = type_source("alternative", "views");
     let c = catalog(&ty);

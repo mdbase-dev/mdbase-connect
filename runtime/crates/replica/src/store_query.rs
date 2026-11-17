@@ -43,7 +43,16 @@ pub struct QueryIndexedRow {
     pub types: Vec<String>,
     /// Exactly one atom for EVERY configured field, including missing/null.
     pub fields: Vec<QueryFieldValue>,
+    /// The body's [`mdbn_core::query::body_index_text`], at most
+    /// [`MAX_ROW_BODY_BYTES`], when the generation indexes bodies.
+    pub body: Option<String>,
 }
+/// Longest body index text one record may have; a collection with a longer
+/// body is indexed without bodies. Well inside a hosted 2 MB SQLite value.
+pub const MAX_ROW_BODY_BYTES: usize = 1 << 20;
+/// Body index text one transaction may write. A hosted request carries at most
+/// 4 MiB; a larger write leaves the index unready until it is rebuilt.
+pub const MAX_TX_BODY_BYTES: usize = 2 << 20;
 /// Persistent materialization status, not permission to serve an app session.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct QueryIndexState {
@@ -121,6 +130,9 @@ pub enum QueryPredicate {
     /// Complement of a predicate that cannot raise a CEL error (Core proves it).
     /// Every field/ID has a materialized atom, so there is no SQL NULL logic.
     Not(Box<QueryPredicate>),
+    /// The record's body index text contains this text, of at least three
+    /// characters. Only under a generation that indexes bodies.
+    BodyContains(String),
 }
 /// An explicit order term; the final path tie-break is always ascending.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -277,6 +289,15 @@ impl QueryIndexRequest {
                         },
                     }
                 }
+                p::Predicate::BodyContains(needle) => {
+                    if !ctx.indexes_body() {
+                        return Err(StoreError::Io("query body is not materialized".into()));
+                    }
+                    if needle.len() > 8192 {
+                        return Err(StoreError::Full);
+                    }
+                    QueryPredicate::BodyContains(needle.clone())
+                }
             })
         }
         let mut where_ = predicate(&profile.predicate, context, &mut 0, 0)?;
@@ -330,6 +351,11 @@ pub struct QueryRecordSize {
     pub encoded_bytes: u64,
 }
 /// One request owns ONE budget across every page/retry/restart; no refunds.
+/// Exception: saved-view discovery (`replica::bases::discovery`) serves several
+/// pages of one frozen cut per request, each page under its OWN budget, and
+/// bounds the request by host-clock time across pages instead. It reads every
+/// record, and on a Private collection each request is a relayed round trip
+/// (tasknotes-app#436), so a byte-bounded request cost a round trip per MiB.
 #[derive(Debug, PartialEq, Eq)]
 pub struct QueryBudget {
     records_left: u32,
@@ -341,7 +367,8 @@ impl QueryBudget {
         records_left: 1000,
         bytes_left: 1 << 20,
     };
-    /// Tighten the binding profile, never widen it for any replica mode.
+    /// Tighten the binding profile, never widen it for any replica mode. The
+    /// profile binds each page; only discovery spans pages per request.
     pub fn new(records: u32, bytes: u64) -> Self {
         Self {
             records_left: records.min(1000),

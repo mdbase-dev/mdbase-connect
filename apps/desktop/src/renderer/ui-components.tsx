@@ -14,6 +14,7 @@ import {
 import React, { useEffect, useRef, useState } from "react";
 import type { ConnectionDotState } from "./daemon-view.mjs";
 import { message, type Route } from "./view-model";
+import { Switch } from "@mdbase-dev/ui/switch";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
 
 export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
@@ -127,15 +128,7 @@ export function SettingSwitch({ className, label, description, checked, disabled
       <span className="toggle-copy"><strong>{label}</strong><small>{description}</small></span>
       <span className="toggle-action">
         <span className="toggle-state" aria-hidden="true">{stateLabel}</span>
-        <button
-          type="button"
-          className="mdbase-switch"
-          role="switch"
-          aria-label={label}
-          aria-checked={checked}
-          disabled={disabled}
-          onClick={() => onChange(!checked)}
-        ><span aria-hidden="true" /></button>
+        <Switch aria-label={label} checked={checked} disabled={disabled} onChange={onChange} />
       </span>
     </label>
   );

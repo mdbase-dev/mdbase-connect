@@ -285,6 +285,30 @@ test("renders linked collection images inline and in the file preview", async ({
   await expect(preview).not.toBeAttached();
 });
 
+test("moves the caret one line at a time below an image embed", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await replaceOpeningNoteBody(body, "Before\n\nOne\nTwo\nThree\nFour");
+  await body.locator(".cm-line").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.insertText("\n\n![[Assets/frontmatter.svg]]");
+  const line = (text: string) => body.locator(".cm-line", { hasText: new RegExp(`^${text}$`) });
+  await line("One").click();
+  const image = body.locator(".cm-file-embed.ready img");
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true);
+  // The editor must measure the space around the embed: a margin it cannot see
+  // shifts every later line, and the arrows skip lines.
+  const caretLine = () => page.evaluate(() => document.getSelection()?.focusNode?.parentElement?.closest(".cm-line")?.textContent);
+  for (const text of ["Two", "Three", "Four"]) {
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(caretLine).toBe(text);
+  }
+  for (const text of ["Three", "Two", "One"]) {
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(caretLine).toBe(text);
+  }
+});
+
 test("focuses embedded PDFs in place and opens PDF wikilinks in the file workspace", async ({ page }) => {
   await page.goto("?demo=12");
   const body = page.getByRole("textbox", { name: "Note body" });
@@ -378,8 +402,8 @@ test("recovers unsent note edits after reload without silently saving them", asy
   await page.clock.pauseAt(new Date(time.getTime() + 1_000));
   const draft = "Writing that never reached autosave.";
   await replaceOpeningNoteBody(body, draft);
-  // Let CodeMirror consume the DOM input, without reaching the 650ms autosave.
-  await page.clock.runFor(50);
+  // Reach the 300ms recovery checkpoint, without reaching the 650ms autosave.
+  await page.clock.runFor(350);
   await expect.poll(() => page.evaluate((text) => Object.keys(localStorage)
     .filter((key) => key.startsWith("mdbase-editor:draft:v1:"))
     .some((key) => JSON.parse(localStorage.getItem(key)!).body.endsWith(text)), draft)).toBe(true);
@@ -863,6 +887,8 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(body).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+  // Typing `[[` closed the link; the completion's own `]]` replaced those.
+  await expect(body).not.toContainText("]]]");
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
 });
 
@@ -892,6 +918,7 @@ for (const trigger of ["@", "[["] as const) {
 
     await page.keyboard.press("Enter");
     await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+    await expect(body).not.toContainText("]]]");
     await expect(saveState).toHaveAttribute("data-save-state", "waiting");
     await expect(saveState).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
     await expect(page.getByText(/Couldn’t save/)).toHaveCount(0);

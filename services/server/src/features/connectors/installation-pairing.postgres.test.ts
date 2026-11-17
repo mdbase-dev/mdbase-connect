@@ -2438,6 +2438,35 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await approvePicked(noDeclaration,noDeclaration.flow,[other],other,false)).statusCode).toBe(200);
     expect((await noDeclaration.flow.exchange()).json()).toMatchObject({status:"paired",timer_consent:false,timer_grants:[]});
   });
+  it("lets a recovered collection ask again for itself, to turn on reminders, and for nothing else",async()=>{
+    // Found in production: after "Request access again", turning on reminders
+    // asks again for the collection the recovery already holds. The portal sends
+    // a held collection only as the selection, never among the added ones.
+    const owner=await account(),collection=await scopeCollection(owner.user),other=await scopeCollection(owner.user);
+    const p=await prepared("app-runtime",false,owner,undefined,await timerApp(),collection);
+    expect((await approvePicked(p,p.flow,[collection],collection,false)).statusCode).toBe(200);
+    const initial=(await p.flow.exchange()).json();
+    expect(initial).toMatchObject({status:"paired",recovery_collection_id:collection,collection_ids:[collection],timer_grants:[]});
+    const next=await rescope(p,initial.token);
+    expect(next.input.installation.recovery_collection_id).toBe(collection);
+    expect((await app.inject({method:"POST",url:`${next.flow.base}/select-account`,headers:owner.headers})).statusCode).toBe(200);
+    const pairing=()=>db.query("SELECT approved_collection_ids,selected_collection_id,timer_consent FROM installation_device_pairings WHERE pairing_id=$1",[next.input.installation.request_id]).then(result=>result.rows[0]);
+    for(const [ids,selected] of [[[other],other],[[collection,other],collection],[[other],collection]] as Array<[string[],string]>){
+      const refused=await approvePicked(p,next.flow,ids,selected,true);
+      expect(refused.statusCode).toBe(409);expect(refused.json().error.code).toBe("installation_recovery_target_changed");
+    }
+    expect(await pairing()).toEqual({approved_collection_ids:[],selected_collection_id:null,timer_consent:null});
+    expect((await approvePicked(p,next.flow,[],collection,true)).statusCode).toBe(200);
+    // Recorded as exactly the recovered collection, and the same approval replays.
+    expect(await pairing()).toEqual({approved_collection_ids:[collection],selected_collection_id:collection,timer_consent:true});
+    expect((await approvePicked(p,next.flow,[],collection,true)).statusCode).toBe(200);
+    const receipt=(await next.flow.exchange()).json();
+    expect(receipt).toMatchObject({status:"scope_updated",recovery_collection_id:collection,selected_collection_id:collection,added_collection_ids:[collection],approved_create_collections:false,timer_consent:true});
+    expect(receipt.timer_grants).toEqual([expect.objectContaining({collection_id:collection})]);
+    expect((await next.flow.exchange()).json()).toEqual(receipt);
+    expect((await db.query("SELECT collection_id,private_device FROM installation_collection_scopes WHERE connector_id=$1",[p.selected.connector_id])).rows).toEqual([{collection_id:collection,private_device:false}]);
+    expect((await db.query("SELECT token_hash FROM installation_device_credentials WHERE connector_id=$1",[p.selected.connector_id])).rows[0].token_hash).toBe(tokenHash(initial.token));
+  });
   it("withdraws immediately on reconsent approval; later older exchange cannot revive a grant or replace custody",async()=>{
     const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
     expect((await approvePicked(p,p.flow,[collection],collection,true)).statusCode).toBe(200);

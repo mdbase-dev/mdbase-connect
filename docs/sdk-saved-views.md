@@ -23,6 +23,18 @@ from `@mdbase-dev/sdk/app-host`. Keep native UUID/SHA/original ordinal and actua
 source options. The generic `views.list/execute/readSource` RPC surface is not an
 app-host fallback; unavailable capabilities remain explicit refusals.
 
+Pass `reportUnreadable: true` to `listAppBasesViews` so one malformed record
+cannot hide every view. A replica that grants `bases-discovery-unreadable-v1`
+then skips each record it cannot classify (malformed YAML, a `views` value that
+is not a list of views, a record whose types do not resolve) and names it in the
+page's `unreadable` list: `record`, `path`, `sourceRevision`, `reason` (the
+refusal reason request version 1 returns, such as `view_metadata_unavailable` or
+`view_unsupported_construct`) and `detail` (such as
+`base_raw_frontmatter_unavailable`). A page names at most 32; keep following the
+continuation. A replica without the feature refuses the discovery as before, so
+an empty `unreadable` on a successful page means nothing was skipped. Budget,
+cancellation and catalog failures still refuse the whole discovery.
+
 To read a whole saved view in pages, iterate `executeAppBasesPages(request,
 {firstPageSize?, pageSize?, signal?})` (defaults 200 then 1000 rows; at most
 65536). Each page is one independent windowed read with `page`, `offset`,

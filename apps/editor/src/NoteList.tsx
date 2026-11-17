@@ -26,7 +26,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selecting = false, onStartSelecting, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, contentIndexing, contentLoaded, contentError, total, contentTotal, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetryContent, onRetryFiles, onSelect, onSelectFile, onOpenInNewTab, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
+export function NoteList({ entries, selection, onSelection, selecting = false, onStartSelecting, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, searchPending, searchError, contentError, total, leadingActions, trailingActions, onSearch, onSort, onClearScope, onQuickOpen, onRetryStructure, onRetrySearch, onRetryContent, onRetryFiles, onSelect, onSelectFile, onOpenInNewTab, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -56,11 +56,12 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   structureError?: string;
   filesLoading: boolean;
   fileError?: string;
-  contentIndexing: boolean;
-  contentLoaded: number;
+  /** The collection has not yet answered which note texts match the search. */
+  searchPending: boolean;
+  searchError?: string;
+  /** Loading note text (for titles taken from it) failed. */
   contentError?: string;
   total?: number;
-  contentTotal?: number;
   leadingActions?: ReactNode;
   trailingActions?: ReactNode;
   onSearch: (value: string) => void;
@@ -68,6 +69,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   onClearScope: () => void;
   onQuickOpen: () => void;
   onRetryStructure: () => void;
+  onRetrySearch: () => void;
   onRetryContent: () => void;
   onRetryFiles: () => void;
   onSelect: (path: string, options?: { keyboard?: boolean }) => void;
@@ -125,11 +127,13 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   const currentSelection = selection ?? { paths: selectedPath ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath };
   const selectedPaths = new Set(currentSelection.paths);
   const focusedPath = currentSelection.focus ?? selectedPath;
-  const selectablePaths = entries.filter((entry) => entry.kind === "note" && !statuses.get(entry.path)?.disabled).map((entry) => entry.path);
+  // Read by handlers only: a render must not walk every entry.
+  const selectablePaths = () => entries.filter((entry) => entry.kind === "note" && !statuses.get(entry.path)?.disabled).map((entry) => entry.path);
   const chooseNote = (path: string, mode: "single" | "toggle" | "range", keyboard = false) => {
-    const next = selectNote(currentSelection, path, selectablePaths, mode);
+    const selectable = selectablePaths();
+    const next = selectNote(currentSelection, path, selectable, mode);
     onSelection?.(next);
-    if (mode === "single" || !currentSelection.anchor || !selectablePaths.includes(currentSelection.anchor)) onSelect(next.anchor!, { keyboard });
+    if (mode === "single" || !currentSelection.anchor || !selectable.includes(currentSelection.anchor)) onSelect(next.anchor!, { keyboard });
     if (mode !== "single" || keyboard) scrollRef.current?.focus({ preventScroll: true });
   };
   // Touch has no modifier keys; holding a note offers Select, which starts a selection with it.
@@ -224,8 +228,9 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true]")) return;
     if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "a") {
       event.preventDefault();
-      const anchor = currentSelection.anchor && selectablePaths.includes(currentSelection.anchor) ? currentSelection.anchor : selectablePaths[0];
-      onSelection?.({ paths: selectablePaths, anchor, focus: currentSelection.focus ?? anchor });
+      const selectable = selectablePaths();
+      const anchor = currentSelection.anchor && selectable.includes(currentSelection.anchor) ? currentSelection.anchor : selectable[0];
+      onSelection?.({ paths: selectable, anchor, focus: currentSelection.focus ?? anchor });
       if (anchor && anchor !== currentSelection.anchor) onSelect(anchor, { keyboard: true });
       return;
     }
@@ -272,7 +277,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   };
 
   return <section className="note-list-pane" aria-label={t`Notes and files`}>
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, contentIndexing, contentLoaded, total, contentTotal, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && contentError)))}{structureError && <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button>}{contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}{onCreateOfType && <button className="icon-button new-note-type" aria-label={t`New note of type…`} title={t`New note of type…`} aria-keyshortcuts="Shift+C" aria-haspopup="dialog" onClick={onCreateOfType}><CaretDown aria-hidden="true" /></button>}</header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, searchPending, total, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && searchError)))}{structureError ? <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button> : contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry notes</Trans></button>}{search.trim() && searchError && <button className="list-retry" title={searchError} onClick={onRetrySearch}><Trans>Retry search</Trans></button>}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <button className="icon-button new-note" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><FilePlus2 aria-hidden="true" /><span className="mobile-label"><Trans>New note</Trans></span></button>}{onCreateOfType && <button className="icon-button new-note-type" aria-label={t`New note of type…`} title={t`New note of type…`} aria-keyshortcuts="Shift+C" aria-haspopup="dialog" onClick={onCreateOfType}><CaretDown aria-hidden="true" /></button>}</header>
     <div className="note-list-controls">
       <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onQuickOpen={onQuickOpen} onResults={(first) => {
         if (first && entries[0]) {
@@ -321,7 +326,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
         const icon = typeIcons ? noteTypeIcon(note, types) : undefined;
         return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={t`${title} note actions`} items={rowActions(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={selectedPaths.has(note.path)} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={!compact && secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${note.path === arrivingPath ? " note-row-arrival" : ""}${selectedPaths.has(note.path) ? " selected" : ""}${note.path === focusedPath ? " list-focused" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled && !coarsePointer()} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify(selectedPaths.has(note.path) ? currentSelection.paths : [note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={(event) => {
             if (status?.disabled) return;
-            if (selecting) onSelection?.(selectNote(currentSelection, note.path, selectablePaths, "toggle"));
+            if (selecting) onSelection?.(selectNote(currentSelection, note.path, selectablePaths(), "toggle"));
             else chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single");
           }} onMouseDown={(event) => { if (event.button === 1 && onOpenInNewTab) event.preventDefault(); }} onAuxClick={(event) => {
             if (event.button !== 1 || !onOpenInNewTab || status?.disabled) return;
@@ -336,17 +341,16 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
             {status?.label ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><Timestamp value={noteTimestamp(note)} />{noteFolder && <span className="note-folder">{noteFolder}</span>}{note.types.length > 0 && <span className="note-type-badge" title={t`Type: ${note.types.join(", ")}`}>{note.types.map(typeDisplayName).join(" · ")}</span>}</span>}
           </>}
         </button></ContextMenu>;
-      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><Trans>Reading notes and files…</Trans></div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && contentError ? t`Search is incomplete.` : search ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && !structureError && onCreate && <button onClick={onCreate}><Trans>Create the first note</Trans></button>}</div>}
+      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><Trans>Reading notes and files…</Trans></div> : searching && searchPending ? <div className="list-loading">{t`Searching`}</div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && searchError ? t`Search is incomplete.` : search ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && !structureError && onCreate && <button onClick={onCreate}><Trans>Create the first note</Trans></button>}</div>}
     </div>
     {peekPresent && <aside ref={peekRef} popover="manual" className="note-peek" data-open={Boolean(peek)} role="region" aria-label={peekContent.current.title}>{peekContent.current.body}</aside>}
   </section>;
 }
 
 
-function browserCountLabel(noteCount: number, fileCount: number, resultCount: number, loading: boolean, structureLoading: boolean, filesLoading: boolean, contentIndexing: boolean, contentLoaded: number, total: number | undefined, contentTotal: number | undefined, searching: boolean, sort: NoteSort, incomplete: boolean): string {
+function browserCountLabel(noteCount: number, fileCount: number, resultCount: number, loading: boolean, structureLoading: boolean, filesLoading: boolean, searchPending: boolean, total: number | undefined, searching: boolean, sort: NoteSort, incomplete: boolean): string {
   if (incomplete) return searching ? t`${resultCount.toLocaleString(displayLocale())} found so far · incomplete` : t`${noteCount.toLocaleString(displayLocale())} notes loaded · incomplete`;
-  if (searching && contentIndexing) return t`${resultCount.toLocaleString(displayLocale())} found so far · searching ${contentLoaded.toLocaleString(displayLocale())} of ${contentTotal?.toLocaleString(displayLocale()) ?? "…"}`;
-  if ((loading || filesLoading) && searching) return resultCount ? t`${resultCount.toLocaleString(displayLocale())} found so far` : t`Searching`;
+  if ((loading || filesLoading || searchPending) && searching) return resultCount ? t`${resultCount.toLocaleString(displayLocale())} found so far` : t`Searching`;
   if ((structureLoading || filesLoading) && noteCount === 0 && fileCount === 0) return t`Reading notes and files`;
   if (structureLoading) {
     const notes = t`${noteCount.toLocaleString(displayLocale())} of ${total?.toLocaleString(displayLocale()) ?? "…"} notes`;

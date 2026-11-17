@@ -219,8 +219,8 @@ for (const width of [1440, 390]) for (const colorScheme of ["light", "dark"] as 
       const paletteStyle = await fillOnly(palette.getByRole("option", { selected: true }), true);
       await page.keyboard.press("Escape");
       await openScenario(page, "anonymous");
-      const theme = page.getByRole("combobox", { name: "Color theme", exact: true });
-      await keyTo(page, theme, "Tab");
+      const language = page.getByRole("combobox", { name: "Language", exact: true });
+      await keyTo(page, language, "Tab");
       await page.keyboard.press("Space");
       const list = page.locator(".mdbase-select-list");
       await expect(list).toBeVisible();

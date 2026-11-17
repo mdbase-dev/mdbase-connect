@@ -48,7 +48,7 @@ production.
 | `beta` | `beta_access_requests` matched to accounts by normalized email, `invitations` | Request-to-signup conversion; replaces the paginated client-side report. |
 | `pairing` | `pairing_requests` created in the window, without an installation pairing | Whether computer pairing fails before approval. |
 | `app_pairing` | the same requests with an `installation_device_pairings` row | Whether app installations fail before approval. Each application's `pairing` splits it by application. |
-| `consent` | `authorization_requests` expiring in the window | Whether the approval screen loses people. `abandoned_before_sign_in` counts requests that never reached a signed-in account. |
+| `consent` | `authorization_requests` expiring in the window | Whether the approval screen loses people. `abandoned_before_sign_in` counts requests that never reached a signed-in account. A denial is counted as `denied`, never as approved. |
 | `consent_by_flow` | the same requests split by `authorization_code` and `device_code` | Which authorization flow loses people. |
 | `collections` | `collections`, `hosted_collections`, `next_collections` | Local, hosted, and native adoption. |
 | `transport_users_in_window` | `protocol_usage_telemetry` for direct and relay; the hosted provider's protocol usage, mapped through `account_storage_accounts`, for hosted; `device_activity_days` by device kind for `native` | Direct, relay, hosted, and native reliance. `hosted` is `null` when no provider is configured. |
@@ -79,6 +79,22 @@ requests on every deployment. Applications whose family is
 of either are listed in `applications` with `synthetic: true`, and their
 requests are left out of `consent`, `consent_by_flow` and `app_pairing`.
 Account figures are not filtered: the canaries never sign in.
+
+## Test accounts
+
+Agent tests run against production with registered test accounts and the real
+apps. An operator marks each one with `users mark-test` (and clears a mistake
+with `users unmark-test`). Every row a marked account owns is left out of every
+figure, including `accounts.total`. A request nobody has signed in to yet has
+no account, so a test browser's unclaimed consent request still counts.
+
+## Native companions
+
+An app pairing prepares a second authorization request, bound to the pairing's
+challenge, in case the person picks a Private collection. It is attached only
+when they do, so most expire unclaimed. These companions are part of their
+pairing, which `app_pairing` counts, and are left out of `consent` and
+`consent_by_flow`.
 
 ## Native collections
 

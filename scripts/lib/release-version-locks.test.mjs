@@ -53,7 +53,7 @@ for (const [path, keys] of sdkVersionFields) {
 test('release version validates both locks without changing external dependency versions', async () => {
   await fixture(async (cwd) => {
     const { stdout } = await exec(process.execPath, [checker], { cwd });
-    assert.match(stdout, /Release version 0.1.0-beta.96 is consistent/);
+    assert.match(stdout, /Workspace version 0.1.0-beta.96 is consistent/);
   });
 });
 

@@ -75,6 +75,48 @@ test("release scripts emit a deterministic, digest-bound platform manifest", asy
   assert.match(target.artifacts[0].sigstore_url, /\.zip\.sigstore\.json$/);
 });
 
+test("the first plain semver release publishes a stable channel document", async () => {
+  // A beta installation accepts 0.1.0 only from a document whose channel is stable.
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-update-release-"));
+  await writeFile(
+    join(directory, "update-input-windows-x64.json"),
+    JSON.stringify({
+      schema_version: 1,
+      platform: "windows",
+      arch: "x64",
+      mode: "store",
+      action_url: "https://apps.microsoft.com/detail/example",
+      artifacts: []
+    })
+  );
+  const output = join(directory, "manifest.json");
+  await execFile(
+    process.execPath,
+    [
+      "scripts/generate-update-manifest.mjs",
+      "--directory",
+      directory,
+      "--output",
+      output,
+      "--version",
+      "0.1.0",
+      "--repository",
+      "mdbase-dev/mdbase-connect",
+      "--rollout",
+      "100",
+      "--minimum-version",
+      "0.1.0-beta.9",
+      "--published-versions",
+      "0.1.0-beta.8 0.1.0-beta.224 0.1.0"
+    ],
+    { cwd: repositoryRoot }
+  );
+  const manifest = JSON.parse(await readFile(output, "utf8"));
+  assert.equal(manifest.channel, "stable");
+  assert.equal(manifest.tag, "v0.1.0");
+  assert.deepEqual(manifest.blocked_versions, ["0.1.0-beta.8"]);
+});
+
 test("release input creation rejects missing provenance bundles", async () => {
   const directory = await mkdtemp(join(tmpdir(), "mdbase-update-release-"));
   await writeFile(join(directory, "update.zip"), "archive");

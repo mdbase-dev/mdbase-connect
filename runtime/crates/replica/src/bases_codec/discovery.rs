@@ -1,6 +1,9 @@
 //! Separately typed discovery/source READ codecs; no generic Query continuation.
 use super::*;
-use crate::replica::{BasesDiscoveryHandle, BasesDiscoveryPage, BasesViewSource};
+use crate::replica::{
+    BasesDiscoveryHandle, BasesDiscoveryPage, BasesUnreadableSource, BasesViewSource,
+    UnreadableSources,
+};
 use mdbn_core::views::bases::IncrementalBasesBudget;
 // Match existing owned app output discipline without a new dependency.
 struct WipedOutput(Vec<u8>);
@@ -16,6 +19,9 @@ struct PageRequest {
     zone: String,
     limit: u32,
     resume: Option<BasesDiscoveryHandle>,
+    /// Version 1 refuses on an unreadable record; version 2 (granted with
+    /// the `bases-discovery-unreadable-v1` hello feature) names it.
+    unreadable: UnreadableSources,
 }
 struct SourceRequest {
     zone: String,
@@ -31,9 +37,11 @@ impl PageRequest {
             return Err(invalid());
         }
         r.field(0).map_err(|_| invalid())?;
-        if r.arg(0).map_err(|_| invalid())? != 1 {
-            return Err(invalid());
-        }
+        let unreadable = match r.arg(0).map_err(|_| invalid())? {
+            1 => UnreadableSources::Refuse,
+            2 => UnreadableSources::Report,
+            _ => return Err(invalid()),
+        };
         r.field(1).map_err(|_| invalid())?;
         let zone = text(&mut r, 128)?.to_owned();
         r.field(2).map_err(|_| invalid())?;
@@ -55,6 +63,7 @@ impl PageRequest {
             zone,
             limit,
             resume,
+            unreadable,
         })
     }
 }
@@ -99,11 +108,26 @@ fn clock(writer: &mut Writer, clock: &mdbn_core::intent::OpClock) -> ApiResult<(
         local_date: clock.local_date.clone(),
     })
 }
-fn page(writer: &mut Writer, page: &BasesDiscoveryPage) -> ApiResult<()> {
-    if page.views.len() > 128 {
+fn unreadable(writer: &mut Writer, source: &BasesUnreadableSource) -> ApiResult<()> {
+    writer.map(5)?;
+    writer.uint(0)?;
+    writer.blob(&source.record.0)?;
+    writer.uint(1)?;
+    writer.text(&source.path)?;
+    writer.uint(2)?;
+    writer.blob(&source.revision.0)?;
+    writer.uint(3)?;
+    writer.text(source.problem.code())?;
+    writer.uint(4)?;
+    writer.text(source.problem.detail())
+}
+fn page(writer: &mut Writer, page: &BasesDiscoveryPage, mode: UnreadableSources) -> ApiResult<()> {
+    if page.views.len() > 128 || page.unreadable.len() > 128 {
         return Err(too_large());
     }
-    writer.map(5)?;
+    // `UnreadableSources::Refuse` never yields an unreadable record.
+    let report = mode == UnreadableSources::Report;
+    writer.map(if report { 6 } else { 5 })?;
     writer.uint(0)?;
     writer.uint(1)?;
     writer.uint(1)?;
@@ -117,9 +141,17 @@ fn page(writer: &mut Writer, page: &BasesDiscoveryPage) -> ApiResult<()> {
     writer.blob(&page.collection_revision.0)?;
     writer.uint(4)?;
     match page.next {
-        Some(token) => writer.blob(&token.0),
-        None => writer.put(&[0xf6]),
+        Some(token) => writer.blob(&token.0)?,
+        None => writer.put(&[0xf6])?,
     }
+    if report {
+        writer.uint(5)?;
+        writer.array(page.unreadable.len())?;
+        for source in &page.unreadable {
+            unreadable(writer, source)?;
+        }
+    }
+    Ok(())
 }
 fn source(writer: &mut Writer, source: &BasesViewSource) -> ApiResult<()> {
     if source.source.len() > 512 * 1024 {
@@ -186,12 +218,14 @@ impl<S: Store> Replica<S> {
     ) -> ApiResult<Vec<u8>> {
         self.authorize_bases_read(session)?;
         let request = PageRequest::decode(bytes)?;
+        let mode = request.unreadable;
         let mut bytes = self.encode_bases_discovery_page(
             session,
             Some(&request.zone),
             request.limit,
             request.resume,
-            |_, result, ledger| encode(ledger, |writer| page(writer, result)),
+            mode,
+            |_, result, ledger| encode(ledger, |writer| page(writer, result, mode)),
         )?;
         Ok(std::mem::take(&mut bytes.0))
     }

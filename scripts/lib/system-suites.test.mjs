@@ -13,7 +13,6 @@ test("every system suite has an existing command and known preparation steps", a
   assert.deepEqual(Object.keys(systemSuites), [
     "runtime-daemon",
     "relay",
-    "sync",
     "provider",
     "files",
     "files-adversarial",

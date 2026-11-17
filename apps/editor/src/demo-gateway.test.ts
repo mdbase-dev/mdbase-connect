@@ -20,6 +20,24 @@ describe("DemoCollectionGateway indexing", () => {
     expect(progressSnapshots).toEqual([structure.snapshot]);
     expect(content.notes.every((note) => note.body !== undefined)).toBe(true);
   });
+
+  it("answers body searches as the runtime does: lower-cased text contains the term", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const created = await gateway.create({ path: "Notes/Mixed.md", title: "Mixed", body: "Mixed CASE Body", properties: {} });
+    expect(await gateway.searchBodies("case body")).toEqual([created.path]);
+    // The term is matched as given: an upper-case term matches no lower-cased text.
+    expect(await gateway.searchBodies("CASE")).toEqual([]);
+  });
+
+  it("answers tag searches as the runtime's hasTag does: frontmatter and inline tags, nested tags included", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const inline = await gateway.create({ path: "Notes/Inline.md", title: "Inline", body: "Inline #inlinemarker here.", properties: {} });
+    const nested = await gateway.create({ path: "Notes/Nested.md", title: "Nested", body: "Body", properties: { tags: ["project/alpha"] } });
+    expect(await gateway.searchTag("inlinemarker")).toEqual([inline.path]);
+    expect(await gateway.searchTag("#inlinemarker")).toEqual([inline.path]);
+    expect(await gateway.searchTag("project")).toEqual([nested.path]);
+    expect(await gateway.searchTag("proj")).toEqual([]);
+  });
 });
 
 describe("DemoCollectionGateway metadata layout", () => {

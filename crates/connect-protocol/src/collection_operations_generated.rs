@@ -32,6 +32,8 @@ pub const COLLECTION_OPERATIONS: &[&str] = &[
     "cancel_timer",
     "reconcile_timers",
     "sync",
+    "record_history",
+    "record_version",
 ];
 
 pub const FILE_CONTROL_MESSAGE_TYPES: &[&str] = &[
@@ -129,6 +131,8 @@ pub fn operation_input_schema_version(operation: &str, input: &Value) -> Option<
         "cancel_timer" => Some(1),
         "reconcile_timers" => Some(1),
         "sync" => Some(1),
+        "record_history" => Some(1),
+        "record_version" => Some(1),
         _ => None,
     }
 }

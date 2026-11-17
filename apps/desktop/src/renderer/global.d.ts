@@ -145,6 +145,8 @@ interface DesktopUpdateStatus {
   can_install: boolean;
   /** The bundled daemon was rolled back to the previous version; why. */
   daemon_notice?: string;
+  /** Take each release at its first rollout stage. */
+  early_access: boolean;
 }
 
 interface Window {
@@ -155,6 +157,7 @@ interface Window {
     updateStatus(): Promise<DesktopUpdateStatus>;
     checkForUpdates(): Promise<DesktopUpdateStatus>;
     installUpdate(): Promise<DesktopUpdateStatus>;
+    setEarlyAccess(enabled: boolean): Promise<DesktopUpdateStatus>;
     migrationStatus(): Promise<import("./takeover-state.mjs").TakeoverStatus & { running: boolean }>;
     startMigration(stopMirrors: boolean): Promise<unknown>;
     listCollections(): Promise<DaemonCollection[]>;

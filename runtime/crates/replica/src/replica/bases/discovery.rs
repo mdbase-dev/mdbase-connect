@@ -1,20 +1,61 @@
 //! Bounded primary UUID inventory discovery. No type-index shortcut or fallback.
 use super::*;
-use crate::{api::SessionId, store::Head};
+use crate::{api::SessionId, store::Head, store_query::QueryRecordSize};
 use mdbn_core::views::bases::IncrementalBasesBudget;
 use std::collections::BTreeMap;
 
 /// Identities per metadata read and per hydration call; the local source
 /// helpers accept at most 128.
 const METADATA_ROWS: u32 = 128;
-/// A page reads each selected source twice (classification, then the final
-/// CAS) under ONE ledger, so it selects at most half of the binding 1000-record
-/// / 1 MiB source profile. A page is bounded by this source work, not by a
-/// fixed record count, so a typical collection is one round trip.
-const PAGE_ROWS: usize = 500;
-const INITIAL_BYTES: u64 = 512 * 1024;
+/// One page's source work is the whole binding 1000-record / 1 MiB profile,
+/// under ONE ledger, and that profile still binds every page. Every selected
+/// source is read once to classify it; only a source that classifies as a Base
+/// is read again by the page's final CAS, and the page reserves that reread
+/// before it keeps the Base.
+const PAGE_ROWS: u32 = 1000;
+const PAGE_BYTES: u64 = 1 << 20;
+/// The largest source a page may select: half the page, so a Base can always
+/// be classified and reread within one page.
+const INITIAL_BYTES: u64 = PAGE_BYTES / 2;
 const SLOT_BYTES: u64 = 4096;
+/// A discovery REQUEST is bounded by time across pages, not by one page's
+/// bytes: it serves further pages of the same frozen cut until one has a view,
+/// the universe ends, or about this much host-clock time has passed since the
+/// request started. Discovery reads every record, and on a Private collection
+/// each request is a relayed round trip, so one page per request cost a round
+/// trip per MiB of notes before the first view (tasknotes-app#436, ~33 round
+/// trips and 19.5 s). Each page stays bounded by the profile above.
+const REQUEST_WORK_MS: i64 = 1_500;
+/// Backstop for a host clock that does not advance (it need not be monotonic):
+/// at most this many pages, each bounded by the profile, per request.
+const MAX_PAGES_PER_REQUEST: u32 = 256;
+
 const MAX_SLOTS: usize = 64;
+/// Unreadable records one page may name. A page that reaches it ends there,
+/// as one that reaches its view limit does.
+const MAX_UNREADABLE: usize = 32;
+
+/// What discovery does with a record it cannot classify: one whose own
+/// frontmatter, types or Bases fields are unusable (`BaseRecord::Unreadable`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum UnreadableSources {
+    /// Refuse the whole discovery, as request version 1 always has.
+    Refuse,
+    /// Skip the record and name it in the page, so the result is complete
+    /// except for the records it names (request version 2).
+    Report,
+}
+/// A record discovery skipped. Whether it declares views is unknown.
+pub struct BasesUnreadableSource {
+    /// The record's identity.
+    pub record: Uuid,
+    /// Its path under the frozen cut.
+    pub path: String,
+    /// Its source revision under the frozen cut.
+    pub revision: Hash,
+    /// Why it could not be classified.
+    pub problem: EvaluationFailure,
+}
 
 /// A separate native discovery continuation, never a Query/execution cursor.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -23,6 +64,9 @@ pub struct BasesDiscoveryHandle(pub [u8; 32]);
 pub struct BasesDiscoveryPage {
     /// Exact source identities and original declaration ordinals.
     pub views: Vec<BasesViewDescriptor>,
+    /// Records skipped as unreadable, in identity order. Always empty under
+    /// `UnreadableSources::Refuse`.
+    pub unreadable: Vec<BasesUnreadableSource>,
     /// Native frozen membership clock, shared only within discovery.
     pub clock: OpClock,
     /// Trusted collection revision.
@@ -40,6 +84,15 @@ pub struct BasesViewSource {
     pub clock: OpClock,
     /// Trusted collection revision.
     pub collection_revision: Hash,
+}
+/// One classified page, before its final CAS and (for the replying page) codec.
+struct ScannedPage {
+    views: Vec<BasesViewDescriptor>,
+    unreadable: Vec<BasesUnreadableSource>,
+    reread: Vec<(QueryRecordSize, LocalRecord)>,
+    reserved_bytes: u64,
+    sources: QueryBudget,
+    more: bool,
 }
 struct Entry {
     token: BasesDiscoveryHandle,
@@ -150,15 +203,18 @@ impl<S: Store> Replica<S> {
         }
         Ok(entry)
     }
-    /// Read one bounded page and encode INSIDE the original publication fence.
-    /// A supplied handle is single-use. Drift/failed consumption requires fresh
-    /// discovery, never an implicit new-cut retry. Caller uses zeroizing output.
+    /// Read bounded pages of one frozen cut until a page has a view, the
+    /// universe ends or the request's time budget is spent, and encode that
+    /// page INSIDE the original publication fence. A supplied handle is
+    /// single-use. Drift/failed consumption requires fresh discovery, never an
+    /// implicit new-cut retry. Caller uses zeroizing output.
     pub fn encode_bases_discovery_page<T>(
         &mut self,
         session: SessionId,
         timezone: Option<&str>,
         limit: u32,
         resume: Option<BasesDiscoveryHandle>,
+        unreadable: UnreadableSources,
         encode: impl FnOnce(&mut Self, &BasesDiscoveryPage, &mut IncrementalBasesBudget) -> ApiResult<T>,
     ) -> ApiResult<T> {
         self.authorize_bases_read(session)?;
@@ -192,13 +248,62 @@ impl<S: Store> Replica<S> {
         if timezone.is_some_and(|zone| zone != entry.clock.tz) {
             return Err(invalid());
         }
-        // Select the longest identity-ordered prefix that fits the page's source
-        // work. Each metadata read is precharged before it runs.
-        let mut metadata = Vec::new();
-        let mut bytes = 0u64;
+        // Serve pages under the SAME frozen cut until one has a view, the
+        // universe ends, or the request's time budget is spent. Each page is
+        // exactly one bounded page (its own source profile and ledger, every
+        // record classified, its own final CAS); only the page that replies is
+        // encoded. Without this, a vault of notes cost one relayed round trip
+        // per page before the first view (tasknotes-app#436).
+        let started = self.now();
+        let mut pages = 0u32;
+        loop {
+            pages += 1;
+            let mut scan =
+                self.discovery_scan_page(session, &mut entry, limit, unreadable, &mut ledger)?;
+            let spent = pages >= MAX_PAGES_PER_REQUEST
+                || self.now().saturating_sub(started) >= REQUEST_WORK_MS;
+            // Only the replying page is published, so a page that names an
+            // unreadable record replies as one with a view does.
+            if !scan.views.is_empty() || !scan.unreadable.is_empty() || !scan.more || spent {
+                return self.publish_discovery_page(session, entry, scan, ledger, encode);
+            }
+            // A page without views still proves its own Bases before the next
+            // page reads on; nothing of it is published.
+            self.recheck_discovery(session, &entry)?;
+            self.discovery_final_cas(&entry, &mut scan, &mut ledger)?;
+            self.recheck_discovery(session, &entry)?;
+            ledger = IncrementalBasesBudget::new();
+            ledger.retain(SLOT_BYTES).map_err(failure)?;
+        }
+    }
+    /// Select, read and classify one bounded page of the frozen discovery
+    /// universe, advancing `entry` past every processed record. Nothing is
+    /// published or encoded here.
+    fn discovery_scan_page(
+        &mut self,
+        session: SessionId,
+        entry: &mut Entry,
+        limit: u32,
+        mode: UnreadableSources,
+        ledger: &mut IncrementalBasesBudget,
+    ) -> ApiResult<ScannedPage> {
+        // Select, read and classify the longest identity-ordered prefix that
+        // fits the page's source work, one metadata read at a time. Each
+        // metadata read is precharged before it runs, each hydration is
+        // admitted against what is left after the rereads already reserved,
+        // and a Base is kept only when its own reread still fits.
+        let mut sources = QueryBudget::new(PAGE_ROWS, PAGE_BYTES);
+        let resumed = entry.unfinished;
+        let mut selected = 0usize;
         let mut exhausted = false;
         let mut previous = entry.after;
-        'scan: while metadata.len() < PAGE_ROWS {
+        let mut reread: Vec<(QueryRecordSize, LocalRecord)> = Vec::new();
+        let (mut reserved_rows, mut reserved_bytes) = (0u32, 0u64);
+        let mut views = Vec::new();
+        let mut unreadable = Vec::new();
+        let mut processed = 0usize;
+        let mut stopped = false;
+        while !stopped {
             let (steps, cost) = self.bases_local_metadata_cost(METADATA_ROWS)?;
             ledger.retain(cost).map_err(failure)?;
             ledger
@@ -223,146 +328,262 @@ impl<S: Store> Replica<S> {
                 return Err(invalid());
             }
             let short = chunk.len() < METADATA_ROWS as usize;
+            let total = chunk.len();
+            let mut admitted = Vec::new();
+            let (mut rows_left, mut bytes_left) = (
+                sources.records_left().saturating_sub(reserved_rows),
+                sources.bytes_left().saturating_sub(reserved_bytes),
+            );
             for row in chunk {
                 if previous.is_some_and(|id| row.id <= id) {
                     return Err(invalid());
                 }
                 previous = Some(row.id);
-                let next = bytes.checked_add(row.encoded_bytes).ok_or_else(invalid)?;
-                if next > INITIAL_BYTES || metadata.len() == PAGE_ROWS {
-                    if metadata.is_empty() {
-                        return Err(budget("bases_discovery_source_bytes"));
-                    }
-                    break 'scan;
+                if rows_left == 0 || row.encoded_bytes > bytes_left {
+                    break;
                 }
-                bytes = next;
-                metadata.push(row);
+                if selected == 0 && admitted.is_empty() && row.encoded_bytes > INITIAL_BYTES {
+                    return Err(budget("bases_discovery_source_bytes"));
+                }
+                rows_left -= 1;
+                bytes_left -= row.encoded_bytes;
+                admitted.push(row);
             }
-            // A short metadata read is the universe's end. A page that stops on
-            // its own bound needs a later page (possibly an empty EOF probe).
-            if short {
-                exhausted = true;
-                break;
-            }
-        }
-        if let Some((id, _, _)) = entry.unfinished
-            && metadata.first().is_none_or(|row| row.id != id)
-        {
-            return Err(stale_discovery());
-        }
-        // The metadata bound and ONE shared source meter precede hydration.
-        ledger
-            .retain(bytes + (metadata.len() as u64) * 512)
-            .map_err(failure)?;
-        let ids: Vec<_> = metadata.iter().map(|row| row.id).collect();
-        let mut sources = QueryBudget::new(2 * PAGE_ROWS as u32, 2 * INITIAL_BYTES);
-        let rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
-        if rows.len() != metadata.len() {
-            return Err(invalid());
-        }
-        self.recheck_discovery(session, &entry)?;
-        let mut views = Vec::new();
-        let mut processed = 0usize;
-        for (row, meta) in rows.iter().zip(&metadata) {
-            self.check_discovery_source(row, meta.id, meta.encoded_bytes, &mut ledger)?;
-            if entry
-                .unfinished
-                .is_some_and(|(id, revision, _)| id != row.id || revision != row.revision)
+            if selected == 0
+                && let Some((id, _, _)) = resumed
+                && admitted.first().is_none_or(|row| row.id != id)
             {
                 return Err(stale_discovery());
             }
-            let (document, footprint) = ledger
-                .admit(|work| {
-                    if !work.charge(row.doc.len() as u64, row.doc.len() as u64) {
-                        return Err(work.failure().expect("discovery source"));
-                    }
-                    Document::parse_at_bounded(&row.path, &row.doc)
-                        .map_err(|_| EvaluationFailure::BudgetExceeded("base_source_structure"))
-                })
-                .map_err(failure)?;
-            ledger
-                .retain(footprint.estimated_heap_bytes)
-                .map_err(failure)?;
-            let base = ledger
-                .admit(|work| {
-                    if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
-                        return Err(work.failure().expect("discovery structure"));
-                    }
-                    discover_base_record(
-                        self.bases_read_catalog(),
-                        &row.path,
-                        &document,
-                        &entry.clock,
-                        work,
-                    )
-                })
-                .map_err(failure)?;
-            let start = entry
-                .unfinished
-                .map_or(0, |(_, _, ordinal)| ordinal as usize);
-            let declared = base.as_ref().map_or(0, |base| base.views.len());
-            if start > declared || (entry.unfinished.is_some() && start == declared) {
-                return Err(stale_discovery());
+            if selected == 0 && admitted.is_empty() && total > 0 {
+                return Err(budget("bases_discovery_source_bytes"));
             }
-            if let Some(base) = base {
-                let take = (limit as usize - views.len()).min(base.views.len() - start);
-                for view in base.views.iter().skip(start).take(take) {
-                    let retained = row.path.len()
-                        + view.view_type.len()
-                        + view.name.map_or(0, str::len)
-                        + base
-                            .implementations
-                            .iter()
-                            .map(|i| i.type_name.len() + 256)
-                            .sum::<usize>()
-                        + 256;
-                    ledger.retain(retained as u64).map_err(failure)?;
-                    ledger
-                        .admit(|work| {
-                            if work.charge(1, retained as u64) {
-                                Ok(())
-                            } else {
-                                Err(work.failure().expect("discovery descriptor"))
-                            }
-                        })
-                        .map_err(failure)?;
-                    views.push(BasesViewDescriptor {
-                        record: row.id,
-                        path: row.path.clone(),
-                        revision: row.revision,
-                        index: view.index,
-                        name: view.name.map(str::to_owned),
-                        view_type: view.view_type.to_owned(),
-                        implementations: base
-                            .implementations
-                            .iter()
-                            .map(|implementation| BasesImplementationDescriptor {
-                                type_name: implementation.type_name.clone(),
-                                version: implementation.version.to_string(),
-                                contract_digest: B32(implementation.contract_digest.0),
-                                implementation_digest: B32(implementation.digest.0),
-                            })
-                            .collect(),
-                    });
+            // A short metadata read is the universe's end only when the page
+            // took all of it. A page that stops on its own bound needs a later
+            // page (possibly an empty EOF probe).
+            exhausted = short && admitted.len() == total;
+            stopped = admitted.len() < total || short;
+            if admitted.is_empty() {
+                break;
+            }
+            selected += admitted.len();
+            let bytes = admitted.iter().map(|row| row.encoded_bytes).sum::<u64>();
+            // The metadata bound and the page's ONE source meter precede hydration.
+            ledger
+                .retain(bytes + (admitted.len() as u64) * 512)
+                .map_err(failure)?;
+            let ids: Vec<_> = admitted.iter().map(|row| row.id).collect();
+            let rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
+            if rows.len() != admitted.len() {
+                return Err(invalid());
+            }
+            self.recheck_discovery(session, entry)?;
+            for (row, meta) in rows.into_iter().zip(admitted) {
+                self.check_discovery_source(&row, meta.id, meta.encoded_bytes, ledger)?;
+                if entry
+                    .unfinished
+                    .is_some_and(|(id, revision, _)| id != row.id || revision != row.revision)
+                {
+                    return Err(stale_discovery());
                 }
-                if start + take < declared {
-                    entry.unfinished = Some((row.id, row.revision, (start + take) as u32));
+                let (document, footprint) = ledger
+                    .admit(|work| {
+                        if !work.charge(row.doc.len() as u64, row.doc.len() as u64) {
+                            return Err(work.failure().expect("discovery source"));
+                        }
+                        Document::parse_at_bounded(&row.path, &row.doc)
+                            .map_err(|_| EvaluationFailure::BudgetExceeded("base_source_structure"))
+                    })
+                    .map_err(failure)?;
+                ledger
+                    .retain(footprint.estimated_heap_bytes)
+                    .map_err(failure)?;
+                let classified = ledger
+                    .admit(|work| {
+                        if !work.charge(footprint.values, footprint.estimated_heap_bytes) {
+                            return Err(work.failure().expect("discovery structure"));
+                        }
+                        classify_base_record(
+                            self.bases_read_catalog(),
+                            &row.path,
+                            &document,
+                            &entry.clock,
+                            work,
+                        )
+                    })
+                    .map_err(failure)?;
+                let base = match classified {
+                    BaseRecord::NotBase => None,
+                    BaseRecord::Base(base) => Some(base),
+                    BaseRecord::Unreadable(problem) if mode == UnreadableSources::Refuse => {
+                        return Err(failure(problem));
+                    }
+                    BaseRecord::Unreadable(problem) => {
+                        let retained = row.path.len() as u64 + 256;
+                        ledger.retain(retained).map_err(failure)?;
+                        ledger
+                            .admit(|work| {
+                                if work.charge(1, retained) {
+                                    Ok(())
+                                } else {
+                                    Err(work.failure().expect("unreadable source"))
+                                }
+                            })
+                            .map_err(failure)?;
+                        unreadable.push(BasesUnreadableSource {
+                            record: row.id,
+                            path: row.path.clone(),
+                            revision: row.revision,
+                            problem,
+                        });
+                        None
+                    }
+                };
+                let start = entry
+                    .unfinished
+                    .map_or(0, |(_, _, ordinal)| ordinal as usize);
+                let declared = base.as_ref().map_or(0, |base| base.views.len());
+                if start > declared || (entry.unfinished.is_some() && start == declared) {
+                    return Err(stale_discovery());
+                }
+                let base_found = base.is_some();
+                let mut unfinished = None;
+                if let Some(base) = base {
+                    // The final CAS rereads this Base. When that reread no
+                    // longer fits, the Base starts the next page instead.
+                    if sources.records_left() <= reserved_rows
+                        || meta.encoded_bytes > sources.bytes_left() - reserved_bytes
+                    {
+                        if processed == 0 {
+                            return Err(budget("bases_discovery_source_bytes"));
+                        }
+                        stopped = true;
+                        exhausted = false;
+                        break;
+                    }
+                    reserved_rows += 1;
+                    reserved_bytes += meta.encoded_bytes;
+                    let take = (limit as usize - views.len()).min(base.views.len() - start);
+                    for view in base.views.iter().skip(start).take(take) {
+                        let retained = row.path.len()
+                            + view.view_type.len()
+                            + view.name.map_or(0, str::len)
+                            + base
+                                .implementations
+                                .iter()
+                                .map(|i| i.type_name.len() + 256)
+                                .sum::<usize>()
+                            + 256;
+                        ledger.retain(retained as u64).map_err(failure)?;
+                        ledger
+                            .admit(|work| {
+                                if work.charge(1, retained as u64) {
+                                    Ok(())
+                                } else {
+                                    Err(work.failure().expect("discovery descriptor"))
+                                }
+                            })
+                            .map_err(failure)?;
+                        views.push(BasesViewDescriptor {
+                            record: row.id,
+                            path: row.path.clone(),
+                            revision: row.revision,
+                            index: view.index,
+                            name: view.name.map(str::to_owned),
+                            view_type: view.view_type.to_owned(),
+                            implementations: base
+                                .implementations
+                                .iter()
+                                .map(|implementation| BasesImplementationDescriptor {
+                                    type_name: implementation.type_name.clone(),
+                                    version: implementation.version.to_string(),
+                                    contract_digest: B32(implementation.contract_digest.0),
+                                    implementation_digest: B32(implementation.digest.0),
+                                })
+                                .collect(),
+                        });
+                    }
+                    if start + take < declared {
+                        unfinished = Some((row.id, row.revision, (start + take) as u32));
+                    }
+                }
+                let row_id = row.id;
+                if base_found {
+                    reread.push((meta, row));
+                }
+                entry.unfinished = unfinished;
+                if entry.unfinished.is_some() {
+                    stopped = true;
+                    exhausted = false;
                     break;
                 }
-            }
-            entry.unfinished = None;
-            entry.after = Some(row.id);
-            processed += 1;
-            if views.len() == limit as usize {
-                break;
+                entry.after = Some(row_id);
+                processed += 1;
+                if views.len() == limit as usize || unreadable.len() == MAX_UNREADABLE {
+                    stopped = true;
+                    break;
+                }
             }
         }
         // Only a short metadata read establishes EOF. Empty views with next
         // are valid actual progress.
-        let more = entry.unfinished.is_some() || processed < metadata.len() || !exhausted;
+        let more = entry.unfinished.is_some() || processed < selected || !exhausted;
+        Ok(ScannedPage {
+            views,
+            unreadable,
+            reread,
+            reserved_bytes,
+            sources,
+            more,
+        })
+    }
+    /// FINAL source CAS: reread every Base the page classified, on the SAME
+    /// ledger and source meter. Every other selected source yielded nothing,
+    /// and the caller's fence and head recheck cover it.
+    fn discovery_final_cas(
+        &self,
+        entry: &Entry,
+        scan: &mut ScannedPage,
+        ledger: &mut IncrementalBasesBudget,
+    ) -> ApiResult<()> {
+        if scan.reread.is_empty() {
+            return Ok(());
+        }
+        ledger
+            .retain(scan.reserved_bytes + (scan.reread.len() as u64) * 512)
+            .map_err(failure)?;
+        let ids: Vec<_> = scan.reread.iter().map(|(meta, _)| meta.id).collect();
+        let final_rows = self.discovery_hydrate(&ids, entry.head, &mut scan.sources)?;
+        if final_rows.len() != scan.reread.len() {
+            return Err(stale_discovery());
+        }
+        for (actual, (meta, expected)) in final_rows.iter().zip(&scan.reread) {
+            self.check_discovery_source(actual, expected.id, meta.encoded_bytes, ledger)?;
+            if actual.path != expected.path
+                || actual.path_key != expected.path_key
+                || actual.revision != expected.revision
+                || actual.doc != expected.doc
+            {
+                return Err(stale_discovery());
+            }
+        }
+        Ok(())
+    }
+    /// Encode the replying page INSIDE the original publication fence, then
+    /// run its final CAS after codec and publish or release the slot.
+    fn publish_discovery_page<T>(
+        &mut self,
+        session: SessionId,
+        mut entry: Entry,
+        mut scan: ScannedPage,
+        mut ledger: IncrementalBasesBudget,
+        encode: impl FnOnce(&mut Self, &BasesDiscoveryPage, &mut IncrementalBasesBudget) -> ApiResult<T>,
+    ) -> ApiResult<T> {
+        let more = scan.more;
         self.host.entropy.fill(&mut entry.token.0);
         let page = BasesDiscoveryPage {
-            views,
+            views: std::mem::take(&mut scan.views),
+            unreadable: std::mem::take(&mut scan.unreadable),
             clock: entry.clock.clone(),
             collection_revision: entry.fence.collection_revision(),
             next: more.then_some(entry.token),
@@ -370,26 +591,7 @@ impl<S: Store> Replica<S> {
         self.recheck_discovery(session, &entry)?;
         let output = encode(self, &page, &mut ledger)?;
         self.recheck_discovery(session, &entry)?;
-        // FINAL source CAS uses the SAME 1000-record/1MiB ledger after codec.
-        if !ids.is_empty() {
-            ledger
-                .retain(bytes + (metadata.len() as u64) * 512)
-                .map_err(failure)?;
-            let final_rows = self.discovery_hydrate(&ids, entry.head, &mut sources)?;
-            if final_rows.len() != rows.len() {
-                return Err(stale_discovery());
-            }
-            for ((actual, expected), meta) in final_rows.iter().zip(&rows).zip(&metadata) {
-                self.check_discovery_source(actual, expected.id, meta.encoded_bytes, &mut ledger)?;
-                if actual.path != expected.path
-                    || actual.path_key != expected.path_key
-                    || actual.revision != expected.revision
-                    || actual.doc != expected.doc
-                {
-                    return Err(stale_discovery());
-                }
-            }
-        }
+        self.discovery_final_cas(&entry, &mut scan, &mut ledger)?;
         self.recheck_discovery(session, &entry)?;
         if more {
             // The public encoder may re-enter and publish other sessions' slots.

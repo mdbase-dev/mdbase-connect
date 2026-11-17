@@ -1516,37 +1516,54 @@ fn constrained_host_pages_a_body_search_in_query_order() {
         }
         query
     };
-    // The whole answer, where the per-record scan has no request budget.
+    // The whole answer, where the per-record scan has no request budget. "ne"
+    // is shorter than the body index's trigrams, so it is evaluated per record.
     node.r
         .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
-    let whole = |node: &mut Node, ordered| {
+    let whole = |node: &mut Node, word: &str, ordered| {
         let page = node
             .r
-            .query(node.s, q(&search("needle", 1000, ordered)), none())
+            .query(node.s, q(&search(word, 1000, ordered)), none())
             .unwrap();
         assert_eq!(page.has_more, Some(false));
         page.records.into_iter().map(|r| r.path).collect::<Vec<_>>()
     };
-    let unordered = whole(&mut node, false);
-    let ordered = whole(&mut node, true);
+    let unordered = whole(&mut node, "ne", false);
+    let ordered = whole(&mut node, "ne", true);
     assert_eq!(unordered.len(), 200);
     assert_ne!(unordered, ordered);
 
     node.r
         .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
-    let pages = all_pages(&mut node, &search("needle", 1000, false));
+    let pages = all_pages(&mut node, &search("ne", 1000, false));
     assert!(pages.len() > 1, "{} page(s)", pages.len());
     assert_eq!(paths(&pages), unordered);
-    let pages = all_pages(&mut node, &search("needle", 7, false));
+    let pages = all_pages(&mut node, &search("ne", 7, false));
     assert!(pages.iter().all(|p| p.records.len() <= 7));
     assert_eq!(paths(&pages), unordered);
     assert_eq!(
-        paths(&all_pages(&mut node, &search("needle", 1000, true))),
+        paths(&all_pages(&mut node, &search("ne", 1000, true))),
         ordered
     );
     // No match anywhere: pages that still advance, then the end.
-    let pages = all_pages(&mut node, &search("zzzznomatch", 1000, false));
+    let pages = all_pages(&mut node, &search("zq", 1000, false));
     assert!(pages.len() > 1 && paths(&pages).is_empty());
+
+    // A needle the body index answers: one page, no per-record scan.
+    let cases = [
+        ("needle", false, unordered),
+        ("needle", true, ordered),
+        ("zzzznomatch", false, Vec::new()),
+    ];
+    for (word, ordered_by, expected) in cases {
+        let before = node.r.query_stats();
+        let pages = all_pages(&mut node, &search(word, 1000, ordered_by));
+        let after = node.r.query_stats();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(after.indexed, before.indexed + 1, "{after:?}");
+        assert_eq!(after.parsed, before.parsed);
+        assert_eq!(paths(&pages), expected, "{word} ordered={ordered_by}");
+    }
 }
 
 /// A memory-constrained host streams every match of TaskNotes' open-tasks query

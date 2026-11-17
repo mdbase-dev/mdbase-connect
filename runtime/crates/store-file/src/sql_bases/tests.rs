@@ -171,6 +171,7 @@ fn tx(row: RecordRow) -> Tx {
                 path: row.path.clone(),
                 types: vec![],
                 fields: vec![],
+                body: None,
             }],
             publish_at: Some(Head::GENESIS),
             completes_backfill: false,

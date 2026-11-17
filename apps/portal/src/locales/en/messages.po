@@ -2573,6 +2573,11 @@ msgstr "Read file contents"
 
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
+msgid "Read record history"
+msgstr "Read record history"
+
+#: src/authorization-capabilities.ts
+msgctxt "Application access approval"
 msgid "Read records and files"
 msgstr "Read records and files"
 
@@ -2966,6 +2971,10 @@ msgstr "see collection members"
 #: src/authorization-review.tsx
 msgid "See collection members' account identities, names and roles"
 msgstr "See collection members' account identities, names and roles"
+
+#: src/authorization-capabilities.ts
+msgid "See earlier versions of records, including text that has since been changed or deleted."
+msgstr "See earlier versions of records, including text that has since been changed or deleted."
 
 #: src/authorization-review.tsx
 msgid "See your account identity and display name"

@@ -530,7 +530,7 @@ jobs:
     strategy:
       fail-fast: false
       # rust: the shard starts the hosted provider binary or runs its cargo
-      # tests. relay, sync and linux-packages are JavaScript and Docker only.
+      # tests. relay and linux-packages are JavaScript and Docker only.
       matrix:
         include:
           - shard: relay
@@ -538,11 +538,6 @@ jobs:
             rust: false
             browser: false
             timeout: 55
-          - shard: sync
-            suites: sync
-            rust: false
-            browser: false
-            timeout: 35
           - shard: provider
             suites: provider
             rust: true
