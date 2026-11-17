@@ -30,7 +30,7 @@ export type ApplicationWorkerEvent=
   |readonly[typeof APPLICATION_WORKER_PROTOCOL,string,"nativeAuthorization",number,import("./native-authorization-rpc.js").NativeAuthorizationCall]
   |readonly[typeof APPLICATION_WORKER_PROTOCOL,string,"nativeSnapshot",0,AppWebSignInSnapshot]
   |readonly[typeof APPLICATION_WORKER_PROTOCOL,string,"reply",number,{readonly ok:true;readonly snapshot:AppWebSignInSnapshot}|{readonly ok:false;readonly problem:ApplicationWorkerProblem}]
-  |readonly[typeof APPLICATION_WORKER_PROTOCOL,string,"portal",number,{readonly action:"navigate";readonly uri:string}|{readonly action:"close"}]
+  |readonly[typeof APPLICATION_WORKER_PROTOCOL,string,"portal",number,{readonly action:"navigate";readonly uri:string}|{readonly action:"focus"}|{readonly action:"close"}]
   |readonly[typeof APPLICATION_WORKER_PROTOCOL,string,"handoff",number,AppWebCollectionHandoff]
   |readonly[typeof APPLICATION_WORKER_PROTOCOL,string,"fatal",0,ApplicationWorkerProblem];
 export class ApplicationWorkerError extends Error {

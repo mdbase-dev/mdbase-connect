@@ -111,6 +111,21 @@ describe("explicit expired-window retry preserves original actor", () => {
     f.change(v=>{if(v.status==="account_selected")v.account_id="99999999-9999-4999-8999-999999999999";});
     await expect(f.flow.exchange()).rejects.toMatchObject({reason:"binding"});
   });
+  it("a window renewed after the portal confirmed the account waits for the renewed confirmation (tasknotes-app#492)",async()=>{
+    const confirmed=(v:Record<string,unknown>)=>{if("account_id" in v){v.account_email="person@example.test";v.account_selection_confirmed=true;}};
+    const f=await fixture();await f.flow.start();f.setSelected();f.change(confirmed);await f.flow.exchange();
+    const held=f.read().selection as Record<string,unknown>;expect(held.portalConfirmed).toBe(true);
+    vi.mocked(f.request).mockResolvedValueOnce(expiredReply());await expect(f.flow.exchange()).rejects.toMatchObject({reason:"expired"});
+    await f.flow.renewExpiredPairing();
+    // Connect carries the chosen account into the renewed window, unconfirmed.
+    f.change(()=>{});expect(await f.flow.exchange()).toMatchObject({state:"account_selected"});
+    const renewed=f.read().selection as Record<string,unknown>;expect(renewed.portalConfirmed).toBeUndefined();expect(renewed.accountId).toBe(held.accountId);
+    // Confirming the SAME account again restores the portal identity.
+    f.change(confirmed);await f.flow.exchange();expect((f.read().selection as Record<string,unknown>).portalConfirmed).toBe(true);
+    // Another account is still refused.
+    f.change(v=>{confirmed(v);if("account_id" in v)v.account_id="99999999-9999-4999-8999-999999999999";});
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason:"binding"});
+  });
   it.each(['installation_pairing_not_found'])("does not authorize retry from arbitrary404 %s",async code=>{
     const f=await fixture(), original=f.read();vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error:{code}}),{status:404}));
     await expect(f.flow.start()).rejects.toMatchObject({reason:'refused'});await expect(f.flow.renewExpiredPairing()).rejects.toMatchObject({reason:'recovery_required'});expect(f.read()).toEqual(original);

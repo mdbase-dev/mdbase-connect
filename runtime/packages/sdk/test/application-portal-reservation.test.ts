@@ -56,6 +56,14 @@ describe("SDK-private original gesture popup reservation",()=>{
     const opened=new URL(opener.open.mock.calls[0]![0]);expect(opened.origin).toBe(cpOrigin);expect(opened.searchParams.get("return_url")).toBe(opener.returnUrl);
     portal.close();await Promise.resolve();await Promise.resolve();expect(opener.close).toHaveBeenCalledOnce();expect(opener.open).toHaveBeenCalledOnce();
   });
+  it("focus reopens the approval page the opener last showed, and nothing before it (tasknotes-app#492)",async()=>{
+    const opener={open:vi.fn(),close:vi.fn(),returnUrl:"org.example.app://signed-in"};
+    const portal=reserveApplicationPortal(openerApplicationPortalHost(cpOrigin,new AbortController().signal,()=>true,opener));
+    portal.focus();await Promise.resolve();await Promise.resolve();expect(opener.open).not.toHaveBeenCalled();
+    portal.navigate(uri);portal.focus();await Promise.resolve();await Promise.resolve();
+    expect(opener.open).toHaveBeenCalledTimes(2);expect(opener.open.mock.calls[1]![0]).toBe(opener.open.mock.calls[0]![0]);
+    expect(new URL(opener.open.mock.calls[1]![0]).searchParams.get("return_url")).toBe(opener.returnUrl);
+  });
   it("an opener without returnUrl gets the CP URL with no return_url (CP keeps the user on its own page)",async()=>{
     const opener={open:vi.fn()},portal=reserveApplicationPortal(openerApplicationPortalHost(cpOrigin,new AbortController().signal,()=>true,opener));
     portal.navigate(uri);await Promise.resolve();await Promise.resolve();

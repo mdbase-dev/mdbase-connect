@@ -190,6 +190,38 @@ describe("unified Native choice lifecycle", () => {
     expect(complete).toHaveBeenCalledOnce();expect(f.closePortal).toHaveBeenCalledOnce();expect(f.openPortal).toHaveBeenCalledOnce();
     await f.session.close();
   });
+  it("reopens the approval page once the app has prepared in the foreground, and not again without progress (tasknotes-app#492)", async () => {
+    const f=fixture("pending","never"), requestId=f.flow.view().requestId, authorizationId="77777777-7777-4777-8777-777777777777";
+    const attach=vi.fn(async()=>{});
+    Object.assign(f.flow,{nativeAuthorizationContext:()=>({requestId,appId:"independent-app",accountId:account,challenge:"ab".repeat(32)}),attachNativeAuthorization:attach,pendingNativeSelection:()=>null,completeNativeAuthorization:vi.fn()});
+    const prepare=vi.fn(async()=>({authorizationId,applicationId:"independent-app",manifestDigest:"cc".repeat(32)})),focus=vi.fn();
+    f.openPortal.mockReturnValue({navigate:f.navigatePortal,close:f.closePortal,focus,nativeAuthorization:{prepare,finish:vi.fn(),cancel:vi.fn()}} as AppWebSignInPortal);
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    await f.session.start();f.selectOnPortal();await f.session.authorize();
+    // Leaving for the approval page and coming back prepares and attaches here.
+    await Promise.resolve(); await approvalTick(f.session); await approvalTick(f.session);
+    expect(attach).toHaveBeenCalledOnce();expect(focus).toHaveBeenCalledOnce();
+    // Nothing left for the app: later returns do not reopen it.
+    await approvalTick(f.session);await approvalTick(f.session);
+    expect(attach).toHaveBeenCalledOnce();expect(focus).toHaveBeenCalledOnce();
+    await f.session.close();
+  });
+  it("does not reopen an approval page that never waited on the app (tasknotes-app#492)", async () => {
+    vi.useFakeTimers();
+    const f=fixture("pending","never"), requestId=f.flow.view().requestId, authorizationId="77777777-7777-4777-8777-777777777777";
+    const attach=vi.fn(async()=>{});
+    Object.assign(f.flow,{nativeAuthorizationContext:()=>({requestId,appId:"independent-app",accountId:account,challenge:"ab".repeat(32)}),attachNativeAuthorization:attach,pendingNativeSelection:()=>null,completeNativeAuthorization:vi.fn()});
+    const prepare=vi.fn(async()=>({authorizationId,applicationId:"independent-app",manifestDigest:"cc".repeat(32)})),focus=vi.fn();
+    f.openPortal.mockReturnValue({navigate:f.navigatePortal,close:f.closePortal,focus,nativeAuthorization:{prepare,finish:vi.fn(),cancel:vi.fn()}} as AppWebSignInPortal);
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    await f.session.start();f.selectOnPortal();await f.session.authorize();
+    await vi.advanceTimersByTimeAsync(5000);
+    // The app's part was done before the person left: nothing to come back for.
+    f.session.setForeground(false);await vi.advanceTimersByTimeAsync(30000);
+    f.session.setForeground(true);await vi.advanceTimersByTimeAsync(5000);
+    expect(attach).toHaveBeenCalledOnce();expect(focus).not.toHaveBeenCalled();
+    await f.session.close();
+  });
   /** A Private pick the flow stored; `abandon` forgets it as the real ledger does. */
   function nativePick(f: ReturnType<typeof fixture>, requestId: string) {
     const authorizationId="77777777-7777-4777-8777-777777777777";

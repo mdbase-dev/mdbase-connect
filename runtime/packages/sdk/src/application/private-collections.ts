@@ -31,6 +31,8 @@ export type ApplicationPrivateGrants = Pick<MdbaseAppGrants, "collections" | "av
 
 export interface ApplicationPrivateCollectionsOptions {
   readonly declaration: MdbaseApplicationDeclaration;
+  /** A declared same-origin redirect chosen by the sign-in opener; defaults to {@link appGrantRedirectUri}. */
+  readonly grantRedirectUri?: string;
   /** Loads the grants on first use (the relay, Noise and grant store load lazily). */
   readonly grants?: () => Promise<ApplicationPrivateGrants>;
   /** Open the thin client; defaults to `connect` over the grant's connector. */
@@ -137,7 +139,7 @@ export class ApplicationPrivateCollections {
   private grants(): Promise<ApplicationPrivateGrants> {
     const pending = this.loading ??= (this.options.grants ?? (async () => {
       const { MdbaseAppGrants } = await import("../app-grant/client.js");
-      return new MdbaseAppGrants({ declaration: this.options.declaration, redirectUri: appGrantRedirectUri(this.options.declaration) });
+      return new MdbaseAppGrants({ declaration: this.options.declaration, redirectUri: this.options.grantRedirectUri ?? appGrantRedirectUri(this.options.declaration) });
     }))();
     pending.catch(() => { if (this.loading === pending) this.loading = null; });
     return pending;

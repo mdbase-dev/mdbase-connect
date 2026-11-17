@@ -3310,6 +3310,7 @@ AppWebNoiseCustody@app-host/noise-custody.ts
 AppWebSignInPortal@app-host/web-sign-in-session.ts
   close: () => void
   readonly closed?: boolean | undefined
+  focus?: (() => void) | undefined
   readonly nativeAuthorization?: AppNativeAuthorizationPort | undefined
   navigate: (uri: string) => void
 
@@ -4791,6 +4792,7 @@ MdbaseSetupResult@application/front-door.ts
 
 MdbaseSignInOpener@application/entry.ts
   close?: (() => void | Promise<void>) | undefined
+  readonly grantReturnUrl?: string | undefined
   open: (url: string) => void | Promise<void>
   readonly returnUrl?: string | undefined
 

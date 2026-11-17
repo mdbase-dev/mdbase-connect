@@ -154,9 +154,10 @@ export class ApplicationWorkerClient {
         return;
       }
       if(kind==="portal"){
-        if(!value||!["navigate","close"].includes(value.action))throw new ApplicationWorkerError("application_worker_binding");
+        if(!value||!["navigate","focus","close"].includes(value.action))throw new ApplicationWorkerError("application_worker_binding");
         const portal=this.portal;if(!portal||portal.id!==id)return; // old original reservation already closed, never reused
         if(value.action==="close"){portal.life.abort();portal.value.close();this.portal=null;}
+        else if(value.action==="focus"){try{portal.value.focus?.();}catch{/* best-effort: the person can reopen it */}}
         else {if(this.stopping||typeof value.uri!=="string"||value.uri.length>8192)throw new ApplicationWorkerError("application_worker_binding");portal.value.navigate(value.uri);}
         return;
       }
