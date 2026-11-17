@@ -5,6 +5,7 @@ import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "
 import { t } from "@lingui/core/macro";
 import { DiagramWidget, isDiagramLanguage } from "./diagram.js";
 import { proseEdit } from "./prose-edit.js";
+import { drawnBlocks, isDrawn, renderedBlockLayer, renderedBlocks, type RenderedBlock } from "./rendered-blocks.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const toggleFold = StateEffect.define<{ from: number; folded: boolean }>({ map: (value, changes) => ({ ...value, from: changes.mapPos(value.from) }) });
@@ -206,7 +207,7 @@ const structure = StateField.define<Structure>({
 });
 
 export function blockPreview() {
-  return [folds, structure, EditorView.decorations.compute([structure, revealField, folds], build), keymap.of([
+  return [folds, structure, renderedBlocks.compute([structure, folds], rendered), renderedBlockLayer, EditorView.decorations.compute([structure, revealField, folds, drawnBlocks], build), keymap.of([
     { key: "Tab", run: (view) => inCode(view.state) && indentMore(view) },
     { key: "Shift-Tab", run: (view) => inCode(view.state) && indentLess(view) }
   ])];
@@ -217,16 +218,30 @@ function inCode(state: EditorState): boolean {
   return state.selection.ranges.every(({ head }) => codes.some((block) => head > block.from && head < block.to));
 }
 
+function isFolded(callout: Callout, foldState: ReadonlyMap<number, boolean>): boolean {
+  return callout.fold ? (foldState.get(callout.from) ?? callout.fold === "-") : false;
+}
+
+/** Diagrams, and the bodies of folded callouts. */
+function rendered(state: EditorState): RenderedBlock[] {
+  const { codes, callouts } = state.field(structure);
+  const foldState = state.field(folds);
+  const blocks: RenderedBlock[] = [];
+  for (const block of codes) if (block.diagram) blocks.push({ from: block.from, to: block.to, widget: new DiagramWidget(block.code) });
+  for (const callout of callouts) {
+    if (callout.lines.length > 1 && isFolded(callout, foldState)) blocks.push({ from: callout.to + 1, to: callout.lastTo });
+  }
+  return blocks;
+}
+
 function build(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   const { codes, callouts, definitions, definitionLines, references } = state.field(structure);
   const foldState = state.field(folds);
   for (const block of codes) {
     const first = block.lines[0]!, last = block.lines[block.lines.length - 1]!;
-    if (block.diagram && !isRevealed(state, block.from, block.to)) {
-      ranges.push(Decoration.replace({ widget: new DiagramWidget(block.code), block: true }).range(first.from, last.to));
-      continue;
-    }
+    // A drawn diagram stands for these lines; see `rendered`.
+    if (block.diagram && isDrawn(state, first.from)) continue;
     block.lines.forEach((line, index) => {
       const edge = `${index === 0 ? "cm-lp-code-first" : ""} ${index === block.lines.length - 1 ? "cm-lp-code-last" : ""}`;
       ranges.push(codeLine(edge).range(line.from));
@@ -241,16 +256,13 @@ function build(state: EditorState): DecorationSet {
     if (block.closed && !isRevealed(state, last.from, last.to)) ranges.push(hide.range(last.from, last.to));
   }
   for (const callout of callouts) {
-    const folded = callout.fold ? (foldState.get(callout.from) ?? callout.fold === "-") : false;
+    const folded = isFolded(callout, foldState);
     callout.lines.forEach((from, index) => {
       const last = index === callout.lines.length - 1;
       ranges.push(Decoration.line({ class: `cm-lp-callout cm-lp-callout-${callout.type}${index === 0 ? " cm-lp-callout-first" : ""}${last || folded && index === 0 ? " cm-lp-callout-last" : ""}` }).range(from));
     });
     if (!isRevealed(state, callout.from, callout.to)) {
       ranges.push(Decoration.replace({ widget: new CalloutHeader(callout.type, callout.title ?? typeTitle(callout.type), callout.from, !!callout.fold, folded) }).range(callout.from, callout.to));
-    }
-    if (folded && callout.lines.length > 1 && !isRevealed(state, callout.to + 1, callout.lastTo)) {
-      ranges.push(Decoration.replace({ block: true }).range(callout.to + 1, callout.lastTo));
     }
   }
   for (const from of definitionLines) ranges.push(Decoration.line({ class: "cm-lp-footnote-definition" }).range(from));
