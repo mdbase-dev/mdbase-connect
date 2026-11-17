@@ -7,10 +7,12 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const {
+  fetchRolloutDocument,
   findLatestRelease,
   isRecoverableTrustCacheError,
   parsePktLines,
-  recoverTrustCache
+  recoverTrustCache,
+  releaseCandidates
 } = require("../dist/main/release-source.js");
 
 const tagIndexUrl = "https://github.com/mdbase-dev/mdbase-connect.git/git-upload-pack";
@@ -523,4 +525,94 @@ test("failed fresh verification preserves the existing trust cache", async () =>
     /cached and freshly bootstrapped/
   );
   assert.equal(await readFile(join(cache, "root.json"), "utf8"), "stale");
+});
+
+const rolloutUrl = (tag) => `https://updates.mdbase.dev/desktop/v1/rollout/${tag}.json`;
+
+function rolloutDocument(tag = "v0.1.0-beta.9", overrides = {}) {
+  return {
+    schema: "mdbase-desktop-rollout/1",
+    tag,
+    version: tag.slice(1),
+    issued_at: "2026-11-17T06:00:00.000Z",
+    early_access: true,
+    percentage: 25,
+    ...overrides
+  };
+}
+
+test("release candidates come newest first and skip releases that do not verify", async () => {
+  const tags = ["v0.1.0-beta.9", "v0.1.0-beta.10", "v0.1.0-beta.11"];
+  const found = [];
+  for await (const candidate of releaseCandidates({
+    channel: "beta",
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap(releases(tags, ["0.1.0-beta.9", "0.1.0-beta.10", "0.1.0-beta.11"])),
+    async verifyBundle(_bundle, payload) {
+      if (JSON.parse(payload).version === "0.1.0-beta.10") throw new Error("untrusted signer");
+    }
+  })) {
+    found.push(candidate.manifest.version);
+  }
+  assert.deepEqual(found, ["0.1.0-beta.11", "0.1.0-beta.9"]);
+});
+
+test("a rollout document is verified against its own release's workflow identity", async () => {
+  const signers = [];
+  const rollout = await fetchRolloutDocument("v0.1.0-beta.9", {
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap({
+      [rolloutUrl("v0.1.0-beta.9")]: rolloutDocument(),
+      [`${rolloutUrl("v0.1.0-beta.9")}.sigstore.json`]: {}
+    }),
+    async verifyBundle(_bundle, _payload, signer) {
+      signers.push(signer);
+    }
+  });
+  assert.equal(rollout.percentage, 25);
+  assert.equal(rollout.early_access, true);
+  assert.deepEqual(signers, [
+    "https://github.com/mdbase-dev/mdbase-connect/.github/workflows/desktop-release.yml@refs/tags/v0.1.0-beta.9"
+  ]);
+});
+
+test("a release with no rollout document is not an error", async () => {
+  const rollout = await fetchRolloutDocument("v0.1.0-beta.9", {
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: fetchMap({ [rolloutUrl("v0.1.0-beta.9")]: 404 }),
+    async verifyBundle() { assert.fail("Nothing to verify."); }
+  });
+  assert.equal(rollout, null);
+});
+
+test("an unsigned, missigned or mismatched rollout document is refused", async () => {
+  const entries = (document, bundle = {}) => fetchMap({
+    [rolloutUrl("v0.1.0-beta.9")]: document,
+    [`${rolloutUrl("v0.1.0-beta.9")}.sigstore.json`]: bundle
+  });
+  await assert.rejects(fetchRolloutDocument("v0.1.0-beta.9", {
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: entries(rolloutDocument(), 404),
+    async verifyBundle() {}
+  }), /HTTP 404/);
+  await assert.rejects(fetchRolloutDocument("v0.1.0-beta.9", {
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: entries(rolloutDocument()),
+    async verifyBundle() { throw new Error("untrusted signer"); }
+  }), /untrusted signer/);
+  await assert.rejects(fetchRolloutDocument("v0.1.0-beta.9", {
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: entries(rolloutDocument("v0.1.0-beta.8")),
+    async verifyBundle() {}
+  }), /does not match/);
+  await assert.rejects(fetchRolloutDocument("v0.1.0-beta.9", {
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: entries(rolloutDocument("v0.1.0-beta.9", { percentage: 101 })),
+    async verifyBundle() {}
+  }), /percentage/i);
+  await assert.rejects(fetchRolloutDocument("../v0.1.0-beta.9", {
+    trustCacheDirectory: "/tmp/not-used",
+    fetchImpl: entries(rolloutDocument()),
+    async verifyBundle() {}
+  }), /invalid release tag/);
 });

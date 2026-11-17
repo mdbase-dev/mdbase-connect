@@ -895,6 +895,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "Questi dettagli risalgono all’ultimo tentativo di sincronizzazione, non a un controllo attuale dei file."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "Ricevi gli aggiornamenti in anticipo"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "Vai a {label}"
 
@@ -938,6 +943,11 @@ msgstr "Immagini"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "Installa {0}"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "Installa ogni versione appena inizia la sua distribuzione. Altrimenti le versioni raggiungono i computer per fasi e mdbase si aggiorna al massimo una volta al giorno."
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -2031,6 +2041,16 @@ msgstr "Questo computer ora si chiama {0}."
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "Questo computer ha spostato le raccolte sul nuovo motore di sincronizzazione, ma l'account mdbase non è ancora stato aggiornato oppure l'aggiornamento è stato sospeso. I file sono al sicuro nelle loro cartelle, ma le modifiche effettuate su questo computer potrebbero non raggiungere le altre app mdbase finché l'account non sarà aggiornato."
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "Questo computer ora riceve ogni versione appena inizia la sua distribuzione."
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "Questo computer ora riceve le versioni per fasi, al massimo una volta al giorno."
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "Questo computer ha effettuato l'accesso"
@@ -2201,15 +2221,29 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "La versione {0} è disponibile tramite il canale dei pacchetti firmati."
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "La versione {0} viene distribuita al {1}% delle installazioni."
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "La versione {0} è verificata e pronta per l'installazione."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "La versione {version} è disponibile prima per le installazioni con accesso anticipato."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "La versione {version} è disponibile. mdbase si aggiorna al massimo una volta al giorno, quindi l’aggiornamento avverrà dopo {after}."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "La distribuzione della versione {version} non è ancora iniziata."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "La versione {version} è pubblicata, ma non è stato possibile verificarne la distribuzione. mdbase controllerà di nuovo più tardi."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "La versione {version} è in distribuzione sul {percentage}% delle installazioni."
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"

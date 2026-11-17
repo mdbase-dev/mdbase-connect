@@ -895,6 +895,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "이 정보는 마지막 동기화 시도에서 나온 것으로, 현재 파일 검사 결과가 아닙니다."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "업데이트 먼저 받기"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "{label}(으)로 이동"
 
@@ -938,6 +943,11 @@ msgstr "이미지"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "{0} 설치"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "각 릴리스의 배포가 시작되는 즉시 설치합니다. 끄면 릴리스가 단계적으로 컴퓨터에 전달되며 mdbase는 하루에 한 번까지만 업데이트합니다."
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -2031,6 +2041,16 @@ msgstr "이 컴퓨터의 이름이 {0}(으)로 바뀌었습니다."
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "이 컴퓨터에서 컬렉션을 새 동기화 엔진으로 이동했지만 mdbase 계정은 아직 업그레이드되지 않았거나 업그레이드가 일시 중지되었습니다. 파일은 폴더에 안전하게 보관되어 있지만 계정이 업그레이드되기 전까지 이 컴퓨터의 변경 사항이 다른 mdbase 앱에 전달되지 않을 수 있습니다."
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "이제 이 컴퓨터는 각 릴리스의 배포가 시작되는 즉시 받습니다."
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "이제 이 컴퓨터는 릴리스를 단계적으로, 하루에 한 번까지만 받습니다."
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "이 컴퓨터에서 로그인함"
@@ -2201,15 +2221,29 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "서명된 패키지 채널에서 버전 {0}을(를) 사용할 수 있습니다."
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "버전 {0}이(가) 설치 대상의 {1}%에 배포되고 있습니다."
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "버전 {0}이(가) 검증되었으며 설치할 준비가 되었습니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "버전 {version}은(는) 얼리 액세스 설치에 먼저 제공됩니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "버전 {version}을(를) 사용할 수 있습니다. mdbase는 하루에 한 번까지만 업데이트하므로 {after} 이후에 업데이트됩니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "버전 {version}은(는) 아직 배포되지 않고 있습니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "버전 {version}이(가) 게시되었지만 배포 상태를 확인할 수 없습니다. mdbase가 나중에 다시 확인합니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "버전 {version}이(가) 설치의 {percentage}%에 배포되고 있습니다."
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"

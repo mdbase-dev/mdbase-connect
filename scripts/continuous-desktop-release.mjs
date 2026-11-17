@@ -5,10 +5,25 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, pages, releaseTag, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { readRollout } from "./desktop-rollout.mjs";
+import { rolloutService, variableSet, wideningPlan, wideningWindow } from "./lib/desktop-rollout.mjs";
 
 const channelName = "mdbase-connect-channel-v1.json";
 const marker = "Continuous desktop status: stopped";
-const day = 24 * 60 * 60 * 1000;
+const hour = 60 * 60 * 1000;
+// With staged rollout, installations without early access take at most one
+// optional update a day themselves, so releases can be closer together.
+export const releaseGap = (staged) => (staged ? 6 : 24) * hour;
+const expediteEvidence = /https:\/\/github\.com\/mdbase-dev\/mdbase-connect\/pull\/[1-9][0-9]*/;
+
+/** An expedite reason must name the pull request it ships; empty means not expedited. */
+export function expediteReason(value) {
+  const reason = (value ?? "").trim();
+  if (!reason) return null;
+  if (!expediteEvidence.test(reason)) throw new Error("An expedited desktop release must name the pull request it ships (https://github.com/mdbase-dev/mdbase-connect/pull/<n>).");
+  if (reason.length > 500) throw new Error("The expedite reason is longer than 500 characters.");
+  return reason;
+}
 
 export function desktopChanged(paths, contents) {
   return paths.some(path => /^(?:apps\/(?:desktop|editor)\/|packages\/|runtime\/(?:crates|xtask|tools)\/|runtime\/packages\/sdk\/|runtime\/Cargo\.|runtime\/rust-toolchain|runtime\/\.cargo\/|pnpm-|package\.json|config\/desktop-update-minimum\.json)/.test(path)
@@ -40,14 +55,14 @@ export function semverPrepare(commit, runGit = git) {
   return runGit("show", `${commit}:scripts/continuous-desktop-release.mjs`).includes("assert.match(tag, releaseTag);");
 }
 
-export function desktopPlan({ latest, reservations, changed, acknowledged = "", semver = true, now = Date.now() }) {
+export function desktopPlan({ latest, reservations, changed, acknowledged = "", semver = true, gap = releaseGap(false), expedite = null, now = Date.now() }) {
   const unreconciled = item => !acknowledged || compareVersions(tagVersion(item.tag), tagVersion(acknowledged)) > 0;
   if (reservations.some(item => !item.published && unreconciled(item))) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
   if (latest?.body?.includes(marker)) throw new Error("Desktop line is latched stopped; release-owner review required.");
   if (latest) {
     const age = now - Date.parse(latest.published_at);
     if (!Number.isFinite(age) || age < 0) throw new Error("Invalid desktop publication time.");
-    if (age < day) return { operation: "wait", reason: "daily limit" };
+    if (age < gap && !expedite) return { operation: "wait", reason: "release gap" };
   }
   if (!changed) return { operation: "wait", reason: "desktop tree unchanged" };
   return semver ? { operation: "release" } : { operation: "wait", reason: "selected commit predates semver releases" };
@@ -90,8 +105,27 @@ function writeApi(path, body) {
     { input: JSON.stringify(body), encoding: "utf8" }));
 }
 
+/**
+ * Moves each recent release's rollout one stage on once it has held its current
+ * stage for six hours. Every release keeps its own clock, so a release published
+ * six hours after another does not stop the first one reaching everyone.
+ */
+async function widenRollouts(service, releases, env) {
+  const held = variableSet(env.DESKTOP_ROLLOUT_HELD, "DESKTOP_ROLLOUT_HELD");
+  for (const release of releases.slice(0, wideningWindow)) {
+    const document = await readRollout(service, release.tag_name);
+    const plan = wideningPlan({ document, held });
+    console.log(JSON.stringify({ rollout: release.tag_name, ...plan }));
+    if (plan.operation !== "widen") continue;
+    gh("workflow", "run", "desktop-release.yml", "--repo", repository, "--ref", release.tag_name,
+      "-f", "operation=rollout", "-f", `stage=${plan.stage}`);
+  }
+}
+
 export async function coordinate(env = process.env) {
   requireRunning(env.DESKTOP_RELEASE_STOPPED);
+  const service = rolloutService(env.DESKTOP_ROLLOUT_SERVICE);
+  const expedite = expediteReason(env.DESKTOP_EXPEDITE_REASON);
   assert.equal(env.GITHUB_REF, "refs/heads/main");
   assert(["workflow_run", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME));
   assert.equal(env.GITHUB_REPOSITORY, repository);
@@ -112,8 +146,11 @@ export async function coordinate(env = process.env) {
       catch (error) { if (error.status === 128) return undefined; throw error; }
     };
     const changed = desktopChanged(paths, path => ({ before: base ? readAt(base, path) : undefined, after: readAt(env.GITHUB_SHA, path) }));
-    const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG, semver: semverPrepare(env.GITHUB_SHA) });
+    const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG,
+      semver: semverPrepare(env.GITHUB_SHA), gap: releaseGap(service !== null), expedite });
     console.log(JSON.stringify(plan));
+    // After the plan, so a latched stop or an unfinished attempt also pauses widening.
+    if (service) await widenRollouts(service, all, env);
     if (plan.operation === "wait") return;
     await verifyCompatibility(env);
     assert.equal(api("actions/workflows/desktop-release.yml").state, "active", "Desktop publication workflow has been stopped.");
@@ -123,7 +160,7 @@ export async function coordinate(env = process.env) {
     const tag = `v${allocateVersion(versions, env.GITHUB_SHA)}`;
     const object = writeApi("git/tags", { tag, object: env.GITHUB_SHA, type: "commit",
       message: JSON.stringify({ schema: "mdbase-desktop-release/1", commit: env.GITHUB_SHA,
-        reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
+        reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID, ...(expedite ? { expedited: expedite } : {}) }) });
     writeApi("git/refs", { ref: `refs/tags/${tag}`, sha: object.sha });
     gh("workflow", "run", "desktop-release.yml", "--repo", repository, "--ref", tag, "-f", "operation=release");
   } finally {
