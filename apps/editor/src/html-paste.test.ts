@@ -1,6 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
+import type { SyntaxNode } from "@lezer/common";
 import { afterEach, describe, expect, it } from "vitest";
 import { htmlPaste, htmlToMarkdown } from "./html-paste";
 
@@ -40,6 +41,47 @@ describe("htmlToMarkdown", () => {
     expect(htmlToMarkdown(`<p><a href="javascript:alert(1)">x</a> <a href="https://e.com/a_(b)">wiki</a> <img src="data:image/png;base64,AAAA"></p>`))
       .toBe("x [wiki](<https://e.com/a_(b)>)");
     expect(htmlToMarkdown(`<p><a href="https://e.com/">https://e.com/</a></p>`)).toBe("https://e.com/");
+  });
+
+  describe("literal underscores and asterisks read back as typed", () => {
+    const literals = ["__Bold__", "**Bold**", "_x_", "___x___", "*x*", "snake_case_word", "a__b", "1_000", "__init__.py", "_a_b_",
+      "foo_bar_", "x_", "_", "__", "a_ _b", "(_x_)", "_x_.", "\"__x__\"", "*_x_*", "_*x*_", "é_x_é", "_ü_", "word__(x)__word"];
+
+    /** The text a run of Markdown inlines displays, failing on anything but escapes. */
+    function displayed(markdown: string, node: SyntaxNode): string {
+      let text = "";
+      let at = node.from;
+      for (let child = node.firstChild; child; child = child.nextSibling) {
+        if (child.name === "TableDelimiter") continue;
+        expect(child.name, `${JSON.stringify(markdown)} parses ${child.name}`).toBe("Escape");
+        text += markdown.slice(at, child.from) + markdown.slice(child.from + 1, child.to);
+        at = child.to;
+      }
+      return text + markdown.slice(at, node.to);
+    }
+
+    function nodes(markdown: string, name: string): SyntaxNode[] {
+      const found: SyntaxNode[] = [];
+      markdownLanguage.parser.parse(markdown).iterate({ enter: (node) => { if (node.name === name) found.push(node.node); } });
+      return found;
+    }
+
+    it.each(literals)("in a paragraph: %s", (literal) => {
+      const markdown = htmlToMarkdown(`<p>${literal}</p><hr>`)!;
+      expect(nodes(markdown, "Paragraph").map((paragraph) => displayed(markdown, paragraph))).toEqual([literal]);
+    });
+
+    it.each(literals)("in a table cell: %s", (literal) => {
+      const markdown = htmlToMarkdown(`<table><tr><th>Markdown</th></tr><tr><td>${literal}</td></tr></table>`)!;
+      const cells = nodes(markdown, "TableCell");
+      expect(cells.map((cell) => displayed(markdown, cell))).toEqual(["Markdown", literal]);
+    });
+
+    it("beside real emphasis, which still parses", () => {
+      const markdown = htmlToMarkdown("<p><b>bold</b>__x__ and <em>it</em>_y</p>")!;
+      expect(markdown).toBe("**bold**\\_\\_x\\_\\_ and *it*\\_y");
+      expect(nodes(markdown, "StrongEmphasis").length + nodes(markdown, "Emphasis").length).toBe(2);
+    });
   });
 
   it("writes task lists and fences code that contains backticks", () => {

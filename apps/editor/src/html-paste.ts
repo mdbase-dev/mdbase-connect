@@ -209,9 +209,13 @@ function link(element: Element, text: string): string {
   return `${lead}[${label}](${destination(href)})${trail}`;
 }
 
-/** Characters that would turn plain text into Markdown syntax. Underscores inside words are literal. */
+/**
+ * Characters that would turn plain text into Markdown syntax. A run of underscores between two letters or digits
+ * cannot open or close emphasis (CommonMark's intraword rule), so it stays as typed; every other underscore is escaped.
+ */
 function escapeText(text: string): string {
-  return text.replace(/[\\`*[\]]|(?<!\w)_|_(?!\w)|<(?=[a-z/!])/gi, "\\$&");
+  return text.replace(/(?<=[\p{L}\p{N}])(_+)(?=[\p{L}\p{N}])|[\\`*_[\]]|<(?=[a-z/!])/giu,
+    (match, intraword?: string) => intraword ? match : `\\${match}`);
 }
 
 /** A paragraph that happens to start like a heading, list, quote or rule stays a paragraph. */
