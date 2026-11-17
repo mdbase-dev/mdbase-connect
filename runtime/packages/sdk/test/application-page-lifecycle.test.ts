@@ -230,3 +230,21 @@ describe("application entry starting signed in with a remembered collection",()=
   });
 });
 
+
+describe("application entry when the browser freezes the page",()=>{
+  const native="org.example.app://signed-in";
+  const nativeDeclaration={...declaration,manifest:{...declaration.manifest,redirect_uris:[...declaration.manifest.redirect_uris,native]}};
+  let doc:EventTarget;
+  beforeEach(()=>{doc=new EventTarget();vi.stubGlobal("document",doc);});
+
+  it("a frozen web page stops its Worker",async()=>{
+    const app=createMdbase(declaration);await app.start();
+    doc.dispatchEvent(new Event("freeze"));
+    expect(FakeWorker.all[0]!.terminate).toHaveBeenCalledOnce();
+  });
+  it("a native app shell keeps its Worker through an OS freeze, so a waiting approval survives (tasknotes-app#492)",async()=>{
+    const app=createMdbase(nativeDeclaration,{signIn:{open(){},returnUrl:native}});await app.start();
+    doc.dispatchEvent(new Event("freeze"));doc.dispatchEvent(new Event("resume"));
+    expect(FakeWorker.all).toHaveLength(1);expect(FakeWorker.all[0]!.terminate).not.toHaveBeenCalled();
+  });
+});

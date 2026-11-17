@@ -73,6 +73,10 @@ function portalMetadata(v: Record<string, unknown>, stored = false): PortalMetad
   }
   return {accountEmail: accountEmail(email), portalConfirmed: true};
 }
+function withoutPortalMetadata<T extends PortalMetadata>(value: T): T {
+  const {accountEmail: _email, portalConfirmed: _confirmed, accountProvider: _provider, accountLogin: _login, ...kept} = value;
+  return kept as T;
+}
 function assertOriginalPortal(before: PortalMetadata, after: PortalMetadata): void {
   if (before.portalConfirmed && (after.portalConfirmed !== true || before.accountEmail !== after.accountEmail || before.accountProvider !== after.accountProvider || before.accountLogin !== after.accountLogin)) throw fail("binding");
 }
@@ -542,7 +546,12 @@ export class AppProtectedInstallationSignIn {
         const requestId = crypto.randomUUID(), secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
         if (requestId === s.requestId || requestId === s.renewal?.requestId || secret === s.secret) throw fail("binding");
         const {requestSent: _sent, ...unsent} = s;
-        await this.save({...unsent, requestId, secret, renewal: {requestId:s.requestId, secret:s.secret}});
+        // Connect carries the chosen account into the renewed window but not the
+        // portal's confirmation of it: that belongs to the expired request. Keep
+        // the account (selected() still requires the SAME one) and wait for the
+        // renewed window's own confirmation.
+        const selection = s.selection ? withoutPortalMetadata(s.selection) : s.selection;
+        await this.save({...unsent, selection, requestId, secret, renewal: {requestId:s.requestId, secret:s.secret}});
         this.expiredRequestId = null;
         return await this.startRequest();
       } finally { bytes.fill(0); }

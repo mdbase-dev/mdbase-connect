@@ -337,6 +337,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const retained=retainedIds(pairing);
   // One node for both mentions, so translators get a single named placeholder.
   const appName=literal(pairing.connector_name);
+  // An app opened in the system browser (Android, iOS) is suspended while this
+  // page is in front, so it cannot prepare. Send the person back to it; the app
+  // prepares and shows this page again (tasknotes-app#492).
+  const continueInApp=pairing.return_url ? <p><a className="mdbase-button is-secondary" href={pairing.return_url}><Trans>Continue in {appName}</Trans></a></p> : null;
   // Collections this approval would newly give this device the key to.
   const deviceAccess=!privateChoice && (pairing.collections??[]).some(c=>c.kind==="private_device" && !retained.includes(c.collection_id) && (c.collection_id===selectedCollectionId || collectionIds.includes(c.collection_id)));
   const details = <details className="mdbase-disclosure installation-details">
@@ -436,7 +440,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     <a className="mdbase-button installation-account-action" href={`/login?return_to=${encodeURIComponent(location.href)}`}><Trans>Sign in again</Trans></a>
                   </>
                 )}
-                {pairing.account_selection_confirmed && !pairing.attested && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
+                {pairing.account_selection_confirmed && !pairing.attested && <><p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>{continueInApp}</>}
                     <CollectionPicker
                       label={t(i18n)`Open in ${pairing.connector_name}`}
                       collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ? "private" as const : "cloud_copy" as const,
@@ -453,7 +457,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       {pairing.creation && <small role="status"><Trans>Creation hasn't finished. Approve continues the same named collection.</Trans></small>}
                     </div>}
                     {privateChoice && <p className="field-note"><Trans>This collection stays on your computer. It can connect when a computer signed in to this account is available.</Trans></p>}
-                    {privateChoice && !pairing.native_authorization_id && <p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>}
+                    {privateChoice && !pairing.native_authorization_id && <><p role="status">{preparationError || t(i18n)`Preparing ${pairing.connector_name}…`}</p>{continueInApp}</>}
                     {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || retained.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="mdbase-disclosure installation-advanced">
                       <summary><Trans>Allow offline access to additional collections</Trans></summary>
                       <CheckboxGroup legend={t(i18n)({ message: "Additional collection access" })} disabled={busy}>

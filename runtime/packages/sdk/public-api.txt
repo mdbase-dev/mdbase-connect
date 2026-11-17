@@ -3310,6 +3310,7 @@ AppWebNoiseCustody@app-host/noise-custody.ts
 AppWebSignInPortal@app-host/web-sign-in-session.ts
   close: () => void
   readonly closed?: boolean | undefined
+  focus?: (() => void) | undefined
   readonly nativeAuthorization?: AppNativeAuthorizationPort | undefined
   navigate: (uri: string) => void
 

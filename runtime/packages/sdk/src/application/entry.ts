@@ -895,8 +895,12 @@ export class MdbaseEntry {
     win.addEventListener("pageshow",this.pageShown,{signal:this.lifetime.signal});
     // A frozen page (a background tab the browser froze) runs no script, so it
     // can serve no other tab: stop like a parked page, start again on resume.
-    const doc=globalThis.document;
-    if(doc&&typeof doc.addEventListener==="function"){
+    // A native app shell (its opener returns to a private-use scheme) is one
+    // document that the OS freezes with the whole app while the system browser
+    // is in front; nothing else waits on it, and stopping would lose the
+    // approval the person comes back to finish (tasknotes-app#492).
+    const doc=globalThis.document,nativeShell=this.signIn?.returnUrl!==undefined&&!/^https?:/i.test(this.signIn.returnUrl);
+    if(doc&&typeof doc.addEventListener==="function"&&!nativeShell){
       doc.addEventListener("freeze",()=>this.pageHidden(),{signal:this.lifetime.signal});
       doc.addEventListener("resume",()=>this.pageShown({persisted:true} as PageTransitionEvent),{signal:this.lifetime.signal});
     }

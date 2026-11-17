@@ -1169,6 +1169,10 @@ msgstr "Continuar"
 msgid "Continue in {applicationName} to use this collection."
 msgstr "Continue em {applicationName} para usar esta coleção."
 
+#: src/authority-workflows.tsx
+msgid "Continue in {appName}"
+msgstr "Continuar no {appName}"
+
 #: src/authorization-view.tsx
 msgid "Continue only if you started this and recognize this app."
 msgstr "Continue apenas se você iniciou esta ação e reconhece este app."

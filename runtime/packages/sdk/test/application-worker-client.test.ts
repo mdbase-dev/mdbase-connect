@@ -142,6 +142,10 @@ describe("SDK original UI Worker request ownership",()=>{
       await expect(f.client.request("start",null,f.caller.signal)).rejects.toMatchObject({code:"application_worker_binding"});
     }finally{vi.useRealTimers();}
   });
+  it("forwards the Worker's request to show the held approval page again (tasknotes-app#492)",async()=>{
+    const f=fixture(),portal={navigate:vi.fn(),close:vi.fn(),focus:vi.fn()},pending=f.client.request("authorize",null,f.caller.signal,portal);await f.arrived.promise;f.send("portal",1,{action:"navigate",uri:"https://cp.fixture.test/approve"});f.send("reply",1,{ok:true,snapshot});await pending;
+    f.send("portal",1,{action:"focus"});await new Promise(r=>setTimeout(r,10));expect(portal.focus).toHaveBeenCalledOnce();expect(portal.close).not.toHaveBeenCalled();
+  });
   it("keeps original portal reservation after authorization reply for original close",async()=>{
     const f=fixture(),portal={navigate:vi.fn(),close:vi.fn()},pending=f.client.request("authorize",null,f.caller.signal,portal);await f.arrived.promise;f.send("portal",1,{action:"navigate",uri:"https://cp.fixture.test/approve"});f.send("reply",1,{ok:true,snapshot});await pending;expect(portal.navigate).toHaveBeenCalledOnce();f.send("portal",1,{action:"close"});await new Promise(r=>setTimeout(r,10));expect(portal.close).toHaveBeenCalledOnce();
   });

@@ -184,13 +184,13 @@ describe("approval collection chooser",()=>{
     fireEvent.click(await screen.findByRole("option",{name}));
     expect(screen.getByRole("button",{name:`Open ${app}`})).toHaveAccessibleDescription(expect.stringContaining(name));
   });
-  async function privateChoice(native="native-request") {
+  async function privateChoice(native="native-request",extra:Partial<DevicePairing>={}) {
     vi.mocked(api).mockClear();
     vi.mocked(api).mockImplementation(async path=>String(path).endsWith("/approve") ? {ok:true} : {pairing:{
       connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,
       account_email:"test@example.test",fingerprint:"1234-5678-1234-5678",native_authorization_id:native||null,
       requested_create_collections:true,can_create_collection:true,
-      collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}],
+      collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}],...extra,
     }});
     render(<Pairing pairingId="pairing"/>);
     fireEvent.click(await screen.findByRole("option",{name:"[test] Original Private"}));
@@ -204,6 +204,18 @@ describe("approval collection chooser",()=>{
     const approval=vi.mocked(api).mock.calls.find(([path])=>String(path).endsWith("/approve"))!;
     expect(JSON.parse(approval[1]!.body as string)).toEqual({fingerprint:"1234-5678-1234-5678",collection_ids:[],create_collections:false,selected_collection_id:"original-private",selected_collection_kind:"private"});
     expect(vi.mocked(api).mock.calls.some(([path])=>String(path).endsWith("/collections"))).toBe(false);
+  });
+  it("sends the person back to an app that must prepare while this page is in front (tasknotes-app#492)",async()=>{
+    await privateChoice("",{return_url:"org.example.reader://signed-in"});
+    expect(screen.getByRole("link",{name:"Continue in Reader"})).toHaveAttribute("href","org.example.reader://signed-in");
+  });
+  it("offers no way back once the app has prepared, or when the app gave none",async()=>{
+    await privateChoice("native-request",{return_url:"org.example.reader://signed-in"});
+    expect(screen.queryByRole("link",{name:"Continue in Reader"})).not.toBeInTheDocument();
+  });
+  it("without a return address only reports that the app is preparing",async()=>{
+    await privateChoice("");
+    expect(screen.queryByRole("link",{name:"Continue in Reader"})).not.toBeInTheDocument();
   });
   it("does not approve Private from catalog metadata before its signed companion is prepared",async()=>{
     await privateChoice("");
