@@ -47,10 +47,6 @@ export async function portalLifecycleE2E({
     editorUrl.searchParams.set("collection", collectionId);
     await expect(row.getByRole("link", { name: "Open in editor: Browser E2E collection", exact: true }))
       .toHaveAttribute("href", editorUrl.href);
-    await row.getByRole("button", { name: "Actions for Browser E2E collection" }).click();
-    await expect(page.getByRole("menuitem", { name: "Sync folder" }))
-      .toHaveAttribute("href", `mdbase-connect://mirror?collection=${collectionId}`);
-    await page.keyboard.press("Escape");
 
     // The portal no longer approves a new synced folder, so the folder that the
     // Storage tab lists and disconnects is registered through the account route.

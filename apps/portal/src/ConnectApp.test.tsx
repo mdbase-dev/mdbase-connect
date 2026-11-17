@@ -1266,6 +1266,31 @@ describe("ConnectApp", () => {
     expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
   });
 
+  it("lists synced folders on Storage only when the collection has one, and offers a member no empty actions menu", async () => {
+    const member = { ...hostedCollection(), access: { ...hostedCollection().access, relationship: "member" as const, role: "viewer" as const,
+      can_manage_collection: false, can_rename_collection: false, can_delete_collection: false, can_manage_members: false } };
+    overview.collections = [];
+    overview.hosted_collections = [member];
+    history.replaceState(null, "", "/storage?collection=hosted");
+    const first = render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: "Main copy" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Synced folders/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Actions for Hosted research" })).not.toBeInTheDocument();
+    first.unmount();
+
+    overview.hosted_collections = [{ ...hostedCollection(), replicas: [
+      { id: "folder", name: "Studio laptop", mode: "read_write", allowed_types: [], revoked_at: null, revocation_status: "active", created_at: new Date().toISOString(), sync_status: null },
+      { id: "gone", name: "Old laptop", mode: "read_only", allowed_types: [], revoked_at: new Date().toISOString(), revocation_status: "revoked", created_at: new Date().toISOString(), sync_status: null }
+    ] }];
+    localStorage.clear(); sessionStorage.clear();
+    render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: /Synced folders/ })).toBeInTheDocument();
+    expect(screen.getByText("Studio laptop")).toBeInTheDocument();
+    expect(screen.queryByText("Old laptop")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Actions for Hosted research" })).toBeInTheDocument();
+  });
+
   it("invites and manages collection members from app access", async () => {
     overview.collections = [];
     overview.hosted_collections = [hostedCollection()];

@@ -14,16 +14,11 @@ import { describe, expect, it } from "vitest";
 import {
   assertMirror,
   clearMirrorMarker,
-  loadAuthorityPromotionCheckpoint,
   loadMirrorMarker,
   loadMirrorProfile,
   markMirror,
   mirrorProfileDirectory,
-  restoreCollectionConfiguration,
-  retireMirrorAfterPromotion,
-  saveAuthorityPromotionCheckpoint,
   saveMirrorProfile,
-  setCollectionIdentity,
   transitionAuthorityToMirror
 } from "./device.js";
 import {
@@ -115,101 +110,6 @@ describe("device-local mirror storage", () => {
     }
   });
 
-  it("sets the authority identity atomically and can restore the original collection config", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
-    const collectionId = crypto.randomUUID();
-    const original = "spec_version: 0.3.0\nname: Promoted\n";
-    try {
-      await writeFile(join(root, "mdbase.yaml"), original);
-      const saved = await setCollectionIdentity(root, collectionId);
-      expect(saved).toBe(original);
-      expect(await readFile(join(root, "mdbase.yaml"), "utf8")).toContain(
-        `collection_id: ${collectionId}`
-      );
-      await setCollectionIdentity(root, collectionId);
-      await expect(setCollectionIdentity(root, crypto.randomUUID()))
-        .rejects.toMatchObject({ code: "collection_identity_conflict" });
-      await restoreCollectionConfiguration(root, saved);
-      expect(await readFile(join(root, "mdbase.yaml"), "utf8")).toBe(original);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
-  it("retires mirror secrets and leaves only a non-secret authority receipt", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
-    const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
-    const collectionId = crypto.randomUUID();
-    try {
-      await saveMirrorProfile(
-        root,
-        {
-          version: 1,
-          sync_url: "https://sync.example/v1/authorities/00000000-0000-0000-0000-000000000001/sync",
-          control_url: "https://connect.example",
-          collection_id: collectionId,
-          replica_id: crypto.randomUUID(),
-          mode: "read_write"
-        },
-        { access_token: "access-secret", refresh_token: "refresh-secret" },
-        stateRoot
-      );
-      await new NodeMirrorStateStore(root, stateRoot).write({
-        protocol_version: 1,
-        replica_id: crypto.randomUUID(),
-        scope_epoch: 1,
-        cursor: 3,
-        records: {},
-        conflicts: {}
-      });
-      const directory = await mirrorProfileDirectory(root, stateRoot);
-      await retireMirrorAfterPromotion(
-        root,
-        { collection_id: collectionId, authority_epoch: 2 },
-        stateRoot
-      );
-      await expect(readFile(join(directory, "credentials.json"), "utf8"))
-        .rejects.toMatchObject({ code: "ENOENT" });
-      await expect(readFile(join(directory, "profile.json"), "utf8"))
-        .rejects.toMatchObject({ code: "ENOENT" });
-      await expect(readFile(join(directory, "mirror-state.json"), "utf8"))
-        .rejects.toMatchObject({ code: "ENOENT" });
-      const receipt = JSON.parse(await readFile(join(directory, "authority.json"), "utf8"));
-      expect(receipt).toMatchObject({
-        version: 1,
-        collection_id: collectionId,
-        authority_epoch: 2
-      });
-      expect(JSON.stringify(receipt)).not.toContain("secret");
-    } finally {
-      await rm(root, { recursive: true, force: true });
-      await rm(stateRoot, { recursive: true, force: true });
-    }
-  });
-
-  it("persists the proof needed to resume after the hosted provider commits", async () => {
-    const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
-    const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
-    const checkpoint = {
-      transfer_id: crypto.randomUUID(),
-      collection_id: crypto.randomUUID(),
-      manifest_digest: "a".repeat(64),
-      authority_epoch: 2,
-      expires_at: new Date(Date.now() + 60_000).toISOString(),
-      original_configuration: "spec_version: 0.3.0\n"
-    };
-    try {
-      await saveAuthorityPromotionCheckpoint(root, checkpoint, stateRoot);
-      expect(await loadAuthorityPromotionCheckpoint(root, stateRoot)).toEqual({
-        version: 1,
-        ...checkpoint
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-      await rm(stateRoot, { recursive: true, force: true });
-    }
-  });
-
   it("keeps credentials and replica state outside the synchronized folder", async () => {
     const root = await mkdtemp(join(tmpdir(), "mdbase-mirror-folder-"));
     const stateRoot = await mkdtemp(join(tmpdir(), "mdbase-mirror-device-"));
@@ -219,19 +119,15 @@ describe("device-local mirror storage", () => {
         {
           version: 1,
           sync_url: "https://sync.example/v1/authorities/00000000-0000-0000-0000-000000000001/sync",
-          control_url: "https://connect.example",
           collection_id: crypto.randomUUID(),
           replica_id: crypto.randomUUID(),
           mode: "read_write"
         },
-        { access_token: "access-secret", refresh_token: "refresh-secret" },
+        { access_token: "access-secret" },
         stateRoot
       );
       const stored = await loadMirrorProfile(root, stateRoot);
-      expect(stored.credentials).toEqual({
-        access_token: "access-secret",
-        refresh_token: "refresh-secret"
-      });
+      expect(stored.credentials).toEqual({ access_token: "access-secret" });
       const directory = await mirrorProfileDirectory(root, stateRoot);
       if (process.platform !== "win32") {
         expect((await stat(directory)).mode & 0o777).toBe(0o700);

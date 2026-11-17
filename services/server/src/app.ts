@@ -76,7 +76,6 @@ import { registerExternalAuthRoutes } from "./features/auth/external-routes.js";
 import { registerPasswordAuthRoutes } from "./features/auth/password-routes.js";
 import { registerAuthorizationRoutes } from "./features/authorizations/routes.js";
 import { approveHostedAuthorization } from "./features/authorizations/hosted-approval-service.js";
-import { registerHostedToLocalTransferRoutes } from "./features/authority-transfer/hosted-to-local-routes.js";
 import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
 import { AuthorityTransferRecoveryWorker } from "./features/authority-transfer/recovery-worker.js";
 import { registerLocalFileRoutes } from "./features/files/local-routes.js";
@@ -93,7 +92,7 @@ import { registerConnectorHostedRoutes } from "./features/hosted/connector-route
 import { registerHostedAccountRoutes } from "./features/hosted/account-routes.js";
 import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js";
 import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
-import { registerMirrorPairingRoutes } from "./features/mirrors/pairing-routes.js";
+import { registerMirrorRenewalRoute } from "./features/mirrors/renewal-route.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import type { PushTargetSealer } from "./features/next/push-target-seal.js";
 import { backgroundTimerGrantResolver, legacyTimerGrantResolver, type TimerGrantResolver } from "./features/next/timers/grants.js";
@@ -444,7 +443,6 @@ export async function buildApp(options: BuildOptions) {
       && (
         request.url.startsWith("/v1/hosted/")
         || request.url.startsWith("/v1/mirror-pairing-requests")
-        || request.url.startsWith("/v1/authority-transfers")
       )
     ) {
       return reply.code(404).send(apiError("not_found", "Not found."));
@@ -585,10 +583,9 @@ export async function buildApp(options: BuildOptions) {
       ));
     }
   });
-  registerMirrorPairingRoutes(app, {
+  registerMirrorRenewalRoute(app, {
     db: options.db,
     publicUrl,
-    tailscaleAuth: options.tailscaleAuth,
     hostedProvider: options.hostedProvider,
     hostedReference
   });
@@ -600,14 +597,6 @@ export async function buildApp(options: BuildOptions) {
   registerConnectorInventoryRoutes(app, { db: options.db });
   registerAuthorityConflictRoutes(app, { db: options.db, relay });
   registerConnectorControlRoutes(app, { db: options.db });
-  registerHostedToLocalTransferRoutes(app, {
-    db: options.db,
-    publicUrl,
-    tailscaleAuth: options.tailscaleAuth,
-    hostedProvider: options.hostedProvider,
-    hostedReference,
-    relay
-  });
   registerNotificationRoutes(app, {
     db: options.db,
     service: notifications,

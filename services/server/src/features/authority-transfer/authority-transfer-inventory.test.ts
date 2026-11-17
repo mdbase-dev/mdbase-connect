@@ -137,6 +137,40 @@ describe("inventory with a retained local-to-hosted transfer (issue 529)", () =>
   });
 });
 
+// The hosted-to-local routes are gone, but collections they moved remain.
+// Seed the hosted side exactly as a completed move left it.
+describe("inventory with a retained hosted-to-local transfer", () => {
+  async function hosted(f: Awaited<ReturnType<typeof fixture>>, transferred: boolean) {
+    const local = await f.source();
+    await f.db.query(
+      `INSERT INTO hosted_collections
+         (id, user_id, display_name, template, provider_url, contracts,
+          authority_state, authority_epoch, transferred_collection_id)
+       VALUES ($1, $2, 'Test notes', 'mdbase', 'https://provider.example', '[]'::jsonb, $3, $4, $5)`,
+      [f.collectionId, local.user_id, transferred ? "transferred" : "active",
+        transferred ? 2 : 1, transferred ? local.id : null]
+    );
+    if (transferred) await f.db.query("UPDATE collections SET authority_epoch=2 WHERE id=$1", [local.id]);
+  }
+
+  it("keeps the activated local collection active at the transferred epoch", async () => {
+    const f = await fixture();
+    await hosted(f, true);
+    const synced = await f.sync();
+    expect(synced.statusCode, synced.body).toBe(200);
+    expect(synced.json().collections[0]).toMatchObject({ authority_state: "active", authority_epoch: 2 });
+    expect(await f.source()).toMatchObject({ authority_state: "active", authority_epoch: 2, enabled: true });
+  });
+
+  it("reports a local copy of a hosted collection that was not transferred as a candidate", async () => {
+    const f = await fixture();
+    await hosted(f, false);
+    const synced = await f.sync();
+    expect(synced.statusCode, synced.body).toBe(200);
+    expect(synced.json().collections[0].authority_state).toBe("candidate");
+  });
+});
+
 describe("repair of historical inventory-corrupted transfer sources", () => {
   it.each(["prepared", "activating"] as const)("repairs only the staged source epoch of a %s transfer", async (state) => {
     const f = await fixture();

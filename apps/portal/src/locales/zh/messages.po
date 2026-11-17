@@ -2235,11 +2235,6 @@ msgstr "没有匹配的会话"
 msgid "No supported reauthentication method is connected."
 msgstr "未连接任何受支持的重新验证身份方式。"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "No synced folders"
-msgstr "没有同步文件夹"
-
 #: src/authority-workflows.tsx
 msgid "Not allowed"
 msgstr "不允许"
@@ -3229,19 +3224,6 @@ msgid "Sync"
 msgstr "同步"
 
 #: src/ConnectApp.tsx
-msgid "Sync a folder"
-msgstr "同步文件夹"
-
-#: src/ConnectApp.tsx
-msgid "Sync folder"
-msgstr "同步文件夹"
-
-#. placeholder {0}: collection.name
-#: src/portal-commands.ts
-msgid "Sync folder · {0}"
-msgstr "同步文件夹 · {0}"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
 msgstr "同步文件夹"
@@ -3685,10 +3667,6 @@ msgstr "请至少使用 {0} 个字符。"
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
 msgstr "请使用至少 15 个字符；可以包含空格。"
-
-#: src/ConnectApp.tsx
-msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr "使用桌面应用，将普通 Markdown 文件夹保留在电脑上。"
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."

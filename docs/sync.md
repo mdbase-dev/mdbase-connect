@@ -208,39 +208,19 @@ provider confirms. Migration `0036_authority_import_source_repair` and its
 operator command still repair such rows (see `docs/hosted-provider.md`).
 
 Moving back to local authority was an explicit, browser-confirmed handoff from
-a full writable mirror. The steps below record how it worked; step 2 is no
-longer possible, because the portal page is gone:
-
-1. `mdbase-mirror promote <directory>` synchronizes the mirror and creates a
-   short-lived transfer request using its renewal credential.
-2. The owner reviews the destination folder and consequences in the Connect
-   portal. Approval freezes hosted writes at a final sequence and assigns the
-   next authority epoch.
-3. Only the promotion mirror may continue reading while frozen. It pulls through
-   the final sequence and proves an exact manifest of collection resources and
-   record revisions. Unmanaged Markdown, queued writes, or conflicts stop the
-   transfer before cutover.
-4. The CLI gives the directory the hosted collection's stable ID and registers
-   it with the local agent as a disabled candidate.
-5. After both the authority proof and local registration exist, the control plane
-   atomically activates the local collection in the new epoch, retires the
-   hosted authority, and revokes old application grants, tokens, and replicas.
-
-The command is resumable after local materialization. Cancellation or expiry
-before completion restores hosted writes. The hosted copy remains retained as a
-retired recovery copy until the owner explicitly deletes it, but it cannot
-resume writing in the old epoch. Applications must authorize the new local
-authority explicitly. This is a product action, not a background merge between
-two writers.
-
-The portal's approval pages for this handoff (`/transfer/:id`) and for mirror
-pairing (`/mirror/:id`) were removed on 2026-11-15. No current app starts
-either flow. Obsidian plugin releases 0.4.2 and earlier and the deprecated
-`mdbase-mirror` CLI (`packages/sync`) can still create a mirror pairing request,
-and the server still returns a `/mirror/:id` link for it, but nothing can
-approve the request: the link opens the portal app and the request expires. A
-legacy account can therefore no longer approve a new mirror or a move of the
-main copy. The server routes remain until a following change removes them.
+a full writable mirror, started with `mdbase-mirror promote`. Mirror pairing
+let a folder join a hosted collection after approval in the portal. Both were
+removed: the portal pages on 2026-11-15, and the control-plane routes, the
+`connect` and `promote` commands of `mdbase-mirror` and the portal's "Sync
+folder" actions on 2026-11-17. Obsidian plugin releases 0.4.2 and earlier and
+the deprecated `mdbase-mirror` CLI now get 404 when they try to pair a folder
+or move the main copy. A folder that was already paired keeps syncing: the
+renewal route `POST /v1/mirror-pairing-requests/:id/renew` stays until the
+legacy hosted provider is switched off, because those clients have no other
+way to replace an access token before its 30-day expiry. Hosted-to-local
+transfer rows that already exist are still expired by the recovery worker,
+collections already moved keep their inventory binding, and existing synced
+folders can still be disconnected.
 
 ## Replication data model
 
@@ -605,6 +585,10 @@ export a hosted collection as an ordinary mdbase directory at any time,
 including its Markdown records, type definitions, and selected files.
 
 ## Implementation sequence
+
+This is the order in which the design was built. Enrollment approved from the
+desktop app (step 4) and the hosted-to-local handoff (step 6) were later
+removed; see "Creating and moving collections".
 
 ### 1. Protocol and storage foundation
 

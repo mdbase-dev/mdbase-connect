@@ -64,49 +64,6 @@ tests. Production uses `mdbase-connect-hosted-provider`: normalized encrypted
 PostgreSQL storage, durable receipts and snapshot leases, and canonical
 operation execution through `mdbase-rs`.
 
-## Embedded mirror enrollment
-
-Applications that materialize a remote collection into their own filesystem
-can use the browser-approval client without copying the CLI workflow:
-
-```ts
-import { MirrorEnrollmentClient } from "@mdbase-dev/connect-sync/enrollment";
-
-const client = new MirrorEnrollmentClient();
-
-const enrollment = await client.enroll({
-  controlUrl: "https://connect.mdbase.dev",
-  mirrorName: "Obsidian vault",
-  mode: "read_write",
-  collectionId
-}, {
-  signal,
-  onVerification: ({ verificationUri, expiresAt }) => {
-    showApproval(verificationUri, expiresAt);
-  },
-  onStatus: ({ state, retryAt }) => {
-    showEnrollmentStatus(state, retryAt);
-  }
-});
-```
-
-The client starts approval, polls until the user decides, validates the
-selected collection and mirror mode, rejects an untrusted verification URI,
-and returns the authority sync URL, replica identity, access token, renewal
-credential, and expiries. `renew(enrollment)` rotates the short-lived access
-token without changing the replica. When using `enroll()`, the verification
-callback receives only public approval details; the short-lived enrollment
-credential stays inside the enrollment flow.
-
-The enrollment client deliberately does not persist credentials, mark a
-folder, open a browser, or choose a filesystem. A host must keep the renewal
-credential in device-local secret state, never in the mirrored collection.
-Node hosts can use the profile and marker helpers from
-`@mdbase-dev/connect-sync/device`, then construct `DirectoryMirror` or
-`WritableDirectoryMirror` from `@mdbase-dev/connect-sync/node`. The enrollment
-and portable mirror entry points have no Node dependency and can run in a
-mobile host.
-
 ## Portable directory mirrors
 
 `@mdbase-dev/connect-sync/mirror` contains the complete mirror state machine,
@@ -210,34 +167,22 @@ execution path.
 adapter's bundle-size budget. Unit coverage injects adapter failure and
 snapshot-boundary corruption before durable state advances.
 
-If a request fails transiently while approval is pending, the client retries
-until the server-provided deadline. Cancellation, expiry, malformed responses,
-collection substitution, mode substitution, and permanent server errors fail
-with a stable `MirrorEnrollmentError.code`.
-
 ## Command line
 
 ```bash
-# Recommended: approve the folder in a browser and sync both ways
-mdbase-mirror connect ./tasks --server https://connect.mdbase.dev \
-  --collection <collection-id>
-
-# Receive-only browser enrollment
-mdbase-mirror connect ./tasks --server https://connect.mdbase.dev \
-  --collection <collection-id> --read-only
-
+MDBASE_CONNECT_REPLICA_TOKEN=<replica-token> mdbase-mirror init ./tasks \
+  --sync-url <authority-sync-url> --collection <collection-id> \
+  --replica <replica-id> --writable
 mdbase-mirror sync ./tasks
 mdbase-mirror status ./tasks
 mdbase-mirror resolve ./tasks <record-id> --use local
-
-# Move authority from mdbase cloud to this computer
-mdbase-mirror promote ./tasks
 ```
 
-`connect` creates a short-lived browser approval request. The resulting
-collection-scoped access and renewal credentials are stored in the device's
-owner-only application-state directory, never inside the mirrored folder.
-Access tokens renew automatically until the mirror is revoked.
+`init` reads a pre-provisioned replica token from a hidden prompt or
+`MDBASE_CONNECT_REPLICA_TOKEN` and stores it in the device's owner-only
+application-state directory, never inside the mirrored folder. The browser
+pairing (`connect`) and authority move (`promote`) commands were removed with
+the control-plane routes they called.
 
 The folder contains only a non-secret `.mdbase/connect-role.json` marker that
 identifies it as a mirror. A local Connect agent will not register or
@@ -245,18 +190,6 @@ relay that folder. Mirror operations also use an exclusive device-local lease;
 `watch` holds it for its lifetime, so a desktop mirror and an Obsidian mirror
 plugin cannot run over the same physical folder. The lock namespace is shared
 per OS user and is independent of each client's credential/state directory.
-
-`promote` requires a converged, full writable mirror and a running local
-`mdbase-connect` agent. It opens a browser confirmation, freezes hosted writes
-at a final sequence, proves that the directory is exact, and registers the
-folder locally under the collection's stable ID. Completion advances the
-authority epoch and revokes the old hosted replicas and application grants.
-Before cutover, cancellation or expiry restores hosted writes. If the command
-is interrupted after local registration, run it again to resume completion.
-
-The lower-level `init` command remains available for automation and migration.
-It reads a pre-provisioned token from a hidden prompt or
-`MDBASE_CONNECT_REPLICA_TOKEN`.
 
 Configuration and type documents are materialized but never uploaded as
 ordinary records. Writable changes use base revisions and a durable mutation

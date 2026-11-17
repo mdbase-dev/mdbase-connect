@@ -16,7 +16,7 @@ import type { DatabaseQueryable } from "../../db.js";
 
 /** Mirrors expose a whole collection. A partial policy cannot be represented by
  * the mirror protocol and must never be widened into a read/write mode. */
-export function assertMirrorAccess(
+function assertMirrorAccess(
   access: CollectionAccessContext,
   mode: "read_only" | "read_write"
 ): void {
@@ -128,28 +128,4 @@ export async function lockMirrorForRenewal(
   if (!replica) throw new SyncError("replica_revoked", "This mirror has been revoked.");
   assertMirrorBinding(access, replica);
   return replica;
-}
-
-export async function approveMirrorPairing(
-  db: DatabaseQueryable,
-  userId: string,
-  collectionId: string,
-  pairingId: string
-) {
-  // Lock the collection before the pairing to serialize with member revocation.
-  await db.query("SELECT id FROM hosted_collections WHERE id = $1 FOR UPDATE", [collectionId]);
-  const pairing = await db.query<{ id: string; mode: "read_only" | "read_write" }>(
-    `SELECT id, mode FROM mirror_pairing_requests
-     WHERE id = $1 AND approved_at IS NULL AND consumed_at IS NULL
-       AND revoked_at IS NULL AND expires_at > now() FOR UPDATE`,
-    [pairingId]
-  );
-  if (!pairing.rows[0]) return null;
-  await lockHostedMirrorAccess(db, userId, collectionId, pairing.rows[0].mode);
-  await db.query(
-    `UPDATE mirror_pairing_requests
-    SET user_id = $2, collection_id = $3, approved_at = now() WHERE id = $1`,
-    [pairingId, userId, collectionId]
-  );
-  return pairing.rows[0];
 }

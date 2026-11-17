@@ -1,6 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
+import { tokenHash } from "../../security.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -257,11 +259,48 @@ describe("production GitHub authentication", () => {
     });
     expect(rotated.json().token).toMatch(/^hsr_/);
     expect(rotated.json().token).not.toBe(enrolled.json().token);
+
+    // A folder paired in the browser before pairing was removed renews with
+    // the secret of its consumed pairing row.
+    const pairingId = randomUUID();
+    await db.query(
+      `INSERT INTO mirror_pairing_requests
+         (id, secret_hash, mirror_name, mode, user_id, collection_id,
+          replica_id, approved_at, consumed_at, expires_at)
+       SELECT $1, $2, name, mode, authorized_user_id, collection_id, id, now(), now(), now()
+       FROM hosted_replicas WHERE id = $3`,
+      [pairingId, tokenHash("mirror-refresh-secret"), replicaId]
+    );
+    const renew = (headers: Record<string, string>) => app.inject({
+      method: "POST",
+      url: `/v1/mirror-pairing-requests/${pairingId}/renew`,
+      headers
+    });
+    const unauthenticated = await renew({});
+    expect(unauthenticated.statusCode).toBe(401);
+    expect(unauthenticated.json().error.code).toBe("invalid_mirror_pairing");
+    const renewed = await renew({ authorization: "Bearer mirror-refresh-secret" });
+    expect(renewed.statusCode, renewed.body).toBe(200);
+    expect(renewed.json()).toMatchObject({
+      status: "paired",
+      replica: { id: replicaId, collection_id: collectionId },
+      sync_url: `http://127.0.0.1:8787/v1/authorities/${collectionId}/sync`
+    });
+    expect(renewed.json().token).toMatch(/^hsr_/);
+    expect(renewed.json().token).not.toBe(rotated.json().token);
+    expect(Date.parse(renewed.json().token_expires_at)).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1_000);
+    expect((await db.query<{ token_hash: string }>(
+      "SELECT token_hash FROM hosted_replicas WHERE id = $1", [replicaId]
+    )).rows[0]?.token_hash).toBe(tokenHash(renewed.json().token));
+
     expect((await app.inject({
       method: "DELETE",
       url: `/v1/hosted/replicas/${replicaId}`,
       headers: { cookie }
     })).statusCode).toBe(200);
+    const afterDisconnect = await renew({ authorization: "Bearer mirror-refresh-secret" });
+    expect(afterDisconnect.statusCode).toBe(404);
+    expect(afterDisconnect.json().error.code).toBe("mirror_pairing_not_found");
     expect((await app.inject({
       method: "DELETE",
       url: `/v1/hosted/collections/${collectionId}`,
@@ -269,151 +308,6 @@ describe("production GitHub authentication", () => {
     })).statusCode).toBe(200);
     const empty = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
     expect(empty.json().hosted_collections).toEqual([]);
-  });
-
-  it("pairs a folder through browser approval and renews device-local access", async () => {
-    const db = await createDatabase("memory");
-    resources.push(() => db.end());
-    const { app } = await buildApp({
-      db,
-      devAuth: true,
-      hostedCollections: true,
-      hostedReferenceAuthority: true,
-      publicUrl: "http://127.0.0.1:8787"
-    });
-    resources.push(() => app.close());
-
-    const started = await app.inject({
-      method: "POST",
-      url: "/v1/mirror-pairing-requests",
-      payload: { mirror_name: "Writing laptop", mode: "read_write" }
-    });
-    expect(started.statusCode).toBe(201);
-    expect(started.json()).toMatchObject({
-      pairing_secret: expect.stringMatching(/^mir_/),
-      verification_uri: expect.stringMatching(/^http:\/\/127\.0\.0\.1:8787\/mirror\//),
-      expires_in: 600
-    });
-    const pairingId = started.json().pairing_id as string;
-    const pairingSecret = started.json().pairing_secret as string;
-    const pending = await app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairingId}/exchange`,
-      headers: { authorization: `Bearer ${pairingSecret}` }
-    });
-    expect(pending.statusCode).toBe(202);
-    expect(pending.json()).toEqual({ status: "pending" });
-
-    const login = await app.inject({
-      method: "POST",
-      url: "/v1/dev/session",
-      payload: { name: "Mirror user", email: "mirror@example.com" }
-    });
-    const cookie = cookiePair(responseCookies(login)[0]);
-    const firstCollection = await app.inject({
-      method: "POST",
-      url: "/v1/hosted/collections",
-      headers: { cookie },
-      payload: { display_name: "First collection", timezone: "Australia/Melbourne" }
-    });
-    const secondCollection = await app.inject({
-      method: "POST",
-      url: "/v1/hosted/collections",
-      headers: { cookie },
-      payload: { display_name: "Second collection", timezone: "Australia/Melbourne" }
-    });
-    const collectionId = secondCollection.json().collection.id as string;
-    const approval = await app.inject({
-      method: "GET",
-      url: `/v1/mirror-pairing-requests/${pairingId}`,
-      headers: { cookie }
-    });
-    expect(approval.json()).toMatchObject({
-      pairing: { mirror_name: "Writing laptop", mode: "read_write", approved_at: null },
-      collections: [
-        { id: firstCollection.json().collection.id, display_name: "First collection" },
-        { id: collectionId, display_name: "Second collection" }
-      ]
-    });
-    expect((await app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairingId}/approve`,
-      headers: { cookie },
-      payload: { collection_id: collectionId }
-    })).statusCode).toBe(200);
-
-    const exchanged = await app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairingId}/exchange`,
-      headers: { authorization: `Bearer ${pairingSecret}` }
-    });
-    expect(exchanged.statusCode).toBe(200);
-    expect(exchanged.json()).toMatchObject({
-      status: "paired",
-      replica: {
-        collection_id: collectionId,
-        name: "Writing laptop",
-        mode: "read_write"
-      },
-      token: expect.stringMatching(/^hsr_/),
-      token_expires_at: expect.any(String),
-      sync_url: `http://127.0.0.1:8787/v1/authorities/${collectionId}/sync`
-    });
-    const replicaId = exchanged.json().replica.id as string;
-    const firstToken = exchanged.json().token as string;
-    expect((await app.inject({
-      method: "POST",
-      url: `/v1/authorities/${collectionId}/sync/sessions`,
-      headers: { authorization: `Bearer ${firstToken}` }
-    })).statusCode).toBe(200);
-
-    const replayed = await app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairingId}/exchange`,
-      headers: { authorization: `Bearer ${pairingSecret}` }
-    });
-    expect(replayed.statusCode).toBe(200);
-    expect(replayed.json().replica.id).toBe(replicaId);
-    expect(replayed.json().token).not.toBe(firstToken);
-    expect((await app.inject({
-      method: "POST",
-      url: `/v1/authorities/${collectionId}/sync/sessions`,
-      headers: { authorization: `Bearer ${firstToken}` }
-    })).statusCode).toBe(401);
-
-    const pairingRow = await db.query(
-      "SELECT id, consumed_at, replica_id, collection_id FROM mirror_pairing_requests WHERE id = $1",
-      [pairingId]
-    );
-    expect(pairingRow.rows[0]).toMatchObject({
-      id: pairingId,
-      consumed_at: expect.anything(),
-      replica_id: replicaId,
-      collection_id: collectionId
-    });
-    const renewed = await app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairingId}/renew`,
-      headers: { authorization: `Bearer ${pairingSecret}` }
-    });
-    expect(renewed.statusCode).toBe(200);
-    expect(renewed.json().replica.id).toBe(replicaId);
-    expect(renewed.json().token).not.toBe(replayed.json().token);
-
-    const dashboard = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
-    expect(dashboard.json().hosted_collections[1].replicas).toEqual([
-      expect.objectContaining({ id: replicaId, name: "Writing laptop", mode: "read_write" })
-    ]);
-    expect((await app.inject({
-      method: "DELETE",
-      url: `/v1/hosted/replicas/${replicaId}`,
-      headers: { cookie }
-    })).statusCode).toBe(200);
-    expect((await app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairingId}/renew`,
-      headers: { authorization: `Bearer ${pairingSecret}` }
-    })).statusCode).toBe(404);
   });
 });
 

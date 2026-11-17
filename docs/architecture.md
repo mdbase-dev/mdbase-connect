@@ -144,8 +144,7 @@ collection deletion and authority transfer remain owner actions. Existing stored
 presets retain their exact authority until an explicit membership transition.
 
 Every member application grant and mirror binds the member, policy ID and revision.
-Direct mirror enrollment, browser/desktop pairing, and renewal use the same ceiling
-checks. A partial policy that the whole-collection mirror protocol cannot represent
+Direct mirror enrollment and renewal use the same ceiling checks. A partial policy that the whole-collection mirror protocol cannot represent
 is rejected. Token issuance rechecks current authority inside the collection
 transaction. Removal disables grants, tokens and pairing credentials locally, then
 uses the existing durable provider cleanup worker. Removal may supersede a pending
