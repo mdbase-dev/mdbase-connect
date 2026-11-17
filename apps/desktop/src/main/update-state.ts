@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { compareVersions } from "./update-policy";
+import { compareVersions, TAG_PATTERN } from "./update-policy";
 
 /**
  * What the app updater remembers between launches (`<userData>/updates/state.json`).
@@ -21,7 +21,22 @@ export interface PersistedUpdateState {
     version: string;
     reason: string;
   };
+  /** The user opted in to early access: take each release at its first stage. */
+  early_access?: boolean;
+  /** The app version this installation runs, and since when (update spacing). */
+  current_version?: {
+    version: string;
+    since: string;
+  };
+  /**
+   * The newest rollout document time seen per release tag. A document older than
+   * one already seen is refused, so a replayed one cannot narrow or reopen a stage.
+   */
+  rollout_seen?: Record<string, string>;
 }
+
+/** Rollout times are kept for this many of the newest release tags. */
+export const ROLLOUT_SEEN_LIMIT = 16;
 
 /**
  * Apps that managed the old connector kept rollback copies of its binary in
@@ -115,6 +130,33 @@ export function parsePersistedState(value: unknown): PersistedUpdateState {
     }
     compareVersions(held.version, held.version);
     parsed.daemon_held_back = { version: held.version, reason: held.reason };
+  }
+  if (state.early_access !== undefined) {
+    if (typeof state.early_access !== "boolean") throw new Error("Early access setting is invalid.");
+    parsed.early_access = state.early_access;
+  }
+  if (state.current_version !== undefined) {
+    const current = record(state.current_version, "Current version");
+    if (
+      typeof current.version !== "string" ||
+      typeof current.since !== "string" ||
+      !Number.isFinite(Date.parse(current.since))
+    ) {
+      throw new Error("Current version is invalid.");
+    }
+    compareVersions(current.version, current.version);
+    parsed.current_version = { version: current.version, since: new Date(current.since).toISOString() };
+  }
+  if (state.rollout_seen !== undefined) {
+    const seen = record(state.rollout_seen, "Rollout times");
+    const entries = Object.entries(seen).map(([tag, issuedAt]) => {
+      if (!TAG_PATTERN.test(tag) || typeof issuedAt !== "string" || !Number.isFinite(Date.parse(issuedAt))) {
+        throw new Error("Rollout times are invalid.");
+      }
+      return [tag, new Date(issuedAt).toISOString()] as const;
+    });
+    entries.sort(([left], [right]) => compareVersions(right.slice(1), left.slice(1)));
+    parsed.rollout_seen = Object.fromEntries(entries.slice(0, ROLLOUT_SEEN_LIMIT));
   }
   return parsed;
 }

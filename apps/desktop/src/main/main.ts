@@ -278,6 +278,14 @@ function registerIpc(): void {
     trustedIpc(event);
     return bootGate.check(() => updater.check(true));
   });
+  ipcMain.handle("connect:updates:early-access", async (event, enabled: unknown) => {
+    trustedIpc(event);
+    if (typeof enabled !== "boolean") throw new Error("Invalid early access setting.");
+    const status = await updater.setEarlyAccess(enabled);
+    // A release in its early stage can be taken now rather than at the next timer.
+    if (enabled) void bootGate.check(() => updater.check()).catch(() => undefined);
+    return status;
+  });
   ipcMain.handle("connect:updates:install", async (event) => {
     trustedIpc(event);
     return bootGate.install(() => updater.install());

@@ -430,3 +430,183 @@ test("a rolled-back daemon notice stays with every update status until cleared",
   coordinator.setDaemonNotice(null);
   assert.equal(coordinator.status().daemon_notice, undefined);
 });
+
+function releaseManifest(version, overrides = {}) {
+  const tag = `v${version}`;
+  return parseUpdateManifest({
+    schema_version: 1,
+    version,
+    tag,
+    channel: "beta",
+    published_at: "2026-07-28T00:00:00.000Z",
+    release_url: `https://github.com/mdbase-dev/mdbase-connect/releases/tag/${tag}`,
+    notes: "Update notes.",
+    rollout: { percentage: 100, seed: tag },
+    blocked_versions: [],
+    targets: { "darwin-arm64": automaticTarget() },
+    ...overrides
+  });
+}
+
+function rolloutFor(version, stage, issuedAt = "2026-11-17T06:00:00.000Z") {
+  return {
+    schema: "mdbase-desktop-rollout/1",
+    tag: `v${version}`,
+    version,
+    issued_at: issuedAt,
+    early_access: stage !== "held",
+    percentage: { held: 0, early: 0, 5: 5, 25: 25, 100: 100 }[stage]
+  };
+}
+
+/** A backend listing `versions` newest first, each at the given rollout stage. */
+function stagedBackend(versions, stages, overrides = {}) {
+  const fetched = [];
+  return backend({
+    fetched,
+    async *findReleases() {
+      for (const version of versions) yield { manifest: releaseManifest(version) };
+    },
+    async fetchRollout(manifest) {
+      fetched.push(manifest.version);
+      const stage = stages[manifest.version];
+      return stage === undefined ? null : rolloutFor(manifest.version, stage);
+    },
+    ...overrides
+  });
+}
+
+test("early access takes a release in its early stage and is remembered", async () => {
+  const { path, store } = await fixture();
+  const runtime = stagedBackend(["0.1.0-beta.9"], { "0.1.0-beta.9": "early" });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const general = await coordinator.check();
+  assert.equal(general.phase, "deferred");
+  assert.equal(general.early_access, false);
+  assert.match(general.message, /early-access/);
+  assert.equal((await coordinator.setEarlyAccess(true)).early_access, true);
+  assert.equal(JSON.parse(await readFile(path, "utf8")).early_access, true);
+  const early = await coordinator.check();
+  assert.equal(early.phase, "ready");
+  assert.equal(early.target_version, "0.1.0-beta.9");
+  const restarted = new UpdateCoordinator(store, runtime);
+  assert.equal((await restarted.initialize()).early_access, true);
+  await coordinator.setEarlyAccess(false);
+  assert.equal(JSON.parse(await readFile(path, "utf8")).early_access, undefined);
+});
+
+test("a release still rolling out does not hold back an older one that has reached this installation", async () => {
+  const { path, store } = await fixture();
+  const runtime = stagedBackend(
+    ["0.1.0-beta.11", "0.1.0-beta.10", "0.1.0-beta.9"],
+    { "0.1.0-beta.11": "early", "0.1.0-beta.10": "100" }
+  );
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const status = await coordinator.check();
+  assert.equal(status.phase, "ready");
+  assert.equal(status.target_version, "0.1.0-beta.10");
+  assert.deepEqual(runtime.fetched, ["0.1.0-beta.11", "0.1.0-beta.10"]);
+  // Trust still follows the newest verified release.
+  assert.equal(JSON.parse(await readFile(path, "utf8")).highest_trusted_version, "0.1.0-beta.11");
+});
+
+test("an older release the newest one withdraws is never taken", async () => {
+  const { store } = await fixture();
+  const runtime = backend({
+    async *findReleases() {
+      yield { manifest: releaseManifest("0.1.0-beta.11", { blocked_versions: ["0.1.0-beta.10"] }) };
+      yield { manifest: releaseManifest("0.1.0-beta.10") };
+    },
+    async fetchRollout(manifest) {
+      return rolloutFor(manifest.version, manifest.version === "0.1.0-beta.11" ? "early" : "100");
+    }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const status = await coordinator.check();
+  assert.equal(status.phase, "deferred");
+  assert.equal(status.target_version, "0.1.0-beta.11");
+});
+
+test("a rollout document older than one already seen is not trusted", async () => {
+  const { store } = await fixture();
+  let issuedAt = "2026-11-17T12:00:00.000Z";
+  let stage = "held";
+  const runtime = backend({
+    async *findReleases() {
+      yield { manifest: releaseManifest("0.1.0-beta.9") };
+    },
+    async fetchRollout(manifest) {
+      return rolloutFor(manifest.version, stage, issuedAt);
+    }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  assert.match((await coordinator.check()).message, /not rolling out yet/);
+  assert.equal((await store.load()).rollout_seen["v0.1.0-beta.9"], issuedAt);
+  // A replayed earlier, wider stage must not undo the hold.
+  issuedAt = "2026-11-17T06:00:00.000Z";
+  stage = "100";
+  const replayed = await coordinator.check();
+  assert.equal(replayed.phase, "deferred");
+  assert.match(replayed.message, /could not be verified/);
+});
+
+test("an unreachable rollout service defers automatic checks but not manual ones", async () => {
+  const { store } = await fixture();
+  const runtime = backend({
+    async *findReleases() {
+      yield { manifest: releaseManifest("0.1.0-beta.9") };
+    },
+    async fetchRollout() {
+      throw new Error("Update service returned HTTP 503.");
+    }
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const warn = console.warn;
+  console.warn = () => {};
+  try {
+    assert.equal((await coordinator.check()).phase, "deferred");
+    assert.equal((await coordinator.check(true)).phase, "ready");
+  } finally {
+    console.warn = warn;
+  }
+});
+
+test("after an update, the next optional one waits a day unless early access is on", async () => {
+  const { path, store } = await fixture();
+  const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+  await store.update((state) => {
+    state.current_version = { version: "0.1.0-beta.8", since };
+  });
+  const runtime = stagedBackend(["0.1.0-beta.9"], { "0.1.0-beta.9": "100" });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const spaced = await coordinator.check();
+  assert.equal(spaced.phase, "deferred");
+  assert.match(spaced.message, /at most once a day/);
+  assert.equal((await coordinator.check(true)).phase, "ready");
+  await coordinator.setEarlyAccess(true);
+  const early = new UpdateCoordinator(store, stagedBackend(["0.1.0-beta.9"], { "0.1.0-beta.9": "100" }));
+  await early.initialize();
+  assert.equal((await early.check()).phase, "ready");
+  assert.equal(JSON.parse(await readFile(path, "utf8")).current_version.since, since);
+});
+
+test("a running version first recorded now starts its spacing at the next update, not this one", async () => {
+  const { path, store } = await fixture();
+  const coordinator = new UpdateCoordinator(store, stagedBackend(["0.1.0-beta.9"], { "0.1.0-beta.9": "100" }));
+  await coordinator.initialize();
+  assert.equal((await coordinator.check()).phase, "ready");
+  const saved = JSON.parse(await readFile(path, "utf8"));
+  assert.deepEqual(saved.current_version, { version: "0.1.0-beta.8", since: "1970-01-01T00:00:00.000Z" });
+  const updated = new UpdateCoordinator(store, stagedBackend(["0.1.0-beta.10"], { "0.1.0-beta.10": "100" }, { currentVersion: "0.1.0-beta.9" }));
+  await updated.initialize();
+  assert.equal((await updated.check()).phase, "deferred");
+  const recorded = JSON.parse(await readFile(path, "utf8")).current_version;
+  assert.equal(recorded.version, "0.1.0-beta.9");
+  assert.ok(Date.now() - Date.parse(recorded.since) < 60_000);
+});

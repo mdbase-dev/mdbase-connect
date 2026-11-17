@@ -4,10 +4,11 @@ import { chmod, mkdir, rm, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 import { stageDebApp, swapStagedApp, userOwnedAppDirectory } from "./linux-update";
-import { findLatestRelease, verifyArtifactBundle } from "./release-source";
+import { fetchRolloutDocument, findLatestRelease, releaseCandidates, verifyArtifactBundle } from "./release-source";
 import type { UpdateBackend } from "./update-coordinator";
 import {
   channelForVersion,
+  type RolloutDocument,
   type UpdateArtifact,
   type UpdateManifest,
   type UpdateTarget
@@ -70,11 +71,19 @@ export class ElectronUpdateBackend implements UpdateBackend {
   }
 
   async findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null> {
-    return findLatestRelease({
-      channel: this.channel,
-      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore"),
-      signal
-    });
+    return findLatestRelease({ channel: this.channel, trustCacheDirectory: this.trustCacheDirectory, signal });
+  }
+
+  findReleases(signal: AbortSignal): AsyncIterable<{ manifest: UpdateManifest }> {
+    return releaseCandidates({ channel: this.channel, trustCacheDirectory: this.trustCacheDirectory, signal });
+  }
+
+  async fetchRollout(manifest: UpdateManifest, signal: AbortSignal): Promise<RolloutDocument | null> {
+    return fetchRolloutDocument(manifest.tag, { trustCacheDirectory: this.trustCacheDirectory, signal });
+  }
+
+  private get trustCacheDirectory(): string {
+    return join(this.options.userDataDirectory, "updates", "sigstore");
   }
 
   async stageAutomatic(
@@ -128,7 +137,7 @@ export class ElectronUpdateBackend implements UpdateBackend {
       bundleBytes,
       artifactPath: archive,
       tag: manifest.tag,
-      trustCacheDirectory: join(this.options.userDataDirectory, "updates", "sigstore"),
+      trustCacheDirectory: this.trustCacheDirectory,
       signal
     }).catch(async (error) => {
       if (!signal.aborted) await rm(archive, { force: true });
