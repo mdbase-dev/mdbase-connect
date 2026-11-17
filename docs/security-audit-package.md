@@ -138,8 +138,9 @@ items are:
 - future native SDK key storage still needs platform-keystore integration;
 - Render uses narrowly scoped, rotated static AWS credentials rather than
   workload identity federation;
-- full isolated recovery and platform signing/notarization remain open release
-  gates; and
+- full isolated recovery and platform signing/notarization have not been
+  completed; their release gates were retired on 2026-11-17 by the release
+  owner as stale requirements; and
 - recovery administration currently depends on one operator.
 
 An assessor should prioritize authorization-ceiling confusion, installation or

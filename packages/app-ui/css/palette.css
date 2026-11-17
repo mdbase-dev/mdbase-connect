@@ -112,6 +112,11 @@
   font-weight: var(--font-weight-medium);
 }
 
+/* The selected fill is deep enough that muted text on it falls below 4.5:1. */
+.mdbase-command-results > button[aria-selected="true"] :is(small, kbd, .mdbase-command-alternate) {
+  color: var(--color-text-soft);
+}
+
 .mdbase-command-results mark {
   color: inherit;
   background: var(--accent-soft);

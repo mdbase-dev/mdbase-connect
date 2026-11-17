@@ -260,14 +260,17 @@ allowlist of fields instead of serializing request or database objects.
 The beta deliberately accepts several risks that require production
 infrastructure or publisher accounts rather than another local refactor.
 Signed application identity, connector-key continuity, and the managed key
-service plus staging rotation drill are complete. The following remain
-stable-release gates:
+service plus staging rotation drill are complete.
 
-- verified encrypted backup, restoration, key recovery, and deletion behavior;
-  and
-- canonical platform signing and notarization.
+Two former stable-release gates, an encrypted backup and restore drill and
+canonical platform signing and notarization, were retired on 2026-11-17 by the
+release owner as stale requirements. Neither was completed: no recorded drill
+verified encrypted backup, restoration, key recovery, or deletion behavior, and
+retiring the signing gate does not make unsigned builds trusted platform
+releases. Both remain known limitations in the
+[security audit preparation](./security-audit-package.md) register.
 
-These are machine-readable gates in
+Stable-release gates are machine-readable in
 [`config/release-readiness.json`](../config/release-readiness.json).
 `pnpm check:release-readiness` validates and reports them during beta;
 `pnpm check:release-readiness -- --stable` fails until every gate is marked

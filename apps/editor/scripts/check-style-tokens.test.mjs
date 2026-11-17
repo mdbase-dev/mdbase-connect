@@ -94,6 +94,8 @@ test("rejects raw pixel typography including shorthands and variable fallbacks",
 test("rejects raw radii, corner radii and ad-hoc shadows", () => {
   assert.equal(check(".a { border-radius: 4px 0; border-top-left-radius: 8px; box-shadow: 0 1em 2em red; }").length, 3);
   assert.equal(check(".a { border-radius: .25rem; }").length, 1);
+  // Arithmetic does not launder a raw length.
+  assert.equal(check(".a { border-radius: calc(var(--control-radius) + 4px); border-top-left-radius: calc(1rem / 2); }").length, 2);
 });
 
 test("accepts tokens, non-text geometry, proportional prose and circles", () => {
@@ -101,6 +103,7 @@ test("accepts tokens, non-text geometry, proportional prose and circles", () => 
     font-size: var(--font-size-ui); font: var(--font-size-caption)/1.5 var(--sans);
     border-radius: var(--radius-sm) 0 50%; border-bottom-right-radius: 0;
     box-shadow: var(--elevation-low); width: 13px; font-size: 1.2em;
+    border-top-left-radius: calc(var(--control-radius) + var(--space-1)); border-top-right-radius: calc(var(--height) / 2);
   } .b { box-shadow: none !important; }`), []);
 });
 
