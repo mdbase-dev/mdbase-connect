@@ -122,8 +122,13 @@ not accent-insensitive, and shorter words match titles, paths and metadata
 only. Quick open and unlinked mentions search only text already loaded.
 `parseSearchQuery` reads a search once for both paths: a "quoted phrase" is
 one term, asked of the index whole and never fuzzy-matched, and `#tag`,
-`tag:name` and `type:name` are filters (nested tags included, any case), the
-same predicate as the list's tag and type chips, never text to find.
+`tag:name` and `type:name` are filters, never text to find. The list's tag
+filters, typed or chosen from a tag chip, are asked of the collection too
+(`BodySearch`, as `file.hasTag(tag)`): record views carry no tags, so only the
+runtime sees inline `#tags` in a note's text. A tag matches as the runtime's
+`hasTag` matches it, exactly or as a parent of a nested tag, in the case it
+is written. Type filters match the loaded types in any case. Tag facets and
+suggestions still come from the loaded frontmatter `tags` only.
 Unlinked mentions reuse the hydrated
 search entries (including their original display titles), caching syntax
 exclusions and paragraph bounds by entry identity. Snippets reuse the shared

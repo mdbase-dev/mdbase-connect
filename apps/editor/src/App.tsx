@@ -91,7 +91,6 @@ import {
   createdBody,
   editableNote,
   noteHeadings,
-  noteHasTag,
   noteHasType,
   noteTitle,
   noteNeedsBodyTitle,
@@ -143,6 +142,7 @@ import {
   searchNoteResults
 } from "./note-search";
 import { BodySearch, bodySearchTerms, EXCERPT_READS } from "./body-search";
+import { parseSearchQuery } from "./search-query";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { takeQuickCapture } from "./quick-capture";
 import { activeEditorSelection, revealMarkdownLine } from "./code-editor-reveal";
@@ -789,10 +789,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     void loadContentIndex();
   }, [allNotes, mentionsOpen, contentComplete, contentError, contentIndexing, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
 
-  // The list's body matches are the runtime's, asked again whenever a record changes.
+  // The list's body matches and tag filters are the runtime's, asked again
+  // whenever a record changes: record views carry no inline tags.
+  const filterTag = noteFilter?.kind === "tag" ? noteFilter.value : undefined;
   useEffect(() => {
-    if (phase === "ready") bodySearch.search(bodySearchTerms(deferredSearch), collectionRevision);
-  }, [bodySearch, collectionRevision, deferredSearch, phase]);
+    if (phase !== "ready") return;
+    const tags = parseSearchQuery(deferredSearch).tags;
+    bodySearch.search(bodySearchTerms(deferredSearch), filterTag === undefined ? tags : [...tags, filterTag], collectionRevision);
+  }, [bodySearch, collectionRevision, deferredSearch, filterTag, phase]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -1051,9 +1055,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       : noteFilter.kind === "folder"
         ? searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`))
         : noteFilter.kind === "tag"
-          ? searchedNotes.filter((note) => noteHasTag(note, noteFilter.value))
+          ? searchedNotes.filter((note) => bodySearch.tagged(noteFilter.value)?.has(note.path) === true)
           : searchedNotes.filter((note) => noteHasType(note, noteFilter.value));
-  }, [noteFilter, searchedNotes, i18n.locale]);
+  }, [bodySearch, bodySearchState.version, noteFilter, searchedNotes, i18n.locale]);
   const noteSortFields = useMemo(() => sortableFields(visibleNotes, typeDescriptors), [visibleNotes, typeDescriptors, i18n.locale]);
   const noteSort = useMemo(() => resolveNoteSort(noteSortPreference, noteSortFields), [noteSortFields, noteSortPreference]);
   const chooseNoteSort = useCallback((preference: NoteSortPreference) => {

@@ -24,7 +24,7 @@ import {
   connectServerUrl
 } from "./connect-endpoint";
 import { createdBody } from "./note";
-import { bodySearchWhere } from "./body-search";
+import { bodySearchWhere, tagSearchWhere } from "./body-search";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
@@ -187,9 +187,17 @@ export class ConnectCollectionGateway implements CollectionGateway {
     });
   }
 
-  async searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+  searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    return this.matchingPaths(bodySearchWhere(term), options.signal);
+  }
+
+  searchTag(tag: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    return this.matchingPaths(tagSearchWhere(tag), options.signal);
+  }
+
+  private async matchingPaths(where: string, signal: AbortSignal | undefined): Promise<string[]> {
     const paths: string[] = [];
-    for await (const outcome of this.requireConnection().queryPages({ where: bodySearchWhere(term), includeBody: false }, { signal: options.signal, pageSize: PAGE_SIZE })) {
+    for await (const outcome of this.requireConnection().queryPages({ where, includeBody: false }, { signal, pageSize: PAGE_SIZE })) {
       paths.push(...requireOutcome(outcome).results.map((record) => record.path));
     }
     return paths;
