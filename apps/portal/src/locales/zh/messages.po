@@ -233,11 +233,6 @@ msgstr "{0} 使用 mdbase {1}。请将一个副本升级到 mdbase 0.3 并验证
 msgid "{0} v{1}"
 msgstr "{0} v{1}"
 
-#. placeholder {0}: literal(selected?.display_name ?? t(i18n)({ message: "The collection", context: "Collection connection" }))
-#: src/authority-workflows.tsx
-msgid "{0} will begin syncing automatically. You can close this page."
-msgstr "{0} 将自动开始同步。你可以关闭此页面。"
-
 #. placeholder {0}: literal(pairing.connector_name)
 #. placeholder {1}: literal(pairing.collections?.find(collection=>collection.collection_id===removingId)?.display_name??t(i18n)({ message: "this collection", context: "Collection connection" }))
 #: src/authority-workflows.tsx
@@ -275,18 +270,6 @@ msgstr "{applicationName} 需要一种 {0} 类型"
 #: src/authority-workflows.tsx
 msgid "{appName} on this device will hold the key to the private collections you allow here and will be able to read them. It will ask for your encryption password. Only allow this if you trust {appName} with that password."
 msgstr "此设备上的 {appName} 将保存你在此处允许的私有集合的密钥，并能够读取这些集合。它会要求你输入加密密码。仅当你信任 {appName} 并愿意把该密码交给它时才允许。"
-
-#: src/authority-workflows.tsx
-msgid "{collectionName} now lives on your computer."
-msgstr "{collectionName} 现在位于你的电脑上。"
-
-#: src/authority-workflows.tsx
-msgid "{collectionName} remains hosted. Its main copy did not move."
-msgstr "{collectionName} 仍由云端托管。其主副本没有迁移。"
-
-#: src/authority-workflows.tsx
-msgid "{collectionName} will stop being hosted and become a computer-owned collection. This changes where every future edit is accepted."
-msgstr "{collectionName} 将不再由云端托管，而改由电脑管理。这会改变所有后续编辑的接收位置。"
 
 #: src/AccountManagement.tsx
 msgid "{collections} · {records} · {fileCount}"
@@ -749,10 +732,6 @@ msgctxt "Collection connection"
 msgid "Approving…"
 msgstr "正在批准…"
 
-#: src/authority-workflows.tsx
-msgid "Apps"
-msgstr "应用"
-
 #: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -865,10 +844,6 @@ msgstr "取消登录"
 #: src/ConnectApp.tsx
 msgid "Cancel this collection invitation?"
 msgstr "取消此集合邀请？"
-
-#: src/authority-workflows.tsx
-msgid "Cancel transfer"
-msgstr "取消迁移"
 
 #. placeholder {0}: collection.display_name ?? collection.id
 #: src/ConnectApp.tsx
@@ -1259,10 +1234,6 @@ msgstr "创建"
 msgid "Create a collection"
 msgstr "创建集合"
 
-#: src/authority-workflows.tsx
-msgid "Create a hosted collection before approving this folder."
-msgstr "批准此文件夹前，先创建一个托管集合。"
-
 #: src/authorization-review.tsx
 msgid "Create a new collection…"
 msgstr "创建新集合…"
@@ -1643,14 +1614,6 @@ msgctxt "Connect interface"
 msgid "Everyone your plan allows has already joined your collections. People you invite can't join until you upgrade to Plus or remove someone."
 msgstr "你的方案允许的人数已全部加入你的集合。在你升级到 Plus 或移除某人之前，你邀请的人无法加入。"
 
-#: src/authority-workflows.tsx
-msgid "Existing access is revoked. Connect apps again to use the local collection."
-msgstr "现有访问权限已撤销。请重新连接 Connect 应用以使用本地集合。"
-
-#: src/authority-workflows.tsx
-msgid "Existing Markdown is checked before upload. Collection paths and device credentials stay off the control plane."
-msgstr "上传前会检查现有 Markdown。集合路径和设备凭据不会发送到控制平面。"
-
 #: src/authorization-review.tsx
 msgid "Existing type"
 msgstr "现有类型"
@@ -1718,19 +1681,6 @@ msgstr "筛选会话"
 msgid "Finishing collection setup…"
 msgstr "正在完成集合设置…"
 
-#: src/authority-workflows.tsx
-msgid "Folder"
-msgstr "文件夹"
-
-#: src/authority-workflows.tsx
-msgid "Folder approved"
-msgstr "文件夹已获批准"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Folder sync"
-msgstr "文件夹同步"
-
 #: src/auth-view.tsx
 msgid "Forgot your password?"
 msgstr "忘记密码？"
@@ -1793,28 +1743,10 @@ msgstr "主页"
 msgid "Hosted access was removed immediately. Hosted data deletion continues automatically in the background. Any local collection and mirror files remain on your computers."
 msgstr "托管访问权限已立即移除。托管数据会继续在后台自动删除。电脑上的所有本地集合及镜像文件都会保留。"
 
-#: src/authority-workflows.tsx
-msgid "Hosted collection"
-msgstr "托管集合"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Hosted collection"
-msgstr "托管集合"
-
-#: src/authority-workflows.tsx
-msgid "Hosted service"
-msgstr "托管服务"
-
 #: src/AccountManagement.tsx
 msgctxt "Account management"
 msgid "Hosted storage"
 msgstr "托管存储空间"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Hosted writes are paused"
-msgstr "托管写入已暂停"
 
 #: src/authorization-review.tsx
 msgid "How this type behaves in {applicationName}"
@@ -1861,10 +1793,6 @@ msgstr "如果该值已存在，mdbase 不会更改集合。设置冲突会中�
 #: src/auth-view.tsx
 msgid "If this address can be used, we’ve sent a one-time link to it."
 msgstr "如果此地址可用，我们已向其发送一次性链接。"
-
-#: src/authority-workflows.tsx
-msgid "If verification fails or this request expires, hosted writes resume."
-msgstr "如果验证失败或此请求过期，托管写入将恢复。"
 
 #. placeholder {0}: literal(pairing.connector_name)
 #: src/authority-workflows.tsx
@@ -1950,10 +1878,6 @@ msgctxt "Application access approval"
 msgid "Keep an offline replica"
 msgstr "保留离线副本"
 
-#: src/authority-workflows.tsx
-msgid "Keep it hosted"
-msgstr "保留托管状态"
-
 #: src/authorization-review.tsx
 msgid "Keep your current records and explain which fields mean the same thing."
 msgstr "保留当前记录，并说明哪些字段表达相同的含义。"
@@ -2038,10 +1962,6 @@ msgstr "主副本"
 msgid "Main copy moved to a computer"
 msgstr "主副本已迁移到电脑"
 
-#: src/authority-workflows.tsx
-msgid "Main copy on {mirrorName}"
-msgstr "主副本位于 {mirrorName}"
-
 #: src/authorization-review.tsx
 msgctxt "Application access approval"
 msgid "Manage and delete files"
@@ -2098,10 +2018,6 @@ msgstr "管理权限不会让应用访问集合内容。每个应用都需要单
 msgid "Markdown and file usage is temporarily unavailable."
 msgstr "Markdown 和文件用量暂不可用。"
 
-#: src/authority-workflows.tsx
-msgid "Markdown edits will sync in both directions. Concurrent edits remain separate until you choose a version."
-msgstr "Markdown 编辑内容将双向同步。并发编辑会分别保留，直到你选择一个版本。"
-
 #: src/ConnectPrimitives.tsx
 msgid "mdbase Connect could not be reached. Check your connection and try again."
 msgstr "无法连接到 mdbase Connect。请检查网络连接后重试。"
@@ -2109,10 +2025,6 @@ msgstr "无法连接到 mdbase Connect。请检查网络连接后重试。"
 #: src/portal-model.ts
 msgid "mdbase Connect could not reach the service. Check your connection and try again."
 msgstr "mdbase Connect 无法连接服务。请检查网络连接后重试。"
-
-#: src/authority-workflows.tsx
-msgid "mdbase Connect is checking the latest hosted changes, registering the folder, and making it the main copy."
-msgstr "mdbase Connect 正在检查最新的托管更改、注册文件夹，并将其设为主副本。"
 
 #: src/ConnectApp.tsx
 #: src/portal-ui.tsx
@@ -2159,15 +2071,6 @@ msgstr "更定期地接收新功能和改进的动态。"
 msgctxt "Application access approval"
 msgid "Move and rename files"
 msgstr "移动和重命名文件"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Move main copy"
-msgstr "迁移主副本"
-
-#: src/authority-workflows.tsx
-msgid "Move the main copy"
-msgstr "迁移主副本"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -2248,10 +2151,6 @@ msgstr "新密码"
 #: src/AccountManagement.tsx
 msgid "New passwords do not match."
 msgstr "两次输入的新密码不一致。"
-
-#: src/authority-workflows.tsx
-msgid "New synced folder"
-msgstr "新同步文件夹"
 
 #: src/auth-view.tsx
 msgid "New to mdbase? <0>Create an account</0>"
@@ -2487,10 +2386,6 @@ msgstr "通过 Tailscale 打开"
 msgid "Open your account"
 msgstr "打开你的账户"
 
-#: src/authority-workflows.tsx
-msgid "Open your collections"
-msgstr "打开你的集合"
-
 #: src/authorization-capabilities.ts
 msgid "Open, search, validate, and follow changes to records and saved views."
 msgstr "打开、搜索和验证记录及已保存视图，并关注它们的更改。"
@@ -2700,10 +2595,6 @@ msgstr "需要重新授权"
 msgid "Recently used"
 msgstr "最近使用"
 
-#: src/authority-workflows.tsx
-msgid "Recovery"
-msgstr "恢复"
-
 #. placeholder {0}: formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })
 #: src/ApplicationAccess.tsx
 msgid "Registered <0>{0}</0>"
@@ -2881,10 +2772,6 @@ msgstr "返回 {applicationName}"
 msgid "Return to {applicationName} and connect again to start a new request."
 msgstr "返回 {applicationName} 并重新连接，以发起新请求。"
 
-#: src/authority-workflows.tsx
-msgid "Return to {mirrorName}."
-msgstr "返回 {mirrorName}。"
-
 #: src/AccountManagement.tsx
 #: src/auth-view.tsx
 msgid "Return to sign in"
@@ -2893,14 +2780,6 @@ msgstr "返回登录页面"
 #: src/authority-workflows.tsx
 msgid "Return to the app."
 msgstr "请返回应用。"
-
-#: src/authority-workflows.tsx
-msgid "Return to your account"
-msgstr "返回你的账户"
-
-#: src/authority-workflows.tsx
-msgid "Return to your computer."
-msgstr "返回你的电脑。"
 
 #: src/authorization-view.tsx
 msgid "Returning to {applicationName}…"
@@ -3358,11 +3237,6 @@ msgstr "同步文件夹"
 msgid "Sync folder · {0}"
 msgstr "同步文件夹 · {0}"
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Sync this collection"
-msgstr "同步此集合"
-
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
@@ -3420,11 +3294,6 @@ msgstr "应用的 {0} 值。"
 msgid "The cloud copy is available to the editor."
 msgstr "编辑器可以使用云端副本。"
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "The collection"
-msgstr "此集合"
-
 #: src/authorization-view.tsx
 msgid "The collection cannot allow all required record and file permissions together. Choose another collection."
 msgstr "此集合无法同时允许所有必需的记录和文件权限。请选择其他集合。"
@@ -3445,10 +3314,6 @@ msgstr "存有此集合的电脑"
 #: src/ConnectApp.tsx
 msgid "The editor can reach this collection through {0}."
 msgstr "编辑器可以通过 {0} 访问此集合。"
-
-#: src/authority-workflows.tsx
-msgid "The folder on {mirrorName} is now the main copy. Hosted access has stopped and previous app connections were revoked."
-msgstr "{mirrorName} 上的文件夹现在是主副本。托管访问已停止，之前的应用连接已撤销。"
 
 #: src/ConnectApp.tsx
 msgid "The folder remains the authority for this collection."
@@ -3484,10 +3349,6 @@ msgstr "链接无效、已过期或已使用，也可能是密码登录暂不可
 msgid "The main copy has moved to a computer."
 msgstr "主副本已移至一台电脑。"
 
-#: src/authority-workflows.tsx
-msgid "The main copy stayed hosted."
-msgstr "主副本仍由云端托管。"
-
 #: src/portal-model.ts
 msgid "The mdbase Connect app on this computer needs to be updated before you can continue."
 msgstr "继续之前，需要更新此电脑上的 mdbase Connect 应用。"
@@ -3509,17 +3370,8 @@ msgid "The rules run inside the collection. A notification tells {applicationNam
 msgstr "规则在集合内部运行。通知只会告诉 {applicationName} 有内容发生更改，不会透露更改的内容。"
 
 #: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "the selected computer"
-msgstr "所选电脑"
-
-#: src/authority-workflows.tsx
 msgid "The signed-in account changed. Start sign-in again from the app."
 msgstr "已登录的账户发生更改。请从应用重新开始登录。"
-
-#: src/authority-workflows.tsx
-msgid "The synced Markdown folder becomes the main copy."
-msgstr "同步的 Markdown 文件夹会成为主副本。"
 
 #: src/ConnectApp.tsx
 msgid "The value has changed again. Undo is no longer available."
@@ -3592,11 +3444,6 @@ msgctxt "Collection connection"
 msgid "this collection"
 msgstr "此集合"
 
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "This collection"
-msgstr "此集合"
-
 #. placeholder {0}: new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(unavailable.map(contractLabel))
 #: src/compatibility.ts
 msgid "This collection does not provide {0}."
@@ -3621,10 +3468,6 @@ msgstr "此设备可以保留已批准集合的离线副本，包括其文件以
 #: src/authority-workflows.tsx
 msgid "This device can keep notes, files and account/member information offline. Downloaded copies cannot be erased."
 msgstr "此设备可以离线保留笔记、文件以及账户和成员信息。已下载的副本无法擦除。"
-
-#: src/authority-workflows.tsx
-msgid "This folder will receive Markdown from mdbase and will not upload local edits."
-msgstr "此文件夹将从 mdbase 接收 Markdown，不会上传本地编辑内容。"
 
 #: src/ApplicationAccess.tsx
 msgid "This installation has no approved collections."
@@ -3685,18 +3528,6 @@ msgstr "无法打开此退订链接"
 msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "那些浏览器需要重新登录。此浏览器将保持登录。"
 
-#: src/authority-workflows.tsx
-msgid "Transfer approved"
-msgstr "迁移已批准"
-
-#: src/authority-workflows.tsx
-msgid "Transfer complete"
-msgstr "迁移完成"
-
-#: src/authority-workflows.tsx
-msgid "Transfer ended"
-msgstr "迁移已结束"
-
 #: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "请尝试其他电脑名称。筛选不会撤销访问权限。"
@@ -3707,7 +3538,6 @@ msgstr "请尝试其他电脑名称。筛选不会撤销访问权限。"
 #: src/ConnectApp.tsx
 #: src/ConnectPrimitives.tsx
 #: src/onboarding-view.tsx
-#: src/portal-ui.tsx
 msgid "Try again"
 msgstr "重试"
 
@@ -3856,10 +3686,6 @@ msgstr "请使用至少 15 个字符；可以包含空格。"
 msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
 msgstr "使用桌面应用，将普通 Markdown 文件夹保留在电脑上。"
 
-#: src/authority-workflows.tsx
-msgid "Use the folder on {mirrorName} as the main copy?"
-msgstr "将 {mirrorName} 上的文件夹设为主副本？"
-
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."
 msgstr "当他人无法邀请你已验证的电子邮箱地址时，可使用此方式。"
@@ -3902,11 +3728,6 @@ msgstr "查看者"
 #: src/authorization-view.tsx
 msgid "Waiting for mdbase Connect"
 msgstr "等待 mdbase Connect"
-
-#: src/authority-workflows.tsx
-msgctxt "Collection connection"
-msgid "Waiting for the computer"
-msgstr "等待电脑"
 
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
@@ -3964,10 +3785,6 @@ msgstr "操作文件"
 #: src/authorization-view.tsx
 msgid "Workouts"
 msgstr "锻炼记录"
-
-#: src/authority-workflows.tsx
-msgid "Writes pause during verification, then hosted access is retired."
-msgstr "验证期间写入会暂停，之后托管访问将停止。"
 
 #: src/authority-workflows.tsx
 msgid "You allowed reminders for the selected collections."

@@ -115,6 +115,6 @@ export function SectionHeading({ title, note, count }: { title: string; note: st
   useLocaleRevision(); return <div className="section-heading"><div><h2>{title}</h2><p>{note}</p></div>{count !== undefined && <span>{i18n.number(count)}</span>}</div>; }
 export function Empty({ title, text }: { title: string; text: string }) {
   useLocaleRevision(); return <div className="empty"><span className="empty-folder" /><strong>{title}</strong><p>{text}</p></div>; }
-export function Loading({ error = "", onRetry }: { error?: string; onRetry?(): void }) {
-  useLocaleRevision(); return <main className="mdbase-page loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Opening mdbase Connect…", context: "Connect interface" })}</p>{error && onRetry && <button className="mdbase-button is-primary" onClick={onRetry}><Trans>Try again</Trans></button>}</main>; }
+export function Loading({ error = "" }: { error?: string }) {
+  useLocaleRevision(); return <main className="mdbase-page loading" aria-busy={!error}><PageBrand label="connect" markMotion="orbit" error={error} /><p role={error ? "alert" : "status"}>{error || t(i18n)({ message: "Opening mdbase Connect…", context: "Connect interface" })}</p></main>; }
 

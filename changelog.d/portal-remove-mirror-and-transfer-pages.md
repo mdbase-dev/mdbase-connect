@@ -1,0 +1,3 @@
+## Removed
+
+- The portal's approval pages for legacy mirror pairing (`/mirror/:id`) and for moving a hosted collection's main copy to a computer (`/transfer/:id`, "Move main copy"). Current apps do not start either flow. Obsidian plugin releases 0.4.2 and earlier and the deprecated `mdbase-mirror` command can still ask to sync a folder, but the request can no longer be approved, and its link now opens your account. Legacy accounts can no longer approve a new synced folder or a move of the main copy in the portal; existing hosted collections and their synced folders are still shown and can still be disconnected.

@@ -98,8 +98,9 @@ Two pieces of coverage for code that is still deployed went with the consumers:
   promotion scenario drove the legacy CLI's `mirror promote` and the portal's
   "Move main copy" page in a browser. The provider's fence, prove, complete and
   cancel steps are still tested at the API level, and the server keeps its unit
-  and Postgres tests, but nothing opens the confirmation page any more. Only a
-  legacy account can reach that flow; it goes in 2a.
+  and Postgres tests. The confirmation page itself was removed from the portal
+  on 2026-11-15 (see 2a). Only a legacy account can reach that flow; it goes in
+  2a.
 - **Durable history for the provider performance observation.** The monthly
   observation still runs and uploads its raw result as a workflow artifact, but
   the normalising and `performance-history` publishing steps went with
@@ -170,6 +171,20 @@ migration-freeze fences and legacy hosted collection creation, so it goes with
 those routes in the cluster below rather than behind a new mocked-provider
 fixture. Its `docker-compose.yml` passthrough is gone; an operations LAB flag
 map still pins the flag off, and that entry goes with the flag.
+
+Also removed ahead of the provider (2026-11-15): the portal pages for **mirror
+pairing** (`/mirror/:id`) and the **hosted-to-local authority transfer**
+(`/transfer/:id`, "Move main copy"). No current app starts either flow.
+Obsidian plugin releases 0.4.2 and earlier and the `mdbase-mirror` CLI in
+`packages/sync` can still create a pairing request, which nothing can approve
+now. The pages, their styles and the portal's `AuthorityTransfer` type are gone,
+and an old link opens the portal app, as `/adopt/:id` does. Until the server
+routes go, the server keeps returning links to the removed page. The
+server routes (`features/mirrors/pairing-routes.ts` and
+`features/authority-transfer/hosted-to-local-routes.ts`) remain for a following
+change, so a rolled-back portal and the current server still work together. The
+portal keeps showing existing hosted collections and their synced folders, with
+**Disconnect**.
 
 | Unit | Lines | Consumers to remove first |
 | --- | --- | --- |
