@@ -37,7 +37,7 @@ it("renders a fenced code block with a header and hides its fences until the car
   const doc = "```js\nconst a = 1;\n```\n\nAfter";
   expect(decorations(stateFor(doc))).toEqual([
     "line 1: cm-lp-code-block cm-lp-code-first", "CodeHeader \"```js\"",
-    "line 2: cm-lp-code-block", "line 3: cm-lp-code-block cm-lp-code-last", "line 3: cm-lp-code-fence-end", "hide \"```\""
+    "line 2: cm-lp-code-block", "line 3: cm-lp-code-block cm-lp-code-last", "hide \"```\""
   ]);
   expect(decorations(stateFor(doc, 2))).not.toContain("CodeHeader \"```js\"");
   expect(decorations(stateFor(doc, 20))).not.toContain("hide \"```\"");

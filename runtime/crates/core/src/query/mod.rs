@@ -29,7 +29,7 @@ use std::collections::BTreeSet;
 pub mod groups;
 pub mod indexed;
 mod lower;
-pub use lower::folded_contains;
+pub use lower::{body_index_text, folded_contains};
 pub mod profile;
 pub mod projection;
 pub mod topk;

@@ -57,6 +57,10 @@
     {
       "id": "offline.replica",
       "operations": ["sync"]
+    },
+    {
+      "id": "history.read",
+      "operations": ["record_history", "record_version"]
     }
   ],
   "structured_authorities": {

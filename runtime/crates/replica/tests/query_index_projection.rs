@@ -373,11 +373,11 @@ fn declared_profile_uses_compiled_ref_allof_properties_and_exact_top_level_names
 
 #[test]
 fn empty_generation_frame_binds_key_codec_and_projection_algorithm_versions() {
-    // Independent frame oracle: key codec 2, projection algorithm 2, SEM 1.1, no resources
+    // Independent frame oracle: key codec 2, projection algorithm 3, SEM 1.1, no resources
     // or declared fields. This is a SHA frame test, not an authorization witness.
     let mut frame = b"mdbase/v1/query-index-generation\0".to_vec();
     frame.push(2);
-    for word in [2u64, 1, 1, 0, 0] {
+    for word in [3u64, 1, 1, 0, 0] {
         frame.extend_from_slice(&word.to_be_bytes());
     }
     assert_eq!(
@@ -409,4 +409,44 @@ fn index_projection_rejects_unsupported_fields_and_oversized_atoms() {
         );
     }
     assert!(project_record_index_fields(&c, &r, &[field("title")], 8).is_err());
+}
+
+#[test]
+fn rows_carry_the_body_index_text_unless_the_capture_leaves_bodies_out() {
+    let resources = vec![
+        ("mdbase.yaml".into(), "spec_version: \"0.3.0\"\n".into()),
+        ("_types/task.md".into(), TASK.into()),
+    ];
+    let sem = mdbn_wire::common::Version { major: 1, minor: 1 };
+    let fields = [field("priority")];
+    let captured = QueryProjectionContext::capture(&resources, sem, &fields, 256).unwrap();
+    let r = row("tasks/a.md", "---\npriority: 2\n---\nMeeting ΟΔΟΣ\0Notes\n");
+    assert!(captured.indexes_body());
+    assert_eq!(
+        captured.project_row(&r).unwrap().body.as_deref(),
+        Some("meeting οδοσ\u{FFFD}notes\n")
+    );
+    let generation = captured.generation();
+    let without = captured.without_body();
+    assert!(!without.indexes_body());
+    assert_ne!(
+        without.generation(),
+        generation,
+        "rows differ, so must the generation"
+    );
+    assert_eq!(without.project_row(&r).unwrap().body, None);
+
+    // A body over the row bound fails the row, and names `file.body`.
+    let long = format!(
+        "---\npriority: 2\n---\n{}",
+        "x".repeat(mdbn_replica::store_query::MAX_ROW_BODY_BYTES + 1)
+    );
+    let r = row("tasks/a.md", &long);
+    let captured = QueryProjectionContext::capture(&resources, sem, &fields, 256).unwrap();
+    assert_eq!(captured.project_row(&r), Err(IndexKeyError::TooWide));
+    assert_eq!(
+        captured.too_wide_fields(&r),
+        [FieldRef::File("body".into())]
+    );
+    assert!(captured.without_body().project_row(&r).is_ok());
 }

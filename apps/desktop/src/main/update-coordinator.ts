@@ -4,11 +4,13 @@ import { i18n } from "@mdbase-dev/ui/i18n";
 import {
   compareVersions,
   decideUpdate,
+  type RolloutDocument,
   type UpdateChannel,
+  type UpdateDecision,
   type UpdateManifest,
   type UpdateTarget
 } from "./update-policy";
-import { UpdateStateStore } from "./update-state";
+import { UpdateStateStore, type PersistedUpdateState } from "./update-state";
 
 /**
  * Updating the app through its existing release channel: the signed GitHub release
@@ -47,6 +49,8 @@ export interface DesktopUpdateStatus {
   required?: true;
   /** The bundled daemon was rolled back to the previous version; why. */
   daemon_notice?: string;
+  /** The user opted in to taking each release at its first rollout stage. */
+  early_access: boolean;
 }
 
 export interface UpdateBackend {
@@ -55,6 +59,14 @@ export interface UpdateBackend {
   platformKey: string;
   packaged: boolean;
   findLatest(signal: AbortSignal): Promise<{ manifest: UpdateManifest } | null>;
+  /**
+   * Every verified release, newest first. When present it replaces `findLatest`,
+   * so an older release still rolling out to this installation can be taken
+   * while the newest is not yet.
+   */
+  findReleases?(signal: AbortSignal): AsyncIterable<{ manifest: UpdateManifest }>;
+  /** The release's verified rollout document, or null when it has none. */
+  fetchRollout?(manifest: UpdateManifest, signal: AbortSignal): Promise<RolloutDocument | null>;
   /** Whether this installation downloads and installs the target itself. */
   installsAutomatically(target: UpdateTarget): boolean;
   stageAutomatic(
@@ -68,12 +80,17 @@ export interface UpdateBackend {
 }
 
 const NEWEST = msg({ message: "This is the newest release on the selected channel.", context: "Desktop application" });
+// Releases rolling out in stages can leave the newest few unavailable to this
+// installation; older ones are considered down to this many. Desktop releases
+// as changes merge, so several can be rolling out at once. Matches the release
+// coordinator's wideningLimit.
+const MAX_RELEASES_CONSIDERED = 16;
 const CHECK_TIMEOUT_MS = 60_000;
 // Finding and verifying a release is bounded tightly; downloading and staging a
 // full release on a slow link legitimately takes longer, so it gets its own deadline.
 const STAGE_TIMEOUT_MS = 15 * 60_000;
 type UpdateCopy = string | MessageDescriptor;
-type UpdateState = Omit<DesktopUpdateStatus, "message" | "daemon_notice"> & {
+type UpdateState = Omit<DesktopUpdateStatus, "message" | "daemon_notice" | "early_access"> & {
   message: UpdateCopy;
   daemon_notice?: UpdateCopy;
 };
@@ -84,6 +101,7 @@ export class UpdateCoordinator {
   private candidate: { manifest: UpdateManifest; target: UpdateTarget } | null = null;
   private operation: Promise<DesktopUpdateStatus> | null = null;
   private daemonNotice: UpdateCopy | null = null;
+  private earlyAccess = false;
 
   constructor(private readonly store: UpdateStateStore, private readonly backend: UpdateBackend) {
     this.statusValue = {
@@ -102,6 +120,7 @@ export class UpdateCoordinator {
     const { message, daemon_notice, ...state } = structuredClone(this.statusValue);
     return {
       ...state,
+      early_access: this.earlyAccess,
       message: typeof message === "string" ? message : i18n._(message),
       ...(daemon_notice === undefined ? {} : { daemon_notice: typeof daemon_notice === "string" ? daemon_notice : i18n._(daemon_notice) }),
     };
@@ -116,6 +135,22 @@ export class UpdateCoordinator {
   async initialize(): Promise<DesktopUpdateStatus> {
     const persisted = await this.store.load();
     if (persisted.last_checked_at) this.statusValue.checked_at = persisted.last_checked_at;
+    this.earlyAccess = persisted.early_access === true;
+    return this.status();
+  }
+
+  /**
+   * Early access: take each release as soon as it starts rolling out, and every
+   * release rather than at most one optional update a day. Turning it off never
+   * downgrades; the installation waits for the general rollout to pass it.
+   */
+  async setEarlyAccess(enabled: boolean): Promise<DesktopUpdateStatus> {
+    await this.store.update((state) => {
+      if (enabled) state.early_access = true;
+      else delete state.early_access;
+    });
+    this.earlyAccess = enabled;
+    this.setStatus({ phase: this.statusValue.phase, message: this.statusValue.message });
     return this.status();
   }
 
@@ -191,52 +226,53 @@ export class UpdateCoordinator {
       can_install: false
     });
     try {
-      const persisted = await this.duringCheck(this.store.load(), signal);
-      const release = await this.duringCheck(this.backend.findLatest(signal), signal);
+      const now = Date.now();
+      const loaded = await this.duringCheck(this.store.load(), signal);
+      const persisted = { ...loaded, current_version: runningVersion(loaded.current_version, this.backend.currentVersion, now) };
+      this.earlyAccess = persisted.early_access === true;
+      const found = await this.duringCheck(this.chooseRelease(persisted, manual, now, signal), signal);
       const checkedAt = new Date().toISOString();
       await this.duringCheck(this.store.update((state) => {
         signal.throwIfAborted();
         state.last_checked_at = checkedAt;
-        if (release) {
-          state.highest_trusted_version = maxVersion(state.highest_trusted_version, release.manifest.version);
+        state.current_version = runningVersion(state.current_version, this.backend.currentVersion, now);
+        if (found) {
+          state.highest_trusted_version = maxVersion(state.highest_trusted_version, found.newest.version);
+          for (const [tag, issuedAt] of Object.entries(found.rolloutSeen)) {
+            const previous = state.rollout_seen?.[tag];
+            if (!previous || Date.parse(issuedAt) > Date.parse(previous)) {
+              state.rollout_seen = { ...state.rollout_seen, [tag]: issuedAt };
+            }
+          }
         }
       }), signal);
       this.candidate = null;
-      if (!release) {
+      if (!found) {
         this.setStatus({ phase: "idle", checked_at: checkedAt, message: NEWEST, can_check: true, can_install: false });
         return this.status();
       }
-      const manifest = release.manifest;
-      const found = {
+      const { manifest, decision } = found;
+      const shown = {
         checked_at: checkedAt,
         target_version: manifest.version,
         release_url: manifest.release_url
       };
-      const decision = decideUpdate({
-        manifest,
-        currentVersion: this.backend.currentVersion,
-        channel: this.backend.channel,
-        platformKey: this.backend.platformKey,
-        installationId: persisted.installation_id,
-        highestTrustedVersion: persisted.highest_trusted_version,
-        manual
-      });
       if (decision.kind === "blocked") {
-        this.setStatus({ phase: "failed", ...found, message: decision.reason, can_check: true, can_install: false });
+        this.setStatus({ phase: "failed", ...shown, message: decision.reason, can_check: true, can_install: false });
       } else if (decision.kind === "current") {
         this.setStatus({ phase: "idle", checked_at: checkedAt, message: NEWEST, can_check: true, can_install: false });
       } else if (decision.kind === "deferred") {
         this.setStatus({
           phase: "deferred",
-          ...found,
-          message: msg`Version ${manifest.version} is rolling out to ${decision.percentage}% of installations.`,
+          ...shown,
+          message: deferredCopy(manifest.version, decision),
           can_check: true,
           can_install: false
         });
       } else if (this.backend.installsAutomatically(decision.target)) {
         const required = decision.required ? { required: true as const } : {};
         const downloading = msg`Downloading verified version ${manifest.version}…`;
-        this.setStatus({ phase: "downloading", ...found, progress: 0, message: downloading, can_check: false, can_install: false });
+        this.setStatus({ phase: "downloading", ...shown, progress: 0, message: downloading, can_check: false, can_install: false });
         signal.throwIfAborted();
         deadline(STAGE_TIMEOUT_MS, "Update download timed out after 15 minutes.");
         await this.duringCheck(this.backend.stageAutomatic(manifest, decision.target, (progress) => {
@@ -246,7 +282,7 @@ export class UpdateCoordinator {
         this.candidate = { manifest, target: decision.target };
         this.setStatus({
           phase: "ready",
-          ...found,
+          ...shown,
           progress: 100,
           ...required,
           message: decision.required
@@ -259,7 +295,7 @@ export class UpdateCoordinator {
         this.candidate = { manifest, target: decision.target };
         this.setStatus({
           phase: "external",
-          ...found,
+          ...shown,
           ...(decision.required ? { required: true as const } : {}),
           message: decision.required
             ? decision.target.mode === "store"
@@ -282,6 +318,86 @@ export class UpdateCoordinator {
         can_install: false
       });
       return this.status();
+    }
+  }
+
+  /**
+   * The release to act on: the newest one this installation may take now, or,
+   * when it may take none, the newest one with why not. A newer release that is
+   * still held back for this installation does not hide an older one that has
+   * reached it. Versions withdrawn by the newest release are never taken.
+   */
+  private async chooseRelease(
+    persisted: PersistedUpdateState,
+    manual: boolean,
+    now: number,
+    signal: AbortSignal
+  ): Promise<{
+    manifest: UpdateManifest;
+    decision: UpdateDecision;
+    newest: UpdateManifest;
+    rolloutSeen: Record<string, string>;
+  } | null> {
+    const releases = this.backend.findReleases
+      ? this.backend.findReleases(signal)
+      : latestOnly(this.backend.findLatest(signal));
+    const rolloutSeen: Record<string, string> = {};
+    let newest: UpdateManifest | null = null;
+    let first: { manifest: UpdateManifest; decision: UpdateDecision } | null = null;
+    let considered = 0;
+    for await (const { manifest } of releases) {
+      signal.throwIfAborted();
+      newest ??= manifest;
+      const rollout = await this.rolloutFor(manifest, persisted, signal);
+      if (rollout && rollout !== "unavailable") rolloutSeen[manifest.tag] = rollout.issued_at;
+      const decision = decideUpdate({
+        manifest,
+        currentVersion: this.backend.currentVersion,
+        channel: this.backend.channel,
+        platformKey: this.backend.platformKey,
+        installationId: persisted.installation_id,
+        highestTrustedVersion: persisted.highest_trusted_version,
+        manual,
+        rollout,
+        earlyAccess: persisted.early_access === true,
+        currentVersionSince: persisted.current_version?.since,
+        withdrawn: newest.blocked_versions,
+        now
+      });
+      first ??= { manifest, decision };
+      if (decision.kind === "available") return { manifest, decision, newest, rolloutSeen };
+      considered += 1;
+      // Only a release that has not reached this installation yet sends the search
+      // further back; spacing applies to every release alike.
+      if (
+        decision.kind !== "deferred" ||
+        decision.reason === "spacing" ||
+        considered >= MAX_RELEASES_CONSIDERED
+      ) {
+        break;
+      }
+    }
+    return first && newest ? { ...first, newest, rolloutSeen } : null;
+  }
+
+  private async rolloutFor(
+    manifest: UpdateManifest,
+    persisted: PersistedUpdateState,
+    signal: AbortSignal
+  ): Promise<RolloutDocument | null | "unavailable"> {
+    if (!this.backend.fetchRollout) return null;
+    if (compareVersions(manifest.version, this.backend.currentVersion) <= 0) return null;
+    try {
+      const rollout = await this.backend.fetchRollout(manifest, signal);
+      const seen = rollout && persisted.rollout_seen?.[manifest.tag];
+      if (rollout && seen && Date.parse(rollout.issued_at) < Date.parse(seen)) {
+        throw new Error("The rollout document is older than one already seen.");
+      }
+      return rollout;
+    } catch (error) {
+      signal.throwIfAborted();
+      console.warn(`[mdbase-connect] rollout for ${manifest.tag} not verified: ${message(error)}`);
+      return "unavailable";
     }
   }
 
@@ -325,6 +441,47 @@ export class UpdateCoordinator {
     else delete next.daemon_notice;
     this.statusValue = next;
     for (const listener of this.listeners) listener(this.status());
+  }
+}
+
+/**
+ * When this installation started running `version`. Spacing counts from the
+ * update that installed it. With no earlier record (a new install, or the first
+ * check after this field was added) that time is unknown, so it does not delay
+ * an update.
+ */
+function runningVersion(
+  recorded: PersistedUpdateState["current_version"],
+  version: string,
+  now: number
+): NonNullable<PersistedUpdateState["current_version"]> {
+  if (recorded?.version === version) return recorded;
+  return { version, since: new Date(recorded ? now : 0).toISOString() };
+}
+
+async function* latestOnly(
+  latest: Promise<{ manifest: UpdateManifest } | null>
+): AsyncGenerator<{ manifest: UpdateManifest }> {
+  const release = await latest;
+  if (release) yield release;
+}
+
+function deferredCopy(version: string, decision: Extract<UpdateDecision, { kind: "deferred" }>): MessageDescriptor {
+  switch (decision.reason) {
+    case "rollout": {
+      const percentage = decision.percentage;
+      return msg`Version ${version} is rolling out to ${percentage}% of installations.`;
+    }
+    case "early_access":
+      return msg`Version ${version} is available to early-access installations first.`;
+    case "held":
+      return msg`Version ${version} is not rolling out yet.`;
+    case "spacing": {
+      const after = decision.until ? new Date(decision.until).toLocaleString() : "";
+      return msg`Version ${version} is available. mdbase updates at most once a day, so it will update after ${after}.`;
+    }
+    case "rollout_unavailable":
+      return msg`Version ${version} is published, but its rollout could not be verified. mdbase will check again later.`;
   }
 }
 

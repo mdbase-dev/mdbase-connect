@@ -897,6 +897,20 @@ export class AppWebCloudCopyHost {
         }
         return this.peopleMetadata.view;
     }
+    /** The reminder consent a timer port for `collection` is bound to, or null
+     * when no port would be opened for it. A port stays current only while
+     * this is unchanged, so an open collection compares it to learn that its
+     * ports carry a timer state the consent no longer gives. */
+    timerConsentKey(collection:string):string|null {
+        const granted=this.timerGrant(collection);
+        return granted?JSON.stringify(granted.consent):null;
+    }
+    private timerGrant(collection:string){
+        const callback=this.source.timerConsent,consent=callback?.call(this.source);
+        if(!consent?.approved)return null;
+        const grant=consent.grants.find(reference=>reference.collectionId===collection);
+        return grant?{callback,consent,grant}:null;
+    }
     /** SAME Worker host/scope/child lifetime. Only the original chosen receipt
      * selects a fixed native CP receiver; no session or bearer leaves Worker. */
     openTimersPort(options:{scope:Readonly<AppReplicaScope>;generation:string;signal:AbortSignal}):{port:MessagePort;close():Promise<void>} | null {
@@ -904,10 +918,9 @@ export class AppWebCloudCopyHost {
         if(!this.readVerified || !this.logRequest || !this.collectionScope || options.signal.aborted) throw fail("binding");
         const {scope,generation,signal}=options,original=this.collectionScope;
         if(scope.account!==original.account || scope.installation!==original.installation || scope.collection!==original.collection || uuidToBytes(generation).every(value=>value===0)) throw fail("binding");
-        const callback=this.source.timerConsent,consent=callback?.call(this.source);
-        if(!consent?.approved)return null;
-        const grant=consent.grants.find(reference=>reference.collectionId===scope.collection);
-        if(!grant)return null;
+        const granted=this.timerGrant(scope.collection);
+        if(!granted)return null;
+        const {callback,consent,grant}=granted;
         const WorkerScope=(globalThis as typeof globalThis & {WorkerGlobalScope?:new()=>object}).WorkerGlobalScope;
         if(typeof WorkerScope!=="function" || !(globalThis instanceof WorkerScope)) throw fail("binding");
         if(uuidToBytes(grant.grantId).every(value=>value===0)||!/^[0-9a-f]{64}$/.test(grant.declarationDigest))throw fail("binding");

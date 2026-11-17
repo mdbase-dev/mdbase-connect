@@ -206,13 +206,6 @@ msgstr "{0} found so far"
 msgid "{0} found so far · incomplete"
 msgstr "{0} found so far · incomplete"
 
-#. placeholder {0}: resultCount.toLocaleString(displayLocale())
-#. placeholder {1}: contentLoaded.toLocaleString(displayLocale())
-#. placeholder {2}: contentTotal?.toLocaleString(displayLocale()) ?? "…"
-#: src/NoteList.tsx
-msgid "{0} found so far · searching {1} of {2}"
-msgstr "{0} found so far · searching {1} of {2}"
-
 #. placeholder {0}: person.path
 #: src/person-records.ts
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
@@ -5159,6 +5152,7 @@ msgstr "The collection could not be read."
 msgid "The collection couldn't be opened. Try again."
 msgstr "The collection couldn't be opened. Try again."
 
+#: src/native-gateway.ts
 #: src/native-note-observation.ts
 msgid "The collection did not return a complete list of notes."
 msgstr "The collection did not return a complete list of notes."

@@ -28,11 +28,11 @@ use crate::store::{RecordMeta, RecordRow, Tx, bucket16};
 use crate::testkit::{TEST_OWNER, TestControlPlane};
 
 /// Test node `n`'s device.
-fn device(n: u8) -> B16 {
+pub(super) fn device(n: u8) -> B16 {
     B16([n + 100; 16])
 }
 
-fn pointers(svc: &FakeLogService) -> Vec<SnapshotPointer> {
+pub(super) fn pointers(svc: &FakeLogService) -> Vec<SnapshotPointer> {
     match svc
         .client(B16([9; 16]))
         .call(LogRequest::GetSnapshot { collection: COL })
@@ -42,13 +42,13 @@ fn pointers(svc: &FakeLogService) -> Vec<SnapshotPointer> {
     }
 }
 
-fn incident(n: &Node, kind: IncidentKind) -> bool {
+pub(super) fn incident(n: &Node, kind: IncidentKind) -> bool {
     n.r.sync_status().incidents.iter().any(|i| i.kind == kind)
 }
 
 /// Every test device belongs to [`TEST_OWNER`]: give that account `role`, under
 /// another owner.
-fn set_role(svc: &FakeLogService, role: Role) {
+pub(super) fn set_role(svc: &FakeLogService, role: Role) {
     TestControlPlane::new(COL).append(
         svc,
         vec![
@@ -64,7 +64,7 @@ fn set_role(svc: &FakeLogService, role: Role) {
     );
 }
 
-fn thirty_notes(a: &mut Node) {
+pub(super) fn thirty_notes(a: &mut Node) {
     for i in 0..30u8 {
         a.create(i, &format!("n{i}.md"), &format!("doc {i}"));
     }
@@ -198,16 +198,16 @@ fn a_replica_without_write_authority_does_not_build() {
 
 /// A snapshot `a` built and has not registered, decoded: its manifest and every
 /// section's chunks, for a test to re-encode.
-struct Draft {
+pub(super) struct Draft {
     /// The manifest's envelope, as `a` sealed it.
     item: Item,
-    m: rt::ManifestPayload,
+    pub(super) m: rt::ManifestPayload,
     /// A sealed chunk of `a`'s, for its envelope.
     chunk_item: Item,
     sections: Vec<(rt::SectionKind, Vec<rt::ChunkPayload>)>,
 }
 
-fn draft(a: &mut Node, svc: &FakeLogService) -> Draft {
+pub(super) fn draft(a: &mut Node, svc: &FakeLogService) -> Draft {
     a.r.build_snapshot_now().unwrap();
     // A build uploads only the chunks the previous snapshot did not have.
     let mut objects: BTreeMap<Hash, Vec<u8>> = svc.objects(&COL).into_iter().collect();
@@ -298,7 +298,7 @@ impl Draft {
 
     /// Seal every chunk and the manifest as `a`, and register the snapshot as
     /// `a`'s device. `reuse` puts an already stored chunk in place of a section's.
-    fn publish(
+    pub(super) fn publish(
         mut self,
         a: &mut Node,
         svc: &FakeLogService,
@@ -375,7 +375,7 @@ impl Draft {
 
 /// `a` and `b` at the same head with thirty notes; `b` then checks the snapshot
 /// `a` publishes from `edit`ed chunks. Returns `b` and whether it endorsed.
-fn endorsed_after(edit: impl FnOnce(&mut Node, &mut Draft)) -> (Node, bool) {
+pub(super) fn endorsed_after(edit: impl FnOnce(&mut Node, &mut Draft)) -> (Node, bool) {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1, MemStore::new());
     let mut b = node(&svc, 2, MemStore::new());

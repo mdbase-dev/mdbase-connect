@@ -206,13 +206,6 @@ msgstr "目前找到 {0} 项"
 msgid "{0} found so far · incomplete"
 msgstr "目前找到 {0} 项 · 结果不完整"
 
-#. placeholder {0}: resultCount.toLocaleString(displayLocale())
-#. placeholder {1}: contentLoaded.toLocaleString(displayLocale())
-#. placeholder {2}: contentTotal?.toLocaleString(displayLocale()) ?? "…"
-#: src/NoteList.tsx
-msgid "{0} found so far · searching {1} of {2}"
-msgstr "目前找到 {0} 项 · 正在搜索 {1}/{2} 项"
-
 #. placeholder {0}: person.path
 #: src/person-records.ts
 msgid "{0} implements Person through multiple types. Resolve its mappings in Types before linking."
@@ -5159,6 +5152,7 @@ msgstr "无法读取集合。"
 msgid "The collection couldn't be opened. Try again."
 msgstr "无法打开集合。请重试。"
 
+#: src/native-gateway.ts
 #: src/native-note-observation.ts
 msgid "The collection did not return a complete list of notes."
 msgstr "集合未返回完整的笔记列表。"

@@ -895,6 +895,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "Эти сведения относятся к последней попытке синхронизации, а не к текущей проверке файлов."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "Получать обновления раньше"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "Перейти: {label}"
 
@@ -938,6 +943,11 @@ msgstr "Изображения"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "Установить {0}"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "Устанавливать каждый выпуск сразу после начала его распространения. Иначе выпуски приходят на компьютеры поэтапно, а mdbase обновляется не чаще раза в день."
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -1504,6 +1514,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "читать и добавлять файлы"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "читать прежние версии записей"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"
@@ -2026,6 +2041,16 @@ msgstr "Теперь имя этого компьютера — {0}."
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "Этот компьютер перенёс ваши коллекции на новый механизм синхронизации, но учётная запись mdbase ещё не обновлена или обновление приостановлено. Файлы в папках в безопасности, однако изменения с этого компьютера могут не дойти до других ваших приложений mdbase до обновления учётной записи."
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "Теперь этот компьютер получает каждый выпуск сразу после начала его распространения."
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "Теперь этот компьютер получает выпуски поэтапно, не чаще раза в день."
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "На этом компьютере выполнен вход"
@@ -2196,15 +2221,29 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "Версия {0} доступна через канал подписанных пакетов."
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "Версия {0} развёртывается для {1}% установок."
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "Версия {0} проверена и готова к установке."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "Версия {version} сначала доступна установкам с ранним доступом."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "Доступна версия {version}. mdbase обновляется не чаще раза в день, поэтому обновление произойдёт после {after}."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "Версия {version} ещё не распространяется."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "Версия {version} опубликована, но проверить её распространение не удалось. mdbase проверит ещё раз позже."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "Версия {version} распространяется на {percentage} % установок."
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"

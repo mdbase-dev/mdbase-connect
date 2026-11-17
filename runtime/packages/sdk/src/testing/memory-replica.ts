@@ -525,9 +525,12 @@ export class MemoryReplica {
       .flatMap((id) => this.baseViews.get(id)!.map((_, i) => this.basesDescriptor(this.records.get(id)!, i)));
     const next = start + limit < all.length ? new Uint8Array(32) : null;
     if (next) new DataView(next.buffer).setUint32(0, start + limit);
-    return encode(new Map<number, CborValue>([
+    const out = new Map<number, CborValue>([
       [0, 1], [1, all.slice(start, start + limit)], [2, this.basesClock()], [3, this.basesRevision()], [4, next],
-    ]));
+    ]);
+    // Version 2 (`bases-discovery-unreadable-v1`): every stand-in source parses.
+    if (m.get(0) === 2) out.set(5, []);
+    return encode(out);
   }
 
   /** Reject a pending mutation (as a failed check at head would). */

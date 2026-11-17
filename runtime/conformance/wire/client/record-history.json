@@ -1,0 +1,40 @@
+{
+  "_type": "RecordHistory",
+  "versions": [
+    {
+      "_type": "HistoryVersion",
+      "seq": 119,
+      "time": 1791400060000,
+      "author": {
+        "_type": "AuthorRef",
+        "account": "h'00000000000000000000000000000000'",
+        "device": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'",
+        "grant": "h'4c18af2eb04a4b77b83e493c3695962e'",
+        "grant_account": "h'0192f3a45b6c7d8e9f0123456789abcd'"
+      },
+      "kind": "Moved",
+      "path": "notes/renamed.md",
+      "revision": "h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a'",
+      "source": "Api",
+      "device_kind": "Hosted",
+      "app": "dev.mdbase.editor"
+    },
+    {
+      "_type": "HistoryVersion",
+      "seq": 43,
+      "time": 1791400000000,
+      "author": {
+        "_type": "AuthorRef",
+        "account": "h'0192f3a45b6c7d8e9f0123456789abcd'",
+        "device": "h'2d7e9a416c3b4f189a05c8e1b2d3f467'"
+      },
+      "kind": "Deleted",
+      "path": "notes/a.md",
+      "source": "External",
+      "device_kind": "Desktop"
+    }
+  ],
+  "from": 21,
+  "from_time": 1791390000000,
+  "next": 43
+}

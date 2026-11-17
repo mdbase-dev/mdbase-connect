@@ -2989,9 +2989,12 @@ schema:
       allowed_types: [],
       contract_scope: [],
       full_collection: true,
+      // As services/server's hosted replica policy does, withhold the
+      // operations the provider does not execute: sync, and record history,
+      // which only a device runtime's retained log serves.
       allowed_operations: operationCatalog.collection_operations
         .map(({ id }) => id)
-        .filter((id) => id !== "sync"),
+        .filter((id) => !["sync", "record_history", "record_version"].includes(id)),
       grant_id: crypto.randomUUID(),
       application_declaration_id: "dev.mdbase.provider-conformance",
       application_declaration_digest: `sha256:${"c".repeat(64)}`,

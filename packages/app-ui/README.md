@@ -21,7 +21,15 @@ applyThemePreference(loadThemePreference());
   themes. Style components with roles, not palette values. Short aliases such
   as `--ink` belong to each app.
   `--color-current` and `--color-on-current` mark the keyboard/pointer current
-  choice in palettes, completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
+  choice in completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
+  Each colour that differs by theme is one `light-dark()` value, and `:root`
+  uses one scheme at a time. In CSS, `var(--color-text)` resolves as before. In
+  script, read a resolved colour from an element (`getComputedStyle(element).color`),
+  not the raw property, which is the `light-dark()` expression. An element that
+  sets its own `color-scheme` gets that scheme's colours.
+- Corners come in three sizes: `--radius-sm` (6px) for controls and rows,
+  `--radius-md` (8px) for content blocks and toasts, `--radius-lg` (10px) for
+  menus and dialogs.
 - `theme` stores the System, Light or Dark choice as `mdbase:theme`.
 - `brand` draws the Frontmatter mark, each app's inverted mark, and the
   `mdbase <app>` wordmark. Add `motion.css` to animate the mark: loops
@@ -85,10 +93,44 @@ plugins: [react(), mdbaseOpeningPage({
   again. `layout="panel"` renders a `div` without the reload hint, for a
   screen inside the app's own chrome.
 
+## Switch and segmented control
+
+Both need `controls.css`.
+
+```tsx
+import { Switch } from "@mdbase-dev/ui/switch";
+import { Segmented } from "@mdbase-dev/ui/segmented";
+
+<Switch checked={wrap} onChange={setWrap}>Wrap long lines</Switch>
+<Segmented aria-label="View" value={view} onChange={setView} options={[
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+]} />
+```
+
+- `Switch` is for a setting that takes effect at once; use `Checkbox` for a
+  choice that waits for a Save. Its children are its label. Without children it
+  renders the control alone, for a row that lays out its own text: name it
+  with `aria-label` or `aria-labelledby`. Other button props pass through.
+- `Segmented` is one choice among two to four short options that stay in
+  view. It is a group of native radios, so arrow keys move the choice. Use
+  `Select` for more options or long labels.
+- `ThemeSelect` from `@mdbase-dev/ui/theme-select` is the segmented control
+  for System, Light and Dark.
+
+## Motion
+
+`motion.css` (which `controls.css` imports) defines the durations and curves.
+Something a hand just moved, such as a released button, a switch thumb or a
+segmented thumb, settles on `--motion-spring` with `--ease-spring`, a spring
+with about 2% overshoot; the press itself takes `--motion-press`. Menus, lists
+and dialogs open on the same spring, from the corner beside their trigger.
+Reduced motion sets every duration to zero, so nothing needs its own override.
+
 ## Icon-button tooltips
 
 Import `Tooltip` from `@mdbase-dev/ui/tooltip` and include `controls.css`.
-Wrap one native icon button in `<Tooltip label="Search" shortcut="mod+k">…</Tooltip>`.
+Wrap one icon button or link in `<Tooltip label="Search" shortcut="mod+k">…</Tooltip>`.
 Localize the label in the caller. The optional shortcut uses the same notation and
 platform labels as the command palette and sets `aria-keyshortcuts` on the button.
 The button keeps its ref and handlers; a native manual popover adds no layout box
@@ -103,10 +145,27 @@ press, or an unavailable trigger cancels pending and visible hints.
 ## Toasts
 
 Mount one `Toaster` from `@mdbase-dev/ui/toast` inside the app's locale provider
-and import `@mdbase-dev/ui/toast.css`. Call `toast(message, undo?)` with localized
-copy and, when applicable, a real inverse mutation. The toast stays for five
-seconds (eight with Undo), pauses on hover or focus, and queues up to three
-more messages. Unmounting the owner clears the queue.
+and import `@mdbase-dev/ui/toast.css` after `controls.css`. Call
+`toast(message, undo?)` with localized copy and, when applicable, a real inverse
+mutation. The toast stays for five seconds (eight with Undo), pauses on hover
+or focus, and queues up to three more messages. Unmounting the owner clears the
+queue.
+
+For anything else, pass options in place of the undo function:
+
+```ts
+toast("Collection shared", { tone: "success" });
+const dismiss = toast("Could not save", {
+  tone: "error",
+  sticky: true,
+  action: { label: retryLabel, onAction: retry, dismiss: true },
+});
+```
+
+`tone` puts a tick or an exclamation mark before the message, `sticky` keeps
+the toast until it is dismissed, `durationMs` sets another time, and
+`dismissible: false` removes the close button. `toast` returns a function that
+dismisses that toast.
 
 ## Languages
 

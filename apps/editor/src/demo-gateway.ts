@@ -194,6 +194,18 @@ export class DemoCollectionGateway implements CollectionGateway {
     return { notes, snapshot };
   }
 
+  async searchBodies(term: string): Promise<string[]> {
+    return this.notes.filter((note) => (note.body ?? "").toLowerCase().includes(term)).map((note) => note.path);
+  }
+
+  /** Demo-only stand-in for the runtime's `file.hasTag`: the tag or one nested under it. */
+  async searchTag(tag: string): Promise<string[]> {
+    const wanted = tag.replace(/^#+/, "");
+    return this.notes
+      .filter((note) => demoTags(note.frontmatter, note.body ?? "").some((name) => name === wanted || name.startsWith(`${wanted}/`)))
+      .map((note) => note.path);
+  }
+
   async backlinks(path: string): Promise<string[]> {
     await delay(5);
     const target = path.replace(/\.md$/i, "");

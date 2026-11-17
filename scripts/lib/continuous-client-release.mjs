@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readProductionRelease } from "../verify-client-publication.mjs";
+import { parseFragment } from "./changelog.mjs";
 
 export const repository = "mdbase-dev/mdbase-connect";
 // Caught command failures must not echo raw stderr before a bounded diagnostic.
@@ -9,16 +10,59 @@ export const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", stdi
 export const api = (path) => JSON.parse(gh("api", `repos/${repository}/${path}`));
 export const pages = (path) => JSON.parse(gh("api", "--paginate", "--slurp", `repos/${repository}/${path}`)).flat();
 
-export function nextBetaVersion(versions) {
-  let maximum = 0n;
-  for (const version of versions) {
-    if (/^0\.0\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.test(version)) continue;
-    const match = /^0\.1\.0-beta\.([1-9][0-9]*)$/.exec(version);
-    if (!match) throw new Error(`Cannot advance the beta line beyond published version ${version}; release-owner review required.`);
-    const number = BigInt(match[1]);
-    if (number > maximum) maximum = number;
-  }
-  return `0.1.0-beta.${maximum + 1n}`;
+// Releases are plain semver. Before 0.1.0 the line published 0.1.0-beta.N, and
+// 0.0.x bootstrap versions exist on npm; both stay readable and order below
+// 0.1.0. Any other form refuses for release-owner review.
+export const releaseVersion = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+export const releaseTag = /^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
+const bootstrap = /^0\.0\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/;
+const legacyBeta = /^0\.1\.0-beta\.([1-9][0-9]*)$/;
+
+function versionKey(version) {
+  const release = releaseVersion.exec(version);
+  if (release) return [BigInt(release[1]), BigInt(release[2]), BigInt(release[3]), 1n, 0n];
+  const beta = legacyBeta.exec(version);
+  if (beta) return [0n, 1n, 0n, 0n, BigInt(beta[1])];
+  if (bootstrap.test(version)) return [0n, 0n, 0n, 0n, 0n];
+  throw new Error(`Cannot order published version ${version}; release-owner review required.`);
+}
+
+export function compareVersions(left, right) {
+  const [a, b] = [versionKey(left), versionKey(right)];
+  const index = a.findIndex((value, position) => value !== b[position]);
+  return index < 0 ? 0 : a[index] < b[index] ? -1 : 1;
+}
+
+// The highest plain release among versions, or null while only betas exist.
+export function latestRelease(versions) {
+  return versions.filter(version => versionKey(version)[3] === 1n)
+    .reduce((highest, version) => highest && compareVersions(highest, version) >= 0 ? highest : version, null);
+}
+
+// Pre-1.0, a breaking change bumps the minor version and anything else the patch.
+export function nextVersion(versions, breaking) {
+  const latest = latestRelease(versions);
+  if (!latest) return "0.1.0";
+  const [major, minor, patch] = latest.split(".").map(BigInt);
+  if (major !== 0n) throw new Error(`Versioning beyond ${latest} needs a release-owner decision.`);
+  return breaking ? `0.${minor + 1n}.0` : `0.${minor}.${patch + 1n}`;
+}
+
+// Whether a changelog.d fragment present at `commit` but not at `base` is breaking.
+export function breakingSince(base, commit, runGit = git) {
+  return runGit("diff", "--no-renames", "--name-only", "--diff-filter=A", "-z", base, commit, "--", "changelog.d/")
+    .split("\0").filter(Boolean)
+    .some(path => parseFragment(path.slice("changelog.d/".length), runGit("show", `${commit}:${path}`) + "\n").section === "Breaking");
+}
+
+// The next version above every version given, bumped by the fragments added
+// since the release that holds the highest version. Every line shares the v*
+// tag namespace, so that release's tag exists locally.
+export function allocateVersion(versions, commit, runGit = git) {
+  const latest = latestRelease(versions);
+  if (!latest) return nextVersion(versions, false);
+  const base = runGit("rev-parse", "--verify", `refs/tags/v${latest}^{commit}`);
+  return nextVersion(versions, breakingSince(base, commit, runGit));
 }
 
 export function requireRunning(value) {

@@ -51,9 +51,9 @@ async function fixture(device:string|null=null) {
       return {store:store as unknown as AppInstallationStore,plaintext:new Uint8Array(bytes)};
     } catch(error) {await lease.release();throw error;}
   });
-  type InstallationRequest={request_id:string;installation_id:string;device_id:string;pairing_secret:string;recovery_collection_id:string;requested_private_device?:boolean;renewal?:Record<string,string>};
+  type InstallationRequest={request_id:string;installation_id:string;device_id:string;pairing_secret:string;recovery_collection_id:string;requested_private_device?:boolean;reconsent?:boolean;renewal?:Record<string,string>};
   type Row={request:InstallationRequest;account:string|null;connector:string;proof:Record<string,string>|null;token:string};
-  const rows=new Map<string,Row>(), starts:InstallationRequest[]=[], requests:{path:string;body:unknown}[]=[];
+  const rows=new Map<string,Row>(), consents=new Map<string,{request:InstallationRequest;owner:Row;approved:boolean}>(), starts:InstallationRequest[]=[], requests:{path:string;body:unknown}[]=[];
   let portalAccount=B, failure:"none"|"429"|"unknown"="none", eraseFailure=false,partialErase=false;
   const respond=(value:unknown,status=200,headers:Record<string,string>={})=>new Response(JSON.stringify(value),{status,headers});
   const fetcher=vi.fn(async(input:string|URL|Request,init?:RequestInit)=>{
@@ -61,6 +61,13 @@ async function fixture(device:string|null=null) {
     requests.push({path,body});trace.push(`http:${path}`);
     if(path==="/v1/pairing-requests"){
       const r=body.installation as InstallationRequest;starts.push({...r});
+      if(r.reconsent){
+        // Connect's re-consent: the installation's own credential, a window bound to the target it names.
+        const owner=[...rows.values()].find(old=>old.request.installation_id===r.installation_id&&old.request.device_id===r.device_id);
+        if(!owner||(init?.headers as Record<string,string>).authorization!==`Bearer ${owner.token}`)return respond({error:{code:"installation_credential_required",message:"credential required"}},403);
+        consents.set(r.request_id,{request:r,owner,approved:false});
+        return respond({pairing_id:r.request_id,pairing_secret:r.pairing_secret,verification_uri:`${cpOrigin}/pair/${r.request_id}`,expires_in:600,installation_device:true,app_id:appId,app_origin:origin,app_name:"Scoped notes",...(r.recovery_collection_id?{recovery_collection_id:r.recovery_collection_id}:{})},201);
+      }
       if(failure==="429")return respond({error:{code:"rate_limited",message:"limited"}},429,{"retry-after":"30"});
       if(!rows.has(r.request_id)){
         // Match CP's ALL-prior-IDs rule. A new window on either old ID cannot
@@ -76,7 +83,14 @@ async function fixture(device:string|null=null) {
       const ids=token===`Bearer ${root.token}`?[sibling]:[target];
       return respond({collections:ids.map(id=>({collection_id:id,display_name:id===target?"Target":"Sibling",role:"owner"}))});
     }
-    const id=path.split("/")[3]!,row=rows.get(id)!;
+    const id=path.split("/")[3]!,consent=consents.get(id);
+    if(consent){
+      const {request:r,owner}=consent,base={request_id:id,account_id:owner.account,connector_id:owner.connector,device_id:r.device_id,installation_id:r.installation_id,kind:"app-runtime",challenge:"cd".repeat(32),approval_mode:"password-ak1",app_id:appId,app_origin:origin,expires_at:Date.now()+600000,account_email:"a@example.test",account_selection_confirmed:true,...(r.recovery_collection_id?{recovery_collection_id:r.recovery_collection_id}:{})};
+      if(!consent.approved)return respond({status:"awaiting_approval",...base},202);
+      // The recovered collection approved again, with reminders on.
+      return respond({status:"scope_updated",...base,added_collection_ids:[target],approved_create_collections:false,selected_collection_id:target,created_collection_ids:[],timer_consent:true,timer_grants:[{grant_id:"66666666-6666-4666-8666-666666666666",collection_id:target,declaration_digest:"ab".repeat(32)}]});
+    }
+    const row=rows.get(id)!;
     if(path.endsWith("/attest")){row.proof=body;trace.push(`attest:${row.account}`);return respond({ok:true});}
     if(!row.account)return respond({status:"pending"},202);
     const selected={request_id:id,account_id:row.account,connector_id:row.connector,device_id:row.request.device_id,installation_id:row.request.installation_id,kind:"app-runtime",challenge:"ab".repeat(32),approval_mode:"password-ak1",app_id:appId,app_origin:origin,expires_at:Date.now()+600000,account_email:row.account===A?"a@example.test":"b@example.test",account_selection_confirmed:true,recovery_collection_id:target};
@@ -87,7 +101,7 @@ async function fixture(device:string|null=null) {
   });
   const windows:{closed:boolean;navigate:ReturnType<typeof vi.fn>;close:ReturnType<typeof vi.fn>}[]=[];
   const openPortal=vi.fn(()=>{
-    const window={closed:false,navigate:vi.fn((uri:string)=>{const id=new URL(uri).pathname.split("/")[2]!;rows.get(id)!.account=portalAccount;trace.push(`portal:${portalAccount}`);}),close:vi.fn(()=>{window.closed=true;trace.push("window-close");})};windows.push(window);return window;
+    const window={closed:false,navigate:vi.fn((uri:string)=>{const id=new URL(uri).pathname.split("/")[2]!,consent=consents.get(id);if(consent){consent.approved=true;trace.push("portal:reconsent");return;}rows.get(id)!.account=portalAccount;trace.push(`portal:${portalAccount}`);}),close:vi.fn(()=>{window.closed=true;trace.push("window-close");})};windows.push(window);return window;
   });
   vi.spyOn(ownership,"acquireAppInstallationLease").mockImplementation(async()=>({release:vi.fn(async()=>{})}));
   vi.spyOn(ownership,"acquireAppReplicaLease").mockImplementation(async()=>({release:vi.fn(async()=>{})}));
@@ -147,6 +161,25 @@ describe("composed scoped browser recovery",()=>{
     const rootAfter=f.read(),rootExpected={...rootBefore};delete rootAfter.collectionRecoveries;delete rootAfter.collectionListing;delete rootExpected.collectionListing;expect(rootAfter).toEqual(rootExpected);
     await f.session.openCollection(target);expect(f.session.connection(target)?.isCurrent()).toBe(true);
     expect(f.session.connection(sibling)).toBe(heldSibling);expect(heldSibling?.isCurrent()).toBe(true);await f.session.close();
+  });
+  it("a recovered collection asks again for itself through its own actor and keeps it open",async()=>{
+    // Revoked, then "Request access again", then "Review notification access" for the same collection.
+    const f=await fixture();f.setAccount(A);await f.session.authorize({collectionHint:target});await vi.advanceTimersByTimeAsync(1000);
+    await f.session.openCollection(target);const held=f.session.connection(target),ref=f.read().collectionRecoveries[target],owner=`${rootOwner}:scope:${ref}`,before=f.read(owner),rootBefore=f.read(),ledgers=[...f.ledgers.keys()];
+    expect(held?.isCurrent()).toBe(true);
+    await f.session.authorize({collectionHint:target});await vi.advanceTimersByTimeAsync(1000);
+    // The child's own credential, the same installation and device, bound to its one collection.
+    const reconsent=f.starts.at(-1)!;
+    expect(reconsent).toMatchObject({reconsent:true,recovery_collection_id:target,installation_id:before.installationId,device_id:before.deviceId,requested_create_collections:false});
+    expect(reconsent).not.toHaveProperty("requested_private_device");
+    expect(f.requests.some(r=>r.path===`/v1/pairing-requests/${reconsent.request_id}/exchange`)).toBe(true);
+    const after=f.read(owner);
+    expect(after).toMatchObject({recoveryFor:{accountId:A,collectionId:target},collectionIds:[target],createCollections:false,token:before.token,timerConsent:{approved:true,grants:[{collectionId:target}]}});
+    // No new slot or actor, the original installation untouched, and the open collection stays open.
+    expect(f.read().collectionRecoveries[target]).toBe(ref);expect([...f.ledgers.keys()]).toEqual(ledgers);
+    const rootAfter=f.read();delete rootAfter.collectionListing;delete rootBefore.collectionListing;expect(rootAfter).toEqual(rootBefore);
+    expect(f.session.viewFor(target)).toMatchObject({status:"ready",problem:null});expect(f.session.connection(target)).toBe(held);expect(held?.isCurrent()).toBe(true);
+    expect(f.windows.at(-1)!.closed).toBe(true);await f.session.close();
   });
   it("restore selects only the original completed child ledger; a missing child fails closed without allocating another actor",async()=>{
     const f=await fixture();f.setAccount(A);await f.session.authorize({collectionHint:target});await vi.advanceTimersByTimeAsync(1000);

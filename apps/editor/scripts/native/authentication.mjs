@@ -10,6 +10,15 @@ const workflow='publish-sdk-npm.yml';
 const need=(ok,message)=>{if(!ok)throw Error('SDK authentication refusal: '+message);};
 import { publicBytes } from '../../../../scripts/lib/github-release-download.mjs';
 export { publicBytes };
+// The release must be the exact, published tag. Its prerelease flag must agree
+// with the version: plain semver (sdk-v0.1.2) is a normal release, a suffixed
+// version (sdk-v0.1.0-beta.231) a prerelease. Trust still comes from the asset
+// digests and the attestation check, not from these flags.
+function publishedRelease(release,tag) {
+ const version=tag.slice('sdk-v'.length);
+ need(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version),'exact published SDK release required');
+ need(release.tag_name===tag && release.draft===false && release.prerelease===version.includes('-'),'exact published SDK release required');
+}
 function releaseAsset(release,tag,name) {
  const matches=release.assets?.filter(asset=>asset.name===name)??[];
  need(matches.length===1 && /^sha256:[a-f0-9]{64}$/.test(matches[0].digest??''),'release asset digest required');
@@ -30,7 +39,7 @@ export async function archiveBytes(url,fetchImpl=fetch,token=process.env.GITHUB_
  const [,tag,name]=match;
  const release=JSON.parse(await publicBytes(`https://api.github.com/repos/${repository}/releases/tags/${tag}`,fetchImpl,undefined,
   {authorization:`Bearer ${token}`}));
- need(release.tag_name===tag && release.prerelease===true && release.draft===false,'exact SDK prerelease required');
+ publishedRelease(release,tag);
  return assetBytes(releaseAsset(release,tag,name),fetchImpl,token);
 }
 export async function authenticateProduction(pin,bytes,{fetchImpl=fetch,prove=provenSource}={}) {
@@ -48,7 +57,7 @@ export async function stagingArchive(pin,{fetchImpl=fetch,run=execFileSync,token
  // digests and attestations are still judged below, so it grants no trust.
  const api=token?{authorization:`Bearer ${token}`}:{};
  const release=JSON.parse(await publicBytes(`https://api.github.com/repos/${repository}/releases/tags/${tag}`,fetchImpl,undefined,api));
- need(release.tag_name===tag && release.prerelease===true && release.draft===false,'exact SDK prerelease required');
+ publishedRelease(release,tag);
  const archive=releaseAsset(release,tag,'sdk-staging.tgz'),bundle=releaseAsset(release,tag,'sdk-staging.tgz.sigstore.json');
  const download=async a=>{
   const bytes=await assetBytes(a,fetchImpl,token);

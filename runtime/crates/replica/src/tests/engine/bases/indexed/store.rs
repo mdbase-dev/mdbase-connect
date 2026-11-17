@@ -23,6 +23,10 @@ pub(super) struct ProjectionStore {
     pub fail_page: Rc<Cell<usize>>,
     pub ready: Rc<Cell<bool>>,
     pub armed: Rc<Cell<bool>>,
+    /// The replica's host clock, advanced by `tick` ms on every hydration so a
+    /// test can spend a request's time budget deterministically.
+    pub clock: Rc<Cell<u64>>,
+    pub tick: Rc<Cell<u64>>,
 }
 macro_rules! forward {
     ($($name:ident($($arg:ident:$ty:ty),*)->$out:ty;)+)=> {$(
@@ -98,6 +102,7 @@ impl Store for ProjectionStore {
             );
             self.reads.set(self.reads.get() + 1);
         }
+        self.clock.set(self.clock.get() + self.tick.get());
         self.inner.hydrate_query_at(ids, head, budget)
     }
     fn query_record_sizes_at(&self, page: Page, head: Head) -> StoreResult<Vec<QueryRecordSize>> {

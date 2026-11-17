@@ -3,7 +3,7 @@
 use super::Replica;
 use crate::plan::QueryProjectionContext;
 use crate::store::{Head, RecordRow, Store, StoreResult, Tx};
-use crate::store_query::QueryIndexTx;
+use crate::store_query::{MAX_TX_BODY_BYTES, QueryIndexTx, QueryIndexedRow};
 use mdbn_core::query::FieldRef;
 use mdbn_wire::common::Sem;
 use std::collections::BTreeMap;
@@ -12,7 +12,8 @@ use std::sync::Arc;
 /// Deliberately bounded initial profile, not an ALL-field feature declaration.
 /// `excluded` fields are left out: a record's value of each is longer than an
 /// index key, so the index cannot cover it (queries naming it use the
-/// per-record path) but still serves every other query.
+/// per-record path) but still serves every other query. `file.body` among
+/// them leaves out the body index the same way.
 fn capture(
     resources: &[(String, String)],
     excluded: &[FieldRef],
@@ -38,6 +39,9 @@ fn capture(
             .collect();
         context = QueryProjectionContext::capture(resources, sem, &kept, MAX_KEY_BYTES).ok()?;
     }
+    if excluded.contains(&body_field()) {
+        context = context.without_body();
+    }
     // Type-match expressions need clock/dependency eligibility qualification.
     // Conservatively disable this optional profile rather than label ClockNone
     // membership as complete/current for arbitrary expressions.
@@ -53,6 +57,10 @@ fn capture(
 }
 /// Longest sort key one indexed field value may have.
 const MAX_KEY_BYTES: usize = 8192;
+/// `file.body`, as an exclusion: some body is too long for the body index.
+fn body_field() -> FieldRef {
+    FieldRef::File("body".into())
+}
 impl<S: Store> Replica<S> {
     /// Prepare the exact post-resource-effect context and rows for SAME-Tx
     /// maintenance. Publish the returned context only after commit succeeds.
@@ -93,6 +101,7 @@ impl<S: Store> Replica<S> {
             return Ok(Some(context));
         }
         let mut bytes = 0usize;
+        let mut body_bytes = 0usize;
         for row in &tx.records_put {
             let Ok(projected) = context.project_row(row) else {
                 tx.query_index = None;
@@ -115,6 +124,11 @@ impl<S: Store> Replica<S> {
                     return Ok(Some(context));
                 }
             };
+            body_bytes += projected.body.as_ref().map_or(0, String::len);
+            if body_bytes > MAX_TX_BODY_BYTES {
+                tx.query_index = None;
+                return Ok(Some(context));
+            }
             rows.push(projected);
         }
         // Genuine SQL/storage failures propagate. None is not a full-row fallback.
@@ -163,6 +177,26 @@ pub(crate) fn byte_batches(rows: Vec<RecordRow>) -> Vec<Vec<RecordRow>> {
     batches
 }
 
+/// Projected `rows` in order, split so no transaction writes more than
+/// [`MAX_TX_BODY_BYTES`] of body text. Each body is at most half of that.
+/// No rows make one empty batch, as [`byte_batches`].
+fn body_batches(rows: Vec<QueryIndexedRow>) -> Vec<Vec<QueryIndexedRow>> {
+    let mut batches = vec![Vec::new()];
+    let mut bytes = 0usize;
+    for row in rows {
+        let cost = row.body.as_ref().map_or(0, String::len);
+        let current = batches.last_mut().expect("at least one batch");
+        if bytes + cost > MAX_TX_BODY_BYTES {
+            batches.push(vec![row]);
+            bytes = cost;
+        } else {
+            current.push(row);
+            bytes += cost;
+        }
+    }
+    batches
+}
+
 impl<S: Store> Replica<S> {
     /// Make the maintained index complete for the current confirmed state, when it
     /// is absent, unready, or under another generation (a pre-index store, a
@@ -200,13 +234,21 @@ impl<S: Store> Replica<S> {
                 .filter(|(_, declared)| !s.fields.contains(declared))
                 .map(|(field, _)| field.clone())
                 .collect();
-            if !missing.is_empty() {
-                let excluded = [self.query_index_excluded.clone(), missing].concat();
+            // It may also have been built without bodies.
+            let without_body = context
+                .indexes_body()
+                .then(|| [missing.clone(), vec![body_field()]].concat());
+            for left_out in [missing].into_iter().chain(without_body) {
+                if left_out.is_empty() {
+                    continue;
+                }
+                let excluded = [self.query_index_excluded.clone(), left_out].concat();
                 if let Some(narrower) = capture(&resources, &excluded)
                     && narrower.generation() == s.generation
                 {
                     self.query_index_excluded = excluded;
                     context = narrower;
+                    break;
                 }
             }
         }
@@ -258,11 +300,10 @@ impl<S: Store> Replica<S> {
             })?;
             let done = page.len() < BACKFILL_PAGE as usize;
             after = page.last().map(|r| r.id);
-            let batches = byte_batches(page);
-            let last = batches.len() - 1;
-            for (at, batch) in batches.iter().enumerate() {
+            let mut batches = Vec::new();
+            for batch in byte_batches(page) {
                 let mut rows = Vec::with_capacity(batch.len());
-                for row in batch {
+                for row in &batch {
                     match context.project_row(row) {
                         Ok(r) => rows.push(r),
                         // Optional: stays unready; the per-record path answers.
@@ -272,6 +313,10 @@ impl<S: Store> Replica<S> {
                         }
                     }
                 }
+                batches.extend(body_batches(rows));
+            }
+            let last = batches.len() - 1;
+            for (at, rows) in batches.into_iter().enumerate() {
                 let completes = done && at == last;
                 self.store.commit(Tx {
                     query_index: Some(QueryIndexTx {

@@ -196,6 +196,35 @@ describe("note search", () => {
     expect(searchNoteResults(index, "ada")[1].context).toMatchObject({ kind: "metadata", ranges: [expect.anything()] });
   });
 
+  it("reads a body again as a search is typed out only while it still holds the shorter term", () => {
+    const long = "quiet words ".repeat(400);
+    const index = new IncrementalNoteSearchIndex();
+    const entries = index.build([summary("A.md", {}, [], long), summary("B.md", {}, [], `${long} lantern`)]);
+    const indexOf = vi.spyOn(String.prototype, "indexOf");
+    const bodyReads = (query: string) => {
+      indexOf.mockClear();
+      const paths = searchNotes(entries, query).map((note) => note.path);
+      return { paths, reads: indexOf.mock.contexts.filter((value) => String(value).length >= long.length).length };
+    };
+    try {
+      expect(bodyReads("lant")).toEqual({ paths: ["B.md"], reads: 2 });
+      // A.md lacks "lant", so it cannot hold "lantern"; only B.md is read.
+      expect(bodyReads("lantern")).toEqual({ paths: ["B.md"], reads: 1 });
+      expect(bodyReads("lantern quiet")).toEqual({ paths: ["B.md"], reads: 2 });
+      expect(bodyReads("zeb")).toEqual({ paths: [], reads: 2 });
+    } finally {
+      indexOf.mockRestore();
+    }
+  });
+
+  it("forgets what a body lacked once its note changes", () => {
+    const index = new IncrementalNoteSearchIndex();
+    const before = summary("A.md", {}, [], "quiet words");
+    expect(searchNotes(index.build([before]), "lant")).toEqual([]);
+    const after = { ...before, body: "a lantern" };
+    expect(searchNotes(index.build([after]), "lantern")).toEqual([after]);
+  });
+
   it("lets a bonus decide between equally good matches without overriding a better one", () => {
     const index = buildNoteSearchIndex([
       summary("A/Plan.md", {}, [], ""),
@@ -204,6 +233,99 @@ describe("note search", () => {
     ]);
     const recent = (note: NoteSummary) => note.path === "B/Plan.md" || note.path === "Planning.md" ? 0.3 : 0;
     expect(searchNoteResults(index, "plan", Infinity, recent).map((result) => result.note.path)).toEqual(["B/Plan.md", "A/Plan.md", "Planning.md"]);
+  });
+
+  it("takes body matches from indexed answers instead of the text the page holds", () => {
+    const listed = buildNoteSearchIndex([
+      summary("A.md", {}, [], ""),
+      summary("B.md", {}, [], "Mentions the launch in passing."),
+      { ...summary("C.md", {}, [], ""), body: undefined }
+    ]);
+    const answers = new Map([["launch", new Set(["A.md", "C.md"])], ["passing", new Set(["C.md"])]]);
+    const texts = new Map([["C.md", "Notes on the launch, passing through."]]);
+    const asked: string[] = [];
+    const bodies = {
+      paths: (term: string) => { asked.push(term); return answers.get(term); },
+      tagged: () => undefined,
+      text: (note: NoteSummary) => texts.get(note.path)
+    };
+    // The page's own body for B is not consulted: the collection's answer decides.
+    expect(searchNoteResults(listed, "Launch", Infinity, undefined, bodies).map((result) => result.note.path)).toEqual(["A.md", "C.md"]);
+    expect(asked).toContain("launch");
+    // Every body term must match; a short word is not a body term and must match elsewhere.
+    expect(searchNoteResults(listed, "launch passing", Infinity, undefined, bodies).map((result) => result.note.path)).toEqual(["C.md"]);
+    expect(searchNoteResults(listed, "launch on", Infinity, undefined, bodies)).toEqual([]);
+    // An unanswered term matches nothing yet.
+    expect(searchNoteResults(listed, "pending", Infinity, undefined, bodies)).toEqual([]);
+    // The excerpt comes from text read for it; without text the excerpt is empty.
+    const [a, c] = searchNoteResults(listed, "launch", Infinity, undefined, bodies);
+    expect(a.context).toMatchObject({ kind: "body", text: "" });
+    expect(c.context.kind).toBe("body");
+    expect(c.context.text).toContain("launch");
+    expect(c.context.ranges.length).toBeGreaterThan(0);
+    // A short word matched elsewhere does not rule out the excerpt of the words asked.
+    const [mixed] = searchNoteResults(listed, "launch C", Infinity, undefined, bodies);
+    expect(mixed.note.path).toBe("C.md");
+    expect(mixed.context.kind).toBe("body");
+  });
+
+  it("matches a quoted phrase as written, in the page's text and through indexed answers", () => {
+    const listed = buildNoteSearchIndex([
+      summary("Plain.md", {}, [], "We write ordinary markdown files."),
+      summary("Scattered.md", {}, [], "Ordinary notes, and markdown elsewhere."),
+      summary("Ordinary markdown guide.md", {}, [], "")
+    ]);
+    expect(searchNotes(listed, '"ordinary markdown"').map((note) => note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    // An unclosed quote is a phrase still being typed.
+    expect(searchNotes(listed, '"ordinary  mark').map((note) => note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    // Unquoted, the words match separately; quoted, never as scattered letters.
+    expect(searchNotes(listed, "ordinary markdown").map((note) => note.path)).toContain("Scattered.md");
+    expect(searchNotes(listed, '"omd"')).toEqual([]);
+    const asked: string[] = [];
+    const bodies = { paths: (term: string) => { asked.push(term); return term === "ordinary markdown" ? new Set(["Plain.md"]) : undefined; }, tagged: () => undefined, text: () => undefined };
+    expect(searchNoteResults(listed, '"Ordinary Markdown"', Infinity, undefined, bodies).map((result) => result.note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    expect(new Set(asked)).toEqual(new Set(["ordinary markdown"]));
+    expect(searchTextRanges("Some ordinary markdown here", '"ordinary markdown" here')).toEqual([{ from: 5, to: 22 }, { from: 23, to: 27 }]);
+  });
+
+  it("filters by typed #tag, tag: and type: in the page's tags, nested tags included, tags in their written case", () => {
+    const listed = buildNoteSearchIndex([
+      summary("Garden.md", { tags: ["notes/garden"] }, ["note"], "Seeds."),
+      summary("Inline.md", {}, ["project"], "Seeds."),
+      summary("Notebook.md", { tags: ["notebook"] }, [], "Seeds.")
+    ].map((note) => note.path === "Inline.md" ? { ...note, file: { ...note.file, tags: ["#notes"] } } : note));
+    const paths = (query: string) => searchNotes(listed, query).map((note) => note.path);
+    expect(paths("tag:notes")).toEqual(["Garden.md", "Inline.md"]);
+    expect(paths("#notes")).toEqual(["Garden.md", "Inline.md"]);
+    expect(paths("tag:#notes/garden")).toEqual(["Garden.md"]);
+    // As the runtime's `file.hasTag`: a tag in another case is another tag.
+    expect(paths("#NOTES")).toEqual([]);
+    expect(paths("type:Project seeds")).toEqual(["Inline.md"]);
+    expect(paths("tag:notes type:note")).toEqual(["Garden.md"]);
+    expect(paths("#nothing")).toEqual([]);
+    // A filter still being typed restricts nothing yet.
+    expect(paths("tag:")).toHaveLength(3);
+    // Filters are not text to find or highlight.
+    expect(searchTextRanges("tag: notes", "#notes")).toEqual([]);
+  });
+
+  it("filters the list by the runtime's tag answers, so a note with only an inline tag is found", () => {
+    // Native record views carry no tags: the note's only tag is in its text,
+    // which the page does not hold.
+    const inline = { ...summary("Inline.md", {}, [], ""), body: undefined, file: { path: "Inline.md" } };
+    const listed = buildNoteSearchIndex([inline, summary("Other.md", { tags: ["roadmap"] }, [], "")]);
+    expect(searchNotes(listed, "#inlinemarker")).toEqual([]);
+    const asked: string[] = [];
+    const answers = new Map([["inlinemarker", new Set(["Inline.md"])], ["roadmap", new Set(["Other.md"])]]);
+    const bodies = { paths: () => undefined, tagged: (tag: string) => { asked.push(tag); return answers.get(tag); }, text: () => undefined };
+    const paths = (query: string) => searchNoteResults(listed, query, Infinity, undefined, bodies).map((result) => result.note.path);
+    expect(paths("#inlinemarker")).toEqual(["Inline.md"]);
+    expect(paths("tag:inlinemarker")).toEqual(["Inline.md"]);
+    // The runtime's answer decides, even over tags the page holds.
+    expect(paths("#roadmap")).toEqual(["Other.md"]);
+    // An unanswered tag matches nothing yet.
+    expect(paths("#pending")).toEqual([]);
+    expect(new Set(asked)).toEqual(new Set(["inlinemarker", "roadmap", "pending"]));
   });
 });
 

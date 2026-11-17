@@ -605,9 +605,15 @@ pub(super) async fn run_command(
                 out.value(&v);
             } else {
                 for c in &checks {
-                    println!("[{:>4}] {}: {}", c.status, c.id, c.detail);
+                    use crate::control::terminal_text as text;
+                    println!(
+                        "[{:>4}] {}: {}",
+                        text(&c.status),
+                        text(&c.id),
+                        text(&c.detail)
+                    );
                     if let Some(a) = &c.action {
-                        println!("       → {a}");
+                        println!("       → {}", text(a));
                     }
                 }
             }

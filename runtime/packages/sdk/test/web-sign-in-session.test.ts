@@ -76,7 +76,7 @@ function workerFixture(f: ReturnType<typeof fixture>) {
   channel.port2.onmessage = event => frames.push(event.data);
   const host = new ApplicationWorkerHost(primary.port1, "foreground_queue_primary", {} as never, {} as never, undefined,null);
   host.attach(channel.port1, binding);
-  return {frames, send: (requestId: number, action: "foreground" | "start" | "select", payload: string | boolean | null = null) => channel.port2.postMessage([APPLICATION_WORKER_PROTOCOL, binding, requestId, action, payload]),
+  return {frames, send: (requestId: number, action: "foreground" | "start" | "select" | "authorize" | "refreshCollections", payload: string | boolean | null = null) => channel.port2.postMessage([APPLICATION_WORKER_PROTOCOL, binding, requestId, action, payload]),
     close: async () => {try {await host.stop();} finally {channel.port2.close(); primary.port2.close();}}};
 }
 async function approvalTick(session: AppWebSignInSession<unknown>): Promise<void> {
@@ -799,6 +799,65 @@ describe("shared first-party web sign-in", () => {
     await f.session.authorize(); f.approveConsent(); await vi.advanceTimersByTimeAsync(1000);
     expect(f.session.snapshot()).toMatchObject({status: "ready", selectedCollectionId: collectionId}); expect(f.openCollection).toHaveBeenCalledOnce();
     expect(f.closeConnection).not.toHaveBeenCalled(); expect(f.session.connection()).toBe(f.connection); await f.session.close();
+  });
+  it("an approval that grants reminders to the open collection hands the tab new ports with a timer port, without reopening it", async () => {
+    // Regression (production, TaskNotes, SDK beta.223): the open tab's connection
+    // kept no `timers` after "Review notification access" granted them, until a reload.
+    const f = fixture("paired", "never"); await f.session.start();
+    const w = workerFixture(f), transferred: MessagePort[] = [];
+    // The adapter's contract: each tab's ports carry the timer state of the
+    // consent they were made under, and are renewed only when it changed.
+    let consent: string | null = null;
+    const made = new Map<MessagePort, string | null>();
+    const ports = () => {
+      const data = new MessageChannel(), control = new MessageChannel(), timer = consent === null ? null : new MessageChannel();
+      transferred.push(data.port1, control.port1, ...(timer ? [timer.port1] : []));
+      const value = Object.freeze({schema: "mdbn-app-collection/1" as const, scope: Object.freeze({account, installation, collection: collectionId}), generation: "open-generation",
+        displayName: "My notes", setupMode: "inspect" as const, dataPort: data.port2, controlPort: control.port2, ...(timer ? {timerPort: timer.port2} : {})});
+      made.set(value.dataPort, consent); return value;
+    };
+    const detach = vi.fn((value: {dataPort: MessagePort}) => {made.delete(value.dataPort);});
+    Object.assign(f.connection, {scope: {account, installation, collection: collectionId}, generation: "open-generation", attach: ports, detach,
+      renewTimers: (value: {dataPort: MessagePort}) => {
+        if (!made.has(value.dataPort) || made.get(value.dataPort) === consent) return null;
+        const next = ports(); detach(value); return next;
+      }});
+    const handoffs = () => w.frames.filter(frame => frame[2] === "handoff") as [unknown, unknown, unknown, number, {timerPort?: MessagePort; generation: string}][];
+    const reply = (id: number) => w.frames.find(frame => frame[2] === "reply" && frame[3] === id)?.[4];
+    try {
+      w.send(1, "select", collectionId);
+      await vi.waitFor(() => expect(reply(1)).toMatchObject({ok: true}));
+      await vi.waitFor(() => expect(handoffs()).toHaveLength(1));
+      expect(handoffs()[0]![4].timerPort).toBeUndefined();
+
+      // "Review notification access": Connect records the reminder consent.
+      w.send(2, "authorize", collectionId);
+      await vi.waitFor(() => expect(reply(2)).toMatchObject({ok: true}));
+      expect(f.session.snapshot().status).toBe("authorizing");
+      f.approveConsent(); consent = "reminders granted";
+      await approvalTick(f.session);
+      await vi.waitFor(() => expect(handoffs()).toHaveLength(2));
+      const renewed = handoffs()[1]!;
+      expect(renewed[3]).toBe(0); expect(renewed[4].generation).toBe("open-generation");
+      expect(renewed[4].timerPort).toBeInstanceOf(MessagePort);
+      expect(detach).toHaveBeenCalledOnce();
+      expect(f.session.snapshot()).toMatchObject({status: "ready", selectedCollectionId: collectionId});
+      // The same open collection: no reopen, close or second lease.
+      expect(f.openCollection).toHaveBeenCalledOnce(); expect(f.closeConnection).not.toHaveBeenCalled(); expect(f.collectionRelease).not.toHaveBeenCalled();
+
+      // Approving again without changing the consent hands nothing new.
+      w.send(3, "authorize", collectionId);
+      await vi.waitFor(() => expect(reply(3)).toMatchObject({ok: true}));
+      await approvalTick(f.session);
+      w.send(4, "refreshCollections");
+      await vi.waitFor(() => expect(reply(4)).toMatchObject({ok: true}));
+      expect(f.flow.startCollectionConsent).toHaveBeenCalledTimes(2);
+      expect(handoffs()).toHaveLength(2); expect(detach).toHaveBeenCalledOnce();
+    } finally {
+      for (const [, , , , value] of handoffs()) transferred.push(...Object.values(value).filter((port): port is MessagePort => port instanceof MessagePort));
+      for (const port of transferred) port.close();
+      await w.close();
+    }
   });
   it("an old scope-only receipt cannot borrow confirmation from the initial request", async () => {
     vi.useFakeTimers(); const f = fixture("paired", "never"); await f.session.start(); await f.session.authorize(); f.approveConsent(false); await vi.advanceTimersByTimeAsync(1000);

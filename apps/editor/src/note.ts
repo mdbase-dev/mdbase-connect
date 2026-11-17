@@ -26,11 +26,8 @@ export function collectionDeclaresTypeIcons(types: CollectionTypeDescriptor[]): 
 }
 
 export function summaryFromDocument(document: NoteDocument): NoteSummary {
-  const { revision: _revision, ...summary } = document;
-  return {
-    ...summary,
-    file: { ...document.file, path: document.path }
-  };
+  // The revision lets the collection index recognise the confirming reread.
+  return { ...document, file: { ...document.file, path: document.path } };
 }
 
 export function editableNote(
@@ -159,13 +156,22 @@ export function noteTimestamp(note: NoteSummary): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
   const now = new Date();
-  if (date.toDateString() === now.toDateString()) {
-    return new Intl.DateTimeFormat(displayLocale(), { hour: "numeric", minute: "2-digit" }).format(date);
-  }
-  if (date.getFullYear() === now.getFullYear()) {
-    return new Intl.DateTimeFormat(displayLocale(), { month: "short", day: "numeric" }).format(date);
-  }
-  return new Intl.DateTimeFormat(displayLocale(), { year: "numeric", month: "short", day: "numeric" }).format(date);
+  const formats = timestampFormats(displayLocale());
+  if (date.toDateString() === now.toDateString()) return formats.time.format(date);
+  if (date.getFullYear() === now.getFullYear()) return formats.day.format(date);
+  return formats.date.format(date);
+}
+
+/** Every visible row formats a timestamp on each render; building a formatter is the costly part. */
+let timestampFormatCache: { locale: string; time: Intl.DateTimeFormat; day: Intl.DateTimeFormat; date: Intl.DateTimeFormat } | undefined;
+function timestampFormats(locale: string) {
+  if (timestampFormatCache?.locale !== locale) timestampFormatCache = {
+    locale,
+    time: new Intl.DateTimeFormat(locale, { hour: "numeric", minute: "2-digit" }),
+    day: new Intl.DateTimeFormat(locale, { month: "short", day: "numeric" }),
+    date: new Intl.DateTimeFormat(locale, { year: "numeric", month: "short", day: "numeric" })
+  };
+  return timestampFormatCache;
 }
 
 export function folder(path: string): string {
@@ -250,6 +256,20 @@ export function noteTags(note: NoteSummary): string[] {
     ? note.effectiveFrontmatter.tags.filter((tag): tag is string => typeof tag === "string")
     : typeof note.effectiveFrontmatter.tags === "string" ? [note.effectiveFrontmatter.tags] : [];
   return [...new Set([...fileTags, ...frontmatterTags].map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean))];
+}
+
+/** The note has `tag` or a tag nested under it (`project` covers
+ * `project/alpha`) among the tags the page holds, by the runtime's
+ * `file.hasTag` rule. Only Quick open uses it: the note list asks the
+ * runtime (`searchTag`), since record views carry no inline tags. */
+export function noteHasTag(note: NoteSummary, tag: string): boolean {
+  const wanted = tag.replace(/^#+/, "");
+  return wanted !== "" && noteTags(note).some((name) => name === wanted || name.startsWith(`${wanted}/`));
+}
+
+export function noteHasType(note: NoteSummary, type: string): boolean {
+  const wanted = type.toLocaleLowerCase();
+  return note.types.some((name) => name.toLocaleLowerCase() === wanted);
 }
 
 export function tags(notes: NoteSummary[]): Array<{ name: string; count: number }> {

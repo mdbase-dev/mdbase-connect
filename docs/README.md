@@ -113,7 +113,6 @@ Git history is the archive for finished phases, campaigns and superseded designs
 ## Testing and performance
 
 - [testing-environment.md](testing-environment.md) — development and ecosystem testing.
-- [functional-stress-testing.md](functional-stress-testing.md) — seeded functional stress runner.
 - [adversarial-file-testing.md](adversarial-file-testing.md) — hosted file lifecycle interleavings.
 - [performance.md](performance.md) — local performance profiling.
 - [benchmarks/runtime-contention/report.md](benchmarks/runtime-contention/report.md) — runtime contention invariants and reproduction.

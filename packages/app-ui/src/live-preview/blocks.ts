@@ -4,6 +4,7 @@ import { StateEffect, StateField, type EditorState, type Range } from "@codemirr
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { t } from "@lingui/core/macro";
 import { DiagramWidget, isDiagramLanguage } from "./diagram.js";
+import { proseEdit } from "./prose-edit.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const toggleFold = StateEffect.define<{ from: number; folded: boolean }>({ map: (value, changes) => ({ ...value, from: changes.mapPos(value.from) }) });
@@ -181,9 +182,27 @@ function analyze(state: EditorState): Structure {
 
 const structure = StateField.define<Structure>({
   create: analyze,
-  update: (value, transaction) => transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
-    ? analyze(transaction.state)
-    : value
+  update(value, transaction) {
+    // Typing in prose only moves the blocks and footnotes on other lines.
+    if (proseEdit(transaction)) {
+      const map = (pos: number) => transaction.changes.mapPos(pos);
+      return {
+        codes: value.codes.map((block) => ({
+          ...block, from: map(block.from), to: map(block.to),
+          lines: block.lines.map((line) => ({ ...line, from: map(line.from), to: map(line.to) }))
+        })),
+        callouts: value.callouts.map((callout) => ({
+          ...callout, from: map(callout.from), to: map(callout.to), lines: callout.lines.map(map), lastTo: map(callout.lastTo)
+        })),
+        definitions: value.definitions,
+        definitionLines: value.definitionLines.map(map),
+        references: value.references.map((reference) => ({ ...reference, from: map(reference.from), to: map(reference.to) }))
+      };
+    }
+    return transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
+      ? analyze(transaction.state)
+      : value;
+  }
 });
 
 export function blockPreview() {
@@ -218,10 +237,8 @@ function build(state: EditorState): DecorationSet {
     } else if (!block.fenced) {
       ranges.push(Decoration.widget({ widget: new CodeHeader("", block.code.replace(/^(?: {4}|\t)/gm, "")), side: -1 }).range(first.from));
     }
-    if (block.closed && !isRevealed(state, last.from, last.to)) {
-      ranges.push(Decoration.line({ class: "cm-lp-code-fence-end" }).range(last.from));
-      ranges.push(hide.range(last.from, last.to));
-    }
+    // The hidden closing fence keeps its line, so showing it moves nothing below.
+    if (block.closed && !isRevealed(state, last.from, last.to)) ranges.push(hide.range(last.from, last.to));
   }
   for (const callout of callouts) {
     const folded = callout.fold ? (foldState.get(callout.from) ?? callout.fold === "-") : false;

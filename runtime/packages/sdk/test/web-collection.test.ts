@@ -25,7 +25,7 @@ function fixture(policy: "explicit" | "approved-new-collection" = "explicit", pe
   const host = {
     bootstrapCloudCopy: vi.fn(async (_input: {purpose: string; outcomeMode: string; scope: typeof scope; reconcile?: string}) => {trace.push("join");}), registeredReceipt: () => ({installationId: scope.installation, deviceId: scope.account}),
     openCollectionSql: vi.fn(async () => {trace.push("sql");}), startCollectionLog: vi.fn(async () => {trace.push("log");}),
-    waitForVerifiedRead: vi.fn(async () => {trace.push("read");}), openTimersPort: vi.fn<AppWebCloudCopyHost["openTimersPort"]>(()=>null), attachDataFacade: vi.fn(() => {trace.push("facade");}), detachDataFacade: vi.fn((_port: MessagePort) => {}),
+    waitForVerifiedRead: vi.fn(async () => {trace.push("read");}), openTimersPort: vi.fn<AppWebCloudCopyHost["openTimersPort"]>(()=>null), timerConsentKey: vi.fn((_collection: string): string | null => null), attachDataFacade: vi.fn(() => {trace.push("facade");}), detachDataFacade: vi.fn((_port: MessagePort) => {}),
     driveCollection: vi.fn(async () => {}), wakeCollectionLog: vi.fn(async () => {}),
     pendingWrites: vi.fn(() => 0), initialSync: vi.fn((): string | null => null), transportHealth: vi.fn((): AppLogHealth | null => null), serverProblem: vi.fn(() => null), close: vi.fn(async () => {trace.push("host-close");}),
     peopleAuthority: vi.fn(() => Object.freeze({collection: scope.collection, isCurrent: () => !parent.signal.aborted,
@@ -693,6 +693,49 @@ describe("real protected native collection composition", () => {
     await vi.waitFor(() => expect(timerCloses).toHaveLength(2));
     expect(f.host.detachDataFacade.mock.calls.map(call => call[0])).toEqual([openerFacade, otherFacade]);
     control.close(); await result.close();
+  });
+  it("reminders granted while it is open give each tab new ports with a timer port, on the same replica", async () => {
+    // Regression (production, TaskNotes, SDK beta.223): an approval that granted
+    // reminders to the open collection left `timers` undefined until a reload.
+    const f = fixture("approved-new-collection"), timerCloses: string[] = [];
+    let consent: string | null = null;
+    f.host.timerConsentKey.mockImplementation(collection => {expect(collection).toBe(scope.collection); return consent;});
+    f.host.openTimersPort.mockImplementation(() => {
+      if (consent === null) return null;
+      const channel = new MessageChannel(), name = `timers-${consent}`;
+      return {port: channel.port2, close: async () => {timerCloses.push(name); channel.port1.close();}} as unknown as ReturnType<AppWebCloudCopyHost["openTimersPort"]>;
+    });
+    const result = await f.open(), opener = f.handoff(), other = result.connection.attach!()!;
+    expect(opener.timerPort).toBeUndefined(); expect(other.timerPort).toBeUndefined();
+    // Nothing changed: the tabs keep their ports.
+    expect(result.connection.renewTimers!(opener)).toBeNull(); expect(result.connection.renewTimers!(other)).toBeNull();
+    expect(f.host.detachDataFacade).not.toHaveBeenCalled();
+
+    consent = "granted";
+    const renewed = result.connection.renewTimers!(opener)!;
+    expect(renewed.timerPort).toBeInstanceOf(MessagePort);
+    expect([renewed.scope, renewed.generation, renewed.setupMode]).toEqual([scope, opener.generation, "approved-new"]);
+    expect(renewed.dataPort !== opener.dataPort && renewed.controlPort !== opener.controlPort).toBe(true);
+    // The opener's old ports went; the replica did not reopen and stays current.
+    const [openerFacade] = f.host.attachDataFacade.mock.calls.map(call => (call as unknown as [MessagePort])[0]);
+    expect(f.host.detachDataFacade).toHaveBeenCalledOnce(); expect(f.host.detachDataFacade.mock.calls[0]![0] === openerFacade).toBe(true);
+    expect(result.connection.isCurrent()).toBe(true);
+    expect(f.host.bootstrapCloudCopy).toHaveBeenCalledOnce(); expect(f.host.openCollectionSql).toHaveBeenCalledOnce(); expect(f.host.close).not.toHaveBeenCalled();
+    // Once renewed, unchanged consent renews nothing; ports already left renew nothing.
+    expect(result.connection.renewTimers!(renewed)).toBeNull(); expect(result.connection.renewTimers!(opener)).toBeNull();
+    // The other tab is renewed on its own, keeping its follower setup mode.
+    const follower = result.connection.renewTimers!(other)!;
+    expect(follower.setupMode).toBe("inspect"); expect(follower.timerPort).toBeInstanceOf(MessagePort);
+    const control = appCollectionControlClient(renewed.controlPort, renewed, {signal: f.ui.signal, isCurrent: () => !f.ui.signal.aborted, onClose() {}});
+    await control.assess("ready", f.ui.signal); expect(result.state).toBe("ready");
+
+    // A withdrawn consent fences the held timer port: renewed without one.
+    consent = null;
+    const withdrawn = result.connection.renewTimers!(renewed)!;
+    expect(withdrawn.timerPort).toBeUndefined();
+    await vi.waitFor(() => expect(timerCloses).toEqual(["timers-granted"]));
+    control.close(); await result.close();
+    expect(result.connection.renewTimers!(withdrawn)).toBeNull();
   });
   it("adapter close drains own log drive; native/SQL/lease close stays with original session HOST", async () => {
     const f = fixture(); const result = await f.open();

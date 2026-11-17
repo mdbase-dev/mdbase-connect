@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { type MdbaseClient } from "../src/index.js";
 import { connect } from "../src/thin-client.js";
 import { MemoryReplica } from "../src/testing/index.js";
+import { decode, type CborValue } from "../src/cbor.js";
 
 const app = { name: "memory faults", version: "0" };
 const open: MdbaseClient[] = [];
@@ -65,6 +66,25 @@ describe("MemoryReplica fault parity", () => {
     expect(rows.kind).toBe("success");
     const views = await c.listAppBasesViews({ captureTimezone: "UTC", limit: 16 });
     expect(views.kind === "success" && views.views.map((v) => v.path)).toEqual(["views/notes.base"]);
+  });
+
+  it("asks for unreadable sources only from a replica that grants it", async () => {
+    for (const features of [[], ["bases-discovery-unreadable-v1"]]) {
+      const replica = new MemoryReplica({ confirmDelayMs: 0, features });
+      replica.seedType("note", { fields: { title: { type: "string" } } });
+      replica.seedBaseView({ path: "views/notes.base", types: ["note"], columns: ["file.name"] });
+      const versions: CborValue[] = [], original = replica.connector();
+      const c = await connect({ app, reconnect: false, connector: { description: original.description, async open(hello, signal) {
+        const opened = await original.open(hello, signal), read = opened.port.readAppBasesDiscovery!.bind(opened.port);
+        opened.port.readAppBasesDiscovery = (op, bytes, s) => { versions.push((decode(bytes) as Map<number, CborValue>).get(0)!); return read(op, bytes, s); };
+        return opened;
+      } } });
+      open.push(c);
+      const page = await c.listAppBasesViews({ captureTimezone: "UTC", limit: 16, reportUnreadable: true });
+      expect(versions).toEqual([features.length ? 2 : 1]);
+      expect(page).toMatchObject({ kind: "success", unreadable: [] });
+      expect(page.kind === "success" && page.views.map((v) => v.path)).toEqual(["views/notes.base"]);
+    }
   });
 
   it("loseNextResponse: a write whose reply was lost is captured once and settles", async () => {

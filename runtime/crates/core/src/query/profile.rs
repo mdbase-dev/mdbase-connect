@@ -84,6 +84,10 @@ pub enum Predicate {
     /// Complement. Only ever built over a subtree that cannot raise a CEL error
     /// (bare-identifier equality), so "not matched" is exactly "evaluated false".
     Not(Box<Predicate>),
+    /// `file.body.lower().contains(needle)`: the record's
+    /// [`super::body_index_text`] contains `needle`, which is equivalent for
+    /// the needles this profile accepts. Cannot raise a CEL error.
+    BodyContains(String),
 }
 /// One explicit order term; callers append `file.path` ASC in both directions.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,6 +177,27 @@ impl Lower<'_> {
                 })
             }
             Expr::Bin(op, a, b) => self.compare(*op, a, b),
+            Expr::Call {
+                target: Some(t),
+                func,
+                args,
+            } if func == "contains" && super::lower::body_receiver(t) == Some(true) => {
+                let [Expr::Lit(CelValue::String(needle))] = args.as_slice() else {
+                    return Err(Unsupported::Expression);
+                };
+                if !super::lower::exact_body_needle(needle) {
+                    return Err(Unsupported::Expression);
+                }
+                self.literal_bytes = self
+                    .literal_bytes
+                    .checked_add(needle.len())
+                    .filter(|n| *n <= MAX_LITERAL_BYTES)
+                    .ok_or(Unsupported::Budget)?;
+                Ok(Leaf {
+                    predicate: Predicate::BodyContains(needle.to_string()),
+                    can_error: false,
+                })
+            }
             _ => Err(Unsupported::Expression),
         }
     }

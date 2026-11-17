@@ -79,11 +79,12 @@ if it appears in that account's current approvable collection list; otherwise it
 is `null`. Foreign, private, left, device-revoked and nonexistent targets have the
 same response as no hint. No target-specific existence lookup or error is made.
 
-An eligible hint preselects the picker. The user can choose another collection;
-existing approved choices or in-progress/completed creation take precedence. An
-unavailable hint does not silently pick another or the only available collection.
-Explicit Approve and its authoritative `selected_collection_id`/collection scope
-remain required and revalidated. Changing a URL hint never grants access.
+The portal does not preselect a hint, including on reconsent: a fresh approval
+starts with no collection chosen, and the person picks one explicitly (#904).
+Only the request's server-recorded selection or its pending or completed
+creation is restored. Explicit Approve and its authoritative
+`selected_collection_id`/collection scope remain required and revalidated.
+Changing a URL hint never grants access.
 
 Explicit Remove access resolves the request's registered application family and
 revokes that family's grants and installation device access for the selected

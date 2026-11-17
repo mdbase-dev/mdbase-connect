@@ -46,10 +46,10 @@ export class CollectionIndexController {
       this.observation = observation;
       observation.subscribe((snapshot, delta) => {
         if (delta.reason === "status" && snapshot.state === "ready") this.publish(this.state);
-        else this.accept(snapshot, delta.reason !== "page");
+        else this.accept(snapshot, delta.reason);
       });
       observation.subscribeChanges(change => { for (const listener of this.changeListeners) listener(change); });
-      this.accept(observation.getSnapshot(), false);
+      this.accept(observation.getSnapshot(), "page");
     }
     const observation = this.observation;
     const load = observation.getSnapshot().generation === 1 && observation.getSnapshot().state === "loading" ? observation.ready : observation.refresh();
@@ -77,6 +77,9 @@ export class CollectionIndexController {
     return promise;
   }
   upsert(note: NoteSummary, previousPath = note.path): void {
+    // The watch can confirm a save before the save returns: then this row adds nothing.
+    const shown = previousPath === note.path ? this.state.notes.find(candidate => candidate.path === note.path) : undefined;
+    if (shown && sameSource(shown, note)) return;
     void this.observation?.optimistic([note], previousPath === note.path ? [] : [previousPath]).commit();
   }
   create(note: NoteSummary): void { this.upsert(note); }
@@ -93,15 +96,25 @@ export class CollectionIndexController {
     this.hydration = undefined;
     this.publish(EMPTY_STATE);
   }
-  private accept(snapshot: NoteObservationSnapshot, changed: boolean): void {
-    const notes = snapshot.records.map(record => {
+  private accept(snapshot: NoteObservationSnapshot, reason: "page" | "reload" | "changes" | "local" | "status"): void {
+    // Only the authority's rereads can confirm a shown note; a local row is always shown as given.
+    const reread = reason === "changes" || reason === "reload";
+    let shown: Map<string, NoteSummary> | undefined;
+    const shownAt = (path: string) => (shown ??= new Map(this.state.notes.map(note => [note.path, note]))).get(path);
+    const fresh = snapshot.records.map(record => {
       const existing = this.summaries.get(record);
       if (existing) return existing;
       if (!record.frontmatter || !record.effectiveFrontmatter) throw new Error(t`Missing frontmatter projections for ${record.path}`);
-      const note = { ...record, frontmatter: record.frontmatter, effectiveFrontmatter: record.effectiveFrontmatter };
+      const previous = reread ? shownAt(record.path) : undefined;
+      const note = previous && confirms(previous, record) ? previous
+        : { ...record, frontmatter: record.frontmatter, effectiveFrontmatter: record.effectiveFrontmatter };
       this.summaries.set(record, note);
       return note;
     });
+    // Whole-collection views are memoised on this array: keep it when every note is the one shown.
+    const same = fresh.length === this.state.notes.length && fresh.every((note, index) => note === this.state.notes[index]);
+    const notes = same ? this.state.notes : fresh;
+    const changed = reason !== "page" && !same;
     const complete = snapshot.state === "ready";
     const contentLoaded = notes.filter(note => note.body !== undefined).length;
     const hydrating = this.state.contentIndexing;
@@ -115,6 +128,21 @@ export class CollectionIndexController {
     this.state = state;
     for (const listener of this.listeners) listener();
   }
+}
+
+/** The same exact source, as the revision identifies it, presented the same way: types and
+ * effective frontmatter also follow type definitions, and the modified time is a file fact.
+ * The Editor reads no other file fact from notes. */
+function sameSource(shown: NoteSummary, record: QueryRecord<NoteFrontmatter>): boolean {
+  return shown.revision !== undefined && shown.revision === record.revision
+    && shown.file.mtime === record.file.mtime
+    && JSON.stringify(shown.types) === JSON.stringify(record.types)
+    && JSON.stringify(shown.effectiveFrontmatter) === JSON.stringify(record.effectiveFrontmatter);
+}
+
+/** A reread confirms a shown summary that already holds any body it brings, e.g. not while hydrating. */
+function confirms(shown: NoteSummary, record: QueryRecord<NoteFrontmatter>): boolean {
+  return sameSource(shown, record) && (record.body === undefined || shown.body !== undefined);
 }
 
 function isCancelled(problem: ObservationProblem): boolean {

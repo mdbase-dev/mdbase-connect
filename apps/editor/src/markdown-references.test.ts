@@ -61,15 +61,25 @@ describe("Markdown references", () => {
       block: true
     });
   });
-  it("finds the same references after each edit as a fresh parse does", () => {
-    let source = Array.from({ length: 60 }, (_, index) => `## Part ${index}\n\nSee [[Note ${index}]] and ![[image-${index}.png]].\n\n\`\`\`\n[[not a link]]\n\`\`\`\n`).join("\n");
+  it.each([60, 600])("finds the same references after each edit as a fresh parse does (%i parts)", (parts) => {
+    // 600 parts is large enough that an edit reuses most subtrees, and so their remembered references.
+    let source = Array.from({ length: parts }, (_, index) => `## Part ${index}\n\nSee [[Note ${index}]] and ![[image-${index}.png]].\n\n\`\`\`\n[[not a link]]\n\`\`\`\n`).join("\n");
     let seed = 7;
     const random = (limit: number) => { seed = (seed * 1103515245 + 12345) % 2147483648; return seed % limit; };
-    const inserts = ["x", "[[", "]]", "\n", "```\n", "![[new.png]]\n", "[label](target.md)", ""];
+    const inserts = ["x", "[[", "]]", "\n", "```\n", "![[new.png]]\n", "[label](target.md)", "- ", ""];
     for (let step = 0; step < 120; step++) {
       const at = random(source.length + 1);
       source = source.slice(0, at) + inserts[random(inserts.length)] + source.slice(at + random(4));
       expect(markdownReferences(source)).toEqual(markdownReferences(source, markdownLanguage.parser.parse(source)));
     }
+  });
+
+  it("walks a note's text once for every reader of it", () => {
+    const source = "Intro ![[Plan]] and [link](a.md).";
+    const first = markdownReferences(source);
+    expect(markdownReferences(source)).toBe(first);
+    const edited = `${source} ![[More]]`;
+    expect(markdownReferences(edited)).not.toBe(first);
+    expect(markdownReferences(edited).map((reference) => reference.target)).toEqual(["Plan", "a.md", "More"]);
   });
 });

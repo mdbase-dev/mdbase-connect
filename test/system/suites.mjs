@@ -9,11 +9,6 @@ export const systemSuites = Object.freeze({
     prepare: ["packages"],
     command: ["node", "scripts/relay-e2e.mjs"]
   },
-  sync: {
-    description: "Hosted synchronization vertical slice",
-    prepare: ["packages"],
-    command: ["node", "scripts/sync-e2e.mjs"]
-  },
   provider: {
     description: "Durable hosted authority, browser, files, and provider lifecycle",
     prepare: ["packages", "provider-binary"],

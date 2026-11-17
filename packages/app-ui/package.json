@@ -112,9 +112,17 @@
       "types": "./dist/opening-page.d.ts",
       "import": "./dist/opening-page.js"
     },
+    "./segmented": {
+      "types": "./dist/Segmented.d.ts",
+      "import": "./dist/Segmented.js"
+    },
     "./select": {
       "types": "./dist/Select.d.ts",
       "import": "./dist/Select.js"
+    },
+    "./switch": {
+      "types": "./dist/Switch.d.ts",
+      "import": "./dist/Switch.js"
     },
     "./text-diff": {
       "types": "./dist/text-diff.d.ts",

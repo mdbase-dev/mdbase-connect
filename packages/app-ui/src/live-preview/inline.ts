@@ -150,11 +150,12 @@ function buildRanges(state: EditorState, options: LivePreviewOptions, visibleRan
           ranges.push(headingLines[Number(heading[1]) - 1].range(line(node.from).from));
           const revealed = lineRevealed(node.from);
           for (const mark of children(node, "HeaderMark")) {
+            // The opening mark takes its space with it; a closing mark the space before it.
+            const opening = mark.from === node.from;
             if (revealed) {
-              ranges.push((mark.from === node.from ? headingMark : muted).range(mark.from, mark.to));
+              // The opening mark hangs in the margin with its space, so the text stays put.
+              ranges.push(opening ? headingMark.range(mark.from, skipSpaces(state, mark.to, node.to)) : muted.range(mark.from, mark.to));
             } else {
-              // The opening mark takes its space with it; a closing mark the space before it.
-              const opening = mark.from === node.from;
               const from = opening ? mark.from : trimStart(state, node.from, mark.from);
               const to = opening ? skipSpaces(state, mark.to, node.to) : mark.to;
               conceal(from, to);
@@ -200,8 +201,9 @@ function buildRanges(state: EditorState, options: LivePreviewOptions, visibleRan
         if (name === "QuoteMark") {
           const current = line(node.from);
           if (calloutHeader(current.text)) return;
-          if (isRevealed(state, current.from, current.to)) ranges.push(quoteMark.range(node.from, node.to));
-          else conceal(node.from, skipSpaces(state, node.to, current.to, 1));
+          const end = skipSpaces(state, node.to, current.to, 1);
+          if (isRevealed(state, current.from, current.to)) ranges.push(quoteMark.range(node.from, end));
+          else conceal(node.from, end);
           return;
         }
 

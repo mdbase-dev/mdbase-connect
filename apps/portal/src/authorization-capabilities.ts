@@ -59,6 +59,10 @@ const PRESENTATION: Record<ApplicationCapabilityId, {
   "offline.replica": {
     get label() { return t(i18n)({ message: "Keep an offline replica", context: "Application access approval" }); },
     get description() { return t(i18n)({ message: "Synchronize an app-controlled local copy of this collection." }); }
+  },
+  "history.read": {
+    get label() { return t(i18n)({ message: "Read record history", context: "Application access approval" }); },
+    get description() { return t(i18n)({ message: "See earlier versions of records, including text that has since been changed or deleted." }); }
   }
 };
 

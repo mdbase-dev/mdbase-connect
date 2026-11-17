@@ -36,10 +36,43 @@ export interface UpdateManifest {
   targets: Record<string, UpdateTarget>;
 }
 
+/**
+ * A release's current rollout stage (`docs/desktop-updates.md`, "Staged rollout").
+ * The channel document's `rollout` is frozen when the release is published; this
+ * separately signed document can be replaced later, so a release can widen in
+ * stages without changing any published release asset.
+ */
+export interface RolloutDocument {
+  schema: typeof ROLLOUT_SCHEMA;
+  tag: string;
+  version: string;
+  issued_at: string;
+  /** Installations that opted in to early access take the release. */
+  early_access: boolean;
+  /** Every other installation takes it when its cohort bucket is below this. */
+  percentage: number;
+}
+
+export const ROLLOUT_SCHEMA = "mdbase-desktop-rollout/1";
+/** Installations without early access take at most one optional update this often. */
+export const UPDATE_SPACING_MS = 24 * 60 * 60 * 1000;
+
+export type DeferredReason =
+  /** Not this installation's cohort yet. */
+  | "rollout"
+  /** Only installations with early access take it so far. */
+  | "early_access"
+  /** Nobody takes it for now. */
+  | "held"
+  /** This installation updated less than a day ago. */
+  | "spacing"
+  /** The release's rollout document could not be verified, so it is not taken yet. */
+  | "rollout_unavailable";
+
 export type UpdateDecision =
   | { kind: "current" }
   | { kind: "blocked"; reason: string }
-  | { kind: "deferred"; percentage: number }
+  | { kind: "deferred"; reason: DeferredReason; percentage: number; until?: string }
   /** `required`: this installation's version is blocked (below the minimum). */
   | { kind: "available"; target: UpdateTarget; required: boolean };
 
@@ -107,6 +140,18 @@ export function decideUpdate(input: {
   installationId: string;
   highestTrustedVersion?: string;
   manual?: boolean;
+  /**
+   * The verified rollout document for this release; null when none is published,
+   * "unavailable" when one could not be read or verified.
+   */
+  rollout?: RolloutDocument | null | "unavailable";
+  /** This installation opted in to early access. */
+  earlyAccess?: boolean;
+  /** When this installation started running `currentVersion`. */
+  currentVersionSince?: string;
+  /** Versions withdrawn by a newer release than `manifest`. */
+  withdrawn?: readonly string[];
+  now?: number;
 }): UpdateDecision {
   const {
     manifest,
@@ -115,25 +160,78 @@ export function decideUpdate(input: {
     platformKey,
     installationId,
     highestTrustedVersion,
-    manual = false
+    manual = false,
+    rollout = null,
+    earlyAccess = false,
+    currentVersionSince,
+    withdrawn = [],
+    now = Date.now()
   } = input;
+  if (rollout && rollout !== "unavailable" && (rollout.tag !== manifest.tag || rollout.version !== manifest.version)) {
+    throw new Error("The rollout document does not match its release.");
+  }
   parseVersion(currentVersion);
   if (!acceptsReleaseChannel(channel, manifest.channel)) return { kind: "current" };
   if (highestTrustedVersion && compareVersions(manifest.version, highestTrustedVersion) < 0) {
     return { kind: "blocked", reason: "The release manifest is older than the last trusted release." };
   }
-  if (manifest.blocked_versions.includes(manifest.version)) {
+  if (manifest.blocked_versions.includes(manifest.version) || withdrawn.includes(manifest.version)) {
     return { kind: "blocked", reason: "The target release has been withdrawn." };
   }
   if (compareVersions(manifest.version, currentVersion) <= 0) return { kind: "current" };
   const target = manifest.targets[platformKey];
   if (!target) return { kind: "blocked", reason: `No update is published for ${platformKey}.` };
-  const threshold = Math.round(manifest.rollout.percentage * 100);
-  const currentVersionIsBlocked = manifest.blocked_versions.includes(currentVersion);
-  if (!manual && !currentVersionIsBlocked && rolloutBucket(installationId, manifest.rollout.seed) >= threshold) {
-    return { kind: "deferred", percentage: manifest.rollout.percentage };
+  const required = manifest.blocked_versions.includes(currentVersion) || withdrawn.includes(currentVersion);
+  // Check now, and a version that must be replaced, bypass the rollout and spacing.
+  if (manual || required) return { kind: "available", target, required };
+  if (rollout === "unavailable") return { kind: "deferred", reason: "rollout_unavailable", percentage: 0 };
+  // Without a rollout document the release's frozen percentage applies to everyone.
+  const stage = rollout
+    ? { percentage: rollout.percentage, earlyAccess: rollout.early_access }
+    : { percentage: manifest.rollout.percentage, earlyAccess: manifest.rollout.percentage > 0 };
+  const inCohort = rolloutBucket(installationId, manifest.rollout.seed) < Math.round(stage.percentage * 100);
+  if (!inCohort && !(earlyAccess && stage.earlyAccess)) {
+    const reason: DeferredReason = stage.percentage > 0 ? "rollout" : stage.earlyAccess ? "early_access" : "held";
+    return { kind: "deferred", reason, percentage: stage.percentage };
   }
-  return { kind: "available", target, required: currentVersionIsBlocked };
+  if (!earlyAccess && currentVersionSince) {
+    const next = Date.parse(currentVersionSince) + UPDATE_SPACING_MS;
+    if (Number.isFinite(next) && now < next) {
+      return { kind: "deferred", reason: "spacing", percentage: stage.percentage, until: new Date(next).toISOString() };
+    }
+  }
+  return { kind: "available", target, required: false };
+}
+
+/** A rollout document, checked at the trust boundary like the channel document. */
+export function parseRolloutDocument(value: unknown): RolloutDocument {
+  const root = object(value, "Rollout document");
+  exactKeys(root, ["schema", "tag", "version", "issued_at", "early_access", "percentage"], "Rollout document");
+  if (root.schema !== ROLLOUT_SCHEMA) throw new Error(`Unsupported rollout document schema ${String(root.schema)}.`);
+  const version = versionString(root.version, "version");
+  const tag = string(root.tag, "tag");
+  if (!TAG_PATTERN.test(tag) || tag !== `v${version}`) {
+    throw new Error("Rollout document tag does not match its version.");
+  }
+  const issuedAt = string(root.issued_at, "issued_at");
+  if (!Number.isFinite(Date.parse(issuedAt))) throw new Error("Rollout document issued_at is not an ISO timestamp.");
+  if (typeof root.early_access !== "boolean") throw new Error("Rollout document early_access must be a boolean.");
+  if (
+    typeof root.percentage !== "number" ||
+    !Number.isFinite(root.percentage) ||
+    root.percentage < 0 ||
+    root.percentage > 100
+  ) {
+    throw new Error("Rollout percentage must be between 0 and 100.");
+  }
+  return {
+    schema: ROLLOUT_SCHEMA,
+    tag,
+    version,
+    issued_at: new Date(issuedAt).toISOString(),
+    early_access: root.early_access,
+    percentage: root.percentage
+  };
 }
 
 export function parseUpdateManifest(value: unknown): UpdateManifest {

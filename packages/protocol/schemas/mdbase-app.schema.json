@@ -241,7 +241,8 @@
         "views.manage",
         "definitions.manage",
         "background.schedule",
-        "offline.replica"
+        "offline.replica",
+        "history.read"
       ]
     },
     "peoplePermissions": {

@@ -48,6 +48,26 @@ describe("native channel UI platform and fixed Worker journal admission",()=>{
     await expect(g.api.registerFcm({token:"native_fcm_opaque_token",criteria:["reminder"]})).rejects.toMatchObject({code:"outcome_unknown"});expect(g.request).toHaveBeenCalledOnce();expect(g.read()).toMatchObject({pending:"register",channelId:null});
     await expect(g.api.registerFcm({token:"native_replacement_fcm_token",criteria:["reminder"]})).rejects.toMatchObject({code:"outcome_unknown",reason:"timer_channel_reapproval_required"});expect(g.request).toHaveBeenCalledOnce();
   });
+  it("a 503 Connect problem writes nothing: the grant stays usable and a retry registers without fresh approval",async()=>{
+    const p=platform();let posts=0;const f=fixture(async url=>{
+      if(url.endsWith("vapid-public-key"))return Response.json({public_key:encode(key)});
+      return ++posts===1?Response.json({error:{code:"push_target_sealing_required",message:"Native reminder channels require sealed push targets."}},{status:503}):Response.json({channel_id:channelId},{status:201});
+    });
+    await expect(f.api.registerWebPush({serviceWorker:p.worker,criteria:["reminder"]})).rejects.toMatchObject({code:"unavailable",reason:"timer_http",message:"Timer request could not complete."});
+    expect(f.read()).toBeNull();
+    expect(await f.api.registerWebPush({serviceWorker:p.worker,criteria:["reminder"]})).toEqual({channelId,installationId:scope.installation,criteria:["reminder"]});
+    expect(posts).toBe(2);expect(f.read()).toMatchObject({grantId:grant,kind:"web_push",channelId,pending:null});
+  });
+  it("authority refusals and 5xx answers that may follow a commit still need approval, not a silent retry",async()=>{
+    const refused=fixture(async()=>Response.json({error:{code:"forbidden",details:{reason:"grant_not_usable"}}},{status:403}));
+    await expect(refused.api.registerFcm({token:"native_fcm_opaque_token",criteria:["reminder"]})).rejects.toMatchObject({code:"unauthenticated",reason:"timer_refused"});expect(refused.read()).toBeNull();
+    for(const answer of [()=>Response.json({error:{code:"internal_error"}},{status:500}),()=>new Response("<html>origin unavailable</html>",{status:503,headers:{"content-type":"text/html"}})]){
+      const f=fixture(async()=>answer());
+      await expect(f.api.registerFcm({token:"native_fcm_opaque_token",criteria:["reminder"]})).rejects.toMatchObject({code:"outcome_unknown",reason:"timer_write_unknown"});
+      await expect(f.api.registerFcm({token:"native_fcm_opaque_token",criteria:["reminder"]})).rejects.toMatchObject({code:"outcome_unknown",reason:"timer_channel_reapproval_required"});
+      expect(f.request).toHaveBeenCalledOnce();expect(f.read()).toMatchObject({pending:"register",channelId:null});
+    }
+  });
   it("Web Push uses actual supplied UI platform; only original normalized DTO reaches Worker and unsubscribe follows acknowledged deletion",async()=>{
     const p=platform();let f:ReturnType<typeof fixture>;f=fixture(async(url,init)=>{
       if(url.endsWith("vapid-public-key"))return Response.json({public_key:encode(key)});
