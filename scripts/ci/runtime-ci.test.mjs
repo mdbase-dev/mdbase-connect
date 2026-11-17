@@ -29,7 +29,7 @@ test("required Qualification rejects failed, cancelled or skipped merge-queue na
   const env = Object.fromEntries([
     "WINDOWS", "WINDOWS_DAEMON", "RUNTIME", "NODE", "CONTAINER", "SERVER_UPGRADE",
     "SERVER_RETAINED_V2", "PROVIDER_UPGRADE", "PROVIDER_RUST",
-    "PROVIDER_SYSTEM", "LOG_POSTGRES", "LOG_DO", "MIGRATION_ROLLBACK"
+    "PROVIDER_SYSTEM", "PROVIDER_PINNED", "LOG_POSTGRES", "LOG_DO", "MIGRATION_ROLLBACK"
   ].map((name) => [name, "success"]));
   for (const result of ["success", "failure", "cancelled", "skipped"]) {
     const command = spawnSync("bash", ["-e", "-c", body], {
@@ -53,5 +53,21 @@ test("required Qualification rejects failed, cancelled or skipped merge-queue na
         RUNTIME_NATIVE: "success", MIGRATION_ROLLBACK: result }
     });
     assert.equal(command.status, status, `${event} ${result}`);
+  }
+  // The pinned-provider suite is required at full depth, and on a pull request
+  // that changes the provider contract.
+  for (const [event, runFull, contract, result, status] of [
+    ["merge_group", "true", "", "failure", 1],
+    ["merge_group", "true", "", "skipped", 1],
+    ["pull_request", "false", "true", "failure", 1],
+    ["pull_request", "false", "true", "skipped", 1],
+    ["pull_request", "false", "true", "success", 0],
+    ["pull_request", "false", "false", "skipped", 0]
+  ]) {
+    const command = spawnSync("bash", ["-e", "-c", body], {
+      env: { ...process.env, ...env, RUN_FULL: runFull, UPSTREAM_RUN_ID: "", GITHUB_EVENT_NAME: event,
+        RUNTIME_NATIVE: "success", PROVIDER_CONTRACT: contract, PROVIDER_PINNED: result }
+    });
+    assert.equal(command.status, status, `${event} contract=${contract} ${result}`);
   }
 });
