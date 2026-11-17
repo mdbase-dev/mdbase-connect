@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { desktopChanged, desktopPlan, expediteReason, releaseGap, semverPrepare } from "../continuous-desktop-release.mjs";
+import { desktopChanged, desktopPlan, releaseGap, semverPrepare } from "../continuous-desktop-release.mjs";
+import { wideningLimit } from "./desktop-rollout.mjs";
 
 const day = 86_400_000;
 const now = Date.parse("2026-11-03T12:00:00Z");
@@ -25,7 +26,7 @@ test("the qualification gate runs through bash so Windows can spawn it", () => {
   assert.match(source, /execFileSync\("bash", \["scripts\/ci\/verify-qualified-commit"/);
 });
 
-test("daily, diff and unfinished-attempt gates cannot be bypassed by repeated triggers", () => {
+test("release-gap, diff and unfinished-attempt gates cannot be bypassed by repeated triggers", () => {
   assert.equal(plan({ changed: false }).reason, "desktop tree unchanged");
   const recent = { ...latest, published_at: new Date(now - day + 1).toISOString() };
   assert.equal(plan({ latest: recent }).reason, "release gap");
@@ -76,23 +77,22 @@ test("immutable release settings are neither queried nor changed; rollout lives 
   assert.match(source, /"--ref", release\.tag_name,\s*"-f", "operation=rollout", "-f", `stage=\$\{plan\.stage\}`/);
 });
 
-test("staged rollout shortens the release gap and expedite skips only the gap", () => {
+test("with staged rollout a desktop change releases as soon as it merges", () => {
   assert.equal(releaseGap(false), day);
-  assert.equal(releaseGap(true), day / 4);
-  const recent = { ...latest, published_at: new Date(now - 6 * 3_600_000 + 1).toISOString() };
-  assert.equal(plan({ latest: recent, gap: releaseGap(true) }).reason, "release gap");
-  assert.deepEqual(plan({ latest: { ...recent, published_at: new Date(now - 6 * 3_600_000).toISOString() }, gap: releaseGap(true) }), { operation: "release" });
-  const reason = "Crash on launch, https://github.com/mdbase-dev/mdbase-connect/pull/1700";
-  assert.deepEqual(plan({ latest: { ...latest, published_at: new Date(now - 1).toISOString() }, expedite: expediteReason(reason) }), { operation: "release" });
-  assert.equal(plan({ changed: false, expedite: reason }).reason, "desktop tree unchanged");
-  assert.throws(() => plan({ reservations: [{ ...reservation, published: false }], expedite: reason }), /unfinished/);
-  assert.throws(() => plan({ latest: { ...latest, body: "Continuous desktop status: stopped" }, expedite: reason }), /latched stopped/);
-  assert.equal(expediteReason(""), null);
-  assert.equal(expediteReason(undefined), null);
-  assert.equal(expediteReason(`  ${reason}  `), reason);
-  for (const bad of ["urgent", "https://github.com/other/repo/pull/1", "https://github.com/mdbase-dev/mdbase-connect/issues/12", `${reason} ${"x".repeat(500)}`]) {
-    assert.throws(() => expediteReason(bad), /pull request|longer/);
-  }
+  assert.equal(releaseGap(true), 0);
+  const justPublished = { ...latest, published_at: new Date(now).toISOString() };
+  assert.deepEqual(plan({ latest: justPublished, gap: releaseGap(true) }), { operation: "release" });
+  assert.equal(plan({ latest: justPublished, gap: releaseGap(true), changed: false }).reason, "desktop tree unchanged");
+  assert.throws(() => plan({ gap: releaseGap(true), reservations: [{ ...reservation, published: false }] }), /unfinished/);
+  assert.throws(() => plan({ gap: releaseGap(true), latest: { ...justPublished, body: "Continuous desktop status: stopped" } }), /latched stopped/);
+});
+
+test("widening covers every release newer than the newest one at 100%", () => {
+  const source = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /if \(!document \|\| stageOf\(document\) === "100"\) break;/);
+  assert.doesNotMatch(source, /expedite/i);
+  const coordinator = readFileSync(new URL("../../apps/desktop/src/main/update-coordinator.ts", import.meta.url), "utf8");
+  assert.match(coordinator, new RegExp(`const MAX_RELEASES_CONSIDERED = ${wideningLimit};`));
 });
 
 function stepCommand(name) {

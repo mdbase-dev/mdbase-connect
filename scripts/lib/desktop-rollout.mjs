@@ -24,8 +24,12 @@ export const wideningOrder = ["early", "5", "25", "100"];
 
 /** Each stage is held at least this long before the coordinator widens it. */
 export const stageMinimumMs = 6 * 60 * 60 * 1000;
-/** Releases considered for widening, newest first: older ones are already at 100% in practice. */
-export const wideningWindow = 4;
+/**
+ * At most this many releases, newest first, are widened; installations without
+ * early access look back as far (MAX_RELEASES_CONSIDERED in the desktop app).
+ * Widening stops earlier, at the newest release already at 100%.
+ */
+export const wideningLimit = 16;
 
 const tagPattern = /^v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/;
 

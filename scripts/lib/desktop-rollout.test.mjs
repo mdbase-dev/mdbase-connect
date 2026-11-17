@@ -87,7 +87,7 @@ test("rollout runs are tag-bound, separate from release builds and cannot change
   assert.match(workflow, /group: desktop-release-\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| inputs\.operation == 'rollout' && format\('rollout-\{0\}', github\.ref_name\) \|\| 'live' \}\}/);
   assert.match(workflow, /options: \[held, early, '5', '25', '100'\]\n\s+default: held/);
   assert.match(job("coordinate"), /github\.event_name == 'workflow_dispatch' && inputs\.operation == 'release'/);
-  assert.match(job("coordinate"), /DESKTOP_EXPEDITE_REASON: \$\{\{ github\.event_name == 'workflow_dispatch' && inputs\.expedite_reason \|\| '' \}\}/);
+  assert.doesNotMatch(workflow, /expedite/i, "desktop releases as changes merge; nothing to expedite");
 });
 
 test("rollout documents are signed by the release's tag identity and uploaded with the run's OIDC token", () => {

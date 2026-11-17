@@ -81,8 +81,10 @@ export interface UpdateBackend {
 
 const NEWEST = msg({ message: "This is the newest release on the selected channel.", context: "Desktop application" });
 // Releases rolling out in stages can leave the newest few unavailable to this
-// installation; older ones are considered down to this many.
-const MAX_RELEASES_CONSIDERED = 4;
+// installation; older ones are considered down to this many. Desktop releases
+// as changes merge, so several can be rolling out at once. Matches the release
+// coordinator's wideningLimit.
+const MAX_RELEASES_CONSIDERED = 16;
 const CHECK_TIMEOUT_MS = 60_000;
 // Finding and verifying a release is bounded tightly; downloading and staging a
 // full release on a slow link legitimately takes longer, so it gets its own deadline.

@@ -19,10 +19,6 @@ on:
         type: choice
         options: [held, early, '5', '25', '100']
         default: held
-      expedite_reason:
-        description: On main, release now despite the release gap. Say why and name the pull request (https://github.com/mdbase-dev/mdbase-connect/pull/<n>)
-        type: string
-        default: ''
   pull_request:
     paths:
       - ".github/workflows/desktop-release.yml"
@@ -86,7 +82,6 @@ jobs:
       DESKTOP_RELEASE_ACKNOWLEDGED_TAG: ${{ vars.DESKTOP_RELEASE_ACKNOWLEDGED_TAG }}
       DESKTOP_ROLLOUT_SERVICE: ${{ vars.DESKTOP_ROLLOUT_SERVICE }}
       DESKTOP_ROLLOUT_HELD: ${{ vars.DESKTOP_ROLLOUT_HELD }}
-      DESKTOP_EXPEDITE_REASON: ${{ github.event_name == 'workflow_dispatch' && inputs.expedite_reason || '' }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

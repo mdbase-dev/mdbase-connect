@@ -27,17 +27,13 @@ policy-key change is required.
 
 The coordinator compares the desktop and its bundled dependencies with the
 last published desktop tag. Server-only, documentation-only and test-only
-changes do not create a release. Releases are at least **6 hours** apart while
-staged rollout is enabled (`DESKTOP_ROLLOUT_SERVICE` is set) and 24 hours apart
-otherwise; installations without early access space their own updates a day
-apart. An unfinished automatic release attempt blocks new versions.
-
-An urgent fix can skip the gap, and only the gap: dispatch on main with
-`expedite_reason` naming the pull request it ships, e.g. ops
-`bin/release desktop expedite "Crash on launch, https://github.com/mdbase-dev/mdbase-connect/pull/1700"`.
-The diff, unfinished-attempt, latch and compatibility gates still apply, and
-the reason is recorded in the tag reservation. An expedited release still
-starts at early access; widen or hold it like any other. Before publication,
+changes do not create a release. While staged rollout is enabled
+(`DESKTOP_ROLLOUT_SERVICE` is set) there is no gap between releases: a desktop
+change releases as soon as it reaches production, like every other client.
+Each release reaches people in stages, and installations without early access
+space their own updates a day apart, so frequent releases do not mean frequent
+updates. Without staged rollout, releases stay 24 hours apart. An unfinished
+automatic release attempt blocks new versions. Before publication,
 all four existing platform builds, signing/provenance steps and platform
 verification remain in place. The Linux build also runs desktop regressions,
 browser UI/accessibility flows and the packaged daemon CLI smoke. The required
@@ -137,10 +133,12 @@ Staged rollout is enabled by the repository variable
   repository's `desktop-release.yml` at that same tag. There is no stored
   credential;
 - every coordinator run (after the release plan's stop, latch and
-  unfinished-attempt gates) reads and verifies the rollout of the four newest
-  releases, and moves each one stage along `early → 5 → 25 → 100` once it has
-  held its current stage for **6 hours**. Each release keeps its own clock, so
-  a new release does not stop an older one reaching everyone. The coordinator
+  unfinished-attempt gates) reads and verifies the rollout of every release
+  newer than the newest one at 100% (at most 16), and moves each one stage
+  along `early → 5 → 25 → 100` once it has held its current stage for
+  **6 hours**. Each release keeps its own clock, so a new release does not stop
+  an older one reaching everyone: an installation without early access takes
+  the newest release that has reached it, looking back as far. The coordinator
   never moves a release out of `held` or a stage set by hand outside that
   sequence.
 
@@ -233,6 +231,6 @@ change for independent desktop/SDK versions. Neither consumer is modified here.
 2. Wait for a published desktop release that contains staged-rollout support in
    the app, so that most installations space their own updates.
 3. Set `DESKTOP_ROLLOUT_SERVICE=https://updates.mdbase.dev`. The next release
-   starts at early access and widens automatically; the gap becomes 6 hours.
+   starts at early access and widens automatically, and the 24-hour gap ends.
 
 Tests: `node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs scripts/lib/desktop-rollout.test.mjs`.
