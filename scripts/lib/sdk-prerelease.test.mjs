@@ -8,11 +8,13 @@ import { verifySdkArchive } from "./sdk-publication.mjs";
 
 const root = resolve(import.meta.dirname, "../..");
 const contract = JSON.parse(readFileSync(join(root, "config/release-components.json"))).sdkPublication;
-const version = "0.0.1-next.0";
+const suffixedVersion = "0.0.1-next.0";
+const version = suffixedVersion;
 const commit = "a".repeat(40);
 const tag = `sdk-v${version}`;
 
-function fixture(context) {
+function fixture(context, version = suffixedVersion) {
+  const tag = `sdk-v${version}`;
   const directory = mkdtempSync(join(root, ".sdk-publication-test-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   function pack(environment, overrides = {}, sourceCommit = commit) {
@@ -52,7 +54,7 @@ function fixture(context) {
           name: new URL(url).searchParams.get("name"), size: options.body.length, state: "uploaded",
         }];
         else if (options.method === "PATCH" && pathname === "releases/42") {
-          result = [200, { tag_name: tag, draft: false, prerelease: false }];
+          result = [200, { tag_name: tag, draft: false, prerelease: options.body && JSON.parse(options.body).prerelease }];
         } else throw new Error(`Unexpected synthetic request: ${url}`);
       }
       return { status: result[0], json: async () => result[1] };
@@ -68,12 +70,21 @@ test("one new tag and release bind both exact packages and bundles, never Latest
   const create = value.calls.find(call => call.pathname === "releases").body;
   assert.equal(create.tag_name, tag);
   assert.equal(create.target_commitish, commit);
-  assert.equal(create.prerelease, false);
+  assert.equal(create.prerelease, true, "a suffixed version stays a GitHub prerelease");
   assert.equal(create.draft, true);
   assert.equal(create.make_latest, "false");
   assert.equal(value.calls.filter(call => call.pathname === "releases/42/assets").length, 4);
-  assert.deepEqual(value.calls.at(-1).body, { draft: false, prerelease: false, make_latest: "false" });
+  assert.deepEqual(value.calls.at(-1).body, { draft: false, prerelease: true, make_latest: "false" });
   assert(!value.calls.some(call => call.method === "DELETE"));
+});
+
+test("a plain semver version publishes a normal release, never Latest", async context => {
+  const value = fixture(context, "0.0.1");
+  await publishSdkPrerelease({ ...value.options, request: value.requestWith() });
+  const create = value.calls.find(call => call.pathname === "releases").body;
+  assert.equal(create.tag_name, "sdk-v0.0.1");
+  assert.equal(create.prerelease, false);
+  assert.deepEqual(value.calls.at(-1).body, { draft: false, prerelease: false, make_latest: "false" });
 });
 
 for (const [name, path, status] of [

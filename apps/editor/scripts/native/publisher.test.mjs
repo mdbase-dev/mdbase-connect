@@ -105,7 +105,7 @@ it('checks exact npm integrity and authenticated publisher source before accepti
 it('pins staging to the production version and verifies both release digests and the repository/workflow/source attestation',async()=>{
  const {pin}=await productionPin(repoRoot),bytes=Buffer.from('staging'),proof=Buffer.from('{}');
  const prefix=`https://github.com/mdbase-dev/mdbase-connect/releases/download/sdk-v${pin.version}/`;
- const release={tag_name:'sdk-v'+pin.version,prerelease:true,draft:false,assets:[
+ const release={tag_name:'sdk-v'+pin.version,prerelease:pin.version.includes('-'),draft:false,assets:[
   {name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:prefix+'sdk-staging.tgz'},
   {name:'sdk-staging.tgz.sigstore.json',digest:'sha256:'+sha(proof),browser_download_url:prefix+'sdk-staging.tgz.sigstore.json'}]};
  let called=false;
@@ -190,7 +190,7 @@ it('uses authenticated assets for staging installation and installed-byte compar
   const asset='https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/assets/100';
   const fetchImpl=async(url,init)=>{
    seen.push(url);assert.equal(init.headers.authorization,'Bearer test-job-token');
-   if(url===metadata)return Response.json({tag_name:tag,prerelease:true,draft:false,assets:[
+   if(url===metadata)return Response.json({tag_name:tag,prerelease:pin.version.includes('-'),draft:false,assets:[
     {id:100,name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:path}
    ]});
    assert.equal(url,asset);assert.equal(init.headers.accept,'application/octet-stream');

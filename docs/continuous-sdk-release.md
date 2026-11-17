@@ -83,7 +83,7 @@ patch. Versions may therefore skip numbers; they never go backwards. The tag
 run refuses with `publication-version-superseded` if any selected package has
 since published a higher version. A version form it cannot order, or a 1.0
 release, stops the allocator for release-agent review. Every release publishes
-to npm `latest`, and its `sdk-v<version>` GitHub release is not a prerelease.
+to npm `latest`, and its plain-semver `sdk-v<version>` GitHub release is not a prerelease.
 Versions are stamped only into CI outputs; no release-version commits/PRs are
 created.
 
@@ -102,7 +102,7 @@ so until production contains shared reservations, a coordinator uses only its
 own line's tags (transition guard; remove once production contains them).
 Sharing is safe because the lines publish disjoint
 packages, each line's npm provenance names its own workflow file at
-`refs/tags/v<version>`, the SDK's GitHub prerelease uses its own `sdk-v<version>`
+`refs/tags/v<version>`, the SDK's GitHub release uses its own `sdk-v<version>`
 tag, and run history and "already published" checks are per workflow. The
 `Protect release tags` ruleset forbids updating or deleting `v*` tags.
 
@@ -119,7 +119,7 @@ WASM/SQLite/trust integrity checks, cold consumers and extracted-package checks
 remain. CI stamps the root and SDK version only **after** frozen tool installs.
 The three environment archives are built once from the same source and bytes.
 Production goes only to npmjs `latest`; staging and LAB retain private manifests
-and their individually attested `sdk-v<computed-version>` immutable prerelease
+and their individually attested `sdk-v<computed-version>` immutable release
 assets. All assets are uploaded to the draft before publication. The original
 trust roots, pins, policy keys and consumer admission rules are not modified.
 
