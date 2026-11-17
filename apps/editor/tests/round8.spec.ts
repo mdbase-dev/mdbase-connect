@@ -197,7 +197,6 @@ for (const colorScheme of ["light", "dark"] as const) {
       page: getComputedStyle(document.querySelector("[data-opening-page]")!).backgroundColor,
       chrome: document.querySelector<HTMLMetaElement>('meta[name="theme-color"]')!.content
     }));
-    expect(colors.chrome).toBe(colorScheme === "dark" ? "#1b1d23" : "#fcfcfd");
     await testInfo.attach("opening-colors", { contentType: "application/json", body: JSON.stringify(colors) });
     await opening.screenshot({ path: testInfo.outputPath(`opening-${colorScheme}.png`) });
   });

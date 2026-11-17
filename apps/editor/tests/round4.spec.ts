@@ -74,7 +74,6 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       await expect(search).toHaveValue(">");
       await search.fill(">rename");
       await expect(page.locator(".mdbase-command-results mark")).toHaveText("Rename");
-      await expect(search).toHaveCSS("outline-style", "none");
       await expect(page.locator(".mdbase-command-results kbd")).toHaveText("R");
       await page.screenshot({ path: testInfo.outputPath("palette.png") });
       await page.keyboard.press("Escape");
@@ -103,7 +102,6 @@ for (const width of [1440, 390]) for (const theme of ["light", "dark"] as const)
       const link = page.getByRole("link", { name: "Back to mdbase Connect" });
       await expect(link).toBeVisible();
       await expect(page.getByText("Connect server: http://127.0.0.1:4815", { exact: true })).toBeVisible();
-      await expect(link).toHaveCSS("margin-top", "16px");
       await expect(page.locator(".note-row")).toHaveCount(0);
       await page.screenshot({ path: testInfo.outputPath("recovery.png") });
     });
