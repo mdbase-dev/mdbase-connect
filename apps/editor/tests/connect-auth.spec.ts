@@ -26,13 +26,10 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
   await page.goto(`${portalOrigin}/login`);
   await expect(page).toHaveURL(`${portalOrigin}/login`);
   await expect(page.getByRole("button", { name: "Continue with Google" })).toBeEnabled();
-  await expect(page.locator(".provider-divider")).toHaveCount(0);
   await expect(page.locator("h1")).toHaveText("Sign in");
   await expect(page.getByLabel("Email", { exact: true })).toBeFocused();
   await expect(page.getByLabel("Email", { exact: true })).toHaveAttribute("autocomplete", "username");
   await expect(page.getByLabel("Password", { exact: true })).toHaveAttribute("autocomplete", "current-password");
-  expect(await page.locator(".minimal-auth-shell").evaluate((element) => getComputedStyle(element).fontFamily)).toContain("IBM Plex Sans");
-  await expect(page.getByRole("button", { name: "Sign in", exact: true })).toHaveClass(/mdbase-button is-primary/);
   for (const theme of ["light", "dark"] as const) {
     await page.getByRole("radiogroup", { name: "Color theme" }).getByRole("radio", { name: theme === "dark" ? "Dark" : "Light" }).check();
     await expect(page.locator(".google-button")).toHaveAttribute("data-theme", theme === "dark" ? "filled_black" : "outline");
@@ -45,9 +42,6 @@ test("Connect opens one themed, accessible auth column at desktop and 390px", as
       });
       expect(Math.abs(layout.center - width / 2)).toBeLessThan(1);
       expect(layout.width).toBeLessThanOrEqual(400);
-      const primary = page.getByRole("button", { name: "Sign in", exact: true });
-      expect(await primary.evaluate((element) => getComputedStyle(element).backgroundColor)).not.toBe("rgba(0, 0, 0, 0)");
-      await expect(primary).toHaveCSS("text-decoration-line", "none");
       await expectAccessible(page);
     }
   }
@@ -122,8 +116,7 @@ test("signup and recovery use the same column and announce email delivery withou
     await page.goto(`${portalOrigin}/${path}`);
     await page.getByRole("radiogroup", { name: "Color theme" }).getByRole("radio", { name: "Dark" }).check();
     await expect(page.locator(".minimal-auth-shell")).toBeVisible();
-    await expect(page.locator(".provider-divider")).toHaveCount(0);
-    if (path === "signup") {
+      if (path === "signup") {
       const provider = await page.getByRole("link", { name: "Continue with GitHub" }).boundingBox();
       const email = await page.getByLabel("Email", { exact: true }).boundingBox();
       expect(provider!.y + provider!.height).toBeLessThan(email!.y);

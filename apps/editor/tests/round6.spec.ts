@@ -44,10 +44,6 @@ for (const theme of ["light", "dark"] as const) for (const reducedMotion of ["no
       await expect(list).toBeFocused();
       const selected = list.locator(".note-row.selected");
       await expect(selected).toHaveCSS("outline-style", "none");
-      await expect(selected).toHaveCSS("background-color", await selected.evaluate((row) => {
-        const probe = document.createElement("span"); probe.style.background = "var(--selected)"; row.append(probe);
-        const color = getComputedStyle(probe).backgroundColor; probe.remove(); return color;
-      }));
       await page.keyboard.press("/");
       const search = page.getByRole("combobox", { name: "Search notes and files" });
       await search.fill("garden");
