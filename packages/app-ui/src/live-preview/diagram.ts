@@ -1,9 +1,9 @@
 import type { EditorView } from "@codemirror/view";
-import { WidgetType } from "@codemirror/view";
 import { t } from "@lingui/core/macro";
 import type { MountOptions, Mounted } from "pele/lazy";
 import "../i18n.js";
 import { lazily } from "./lazy.js";
+import { BlockWidget } from "./rendered-blocks.js";
 
 /**
  * A Mermaid diagram, rendered by Pele in place of its fenced source while the
@@ -20,46 +20,33 @@ export function isDiagramLanguage(language: string): boolean {
 
 const loadRenderer = lazily(() => import("pele/lazy"));
 
-/** Last rendered height per source, so a re-created widget reserves its space before rendering. */
-const heights = new Map<string, number>();
-const HEIGHT_ENTRIES = 256;
-function rememberHeight(source: string, height: number) {
-  heights.delete(source);
-  heights.set(source, height);
-  if (heights.size > HEIGHT_ENTRIES) heights.delete(heights.keys().next().value!);
-}
-
 interface MountState { mounted?: Mounted; destroyed: boolean }
 const mounts = new WeakMap<HTMLElement, MountState>();
 
-function renderOptions(view: EditorView, box: HTMLElement, source: string): MountOptions {
+function renderOptions(onRender: () => void): MountOptions {
   return {
     images: false,
     linkSchemes: ["http", "https", "mailto"],
     linkRel: "noopener noreferrer",
     zoom: { labels: { zoomIn: t`Zoom in`, zoomOut: t`Zoom out`, reset: t`Reset zoom` } },
-    onRender: () => view.requestMeasure({
-      read: () => box.offsetHeight,
-      write: (height) => {
-        if (height > 0) rememberHeight(source, height);
-        box.style.minHeight = "";
-      }
-    })
+    onRender
   };
 }
 
-export class DiagramWidget extends WidgetType {
-  constructor(readonly source: string) { super(); }
+export class DiagramWidget extends BlockWidget {
+  protected readonly heightKey: string;
+
+  constructor(readonly source: string) {
+    super();
+    this.heightKey = `diagram:${source}`;
+  }
 
   eq(other: DiagramWidget) { return this.source === other.source; }
 
-  get estimatedHeight() { return heights.get(this.source) ?? -1; }
-
-  toDOM(view: EditorView) {
+  protected draw(view: EditorView, hold: () => () => void) {
     const box = document.createElement("div");
     box.className = "cm-lp-diagram";
-    const height = heights.get(this.source);
-    if (height) box.style.minHeight = `${height}px`;
+    const drawn = hold();
     const canvas = document.createElement("div");
     canvas.className = "cm-lp-diagram-canvas";
     const edit = document.createElement("button");
@@ -75,21 +62,21 @@ export class DiagramWidget extends WidgetType {
     mounts.set(box, state);
     loadRenderer().then(({ mountAsync }) => {
       if (state.destroyed) return;
-      return mountAsync(canvas, this.source, renderOptions(view, box, this.source)).then((mounted) => {
+      return mountAsync(canvas, this.source, renderOptions(drawn)).then((mounted) => {
         if (state.destroyed) mounted.destroy();
         else state.mounted = mounted;
       });
     }).catch(() => {
       if (state.destroyed) return;
-      box.style.minHeight = "";
       canvas.className = "cm-lp-diagram-canvas cm-lp-diagram-failed";
       canvas.textContent = t`The diagram could not be shown. Check your connection and reopen the note.`;
+      drawn();
     });
     return box;
   }
 
-  destroy(dom: HTMLElement) {
-    const state = mounts.get(dom);
+  protected discard(box: HTMLElement) {
+    const state = mounts.get(box);
     if (!state) return;
     state.destroyed = true;
     state.mounted?.destroy();

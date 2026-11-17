@@ -11,6 +11,7 @@ export type { LivePreviewLink, LivePreviewOptions } from "./live-preview/inline.
 export { isRevealed, revealField as livePreviewReveal } from "./live-preview/reveal.js";
 export { indentListItem, outdentListItem } from "./live-preview/keys.js";
 export { markdownMath } from "./live-preview/math.js";
+export { BlockWidget, renderedBlocks, type RenderedBlock } from "./live-preview/rendered-blocks.js";
 
 /**
  * Live preview for a CodeMirror Markdown editor: the note reads as rendered
@@ -21,7 +22,10 @@ export { markdownMath } from "./live-preview/math.js";
  *
  * Rendered links carry `data-link-from` (the link's source offset) and
  * `data-link-format`; opening them is the app's choice. App widgets, such as
- * embeds, should follow the same rule through `isRevealed`.
+ * embeds, should follow the same rule through `isRevealed`. A widget that
+ * stands for whole lines extends `BlockWidget` and is listed in
+ * `renderedBlocks`: it is then drawn, revealed and measured like the
+ * preview's own blocks.
  */
 export function livePreview(options: LivePreviewOptions = {}): Extension {
   return [revealTracking(), blockPreview(), mathPreview(), inlinePreview(options), tablePreview(), livePreviewKeys, taskToggle];
