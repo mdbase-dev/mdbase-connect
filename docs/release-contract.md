@@ -1,7 +1,7 @@
 # Product release contract
 
 The source inventory is now schema v2: `sdkPublication` records the separate
-environment-pinned SDK workflow (production npmjs and staging/LAB prerelease
+environment-pinned SDK workflow (production npmjs and staging/LAB GitHub release
 assets) and its source-build qualification gate. See [SDK publication](sdk-publication.md).
 No current ops change is required: private promotion readers consume their own
 component mapping and the unchanged OCI bundle, not this public source inventory.
@@ -90,7 +90,8 @@ Both publishers upload every release asset before publishing the draft:
   dispatches a notification.
 - `publish-sdk-npm.yml` calls `scripts/publish-sdk-prerelease.mjs`, which creates
   a draft, uploads both staging/LAB tarballs and their two Sigstore bundles,
-  rechecks the tag commit, then publishes the prerelease.
+  rechecks the tag commit, then publishes the release (a prerelease only for a
+  suffixed version).
 
 Keep every asset upload before publication. Failed or unknown publication is
 an investigation boundary, never permission to replace assets or move a tag.

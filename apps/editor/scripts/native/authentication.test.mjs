@@ -5,13 +5,13 @@ import { it } from 'node:test';
 import { archiveBytes, publicBytes, stagingArchive } from './authentication.mjs';
 const repository='mdbase-dev/mdbase-connect';
 const pin={version:'0.1.0-beta.1',sourceCommit:'a'.repeat(40),publication:{ref:'refs/heads/main'}};
-const fixture=()=>{
- const bytes=Buffer.from('staging'),proof=Buffer.from('{}'),tag='sdk-v'+pin.version;
+const fixture=(version=pin.version)=>{
+ const bytes=Buffer.from('staging'),proof=Buffer.from('{}'),tag='sdk-v'+version;
  const assets=[['sdk-staging.tgz',bytes],['sdk-staging.tgz.sigstore.json',proof]].map(([name,content],index)=>({
   id:100+index,name,digest:'sha256:'+createHash('sha256').update(content).digest('hex'),
   browser_download_url:`https://github.com/${repository}/releases/download/${tag}/${name}`
  }));
- return {bytes,proof,release:{tag_name:tag,prerelease:true,draft:false,assets},metadata:`https://api.github.com/repos/${repository}/releases/tags/${tag}`};
+ return {bytes,proof,release:{tag_name:tag,prerelease:version.includes('-'),draft:false,assets},metadata:`https://api.github.com/repos/${repository}/releases/tags/${tag}`};
 };
 const series=(...steps)=>{
  const calls={count:0};
@@ -54,11 +54,45 @@ it('keeps the no-response refusal format after exhausted network retries',async(
 it('authenticates the SDK release API read without trusting mismatched metadata',async()=>{
  const seen=[];
  const fetchImpl=async(url,init)=>{seen.push([url,init.headers?.authorization]);return new Response(JSON.stringify({tag_name:'other'}),{status:200});};
- await assert.rejects(stagingArchive({version:'0.1.0-beta.1'},{fetchImpl,token:'t0'}),/exact SDK prerelease required/);
+ await assert.rejects(stagingArchive({version:'0.1.0-beta.1'},{fetchImpl,token:'t0'}),/exact published SDK release required/);
  assert.deepEqual(seen,[['https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/tags/sdk-v0.1.0-beta.1','Bearer t0']]);
  seen.length=0;
- await assert.rejects(stagingArchive({version:'0.1.0-beta.1'},{fetchImpl,token:''}),/exact SDK prerelease required/);
+ await assert.rejects(stagingArchive({version:'0.1.0-beta.1'},{fetchImpl,token:''}),/exact published SDK release required/);
  assert.equal(seen[0][1],undefined);
+});
+const serve=(data,token)=>async url=>{
+ if(url===data.metadata)return Response.json(data.release);
+ const asset=data.release.assets.find(asset=>url===(token?`https://api.github.com/repos/${repository}/releases/assets/${asset.id}`:asset.browser_download_url));
+ assert.ok(asset,'only the exact asset endpoint may be requested');
+ return new Response(asset.id===100?data.bytes:data.proof);
+};
+for(const version of ['0.1.2','0.1.0-beta.231'])it(`accepts the exact published release for SDK ${version}`,async()=>{
+ const data=fixture(version);let verified=0;
+ assert.equal(data.release.prerelease,version!=='0.1.2');
+ const result=await stagingArchive({...pin,version},{fetchImpl:serve(data,'t0'),token:'t0',run:()=>{verified++;}});
+ assert.deepEqual(result.bytes,data.bytes);
+ assert.equal(verified,1);
+ assert.deepEqual(await archiveBytes(data.release.assets[0].browser_download_url,serve(data,'t0'),'t0'),data.bytes);
+});
+for(const [name,version,change] of [
+ ['a plain release marked prerelease','0.1.2',release=>{release.prerelease=true;}],
+ ['a beta release not marked prerelease','0.1.0-beta.231',release=>{release.prerelease=false;}],
+ ['a draft plain release','0.1.2',release=>{release.draft=true;}],
+ ['a draft beta release','0.1.0-beta.231',release=>{release.draft=true;}],
+ ['a release with another tag','0.1.2',release=>{release.tag_name='sdk-v0.1.3';}]
+])it(`refuses ${name} before downloading or verifying`,async()=>{
+ const data=fixture(version);change(data.release);
+ for(const token of ['t0','']) {
+  const seen=[];
+  const fetchImpl=async url=>{seen.push(url);return serve(data,token)(url);};
+  await assert.rejects(stagingArchive({...pin,version},{fetchImpl,token,run:()=>assert.fail('must not verify')}),
+   /^Error: SDK authentication refusal: exact published SDK release required$/);
+  assert.deepEqual(seen,[data.metadata]);
+ }
+ const seen=[];
+ await assert.rejects(archiveBytes(data.release.assets[0].browser_download_url,async url=>{seen.push(url);return serve(data,'t0')(url);},'t0'),
+  /^Error: SDK authentication refusal: exact published SDK release required$/);
+ assert.deepEqual(seen,[data.metadata]);
 });
 for(const token of ['t0',''])it(`downloads and verifies both staging assets ${token?'with authentication':'anonymously'}`,async()=>{
  const data=fixture(),seen=[],commands=[];
