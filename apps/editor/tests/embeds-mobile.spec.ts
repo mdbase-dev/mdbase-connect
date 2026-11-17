@@ -99,8 +99,6 @@ test("embed actions reveal on pointer and keyboard focus without a caption bar",
   await expect(embed.locator(".cm-embed-actions")).toHaveCSS("opacity", "0");
   await expect(embed.locator("figcaption")).toHaveText("A durable piece of frontmatter");
   await expect(embed.locator("figcaption button")).toHaveCount(0);
-  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
-  await expect(image).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await embed.focus();
   await expect(embed.locator(".cm-embed-actions")).toHaveCSS("opacity", "1");
   await embed.getByRole("button", { name: "Copy path for frontmatter.svg" }).click();

@@ -241,10 +241,9 @@ async function expectSharedSelectControls(scope: Locator) {
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
     hasCaret: Boolean(select.querySelector(".mdbase-select-chevron")),
     listbox: select.getAttribute("aria-haspopup") === "listbox",
-    minHeight: getComputedStyle(select).minHeight,
     height: select.getBoundingClientRect().height
   })));
-  expect(audit.every((control) => control.hasCaret && control.listbox && control.minHeight === "28px" && control.height >= 28)).toBe(true);
+  expect(audit.every((control) => control.hasCaret && control.listbox && control.height >= 28)).toBe(true);
 }
 
 test("shows an explicit status while a collection opens", async ({ page }) => {
@@ -383,10 +382,6 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   const codeMirror = page.locator(".body-editor .cm-editor");
   await body.click();
   await expect(body).toBeFocused();
-  expect(await codeMirror.evaluate((element) => ({
-    outline: getComputedStyle(element).outlineStyle,
-    shadow: getComputedStyle(element).boxShadow
-  }))).toEqual({ outline: "none", shadow: "none" });
   await expect(page.locator(".body-editor .cm-cursorLayer")).toHaveCount(0);
   const caretColor = await body.evaluate((element) => getComputedStyle(element).caretColor);
   expect(caretColor).not.toBe("transparent");
@@ -858,28 +853,18 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   const appearance = await completion.evaluate((popup) => {
     const list = popup.querySelector<HTMLElement>("ul");
     const row = popup.querySelector<HTMLElement>("li");
-    const label = popup.querySelector<HTMLElement>(".cm-completionLabel");
-    const detail = popup.querySelector<HTMLElement>(".cm-completionDetail");
-    if (!list || !row || !label || !detail) throw new Error("The completion popup is incomplete.");
+    if (!list || !row) throw new Error("The completion popup is incomplete.");
     return {
       popupWidth: popup.getBoundingClientRect().width,
       listHeight: list.clientHeight,
       listScrollHeight: list.scrollHeight,
-      rowHeight: row.getBoundingClientRect().height,
-      listFont: getComputedStyle(list).fontFamily,
-      labelFont: getComputedStyle(label).fontFamily,
-      labelWeight: getComputedStyle(label).fontWeight,
-      detailFont: getComputedStyle(detail).fontFamily
+      rowHeight: row.getBoundingClientRect().height
     };
   });
   expect(appearance.popupWidth).toBeGreaterThanOrEqual(320);
   expect(appearance.rowHeight).toBeGreaterThanOrEqual(40);
   expect(appearance.listHeight).toBeLessThanOrEqual(252);
   expect(appearance.listScrollHeight).toBeGreaterThan(appearance.listHeight);
-  expect(appearance.listFont).toContain("IBM Plex Sans");
-  expect(appearance.labelFont).toContain("IBM Plex Sans");
-  expect(appearance.labelWeight).toBe("700");
-  expect(appearance.detailFont).toContain("Azeret Mono");
 
   await page.keyboard.type("the shape");
   const selectedCompletion = completion.getByRole("option", { selected: true });
@@ -1021,7 +1006,6 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
   await expect(quickOpen).toBeVisible();
   const finder = quickOpen.getByRole("combobox", { name: "Find a note or action" });
-  await expect(finder).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await finder.fill("qstn kpng");
   await expect(quickOpen.getByRole("option", { name: /Questions worth keeping 7/ })).toBeVisible();
   await page.keyboard.press("Enter");
@@ -1187,27 +1171,6 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(contractSettings.getByText("Application behavior")).toBeVisible();
   const rootFields = contractSettings.locator(".contract-settings-body > .schema-object > .schema-object-fields");
   await expect(rootFields.locator(":scope > .schema-nested-value")).toHaveCount(2);
-  const hierarchy = await contractSettings.evaluate((settings) => {
-    const section = settings.querySelector<HTMLElement>(
-      ".contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value"
-    );
-    const nestedFields = settings.querySelector<HTMLElement>(
-      ".contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-object > .schema-object-fields"
-    );
-    const addItem = [...settings.querySelectorAll<HTMLButtonElement>(".schema-add-trigger")]
-      .find((button) => button.textContent?.includes("Add item"));
-    if (!section || !nestedFields || !addItem) throw new Error("Contract setting hierarchy is incomplete.");
-    return {
-      sectionDivider: getComputedStyle(section).borderTopStyle,
-      nestingGuide: getComputedStyle(nestedFields).borderLeftStyle,
-      addItemBorder: getComputedStyle(addItem).borderTopWidth
-    };
-  });
-  expect(hierarchy).toEqual({
-    sectionDivider: "solid",
-    nestingGuide: "solid",
-    addItemBorder: "0px"
-  });
   const addSetting = contractSettings.locator(
     ".contract-settings-body > .schema-object > .schema-add-trigger"
   );

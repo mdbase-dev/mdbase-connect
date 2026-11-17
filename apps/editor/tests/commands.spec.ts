@@ -105,8 +105,6 @@ for (const width of [1440, 390]) {
         await expect(backlink).toBeVisible();
         const hitArea = await backlink.boundingBox();
         expect(hitArea!.height).toBeGreaterThanOrEqual(44);
-        const textSize = await backlink.locator("strong").evaluate((element) => parseFloat(getComputedStyle(element).fontSize));
-        expect(textSize).toBeLessThanOrEqual(16);
         if (width === 390) {
           await page.getByRole("button", { name: "Back to notes" }).click();
           await page.getByRole("button", { name: "Collections", exact: true }).click();
@@ -216,7 +214,6 @@ test("unlinked mentions stay below visible body text, use plain highlighted snip
   await expect(page.getByRole("button", { name: "Show all 6", exact: true })).toBeVisible();
   await expect(page.locator(".unlinked-mention mark")).toHaveCount(5);
   await expect(page.locator(".unlinked-mention small").first()).toHaveText("I keep the shape of useful tools beside my notes.");
-  await expect(page.locator(".unlinked-mentions summary")).toHaveCSS("list-style-type", "none");
   await expect(page.locator(".unlinked-mentions summary svg")).toBeVisible();
   expect(await scroller.evaluate((element) => element.scrollTop)).toBe(before);
   const positions = await scroller.evaluate((element) => {

@@ -5,8 +5,7 @@
 `services/mcp` is the deployable `mdbase-mcp` service. It gives OAuth-capable
 MCP hosts one remote endpoint:
 
-The managed endpoint is `https://mcp.mdbase.dev/mcp`; a self-hosted gateway
-uses the operator's own HTTPS origin.
+The managed endpoint is `https://mcp.mdbase.dev/mcp`.
 
 It remains in the `mdbase-connect` repository because its upstream grants,
 relay cryptography, and request path must stay compatible with Connect. It is a
@@ -171,9 +170,7 @@ marker and fails closed when the configured key does not match the database.
 
 Deploy the gateway from the same immutable mdbase connect release as the
 control plane. Give it a separate PostgreSQL database, stable master key,
-health check, migration step, and HTTPS origin. The production Compose example
-and backup requirements are documented in
-[`self-hosting.md`](./self-hosting.md).
+health check, migration step, and HTTPS origin.
 
 After deployment:
 

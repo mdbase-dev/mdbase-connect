@@ -170,16 +170,6 @@ folder. Output is human-readable; `--json` prints machine-readable results. Run 
 installation guide](docs/headless.md) for verified standalone installation,
 service operation and record commands.
 
-## Self-hosting
-
-mdbase connect is open-source, and advanced operators can run the control
-plane, relay, hosted collection provider, and MCP gateway themselves.
-Self-hosters are responsible for authentication, TLS, signing, upgrades,
-monitoring, backups, and incident response.
-
-Use an immutable beta release tag rather than `main`, and follow the
-[production self-hosting guide](docs/self-hosting.md).
-
 ## Contributing
 
 This repository contains the editor, desktop app, CLI and connector, browser
@@ -223,8 +213,8 @@ The desktop app runs on an mdbn-daemon build:
 `MDBN_DAEMON_BIN=<absolute path to mdbase> pnpm dev:desktop:fresh`.
 
 See [Testing](docs/testing-environment.md),
-[Maintainability](docs/maintainability.md), [Releasing](docs/releasing.md), and
-[Production self-hosting](docs/self-hosting.md) for the complete workflows.
+[Maintainability](docs/maintainability.md), and [Releasing](docs/releasing.md)
+for the complete workflows.
 
 ## License
 

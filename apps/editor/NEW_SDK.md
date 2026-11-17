@@ -111,7 +111,7 @@ Staging uses the same version's attested `sdk-staging.tgz` release asset, never
 the production archive or rewritten trust. See [NATIVE_PUBLISHER.md](./NATIVE_PUBLISHER.md).
 
 Editor imports the exact npm UI version in `package.json`; the ordinary frozen
-lock pins its integrity, and the style-token gate checks installed UI CSS.
+lock pins its integrity.
 Shared UI owns opening progress, slow warnings, focus, storage warnings and
 Private entry; there is no app-side progress shim. SDK sign-out attempts
 whole-store grant cleanup and reports incomplete cleanup. Account-bound routing

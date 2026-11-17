@@ -17,7 +17,7 @@ adding application behavior to the mdbase specification or the relay.
 Five trust zones make up the local-hosted path:
 
 1. An independently hosted frontend application.
-2. A hosted or self-hosted Connect control plane and transient relay.
+2. A hosted Connect control plane and transient relay.
 3. A user-owned connector daemon with a browser-only loopback service and
    outbound network connections.
 4. User-owned mdbase collections on the local filesystem.
@@ -430,8 +430,7 @@ window so concurrent browser requests remain safe and usable.
 Every collection has one write authority:
 
 - a local connector for a filesystem-backed collection;
-- a hosted collection provider for the managed service;
-- a self-hosted provider implementing the same Connect API.
+- a hosted collection provider for the managed service.
 
 A hosted-authority folder may be mirrored into ordinary Markdown, but that
 folder cannot also be relayed by the local connector. Changing roles is an

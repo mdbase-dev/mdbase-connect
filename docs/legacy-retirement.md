@@ -138,6 +138,14 @@ the provider and the tables below: the to-hosted expiry branch of
 `auth-admin repairs authority-import-sources` command, adoption-row revocation in
 `instance-admin.ts` (with `abortAuthorityImport`), and the tables themselves.
 
+Removed ahead of the provider (2026-11-15): the **self-host stack**. The
+`deploy/self-host/` stack ran the legacy provider with no next log service and
+created `legacy` accounts. No shipped client could use it: the legacy connector
+is gone, and installation sign-in refuses a `legacy` account
+(`installation_legacy_backend`). Removed: `deploy/self-host/` (`compose.yml`,
+`.env.example` and `Caddyfile.example`), `docs/self-hosting.md` and their
+references.
+
 Also removed ahead of the provider (2026-11-15): the `sync` system suite
 (`scripts/sync-e2e.mjs`, `pnpm e2e:sync` and its `server-ci` shard) and the
 functional stress runner for the `packages/sync` client (`scripts/stress/*`,
@@ -188,7 +196,6 @@ portal keeps showing existing hosted collections and their synced folders, with
 | `deploy/postgres/*.sql` | 1,167 | cloud-ops `hosted-schema-admin` and `hosted-database-drain-admin` |
 | Provider system suites: `scripts/hosted-provider-e2e.mjs`, `hosted-files-e2e.mjs`, `hosted-file-adversarial-e2e.mjs`, `hosted-projection-scale-e2e.mjs`, `scripts/system/provider/*`; `server-ci` jobs `hosted-provider-rust` and the `hosted-provider-system` shards | about 6.0k | These guard the provider that every CD still deploys. Freezing the provider image digest would move them to Tier 1. Already removed: the opt-in `binary-transfer-benchmark` job, the engine checkout and Cargo build in the `relay` and `linux-packages` shards, which never started the provider, the provider Rust stress on the macOS and Windows legs of `flake-stress`, and the `sync` shard and `sync-e2e.mjs` (see above). |
 | Upgrade lanes: `test/upgrade/*`; `server-ci` jobs `previous-release-upgrade`, `current-provider-upgrade` (`--current-upgrade` against `.github/previous-release.env`) and `retained-v2-server-pending` (beta95) | about 1.7k | Same as above. `retained-v2-server-pending` also stays because it is the only lane that starts an older server on the candidate's migrated control-plane schema; it goes once a check against the merge-base server replaces it. Already removed, because both ends were published historical images or the workflow was not a gate: `previous-provider-upgrade` (beta94 `--legacy-prelude`), the beta95 `--retained-v2` step of the former `retained-v2-provider-upgrade`, and `rollback-read-compat.yml`. |
-| Self-host: `deploy/self-host/compose.yml`, `docs/self-hosting.md` | 877 | They run the legacy provider with no next log service, and new accounts are `legacy`. No shipped client can use such a stack: the legacy connector is gone, and installation sign-in refuses a `legacy` account (`installation_legacy_backend`). Replace them with a next self-host, or withdraw self-hosting; that is a product decision. |
 | Legacy-stack docs: `docs/sync.md`, `hosted-provider.md`, `lossless-opaque-sync-acceptance.md`, `docs/architecture/hosted-*` and `sdk-wave-b-*`, decisions 0003, 0005, 0006, 0010 and 0011, the legacy sections of `architecture.md`, `performance.md` and `encryption.md` | about 3.8k | Links only |
 
 ### 2b: migration Worker retired
@@ -264,8 +271,8 @@ Do not run any of them from an agent session.
 ## Risks that cross tiers
 
 - `MDBASE_NEW_ACCOUNT_BACKEND` now defaults to `next` in code, and the server refuses
-  to start with `next` but without `MDBASE_NEXT_CONTROL_PLANE=1`. The self-host and
-  local compose stacks, the tailnet stack and the server upgrade tests set `legacy`
+  to start with `next` but without `MDBASE_NEXT_CONTROL_PLANE=1`. The local
+  compose stack, the tailnet stack and the server upgrade tests set `legacy`
   explicitly. Retiring the legacy stack must also remove those settings.
 - Every server CD rebuilds the provider. `continuous_deployment.py` treats changes
   under `crates/**`, `Cargo.toml`, `config`, `mdbase-rs-revision` and
