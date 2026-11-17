@@ -71,6 +71,7 @@
   --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 10px;
+  --elevation-raised: 0 1px 2px var(--color-shadow);
   --elevation-low: 0 4px 12px var(--color-shadow);
   --elevation-high: 0 12px 32px var(--color-shadow);
   --space-0: 0;

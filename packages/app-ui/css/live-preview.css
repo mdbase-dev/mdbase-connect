@@ -380,6 +380,9 @@
 .cm-lp-code-header button:hover, .cm-lp-callout-header button:hover { background: var(--color-surface); color: var(--color-text); }
 .cm-lp-code-header button:focus-visible, .cm-lp-callout-header button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
 
+/* A block widget's box: CodeMirror measures it by its border box, so it contains what is drawn, margins included. */
+.cm-lp-block { display: flow-root; }
+
 .cm-lp-math-source { font-family: var(--mono); font-size: 0.92em; }
 .cm-lp-math-pending, .cm-lp-math-failed { color: var(--color-text-muted); font-family: var(--mono); font-size: 0.92em; white-space: pre-wrap; }
 .cm-lp-math-failed { text-decoration: underline dotted var(--color-danger); }

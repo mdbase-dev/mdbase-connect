@@ -4,7 +4,7 @@ import { ensureSyntaxTree, syntaxTree } from "@codemirror/language";
 import { EditorState } from "@codemirror/state";
 import { EditorView, type DecorationSet } from "@codemirror/view";
 import { beforeEach, expect, it, vi } from "vitest";
-import { markdownMath, mathPreview, MathWidget } from "./math.js";
+import { markdownMath, mathPreview, MathBlockWidget, MathWidget } from "./math.js";
 import { revealTracking } from "./reveal.js";
 
 const katex = vi.hoisted(() => ({ render: vi.fn() }));
@@ -43,11 +43,12 @@ function decorations(state: EditorState) {
     if (typeof set === "function") continue;
     (set as DecorationSet).between(0, state.doc.length, (from, to, value) => {
       const widget = value.spec.widget;
-      if (widget instanceof MathWidget) found.push({ from, to, kind: widget.kind, source: widget.source, block: !!value.spec.block });
+      if (widget instanceof MathWidget || widget instanceof MathBlockWidget) found.push({ from, to, kind: widget.kind, source: widget.source, block: !!value.spec.block });
       else if (value.spec.class) found.push({ from, to, mark: value.spec.class });
     });
   }
-  return found;
+  // Formulas drawn as blocks and formulas in text are separate sets.
+  return found.sort((a, b) => a.from - b.from);
 }
 
 it("parses inline math on one line and leaves prices, escapes and spaced dollars as text", () => {
@@ -123,7 +124,7 @@ it("renders with trust off and capped sizes, and draws later widgets at once", a
   expect(element.classList.contains("cm-lp-math-pending")).toBe(false);
   expect(view.requestMeasure).toHaveBeenCalled();
   expect(katex.render.mock.calls[0][2]).toMatchObject({ displayMode: false, throwOnError: false, trust: false, maxSize: 20 });
-  const block = new MathWidget("y", "block").toDOM(view);
+  const block = new MathBlockWidget("y", "block").toDOM(view);
   expect(block.tagName).toBe("DIV");
   expect(block.textContent).toBe("rendered:y");
   expect(katex.render.mock.calls[1][2]).toMatchObject({ displayMode: true });
