@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
+import { useRcargo } from "./rcargo.mjs";
 
 const execute = promisify(execFile);
 
@@ -96,18 +98,12 @@ export async function verifyControlPlaneDatabaseBounds(databaseUrl) {
 }
 
 export async function verifyHostedProviderDatabaseBounds(databaseUrl, repoRoot) {
+  const harness = await hostedProviderLibraryHarness(repoRoot);
   const { stdout = "", stderr = "" } = await execute(
-    "cargo",
-    [
-      "test",
-      "-p", "mdbase-connect-hosted-provider",
-      "production_pool_waits_and_database_locks_are_bounded",
-      "--",
-      "--ignored",
-      "--nocapture"
-    ],
+    harness,
+    ["production_pool_waits_and_database_locks_are_bounded", "--ignored", "--nocapture"],
     {
-      cwd: repoRoot,
+      cwd: join(repoRoot, "crates", "connect-hosted-provider"),
       env: {
         ...process.env,
         MDBASE_TEST_DATABASE_BOUNDS_URL: databaseUrl
@@ -117,4 +113,29 @@ export async function verifyHostedProviderDatabaseBounds(databaseUrl, repoRoot) 
   );
   if (stdout) process.stdout.write(stdout);
   if (stderr) process.stderr.write(stderr);
+}
+
+// The test is a library unit test. Selecting it by name alone made Cargo build
+// every test target in the package (about 19 GB of target/ per worktree);
+// --lib builds only its harness. With rcargo the harness is built on the VM and
+// only that binary is pulled back, as the system suites do for their binaries.
+async function hostedProviderLibraryHarness(repoRoot) {
+  const build = ["test", "-p", "mdbase-connect-hosted-provider", "--lib", "--no-run"];
+  const rcargo = useRcargo();
+  const options = { cwd: repoRoot, maxBuffer: 64 * 1024 * 1024 };
+  const { stdout } = await execute(
+    rcargo ? "rcargo" : "cargo",
+    [...(rcargo ? ["-q"] : []), ...build, "--message-format=json"],
+    options
+  );
+  const harness = stdout.split("\n")
+    .filter((line) => line.startsWith("{"))
+    .map((line) => JSON.parse(line))
+    .find((message) => message.reason === "compiler-artifact" && message.profile?.test && message.executable);
+  assert.ok(harness, "Cargo built no hosted-provider library test harness");
+  if (!rcargo) return harness.executable;
+  // The VM's checkout lives elsewhere; the harness has the same path under target/.
+  const pulled = harness.executable.slice(harness.executable.lastIndexOf("/target/") + "/target/".length);
+  await execute("rcargo", ["-q", "--pull", pulled, ...build], options);
+  return join(repoRoot, "target", pulled);
 }
