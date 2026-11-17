@@ -165,21 +165,40 @@ test("pull requests changing native or system-suite inputs run full Server CI", 
     "test/system/suites.mjs", "test/upgrade/lib.sh",
     "scripts/hosted-file-adversarial-e2e.mjs", "scripts/hosted-projection-scale-e2e.mjs",
     ".github/workflows/server-ci.yml"]) {
-    assert.deepEqual(serverTestPlan(["docs/readme.md", path]), { native: true }, path);
+    assert.equal(serverTestPlan(["docs/readme.md", path]).native, true, path);
   }
   for (const path of ["runtime/crates/log-conformance/src/suite.rs", "runtime/crates/log-server/src/pg.rs",
     "runtime/crates/log-service/src/service.rs", "runtime/deploy/cloudflare-do/tests/runtime.mjs",
     "services/server/src/features/next/policy-outbox.ts", "services/server/src/features/next/policy-outbox.postgres.test.ts",
     "services/server/src/features/next/log-service-client.ts", "runtime/crates/wire/src/log_service.rs",
     "runtime/Cargo.toml", "runtime/Cargo.lock", "runtime/rust-toolchain.toml"]) {
-    assert.deepEqual(serverTestPlan([path]), { native: true }, path);
+    assert.equal(serverTestPlan([path]).native, true, path);
   }
   for (const paths of [[], ["apps/editor/src/App.tsx"], ["docs/ci-qualification.md"], ["packages/client/src/index.ts"]]) {
-    assert.deepEqual(serverTestPlan(paths), { native: false }, paths.join());
+    assert.deepEqual(serverTestPlan(paths), { native: false, providerContract: false }, paths.join());
   }
   const classify = workflow("server-ci").split("  classify:\n")[1].split("  node:\n")[0];
   assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs "\$BASE" "\$HEAD"/);
   assert.match(classify, /if \[\[ \$NATIVE_CHANGES == true \]\] \|\|/);
+});
+
+test("control-plane and protocol pull requests run the pinned provider suite, required by qualification", () => {
+  for (const path of ["services/server/src/features/hosted/hosted-provider.ts", "packages/protocol/src/index.ts",
+    "scripts/pinned-hosted-provider.mjs"]) {
+    assert.equal(serverTestPlan(["docs/readme.md", path]).providerContract, true, path);
+  }
+  const server = workflow("server-ci");
+  const classify = server.split("  classify:\n")[1].split("  node:\n")[0];
+  assert.match(classify, /provider_contract: \$\{\{ steps\.plan\.outputs\.providerContract \}\}/);
+  const pinned = server.split("  hosted-provider-pinned:\n")[1].split("  qualification:\n")[0];
+  assert.match(pinned, /if: needs\.classify\.outputs\.run_full == 'true' \|\| needs\.classify\.outputs\.provider_contract == 'true'\n/);
+  assert.match(pinned, /run: node test\/system\/run\.mjs --suite provider-pinned\n/);
+  // Nothing in the pinned lane builds Rust or reads the engine checkout.
+  assert.doesNotMatch(pinned, /cargo|rustup|mdbase-rs|Cargo\.lock/);
+  const gate = server.split("  qualification:\n")[1];
+  assert.match(gate, /- hosted-provider-pinned\n/);
+  assert.match(gate, /"\$PROVIDER_SYSTEM" "\$PROVIDER_PINNED"/);
+  assert.match(gate, /\[\[ "\$PROVIDER_CONTRACT" != true \|\| "\$PROVIDER_PINNED" == success \]\]/);
 });
 
 test("protocol-only packaging selection leaves Node and full merge-queue qualification intact", () => {

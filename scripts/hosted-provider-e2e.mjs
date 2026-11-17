@@ -26,6 +26,7 @@ import {
   OPERATION_TRANSPORT_PROTOCOL_VERSION
 } from "../packages/protocol/dist/index.js";
 import { availableTcpPort, delay } from "./lib/test-runtime.mjs";
+import { pinnedProviderBinary } from "./pinned-hosted-provider.mjs";
 import { retryProviderDatabaseRequest } from "./lib/provider-database-retry.mjs";
 import { portableHostedFileE2E } from "./system/provider/portable-hosted-file.mjs";
 import { nodeHostedDeviceE2E } from "./system/provider/node-hosted-device.mjs";
@@ -66,10 +67,15 @@ const canonicalFileMutationKinds = operationCatalog.file_control_messages
   .filter((operation) => operation.mutation)
   .map((operation) => `file_control:${operation.id}`)
   .sort();
-const providerBinary = resolve(
-  process.env.MDBASE_CONNECT_PROVIDER_E2E_BINARY
-    ?? join(repoRoot, "target", "debug", "mdbase-connect-hosted-provider")
-);
+// --pinned-image runs the provider binary copied out of the pinned production
+// image (scripts/pinned-hosted-provider.mjs) instead of this checkout's build,
+// and skips the checks that test provider source rather than the image.
+const pinnedImage = process.argv.slice(2).includes("--pinned-image");
+assert.deepEqual(process.argv.slice(2).filter((argument) => argument !== "--pinned-image"), [],
+  "the only option is --pinned-image");
+const providerBinary = pinnedImage
+  ? await pinnedProviderBinary()
+  : join(repoRoot, "target", "debug", "mdbase-connect-hosted-provider");
 const postgresContainer = `mdbase-connect-provider-e2e-${process.pid}`;
 const objectStoreContainer = `mdbase-connect-provider-objects-${process.pid}`;
 const databasePassword = `test-${crypto.randomUUID()}`;
@@ -123,8 +129,11 @@ try {
   const databaseUrl = await startPostgres();
   phase("proving control-plane PostgreSQL wait bounds");
   await verifyControlPlaneDatabaseBounds(databaseUrl);
-  phase("proving hosted-provider PostgreSQL wait bounds");
-  await verifyHostedProviderDatabaseBounds(databaseUrl, repoRoot);
+  if (!pinnedImage) {
+    // A cargo test of the provider's pool settings, not of the image.
+    phase("proving hosted-provider PostgreSQL wait bounds");
+    await verifyHostedProviderDatabaseBounds(databaseUrl, repoRoot);
+  }
   phase("starting disposable S3-compatible object storage");
   objectStoreEndpoint = await startObjectStore();
   let provider = await startProvider(databaseUrl);
@@ -1165,166 +1174,170 @@ schema:
   assert.equal(JSON.stringify(notificationSignals[2]).includes("private-task"), false);
   assert.equal(JSON.stringify(notificationSignals[2]).includes("timer-state-stays-hosted"), false);
   await stopProvider(notificationProvider);
-  phase("retaining timer identity across release changes without client reconciliation");
-  // This is an exact historical-record/data-migration fixture on the current
-  // schema, not a claim to have run a predecessor image. The ordinary previous-
-  // release lane remains responsible for the complete binary/schema upgrade.
-  const timerNamespace = `connect-hosted:${notificationCollectionId}:notifications`;
-  await postgresQuery(`
-    ALTER TABLE mdbase_runtime_timers DROP CONSTRAINT IF EXISTS hosted_notification_timer_release_source_retired;
-    UPDATE mdbase_runtime_timers
-    SET record_json = jsonb_set(record_json, '{event_source,version}', '"0.1.0-beta.104"')
-    WHERE namespace = '${timerNamespace}';
-    INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json)
-    SELECT namespace,id || ':upgrade',generation,'scheduled',fire_at,
-      record_json || jsonb_build_object('id',id || ':upgrade','status','scheduled','fired_at',NULL)
-    FROM mdbase_runtime_timers WHERE namespace = '${timerNamespace}';
-    INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json)
-    SELECT namespace,id || ':future',generation,'scheduled','2999-01-01T00:00:00Z',
-      record_json || jsonb_build_object('id',id || ':future','status','scheduled',
-        'fire_at','2999-01-01T00:00:00Z','fired_at',NULL)
-    FROM mdbase_runtime_timers WHERE namespace = '${timerNamespace}' AND status='fired';
-    INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json)
-    SELECT namespace,id || ':cancelled',generation,'cancelled',fire_at,
-      record_json || jsonb_build_object('id',id || ':cancelled','status','cancelled','fired_at',NULL)
-    FROM mdbase_runtime_timers WHERE namespace = '${timerNamespace}' AND status='fired';
-  `);
-  notificationProvider = await startProvider(databaseUrl, 0, masterKey, notificationEnvironment);
-  await waitFor(async () => {
-    const ready = await rawRequest(notificationProvider.url, "/ready");
-    return ready.body.notifications.recovery === "degraded";
-  }, "Old timer source did not reproduce admission failure", 600);
-  assert.match(notificationProvider.logs(), /event_source_unavailable/);
-  // The worker skips the leased failed timer. It must not clear degradation.
-  for (let sample = 0; sample < 4; sample += 1) {
-    await delay(500);
-    const ready = await rawRequest(notificationProvider.url, "/ready");
-    assert.equal(ready.status, 200); // core routing readiness is deliberately acyclic
-    assert.equal(ready.body.notifications.recovery, "degraded");
-  }
-  await stopProvider(notificationProvider);
-  const timerSourceMigration = await readFile(join(repoRoot, "crates", "connect-hosted-provider",
-    "migrations", "0043_notification_timer_source_identity.sql"), "utf8");
-  // Prove that a committed live claim cannot be stolen by the migration.
-  await postgresQuery(`UPDATE mdbase_runtime_timers
-    SET lease_token='synthetic-upgrade-claim',lease_worker='synthetic-worker',
-      lease_expires_at='2999-01-01T00:00:00Z'
-    WHERE namespace='${timerNamespace}' AND status='firing'`);
-  const timerInventory = `SELECT jsonb_agg(to_jsonb(t) ORDER BY id)
-    FROM mdbase_runtime_timers t WHERE namespace='${timerNamespace}'`;
-  const beforeBusyMigration = await postgresQuery(timerInventory);
-  await assert.rejects(postgresQuery(timerSourceMigration), /notification_timer_source_migration_busy/);
-  assert.equal(await postgresQuery(timerInventory), beforeBusyMigration);
-  // Advance only the owned fixture lease to an expired instant; no production
-  // repair or lease override is performed by the migration itself.
-  await postgresQuery(`UPDATE mdbase_runtime_timers SET lease_expires_at='2000-01-01T00:00:00Z'
-    WHERE namespace='${timerNamespace}' AND status='firing'`);
-  const beforeMigration = JSON.parse(await postgresQuery(timerInventory));
-  await postgresQuery(timerSourceMigration);
-  const afterMigration = JSON.parse(await postgresQuery(timerInventory));
-  for (const row of beforeMigration) {
-    row.record_json.event_source.version = "1.0.0";
-    row.lease_token = row.lease_worker = row.lease_expires_at = null;
-  }
-  assert.deepEqual(afterMigration, beforeMigration); // only source and expired-claim fencing
-  assert.equal(await postgresQuery(`SELECT count(*) FROM mdbase_runtime_timers
-    WHERE namespace='${timerNamespace}' AND lease_token='synthetic-upgrade-claim'`), "0");
-  await postgresQuery(timerSourceMigration);
-  assert.deepEqual(JSON.parse(await postgresQuery(timerInventory)), afterMigration);
-  await assert.rejects(postgresQuery(`UPDATE mdbase_runtime_timers
-    SET record_json=jsonb_set(record_json,'{event_source,version}','"0.1.0-beta.104"')
-    WHERE namespace='${timerNamespace}'`), /hosted_notification_timer_release_source_retired/);
-  assert.deepEqual(JSON.parse(await postgresQuery(timerInventory)), afterMigration);
-  notificationProvider = await startProvider(databaseUrl, 0, masterKey, notificationEnvironment);
-  await waitFor(() => notificationSignals.length === 4,
-    "Migrated timer did not fire without client reconciliation", 600);
-  assert.equal(notificationSignals[3].criterion_id, "task.reminder");
-  await waitFor(async () => {
-    const ready = await rawRequest(notificationProvider.url, "/ready");
-    return ready.body.notifications.recovery === "ok" && ready.body.notifications.consecutive_failures === 0;
-  }, "Migrated timer recovery did not become healthy", 600);
-  await stopProvider(notificationProvider);
-  notificationProvider = await startProvider(databaseUrl, 0, masterKey, notificationEnvironment);
-  await delay(2_000);
-  assert.equal(notificationSignals.length, 4); // neither old nor migrated fired timer replays
-  await stopProvider(notificationProvider);
-  phase("replaying historical notification SQL before current runtime recovery");
-  // SQL replay on a current schema is not predecessor-schema startup qualification.
-  // semantic_migration.rs separately exercises the genuine SQLx prefix 14 -> 16.
-  const notificationLedgerQuery = `
-    SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m
-  `;
-  const notificationLedgerBefore = await postgresQuery(notificationLedgerQuery);
-  await postgresQuery(`
-    UPDATE hosted_provider_notification_grants
-    SET grant_json = jsonb_set(
-      jsonb_set(
-        grant_json,
-        '{notification_criteria,0,event,version}',
-        '1'::jsonb
-      ),
-      '{notification_criteria,1,event,id}',
-      '"timer.fired"'::jsonb
-    )
-    WHERE grant_id = '${notificationGrantId}';
-    UPDATE mdbase_runtime_schema SET version = 1 WHERE singleton = TRUE;
-  `);
-  for (const migration of [
-    "0015_notification_contract_versions.sql",
-    "0016_notification_event_ids.sql"
-  ]) {
-    await postgresQuery(await readFile(
-      join(repoRoot, "crates", "connect-hosted-provider", "migrations", migration),
-      "utf8"
-    ));
-  }
-  assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
-  const upgradedNotificationProvider = await startProvider(databaseUrl, 0, masterKey, {
-    MDBASE_CONNECT_CONTROL_PLANE_URL: `http://127.0.0.1:${callbackPort}`,
-    MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1",
-    MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS: "1"
-  });
-  const upgradedReady = await rawRequest(upgradedNotificationProvider.url, "/ready");
-  assert.equal(upgradedReady.status, 200);
-  assert.equal(upgradedReady.body.notifications.configured, true);
-  assert.equal(upgradedReady.body.notifications.recovery, "ok");
-  assert.equal(upgradedReady.body.notifications.consecutive_failures, 0);
-  assert.equal(
+  // These fixtures replay the provider's migration SQL from crates/, which
+  // the image embeds but does not ship.
+  if (!pinnedImage) {
+    phase("retaining timer identity across release changes without client reconciliation");
+    // This is an exact historical-record/data-migration fixture on the current
+    // schema, not a claim to have run a predecessor image. The ordinary previous-
+    // release lane remains responsible for the complete binary/schema upgrade.
+    const timerNamespace = `connect-hosted:${notificationCollectionId}:notifications`;
     await postgresQuery(`
-      SELECT grant_json #>> '{notification_criteria,0,event,version}'
-      FROM hosted_provider_notification_grants
-      WHERE grant_id = '${notificationGrantId}'
-    `),
-    "1.0.0"
-  );
-  assert.equal(
+      ALTER TABLE mdbase_runtime_timers DROP CONSTRAINT IF EXISTS hosted_notification_timer_release_source_retired;
+      UPDATE mdbase_runtime_timers
+      SET record_json = jsonb_set(record_json, '{event_source,version}', '"0.1.0-beta.104"')
+      WHERE namespace = '${timerNamespace}';
+      INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json)
+      SELECT namespace,id || ':upgrade',generation,'scheduled',fire_at,
+        record_json || jsonb_build_object('id',id || ':upgrade','status','scheduled','fired_at',NULL)
+      FROM mdbase_runtime_timers WHERE namespace = '${timerNamespace}';
+      INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json)
+      SELECT namespace,id || ':future',generation,'scheduled','2999-01-01T00:00:00Z',
+        record_json || jsonb_build_object('id',id || ':future','status','scheduled',
+          'fire_at','2999-01-01T00:00:00Z','fired_at',NULL)
+      FROM mdbase_runtime_timers WHERE namespace = '${timerNamespace}' AND status='fired';
+      INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json)
+      SELECT namespace,id || ':cancelled',generation,'cancelled',fire_at,
+        record_json || jsonb_build_object('id',id || ':cancelled','status','cancelled','fired_at',NULL)
+      FROM mdbase_runtime_timers WHERE namespace = '${timerNamespace}' AND status='fired';
+    `);
+    notificationProvider = await startProvider(databaseUrl, 0, masterKey, notificationEnvironment);
+    await waitFor(async () => {
+      const ready = await rawRequest(notificationProvider.url, "/ready");
+      return ready.body.notifications.recovery === "degraded";
+    }, "Old timer source did not reproduce admission failure", 600);
+    assert.match(notificationProvider.logs(), /event_source_unavailable/);
+    // The worker skips the leased failed timer. It must not clear degradation.
+    for (let sample = 0; sample < 4; sample += 1) {
+      await delay(500);
+      const ready = await rawRequest(notificationProvider.url, "/ready");
+      assert.equal(ready.status, 200); // core routing readiness is deliberately acyclic
+      assert.equal(ready.body.notifications.recovery, "degraded");
+    }
+    await stopProvider(notificationProvider);
+    const timerSourceMigration = await readFile(join(repoRoot, "crates", "connect-hosted-provider",
+      "migrations", "0043_notification_timer_source_identity.sql"), "utf8");
+    // Prove that a committed live claim cannot be stolen by the migration.
+    await postgresQuery(`UPDATE mdbase_runtime_timers
+      SET lease_token='synthetic-upgrade-claim',lease_worker='synthetic-worker',
+        lease_expires_at='2999-01-01T00:00:00Z'
+      WHERE namespace='${timerNamespace}' AND status='firing'`);
+    const timerInventory = `SELECT jsonb_agg(to_jsonb(t) ORDER BY id)
+      FROM mdbase_runtime_timers t WHERE namespace='${timerNamespace}'`;
+    const beforeBusyMigration = await postgresQuery(timerInventory);
+    await assert.rejects(postgresQuery(timerSourceMigration), /notification_timer_source_migration_busy/);
+    assert.equal(await postgresQuery(timerInventory), beforeBusyMigration);
+    // Advance only the owned fixture lease to an expired instant; no production
+    // repair or lease override is performed by the migration itself.
+    await postgresQuery(`UPDATE mdbase_runtime_timers SET lease_expires_at='2000-01-01T00:00:00Z'
+      WHERE namespace='${timerNamespace}' AND status='firing'`);
+    const beforeMigration = JSON.parse(await postgresQuery(timerInventory));
+    await postgresQuery(timerSourceMigration);
+    const afterMigration = JSON.parse(await postgresQuery(timerInventory));
+    for (const row of beforeMigration) {
+      row.record_json.event_source.version = "1.0.0";
+      row.lease_token = row.lease_worker = row.lease_expires_at = null;
+    }
+    assert.deepEqual(afterMigration, beforeMigration); // only source and expired-claim fencing
+    assert.equal(await postgresQuery(`SELECT count(*) FROM mdbase_runtime_timers
+      WHERE namespace='${timerNamespace}' AND lease_token='synthetic-upgrade-claim'`), "0");
+    await postgresQuery(timerSourceMigration);
+    assert.deepEqual(JSON.parse(await postgresQuery(timerInventory)), afterMigration);
+    await assert.rejects(postgresQuery(`UPDATE mdbase_runtime_timers
+      SET record_json=jsonb_set(record_json,'{event_source,version}','"0.1.0-beta.104"')
+      WHERE namespace='${timerNamespace}'`), /hosted_notification_timer_release_source_retired/);
+    assert.deepEqual(JSON.parse(await postgresQuery(timerInventory)), afterMigration);
+    notificationProvider = await startProvider(databaseUrl, 0, masterKey, notificationEnvironment);
+    await waitFor(() => notificationSignals.length === 4,
+      "Migrated timer did not fire without client reconciliation", 600);
+    assert.equal(notificationSignals[3].criterion_id, "task.reminder");
+    await waitFor(async () => {
+      const ready = await rawRequest(notificationProvider.url, "/ready");
+      return ready.body.notifications.recovery === "ok" && ready.body.notifications.consecutive_failures === 0;
+    }, "Migrated timer recovery did not become healthy", 600);
+    await stopProvider(notificationProvider);
+    notificationProvider = await startProvider(databaseUrl, 0, masterKey, notificationEnvironment);
+    await delay(2_000);
+    assert.equal(notificationSignals.length, 4); // neither old nor migrated fired timer replays
+    await stopProvider(notificationProvider);
+    phase("replaying historical notification SQL before current runtime recovery");
+    // SQL replay on a current schema is not predecessor-schema startup qualification.
+    // semantic_migration.rs separately exercises the genuine SQLx prefix 14 -> 16.
+    const notificationLedgerQuery = `
+      SELECT jsonb_agg(to_jsonb(m) ORDER BY version) FROM _sqlx_migrations m
+    `;
+    const notificationLedgerBefore = await postgresQuery(notificationLedgerQuery);
     await postgresQuery(`
-      SELECT grant_json #>> '{notification_criteria,1,event,id}'
-      FROM hosted_provider_notification_grants
-      WHERE grant_id = '${notificationGrantId}'
-    `),
-    "mdbase.runtime.timer.fired"
-  );
-  assert.equal(
-    await postgresQuery("SELECT version FROM mdbase_runtime_schema WHERE singleton = TRUE"),
-    "2"
-  );
-  // Revoking the last notification grant leaves no recoverable timer authority
-  // in this collection. Its retained rows must neither deliver nor keep the
-  // global notification-recovery signal pending forever.
-  await internalRequest(upgradedNotificationProvider.url,
-    `/internal/v1/collections/${notificationCollectionId}/notification-grants/${notificationGrantId}`,
-    { method: "DELETE" });
-  await postgresQuery(`UPDATE mdbase_runtime_timers
-    SET fire_at='2000-01-01T00:00:00Z',
-      record_json=jsonb_set(record_json,'{fire_at}','"2000-01-01T00:00:00Z"')
-    WHERE namespace='${timerNamespace}' AND status='scheduled'`);
-  await delay(2_000);
-  assert.equal(notificationSignals.length, 4);
-  const revokedReady = await rawRequest(upgradedNotificationProvider.url, "/ready");
-  assert.equal(revokedReady.body.notifications.recovery, "ok");
-  await stopProvider(upgradedNotificationProvider);
-  assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
+      UPDATE hosted_provider_notification_grants
+      SET grant_json = jsonb_set(
+        jsonb_set(
+          grant_json,
+          '{notification_criteria,0,event,version}',
+          '1'::jsonb
+        ),
+        '{notification_criteria,1,event,id}',
+        '"timer.fired"'::jsonb
+      )
+      WHERE grant_id = '${notificationGrantId}';
+      UPDATE mdbase_runtime_schema SET version = 1 WHERE singleton = TRUE;
+    `);
+    for (const migration of [
+      "0015_notification_contract_versions.sql",
+      "0016_notification_event_ids.sql"
+    ]) {
+      await postgresQuery(await readFile(
+        join(repoRoot, "crates", "connect-hosted-provider", "migrations", migration),
+        "utf8"
+      ));
+    }
+    assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
+    const upgradedNotificationProvider = await startProvider(databaseUrl, 0, masterKey, {
+      MDBASE_CONNECT_CONTROL_PLANE_URL: `http://127.0.0.1:${callbackPort}`,
+      MDBASE_CONNECT_HOSTED_MAINTENANCE_INTERVAL_SECONDS: "1",
+      MDBASE_CONNECT_HOSTED_NOTIFICATION_INTERVAL_SECONDS: "1"
+    });
+    const upgradedReady = await rawRequest(upgradedNotificationProvider.url, "/ready");
+    assert.equal(upgradedReady.status, 200);
+    assert.equal(upgradedReady.body.notifications.configured, true);
+    assert.equal(upgradedReady.body.notifications.recovery, "ok");
+    assert.equal(upgradedReady.body.notifications.consecutive_failures, 0);
+    assert.equal(
+      await postgresQuery(`
+        SELECT grant_json #>> '{notification_criteria,0,event,version}'
+        FROM hosted_provider_notification_grants
+        WHERE grant_id = '${notificationGrantId}'
+      `),
+      "1.0.0"
+    );
+    assert.equal(
+      await postgresQuery(`
+        SELECT grant_json #>> '{notification_criteria,1,event,id}'
+        FROM hosted_provider_notification_grants
+        WHERE grant_id = '${notificationGrantId}'
+      `),
+      "mdbase.runtime.timer.fired"
+    );
+    assert.equal(
+      await postgresQuery("SELECT version FROM mdbase_runtime_schema WHERE singleton = TRUE"),
+      "2"
+    );
+    // Revoking the last notification grant leaves no recoverable timer authority
+    // in this collection. Its retained rows must neither deliver nor keep the
+    // global notification-recovery signal pending forever.
+    await internalRequest(upgradedNotificationProvider.url,
+      `/internal/v1/collections/${notificationCollectionId}/notification-grants/${notificationGrantId}`,
+      { method: "DELETE" });
+    await postgresQuery(`UPDATE mdbase_runtime_timers
+      SET fire_at='2000-01-01T00:00:00Z',
+        record_json=jsonb_set(record_json,'{fire_at}','"2000-01-01T00:00:00Z"')
+      WHERE namespace='${timerNamespace}' AND status='scheduled'`);
+    await delay(2_000);
+    assert.equal(notificationSignals.length, 4);
+    const revokedReady = await rawRequest(upgradedNotificationProvider.url, "/ready");
+    assert.equal(revokedReady.body.notifications.recovery, "ok");
+    await stopProvider(upgradedNotificationProvider);
+    assert.equal(await postgresQuery(notificationLedgerQuery), notificationLedgerBefore);
+  }
   await new Promise((resolveClose) => notificationCallbackServer.close(resolveClose));
   notificationCallbackServer = undefined;
 
