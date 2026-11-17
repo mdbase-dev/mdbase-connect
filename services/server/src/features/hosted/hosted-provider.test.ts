@@ -7,6 +7,7 @@ import {
   type ConnectContractSupport
 } from "@mdbase-dev/connect-protocol";
 import {
+  HOSTED_PROVIDER_REQUIRED_CONTRACT_SUPPORT,
   HostedProviderClient,
   HostedProviderResponseError,
   HostedProviderUnavailableError
@@ -358,7 +359,7 @@ describe("hosted provider control client", () => {
     "semantic_capabilities",
     "durable_mutation"
   ])("fails readiness when provider %s support does not intersect", async (axis) => {
-    const support = structuredClone(CONNECT_CONTRACT_SUPPORT);
+    const support = structuredClone(HOSTED_PROVIDER_REQUIRED_CONTRACT_SUPPORT);
     support[axis] = [99];
     vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
       JSON.stringify(readinessDocument(support)),
@@ -369,6 +370,27 @@ describe("hosted provider control client", () => {
       internalToken: "internal-secret"
     });
     await expect(provider.ready()).rejects.toBeInstanceOf(HostedProviderUnavailableError);
+  });
+
+  it("stays ready when the control plane supports a version the provider was never built with", async () => {
+    const provided = structuredClone(HOSTED_PROVIDER_REQUIRED_CONTRACT_SUPPORT);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify(readinessDocument(provided)),
+      { status: 200 }
+    ));
+    const provider = new HostedProviderClient({
+      url: "https://provider.example",
+      internalToken: "internal-secret"
+    });
+    const original = [...CONNECT_CONTRACT_SUPPORT.operation_transport];
+    CONNECT_CONTRACT_SUPPORT.operation_transport.unshift(99);
+    try {
+      await expect(provider.ready()).resolves.toBeUndefined();
+    } finally {
+      CONNECT_CONTRACT_SUPPORT.operation_transport.splice(
+        0, CONNECT_CONTRACT_SUPPORT.operation_transport.length, ...original
+      );
+    }
   });
 
   it("updates and rotates application capabilities with bounded credentials", async () => {
