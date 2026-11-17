@@ -99,7 +99,6 @@ PostgreSQL execution qualifies locks, not real provider RPCs or cryptography.
 |---|---|---|
 | Account/connector create and onboarding | `features/hosted/service.ts` create + caller-client insert | `migration-topology-routes.postgres.test.ts` alias refusal/no effects; `migration-topology.postgres.test.ts` two creates vs freeze |
 | Rename/delete, including former account inline bypass | Shared hosted service uses actual collection owner before child lock/effects | Route aliases above; central rename/delete and unfreeze |
-| Hosted→local request/approve/prepare/complete/abort | `features/authority-transfer/hosted-to-local-routes.ts` actual hosted + target owner | Route PG suite runs reference and synthetic provider branches; existing `features/authority-transfer/authority-transfer.test.ts` |
 | Scheduler/GET transfer expiry and import-abort publication | `features/authority-transfer/lifecycle.ts` | Recovery PG races/currentness/bounded discovery, frozen page does not starve unrelated recovery; central frozen directions |
 | Reference reads restoring expired hosted transfer | `features/hosted/hosted.ts` actual guarded reference transaction | Central PG read cannot restore frozen expired transfer; existing reference transfer tests |
 | Quarantine and provider deletion delivery | `features/hosted/hosted-capability-lifecycle.ts` actual owner; same-client quarantine and deletion transaction | Central PG preexisting deletion job/no effect until unfreeze; existing lifecycle tests |
@@ -109,9 +108,10 @@ PostgreSQL execution qualifies locks, not real provider RPCs or cryptography.
 | Grant/contract-only setup | Hosted approval service creates no hosted collection or owner/authority transition | Existing authorization/setup tests; explicitly allowed by the product scope, not a topology exemption |
 
 Authority adoption and the local→hosted transfer were removed on 2026-11-15,
-with their routes, adoption expiry and account cancellation recovery. Expiry of
-transfer rows they left behind remains in `features/authority-transfer/lifecycle.ts`
-above.
+with their routes, adoption expiry and account cancellation recovery. The
+hosted→local transfer routes were removed on 2026-11-17, with their route fences
+and tests. Expiry of transfer rows either direction left behind remains in
+`features/authority-transfer/lifecycle.ts` above.
 
 No direct legacy hosted owner-transfer update exists in the audited source.
 Any new owner-transfer path must supply both actual owners together; guarding

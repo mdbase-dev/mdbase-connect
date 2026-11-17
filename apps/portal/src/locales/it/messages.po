@@ -2231,11 +2231,6 @@ msgstr "Nessuna sessione corrispondente"
 msgid "No supported reauthentication method is connected."
 msgstr "Nessun metodo di riautenticazione supportato è collegato."
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "No synced folders"
-msgstr "Nessuna cartella sincronizzata"
-
 #: src/authority-workflows.tsx
 msgid "Not allowed"
 msgstr "Non consentito"
@@ -3225,19 +3220,6 @@ msgid "Sync"
 msgstr "Sincronizza"
 
 #: src/ConnectApp.tsx
-msgid "Sync a folder"
-msgstr "Sincronizza una cartella"
-
-#: src/ConnectApp.tsx
-msgid "Sync folder"
-msgstr "Sincronizza cartella"
-
-#. placeholder {0}: collection.name
-#: src/portal-commands.ts
-msgid "Sync folder · {0}"
-msgstr "Sincronizza cartella · {0}"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
 msgstr "Cartelle sincronizzate"
@@ -3681,10 +3663,6 @@ msgstr "Usa almeno {0} caratteri."
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
 msgstr "Usa almeno 15 caratteri. Gli spazi sono ammessi."
-
-#: src/ConnectApp.tsx
-msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr "Usa l'app desktop per mantenere una normale cartella Markdown su un computer."
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."

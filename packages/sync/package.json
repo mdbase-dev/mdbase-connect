@@ -30,14 +30,6 @@
     "./device": {
       "types": "./dist/device.d.ts",
       "import": "./dist/device.js"
-    },
-    "./enrollment": {
-      "types": "./dist/enrollment.d.ts",
-      "import": "./dist/enrollment.js"
-    },
-    "./promotion": {
-      "types": "./dist/promotion.d.ts",
-      "import": "./dist/promotion.js"
     }
   },
   "files": [

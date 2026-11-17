@@ -2231,11 +2231,6 @@ msgstr "一致するセッションはありません"
 msgid "No supported reauthentication method is connected."
 msgstr "対応する再認証方法が接続されていません。"
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "No synced folders"
-msgstr "同期フォルダーはありません"
-
 #: src/authority-workflows.tsx
 msgid "Not allowed"
 msgstr "許可されていません"
@@ -3225,19 +3220,6 @@ msgid "Sync"
 msgstr "同期"
 
 #: src/ConnectApp.tsx
-msgid "Sync a folder"
-msgstr "フォルダーを同期"
-
-#: src/ConnectApp.tsx
-msgid "Sync folder"
-msgstr "フォルダーを同期"
-
-#. placeholder {0}: collection.name
-#: src/portal-commands.ts
-msgid "Sync folder · {0}"
-msgstr "フォルダーを同期 · {0}"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
 msgstr "同期フォルダー"
@@ -3681,10 +3663,6 @@ msgstr "{0}文字以上で入力してください。"
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
 msgstr "15 文字以上で入力してください。スペースも使用できます。"
-
-#: src/ConnectApp.tsx
-msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr "デスクトップアプリを使って、通常の Markdown フォルダーをコンピューター上に保持します。"
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."

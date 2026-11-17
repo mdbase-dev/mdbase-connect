@@ -2620,41 +2620,18 @@ describe("mdbase connect server", () => {
     });
     expect(forbiddenRename.statusCode).toBe(404);
 
-    const pairing = await app.inject({
+    const mirror = await app.inject({
       method: "POST",
-      url: "/v1/mirror-pairing-requests",
-      payload: {
-        mirror_name: "Owner desktop mirror",
-        mode: "read_write",
-        collection_id: collectionId
-      }
+      url: `/v1/hosted/collections/${collectionId}/replicas`,
+      headers: { cookie: ownerCookie },
+      payload: { name: "Owner desktop mirror", mode: "read_write" }
     });
-    const approved = await app.inject({
-      method: "POST",
-      url: `/v1/connectors/mirror-pairing-requests/${pairing.json().pairing_id}/approve`,
-      headers: { authorization: `Bearer ${ownerToken}` },
-      payload: { collection_id: collectionId }
-    });
-    expect(approved.statusCode).toBe(200);
-    const exchanged = await app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairing.json().pairing_id}/exchange`,
-      headers: { authorization: `Bearer ${pairing.json().pairing_secret}` }
-    });
-    expect(exchanged.statusCode, JSON.stringify(exchanged.json())).toBe(200);
-    expect(exchanged.json()).toMatchObject({
-      status: "paired",
-      sync_url: `https://sync.example/v1/authorities/${collectionId}/sync`,
-      replica: {
-        collection_id: collectionId,
-        name: "Owner desktop mirror",
-        mode: "read_write"
-      }
-    });
+    expect(mirror.statusCode, mirror.body).toBe(201);
+    const replicaId = mirror.json().replica.id as string;
     expect(hostedProvider.registerReplica).toHaveBeenCalledWith(
       collectionId,
       expect.objectContaining({
-        id: exchanged.json().replica.id,
+        id: replicaId,
         name: "Owner desktop mirror",
         mode: "read_write"
       })
@@ -2662,12 +2639,12 @@ describe("mdbase connect server", () => {
 
     const revoked = await app.inject({
       method: "DELETE",
-      url: `/v1/connectors/hosted/replicas/${exchanged.json().replica.id}`,
+      url: `/v1/connectors/hosted/replicas/${replicaId}`,
       headers: { authorization: `Bearer ${ownerToken}` }
     });
     expect(revoked.statusCode).toBe(200);
     expect(revoked.json()).toEqual({ ok: true, revocation_status: "revoked" });
-    expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(exchanged.json().replica.id);
+    expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(replicaId);
 
     const removed = await app.inject({
       method: "DELETE",

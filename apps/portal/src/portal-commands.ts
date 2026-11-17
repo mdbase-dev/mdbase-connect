@@ -66,7 +66,6 @@ export function usePortalCommands({ data, collections, applications, sessions, s
       const row = target(`collection:${collection.id}`);
       return [
         ...(collection.source.authority_state === "active" && collection.source.access.can_rename_collection ? [{ id: `rename:${collection.id}`, label: t(i18n)`Rename ${collection.name}`, detail: collection.detail, shortcut: focusedItem === `collection:${collection.id}` ? "r" : undefined, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=rename]`], true) }] : []),
-        ...(collection.source.authority_state === "active" ? [{ id: `sync:${collection.id}`, label: t(i18n)`Sync folder · ${collection.name}`, detail: collection.detail, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][href]`], true) }] : []),
         ...(collection.source.access.can_delete_collection ? [{ id: `delete:${collection.id}`, label: t(i18n)`Delete ${collection.name}`, detail: collection.detail, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=delete]`], true) }] : [])
       ];
     }),
@@ -89,7 +88,7 @@ export function usePortalCommands({ data, collections, applications, sessions, s
   const contextCommand = commands.find(command => command.id === contextItem);
   if (contextCommand && contextItem) {
     const [kind, id] = contextItem.split(":");
-    const actions = kind === "collection" ? [contextItem, `storage:${id}`, `access:${id}`, `rename:${id}`, `sync:${id}`, `delete:${id}`]
+    const actions = kind === "collection" ? [contextItem, `storage:${id}`, `access:${id}`, `rename:${id}`, `delete:${id}`]
       : kind === "computer" ? [`rename-computer:${id}`, `revoke-computer:${id}`]
       : kind === "app" ? [`revoke-app:${id}`] : [`revoke-session:${id}`];
     commands.forEach((command, index) => { if (actions.includes(command.id)) commands[index] = { ...command, context: contextCommand.label }; });

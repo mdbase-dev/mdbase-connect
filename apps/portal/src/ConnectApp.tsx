@@ -616,11 +616,10 @@ function Storage({ error, collection, busy, perform, editorOrigin }: {
         <SectionTitle title={t(i18n)({ message: "Main copy", context: "Connect interface" })} />
         <CollectionSummary error={error} editorOrigin={editorOrigin} collection={collection} busy={busy} perform={perform} />
       </section>
-      <section>
-        <SectionTitle title={t(i18n)({ message: "Synced folders", context: "Connect interface" })} count={replicas.length} action={<DesktopLink href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.source.id)}`}><Plus aria-hidden="true" /><Trans>Sync a folder</Trans></DesktopLink>} />
+      {replicas.length > 0 && <section>
+        <SectionTitle title={t(i18n)({ message: "Synced folders", context: "Connect interface" })} count={replicas.length} />
         {replicas.map((replica) => <div className="connect-row" key={replica.id}><div><strong>{replica.name}</strong><small>{replica.mode === "read_only" ? t(i18n)({ message: "Downloads only", context: "Connect interface" }) : t(i18n)({ message: "Edits sync both ways", context: "Connect interface" })}</small></div><span>{replica.revocation_status === "revoking" ? t(i18n)({ message: "Disconnecting…", context: "Connect interface" }) : replica.sync_status ? t(i18n)`Seen ${relativeTime(replica.sync_status.last_seen_at ?? collection.source.created_at)}` : t(i18n)({ message: "Waiting to sync", context: "Connect interface" })}</span><ConfirmAction error={error} className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Disconnect", context: "Connect interface" })} question={t(i18n)`Disconnect ${replica.name}?`} consequence={t(i18n)`Syncing will stop after the computer confirms. Files already downloaded will remain.`} pendingLabel={t(i18n)`Disconnecting…`} confirmLabel={t(i18n)({ message: "Disconnect", context: "Connect interface" })} busy={replica.revocation_status === "revoking" || busy.has(`replica-${replica.id}`)} onConfirm={() => perform(`replica-${replica.id}`, (options) => management.revokeReplica(replica.id, options), false, undefined, t(i18n)`Disconnecting ${replica.name}`)} /></div>)}
-        {replicas.length === 0 && <Empty title={t(i18n)({ message: "No synced folders", context: "Connect interface" })} body={t(i18n)({ message: "Use the desktop app to keep an ordinary Markdown folder on a computer." })} />}
-      </section>
+      </section>}
     </Page>;
   }
   return <Page title={t(i18n)({ message: "Storage", context: "Connect interface" })} intro={t(i18n)`${collection.name} keeps its main copy in a folder on a connected computer.`}>
@@ -858,7 +857,6 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
         {navigate && <button role="menuitem" className="mdbase-menu-item" onClick={() => { setMenuOpen(false); navigate("overview", collection.id); }}>{t(i18n)({ message: "Overview", context: "Connect interface" })}</button>}
         {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink>}
         {active && hosted.access.can_rename_collection && <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { renameReturn.current = trigger.current!.closest("[data-list-item]")!.querySelector<HTMLElement>(".connect-collection-link") ?? trigger.current; setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
-        {active && <DesktopLink role="menuitem" href={`mdbase-connect://mirror?collection=${encodeURIComponent(collection.id)}`}><Trans>Sync folder</Trans></DesktopLink>}
         {hosted?.access.can_delete_collection && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
       </Menu>
     </span>

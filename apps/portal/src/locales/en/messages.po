@@ -2231,11 +2231,6 @@ msgstr "No sessions match"
 msgid "No supported reauthentication method is connected."
 msgstr "No supported reauthentication method is connected."
 
-#: src/ConnectApp.tsx
-msgctxt "Connect interface"
-msgid "No synced folders"
-msgstr "No synced folders"
-
 #: src/authority-workflows.tsx
 msgid "Not allowed"
 msgstr "Not allowed"
@@ -3225,19 +3220,6 @@ msgid "Sync"
 msgstr "Sync"
 
 #: src/ConnectApp.tsx
-msgid "Sync a folder"
-msgstr "Sync a folder"
-
-#: src/ConnectApp.tsx
-msgid "Sync folder"
-msgstr "Sync folder"
-
-#. placeholder {0}: collection.name
-#: src/portal-commands.ts
-msgid "Sync folder · {0}"
-msgstr "Sync folder · {0}"
-
-#: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Synced folders"
 msgstr "Synced folders"
@@ -3681,10 +3663,6 @@ msgstr "Use at least {0} characters."
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
 msgstr "Use at least 15 characters. Spaces are welcome."
-
-#: src/ConnectApp.tsx
-msgid "Use the desktop app to keep an ordinary Markdown folder on a computer."
-msgstr "Use the desktop app to keep an ordinary Markdown folder on a computer."
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."

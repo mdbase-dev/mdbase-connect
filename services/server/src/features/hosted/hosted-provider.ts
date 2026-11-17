@@ -152,17 +152,6 @@ export interface HostedProtocolUsageReport {
   v2_recovery_application_replicas: number;
 }
 
-export interface HostedAuthorityTransfer {
-  id: string;
-  collection_id: string;
-  replica_id: string;
-  final_head: number;
-  authority_epoch: number;
-  manifest_digest: string;
-  state: "prepared" | "completed" | "aborted";
-  expires_at: string;
-}
-
 export interface HostedContractSetupResult {
   contracts: CollectionContractDescriptor[];
   contractSetups: ContractSetupChoice[];
@@ -615,30 +604,6 @@ export class HostedProviderClient {
       `/internal/v1/collections/${encodeURIComponent(collectionId)}/compact`,
       { through }
     );
-  }
-
-  async prepareAuthorityTransfer(
-    collectionId: string,
-    input: { transferId: string; replicaId: string; ttlSeconds: number }
-  ): Promise<HostedAuthorityTransfer> {
-    return await this.request(
-      "POST",
-      `/internal/v1/collections/${encodeURIComponent(collectionId)}/authority-transfers`,
-      {
-        transfer_id: input.transferId,
-        replica_id: input.replicaId,
-        ttl_seconds: input.ttlSeconds
-      }
-    ) as HostedAuthorityTransfer;
-  }
-
-  async completeAuthorityTransfer(transferId: string, manifestDigest: string): Promise<HostedAuthorityTransfer> {
-    return await this.request("POST", `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}`,
-      { manifest_digest: manifestDigest }) as HostedAuthorityTransfer;
-  }
-
-  async abortAuthorityTransfer(transferId: string): Promise<HostedAuthorityTransfer> {
-    return await this.request("DELETE", `/internal/v1/authority-transfers/${encodeURIComponent(transferId)}`) as HostedAuthorityTransfer;
   }
 
   async expireAuthorityTransfer(transferId: string, collectionId: string, authorityEpoch: number): Promise<void> {

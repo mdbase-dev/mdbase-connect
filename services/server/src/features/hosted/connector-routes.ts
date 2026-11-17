@@ -1,4 +1,3 @@
-import { approveMirrorPairing } from "./hosted-mirror-policy.js";
 import type {
   CollectionOperation,
   ContractSetupChoice
@@ -124,51 +123,6 @@ export function registerConnectorHostedRoutes(
           "Hosted collection not found."
         ));
       }
-      return { ok: true };
-    }
-  );
-
-  app.post(
-    "/v1/connectors/mirror-pairing-requests/:pairingId/approve",
-    async (request, reply) => {
-      const connector = await requireConnector(request, reply, options.db);
-      if (!connector) return;
-      const { pairingId } = z.object({
-        pairingId: z.uuid()
-      }).parse(request.params);
-      const input = z.object({
-        collection_id: z.uuid()
-      }).strict().parse(request.body);
-      const connection = await options.db.connect();
-      let approved;
-      try {
-        await connection.query("BEGIN");
-        approved = await approveMirrorPairing(connection, connector.user_id, input.collection_id, pairingId);
-        await connection.query("COMMIT");
-      } catch (error) {
-        await connection.query("ROLLBACK");
-        throw error;
-      } finally {
-        connection.release();
-      }
-      if (!approved) {
-        return reply.code(404).send(apiError(
-          "mirror_pairing_not_found",
-          "Mirror setup expired, was already used, or the collection was not found."
-        ));
-      }
-      await audit(
-        options.db,
-        connector.user_id,
-        "hosted_replica.pairing_approved",
-        pairingId,
-        {
-          collection_id: input.collection_id,
-          connector_id: connector.id,
-          mode: approved.mode,
-          source: "desktop"
-        }
-      );
       return { ok: true };
     }
   );
