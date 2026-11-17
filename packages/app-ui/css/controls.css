@@ -13,10 +13,6 @@
   --control-radius: var(--radius-sm);
 }
 
-@media (pointer: coarse) {
-  :root { --control-height: 40px; }
-}
-
 /* The negative margin keeps the box inside its static position: left in normal
    flow at the end of a full-height shell, it made the document 1px taller. */
 .mdbase-visually-hidden {
@@ -58,7 +54,6 @@
 }
 .mdbase-tooltip kbd { flex-shrink: 0; color: var(--color-text-muted); font: inherit; }
 @starting-style { .mdbase-tooltip:popover-open { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .mdbase-tooltip { transition: none; } }
 
 .mdbase-message {
   margin: 1.2rem 0 0;
@@ -102,7 +97,9 @@
   background: transparent;
   font: inherit;
   font-size: var(--control-font-size);
-  transition: border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard), transform var(--motion-quick) var(--ease-standard);
+  transition:
+    border-color var(--motion-quick) var(--ease-standard),
+    background var(--motion-quick) var(--ease-standard);
 }
 
 .mdbase-field {
@@ -176,7 +173,7 @@ textarea.mdbase-field {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transition: transform var(--motion-quick) var(--ease-standard);
+  transition: transform var(--motion-spring) var(--ease-spring);
 }
 
 .mdbase-select[aria-expanded="true"] .mdbase-select-chevron {
@@ -222,7 +219,8 @@ textarea.mdbase-field {
   overflow: auto;
   padding: 4px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--control-radius);
+  /* Row radius plus the padding, so the corners stay concentric. */
+  border-radius: calc(var(--control-radius) + 4px);
   outline: 0;
   color: var(--color-text-soft);
   background: var(--color-surface);
@@ -293,7 +291,7 @@ textarea.mdbase-field {
   overflow: auto;
   padding: 5px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--control-radius);
+  border-radius: calc(var(--control-radius) + 5px);
   outline: 0;
   color: var(--color-text-soft);
   background: var(--color-surface-overlay);
@@ -351,14 +349,51 @@ textarea.mdbase-field {
 .mdbase-menu-item.is-danger:hover:not(:disabled, [aria-disabled="true"]),
 .mdbase-menu .mdbase-menu-item.is-danger:focus-visible { color: var(--color-danger); }
 
-.mdbase-disclosure > summary { display: flex; align-items: center; gap: var(--space-2); list-style: none; cursor: pointer; }
-.mdbase-disclosure > summary::-webkit-details-marker { display: none; }
-.mdbase-disclosure > summary::after { content: ""; flex: none; width: 6px; height: 6px; margin-left: auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; rotate: -45deg; transition: rotate var(--motion-quick) var(--ease-standard); }
-.mdbase-disclosure[open] > summary::after { rotate: 45deg; }
-.mdbase-disclosure { interpolate-size: allow-keywords; }
-.mdbase-disclosure::details-content { height: 0; overflow: hidden; transition: height var(--motion-enter) var(--ease-out), content-visibility var(--motion-enter) allow-discrete; }
-.mdbase-disclosure[open]::details-content { height: auto; }
-@media (prefers-reduced-motion: reduce) { .mdbase-disclosure > summary::after { transition: none; } }
+/* Disclosure: a native <details>. Its content grows where the browser can animate to
+   height: auto (interpolate-size); elsewhere it opens at once. */
+.mdbase-disclosure {
+  interpolate-size: allow-keywords;
+}
+
+.mdbase-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
+  cursor: pointer;
+}
+
+.mdbase-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mdbase-disclosure > summary::after {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  margin-left: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  rotate: -45deg;
+  transition: rotate var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-disclosure[open] > summary::after {
+  rotate: 45deg;
+}
+
+.mdbase-disclosure::details-content {
+  height: 0;
+  overflow: hidden;
+  transition:
+    height var(--motion-slow) var(--ease-out),
+    content-visibility var(--motion-slow) allow-discrete;
+}
+
+.mdbase-disclosure[open]::details-content {
+  height: auto;
+}
 
 .mdbase-menu-copy {
   min-width: 0;
@@ -422,7 +457,7 @@ textarea.mdbase-field {
   fill: none;
   stroke: var(--color-text-muted);
   stroke-width: 1.6;
-  transition: transform var(--motion-quick) var(--ease-standard);
+  transition: transform var(--motion-spring) var(--ease-spring);
 }
 
 .mdbase-app-switcher[aria-expanded="true"] .mdbase-app-switcher-chevron {
@@ -497,7 +532,11 @@ textarea.mdbase-field {
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
-  transition: color var(--motion-quick) var(--ease-standard), border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
+  transition:
+    color var(--motion-quick) var(--ease-standard),
+    border-color var(--motion-quick) var(--ease-standard),
+    background var(--motion-quick) var(--ease-standard),
+    scale var(--motion-spring) var(--ease-spring);
 }
 
 .mdbase-button:hover:not(:disabled) {
@@ -505,11 +544,37 @@ textarea.mdbase-field {
   background: var(--color-surface-subtle);
 }
 
+/* A press goes down fast and comes back on the spring. */
 .mdbase-button:active:not(:disabled) {
-  transform: scale(0.97);
-  transition-duration: 0s;
+  scale: 0.97;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
 }
-@media (prefers-reduced-motion: reduce) { .mdbase-button:active:not(:disabled) { transform: none; } }
+
+/* A label that changes while the button works (see ConfirmDialog). The other label lies
+   underneath at no height, so the button is as wide as the wider of the two throughout. */
+.mdbase-button-label {
+  display: inline-grid;
+  justify-items: center;
+}
+
+.mdbase-button-label::after {
+  height: 0;
+  overflow: hidden;
+  content: attr(data-other);
+  visibility: hidden;
+}
+
+.mdbase-button[aria-busy="true"] > .mdbase-button-label {
+  animation: mdbase-label-in var(--motion-base) var(--ease-out);
+}
+
+@keyframes mdbase-label-in {
+  from {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
 
 .mdbase-button.is-primary {
   border-color: var(--color-accent);
@@ -581,7 +646,16 @@ textarea.mdbase-field {
   color: var(--color-text-soft);
   background: transparent;
   cursor: pointer;
-  transition: color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
+  transition:
+    color var(--motion-quick) var(--ease-standard),
+    background var(--motion-quick) var(--ease-standard),
+    scale var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-icon-button:active:not(:disabled) {
+  scale: 0.92;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
 }
 
 .mdbase-icon-button:hover:not(:disabled),
@@ -607,7 +681,9 @@ textarea.mdbase-field {
   outline-offset: var(--focus-offset);
 }
 
-/* Switch: native button semantics (role="switch", aria-checked), one track and thumb. */
+/* Switch: native button semantics (role="switch", aria-checked), one track and thumb; the
+   Switch component from ./switch renders it. The thumb stretches while held and springs
+   across when released. */
 .mdbase-switch {
   position: relative;
   width: 36px;
@@ -617,19 +693,28 @@ textarea.mdbase-field {
   align-items: center;
   padding: 2px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
+  border-radius: 11px;
   background: var(--color-surface-subtle);
   cursor: pointer;
-  transition: background var(--motion-base) var(--ease-out), border-color var(--motion-base) var(--ease-out);
+  transition:
+    background var(--motion-base) var(--ease-out),
+    border-color var(--motion-base) var(--ease-out);
 }
 
 .mdbase-switch > span {
   width: 16px;
   height: 16px;
-  border-radius: 50%;
+  border-radius: 8px;
   background: var(--color-text-muted);
   pointer-events: none;
-  transition: transform var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
+  transition:
+    translate var(--motion-spring) var(--ease-spring),
+    width var(--motion-spring) var(--ease-spring),
+    background var(--motion-base) var(--ease-out);
+}
+
+.mdbase-switch:active:not(:disabled) > span {
+  width: 20px;
 }
 
 .mdbase-switch[aria-checked="true"] {
@@ -637,9 +722,22 @@ textarea.mdbase-field {
   background: var(--color-accent);
 }
 
+/* The track's 30px inside, less the thumb. */
 .mdbase-switch[aria-checked="true"] > span {
-  transform: translateX(14px);
   background: var(--color-on-accent);
+  translate: 14px;
+}
+
+.mdbase-switch[aria-checked="true"]:active:not(:disabled) > span {
+  translate: 10px;
+}
+
+.mdbase-switch[aria-checked="true"]:dir(rtl) > span {
+  translate: -14px;
+}
+
+.mdbase-switch[aria-checked="true"]:dir(rtl):active:not(:disabled) > span {
+  translate: -10px;
 }
 
 .mdbase-switch:disabled {
@@ -647,6 +745,110 @@ textarea.mdbase-field {
   background: var(--color-surface-subtle);
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* A switch and its text in one label, as Checkbox does for a checkbox. */
+.mdbase-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.mdbase-switch-row:has(.mdbase-switch:disabled) {
+  cursor: not-allowed;
+}
+
+/* Segmented control (./segmented): a few exclusive choices, all in view. Native radios keep
+   the arrow keys and form state; one thumb glides to the checked option, its leading edge
+   first, so it stretches on the way. */
+.mdbase-segmented {
+  position: relative;
+  /* Equal segments, each as wide as the longest label; a stretched control shares the room. */
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
+  background: var(--color-surface-subtle);
+  font-size: var(--control-font-size);
+}
+
+.mdbase-segmented-thumb {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: calc(var(--control-radius) - 2px);
+  /* Raised reads as lighter than the track in both themes. */
+  background: light-dark(var(--color-surface), var(--color-border-strong));
+  box-shadow: 0 1px 2px var(--color-shadow);
+  pointer-events: none;
+}
+
+.mdbase-segmented[data-moving="end"] > .mdbase-segmented-thumb {
+  transition:
+    right var(--motion-base) var(--ease-out),
+    left var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-segmented[data-moving="start"] > .mdbase-segmented-thumb {
+  transition:
+    left var(--motion-base) var(--ease-out),
+    right var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-segmented-option {
+  position: relative;
+  min-height: calc(var(--control-height) - 6px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: calc(var(--control-radius) - 2px);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color var(--motion-quick) var(--ease-standard),
+    scale var(--motion-spring) var(--ease-spring);
+}
+
+/* The radio covers its option, so the whole option is the target. */
+.mdbase-segmented-option > input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.mdbase-segmented-option:hover {
+  color: var(--color-text-soft);
+}
+
+.mdbase-segmented-option:active:not(:has(:disabled)) {
+  scale: 0.97;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
+}
+
+.mdbase-segmented-option:has(:checked) {
+  color: var(--color-text);
+}
+
+.mdbase-segmented-option:has(:disabled) {
+  color: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+.mdbase-segmented-option:has(:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
 }
 
 /* Checkbox: native inputs keep Space, label activation, form state and indeterminate support.
@@ -667,7 +869,16 @@ textarea.mdbase-field {
   color: var(--color-on-accent);
   vertical-align: middle;
   cursor: pointer;
-  transition: background var(--motion-quick) var(--ease-out), border-color var(--motion-quick) var(--ease-out);
+  transition:
+    background var(--motion-quick) var(--ease-out),
+    border-color var(--motion-quick) var(--ease-out),
+    scale var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-checkbox:active:not(:disabled) {
+  scale: 0.9;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
 }
 
 .mdbase-checkbox:checked,
@@ -677,21 +888,35 @@ textarea.mdbase-field {
   background: var(--color-accent);
 }
 
-.mdbase-checkbox:checked::after,
-.mdbase-checkbox[aria-checked="true"]::after {
-  width: 4px;
-  height: 8px;
+/* The tick is two borders of a rotated box. It is wiped in from the left: the clip is a
+   half-plane whose edge runs along the box's diagonal, which the rotation stands upright. */
+.mdbase-checkbox::after {
+  box-sizing: border-box;
+  width: 6px;
+  height: 10px;
   margin-top: -2px;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
   content: "";
   transform: rotate(45deg);
+  clip-path: polygon(-30px -18px, 30px 42px, -30px 90px);
+  transition: clip-path var(--motion-press) var(--ease-exit);
+}
+
+.mdbase-checkbox:checked::after,
+.mdbase-checkbox[aria-checked="true"]::after {
+  clip-path: polygon(-30px -38px, 30px 22px, -30px 90px);
+  transition: clip-path var(--motion-slow) var(--ease-out) var(--motion-press);
 }
 
 .mdbase-checkbox:indeterminate::after {
   width: 8px;
-  border-top: 2px solid currentColor;
-  content: "";
+  height: 2px;
+  margin: 0;
+  border: 0;
+  background: currentColor;
+  transform: none;
+  clip-path: none;
 }
 
 .mdbase-checkbox:hover:not(:disabled) {
@@ -760,6 +985,8 @@ textarea.mdbase-field {
   }
   .mdbase-switch > span { background: ButtonText; }
   .mdbase-switch[aria-checked="true"] > span { background: HighlightText; }
+  .mdbase-segmented-thumb { border-color: Highlight; background: Highlight; }
+  .mdbase-segmented-option:has(:checked) { color: HighlightText; forced-color-adjust: none; }
 }
 
 /* Dialogs: a native <dialog> in the top layer, drawn like a popover. */
@@ -768,10 +995,12 @@ textarea.mdbase-field {
   max-height: calc(100dvh - 48px);
   padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--control-radius);
+  border-radius: var(--radius-lg);
   color: var(--color-text);
   background: var(--color-surface-overlay);
   box-shadow: var(--elevation-high);
+  /* It settles into place from just below, on the spring. */
+  --overlay-from: translateY(8px) scale(0.98);
 }
 
 .mdbase-dialog::backdrop {
@@ -800,6 +1029,17 @@ textarea.mdbase-field {
   text-transform: none;
 }
 
+.mdbase-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+
+.mdbase-confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
 /* Save notices: small, quiet, and gone once there is nothing to act on. */
 .mdbase-save-notice {
   display: inline-flex;
@@ -818,6 +1058,16 @@ textarea.mdbase-field {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* The saved tick draws itself. A drawn path has pathLength 1 (toast.css draws its marks too). */
+.mdbase-save-notice svg path {
+  stroke-dasharray: 1;
+  animation: mdbase-draw var(--motion-slow) var(--ease-out) backwards;
+}
+
+@keyframes mdbase-draw {
+  from { stroke-dashoffset: 1; }
 }
 
 .mdbase-save-notice.is-attention {
@@ -854,37 +1104,46 @@ textarea.mdbase-field {
   }
 }
 
+/* Durations are zeroed at the tokens (motion.css). What is left is movement that a zero
+   duration still shows. */
 @media (prefers-reduced-motion: reduce) {
   /* Without the fade, a confirmation still shows for the same time, then goes. */
   .mdbase-settle {
     animation-timing-function: steps(1, end);
   }
-
-  .mdbase-button,
-  .mdbase-icon-button,
-  .mdbase-field,
-  .mdbase-select,
-  .mdbase-select-chevron,
-  .mdbase-app-switcher,
-  .mdbase-app-switcher-chevron,
-  .mdbase-checkbox,
-  .mdbase-switch,
-  .mdbase-switch > span {
-    transition: none;
-  }
 }
 
 /* Mode changes stay inline; progress is text, never an optimistic toggle. */
-.mdbase-collection-mode { display: grid; gap: var(--space-3); min-inline-size: 0; }
-.mdbase-collection-mode :is(h3, p, ul) { margin-block: 0; }
-.mdbase-collection-mode h3 { font-size: var(--font-size-section); font-weight: var(--font-weight-medium); }
-.mdbase-collection-mode > div:last-child { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.mdbase-collection-mode code { overflow-wrap: anywhere; }
+.mdbase-collection-mode {
+  display: grid;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.mdbase-collection-mode :is(h3, p, ul) {
+  margin-block: 0;
+}
+
+.mdbase-collection-mode h3 {
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-medium);
+}
+
+.mdbase-collection-mode > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.mdbase-collection-mode code {
+  overflow-wrap: anywhere;
+}
 
 :focus-visible {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
 }
-[role="radio"][aria-checked="true"]:focus-visible { outline: var(--focus-ring); }
-.mdbase-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
-.mdbase-confirm-dialog { width: min(440px, calc(100vw - 32px)); }
+
+[role="radio"][aria-checked="true"]:focus-visible {
+  outline: var(--focus-ring);
+}

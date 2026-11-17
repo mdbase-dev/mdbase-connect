@@ -62,7 +62,7 @@ export function SaveNotice({ tone, label = defaultLabels[tone], className }: {
     className={["mdbase-save-notice", `is-${tone}`, tone === "saved" && "mdbase-settle", className].filter(Boolean).join(" ")}
     aria-live="polite"
   >
-    {tone === "saved" && <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" /></svg>}
+    {tone === "saved" && <svg viewBox="0 0 16 16" aria-hidden="true"><path d="m3.5 8.5 3 3 6-7" pathLength={1} /></svg>}
     {label}
   </span>;
 }

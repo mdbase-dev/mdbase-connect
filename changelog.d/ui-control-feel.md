@@ -1,0 +1,3 @@
+## Changed
+
+- Shared controls in `@mdbase-dev/ui` respond to touch: buttons, checkboxes and switches press in and spring back, a checkbox draws its tick, a switch thumb stretches as it moves, and menus, lists and dialogs open from the corner beside their trigger. The theme control in Connect and in the desktop app's settings shows System, Light and Dark side by side, so `ThemeSelect` is now a radio group, not a combobox. A toast closes with an icon button, and a confirm button keeps its width while it works. For apps that style against the tokens: each themed colour in `tokens.css` is one `light-dark()` value (read a resolved colour from an element in script, not the raw custom property), `--radius-md` is 8px and `--radius-lg` 10px, and dialogs use `--radius-lg`.

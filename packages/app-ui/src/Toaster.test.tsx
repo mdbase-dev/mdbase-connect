@@ -75,3 +75,34 @@ it("bounds the queue and clears it when its owner unmounts", () => {
   act(() => vi.advanceTimersByTime(5_000));
   expect(host.textContent).not.toContain("three");
 });
+
+it("marks a tone, stays when sticky, and goes when its returned dismiss is called", () => {
+  mount();
+  let dismiss!: () => void;
+  act(() => { dismiss = toast("Could not save", { tone: "error", sticky: true }); });
+  const item = host.querySelector(".mdbase-toast")!;
+  expect(item.getAttribute("data-tone")).toBe("error");
+  expect(item.querySelector(".mdbase-toast-tone")).not.toBeNull();
+  act(() => vi.advanceTimersByTime(60_000));
+  expect(host.textContent).toBe("Could not save");
+  act(() => dismiss());
+  expect(host.textContent).toBe("");
+});
+
+it("runs a custom action and keeps the toast unless the action dismisses", () => {
+  mount();
+  const onAction = vi.fn();
+  act(() => { toast("Offline", { action: { label: "Retry", onAction } }); });
+  const retry = [...host.querySelectorAll("button")].find((button) => button.textContent === "Retry")!;
+  act(() => retry.click());
+  expect(onAction).toHaveBeenCalledTimes(1);
+  expect(host.textContent).toContain("Offline");
+  act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Dismiss"]')!.click());
+  expect(host.textContent).toBe("");
+});
+
+it("leaves an untoned receipt without a mark", () => {
+  mount();
+  act(() => { toast("Link copied"); });
+  expect(host.querySelector(".mdbase-toast-tone")).toBeNull();
+});
