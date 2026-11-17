@@ -227,6 +227,9 @@ change for independent desktop/SDK versions. Neither consumer is modified here.
 
 1. Deploy the ops updates Worker (`bin/deploy-updates`) and check
    `https://updates.mdbase.dev/desktop/v1/rollout/v0.0.0.json` answers 404.
+   This must happen **before** a desktop release with staged-rollout support
+   ships: such an app treats an unreachable rollout service as "not yet" and
+   defers automatic updates, while a 404 means "follow the release".
 2. Wait for a published desktop release that contains staged-rollout support in
    the app, so that most installations space their own updates.
 3. Set `DESKTOP_ROLLOUT_SERVICE=https://updates.mdbase.dev`. The next release
