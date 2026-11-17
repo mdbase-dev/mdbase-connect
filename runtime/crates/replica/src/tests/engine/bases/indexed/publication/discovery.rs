@@ -933,3 +933,80 @@ fn a_page_names_at_most_32_unreadable_records_and_the_next_page_continues() {
     assert_eq!(unreadable.iter().map(|u| u.0).collect::<Vec<_>>(), ids);
     assert_eq!(views, LATE);
 }
+/// Replace a stored record's document. Documents this large arrive as blobs,
+/// not inline mutation text, so write the stored row directly.
+fn store_document(r: &mut Replica<ProjectionStore>, id: B16, doc: String) {
+    let mut row = r.store().inner.record(&id).unwrap().unwrap();
+    row.revision = mdbn_wire::hash::sha256(doc.as_bytes());
+    row.doc = doc;
+    r.store_mut()
+        .inner
+        .commit(crate::store::Tx {
+            records_put: vec![row],
+            ..Default::default()
+        })
+        .unwrap();
+}
+fn large_note(bytes: usize) -> String {
+    format!("---\ntags: [note]\n---\n{}\n", "x".repeat(bytes))
+}
+#[test]
+fn a_note_over_half_a_page_is_discovered_past_wherever_it_falls() {
+    // tasknotes-app#436: a 512 KiB-1 MiB note that was not the first record of
+    // its page failed discovery as `conflict`/`concurrent_modification`. Only
+    // a Base is reread, so a note may fill the page.
+    for position in [0, 2] {
+        let (mut r, session) = inventory_actor(&tiny_notes(4));
+        store_document(&mut r, task_id(position), large_note(600 * 1024));
+        let (views, next) = discovery_page(&mut r, session, None);
+        assert_eq!(views, LATE.to_vec(), "large note at {position}");
+        assert!(next.is_none());
+    }
+}
+#[test]
+fn a_note_that_fills_a_page_by_itself_is_discovered() {
+    let (mut r, session) = inventory_actor(&tiny_notes(4));
+    store_document(&mut r, task_id(1), large_note(1000 * 1024));
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert_eq!(views, LATE.to_vec());
+    assert!(next.is_none());
+}
+#[test]
+fn a_record_larger_than_a_page_is_a_named_budget_refusal_not_a_conflict() {
+    let (mut r, session) = inventory_actor(&tiny_notes(4));
+    store_document(&mut r, task_id(2), large_note(1100 * 1024));
+    let error = r
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            128,
+            None,
+            crate::replica::UnreadableSources::Report,
+            |_, _, _| Ok(()),
+        )
+        .unwrap_err();
+    let problem = format!("{error:?}");
+    assert!(problem.contains("\"invalid_request\""), "{problem}");
+    assert!(problem.contains("query_budget_exceeded"), "{problem}");
+}
+#[test]
+fn a_base_over_half_a_page_is_still_a_named_budget_refusal() {
+    // A Base must be classified and reread within one page.
+    let mut records = tiny_notes(4);
+    records[2] = (task_id(2), "Views/huge.base".into(), THREE.into());
+    let (mut r, session) = inventory_actor(&records);
+    let comment = format!("# {}\n", "y".repeat(600 * 1024));
+    store_document(&mut r, task_id(2), format!("{comment}{THREE}"));
+    let error = r
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            128,
+            None,
+            crate::replica::UnreadableSources::Report,
+            |_, _, _| Ok(()),
+        )
+        .unwrap_err();
+    let problem = format!("{error:?}");
+    assert!(problem.contains("query_budget_exceeded"), "{problem}");
+}
