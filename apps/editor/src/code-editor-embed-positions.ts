@@ -1,4 +1,5 @@
-import { StateEffect, StateField, type EditorState } from "@codemirror/state";
+import { StateEffect, StateField, type EditorState, type Extension } from "@codemirror/state";
+import { ViewPlugin, type EditorView, type ViewUpdate } from "@codemirror/view";
 
 /** Embeds as parsed from one version of a note body. */
 export interface ParsedEmbeds<T> {
@@ -32,6 +33,33 @@ export function embedPositions<T extends Positioned>() {
     }
   });
   return { parsed, field };
+}
+
+/** Tells the app which embeds are in view, each time that changes, so it opens only those. */
+export function visibleEmbeds<T extends Positioned>(
+  field: StateField<readonly T[]>,
+  keyOf: (reference: T) => string,
+  onVisible: () => ((keys: string[]) => void) | undefined
+): Extension {
+  return ViewPlugin.fromClass(class {
+    private reported = "";
+
+    constructor(view: EditorView) { this.report(view); }
+
+    update(update: ViewUpdate) {
+      if (update.docChanged || update.viewportChanged || update.startState.field(field) !== update.state.field(field)) this.report(update.view);
+    }
+
+    private report(view: EditorView) {
+      const keys = view.state.field(field)
+        .filter((reference) => view.visibleRanges.some((range) => reference.from <= range.to && reference.to >= range.from))
+        .map(keyOf);
+      const fingerprint = keys.join("\n");
+      if (fingerprint === this.reported) return;
+      this.reported = fingerprint;
+      queueMicrotask(() => onVisible()?.(keys));
+    }
+  });
 }
 
 /** A parse's references in the editor's positions, or null when it read other text. */

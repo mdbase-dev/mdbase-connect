@@ -99,9 +99,10 @@ describe("workspace commands", () => {
     await runCommand("open settings");
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeInTheDocument();
     await runCommand("switch theme");
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Color theme" })).toHaveTextContent("Light"));
+    const theme = within(screen.getByRole("radiogroup", { name: "Color theme" }));
+    await waitFor(() => expect(theme.getByRole("radio", { name: "Light" })).toBeChecked());
     await runCommand("switch theme");
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Color theme" })).toHaveTextContent("Dark"));
+    await waitFor(() => expect(theme.getByRole("radio", { name: "Dark" })).toBeChecked());
   });
 
   it("finds mentions from the index without reads, links with a revision, and undoes without changing properties", async () => {

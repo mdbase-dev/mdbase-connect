@@ -1,6 +1,5 @@
 import { expect, test } from "@playwright/test";
 import AxeBuilder from "@axe-core/playwright";
-import { chooseOption } from "./select";
 
 test("follows the system theme and persists explicit overrides", async ({ page }) => {
   await page.emulateMedia({ colorScheme: "dark" });
@@ -11,13 +10,13 @@ test("follows the system theme and persists explicit overrides", async ({ page }
   expect(systemDarkCanvas).not.toBe("");
 
   await page.getByRole("button", { name: "Settings" }).click();
-  const select = page.getByRole("combobox", { name: "Color theme" });
-  await chooseOption(select, "light");
+  const theme = page.getByRole("radiogroup", { name: "Color theme" });
+  await theme.getByRole("radio", { name: "Light" }).check();
   await expect(root).toHaveAttribute("data-theme", "light");
   const explicitLightCanvas = await root.evaluate((element) => getComputedStyle(element).getPropertyValue("--color-canvas").trim());
   expect(explicitLightCanvas).not.toBe(systemDarkCanvas);
 
-  await chooseOption(select, "dark");
+  await theme.getByRole("radio", { name: "Dark" }).check();
   await expect.poll(() => root.evaluate((element) => getComputedStyle(element).getPropertyValue("--color-canvas").trim())).toBe(systemDarkCanvas);
   expect((await new AxeBuilder({ page }).analyze()).violations).toEqual([]);
   await page.reload();

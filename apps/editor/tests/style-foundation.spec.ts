@@ -41,5 +41,5 @@ test("controls retain a non-color state cue in forced colors", async ({ page }) 
   const toggle = page.getByRole("switch", { name: "Vim key bindings" });
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-checked", "true");
-  expect(await toggle.locator("span").evaluate((element) => getComputedStyle(element).transform)).toBe("matrix(1, 0, 0, 1, 14, 0)");
+  expect(await toggle.locator("span").evaluate((element) => getComputedStyle(element).translate)).toBe("14px");
 });

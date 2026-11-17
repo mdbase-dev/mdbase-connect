@@ -1,30 +1,34 @@
 import { t } from "@lingui/core/macro";
-import { isRevealed, livePreviewReveal } from "@mdbase-dev/ui/live-preview";
+import { BlockWidget, renderedBlocks } from "@mdbase-dev/ui/live-preview";
 import { i18n } from "@lingui/core";
-import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension, type Range, type Text } from "@codemirror/state";
+import { EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension, type Text } from "@codemirror/state";
 import { isolateHistory } from "@codemirror/commands";
 import { attachmentUploadFailure, type AttachmentUploader, type AttachmentUploadFailure } from "./AttachmentUpload";
-import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
+import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
 import type { ResolvedFileReference } from "./use-file-assets";
-import { embedActions, focusEmbedOnPointer, blockEmbed } from "./embed-actions";
-import { embedPositions } from "./code-editor-embed-positions";
+import { embedActions, focusEmbedOnPointer } from "./embed-actions";
+import { embedPositions, visibleEmbeds } from "./code-editor-embed-positions";
 
 const fileEmbeds = embedPositions<ResolvedFileReference>();
 
 /** Gives the editor a parse of the note's file embeds; see `embedPositions`. */
 export const parsedFileEmbeds = fileEmbeds.parsed;
 
-class FileEmbedWidget extends WidgetType {
+class FileEmbedWidget extends BlockWidget {
   readonly locale = i18n.locale;
+  protected readonly heightKey: string;
   private unmountInlinePdf?: () => void;
   private textRequest?: AbortController;
 
   constructor(
     readonly reference: ResolvedFileReference,
     readonly open: ((asset: Extract<FileAssetSnapshot, { status: "ready" }>) => void) | undefined
-  ) { super(); }
+  ) {
+    super();
+    this.heightKey = `file-embed:${fileAssetKey(reference.file)}`;
+  }
 
   eq(other: FileEmbedWidget) {
     const current = this.reference.asset;
@@ -37,7 +41,7 @@ class FileEmbedWidget extends WidgetType {
       && this.reference.label === other.reference.label;
   }
 
-  toDOM() {
+  protected draw(_view: EditorView, hold: () => () => void) {
     const { asset, label } = this.reference;
     const filename = asset.file.path.split("/").at(-1) ?? asset.file.path;
     const preview = document.createElement("figure");
@@ -57,6 +61,9 @@ class FileEmbedWidget extends WidgetType {
         image.src = asset.url;
         image.alt = label ?? filename;
         image.loading = "lazy";
+        const loaded = hold();
+        image.addEventListener("load", loaded);
+        image.addEventListener("error", loaded);
         preview.append(image);
       } else if (asset.file.mediaClass === "pdf") {
         const cover = document.createElement("button");
@@ -75,6 +82,11 @@ class FileEmbedWidget extends WidgetType {
         media.src = asset.url;
         media.controls = true;
         media.preload = "metadata";
+        if (asset.file.mediaClass === "video") {
+          const loaded = hold();
+          media.addEventListener("loadedmetadata", loaded);
+          media.addEventListener("error", loaded);
+        }
         preview.append(media);
       } else if (isTextPreviewable(asset.file)) {
         const pre = document.createElement("pre");
@@ -84,6 +96,7 @@ class FileEmbedWidget extends WidgetType {
         preview.append(pre);
         const request = new AbortController();
         this.textRequest = request;
+        const loaded = hold();
         void fetch(asset.url, { signal: request.signal })
           .then((response) => response.text())
           .then((text) => {
@@ -93,9 +106,12 @@ class FileEmbedWidget extends WidgetType {
             if (!request.signal.aborted && code.isConnected) {
               code.textContent = error instanceof Error ? error.message : t`The text preview could not be opened.`;
             }
-          });
+          })
+          .finally(loaded);
       }
     } else {
+      // The file's preview takes this widget's place when it has opened.
+      if (asset.status === "loading" || asset.status === "idle") hold();
       const status = document.createElement("div");
       status.className = "cm-file-embed-status";
       status.setAttribute("role", "status");
@@ -111,14 +127,14 @@ class FileEmbedWidget extends WidgetType {
     preview.append(caption, embedActions(asset.file.path, filename,
       asset.status === "ready" && asset.file.mediaClass !== "pdf" && this.open
         ? () => this.open?.(asset) : undefined));
-    return blockEmbed(preview);
+    return preview;
   }
 
   ignoreEvent(event: Event) {
     return event.target instanceof Element && Boolean(event.target.closest(".cm-file-embed"));
   }
 
-  destroy() {
+  protected discard() {
     this.textRequest?.abort("Text embed released");
     this.unmountInlinePdf?.();
   }
@@ -177,37 +193,53 @@ const pendingAttachments = StateField.define<readonly PendingAttachment[]>({
   }
 });
 
+interface AttachmentStatus { readonly locale: string; readonly job: PendingAttachment; readonly disabled: boolean }
+
+function sameAttachment(a: AttachmentStatus, b: AttachmentStatus) {
+  return a.locale === b.locale && a.job.id === b.job.id && a.job.error?.message === b.job.error?.message
+    && a.job.error?.retryable === b.job.error?.retryable && a.disabled === b.disabled;
+}
+
+function attachmentStatus({ job, disabled }: AttachmentStatus, block: boolean) {
+  const widget = document.createElement(block ? "div" : "span");
+  widget.className = `cm-attachment-upload${block ? " is-block" : ""}${job.error ? " is-error" : ""}`;
+  const label = document.createElement("span");
+  label.setAttribute("role", "status");
+  label.textContent = job.error
+    ? job.error.message
+    : t`Uploading ${job.file.name}…`;
+  widget.append(label);
+  for (const [text, action] of job.error?.retryable
+    ? [[t`Retry`, job.retry], [t`Remove`, job.remove]] as const
+    : [[t`Remove`, job.remove]] as const) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "mdbase-button is-tertiary";
+    button.textContent = text;
+    button.setAttribute("aria-label", t`${text} upload of ${job.file.name}`);
+    button.disabled = disabled;
+    button.addEventListener("click", action);
+    widget.append(button);
+  }
+  return widget;
+}
+
+/** An upload in a line of text. */
 class AttachmentWidget extends WidgetType {
   readonly locale = i18n.locale;
   constructor(readonly job: PendingAttachment, readonly disabled: boolean) { super(); }
-  eq(other: AttachmentWidget) {
-    return this.locale === other.locale && this.job.id === other.job.id && this.job.error?.message === other.job.error?.message
-      && this.job.error?.retryable === other.job.error?.retryable && this.disabled === other.disabled;
-  }
-  toDOM() {
-    const block = isImageAttachment(this.job.file);
-    const widget = document.createElement(block ? "div" : "span");
-    widget.className = `cm-attachment-upload${block ? " is-block" : ""}${this.job.error ? " is-error" : ""}`;
-    const label = document.createElement("span");
-    label.setAttribute("role", "status");
-    label.textContent = this.job.error
-      ? this.job.error.message
-      : t`Uploading ${this.job.file.name}…`;
-    widget.append(label);
-    for (const [text, action] of this.job.error?.retryable
-      ? [[t`Retry`, this.job.retry], [t`Remove`, this.job.remove]] as const
-      : [[t`Remove`, this.job.remove]] as const) {
-      const button = document.createElement("button");
-      button.type = "button";
-      button.className = "mdbase-button is-tertiary";
-      button.textContent = text;
-      button.setAttribute("aria-label", t`${text} upload of ${this.job.file.name}`);
-      button.disabled = this.disabled;
-      button.addEventListener("click", action);
-      widget.append(button);
-    }
-    return widget;
-  }
+  eq(other: AttachmentWidget) { return sameAttachment(this, other); }
+  toDOM() { return attachmentStatus(this, false); }
+  ignoreEvent() { return true; }
+}
+
+/** An image's upload, on its own line as the image will be. */
+class BlockAttachmentWidget extends BlockWidget {
+  readonly locale = i18n.locale;
+  protected readonly heightKey = "attachment-upload";
+  constructor(readonly job: PendingAttachment, readonly disabled: boolean) { super(); }
+  eq(other: BlockAttachmentWidget) { return sameAttachment(this, other); }
+  protected draw() { return attachmentStatus(this, true); }
   ignoreEvent() { return true; }
 }
 
@@ -224,9 +256,12 @@ export function blockAttachmentInsertion(doc: Text, from: number, to: number, re
 /** Paste/drop shares the menu's uploader, but owns only editor-local insertion anchors. */
 export function attachmentCapture(uploader: () => AttachmentUploader | undefined): Extension {
   return [pendingAttachments, EditorView.decorations.compute([pendingAttachments, EditorState.readOnly], (state) =>
-    Decoration.set(state.field(pendingAttachments).map((job) => Decoration.widget({
-      side: 1, block: isImageAttachment(job.file), widget: new AttachmentWidget(job, state.readOnly)
-    }).range(job.position)), true)
+    Decoration.set(state.field(pendingAttachments).map((job) => {
+      const block = isImageAttachment(job.file);
+      return Decoration.widget({
+        side: 1, block, widget: block ? new BlockAttachmentWidget(job, state.readOnly) : new AttachmentWidget(job, state.readOnly)
+      }).range(job.position);
+    }), true)
   ), ViewPlugin.fromClass(class {
     private sequence = 0;
     private destroyed = false;
@@ -336,36 +371,8 @@ export function fileEmbedPresentation(
 ): Extension {
   return [
     fileEmbeds.field,
-    EditorView.decorations.compute([fileEmbeds.field, livePreviewReveal], (state) => {
-      const ranges = state.field(fileEmbeds.field).flatMap((reference): Range<Decoration>[] => {
-        if (!reference.block) return [];
-        const line = state.doc.lineAt(reference.from);
-        if (isRevealed(state, line.from, line.to)) return [];
-        return [Decoration.replace({
-          block: true,
-          widget: new FileEmbedWidget(reference, onOpen())
-        }).range(line.from, line.to)];
-      });
-      return Decoration.set(ranges, true);
-    }),
-    ViewPlugin.fromClass(class {
-      private reported = "";
-
-      constructor(view: EditorView) { this.report(view); }
-
-      update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged || update.startState.field(fileEmbeds.field) !== update.state.field(fileEmbeds.field)) this.report(update.view);
-      }
-
-      private report(view: EditorView) {
-        const keys = view.state.field(fileEmbeds.field)
-          .filter((reference) => view.visibleRanges.some((range) => reference.from <= range.to && reference.to >= range.from))
-          .map((reference) => fileAssetKey(reference.file));
-        const fingerprint = keys.join("\n");
-        if (fingerprint === this.reported) return;
-        this.reported = fingerprint;
-        queueMicrotask(() => onVisible()?.(keys));
-      }
-    })
+    renderedBlocks.compute([fileEmbeds.field], (state) => state.field(fileEmbeds.field).flatMap((reference) => reference.block
+      ? [{ from: reference.from, to: reference.from, widget: new FileEmbedWidget(reference, onOpen()) }] : [])),
+    visibleEmbeds(fileEmbeds.field, (reference) => fileAssetKey(reference.file), onVisible)
   ];
 }

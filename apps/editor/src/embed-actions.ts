@@ -40,16 +40,3 @@ export function focusEmbedOnPointer(region: HTMLElement) {
     }
   });
 }
-
-/**
- * The element a block embed widget hands CodeMirror. CodeMirror measures a
- * block widget by its border box, so the space around an embed is padding
- * here: a margin would put every later line lower than the editor thinks it
- * is, and arrow keys and clicks below the embed would land on the wrong line.
- */
-export function blockEmbed(embed: HTMLElement): HTMLElement {
-  const block = document.createElement("div");
-  block.className = "cm-embed-block";
-  block.append(embed);
-  return block;
-}

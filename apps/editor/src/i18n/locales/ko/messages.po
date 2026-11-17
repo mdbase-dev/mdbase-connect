@@ -639,7 +639,7 @@ msgstr "{references, plural, other {노트 #개의 링크도 업데이트했습�
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "필수 {requiredMapped}/{0}개 · 전체 {mappedCount}/{1}개"
 
-#. placeholder {0}: this.job.file.name
+#. placeholder {0}: job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
 msgstr "{text} 업로드 {0}"
@@ -6062,7 +6062,7 @@ msgstr "파일 {total}개 중 {uploaded}개를 업로드했습니다."
 msgid "Uploading"
 msgstr "업로드 중"
 
-#. placeholder {0}: this.job.file.name
+#. placeholder {0}: job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "Uploading {0}…"
 msgstr "{0} 업로드 중…"

@@ -639,7 +639,7 @@ msgstr "{references, plural, one {Les liens de # note ont aussi été mis à jou
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "{requiredMapped}/{0} obligatoires · {mappedCount}/{1} au total"
 
-#. placeholder {0}: this.job.file.name
+#. placeholder {0}: job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
 msgstr "Téléversement de {0} ({text})"
@@ -6062,7 +6062,7 @@ msgstr "{uploaded} fichiers importés sur {total}."
 msgid "Uploading"
 msgstr "Envoi en cours"
 
-#. placeholder {0}: this.job.file.name
+#. placeholder {0}: job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "Uploading {0}…"
 msgstr "Envoi de {0}…"

@@ -639,7 +639,7 @@ msgstr "{references, plural, one {También se actualizaron los enlaces de # nota
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "{requiredMapped}/{0} obligatorios · {mappedCount}/{1} en total"
 
-#. placeholder {0}: this.job.file.name
+#. placeholder {0}: job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
 msgstr "{text} la subida de {0}"
@@ -6062,7 +6062,7 @@ msgstr "Se subieron {uploaded} de {total} archivos."
 msgid "Uploading"
 msgstr "Subiendo"
 
-#. placeholder {0}: this.job.file.name
+#. placeholder {0}: job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "Uploading {0}…"
 msgstr "Subiendo {0}…"
