@@ -17,8 +17,6 @@ export function bodySearchWhere(term: string): string {
   return `file.body.lower().contains(${JSON.stringify(term)})`;
 }
 
-/** The body terms of a search as typed: each word lower-cased, without the
- * accent folding titles and paths get (the runtime matches text exactly). */
 /** The runtime query for notes with `tag` or a tag nested under it, among
  * frontmatter `tags` and inline `#tags` in the text: the collection's own
  * `file.hasTag`, so the page never reads tags out of Markdown itself. */
@@ -26,6 +24,8 @@ export function tagSearchWhere(tag: string): string {
   return `file.hasTag(${JSON.stringify(tag)})`;
 }
 
+/** The body terms of a search as typed: each word lower-cased, without the
+ * accent folding titles and paths get (the runtime matches text exactly). */
 export function bodySearchTerm(word: string): string | undefined {
   const term = word.toLowerCase();
   return [...term].length >= MIN_TERM_LENGTH ? term : undefined;
