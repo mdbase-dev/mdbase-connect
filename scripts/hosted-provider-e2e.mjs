@@ -78,7 +78,6 @@ const masterKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toStri
 const mirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-mirror-"));
 const writableMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-writable-mirror-"));
 const importMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-import-mirror-"));
-const browserMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-browser-mirror-"));
 const authorityMirrorRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-authority-mirror-"));
 const mirrorStateRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-mirror-state-"));
 const portableRoot = await mkdtemp(join(tmpdir(), "mdbase-provider-portable-"));
@@ -1758,16 +1757,11 @@ schema:
     421
   );
 
-  phase("exercising hosted lifecycle and writable enrollment in a real browser");
+  phase("exercising hosted lifecycle and a synced folder in a real browser");
   await portalLifecycleE2E({
     controlUrl,
     providerUrl: provider.url,
-    browserMirrorDirectory: browserMirrorRoot,
-    repoRoot,
     internalToken,
-    mirrorProfileDirectory,
-    waitForOutput,
-    execute,
     rawRequest
   });
 
@@ -3198,7 +3192,6 @@ schema:
   await rm(mirrorRoot, { recursive: true, force: true });
   await rm(writableMirrorRoot, { recursive: true, force: true });
   await rm(importMirrorRoot, { recursive: true, force: true });
-  await rm(browserMirrorRoot, { recursive: true, force: true });
   await rm(authorityMirrorRoot, { recursive: true, force: true });
   await rm(mirrorStateRoot, { recursive: true, force: true });
   await rm(portableRoot, { recursive: true, force: true });
@@ -3838,15 +3831,6 @@ async function waitFor(action, message, attempts = 100) {
     const value = await action();
     if (value) return value;
     await delay(25);
-  }
-  throw new Error(message);
-}
-
-async function waitForOutput(action, message) {
-  for (let attempt = 0; attempt < 600; attempt += 1) {
-    const value = action();
-    if (value) return value;
-    await delay(50);
   }
   throw new Error(message);
 }

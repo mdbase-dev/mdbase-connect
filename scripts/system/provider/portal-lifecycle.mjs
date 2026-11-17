@@ -1,22 +1,13 @@
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
-import { readFile, stat } from "node:fs/promises";
-import { join } from "node:path";
 import { chromium, expect } from "@playwright/test";
 
 export async function portalLifecycleE2E({
   controlUrl,
   providerUrl,
-  browserMirrorDirectory,
-  repoRoot,
   internalToken,
-  mirrorProfileDirectory,
-  waitForOutput,
-  execute,
   rawRequest
 }) {
   const browser = await chromium.launch({ headless: true });
-  let connector;
   try {
     const page = await browser.newPage();
     await page.goto(`${controlUrl}/login`);
@@ -61,52 +52,18 @@ export async function portalLifecycleE2E({
       .toHaveAttribute("href", `mdbase-connect://mirror?collection=${collectionId}`);
     await page.keyboard.press("Escape");
 
-    const mirrorCli = join(repoRoot, "packages", "sync", "dist", "cli.js");
-    connector = spawn(process.execPath, [
-      mirrorCli,
-      "connect",
-      browserMirrorDirectory,
-      "--server", controlUrl,
-      "--collection", collectionId,
-      "--name", "Browser writable mirror",
-      "--no-open"
-    ], {
-      cwd: repoRoot,
-      env: process.env,
-      stdio: ["ignore", "pipe", "pipe"]
-    });
-    let connectorOutput = "";
-    let connectorError = "";
-    connector.stdout.on("data", (chunk) => { connectorOutput += chunk; });
-    connector.stderr.on("data", (chunk) => { connectorError += chunk; });
-    const verificationUri = await waitForOutput(
-      () => connectorOutput.match(/https?:\/\/[^\s]+\/mirror\/[0-9a-f-]+/)?.[0],
-      "Mirror CLI did not print a browser approval URL"
-    );
-    await page.goto(verificationUri);
-    await expect(page.getByRole("heading", { name: "Browser writable mirror" })).toBeVisible();
-    await expect(page.getByRole("combobox", { name: "Hosted collection" }))
-      .toHaveText("Browser E2E collection");
-    await page.getByRole("button", { name: "Sync this collection" }).click();
-    await expect(page.getByRole("heading", { name: "Return to your computer." })).toBeVisible();
-    const connectorExit = connector.exitCode
-      ?? await new Promise((resolveExit) => connector.once("exit", resolveExit));
-    assert.equal(connectorExit, 0, `Mirror CLI failed:\n${connectorError}\n${connectorOutput}`);
-    assert.match(connectorOutput, /Sync connected/);
-    await assert.rejects(
-      () => readFile(join(browserMirrorDirectory, ".mdbase", "connect-mirror.json"), "utf8"),
-      { code: "ENOENT" }
-    );
-    assert.equal(
-      (
-        await stat(join(await mirrorProfileDirectory(browserMirrorDirectory), "credentials.json"))
-      ).mode & 0o777,
-      0o600
-    );
-    const browserStatus = JSON.parse(
-      (await execute(process.execPath, [mirrorCli, "status", browserMirrorDirectory, "--json"])).stdout
-    );
-    assert.equal(browserStatus.state, "up_to_date");
+    // The portal no longer approves a new synced folder, so the folder that the
+    // Storage tab lists and disconnects is registered through the account route.
+    const registered = await page.evaluate(async ({ server, collection }) => {
+      const response = await fetch(`${server}/v1/hosted/collections/${collection}/replicas`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: "Browser writable mirror", mode: "read_write", allowed_types: [] })
+      });
+      return response.status;
+    }, { server: controlUrl, collection: collectionId });
+    assert.equal(registered, 201, "The synced folder was not registered");
 
     await page.goto(controlUrl);
     await page.getByRole("link", { name: "Collections", exact: true }).click();
@@ -191,12 +148,7 @@ export async function portalLifecycleE2E({
         { token: internalToken }
       )
     ).status, { timeout: 20_000 }).toBe(404);
-    assert.match(
-      await readFile(join(browserMirrorDirectory, "mdbase.yaml"), "utf8"),
-      /spec_version: 0\.3\.0/
-    );
   } finally {
-    if (connector?.exitCode === null && connector.signalCode === null) connector.kill("SIGTERM");
     await browser.close();
   }
 }
