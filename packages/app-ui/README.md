@@ -21,7 +21,7 @@ applyThemePreference(loadThemePreference());
   themes. Style components with roles, not palette values. Short aliases such
   as `--ink` belong to each app.
   `--color-current` and `--color-on-current` mark the keyboard/pointer current
-  choice in palettes, completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
+  choice in completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
   Each colour that differs by theme is one `light-dark()` value, and `:root`
   uses one scheme at a time. In CSS, `var(--color-text)` resolves as before. In
   script, read a resolved colour from an element (`getComputedStyle(element).color`),
