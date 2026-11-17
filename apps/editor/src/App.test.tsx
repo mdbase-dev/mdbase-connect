@@ -413,6 +413,23 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveAttribute("placeholder", "Title");
   });
 
+  it("finds a note whose only tag is inline by #tag and tag:, though its listed record has no tags", async () => {
+    const gateway = new TaglessRecordViewsGateway(1);
+    await gateway.create({ path: "Inline.md", title: "Inline only", body: "Inline #inlinemarker here.", properties: {} });
+    const searchTag = vi.spyOn(gateway, "searchTag");
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    const list = await screen.findByRole("region", { name: "Notes and files" });
+    expect(await within(list).findByRole("option", { name: /Inline only/ })).toBeInTheDocument();
+    const search = screen.getByRole("combobox", { name: "Search notes and files" });
+    for (const query of ["#inlinemarker", "tag:inlinemarker"]) {
+      await user.clear(search);
+      await user.type(search, `${query}{Enter}`);
+      await waitFor(() => expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual([expect.stringContaining("Inline only")]));
+    }
+    expect(searchTag).toHaveBeenCalledWith("inlinemarker", expect.anything());
+  });
+
   it("filters collection folders and facets and follows backlinks", async () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(12)} />);
@@ -429,7 +446,8 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "Search filters" }));
     await user.click(within(screen.getByRole("listbox", { name: "Search filters" })).getByRole("option", { name: /^#ideas/ }));
     expect(screen.getByRole("heading", { name: "#ideas" })).toBeInTheDocument();
-    expect(screen.getAllByRole("option")).toHaveLength(4);
+    // Tag filters are the runtime's answers.
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(4));
 
     expect(screen.queryByRole("group", { name: "By type" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Search filters" }));
@@ -1408,6 +1426,25 @@ class RetryingListGateway extends DemoCollectionGateway {
     this.hydrateCalls += 1;
     return super.hydrateContent(options);
   }
+}
+
+/** Lists notes as a native collection does: its record views carry no tags,
+ * so a note's inline tag is known only to the runtime (`searchTag`). */
+class TaglessRecordViewsGateway extends DemoCollectionGateway {
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
+    const result = await super.list({ ...options, onProgress: options.onProgress && ((progress) => options.onProgress!({ ...progress, notes: progress.notes.map(withoutTags) })) });
+    return { ...result, notes: result.notes.map(withoutTags) };
+  }
+
+  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
+    const result = await super.hydrateContent({ ...options, onProgress: options.onProgress && ((progress) => options.onProgress!({ ...progress, notes: progress.notes.map(withoutTags) })) });
+    return { ...result, notes: result.notes.map(withoutTags) };
+  }
+}
+
+function withoutTags(note: NoteSummary): NoteSummary {
+  const { tags: _tags, ...file } = note.file;
+  return { ...note, file };
 }
 
 class DemandContentGateway extends DemoCollectionGateway {

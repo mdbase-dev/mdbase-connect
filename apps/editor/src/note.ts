@@ -259,13 +259,12 @@ export function noteTags(note: NoteSummary): string[] {
 }
 
 /** The note has `tag` or a tag nested under it (`project` covers
- * `project/alpha`), in any letter case. */
+ * `project/alpha`) among the tags the page holds, by the runtime's
+ * `file.hasTag` rule. Only Quick open uses it: the note list asks the
+ * runtime (`searchTag`), since record views carry no inline tags. */
 export function noteHasTag(note: NoteSummary, tag: string): boolean {
-  const wanted = tag.toLocaleLowerCase();
-  return noteTags(note).some((name) => {
-    const folded = name.toLocaleLowerCase();
-    return folded === wanted || folded.startsWith(`${wanted}/`);
-  });
+  const wanted = tag.replace(/^#+/, "");
+  return wanted !== "" && noteTags(note).some((name) => name === wanted || name.startsWith(`${wanted}/`));
 }
 
 export function noteHasType(note: NoteSummary, type: string): boolean {

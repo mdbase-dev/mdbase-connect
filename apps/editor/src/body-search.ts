@@ -19,6 +19,13 @@ export function bodySearchWhere(term: string): string {
 
 /** The body terms of a search as typed: each word lower-cased, without the
  * accent folding titles and paths get (the runtime matches text exactly). */
+/** The runtime query for notes with `tag` or a tag nested under it, among
+ * frontmatter `tags` and inline `#tags` in the text: the collection's own
+ * `file.hasTag`, so the page never reads tags out of Markdown itself. */
+export function tagSearchWhere(tag: string): string {
+  return `file.hasTag(${JSON.stringify(tag)})`;
+}
+
 export function bodySearchTerm(word: string): string | undefined {
   const term = word.toLowerCase();
   return [...term].length >= MIN_TERM_LENGTH ? term : undefined;
@@ -29,19 +36,21 @@ export function bodySearchTerms(query: string): string[] {
 }
 
 export interface BodySearchSnapshot {
-  /** Some term of the current search has no answer yet. */
+  /** Some term or tag of the current search has no answer yet. */
   pending: boolean;
   error?: unknown;
   /** Advances whenever an answer or an excerpt arrives. */
   version: number;
 }
 
-/** Body matches for the note list's search, asked of the collection's
- * runtime rather than read from every note's text in the page. A term is
- * asked once typing pauses; an answer from before a record change stays
- * shown while the term is asked again. */
+/** Body matches and tag filters for the note list's search, asked of the
+ * collection's runtime rather than read from every note's text in the page.
+ * A term or tag is asked once typing pauses; an answer from before a record
+ * change stays shown while it is asked again. */
 export class BodySearch {
-  private terms: string[] = [];
+  /** The questions of the current search: `b:<term>` for a body term,
+   * `t:<tag>` for a tag filter. */
+  private keys: string[] = [];
   private revision = 0;
   private answers = new Map<string, { revision: number; paths: ReadonlySet<string> }>();
   private running = new Map<string, AbortController>();
@@ -54,7 +63,7 @@ export class BodySearch {
   private listeners = new Set<() => void>();
 
   constructor(
-    private readonly gateway: Pick<CollectionGateway, "searchBodies" | "read">,
+    private readonly gateway: Pick<CollectionGateway, "searchBodies" | "searchTag" | "read">,
     private readonly delayMs = ASK_DELAY_MS
   ) {}
 
@@ -66,7 +75,12 @@ export class BodySearch {
 
   /** The paths whose text contains `term`, or undefined until answered. */
   paths(term: string): ReadonlySet<string> | undefined {
-    return this.answers.get(term)?.paths;
+    return this.answers.get(`b:${term}`)?.paths;
+  }
+
+  /** The paths of notes with `tag` (or a tag nested under it), or undefined until answered. */
+  tagged(tag: string): ReadonlySet<string> | undefined {
+    return this.answers.get(`t:${tag}`)?.paths;
   }
 
   /** The note's text, when it was read for an excerpt at its listed revision. */
@@ -75,15 +89,16 @@ export class BodySearch {
     return read && read.revision === note.revision ? read.body : undefined;
   }
 
-  /** Search for `terms` at index `revision`. */
-  search(terms: string[], revision: number): void {
-    this.terms = terms;
+  /** Search for body `terms` and `tags` at index `revision`. */
+  search(terms: readonly string[], tags: readonly string[], revision: number): void {
+    const keys = [...new Set([...terms.map((term) => `b:${term}`), ...tags.map((tag) => `t:${tag}`)])];
+    this.keys = keys;
     this.revision = revision;
-    for (const term of this.answers.keys()) if (!terms.includes(term)) this.answers.delete(term);
-    for (const [term, controller] of this.running) {
-      if (!terms.includes(term)) {
+    for (const key of this.answers.keys()) if (!keys.includes(key)) this.answers.delete(key);
+    for (const [key, controller] of this.running) {
+      if (!keys.includes(key)) {
         controller.abort();
-        this.running.delete(term);
+        this.running.delete(key);
       }
     }
     this.schedule();
@@ -92,7 +107,7 @@ export class BodySearch {
 
   retry(): void {
     this.snapshot = { ...this.snapshot, error: undefined };
-    for (const term of this.terms) this.ask(term);
+    for (const key of this.keys) this.ask(key);
     this.publish(true);
   }
 
@@ -121,39 +136,43 @@ export class BodySearch {
     this.texts.clear();
     this.reading.clear();
     this.generation += 1;
-    this.terms = [];
+    this.keys = [];
     this.snapshot = { pending: false, version: this.snapshot.version };
     this.publish(true);
   }
 
-  private stale(term: string): boolean {
-    return this.answers.get(term)?.revision !== this.revision;
+  private stale(key: string): boolean {
+    return this.answers.get(key)?.revision !== this.revision;
   }
 
-  /** Ask for every stale term once typing (or editing) pauses. */
+  /** Ask every stale question once typing (or editing) pauses. */
   private schedule(): void {
     clearTimeout(this.timer);
-    if (this.snapshot.error !== undefined || !this.terms.some((term) => this.stale(term) && !this.running.has(term))) return;
+    if (this.snapshot.error !== undefined || !this.keys.some((key) => this.stale(key) && !this.running.has(key))) return;
     this.timer = setTimeout(() => {
-      for (const term of this.terms) this.ask(term);
+      for (const key of this.keys) this.ask(key);
     }, this.delayMs);
   }
 
-  private ask(term: string): void {
-    if (!this.stale(term) || this.running.has(term)) return;
+  private ask(key: string): void {
+    if (!this.stale(key) || this.running.has(key)) return;
     const controller = new AbortController();
     const revision = this.revision;
-    this.running.set(term, controller);
-    void this.gateway.searchBodies(term, { signal: controller.signal }).then((paths) => {
+    this.running.set(key, controller);
+    const value = key.slice(2);
+    const answer = key.startsWith("t:")
+      ? this.gateway.searchTag(value, { signal: controller.signal })
+      : this.gateway.searchBodies(value, { signal: controller.signal });
+    void answer.then((paths) => {
       if (controller.signal.aborted) return;
-      this.running.delete(term);
-      this.answers.set(term, { revision, paths: new Set(paths) });
+      this.running.delete(key);
+      this.answers.set(key, { revision, paths: new Set(paths) });
       this.publish(true);
       // Records changed while it ran: ask again.
       this.schedule();
     }, (error: unknown) => {
       if (controller.signal.aborted) return;
-      this.running.delete(term);
+      this.running.delete(key);
       for (const other of this.running.values()) other.abort();
       this.running.clear();
       this.snapshot = { ...this.snapshot, error };
@@ -162,7 +181,7 @@ export class BodySearch {
   }
 
   private publish(changed = false): void {
-    const pending = this.snapshot.error === undefined && this.terms.some((term) => !this.answers.has(term));
+    const pending = this.snapshot.error === undefined && this.keys.some((key) => !this.answers.has(key));
     if (!changed && pending === this.snapshot.pending) return;
     this.snapshot = { ...this.snapshot, pending, version: this.snapshot.version + (changed ? 1 : 0) };
     for (const listener of this.listeners) listener();

@@ -5,11 +5,13 @@ import { basename, noteHasTag, noteHasType, noteTags, noteTitle } from "./note";
 import { bodySearchTerm } from "./body-search";
 import { parseSearchQuery } from "./search-query";
 
-/** Body matches answered by the collection's runtime instead of the text the
- * page holds (`BodySearch`). */
+/** Body matches and tag filters answered by the collection's runtime instead
+ * of the text and tags the page holds (`BodySearch`). */
 export interface IndexedBodies {
   /** Paths whose text contains `term`; undefined while it is unanswered. */
   paths(term: string): ReadonlySet<string> | undefined;
+  /** Paths of notes with `tag`, inline tags included; undefined while it is unanswered. */
+  tagged(tag: string): ReadonlySet<string> | undefined;
   /** The note's text, when it was read for an excerpt. */
   text(note: NoteSummary): string | undefined;
 }
@@ -98,8 +100,9 @@ export function searchNotes(index: NoteSearchEntry[], query: string, limit = Num
 }
 
 /** `bonus` lowers a note's score (ranks it higher); Quick open uses it for
- * recent notes. With `bodies`, body matches are the runtime's answers;
- * without, they are read from the text the page holds. */
+ * recent notes. With `bodies`, body matches and tag filters are the
+ * runtime's answers; without, they are read from the text and tags the page
+ * holds (which on a native collection has no inline tags). */
 export function searchNoteResults(
   index: NoteSearchEntry[],
   query: string,
@@ -119,7 +122,8 @@ export function searchNoteResults(
   });
   const contextTokens = highlightTokens(parsed.words);
   const candidates = parsed.tags.length || parsed.types.length
-    ? index.filter(({ note }) => parsed.tags.every((tag) => noteHasTag(note, tag)) && parsed.types.every((type) => noteHasType(note, type)))
+    ? index.filter(({ note }) => parsed.tags.every((tag) => bodies ? bodies.tagged(tag)?.has(note.path) === true : noteHasTag(note, tag))
+      && parsed.types.every((type) => noteHasType(note, type)))
     : index;
   if (!tokens.length) {
     return candidates.slice(0, limit).map((entry) => {

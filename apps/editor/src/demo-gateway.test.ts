@@ -28,6 +28,16 @@ describe("DemoCollectionGateway indexing", () => {
     // The term is matched as given: an upper-case term matches no lower-cased text.
     expect(await gateway.searchBodies("CASE")).toEqual([]);
   });
+
+  it("answers tag searches as the runtime's hasTag does: frontmatter and inline tags, nested tags included", async () => {
+    const gateway = new DemoCollectionGateway(1);
+    const inline = await gateway.create({ path: "Notes/Inline.md", title: "Inline", body: "Inline #inlinemarker here.", properties: {} });
+    const nested = await gateway.create({ path: "Notes/Nested.md", title: "Nested", body: "Body", properties: { tags: ["project/alpha"] } });
+    expect(await gateway.searchTag("inlinemarker")).toEqual([inline.path]);
+    expect(await gateway.searchTag("#inlinemarker")).toEqual([inline.path]);
+    expect(await gateway.searchTag("project")).toEqual([nested.path]);
+    expect(await gateway.searchTag("proj")).toEqual([]);
+  });
 });
 
 describe("DemoCollectionGateway metadata layout", () => {

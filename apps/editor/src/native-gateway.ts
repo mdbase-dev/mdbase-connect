@@ -26,7 +26,7 @@ import { NativeNoteObservation } from "./native-note-observation";
 import { downloadNativeFile, type NativeFileSelection } from "./native-file-download";
 import { fileAssetKey } from "./file-reference-resolution";
 import { NextEditorRecords } from "./next-editor-records";
-import { bodySearchWhere } from "./body-search";
+import { bodySearchWhere, tagSearchWhere } from "./body-search";
 import type {
   CollectionAuthorizationOptions,
   CollectionAuthorizationTarget,
@@ -290,11 +290,20 @@ export class NativeEditorGateway implements CollectionGateway {
     return new NativeNoteObservation(this.client, () => this.current());
   }
 
-  async searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
-    const signal = this.signal(options.signal);
+  searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    return this.matchingPaths(bodySearchWhere(term), options.signal);
+  }
+
+  searchTag(tag: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    return this.matchingPaths(tagSearchWhere(tag), options.signal);
+  }
+
+  /** Every page of the paths matching `where`. */
+  private async matchingPaths(where: string, outer: AbortSignal | undefined): Promise<string[]> {
+    const signal = this.signal(outer);
     const paths: string[] = [];
     let complete = false;
-    for await (const page of this.client.pages({ where: bodySearchWhere(term), limit: SEARCH_PAGE }, { signal })) {
+    for await (const page of this.client.pages({ where, limit: SEARCH_PAGE }, { signal })) {
       this.check();
       for (const record of page.records) paths.push(record.path);
       complete = page.complete && !page.cursor;

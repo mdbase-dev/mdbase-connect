@@ -351,6 +351,36 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(await f.gateway.searchBodies('"launch"')).toEqual(["notes/quoted.md"]);
   });
 
+  it("finds a note whose only tag is inline by asking the replica's hasTag, since its record view has no tags", async () => {
+    // MemoryReplica is not the runtime: this evaluator stands in for its
+    // `file.hasTag` (platform-native `inline_body_tags_are_found_by_has_tag`
+    // checks the runtime itself) and only checks the query the gateway sends.
+    const asked: string[] = [];
+    const where = (expr: string, record: { body: string }) => {
+      asked.push(expr);
+      const tag = JSON.parse(/^file\.hasTag\((.*)\)$/.exec(expr)![1]) as string;
+      return record.body.includes(`#${tag}`);
+    };
+    const f = await fixture({ where }, replica => {
+      for (let index = 0; index < 1002; index++) {
+        replica.seed({ path: `notes/${String(index).padStart(4, "0")}.md`, types: ["note"], frontmatter: {}, body: index % 2 ? "Inline #inlinemarker here." : "Nothing here." });
+      }
+    });
+    const observation = f.gateway.observe();
+    await observation.ready;
+    const held = observation.getSnapshot().records.find((record) => record.path === "notes/0001.md")!;
+    // What the page holds cannot answer it: no tags, and no text until hydrated.
+    expect(held.file.tags).toBeUndefined();
+    expect(held.body).toBeUndefined();
+    observation.close();
+
+    const paths = await f.gateway.searchTag("inlinemarker");
+    // More matches than one page holds.
+    expect(paths).toHaveLength(501);
+    expect(paths).toContain("notes/0001.md");
+    expect(new Set(asked)).toEqual(new Set(['file.hasTag("inlinemarker")']));
+  });
+
   it("restarts backlink paging when the view changes between pages", async () => {
     const f = await fixture({}, replica => {
       replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });

@@ -110,6 +110,26 @@ describe("ConnectCollectionGateway body search", () => {
       expect(input.include_body).toBeFalsy();
     }
   });
+
+  it("pages the runtime's hasTag query for a tag", async () => {
+    const pages = [[summary("Notes/one.md")], [summary("Archive/two.md")]];
+    const query = vi.fn(async ({ offset }: { where: string; include_body?: boolean; offset: number }) => ({
+      valid: true,
+      diagnostics: [],
+      result: { results: pages[offset] ?? [], meta: { total_count: 2, has_more: offset === 0, snapshot: "stable" } }
+    }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        return await query(input as { where: string; include_body?: boolean; offset: number }) as Result;
+      }
+    }));
+    expect(await gateway.searchTag("inlinemarker")).toEqual(["Notes/one.md", "Archive/two.md"]);
+    for (const [input] of query.mock.calls) {
+      expect(input.where).toBe('file.hasTag("inlinemarker")');
+      expect(input.include_body).toBeFalsy();
+    }
+  });
 });
 
 describe("ConnectCollectionGateway asset lookups", () => {
