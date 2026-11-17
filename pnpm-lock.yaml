@@ -199,17 +199,17 @@ importers:
         specifier: workspace:*
         version: link:../../packages/client
       '@mdbase-dev/connect-protocol':
-        specifier: file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz
-        version: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz
+        specifier: file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz
+        version: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz
       '@mdbase-dev/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-3320267c-production-beta231.tgz
-        version: file:apps/editor/vendor/sdk-3320267c-production-beta231.tgz
+        specifier: file:vendor/sdk-ddf569a0-production-0.1.1.tgz
+        version: file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz
       '@mdbase-dev/ui':
         specifier: 0.1.0
-        version: 0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-3320267c-production-beta231.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2319,9 +2319,9 @@ packages:
   '@marijn/find-cluster-break@1.0.4':
     resolution: {integrity: sha512-Wy0V7+SGUjnF9/TkiM1hKVDPj7jKXduPNboMVtHTA8dySMURWqfg/JZ9E2Sq8JgSJmkl7k7Qe9FLeMSrSraWmQ==}
 
-  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz':
-    resolution: {integrity: sha512-uLeG6+yHiKmtpg5KY4XEa8kGx5mLg6pqLZ4H4+x0An7Q/bhfz5Hgh+P8Ngh6DWvGf6PIuJ3Smw8w6GmCK1gsvQ==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz}
-    version: 0.1.0-beta.145
+  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz':
+    resolution: {integrity: sha512-F0hhr8t6Z4FpbE5QpLEAt//EfTg+VuUrKpg1Iw6+l2fQFptvyaUlQc2VATTP8EGs5cgkBnAqHqOKMkYLpmPhgw==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz}
+    version: 0.1.0-beta.152
 
   '@mdbase-dev/sdk@0.1.0-beta.188':
     resolution: {integrity: sha512-EDaInyP8q2Lz0Akz8P+CNj5O6OvinMJWR1bE04fKtWRFDt9mVRBRBYRja5okOtb3gtnKYyMdQFGLlFln7F1RrA==}
@@ -2329,9 +2329,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-3320267c-production-beta231.tgz':
-    resolution: {integrity: sha512-Emh1qsNntf7H6FPsDhSWCLDQpiW1Pg/iDLoxiDBqG3yQYSAWsKOHFRp4NEopxyEdQPtEsEnJR+YJnnrvWbT7Pg==, tarball: file:apps/editor/vendor/sdk-3320267c-production-beta231.tgz}
-    version: 0.1.0-beta.231
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz':
+    resolution: {integrity: sha512-4p4Gge4Xwzl4m0wU/RyIZOTTt4T4TuUhuzLvhV4+x6xXKUHe65Gx1ywwoEcQ42S3nMWq1lNuKd7WY0n0VroySQ==, tarball: file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz}
+    version: 0.1.1
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8205,7 +8205,7 @@ snapshots:
 
   '@marijn/find-cluster-break@1.0.4': {}
 
-  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.145-e6e66bcd172f.tgz':
+  '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz':
     dependencies:
       '@noble/hashes': 2.4.0
       yaml: 2.9.1
@@ -8216,13 +8216,13 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-3320267c-production-beta231.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-3320267c-production-beta231.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8239,7 +8239,7 @@ snapshots:
       '@codemirror/view': 6.43.12
       '@lezer/common': 1.5.2
       '@lezer/markdown': 1.7.2
-      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-3320267c-production-beta231.tgz
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz
       react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
