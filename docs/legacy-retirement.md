@@ -22,8 +22,8 @@ state and locks, public endpoints):
 - The bulk migration finished on 2026-10-29. Nine accounts created on
   2026-10-24, after the bulk selection cutoff and before new accounts became
   `next`, were missed; they migrated on 2026-11-14. Two accounts stay on `legacy`
-  on purpose: `a9bf357e`, which is suspended and has one hosted collection, and
-  an internal test baseline account. Nothing in mdbase-cloud-ops uses the
+  on purpose: one that is suspended and has one hosted collection, and an
+  internal test baseline account. Nothing in mdbase-cloud-ops uses the
   baseline account.
 - Retention: legacy data and rollback evidence are kept 90 days after each
   cutover, so until about 2027-02-12 (inferred from the 2026-11-14 cutovers).
@@ -115,7 +115,7 @@ independent of each other. 2c is last.
 
 **Condition:**
 
-- the legacy account count is 0, or `a9bf357e` has been resolved (deleted, or moved by support);
+- the legacy account count is 0, or the suspended account has been resolved (deleted, or moved by support);
 - the legacy retention window has passed (about 2027-02-12);
 - recovery archives have been removed and verified (2027-03-12);
 - the ops consumers of the provider are gone.
