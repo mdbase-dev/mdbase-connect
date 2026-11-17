@@ -63,10 +63,11 @@ overrides:
 # workspace only through build and development tools: Vite, tinyglobby,
 # Electron Forge and the Lingui catalogue CLI. Every pattern they match is
 # written in this repository's own configuration; no request, record or user
-# input becomes a glob, and picomatch is not in the control plane or any
-# shipped runtime. The advisory names 4.0.8 as patched, but 4.0.7 is the
-# latest release. Replace this exception with an override when a patched
-# release is published.
+# input becomes a glob. The control plane and MCP images keep the build
+# stage's node_modules, so the package is on disk there, but no production
+# dependency of either service imports it. Added 2026-11-18: the advisory
+# names 4.0.8 as patched, but 4.0.7 is the latest release. Replace this
+# exception with an override when a patched release is published.
 auditConfig:
   ignoreGhsas:
     - GHSA-w3rx-r6r6-pgpr
