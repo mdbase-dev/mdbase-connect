@@ -101,7 +101,9 @@ Dependency updates are reviewed weekly and high-severity audit findings fail
 CI. Beta releases may carry the explicitly documented external risks in
 `config/release-readiness.json`; a stable release runs the same checker with
 `--stable` and cannot pass until every gate is complete and contains an
-evidence reference.
+evidence reference. On 2026-11-17 the release owner retired the encrypted
+backup and restore drill and platform signing and notarization gates as stale
+requirements; they were removed from the manifest without being completed.
 
 Update design records and the release-readiness manifest in the same pull
 request as the decision they record. An empty checkbox is not evidence:
