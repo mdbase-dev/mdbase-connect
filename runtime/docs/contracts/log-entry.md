@@ -182,6 +182,15 @@ Rules:
 
   Blob-backed texts are uploaded before the append, like file blobs, and listed in the
   header's `refs`.
+- **Writers emit whole documents today, and history depends on it.** Every record
+  write stores its document inline; the only text-table use is a blob-backed text
+  when a large unindexed Markdown file becomes a record. The history reader
+  (`replica-client-api.md` §4.4) reads each version from its own entry and refuses
+  a record text that is a delta. A writer that adopts deltas must keyframe each
+  record: write the whole document when the record's previous write is more than
+  about 15 minutes old, and bound how many deltas can follow one whole document, so
+  a reader resolves any version from a nearby keyframe. Readers must be updated to
+  walk those chains before such a writer ships.
 - **Unbounded records, bounded entries.** Records of any size are representable, while
   every entry stays bounded (§10).
 - **Base texts must travel.** A writer that used a retained base body for a merge puts

@@ -310,13 +310,31 @@ pub fn folded_contains(text: &str, needle: &str) -> bool {
     fold(text).contains(needle)
 }
 
+/// The text a body index holds for `body`: its [`fold`], with NUL written
+/// U+FFFD (SQLite text ends at a NUL).
+pub fn body_index_text(body: &str) -> String {
+    fold(body).replace('\0', "\u{FFFD}")
+}
+
+/// Whether `body.lower().contains(needle)` is `body_index_text(body)
+/// .contains(needle)` for every body, and an index of character trigrams can
+/// find `needle`. The fold rewrites only `ς`, to `σ`, and the index text only
+/// NUL, to U+FFFD, so a needle holding none of `σ`, NUL and U+FFFD, and no `ς`
+/// or other character the fold changes, matches the same places in both. A
+/// trigram index finds substrings of at least three characters.
+pub(super) fn exact_body_needle(needle: &str) -> bool {
+    needle.chars().nth(2).is_some()
+        && fold(needle) == needle
+        && !needle.contains(['σ', '\0', '\u{FFFD}'])
+}
+
 /// `file.<member>`.
 fn is_file_member(e: &Expr, member: &str) -> bool {
     matches!(e, Expr::Select { operand, field, test: false, .. } if field == member && is_ident(operand, "file"))
 }
 
 /// `file.body` → `Some(false)`, `file.body.lower()` → `Some(true)`.
-fn body_receiver(e: &Expr) -> Option<bool> {
+pub(super) fn body_receiver(e: &Expr) -> Option<bool> {
     if is_file_member(e, "body") {
         return Some(false);
     }

@@ -894,6 +894,25 @@ pub struct CollectionRef {
     pub collection: String,
 }
 
+/// `text` with each control character written as an escape (`\u{1b}`), so
+/// text read from a file cannot move the cursor, recolour or retitle the
+/// terminal it is printed to.
+pub fn terminal_text(text: &str) -> std::borrow::Cow<'_, str> {
+    if !text.chars().any(char::is_control) {
+        return text.into();
+    }
+    text.chars()
+        .map(|c| {
+            if c.is_control() {
+                c.escape_default().to_string()
+            } else {
+                c.to_string()
+            }
+        })
+        .collect::<String>()
+        .into()
+}
+
 /// One `doctor` check.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Check {

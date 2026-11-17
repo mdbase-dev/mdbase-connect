@@ -52,9 +52,11 @@ export function linkCompletion(
   if (wikilink && (!mention || wikilink.from > mention.from)) {
     const openerLength = wikilink.text.startsWith("![[") ? 3 : 2;
     const query = wikilink.text.slice(openerLength);
+    // The link's own `]]` after the caret, closed as `[[` was typed, gives way to the completion's.
+    const to = context.state.sliceDoc(context.pos, context.pos + 2) === "]]" ? context.pos + 2 : context.pos;
     const heading = headingCompletions(
       wikilink.from + openerLength,
-      context.pos,
+      to,
       query,
       notes,
       context.state.doc.toString(),
@@ -62,7 +64,7 @@ export function linkCompletion(
     );
     return heading ?? objectCompletions(
       wikilink.from + openerLength,
-      context.pos,
+      to,
       suggestions,
       files,
       query,

@@ -352,11 +352,19 @@ impl Daemon {
                     action: None,
                 }),
         );
-        checks.push(crate::update::doctor_check(
-            &r.binary_version,
-            &self.profile.state_dir,
-            time::OffsetDateTime::now_utc(),
-        ));
+        let (version, state_dir) = (r.binary_version.clone(), self.profile.state_dir.clone());
+        checks.push(
+            tokio::task::spawn_blocking(move || {
+                crate::update::doctor_check(&version, &state_dir, time::OffsetDateTime::now_utc())
+            })
+            .await
+            .unwrap_or_else(|e| Check {
+                id: "update".into(),
+                status: "warn".into(),
+                detail: format!("update check failed: {e}"),
+                action: None,
+            }),
+        );
         if self.profile.target == crate::paths::Target::InstalledService {
             use crate::takeover::record::Record;
             let fenced = Record::load(&self.takeover_paths().record)

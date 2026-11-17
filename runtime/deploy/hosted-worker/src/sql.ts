@@ -171,7 +171,9 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
     if (op === 1) {
       r.end();
       const names = storage.sql
-        .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'st\\_%' ESCAPE '\\'")
+        // A virtual table first: it drops its shadow tables, which refuse a
+        // direct DROP.
+        .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'st\\_%' ESCAPE '\\' ORDER BY sql LIKE 'CREATE VIRTUAL TABLE%' DESC")
         .toArray()
         .map((x) => x.name)
         .filter((n) => /^st_[A-Za-z0-9_]+$/.test(n));

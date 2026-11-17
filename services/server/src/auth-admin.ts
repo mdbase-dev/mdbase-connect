@@ -203,6 +203,14 @@ async function runCommand(
   if (area === "users" && action === "suspend") {
     return suspendUser(rest, context);
   }
+  if (area === "users" && (action === "mark-test" || action === "unmark-test")) {
+    const flags = parseFlags(rest, new Set(["user", "operation-id", "actor", "reason"]));
+    return instanceAdmin(context).setTestAccount(
+      requiredFlag(flags, "user"),
+      action === "mark-test",
+      mutationFlags(flags)
+    );
+  }
   if (area === "users" && action === "restore") {
     return restoreUser(rest, context);
   }

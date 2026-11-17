@@ -18,6 +18,12 @@ A stable release found by a beta installation is verified exactly as a beta:
 its own tag's workflow identity, and a signed channel document whose channel
 matches its version.
 
+Releases from `0.1.0` on are stable; no beta is published after the last
+`0.1.0-beta.N`. A beta installation whose updater predates this rule checks
+only beta tags, so it reaches `0.1.0` in two steps: it updates to the last
+beta, which carries the rule, and that installation then takes the stable
+release.
+
 It does not use GitHub's REST API, whose unauthenticated limit of 60 requests
 an hour is shared by everything behind the same public IP. One git
 protocol-v2 `ls-refs` request lists the repository's version tags; the desktop
@@ -237,8 +243,11 @@ quarantined.
 
 ## Continuous check of macOS self-update
 
-After each tagged Desktop Release run succeeds, **Desktop macOS Update**
-(`.github/workflows/desktop-macos-update.yml`) installs the previous signed
+After each tagged Desktop Release run publishes, its `macos-update` job
+dispatches **Desktop macOS Update**
+(`.github/workflows/desktop-macos-update.yml`) for the new tag. A
+`workflow_run` trigger would not fire, because the coordinator starts tag runs
+with `GITHUB_TOKEN`. The check installs the previous signed
 Apple Silicon release from its published `.dmg` on a fresh `macos-15` runner,
 launches it, and waits for its own first automatic check to find, verify and
 stage the newest release. It then presses **Restart and update** through the

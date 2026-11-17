@@ -19,6 +19,7 @@
 //! | `submit.rs` | capture and optimistic planning (`replica-client-api.md` §5) |
 //! | `append.rs` | the append loop (`log-entry.md` §3) and log replies |
 //! | `apply.rs` | applying items: integrity, stall, void, effects, receipts, rebase (§4) |
+//! | `verdicts.rs` | the positions this replica applied or voided, for record history |
 //! | `base.rs` | the generation-0 `base` item: build and import/install validity (`snapshot.md` §7) |
 //! | `client.rs` | the [`crate::ClientApi`] implementation |
 //! | `hosted.rs` | hosted mode: log-ACK barrier, RAM-only pending, log-derived receipts |
@@ -39,8 +40,9 @@ mod collection_setup;
 pub use bases::{
     BasesDiscoveryHandle, BasesDiscoveryPage, BasesExecutionGroup, BasesExecutionPolicies,
     BasesExecutionResult, BasesExecutionRow, BasesExecutionWindow, BasesGroupPlacement,
-    BasesImplementationDescriptor, BasesReadRequest, BasesViewDescriptor, BasesViewSelection,
-    BasesViewSource, BasesWindowInfo, CapturedBasesDiscovery, CapturedBasesExecutionInputs,
+    BasesImplementationDescriptor, BasesReadRequest, BasesUnreadableSource, BasesViewDescriptor,
+    BasesViewSelection, BasesViewSource, BasesWindowInfo, CapturedBasesDiscovery,
+    CapturedBasesExecutionInputs, UnreadableSources,
 };
 pub(crate) mod unindexed_apply;
 mod unindexed_blob_fetch;
@@ -96,6 +98,7 @@ mod client_uploads;
 mod disk;
 pub mod gen0;
 mod handover;
+mod history;
 mod hosted;
 mod hosted_attachment_read;
 pub mod migration_log;
@@ -136,6 +139,7 @@ mod snapshot_text;
 #[cfg(test)]
 pub(crate) use snapshot::Install as TestInstall;
 mod submit;
+pub(crate) mod verdicts;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -393,6 +397,9 @@ pub struct Stats {
     pub snapshots_built: u64,
     /// Snapshots installed.
     pub snapshots_installed: u64,
+    /// Installs that refused the newest snapshot and went on to the older
+    /// retained one (`snapshot.md` §8).
+    pub snapshot_fallbacks: u64,
     /// Snapshot builds refused because their refs inventory cannot fit one
     /// log-service request ([`SnapshotBlocked::FrameCap`]).
     pub snapshot_builds_refused: u64,
@@ -567,6 +574,11 @@ pub struct Replica<S: Store> {
     pub(crate) shipped_install_gate: bool,
     pub(crate) endorse: Option<snapshot::Endorse>,
     pub(crate) install_points: Vec<snapshot::ControlPoint>,
+    /// The pointers `get_snapshot` gave the install in flight.
+    pub(crate) install_offer: Option<snapshot::Offer>,
+    /// The newest pointer's manifest when the last install was refused. While
+    /// it is still the newest, nothing has changed and it is not fetched again.
+    pub(crate) install_refused: Option<mdbn_wire::common::B32>,
     /// Entries between snapshots this replica builds (`snapshot.md` §5.3).
     pub snapshot_every: u64,
     /// Record text one in-memory snapshot build may hold.
@@ -585,6 +597,8 @@ pub struct Replica<S: Store> {
     pub(crate) attachment_uploads: attachment_upload::Uploads,
     pub(crate) unindexed_uploads: unindexed_upload::Uploads,
     pub(crate) reverse_text_sources: unindexed_reverse_text::Sources,
+    /// Record history over the retained log (`replica-client-api.md` §4.4).
+    pub(crate) history: history::History,
     pub(crate) unindexed_reverse_uploads: unindexed_reverse_upload::Uploads,
     pub(crate) attachment_fetches: attachment_fetch::Fetches,
     /// One ephemeral file lane; allocated only when native file I/O is used.
@@ -605,6 +619,9 @@ pub struct Replica<S: Store> {
     pub(crate) snapshot_declined: u64,
     pub(crate) snapshot_decline_read: bool,
     pub(crate) snapshot_decline_seen: bool,
+    /// An upload or registration of the last build went unanswered: the
+    /// periodic build waits.
+    pub(crate) build_retry: Option<snapshot::BuildRetry>,
 
     /// Counters.
     pub stats: Stats,
@@ -902,6 +919,8 @@ impl<S: Store> Replica<S> {
             shipped_install_gate: false,
             endorse: None,
             install_points: Vec::new(),
+            install_offer: None,
+            install_refused: None,
             snapshot_every: snapshot::SNAPSHOT_EVERY,
             snapshot_record_bytes: u64::MAX,
             status_dirty: false,
@@ -912,6 +931,7 @@ impl<S: Store> Replica<S> {
             attachment_uploads: attachment_upload::Uploads::default(),
             unindexed_uploads: unindexed_upload::Uploads::default(),
             reverse_text_sources: unindexed_reverse_text::Sources::default(),
+            history: history::History::default(),
             unindexed_reverse_uploads: unindexed_reverse_upload::Uploads::default(),
             attachment_fetches: attachment_fetch::Fetches::default(),
             client_files: None,
@@ -926,6 +946,7 @@ impl<S: Store> Replica<S> {
             snapshot_declined: 0,
             snapshot_decline_read: false,
             snapshot_decline_seen: false,
+            build_retry: None,
             stats: Stats::default(),
         };
         r.restore_private_choice();

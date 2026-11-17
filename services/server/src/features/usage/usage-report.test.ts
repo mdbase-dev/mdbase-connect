@@ -434,6 +434,55 @@ describe("usage report", () => {
     ]);
   });
 
+  it("leaves out Native companions and test accounts, and counts a denial as denied", async () => {
+    const db = await database();
+    const alice = await user(db, "alice@example.com", 2);
+    const tester = await user(db, "tester@example.com", 2);
+    const tasks = await application(db, "dev.tasks", "v1", "Tasks", 1);
+    const challenge = Buffer.alloc(32, 7);
+
+    // A pairing's Native companion, never attached because nobody picked Private.
+    await installationPairing(db, tasks, challenge);
+    await authorization(db, tasks, {
+      userId: null, expiresInMinutes: -5, nonce: challenge.toString("base64url")
+    });
+    // A web sign-in nobody finished, and a person who said no.
+    await authorization(db, tasks, { userId: null, expiresInMinutes: -5 });
+    await authorization(db, tasks, { userId: alice, expiresInMinutes: -5, outcome: "denied" });
+    // A test account signs in and approves.
+    await authorization(db, tasks, { userId: tester, expiresInMinutes: -5, outcome: "completed" });
+    await db.query(
+      `INSERT INTO sessions (id, user_id, token_hash, expires_at)
+       VALUES ($1, $2, $3, now() + interval '1 day')`,
+      [randomUUID(), tester, randomUUID()]
+    );
+    const mark = (action: string) => runAuthAdminCommand(
+      ["users", action, "--user", "tester@example.com", "--operation-id", randomUUID(),
+        "--actor", "operator:test", "--reason", "Agent test account"],
+      { db, defaultRegistrationMode: "closed" }
+    );
+    await expect(mark("mark-test")).resolves.toMatchObject({
+      user_id: tester, test_account: true, changed: true
+    });
+    await expect(mark("mark-test")).resolves.toMatchObject({ changed: false });
+
+    const report = async () => await runAuthAdminCommand(
+      ["usage", "report", "--days", "30"],
+      { db, defaultRegistrationMode: "closed" }
+    ) as Record<string, any>;
+    const marked = await report();
+    expect(marked.accounts).toMatchObject({ total: 1, signed_in_in_window: 0 });
+    expect(marked.consent).toMatchObject({
+      started: 2, approved: 0, denied: 1, abandoned: 1, abandoned_before_sign_in: 1
+    });
+    expect(marked.app_pairing).toMatchObject({ started: 1 });
+
+    await mark("unmark-test");
+    const cleared = await report();
+    expect(cleared.accounts).toMatchObject({ total: 2, signed_in_in_window: 1 });
+    expect(cleared.consent).toMatchObject({ started: 3, approved: 1, denied: 1 });
+  });
+
   it("rejects an unsupported window", async () => {
     const db = await database();
     await expect(runAuthAdminCommand(
@@ -557,7 +606,11 @@ async function nativeDevice(
 }
 
 // An app installation's pairing window that expired without approval.
-async function installationPairing(db: DatabasePool, appId: string): Promise<void> {
+async function installationPairing(
+  db: DatabasePool,
+  appId: string,
+  challenge = Buffer.alloc(32, 3)
+): Promise<void> {
   const id = randomUUID();
   await db.query(
     `INSERT INTO pairing_requests (id, secret_hash, connector_name, expires_at)
@@ -568,7 +621,7 @@ async function installationPairing(db: DatabasePool, appId: string): Promise<voi
     `INSERT INTO installation_device_pairings
        (pairing_id, installation_id, device_id, connector_id, app_id, app_origin, kind, challenge)
      VALUES ($1, $2, $3, $4, $5, 'https://app.example', 'app-runtime', $6)`,
-    [id, randomUUID(), randomUUID(), randomUUID(), appId, Buffer.alloc(32, 3)]
+    [id, randomUUID(), randomUUID(), randomUUID(), appId, challenge]
   );
 }
 
@@ -689,6 +742,7 @@ async function authorization(
     grantId?: string;
     installationId?: string;
     flow?: "authorization_code" | "device_code";
+    nonce?: string;
   }
 ): Promise<void> {
   await db.query(
@@ -696,10 +750,9 @@ async function authorization(
        (id, user_id, application_id, requested_operations,
         application_authorization, application_installation_id, grant_id,
         expires_at, completed_at, denied_at, flow)
-     VALUES ($1, $2, $3, '[]'::jsonb,
-       '{"binding":{"protocol_version":5}}'::jsonb, $4, $5,
+     VALUES ($1, $2, $3, '[]'::jsonb, $9::jsonb, $4, $5,
        now() + ($6::text || ' minutes')::interval,
-       CASE WHEN $7 = 'completed' THEN now() ELSE NULL END,
+       CASE WHEN $7 = 'none' THEN NULL ELSE now() END,
        CASE WHEN $7 = 'denied' THEN now() ELSE NULL END, $8)`,
     [
       randomUUID(),
@@ -709,7 +762,14 @@ async function authorization(
       input.grantId ?? null,
       input.expiresInMinutes,
       input.outcome ?? "none",
-      input.flow ?? "authorization_code"
+      input.flow ?? "authorization_code",
+      // A denial sets completed_at as well, as the server does.
+      JSON.stringify({
+        binding: {
+          protocol_version: 5,
+          ...(input.nonce ? { authorization_nonce: input.nonce } : {})
+        }
+      })
     ]
   );
 }

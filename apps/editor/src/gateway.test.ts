@@ -90,6 +90,48 @@ describe("ConnectCollectionGateway collection index", () => {
   });
 });
 
+describe("ConnectCollectionGateway body search", () => {
+  it("pages the runtime's body query without asking for bodies", async () => {
+    const pages = [[summary("Notes/one.md")], [summary("Archive/two.md")]];
+    const query = vi.fn(async ({ offset }: { where: string; include_body?: boolean; offset: number }) => ({
+      valid: true,
+      diagnostics: [],
+      result: { results: pages[offset] ?? [], meta: { total_count: 2, has_more: offset === 0, snapshot: "stable" } }
+    }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        return await query(input as { where: string; include_body?: boolean; offset: number }) as Result;
+      }
+    }));
+    expect(await gateway.searchBodies('say "hi"')).toEqual(["Notes/one.md", "Archive/two.md"]);
+    for (const [input] of query.mock.calls) {
+      expect(input.where).toBe('file.body.lower().contains("say \\"hi\\"")');
+      expect(input.include_body).toBeFalsy();
+    }
+  });
+
+  it("pages the runtime's hasTag query for a tag", async () => {
+    const pages = [[summary("Notes/one.md")], [summary("Archive/two.md")]];
+    const query = vi.fn(async ({ offset }: { where: string; include_body?: boolean; offset: number }) => ({
+      valid: true,
+      diagnostics: [],
+      result: { results: pages[offset] ?? [], meta: { total_count: 2, has_more: offset === 0, snapshot: "stable" } }
+    }));
+    const gateway = new ConnectCollectionGateway("https://connect.example");
+    injectConnection(gateway, new MdbaseCollectionClient({
+      async operation<Result>(_operation: string, input: unknown) {
+        return await query(input as { where: string; include_body?: boolean; offset: number }) as Result;
+      }
+    }));
+    expect(await gateway.searchTag("inlinemarker")).toEqual(["Notes/one.md", "Archive/two.md"]);
+    for (const [input] of query.mock.calls) {
+      expect(input.where).toBe('file.hasTag("inlinemarker")');
+      expect(input.include_body).toBeFalsy();
+    }
+  });
+});
+
 describe("ConnectCollectionGateway asset lookups", () => {
   const file = { fileId: "01911111-1111-7111-8111-111111111111", path: "Assets/image.png", revision: "r1", contentDigest: "sha256:x" as const, size: 10, mediaClass: "image" as const, modifiedAt: "now" };
   it("stats the exact file identity before downloading its current revision", async () => {

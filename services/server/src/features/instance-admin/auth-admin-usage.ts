@@ -26,6 +26,7 @@ export function usage(): string {
     "  auth-admin users show --user <uuid|email>",
     "  auth-admin collections diagnose --user <uuid|email> [--collection <uuid>] [--limit <1-25>] [--cursor <uuid>]",
     "  auth-admin users suspend --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
+    "  auth-admin users mark-test|unmark-test --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users restore --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin users revoke-sessions --user <uuid|email> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin audit list [--user-id <uuid>] [--event-type <type>] [--limit <n>] [--cursor <cursor>]",

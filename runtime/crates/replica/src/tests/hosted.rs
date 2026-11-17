@@ -2335,3 +2335,25 @@ mod delegated_attachment_create;
 
 #[path = "hosted_cloud.rs"]
 mod cloud_keying;
+
+#[test]
+fn hosted_replicas_answer_no_history() {
+    let svc = world();
+    let mut h = open(&svc, MemStore::new());
+    h.pump();
+    let s = h.session(G1);
+    let params = mdbn_wire::client::RecordHistoryParams {
+        record: B16([1; 16]),
+        before: None,
+        limit: None,
+    };
+    let e = h.r.record_history(s, params).unwrap_err();
+    assert_eq!(e.code(), Some(ErrorCode::UpgradeRequired));
+    assert_eq!(e.problem().reason.as_deref(), Some("history_unsupported"));
+    let params = mdbn_wire::client::RecordVersionParams {
+        record: B16([1; 16]),
+        seq: 1,
+    };
+    let e = h.r.record_version(s, params).unwrap_err();
+    assert_eq!(e.problem().reason.as_deref(), Some("history_unsupported"));
+}

@@ -1,25 +1,21 @@
-# Beta release checklist
+# Release checklist
 
 mdbase connect desktop bundles contain the Electron client and the matching
 mdbase daemon/CLI (the mdbn-daemon built from `runtime/`). A release is one
 tested unit; mixing desktop and daemon versions is unsupported.
 
-Until the stable `0.1.0` contract is ready, releases use
-`0.1.0-beta.N`. Release tag updates and deletions are blocked, and newly
+Releases use plain semver from `0.1.0`; the earlier `0.1.0-beta.N` line is
+closed. Release tag updates and deletions are blocked, and newly
 published GitHub releases lock their assets under the
-[release integrity protections](release-contract.md#release-tag-and-asset-integrity).
-Increment `N` for every published desktop build. Production and managed test
+[release integrity protections](release-contract.md#release-tag-and-asset-integrity). Production and managed test
 deployments promote the signed server image digests built from the exact tag
 commit and never build from a tag, release branch, or Render.
 
 ## Prepare release metadata
 
-Use a clean release-prep branch and run `pnpm version:set 0.1.0-beta.N --dry-run`,
-then the same command without `--dry-run`. This updates the release cohort's 19
-version files, assembles `changelog.d` into a versioned changelog section, and consumes the
-changelog fragments. It performs no Git or deployment actions. See
-[Contributing](../CONTRIBUTING.md) for formats and conflict-resolution guidance.
-Do not hand-edit beta versions.
+Release versions are plain semver allocated by continuous release (see
+[Contributing](../CONTRIBUTING.md#release-versions)); there is no manual
+version-preparation step and source manifests are never bumped by hand.
 
 ## Local package verification
 
@@ -187,13 +183,8 @@ and adds a keyless signature plus an mdbase release attestation that binds the
 component and source commit. Operations promotes those exact digests to staging
 and production; tag creation never rebuilds them.
 
-The tag must exactly match every package and the Rust workspace version:
-
-```bash
-pnpm version:check v0.1.0-beta.55
-git tag -a v0.1.0-beta.55 -m "mdbase connect 0.1.0-beta.55"
-git push origin v0.1.0-beta.55
-```
+Release tags are reserved only by the continuous release coordinators; never
+create one by hand.
 
 Creating the tag does not publish clients. Complete guarded production promotion
 and independent exact-service verification before dispatching any client workflow.

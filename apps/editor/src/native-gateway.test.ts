@@ -4,6 +4,7 @@ import { editorPermissions } from "./gateway";
 import { CollectionIndexController } from "./collection-index-controller";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
+import { summaryFromDocument } from "./note";
 import { outdatedPersonStarter } from "./person-setup";
 import { closeNativeFixtures, readyFixture } from "./test/native-fixture";
 import manifest from "../public/.well-known/mdbase-app.json";
@@ -326,6 +327,60 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
   });
 
+  it("asks the replica's body query and collects every page of paths", async () => {
+    // MemoryReplica is not the runtime: this evaluator stands in for its index
+    // and only checks the query the gateway sends.
+    const asked: string[] = [];
+    const where = (expr: string, record: { body: string }) => {
+      asked.push(expr);
+      const term = JSON.parse(/^file\.body\.lower\(\)\.contains\((.*)\)$/.exec(expr)![1]) as string;
+      return record.body.toLowerCase().includes(term);
+    };
+    const f = await fixture({ where }, replica => {
+      for (let index = 0; index < 1002; index++) {
+        replica.seed({ path: `notes/${String(index).padStart(4, "0")}.md`, types: ["note"], frontmatter: {}, body: index % 2 ? "The Launch is near." : "Nothing here." });
+      }
+      replica.seed({ path: "notes/quoted.md", types: ["note"], frontmatter: {}, body: 'Say "launch".' });
+    });
+    const paths = await f.gateway.searchBodies("launch");
+    // More matches than one page holds.
+    expect(paths).toHaveLength(502);
+    expect(new Set(paths).size).toBe(502);
+    expect(paths).toContain("notes/quoted.md");
+    expect(asked.every((expr) => expr === 'file.body.lower().contains("launch")')).toBe(true);
+    expect(await f.gateway.searchBodies('"launch"')).toEqual(["notes/quoted.md"]);
+  });
+
+  it("finds a note whose only tag is inline by asking the replica's hasTag, since its record view has no tags", async () => {
+    // MemoryReplica is not the runtime: this evaluator stands in for its
+    // `file.hasTag` (platform-native `inline_body_tags_are_found_by_has_tag`
+    // checks the runtime itself) and only checks the query the gateway sends.
+    const asked: string[] = [];
+    const where = (expr: string, record: { body: string }) => {
+      asked.push(expr);
+      const tag = JSON.parse(/^file\.hasTag\((.*)\)$/.exec(expr)![1]) as string;
+      return record.body.includes(`#${tag}`);
+    };
+    const f = await fixture({ where }, replica => {
+      for (let index = 0; index < 1002; index++) {
+        replica.seed({ path: `notes/${String(index).padStart(4, "0")}.md`, types: ["note"], frontmatter: {}, body: index % 2 ? "Inline #inlinemarker here." : "Nothing here." });
+      }
+    });
+    const observation = f.gateway.observe();
+    await observation.ready;
+    const held = observation.getSnapshot().records.find((record) => record.path === "notes/0001.md")!;
+    // What the page holds cannot answer it: no tags, and no text until hydrated.
+    expect(held.file.tags).toBeUndefined();
+    expect(held.body).toBeUndefined();
+    observation.close();
+
+    const paths = await f.gateway.searchTag("inlinemarker");
+    // More matches than one page holds.
+    expect(paths).toHaveLength(501);
+    expect(paths).toContain("notes/0001.md");
+    expect(new Set(asked)).toEqual(new Set(['file.hasTag("inlinemarker")']));
+  });
+
   it("restarts backlink paging when the view changes between pages", async () => {
     const f = await fixture({}, replica => {
       replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });
@@ -359,9 +414,30 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
       const plan = index.getSnapshot().notes.find((note) => note.path === "notes/plan.md")!;
       const published: unknown[] = [];
       index.subscribe(() => published.push(index.getSnapshot().notes));
-      index.upsert({ ...plan, frontmatter: { title: "Renamed plan" } });
+      // A local row for a revision the index does not show yet, as a save produces.
+      index.upsert({ ...plan, revision: "saved-here", frontmatter: { title: "Renamed plan" } });
       expect(published).toHaveLength(1);
       expect(index.getSnapshot().notes.find((note) => note.path === "notes/plan.md")?.frontmatter).toEqual({ title: "Renamed plan" });
+    } finally { index.reset(); }
+  });
+
+  it("publishes nothing more when a save returns after the watch already showed it", async () => {
+    const f = await fixture({}, seedNotes);
+    const index = new CollectionIndexController(f.gateway);
+    try {
+      await index.reload();
+      const base = await f.gateway.read("notes/plan.md");
+      const saved = await f.gateway.updateDocument(base.path, `${base.document}\nA saved line.\n`, base.revision);
+      // A native save waits for its receipt and readback; the watch reread lands first.
+      for (let i = 0; i < 100 && index.getSnapshot().notes.find((note) => note.path === base.path)?.revision !== saved.revision; i++)
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      const { notes } = index.getSnapshot();
+      expect(notes.find((note) => note.path === base.path)?.revision).toBe(saved.revision);
+      const published = vi.fn();
+      index.subscribe(published);
+      index.upsert(summaryFromDocument(saved));
+      expect(published).not.toHaveBeenCalled();
+      expect(index.getSnapshot().notes).toBe(notes);
     } finally { index.reset(); }
   });
 

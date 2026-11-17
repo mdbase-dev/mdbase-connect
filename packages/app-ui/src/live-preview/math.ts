@@ -1,11 +1,11 @@
 import { syntaxTree } from "@codemirror/language";
-import type { EditorState, Range } from "@codemirror/state";
+import { StateField, type EditorState, type Range } from "@codemirror/state";
 import { Decoration, EditorView, WidgetType, type DecorationSet } from "@codemirror/view";
 import { t } from "@lingui/core/macro";
 import type { BlockContext, InlineContext, Line, MarkdownConfig } from "@lezer/markdown";
 import "../i18n.js";
 import { lazily } from "./lazy.js";
-import { parsedTree } from "./parsed.js";
+import { proseEdit } from "./prose-edit.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const DOLLAR = 36, BACKSLASH = 92, NEWLINE = 10;
@@ -153,31 +153,65 @@ function render(module: typeof import("katex"), element: HTMLElement, source: st
 
 const sourceMark = Decoration.mark({ class: "cm-lp-math-source" });
 
+interface Formula { from: number; to: number; source: string; first: number; last: number; lastTo: number; topLevel: boolean; display: boolean }
+
+/** The note's formulas, kept until its text or parse changes, so a caret move only checks what it reveals. */
+function formulas(state: EditorState): Formula[] {
+  const found: Formula[] = [];
+  syntaxTree(state).iterate({ enter(node) {
+    if (node.name !== "InlineMath" && node.name !== "MathBlock") return;
+    const marks = node.node.getChildren("MathMark");
+    const first = state.doc.lineAt(node.from), last = state.doc.lineAt(node.to);
+    found.push({
+      from: node.from,
+      to: node.to,
+      source: marks.length === 2 ? state.sliceDoc(marks[0]!.to, marks[1]!.from).trim() : "",
+      first: first.from,
+      last: last.number - first.number,
+      lastTo: last.to,
+      topLevel: node.name === "MathBlock" && node.node.parent?.name === "Document",
+      display: node.name === "MathBlock" || marks[0]!.to - marks[0]!.from === 2
+    });
+    return false;
+  }});
+  return found;
+}
+
+const formulaField = StateField.define<Formula[]>({
+  create: formulas,
+  update(value, transaction) {
+    // Typing in prose only moves the formulas on other lines.
+    if (proseEdit(transaction)) {
+      const { changes } = transaction;
+      return value.map((formula) => ({
+        ...formula, from: changes.mapPos(formula.from), to: changes.mapPos(formula.to),
+        first: changes.mapPos(formula.first), lastTo: changes.mapPos(formula.lastTo)
+      }));
+    }
+    return transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
+      ? formulas(transaction.state)
+      : value;
+  }
+});
+
 /** Renders `markdownMath` formulas where the selection is not, and shows a rendered preview under a revealed display block. */
 export function mathPreview() {
-  return [parsedTree, EditorView.decorations.compute(["doc", parsedTree, revealField], build)];
+  return [formulaField, EditorView.decorations.compute([formulaField, revealField], build)];
 }
 
 function build(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = [];
-  syntaxTree(state).iterate({ enter(node) {
-    if (node.name !== "InlineMath" && node.name !== "MathBlock") return;
-    const marks = node.node.getChildren("MathMark");
-    const source = marks.length === 2 ? state.sliceDoc(marks[0].to, marks[1].from).trim() : "";
-    const revealed = isRevealed(state, node.from, node.to);
-    const first = state.doc.lineAt(node.from), last = state.doc.lineAt(node.to);
-    const topLevel = node.name === "MathBlock" && node.node.parent?.name === "Document";
+  for (const formula of state.field(formulaField)) {
+    const revealed = isRevealed(state, formula.from, formula.to);
     // Quote and list markers would be part of a nested multi-line formula, so it stays source.
-    if (!source || revealed || (!topLevel && first.number !== last.number)) {
-      ranges.push(sourceMark.range(node.from, node.to));
-      if (source && revealed && topLevel) ranges.push(Decoration.widget({ widget: new MathWidget(source, "preview"), block: true, side: 1 }).range(last.to));
-    } else if (topLevel) {
-      ranges.push(Decoration.replace({ widget: new MathWidget(source, "block"), block: true }).range(first.from, last.to));
+    if (!formula.source || revealed || (!formula.topLevel && formula.last > 0)) {
+      ranges.push(sourceMark.range(formula.from, formula.to));
+      if (formula.source && revealed && formula.topLevel) ranges.push(Decoration.widget({ widget: new MathWidget(formula.source, "preview"), block: true, side: 1 }).range(formula.lastTo));
+    } else if (formula.topLevel) {
+      ranges.push(Decoration.replace({ widget: new MathWidget(formula.source, "block"), block: true }).range(formula.first, formula.lastTo));
     } else {
-      const display = node.name === "MathBlock" || marks[0].to - marks[0].from === 2;
-      ranges.push(Decoration.replace({ widget: new MathWidget(source, display ? "display" : "inline") }).range(node.from, node.to));
+      ranges.push(Decoration.replace({ widget: new MathWidget(formula.source, formula.display ? "display" : "inline") }).range(formula.from, formula.to));
     }
-    return false;
-  }});
+  }
   return Decoration.set(ranges, true);
 }

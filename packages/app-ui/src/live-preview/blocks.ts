@@ -4,7 +4,7 @@ import { StateEffect, StateField, type EditorState, type Range } from "@codemirr
 import { Decoration, EditorView, WidgetType, keymap, type DecorationSet } from "@codemirror/view";
 import { t } from "@lingui/core/macro";
 import { DiagramWidget, isDiagramLanguage } from "./diagram.js";
-import { parsedTree } from "./parsed.js";
+import { proseEdit } from "./prose-edit.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const toggleFold = StateEffect.define<{ from: number; folded: boolean }>({ map: (value, changes) => ({ ...value, from: changes.mapPos(value.from) }) });
@@ -97,105 +97,168 @@ class CalloutHeader extends WidgetType {
   ignoreEvent() { return true; }
 }
 
+/** Code blocks, callouts and footnotes found in a note, kept until its text or parse changes. */
+interface CodeBlock {
+  from: number; to: number; fenced: boolean; language: string | undefined; closed: boolean; code: string; diagram: boolean;
+  /** Start, end and indentation of each line, first to last. */
+  lines: Array<{ from: number; to: number; indent: number }>;
+}
+interface Callout { from: number; to: number; type: string; title: string | undefined; fold: string | undefined; lines: number[]; lastTo: number }
+interface Structure {
+  codes: CodeBlock[];
+  callouts: Callout[];
+  definitions: Map<string, string>;
+  definitionLines: number[];
+  references: Array<{ from: number; to: number; key: string }>;
+}
+
+/** Blocks that hold only inline content, so they cannot contain code, quotes or callouts. */
+const inlineBlocks = new Set([
+  "Paragraph", "ATXHeading1", "ATXHeading2", "ATXHeading3", "ATXHeading4", "ATXHeading5", "ATXHeading6",
+  "SetextHeading1", "SetextHeading2", "Table", "HTMLBlock", "LinkReference", "CommentBlock",
+  "ProcessingInstructionBlock", "HorizontalRule", "Task"
+]);
+const unreferenced = ["InlineCode", "FencedCode", "CodeBlock", "HTMLBlock", "InlineMath", "MathBlock"];
+
+function analyze(state: EditorState): Structure {
+  const codes: CodeBlock[] = [], callouts: Callout[] = [];
+  const tree = syntaxTree(state);
+  tree.iterate({ enter(node) {
+    if (inlineBlocks.has(node.name)) return false;
+    if (node.name === "FencedCode" || node.name === "CodeBlock") {
+      const first = state.doc.lineAt(node.from), last = state.doc.lineAt(node.to);
+      const fenced = node.name === "FencedCode";
+      const opening = fenced ? /^\s*(`{3,}|~{3,})\s*([^\s`]*)/.exec(first.text) : null;
+      const closed = !!opening && last.number > first.number && new RegExp(`^\\s*${opening[1][0]}{${opening[1].length},}\\s*$`).test(last.text);
+      const codeFrom = fenced ? Math.min(first.to + 1, state.doc.length) : first.from;
+      const codeTo = closed ? Math.max(codeFrom, last.from - 1) : last.to;
+      const code = state.sliceDoc(codeFrom, codeTo);
+      // Quote and list markers would be part of a nested diagram's source, so only top-level fences render.
+      const diagram = closed && isDiagramLanguage(opening![2]) && !!code.trim() && node.node.parent?.name === "Document";
+      const lines: CodeBlock["lines"] = [];
+      for (let n = first.number; n <= last.number; n++) {
+        const line = state.doc.line(n);
+        lines.push({ from: line.from, to: line.to, indent: fenced ? 0 : /^(?: {4}|\t)/.exec(line.text)?.[0].length ?? 0 });
+      }
+      codes.push({ from: node.from, to: node.to, fenced, language: opening?.[2], closed, code, diagram, lines });
+      return false;
+    }
+    if (node.name === "Blockquote" && node.node.parent?.name !== "Blockquote") {
+      const first = state.doc.lineAt(node.from), last = state.doc.lineAt(node.to);
+      const match = calloutHeader(first.text);
+      if (!match) return;
+      const lines: number[] = [];
+      for (let n = first.number; n <= last.number; n++) lines.push(state.doc.line(n).from);
+      const type = match[1].toLowerCase() in types ? match[1].toLowerCase() : "note";
+      callouts.push({ from: first.from, to: first.to, type, title: match[3] || undefined, fold: match[2], lines, lastTo: last.to });
+    }
+  }});
+
+  // Footnotes are found line by line outside code; only lines with "[^" can hold one.
+  const definitions = new Map<string, string>(), definitionLines: number[] = [];
+  const references: Structure["references"] = [];
+  let from = 0, code = 0;
+  for (const iterator = state.doc.iterLines(); !iterator.next().done; from += iterator.value.length + 1) {
+    const text = iterator.value;
+    if (!text.includes("[^")) continue;
+    while (code < codes.length && codes[code]!.to < from) code++;
+    if (code < codes.length && from >= codes[code]!.from) continue;
+    const definition = /^ {0,3}\[\^([^\]\s]+)\]:\s*(.*)$/.exec(text);
+    if (definition) {
+      definitions.set(definition[1]!.toLowerCase(), definition[2]!);
+      definitionLines.push(from);
+      continue;
+    }
+    if (/^ {0,3}\[\^[^\]]+\]:/.test(text)) continue;
+    for (const match of text.matchAll(/(?<![\\!])\[\^([^\]\s]+)\]/g)) {
+      const start = from + match.index!;
+      const node = tree.resolveInner(start, 1);
+      if (unreferenced.some((name) => { for (let p: typeof node | null = node; p; p = p.parent) if (p.name === name) return true; return false; })) continue;
+      references.push({ from: start, to: start + match[0].length, key: match[1]!.toLowerCase() });
+    }
+  }
+  return { codes, callouts, definitions, definitionLines, references };
+}
+
+const structure = StateField.define<Structure>({
+  create: analyze,
+  update(value, transaction) {
+    // Typing in prose only moves the blocks and footnotes on other lines.
+    if (proseEdit(transaction)) {
+      const map = (pos: number) => transaction.changes.mapPos(pos);
+      return {
+        codes: value.codes.map((block) => ({
+          ...block, from: map(block.from), to: map(block.to),
+          lines: block.lines.map((line) => ({ ...line, from: map(line.from), to: map(line.to) }))
+        })),
+        callouts: value.callouts.map((callout) => ({
+          ...callout, from: map(callout.from), to: map(callout.to), lines: callout.lines.map(map), lastTo: map(callout.lastTo)
+        })),
+        definitions: value.definitions,
+        definitionLines: value.definitionLines.map(map),
+        references: value.references.map((reference) => ({ ...reference, from: map(reference.from), to: map(reference.to) }))
+      };
+    }
+    return transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
+      ? analyze(transaction.state)
+      : value;
+  }
+});
+
 export function blockPreview() {
-  return [folds, parsedTree, EditorView.decorations.compute(["doc", parsedTree, revealField, folds], build), keymap.of([
+  return [folds, structure, EditorView.decorations.compute([structure, revealField, folds], build), keymap.of([
     { key: "Tab", run: (view) => inCode(view.state) && indentMore(view) },
     { key: "Shift-Tab", run: (view) => inCode(view.state) && indentLess(view) }
   ])];
 }
 
 function inCode(state: EditorState): boolean {
-  const positions = state.selection.ranges.map(({ head }) => head);
-  const matched = positions.map(() => false);
-  syntaxTree(state).iterate({ enter(node) {
-    if (node.name !== "FencedCode" && node.name !== "CodeBlock") return;
-    positions.forEach((pos, index) => { if (pos > node.from && pos < node.to) matched[index] = true; });
-    return false;
-  }});
-  return matched.every(Boolean);
+  const { codes } = state.field(structure);
+  return state.selection.ranges.every(({ head }) => codes.some((block) => head > block.from && head < block.to));
 }
 
 function build(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = [];
-  const skip: Array<{from: number; to: number}> = [];
+  const { codes, callouts, definitions, definitionLines, references } = state.field(structure);
   const foldState = state.field(folds);
-  syntaxTree(state).iterate({ enter(node) {
-    if (node.name === "FencedCode" || node.name === "CodeBlock") {
-      const first = state.doc.lineAt(node.from), last = state.doc.lineAt(node.to);
-      skip.push({ from: node.from, to: node.to });
-      const fenced = node.name === "FencedCode";
-      const opening = fenced ? /^\s*(`{3,}|~{3,})\s*([^\s`]*)/.exec(first.text) : null;
-      const closed = opening && last.number > first.number && new RegExp(`^\\s*${opening[1][0]}{${opening[1].length},}\\s*$`).test(last.text);
-      const codeFrom = fenced ? Math.min(first.to + 1, state.doc.length) : first.from;
-      const codeTo = closed ? Math.max(codeFrom, last.from - 1) : last.to;
-      const code = state.sliceDoc(codeFrom, codeTo);
-      // Quote and list markers would be part of a nested diagram's source, so only top-level fences render.
-      if (closed && isDiagramLanguage(opening[2]) && code.trim() && node.node.parent?.name === "Document" && !isRevealed(state, node.from, node.to)) {
-        ranges.push(Decoration.replace({ widget: new DiagramWidget(code), block: true }).range(first.from, last.to));
-        return false;
-      }
-      for (let n = first.number; n <= last.number; n++) {
-        const line = state.doc.line(n);
-        const edge = `${n === first.number ? "cm-lp-code-first" : ""} ${n === last.number ? "cm-lp-code-last" : ""}`;
-        ranges.push(codeLine(edge).range(line.from));
-        if (!fenced && !isRevealed(state, line.from, line.to)) {
-          const indent = /^(?: {4}|\t)/.exec(line.text);
-          if (indent) ranges.push(hide.range(line.from, line.from + indent[0].length));
-        }
-      }
-      if (fenced && !isRevealed(state, first.from, first.to)) {
-        ranges.push(Decoration.replace({ widget: new CodeHeader(opening?.[2] ?? "", code) }).range(first.from, first.to));
-      } else if (!fenced) {
-        ranges.push(Decoration.widget({ widget: new CodeHeader("", code.replace(/^(?: {4}|\t)/gm, "")), side: -1 }).range(first.from));
-      }
-      if (closed && !isRevealed(state, last.from, last.to)) {
-        ranges.push(Decoration.line({ class: "cm-lp-code-fence-end" }).range(last.from));
-        ranges.push(hide.range(last.from, last.to));
-      }
-      return false;
-    }
-    if (node.name === "Blockquote") {
-      if (node.node.parent?.name === "Blockquote") return;
-      const first = state.doc.lineAt(node.from), last = state.doc.lineAt(node.to);
-      const match = calloutHeader(first.text);
-      if (!match) return;
-      const type = match[1].toLowerCase() in types ? match[1].toLowerCase() : "note";
-      const title = match[3] || typeTitle(type);
-      const folded = match[2] ? (foldState.get(first.from) ?? match[2] === "-") : false;
-      for (let n = first.number; n <= last.number; n++) {
-        const line = state.doc.line(n);
-        ranges.push(Decoration.line({ class: `cm-lp-callout cm-lp-callout-${type}${n === first.number ? " cm-lp-callout-first" : ""}${n === last.number || folded && n === first.number ? " cm-lp-callout-last" : ""}` }).range(line.from));
-      }
-      if (!isRevealed(state, first.from, first.to)) ranges.push(Decoration.replace({ widget: new CalloutHeader(type, title, first.from, !!match[2], folded) }).range(first.from, first.to));
-      if (folded && first.number < last.number && !isRevealed(state, first.to + 1, last.to)) {
-        ranges.push(Decoration.replace({ block: true }).range(first.to + 1, last.to));
-      }
-    }
-  }});
-  const definitions = new Map<string, string>();
-  for (let n = 1; n <= state.doc.lines; n++) {
-    const line = state.doc.line(n);
-    if (skip.some((part) => line.from >= part.from && line.from <= part.to)) continue;
-    const def = /^ {0,3}\[\^([^\]\s]+)\]:\s*(.*)$/.exec(line.text);
-    if (def) {
-      definitions.set(def[1].toLowerCase(), def[2]);
-      ranges.push(Decoration.line({ class: "cm-lp-footnote-definition" }).range(line.from));
+  for (const block of codes) {
+    const first = block.lines[0]!, last = block.lines[block.lines.length - 1]!;
+    if (block.diagram && !isRevealed(state, block.from, block.to)) {
+      ranges.push(Decoration.replace({ widget: new DiagramWidget(block.code), block: true }).range(first.from, last.to));
       continue;
     }
-  }
-  for (let n = 1; n <= state.doc.lines; n++) {
-    const line = state.doc.line(n);
-    if (skip.some((part) => line.from >= part.from && line.from <= part.to) || /^ {0,3}\[\^[^\]]+\]:/.test(line.text)) continue;
-    for (const match of line.text.matchAll(/(?<![\\!])\[\^([^\]\s]+)\]/g)) {
-      const from = line.from + match.index!, to = from + match[0].length;
-      const node = syntaxTree(state).resolveInner(from, 1);
-      if (["InlineCode", "FencedCode", "CodeBlock", "HTMLBlock", "InlineMath", "MathBlock"].some((name) => { for (let p: typeof node | null = node; p; p = p.parent) if (p.name === name) return true; return false; })) continue;
-      if (!isRevealed(state, from, to)) {
-        const text = definitions.get(match[1].toLowerCase());
-        ranges.push((text ? Decoration.mark({ class: "cm-lp-footnote-ref", attributes: { title: text } }) : footnote).range(from + 2, to - 1));
-        ranges.push(hide.range(from, from + 2), hide.range(to - 1, to));
-      }
+    block.lines.forEach((line, index) => {
+      const edge = `${index === 0 ? "cm-lp-code-first" : ""} ${index === block.lines.length - 1 ? "cm-lp-code-last" : ""}`;
+      ranges.push(codeLine(edge).range(line.from));
+      if (!block.fenced && line.indent && !isRevealed(state, line.from, line.to)) ranges.push(hide.range(line.from, line.from + line.indent));
+    });
+    if (block.fenced && !isRevealed(state, first.from, first.to)) {
+      ranges.push(Decoration.replace({ widget: new CodeHeader(block.language ?? "", block.code) }).range(first.from, first.to));
+    } else if (!block.fenced) {
+      ranges.push(Decoration.widget({ widget: new CodeHeader("", block.code.replace(/^(?: {4}|\t)/gm, "")), side: -1 }).range(first.from));
     }
+    // The hidden closing fence keeps its line, so showing it moves nothing below.
+    if (block.closed && !isRevealed(state, last.from, last.to)) ranges.push(hide.range(last.from, last.to));
+  }
+  for (const callout of callouts) {
+    const folded = callout.fold ? (foldState.get(callout.from) ?? callout.fold === "-") : false;
+    callout.lines.forEach((from, index) => {
+      const last = index === callout.lines.length - 1;
+      ranges.push(Decoration.line({ class: `cm-lp-callout cm-lp-callout-${callout.type}${index === 0 ? " cm-lp-callout-first" : ""}${last || folded && index === 0 ? " cm-lp-callout-last" : ""}` }).range(from));
+    });
+    if (!isRevealed(state, callout.from, callout.to)) {
+      ranges.push(Decoration.replace({ widget: new CalloutHeader(callout.type, callout.title ?? typeTitle(callout.type), callout.from, !!callout.fold, folded) }).range(callout.from, callout.to));
+    }
+    if (folded && callout.lines.length > 1 && !isRevealed(state, callout.to + 1, callout.lastTo)) {
+      ranges.push(Decoration.replace({ block: true }).range(callout.to + 1, callout.lastTo));
+    }
+  }
+  for (const from of definitionLines) ranges.push(Decoration.line({ class: "cm-lp-footnote-definition" }).range(from));
+  for (const { from, to, key } of references) {
+    if (isRevealed(state, from, to)) continue;
+    const text = definitions.get(key);
+    ranges.push((text ? Decoration.mark({ class: "cm-lp-footnote-ref", attributes: { title: text } }) : footnote).range(from + 2, to - 1));
+    ranges.push(hide.range(from, from + 2), hide.range(to - 1, to));
   }
   return Decoration.set(ranges, true);
 }

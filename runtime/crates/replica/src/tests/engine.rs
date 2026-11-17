@@ -705,6 +705,7 @@ fn retained_budget_never_prunes_unconfirmed_pending_intents() {
             head: Some(head),
             ..Tx::default()
         },
+        crate::replica::verdicts::Verdict::Applied,
     )
     .unwrap();
     assert!(a.r.store().own_retained(0, 10).unwrap().is_empty());

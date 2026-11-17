@@ -29,9 +29,9 @@ describe("NoteList search presentation", () => {
       types={[{ name: "task", schema: {}, extensions: {}, collection: { display: { icon: "check-circle" } } }]}
       search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
       collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
-      contentIndexing={false} contentLoaded={2}
+      searchPending={false}
       onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
-      onRetryStructure={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
+      onRetryStructure={noop} onRetrySearch={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
       onSelectFile={noop} onCollections={noop}
     />);
     const [taskRow, plainRow] = screen.getAllByRole("option");
@@ -50,9 +50,9 @@ describe("NoteList search presentation", () => {
       noteCount: notes.length, fileCount: 0, types: [], statuses: new Map(),
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
-      contentIndexing: false, contentLoaded: 1,
+      searchPending: false,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
+      onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
       onSelectFile: noop, onCollections: noop, onCompact
     };
     const view = render(<NoteList {...props} />);
@@ -83,9 +83,9 @@ describe("NoteList search presentation", () => {
       noteCount: notes.length, fileCount: 0, types: [], selectedPath: notes[35].path, statuses: new Map(),
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
-      contentIndexing: false, contentLoaded: notes.length,
+      searchPending: false,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelection, onSelectFile: noop, onCollections: noop
     };
     const view = render(<NoteList {...props} />);
@@ -115,9 +115,9 @@ describe("NoteList search presentation", () => {
       noteCount: 2, fileCount: 0, types: [], selectedPath: first.path, statuses: new Map(),
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
-      contentIndexing: false, contentLoaded: 2,
+      searchPending: false,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelectFile: noop, onPeek: peek, onCollections: noop
     };
     const view = render(<NoteList {...props} />);
@@ -167,9 +167,9 @@ describe("NoteList search presentation", () => {
       noteCount: 2, fileCount: 1, types: [], selectedPath: first.path, statuses: new Map(),
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
-      contentIndexing: false, contentLoaded: 2,
+      searchPending: false,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelectFile: vi.fn(), onCollections: noop
     };
     render(<NoteList {...props} peek={<p>Peek</p>} peekTitle="One" />);
@@ -187,9 +187,9 @@ describe("NoteList search presentation", () => {
       noteCount={1} fileCount={0} types={[]} selectedPath={undefined} statuses={new Map()}
       search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
       collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
-      contentIndexing={false} contentLoaded={1}
+      searchPending={false}
       onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
-      onRetryStructure={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
+      onRetryStructure={noop} onRetrySearch={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
       onSelectFile={noop} onCollections={noop}
       drafts={drafts} onOpenDraft={openDraft} onCreate={create} onCreateOfType={createOfType}
     />;
@@ -228,9 +228,9 @@ describe("NoteList search presentation", () => {
       noteCount={1} fileCount={1} types={[]} selectedPath={note.path} statuses={new Map()}
       search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
       collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
-      contentIndexing={false} contentLoaded={1}
+      searchPending={false}
       onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
-      onRetryStructure={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
+      onRetryStructure={noop} onRetrySearch={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
       onSelectFile={noop} onCollections={noop}
     />);
     // WCAG 2.5.3 Label in Name: each entry's accessible name contains its visible text.
@@ -250,9 +250,9 @@ describe("NoteList search presentation", () => {
       entries: [], noteCount: 400, fileCount: 0, types: [], statuses: new Map(),
       search: "", searchQuery: "", searchContexts: new Map(), sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
-      structureError: "Third page unavailable", contentIndexing: false, contentLoaded: 0,
+      structureError: "Third page unavailable", searchPending: false,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: retry, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
+      onRetryStructure: retry, onRetrySearch: vi.fn(), onRetryContent: vi.fn(), onRetryFiles: noop, onSelect: noop,
       onSelectFile: noop, onCollections: noop, onCreate: noop
     };
     const view = render(<NoteList {...props} />);
@@ -265,10 +265,19 @@ describe("NoteList search presentation", () => {
     expect(screen.getByText("0 found so far · incomplete")).toBeInTheDocument();
     expect(screen.queryByText("No notes or files found.")).not.toBeInTheDocument();
     view.rerender(<NoteList {...props} search="needle" searchQuery="needle" noteCount={0}
-      structureError={undefined} contentError="Body download failed" />);
+      structureError={undefined} searchError="Search unavailable" />);
     expect(screen.getByText("0 found so far · incomplete")).toBeInTheDocument();
     expect(screen.getByText("Search is incomplete.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry search" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry search" }));
+    expect(props.onRetrySearch).toHaveBeenCalledOnce();
+    view.rerender(<NoteList {...props} search="needle" searchQuery="needle" noteCount={0} structureError={undefined} searchPending />);
+    expect(screen.getAllByText("Searching")).toHaveLength(2);
+    expect(screen.queryByText("No notes or files found.")).not.toBeInTheDocument();
+    // A failed load of note text (for titles taken from it) is not a search failure.
+    view.rerender(<NoteList {...props} structureError={undefined} contentError="Body download failed" />);
+    expect(screen.queryByText(/incomplete/)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry notes" }));
+    expect(props.onRetryContent).toHaveBeenCalledOnce();
     view.rerender(<NoteList {...props} structureError={undefined} />);
     expect(screen.queryByRole("button", { name: "Retry notes" })).not.toBeInTheDocument();
     expect(screen.queryByText(/incomplete/)).not.toBeInTheDocument();
@@ -294,9 +303,9 @@ describe("NoteList search presentation", () => {
       noteCount: notes.length, fileCount: 0, types: [], statuses: new Map(),
       search: "needle", searchQuery: "needle", searchContexts, sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
-      contentIndexing: false, contentLoaded: notes.length,
+      searchPending: false,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop, onSelectFile: noop,
+      onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop, onSelectFile: noop,
       onCreate: noop, onCollections: noop
     };
     const view = render(<NoteList {...props} />);
@@ -323,9 +332,9 @@ describe("NoteList touch selection", () => {
       noteCount: 2, fileCount: 0, types: [], selectedPath: undefined, statuses: new Map(),
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
-      contentIndexing: false, contentLoaded: 2,
+      searchPending: false,
       onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
-      onRetryStructure: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
+      onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelection: vi.fn(), onStartSelecting: vi.fn(), onSelectFile: noop, onCollections: noop,
       noteActions: () => []
     };

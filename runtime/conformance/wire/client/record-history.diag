@@ -1,0 +1,35 @@
+/ RecordHistory / {
+  / versions / 0: [
+    / HistoryVersion / {
+      / seq / 0: 119,
+      / time / 1: 1791400060000,
+      / author / 2: / AuthorRef / {
+        / account / 0: h'00000000000000000000000000000000',
+        / device / 1: h'2d7e9a416c3b4f189a05c8e1b2d3f467',
+        / grant / 2: h'4c18af2eb04a4b77b83e493c3695962e',
+        / grant_account / 3: h'0192f3a45b6c7d8e9f0123456789abcd'
+      },
+      / kind / 3: 2 / Moved /,
+      / path / 4: "notes/renamed.md",
+      / revision / 5: h'5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a',
+      / source / 6: 0 / Api /,
+      / device_kind / 7: 4 / Hosted /,
+      / app / 8: "dev.mdbase.editor"
+    },
+    / HistoryVersion / {
+      / seq / 0: 43,
+      / time / 1: 1791400000000,
+      / author / 2: / AuthorRef / {
+        / account / 0: h'0192f3a45b6c7d8e9f0123456789abcd',
+        / device / 1: h'2d7e9a416c3b4f189a05c8e1b2d3f467'
+      },
+      / kind / 3: 3 / Deleted /,
+      / path / 4: "notes/a.md",
+      / source / 6: 1 / External /,
+      / device_kind / 7: 0 / Desktop /
+    }
+  ],
+  / from / 1: 21,
+  / from_time / 2: 1791390000000,
+  / next / 3: 43
+}

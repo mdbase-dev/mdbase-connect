@@ -48,9 +48,28 @@ pub struct DiscoveredBase<'a> {
     /// Views in original declaration order.
     pub views: Vec<BaseView<'a>>,
 }
+/// One record's saved-view classification.
+pub enum BaseRecord<'a> {
+    /// Proven not to be a Bases implementation.
+    NotBase,
+    /// A Bases implementation and its saved views.
+    Base(DiscoveredBase<'a>),
+    /// This record's own content cannot be classified: its frontmatter, its
+    /// types or its Bases fields. Nothing about the catalog or the shared
+    /// meter failed, so a caller that names the record to its user may
+    /// classify the remaining records; its views are not known.
+    Unreadable(EvaluationFailure),
+}
+/// A refusal of the whole classification: the catalog, the implementation
+/// mapping or the shared meter. Sticky in `budget`.
 fn fail<T>(budget: &mut WorkBudget, failure: EvaluationFailure) -> Result<T, EvaluationFailure> {
     budget.fail(failure);
     Err(budget.failure().expect("sticky discovery failure"))
+}
+/// A problem in this record's own content, which leaves `budget` live.
+/// `classify_base_record` reports it as `BaseRecord::Unreadable`.
+fn unreadable<T>(failure: EvaluationFailure) -> Result<T, EvaluationFailure> {
+    Err(failure)
 }
 fn work(budget: &mut WorkBudget, steps: u64, bytes: u64) -> Result<(), EvaluationFailure> {
     if budget.charge(steps, bytes) {
@@ -128,10 +147,9 @@ fn projected<'a>(
                     comparison_value(value, 0, budget)?;
                 }
                 if candidate != selected {
-                    return fail(
-                        budget,
-                        EvaluationFailure::UnsupportedConstruct("ambiguous_base_contract_fields"),
-                    );
+                    return unreadable(EvaluationFailure::UnsupportedConstruct(
+                        "ambiguous_base_contract_fields",
+                    ));
                 }
             }
             selected = candidate;
@@ -145,11 +163,11 @@ fn fields<'a>(
     raw: &'a Map,
     budget: &mut WorkBudget,
 ) -> Result<BaseFields<'a>, EvaluationFailure> {
-    let views = projected(implementation, raw, "views", budget)?.ok_or_else(|| {
-        let e = EvaluationFailure::UnsupportedConstruct("base_views_missing");
-        budget.fail(e);
-        e
-    })?;
+    let Some(views) = projected(implementation, raw, "views", budget)? else {
+        return unreadable(EvaluationFailure::UnsupportedConstruct(
+            "base_views_missing",
+        ));
+    };
     Ok(BaseFields {
         views,
         filters: projected(implementation, raw, "filters", budget)?,
@@ -213,9 +231,39 @@ fn equivalent(
 }
 /// Classify one actual record using its raw Document and the captured membership
 /// clock. No `.base` shortcut, include-path scan, side registry or resource kind.
-/// `None` proves only this resolved record is not a Bases implementation; complete
-/// discovery requires a fallible, bounded, trusted replica inventory around it.
+/// `NotBase` proves only this resolved record is not a Bases implementation;
+/// complete discovery requires a fallible, bounded, trusted replica inventory
+/// around it, and an `Unreadable` record is not known to have no views.
+pub fn classify_base_record<'a>(
+    catalog: &'a Catalog,
+    path: &str,
+    document: &'a Document,
+    clock: &OpClock,
+    budget: &mut WorkBudget,
+) -> Result<BaseRecord<'a>, EvaluationFailure> {
+    match classify(catalog, path, document, clock, budget) {
+        Ok(None) => Ok(BaseRecord::NotBase),
+        Ok(Some(base)) => Ok(BaseRecord::Base(base)),
+        Err(failure) if budget.live() => Ok(BaseRecord::Unreadable(failure)),
+        Err(failure) => Err(failure),
+    }
+}
+/// `classify_base_record` for a caller that needs every record classified:
+/// an unreadable record refuses, stickily, like any other failure.
 pub fn discover_base_record<'a>(
+    catalog: &'a Catalog,
+    path: &str,
+    document: &'a Document,
+    clock: &OpClock,
+    budget: &mut WorkBudget,
+) -> Result<Option<DiscoveredBase<'a>>, EvaluationFailure> {
+    match classify_base_record(catalog, path, document, clock, budget)? {
+        BaseRecord::NotBase => Ok(None),
+        BaseRecord::Base(base) => Ok(Some(base)),
+        BaseRecord::Unreadable(failure) => fail(budget, failure),
+    }
+}
+fn classify<'a>(
     catalog: &'a Catalog,
     path: &str,
     document: &'a Document,
@@ -266,18 +314,16 @@ pub fn discover_base_record<'a>(
         .iter()
         .filter(|implementation| implementation.contract == BASES_CONTRACT);
     if document.problem().is_some() {
-        return fail(
-            budget,
-            EvaluationFailure::MetadataUnavailable("base_raw_frontmatter_unavailable"),
-        );
+        return unreadable(EvaluationFailure::MetadataUnavailable(
+            "base_raw_frontmatter_unavailable",
+        ));
     }
     work(budget, document.source().len() as u64, 0)?;
     let membership = catalog.membership_at(path, document.frontmatter(), Some(clock));
     if !membership.issues.is_empty() {
-        return fail(
-            budget,
-            EvaluationFailure::MetadataUnavailable("record_types_unresolved"),
-        );
+        return unreadable(EvaluationFailure::MetadataUnavailable(
+            "record_types_unresolved",
+        ));
     }
     let matched: Vec<_> = implementations
         .filter(|implementation| {
@@ -313,62 +359,42 @@ pub fn discover_base_record<'a>(
         if let Some(prior) = projection
             && !equivalent(prior, candidate, budget)?
         {
-            return fail(
-                budget,
-                EvaluationFailure::UnsupportedConstruct("ambiguous_base_implementations"),
-            );
+            return unreadable(EvaluationFailure::UnsupportedConstruct(
+                "ambiguous_base_implementations",
+            ));
         }
         projection = Some(candidate);
     }
     let fields = projection.expect("nonempty implementations");
     let Some(inputs) = fields.views.as_list() else {
-        return fail(
-            budget,
-            EvaluationFailure::UnsupportedConstruct("base_views_shape"),
-        );
+        return unreadable(EvaluationFailure::UnsupportedConstruct("base_views_shape"));
     };
     if inputs.is_empty() {
-        return fail(
-            budget,
-            EvaluationFailure::UnsupportedConstruct("base_views_empty"),
-        );
+        return unreadable(EvaluationFailure::UnsupportedConstruct("base_views_empty"));
     }
     if inputs.len() > MAX_DISCOVERED_VIEWS {
-        return fail(
-            budget,
-            EvaluationFailure::BudgetExceeded("base_views_count"),
-        );
+        return unreadable(EvaluationFailure::BudgetExceeded("base_views_count"));
     }
     work(budget, inputs.len() as u64, (inputs.len() as u64) * 128)?;
     let mut views = Vec::with_capacity(inputs.len());
     for (index, value) in inputs.iter().enumerate() {
         let Some(raw) = value.as_map() else {
-            return fail(
-                budget,
-                EvaluationFailure::UnsupportedConstruct("base_view_shape"),
-            );
+            return unreadable(EvaluationFailure::UnsupportedConstruct("base_view_shape"));
         };
         let Some(view_type) = raw.get("type").and_then(Value::as_str) else {
-            return fail(
-                budget,
-                EvaluationFailure::UnsupportedConstruct("base_view_type"),
-            );
+            return unreadable(EvaluationFailure::UnsupportedConstruct("base_view_type"));
         };
         let name = match raw.get("name") {
             None => None,
             Some(Value::Text(s)) => Some(s.as_str()),
             _ => {
-                return fail(
-                    budget,
-                    EvaluationFailure::UnsupportedConstruct("base_view_name"),
-                );
+                return unreadable(EvaluationFailure::UnsupportedConstruct("base_view_name"));
             }
         };
         if view_type.len() > 1024 || name.is_some_and(|name| name.len() > 4096) {
-            return fail(
-                budget,
-                EvaluationFailure::BudgetExceeded("base_view_descriptor_bytes"),
-            );
+            return unreadable(EvaluationFailure::BudgetExceeded(
+                "base_view_descriptor_bytes",
+            ));
         }
         views.push(BaseView {
             index: u32::try_from(index).expect("bounded view ordinal"),

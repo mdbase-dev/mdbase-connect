@@ -8,7 +8,7 @@ import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from 
 import type { FileAssetSnapshot } from "./file-asset-store";
 import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
 import type { ResolvedFileReference } from "./use-file-assets";
-import { embedActions, focusEmbedOnPointer } from "./embed-actions";
+import { embedActions, focusEmbedOnPointer, blockEmbed } from "./embed-actions";
 import { embedPositions } from "./code-editor-embed-positions";
 
 const fileEmbeds = embedPositions<ResolvedFileReference>();
@@ -111,7 +111,7 @@ class FileEmbedWidget extends WidgetType {
     preview.append(caption, embedActions(asset.file.path, filename,
       asset.status === "ready" && asset.file.mediaClass !== "pdf" && this.open
         ? () => this.open?.(asset) : undefined));
-    return preview;
+    return blockEmbed(preview);
   }
 
   ignoreEvent(event: Event) {

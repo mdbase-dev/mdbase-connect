@@ -120,6 +120,7 @@ fn raw_backfill_reuses_index_transactions_and_unavailable_is_not_empty() {
                     path: invalid.path,
                     types: vec![],
                     fields: vec![],
+                    body: None,
                 }],
                 publish_at: Some(Head::GENESIS),
                 completes_backfill: false,

@@ -94,7 +94,9 @@ not a negative feature result. Absence of an unrequested marker says nothing abo
 support. Do not use a prior session's hello to certify a new session.
 
 The current Replica producer's marker list is `presence`, `validate-page-v1`
-(`validate` pages, §4) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
+(`validate` pages, §4), `file-stream-failure-v1`, `bases-discovery-unreadable-v1`
+(app Bases discovery request version 2, which skips and names records it cannot
+classify instead of refusing) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
 `attachment-v1.materialize` directions when that replica admits them.
 `attachment-v1.write` is not granted by this producer. Directions are not implied
 by the bare codec marker. This source list is not a qualification of a deployed
@@ -162,7 +164,8 @@ digest, and is not exposed as `file.mtime` to queries or Bases.
 
 ## 4. Reads, live queries and change feeds
 
-All of these require `collection.read`.
+All of these require `collection.read`. The history reads (§4.4) also require
+`history.read` and a session without a folder scope.
 
 | Method | Params | Result |
 |---|---|---|
@@ -179,6 +182,8 @@ All of these require `collection.read`.
 | `query` | `{0: query, ? 1: include}` | `query-result` |
 | `backlinks` | `{0: uuid / path, ? 1: include, ? 2: 1..1000 limit, ? 3: tstr cursor}` | `backlinks-result` (§4.2): the records whose links resolve to the target, one page at a time |
 | `resolve_links` | `{0: path from, 1: [1*512 tstr] links}` | `resolve-links-result` (§4.3): where each link, written in `from`, resolves in the local view |
+| `record_history` | `record-history-params` (§4.4) | `record-history` (§4.4): one record's versions in the retained log, newest first. Also requires `history.read` (API 1.4) |
+| `record_version` | `record-version-params` (§4.4) | `record-version` (§4.4): one version's exact document. Also requires `history.read` (API 1.4) |
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
@@ -497,6 +502,125 @@ resolve-links-result = {
   0: [* link-resolution], ; one per requested link, in request order
   1: uint,                ; as_of: local view version
   2: bool,                ; complete: false while a snapshot install is in progress
+}
+```
+
+### 4.4 Record history (API 1.4)
+
+`record_history` lists the versions of one record that the collection log still
+retains, and `record_version` returns one version's exact document. A version is
+a log entry that put or removed the record. Restoring a version needs no method:
+the app writes its document back with an ordinary revision-checked update, which
+appends a new entry.
+
+- **Where it runs.** The replica reads the retained log from the log service
+  (`log-service-api.md` §5), opens each entry and keeps a small in-memory index of
+  record, position, time, author, change and path, with no texts. It builds the
+  index on first use, extends it towards older positions as callers page back,
+  and drops it when the replica closes or its store generation changes. The index
+  is not persisted; the apply verdicts it lists from are (below).
+- **Chain.** Every page is checked against the replica's own verified chain: the
+  items read must link by `prev` to `chain(H)` at a position the replica already
+  applied. A page that does not link refuses with `unavailable` /
+  `history_integrity`. Positions above the replica's applied head are not read.
+- **Which entries are versions.** Exactly the entries this replica applied
+  (`log-entry.md` §4.4). A void entry (§4.3) is never a version. Whether an entry
+  applied depends on the state before it, so the history reader does not judge
+  entries again: the apply path records its verdicts, in the same transaction as
+  each item's head, as a device-local record of the run of positions it judged
+  and which of them were void. The run starts where this replica began applying
+  items itself: its first apply, a snapshot install, a lost-tail rollback, or a
+  store written by a build that kept no record. History stops there. When more
+  than 256 positions in the run are void, the run starts after the oldest, so the
+  record stays small. An entry that the replica applied but that no longer opens,
+  decodes or names an enrolled signer is an internal fault.
+- **Kinds.** `deleted` for `remove-record`, and for a record that becomes an
+  unindexed file. `created` for the entry that creates the record (a `create`, or
+  a promotion of an unindexed or ordinary file) and for a put after a deletion.
+  `moved` when the path differs from the version before, or for a `rename` when
+  the version before is not listed. Otherwise `edited`.
+- **Authors.** `author` resolves the entry's signer and `on_behalf` against
+  policy, which is never compacted, so revoked devices and grants still resolve.
+  `account` is the signing device's account; for the hosted device it is the
+  all-zero service account and `grant_account` names the grant's account. `app` is
+  the grant's app ID. `time` is the writer's capture clock (`intent.md` §1), so it
+  can disagree with log order; versions are ordered by position.
+- **Depth and paging.** Versions are newest first, at positions below `before`
+  (default: the replica's applied head and below). One call reads at most 10,000
+  log positions below `before`; `limit` (1–200, default 50) caps the versions.
+  `next` is present while older versions may exist: pass it as `before`. `from` is
+  the lowest position listed, and `from_time` the capture time of the oldest
+  readable entry at or above it. History stops at the log's compaction point
+  (`retained_from`), below the oldest epoch this device can open, and where this
+  replica's verdicts begin; when `next` is absent and the oldest version is not
+  `created`, the record's earlier history is no longer available here. Versions
+  the log compacts after they were listed drop out of later pages. Archived
+  segments and migrated pre-history are not read.
+- **Stale cursors.** A `before`, or a `record_version` position, more than 10,000
+  positions below the oldest position the index has read refuses with
+  `invalid_request` / `history_cursor_stale`: the index was rebuilt since it
+  issued that cursor (the replica reopened, or the log was compacted under it),
+  and reaching it would read without bound. List from the newest version again.
+- **Versions.** `record_version` takes a position from `record_history`. Each
+  version's document is read from its own entry, inline or from the entry's blob
+  text, and checked against its `revision`. It refuses with `not_found` /
+  `version_not_found` when the position is not a listed version of the record or
+  is a deletion, `not_found` / `version_compacted` when the log no longer retains
+  it, and `not_found` / `version_text_unavailable` when its blob text is missing
+  or does not authenticate.
+- **Text encodings.** Writers emit whole documents (`log-entry.md` §2.2), so no
+  version needs another to resolve. An entry whose record text is a delta refuses
+  the scan with `upgrade_required` / `history_delta_unsupported`.
+- **Waiting.** While log reads are outstanding the frame layer holds the request
+  (at most 8 at once, each at most 5 minutes) and answers when the reads finish.
+  A log read that fails refuses with `unavailable` / `history_offline`; a hold that
+  reaches its deadline refuses with `unavailable` / `history_timeout`.
+- **Capability.** Both methods require `history.read` (`policy.md` §5) as well as
+  `collection.read`: history includes text that has since been deleted, and its
+  newest version is the current document. A session whose grant has a folder
+  scope refuses with `forbidden` / `history_full_collection_required`: history
+  spans deleted records and earlier paths, which a scope cannot evaluate.
+- **Unsupported.** The hosted replica and local-only collections (which keep no
+  log) refuse with `upgrade_required` / `history_unsupported`. A replica without
+  these methods answers `invalid_request` / `unknown_method`; the SDK reports that
+  as `upgrade_required` / `history_unsupported`.
+
+```cddl
+record-history-params = {
+  0: uuid,               ; record
+  ? 1: seq,              ; before: only versions at lower positions
+  ? 2: uint,             ; limit: 1..200, default 50
+}
+record-history = {
+  0: [* history-version], ; newest first
+  1: seq,                ; from: the lowest position history covers
+  ? 2: int,              ; from_time: capture time (ms) of the oldest readable entry at or above from
+  ? 3: seq,              ; next: pass as `before` for older versions
+}
+history-version = {
+  0: seq,                ; the entry's log position
+  1: int,                ; time: the writer's capture time, ms
+  2: author-ref,
+  3: &( created: 0, edited: 1, moved: 2, deleted: 3 ),
+  4: path,               ; the path after the entry (before it, for a deletion)
+  ? 5: hash,             ; revision: SHA-256 of the document written; absent for a deletion
+  6: source,             ; intent.md §1
+  7: device-kind,        ; the signing device's kind (policy.md §4.2)
+  ? 8: tstr,             ; app: the grant's app ID
+}
+author-ref = {
+  0: uuid,               ; account: the signing device's account
+  1: uuid,               ; device: the signing device
+  ? 2: uuid,             ; grant: the app grant written through
+  ? 3: uuid,             ; grant_account: the grant's account, only when the hosted device signed
+}
+record-version-params = {
+  0: uuid,               ; record
+  1: seq,                ; a position from record_history
+}
+record-version = {
+  0: path,               ; the record's path at that version
+  1: tstr,               ; document: its exact text
 }
 ```
 
@@ -1469,7 +1593,8 @@ need the WASM core.
 **API versions.**
 - `hello` negotiates the highest common version.
 - A replica serves its current minor and the two previous minors of its major
-  (`00-overview.md` §6.4); 1.3 also retains 1.0 for published clients.
+  (`00-overview.md` §6.4); 1.4 also retains 1.0 and 1.1 for published clients
+  that offer nothing newer.
 - New methods, push types and optional fields are minor changes. Clients ignore unknown
   push types and unknown fields.
 - Removing or changing behaviour is a major change, shipped with one release that

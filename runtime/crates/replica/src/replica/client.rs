@@ -36,11 +36,11 @@ use crate::store::{FileLocal, Page, Store};
 
 /// The client API version this replica serves (compatible back through 1.0).
 /// 1.1: upload file identity. 1.2: grant file scope and change-feed entity.
-/// 1.3: current role-effective grant in status.
-pub const API_VERSION: Version = Version { major: 1, minor: 3 };
+/// 1.3: current role-effective grant in status. 1.4: record history.
+pub const API_VERSION: Version = Version { major: 1, minor: 4 };
 
 /// Every capability (`policy.md` §5), granted to the hosting app.
-pub const ALL_CAPABILITIES: [&str; 8] = [
+pub const ALL_CAPABILITIES: [&str; 9] = [
     "collection.read",
     "records.create",
     "records.edit",
@@ -49,6 +49,7 @@ pub const ALL_CAPABILITIES: [&str; 8] = [
     "definitions.manage",
     "background.schedule",
     "offline.replica",
+    "history.read",
 ];
 
 fn not_yet<T>(what: &str) -> ApiResult<T> {
@@ -674,6 +675,8 @@ const GRANTABLE_FEATURES: &[&str] = &[
     super::attachment_runtime::ATTACHMENT_V1_FEATURE,
     super::client_files::FILE_STREAM_FAILURE_FEATURE,
     "validate-page-v1",
+    // Bases discovery request version 2 names unreadable records.
+    "bases-discovery-unreadable-v1",
 ];
 
 impl<S: Store> Replica<S> {
@@ -724,7 +727,7 @@ impl<S: Store> ClientApi for Replica<S> {
             .filter(|v| {
                 v.major == API_VERSION.major
                     && v.minor <= API_VERSION.minor
-                    && v.minor >= API_VERSION.minor.saturating_sub(3)
+                    && v.minor >= API_VERSION.minor.saturating_sub(4)
             })
             .max_by_key(|v| v.minor)
             .cloned()
@@ -895,6 +898,22 @@ impl<S: Store> ClientApi for Replica<S> {
         request: crate::api::ResolveLinks,
     ) -> ApiResult<mdbn_wire::client::ResolveLinksResult> {
         self.resolve_links_now(session, request)
+    }
+
+    fn record_history(
+        &mut self,
+        session: SessionId,
+        params: mdbn_wire::client::RecordHistoryParams,
+    ) -> ApiResult<mdbn_wire::client::RecordHistory> {
+        self.history_page(session, params)
+    }
+
+    fn record_version(
+        &mut self,
+        session: SessionId,
+        params: mdbn_wire::client::RecordVersionParams,
+    ) -> ApiResult<mdbn_wire::client::RecordVersion> {
+        self.history_version(session, params)
     }
 
     fn query_contract(

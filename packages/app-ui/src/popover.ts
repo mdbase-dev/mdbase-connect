@@ -53,6 +53,9 @@ function place(
   popover.style.top = `${placement.top}px`;
   popover.style.left = `${placement.left}px`;
   popover.style.maxHeight = `${placement.maxHeight}px`;
+  // The popover grows from the corner it shares with its trigger (.mdbase-overlay).
+  const vertical = placement.top < box.top ? "bottom" : "top";
+  popover.style.setProperty("--overlay-origin", `${vertical} ${options.align === "end" ? "right" : "left"}`);
 }
 
 // Browsers without the Popover API (and jsdom) keep the element in place instead.
@@ -147,6 +150,7 @@ export function useMenuPopover(
       const bounds = menu.getBoundingClientRect();
       menu.style.left = `${Math.max(8, Math.min(point.left, window.innerWidth - bounds.width - 8))}px`;
       menu.style.top = `${Math.max(8, Math.min(point.top, window.innerHeight - bounds.height - 8))}px`;
+      menu.style.setProperty("--overlay-origin", "top left");
     } else place(trigger, menu, { gap: 6, align, matchWidth: false });
     (menu.querySelector<HTMLElement>(focus) ?? menu).focus({ preventScroll: true });
   }, [menuRef, triggerRef, width, align, focus, open, point]);

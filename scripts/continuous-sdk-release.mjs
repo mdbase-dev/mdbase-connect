@@ -5,7 +5,7 @@ import { createRequire } from "node:module";
 import { join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { publicPackages } from "./public-packages.mjs";
-import { api, checkoutProductionCommit, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, releaseTag, releaseVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
@@ -23,11 +23,9 @@ export function publicationBaseline(metadata, item, workflow) {
   assert.equal(metadata.name, item.name);
   const versions = Object.keys(metadata.versions ?? {});
   assert(versions.length > 0, `Bootstrap ${item.name} before enabling trusted publishing.`);
-  nextBetaVersion(versions);
-  const betas = versions.filter(version => /^0\.1\.0-beta\.[1-9][0-9]*$/.test(version))
-    .sort((left, right) => BigInt(left.split(".").at(-1)) < BigInt(right.split(".").at(-1)) ? -1 : 1);
-  assert(betas.length > 0, "A provenance-qualified beta baseline is required.");
-  const version = betas.at(-1);
+  // Ordering refuses unknown version forms; 0.0.x bootstrap versions are never a baseline.
+  const version = [...versions].sort(compareVersions).at(-1);
+  assert(!version.startsWith("0.0."), "A provenance-qualified baseline is required.");
   const entry = metadata.versions[version];
   assert.equal(entry.name, item.name);
   assert.equal(entry.version, version);
@@ -270,9 +268,7 @@ function lockPair(line, indent) {
 // the tag and the other publishes from it. Each line's packages, provenance
 // identity (its own workflow file) and GitHub release (`sdk-v*`) stay disjoint.
 const reservationSchema = "mdbase-npm-release/1";
-const releaseTag = /^v0\.1\.0-beta\.([1-9][0-9]*)$/;
-const betaNumber = version => BigInt(/^0\.1\.0-beta\.([1-9][0-9]*)$/.exec(version)?.[1] ?? 0);
-const above = (version, reference) => betaNumber(version) > betaNumber(reference);
+const above = (version, reference) => compareVersions(version, reference) > 0;
 const publisherFile = kind => kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml";
 
 // Null for the main coordinator; otherwise the reserved tag this publisher runs on.
@@ -299,8 +295,9 @@ export function readReservation(tag, commit, readApi = api) {
   return record;
 }
 
-// Every release tag (Desktop's, retired server trains' and these reservations)
-// shares the v0.1.0-beta.N namespace, so allocation stays above all of them.
+// Every release tag (Desktop's and these reservations) shares the v<semver>
+// namespace, so allocation stays above all of them. Legacy v0.1.0-beta.N tags
+// order below every release and are never reused as reservations.
 export function listReservations(commit, kinds, runGit = git) {
   runGit("fetch", "--no-tags", "origin", "refs/tags/v*:refs/tags/v*");
   const tags = runGit("for-each-ref", "--format=%(refname:short)%00%(objecttype)%00%(contents:subject)%00%(*objectname)", "refs/tags/v*")
@@ -315,11 +312,12 @@ export function listReservations(commit, kinds, runGit = git) {
 }
 
 // A tag run executes the publisher workflow committed at the tag. Transition
-// guard: until production contains tag publication, a reservation would only
-// yield a run that skips every job. Remove once production contains it.
+// guard: until production contains semver tag publication, a v<semver>
+// reservation would only yield a run that skips every job. Remove once
+// production contains it.
 export function tagPublisher(kind, commit, runGit = git) {
   return runGit("show", `${commit}:.github/workflows/${publisherFile(kind)}`)
-    .includes("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')");
+    .includes("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')");
 }
 
 // A tag run executes the planner committed at its tag, which before shared
@@ -359,7 +357,7 @@ export function dependentPackages(packages, changed) {
 export function failedPublisherRuns(runs, current, acknowledged = "") {
   assert(acknowledged === "" || /^[1-9][0-9]*$/.test(acknowledged), "Invalid acknowledged publication run.");
   return runs.filter(run => run.id < Number(current) && run.id > Number(acknowledged || 0)
-    && (run.head_branch === "main" || releaseTag.test(run.head_branch ?? ""))
+    && (run.head_branch === "main" || /^v[0-9]/.test(run.head_branch ?? ""))
     && ["workflow_run", "workflow_dispatch", "schedule"].includes(run.event)
     && run.status === "completed" && !["success", "skipped"].includes(run.conclusion));
 }
@@ -435,13 +433,13 @@ export async function plan(kind, output, env = process.env, {
   if (predatesTags || waitingForRuntime) chosen = [];
   // One version per tag: every package a tag publishes carries the tag's version,
   // above every version any of these packages has published.
-  const lineVersions = inventory.flatMap(item => [...item.baseline.versions, item.manifest.version]);
+  const lineVersions = inventory.flatMap(item => item.baseline.versions);
   let reserving;
   if (!tag && chosen.length) {
     const shared = sharedAt(commit);
     const { versions, reserved } = reservations(commit, shared ? ["source", "workspace"] : [kind]);
     const reuse = reserved.find(item => !lineVersions.some(version => above(version, item.slice(1))));
-    reserving = { ...(reuse ? { tag: reuse, existing: true } : { tag: `v${nextBetaVersion([...lineVersions, ...versions])}`, existing: false }), shared };
+    reserving = { ...(reuse ? { tag: reuse, existing: true } : { tag: `v${allocateVersion([...lineVersions, ...versions], commit)}`, existing: false }), shared };
   }
   const version = (tag ?? reserving?.tag)?.slice(1);
   const superseded = tag && chosen.find(item => item.baseline.versions.some(value => above(value, version)));
@@ -563,7 +561,7 @@ export function prepareSource(planFile, env = process.env) {
   assert.equal(record.packages.length, 1);
   assert.equal(record.packages[0].name, sdk.name);
   const version = record.packages[0].version;
-  assert.match(version, /^0\.1\.0-beta\.[1-9][0-9]*$/);
+  assert.match(version, releaseVersion);
   for (const path of ["package.json", `${sdk.directory}/package.json`]) {
     const manifest = readJson(path);
     manifest.version = version;
@@ -628,7 +626,7 @@ export async function publishWorkspace(planFile, directory, env = process.env) {
 // provenance may stand down; anything else stays for owner review.
 export async function publicationState(name, version, env = process.env, prove = provenSource) {
   assert.match(name, /^@mdbase-dev\/[a-z0-9-]+$/);
-  assert.match(version, /^0\.1\.0-beta\.[1-9][0-9]*$/);
+  assert.match(version, releaseVersion);
   assert.match(env.GITHUB_SHA ?? "", /^[a-f0-9]{40}$/);
   const response = await fetch(`${registry}/${encodeURIComponent(name)}/${version}`, {
     redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30_000) });

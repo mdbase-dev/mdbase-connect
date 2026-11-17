@@ -199,6 +199,14 @@ export interface CollectionGateway {
   syncState?(): import("./app-state-types").EditorSyncState;
   onSyncState?(listener: () => void): () => void;
   observe(): NoteObservation;
+  /** Paths of every note whose text, lower-cased, contains `term`: the
+   * runtime's `file.body.lower().contains(term)`, answered from its full-text
+   * index for a lower-case term of three or more characters. */
+  searchBodies(term: string, options?: { signal?: AbortSignal }): Promise<string[]>;
+  /** Paths of every note with `tag` or a tag nested under it, among its
+   * frontmatter `tags` and inline `#tags`: the runtime's `file.hasTag(tag)`.
+   * Record views carry no tags, so this is how inline tags are found. */
+  searchTag(tag: string, options?: { signal?: AbortSignal }): Promise<string[]>;
   /** Paths of the notes whose links resolve to `path`, from the collection's
    * link index (Core resolution; the note's links to itself excluded). */
   backlinks(path: string, options?: { signal?: AbortSignal }): Promise<string[]>;

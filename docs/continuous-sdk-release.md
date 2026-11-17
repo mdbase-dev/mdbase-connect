@@ -9,7 +9,7 @@ publishers for their packages. Each runs in two roles:
   production servers, enabled Workers and Editor verify, ops Server CD
   dispatches both coordinators on main with `dry_run=false`. Dispatch failure is
   advisory, never a server-release failure or rollback.
-- On a coordinator-reserved **`v0.1.0-beta.N` tag** it is the *publisher*. Only
+- On a coordinator-reserved **`v<version>` tag** it is the *publisher*. Only
   tag runs build, pack and publish.
 
 A coordinator selects the production commit and decides what changed. When a
@@ -73,14 +73,17 @@ is edited by SDK repins. Effective dependency changes they cause also appear in
 the lockfile.
 
 Every package a tag publishes carries that tag's version, so a package version
-always names the tag it was built from. The coordinator allocates
-`0.1.0-beta.N` above every published version and source manifest version of
-the line's packages and above every existing `v0.1.0-beta.*` tag; Desktop,
-retired server trains and these reservations share that namespace, and each tag
-is used once. Versions may therefore skip numbers; they never go backwards. The
-tag run refuses with `publication-version-superseded` if any selected package
-has since published a higher version. A published stable or another
-incompatible version line stops this beta allocator for release-agent review.
+always names the tag it was built from. The coordinator allocates the next
+semver version above every published version of the line's packages and every
+existing `v<version>` tag; Desktop and these reservations share that namespace,
+and each tag is used once. The first release after the `0.1.0-beta.N` line is
+`0.1.0`. After that, a `## Breaking` `changelog.d` fragment added since the
+highest version's tag bumps the minor version (pre-1.0) and anything else the
+patch. Versions may therefore skip numbers; they never go backwards. The tag
+run refuses with `publication-version-superseded` if any selected package has
+since published a higher version. A version form it cannot order, or a 1.0
+release, stops the allocator for release-agent review. Every release publishes
+to npm `latest`, and its plain-semver `sdk-v<version>` GitHub release is not a prerelease.
 Versions are stamped only into CI outputs; no release-version commits/PRs are
 created.
 
@@ -90,7 +93,7 @@ The tag message is a one-line JSON record
 version for a production commit, not for a line: a tag run requires an annotated
 reservation at its own commit, made by either line. Both coordinators allocate
 from the same namespace, so after a promotion both usually choose the same
-`v0.1.0-beta.N` for the same commit. Whichever creates the ref first makes the
+`v<version>` for the same commit. Whichever creates the ref first makes the
 reservation. The other coordinator finds that tag among the commit's
 reservations, or loses the ref creation to it, and dispatches its own publisher
 on the same tag. A tag at any other commit, or one that is not an annotated
@@ -99,7 +102,7 @@ so until production contains shared reservations, a coordinator uses only its
 own line's tags (transition guard; remove once production contains them).
 Sharing is safe because the lines publish disjoint
 packages, each line's npm provenance names its own workflow file at
-`refs/tags/v<version>`, the SDK's GitHub prerelease uses its own `sdk-v<version>`
+`refs/tags/v<version>`, the SDK's GitHub release uses its own `sdk-v<version>`
 tag, and run history and "already published" checks are per workflow. The
 `Protect release tags` ruleset forbids updating or deleting `v*` tags.
 
@@ -116,7 +119,7 @@ WASM/SQLite/trust integrity checks, cold consumers and extracted-package checks
 remain. CI stamps the root and SDK version only **after** frozen tool installs.
 The three environment archives are built once from the same source and bytes.
 Production goes only to npmjs `latest`; staging and LAB retain private manifests
-and their individually attested `sdk-v<computed-version>` immutable prerelease
+and their individually attested `sdk-v<computed-version>` immutable release
 assets. All assets are uploaded to the draft before publication. The original
 trust roots, pins, policy keys and consumer admission rules are not modified.
 
@@ -254,8 +257,7 @@ Publication uses the existing grants. npm trusted publishers bind owner,
 repository, workflow file and environment, not the ref; workspace versions
 beta.118 to beta.149 were published through OIDC from version tags under the
 same `publish-npm.yml`/`npm` publisher. The `npm`
-environment's deployment policy admits `v*` tags and `npm-sdk`'s admits
-`v0.1.0-beta.*` tags. The coordinator's `reserve` job uses the workflow token
+and `npm-sdk` environments' deployment policies must admit `v*` tags. The coordinator's `reserve` job uses the workflow token
 with `contents: write` and `actions: write`, as the Desktop coordinator does;
 it installs no dependencies. For unattended operation these environments must
 not require a human approval per run. Keep npm token publication disabled.

@@ -16,6 +16,7 @@ import { decode, encode, toHex } from "../src/cbor.js";
 import type { Codec } from "../src/codec.js";
 import * as w from "../src/wire.js";
 import { accountKeyStatus } from "../src/private.js";
+import { recordHistory, recordHistoryParams, recordVersion, recordVersionParams } from "../src/history.js";
 import { runtimeMutation } from "../src/runtime-wire.js";
 
 const root = join(import.meta.dirname, "../../../conformance/wire");
@@ -100,6 +101,10 @@ const TYPED: Record<string, Codec<any>> = {
   ListViewsResult: w.listViewsResult,
   Preflight: w.preflight,
   QueryParams: w.queryParams,
+  RecordHistoryParams: recordHistoryParams,
+  RecordHistory: recordHistory,
+  RecordVersionParams: recordVersionParams,
+  RecordVersion: recordVersion,
   ResourceView: w.resourceView,
   ViewSourceDocument: w.viewSourceDocument,
 };

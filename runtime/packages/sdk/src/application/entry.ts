@@ -6,7 +6,7 @@ import {declaredReturnUrl} from "./return-url.js";
 import {resolveApplicationRegistration} from "./registration.js";
 import {applicationAssetLoader} from "./asset-loader.js";
 import {packagedApplicationAssets} from "./packaged-assets.js";
-import {ApplicationStartupTiming} from "./startup-timing.js";
+import {ApplicationStartupTiming,markCollectionOpen} from "./startup-timing.js";
 import {appReleaseTrust} from "./packaged-trust.js";
 import {serviceLoopbackAllowed} from "./local-build.js";
 import {selectAppEnvironment} from "../app-host/app-environment.js";
@@ -476,6 +476,7 @@ export class MdbaseEntry {
     const openingUnsynced=this.unsyncedOpening>0&&!base.unsynced&&!base.signOutResult&&selection.requested.collectionId===null;
     let phase=applicationPhase({...base,selection},{connection,previous:last?.value.phase??null,openingUnsynced,startPending:this.selection?.startPending()??false,...(this.cpOrigin?{cpOrigin:this.cpOrigin}:{}),...(this.messages?{messages:this.messages}:{})});
     phase=this.trackOpening(phase);this.timing.observe(phase);
+    markCollectionOpen(selection,phase,last?.value);
     const transport=base.transport??null,online=globalThis.navigator?.onLine;
     const status=this.trackSync(phase,transport!==null||online===false);
     const writes=this.syncing?.writes()??null;

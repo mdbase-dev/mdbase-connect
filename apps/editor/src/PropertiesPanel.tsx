@@ -8,7 +8,7 @@ import {
   DotsThreeIcon as MoreHorizontal,
   XIcon as X
 } from "./icons";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
 import { declaredFields } from "./field-reference";
 import { CodeEditor } from "./CodeEditor";
@@ -22,7 +22,8 @@ import { propertyValidationErrors, StructuredPropertiesEditor } from "./Structur
 interface PropertiesPanelProps {
   note: NoteDocument;
   types: CollectionTypeDescriptor[];
-  wordCount?: number;
+  /** The note's text as edited, which may be ahead of `note`. */
+  body?: string;
   recordPaths?: string[];
   error?: string;
   readOnly?: boolean;
@@ -34,7 +35,7 @@ interface PropertiesPanelProps {
 export function PropertiesPanel({
   note,
   types,
-  wordCount = noteWordCount(note.body ?? ""),
+  body = note.body ?? "",
   recordPaths = [],
   error,
   readOnly = false,
@@ -44,6 +45,9 @@ export function PropertiesPanel({
 }: PropertiesPanelProps) {
   useLingui();
   const menu = useMenuTrigger();
+  // Counting waits until typing pauses, so a long note keeps up with the keyboard.
+  const countedBody = useDeferredValue(body);
+  const wordCount = useMemo(() => noteWordCount(countedBody), [countedBody]);
   const initial = useMemo(() => structuredClone(note.frontmatter), [note, i18n.locale]);
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
   const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types, i18n.locale]);

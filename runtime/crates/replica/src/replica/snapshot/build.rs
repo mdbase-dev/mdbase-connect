@@ -9,6 +9,9 @@ type Chunks = Vec<(u64, Vec<Cbor>)>;
 /// chunks; a native app host takes at most 64 log calls in one turn.
 const PUTS_IN_FLIGHT: usize = 8;
 
+/// The longest wait between periodic builds whose uploads go unanswered, ms.
+const BUILD_RETRY_MAX_MS: u64 = 60 * 60 * 1000;
+
 /// The head a build was last declined at, so a new wake waits for the next period.
 const DECLINED_AT: &str = "replica.snapshot.declined";
 
@@ -460,6 +463,7 @@ impl<S: Store> Replica<S> {
             record_count: records.len() as u64,
             file_count: files.len() as u64,
             control_chain: self.policy.ctl_chain,
+            sem_ratchet: Some(self.sem_ratchet),
             previous: self
                 .store
                 .meta(&format!("{LAST_MANIFEST}.address"))?
@@ -502,7 +506,7 @@ impl<S: Store> Replica<S> {
             refs,
             uploads: uploads.into(),
             outstanding: 0,
-            failed: false,
+            failed: None,
             payload,
         });
         self.snap_put_next();
@@ -512,7 +516,7 @@ impl<S: Store> Replica<S> {
     /// Send the build's next uploads, up to [`PUTS_IN_FLIGHT`].
     fn snap_put_next(&mut self) {
         while let Some(b) = self.build.as_mut() {
-            if b.failed || b.outstanding >= PUTS_IN_FLIGHT {
+            if b.failed.is_some() || b.outstanding >= PUTS_IN_FLIGHT {
                 return;
             }
             let Some(u) = b.uploads.pop_front() else {
@@ -529,12 +533,15 @@ impl<S: Store> Replica<S> {
         }
     }
 
-    pub(crate) fn on_snap_put(&mut self, ok: bool) {
+    pub(crate) fn on_snap_put(&mut self, reply: &crate::log::LogReply) {
         let Some(b) = self.build.as_mut() else {
             return;
         };
         b.outstanding = b.outstanding.saturating_sub(1);
-        b.failed |= !ok;
+        if !matches!(reply, Ok(LogResponse::PutObject { .. })) {
+            // A refusal outranks an unanswered upload of the same build.
+            b.failed = b.failed.max(Some(BuildFailure::of(reply)));
+        }
         self.snap_put_next();
         let Some(b) = self.build.as_mut() else {
             return;
@@ -542,9 +549,10 @@ impl<S: Store> Replica<S> {
         if b.outstanding > 0 {
             return;
         }
-        if b.failed {
+        if let Some(why) = b.failed {
+            let seq = b.seq;
             self.build = None;
-            return;
+            return self.build_failed(seq, why);
         }
         let params = PutSnapshotParams {
             collection: self.cfg.collection,
@@ -565,14 +573,15 @@ impl<S: Store> Replica<S> {
             return;
         };
         match reply {
-            Ok(LogResponse::PutSnapshot(true)) => {}
+            Ok(LogResponse::PutSnapshot(true)) => self.build_retry = None,
             // The log already holds a snapshot at or past this one (another
             // replica registered it first): do not rebuild until the next period.
             Ok(LogResponse::PutSnapshot(false)) => {
+                self.build_retry = None;
                 self.snapshot_declined = self.snapshot_declined.max(b.seq);
                 return;
             }
-            _ => return,
+            _ => return self.build_failed(b.seq, BuildFailure::of(reply)),
         }
         let _ = self.store.commit(Tx {
             meta: vec![
@@ -585,6 +594,33 @@ impl<S: Store> Replica<S> {
             ..Tx::default()
         });
         self.stats.snapshots_built += 1;
+    }
+
+    /// The build at `seq` ended without a snapshot (`snapshot.md` §5.3). A
+    /// rebuild seals and uploads every chunk again, so neither outcome may
+    /// repeat on every tick.
+    fn build_failed(&mut self, seq: u64, why: BuildFailure) {
+        match why {
+            // The answer will not change at this head: the periodic build
+            // counts from here, as when the log already held a snapshot.
+            BuildFailure::Refused => {
+                self.build_retry = None;
+                self.snapshot_declined = self.snapshot_declined.max(seq);
+            }
+            BuildFailure::Unanswered { retry_after_ms } => {
+                let ms = self
+                    .build_retry
+                    .map_or(self.tuning.retry_ms, |r| r.wait_ms.saturating_mul(2))
+                    .max(retry_after_ms)
+                    .min(BUILD_RETRY_MAX_MS);
+                self.build_retry = Some(BuildRetry {
+                    at: self
+                        .now()
+                        .saturating_add(i64::try_from(ms).unwrap_or(i64::MAX)),
+                    wait_ms: ms,
+                });
+            }
+        }
     }
 
     /// Build a snapshot when enough has been appended since the last one.
@@ -612,6 +648,9 @@ impl<S: Store> Replica<S> {
 
     pub(crate) fn maybe_build(&mut self) {
         if self.build.is_some() || self.install.is_some() || !self.caught_up {
+            return;
+        }
+        if self.build_retry.is_some_and(|r| self.now() < r.at) {
             return;
         }
         let manifest = self

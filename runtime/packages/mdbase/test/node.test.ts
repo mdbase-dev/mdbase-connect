@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
 
+import { loadCatalog } from "../src/index.js";
 import { Collection, MdbaseError } from "../src/node/index.js";
 
 // Test-owned scratch directory inside the package, never the shared /tmp.
@@ -26,13 +27,40 @@ schema:
 async function fresh(tag: string): Promise<[string, Collection]> {
   const root = join(base, tag);
   const col = await Collection.init(root, { name: "Test" });
-  mkdirSync(join(root, "_types"), { recursive: true });
-  writeFileSync(join(root, "_types/task.md"), TASK_TYPE);
+  // init explicitly configures this layout; it does not use the spec default.
+  expect(readFileSync(join(root, "mdbase.yaml"), "utf8")).toContain("types_folder: _mdbase/types");
+  mkdirSync(join(root, "_mdbase/types"), { recursive: true });
+  writeFileSync(join(root, "_mdbase/types/task.md"), TASK_TYPE);
   await col.rescan();
   return [root, col];
 }
 
 describe("Collection (node)", () => {
+  it.each([
+    { tag: "spec-default", settings: "", folder: "_types", ignored: "_mdbase/types" },
+    { tag: "settings-default", settings: "settings:\n  validation: error\n", folder: "_types", ignored: "_mdbase/types" },
+    { tag: "configured-folder", settings: "settings:\n  types_folder: _mdbase/types\n", folder: "_mdbase/types", ignored: "_types" },
+  ])("honors the spec types folder and matches WASM: $tag", async ({ tag, settings, folder, ignored }) => {
+    const root = join(base, tag);
+    const resources = {
+      "mdbase.yaml": `spec_version: '0.3.0'\n${settings}`,
+      [`${folder}/task.md`]: TASK_TYPE,
+      [`${ignored}/ignored.md`]: TASK_TYPE.replace("name: task", "name: ignored"),
+    };
+    for (const dir of [folder, ignored]) mkdirSync(join(root, dir), { recursive: true });
+    for (const [path, source] of Object.entries(resources)) writeFileSync(join(root, path), source);
+    const catalog = await loadCatalog(resources);
+    expect(catalog.valid).toBe(true);
+    expect(catalog.settings.types_folder).toBe(folder);
+    expect(catalog.types.map((type) => type.name)).toEqual(["task"]);
+    const col = await Collection.open(root);
+    try {
+      expect(await col.types()).toEqual(["task"]);
+    } finally {
+      await col.close();
+    }
+  });
+
   it("refuses a folder without mdbase.yaml, with help", async () => {
     const e = await Collection.open(join(base, "nope")).catch((x: unknown) => x);
     expect(e).toBeInstanceOf(MdbaseError);

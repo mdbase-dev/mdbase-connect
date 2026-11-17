@@ -91,8 +91,7 @@ import {
   createdBody,
   editableNote,
   noteHeadings,
-  noteWordCount,
-  noteTags,
+  noteHasType,
   noteTitle,
   noteNeedsBodyTitle,
   summaryFromDocument,
@@ -142,6 +141,8 @@ import {
   IncrementalNoteSearchIndex,
   searchNoteResults
 } from "./note-search";
+import { BodySearch, bodySearchTerms, EXCERPT_READS } from "./body-search";
+import { parseSearchQuery } from "./search-query";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { takeQuickCapture } from "./quick-capture";
 import { activeEditorSelection, revealMarkdownLine } from "./code-editor-reveal";
@@ -234,7 +235,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     structureComplete, structureError,
     contentComplete,
     contentIndexing,
-    contentLoaded,
     contentError, revision: collectionRevision
   } = collectionIndex;
   const [phase, setPhase] = useState<AppPhase>("starting");
@@ -470,6 +470,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [indexController]);
 
   const loadContentIndex = useCallback(() => indexController.hydrate(), [indexController]);
+  const bodySearch = useMemo(() => new BodySearch(gateway), [gateway]);
+  const bodySearchState = useSyncExternalStore(bodySearch.subscribe, bodySearch.getSnapshot, bodySearch.getSnapshot);
+  useEffect(() => () => { bodySearch.reset(); }, [bodySearch]);
 
   const refreshDescription = useCallback(async (isCurrent: () => boolean = () => true) => {
     const epoch = collectionEpoch.current;
@@ -562,8 +565,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let previous = session.record.snapshot;
     const collection = mutationScope.current.token().collectionId!;
     try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
-    catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
-    if (!draftRecovery && !privateCollection) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
+    catch { session.recoveryError = recoveryUnavailable(); }
+    if (!draftRecovery && !privateCollection) session.recoveryError = recoveryUnavailable();
+    const checkpointed = (ok: boolean) => {
+      const error = ok ? undefined : recoveryUnavailable();
+      if (session.recoveryError === error) return;
+      session.recoveryError = error;
+      touchSession(session);
+    };
     session.record.subscribe(() => {
       const current = session.record.snapshot;
       if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
@@ -571,24 +580,27 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (!session.recoveryDraft) {
         try {
+          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
           if (current.dirty) draftRecovery?.write(collection, current.record.path, {
             body: current.body, baseBody: current.record.body ?? "",
             patch: frontmatterPatch(current.record.frontmatter, current.frontmatter),
             baseFrontmatter: current.record.frontmatter
-          });
-          else draftRecovery?.remove(collection, current.record.path, current.record);
-          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
-          if (draftRecovery) session.recoveryError = undefined;
-        } catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
+          }, checkpointed);
+          else {
+            draftRecovery?.remove(collection, current.record.path, current.record);
+            if (draftRecovery) session.recoveryError = undefined;
+          }
+        } catch { session.recoveryError = recoveryUnavailable(); }
       }
       sessionChanged(session, previous);
       previous = current;
     });
     return session;
-  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords]);
+  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords, touchSession]);
 
   const activateSession = useCallback((session: NoteSession) => {
     const previous = noteSessions.current.active;
+    if (previous !== session) draftRecovery?.flush();
     // The old editor remains usable during a read. Save any edits made after
     // navigation started before adopting the newly loaded session.
     if (previous && previous !== session && sessionDirty(previous)) {
@@ -606,7 +618,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setEditingPath(false);
     setNotice(session.error);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
-  }, [closeNewNote]);
+  }, [closeNewNote, draftRecovery]);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
     activateSession(createSession(next));
@@ -773,9 +785,18 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   useEffect(() => {
     if (phase !== "ready" || !structureComplete || listLoading || contentComplete || contentIndexing || contentError) return;
-    if (!deferredSearch.trim() && !mentionsOpen && !allNotes.some(note => noteNeedsBodyTitle(note, typeDescriptors))) return;
+    if (!mentionsOpen && !allNotes.some(note => noteNeedsBodyTitle(note, typeDescriptors))) return;
     void loadContentIndex();
-  }, [allNotes, mentionsOpen, contentComplete, contentError, contentIndexing, deferredSearch, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
+  }, [allNotes, mentionsOpen, contentComplete, contentError, contentIndexing, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
+
+  // The list's body matches and tag filters are the runtime's, asked again
+  // whenever a record changes: record views carry no inline tags.
+  const filterTag = noteFilter?.kind === "tag" ? noteFilter.value : undefined;
+  useEffect(() => {
+    if (phase !== "ready") return;
+    const tags = parseSearchQuery(deferredSearch).tags;
+    bodySearch.search(bodySearchTerms(deferredSearch), filterTag === undefined ? tags : [...tags, filterTag], collectionRevision);
+  }, [bodySearch, collectionRevision, deferredSearch, filterTag, phase]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -900,6 +921,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     cancelNoteNavigation();
     saveCurrentInBackground();
     closeNewNote();
+    draftRecovery?.flush();
     noteSessions.current.deactivate();
     setDocument(undefined);
     setDraft(undefined);
@@ -1015,8 +1037,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors, i18n.locale]);
   const searchedResults = useMemo(() => {
-    return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch) : undefined;
-  }, [deferredSearch, searchIndex, i18n.locale]);
+    return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch, undefined, undefined, bodySearch) : undefined;
+  }, [bodySearch, bodySearchState.version, deferredSearch, searchIndex, i18n.locale]);
+  // Leading body matches show an excerpt, so their text is read when the page lacks it.
+  useEffect(() => {
+    if (searchedResults) bodySearch.readTexts(searchedResults.slice(0, EXCERPT_READS).filter((result) => result.context.kind === "body").map((result) => result.note));
+  }, [bodySearch, searchedResults]);
   const searchedNotes = useMemo(() => searchedResults
     ? searchedResults.map((result) => result.note)
     : allNotes, [allNotes, searchedResults, i18n.locale]);
@@ -1029,9 +1055,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       : noteFilter.kind === "folder"
         ? searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`))
         : noteFilter.kind === "tag"
-          ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
-          : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
-  }, [noteFilter, searchedNotes, i18n.locale]);
+          ? searchedNotes.filter((note) => bodySearch.tagged(noteFilter.value)?.has(note.path) === true)
+          : searchedNotes.filter((note) => noteHasType(note, noteFilter.value));
+  }, [bodySearch, bodySearchState.version, noteFilter, searchedNotes, i18n.locale]);
   const noteSortFields = useMemo(() => sortableFields(visibleNotes, typeDescriptors), [visibleNotes, typeDescriptors, i18n.locale]);
   const noteSort = useMemo(() => resolveNoteSort(noteSortPreference, noteSortFields), [noteSortFields, noteSortPreference]);
   const chooseNoteSort = useCallback((preference: NoteSortPreference) => {
@@ -1165,12 +1191,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function clearCollectionWorkspace() {
     collectionEpoch.current += 1; startGeneration.current += 1;
     indexController.reset();
+    bodySearch.reset();
     fileController.reset();
     fileAssetStore.reset();
     attachments.reset();
     searchIndexCache.current.clear();
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
+    draftRecovery?.flush();
     noteSessions.current.clear();
     changeWorkspace(() => emptyWorkspace());
     linkCreations.current.clear();
@@ -1965,7 +1993,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [canCreateNotes, canRenameNotes, description, document, focusMode, newNotes, takenPaths, mobileLayout, mutationsFrozen, noteFilter, noteLoading, openNote, phase, preferences.vim, quickOpen, recoveryAction, recoveryBusy, selectedCollectionFile, selectedPath, shortcutsOpen, surface, visibleBrowserEntries]);
-  const wordCount = useMemo(() => noteWordCount(draft?.body ?? ""), [draft?.body, i18n.locale]);
   const usable = phase === "ready" && Boolean(description);
   // First usable render: only now may the offline shell install and precache.
   useEffect(() => { if (usable) offlineShell.ready(); }, [usable]);
@@ -2095,7 +2122,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   paletteCommands.current = quickOpenCommands;
   if (liveUndo && !liveUndo.busy) quickOpenCommands.unshift({ ...command("undo", liveUndo.onAction, liveUndo.label), context: recoveryAction?.kind === "pin" ? recoveryAction.path : recoveryAction?.kind === "delete" ? noteTitle(recoveryAction.document, typeDescriptors) : recoveryMessage });
   const pendingNoteMutations = gateway.pendingNoteMutations();
-  const peekNote = allNotes.find((note) => note.path === peekPath);
+  const peekNote = peekPath === undefined ? undefined : allNotes.find((note) => note.path === peekPath);
   const peekTitle = peekNote ? noteTitle(peekNote, typeDescriptors) : undefined;
   activeToasts.push(...pendingNoteToasts(pendingNoteMutations, activePendingRename?.requestId, recoveryBusy, recoverPendingNote));
   if (noteOpenFailure && document) activeToasts.push({
@@ -2398,11 +2425,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         structureLoading={foldersLoading} structureError={structureError}
         filesLoading={fileInventory.loading}
         fileError={fileInventory.error}
-        contentIndexing={contentIndexing}
-        contentLoaded={contentLoaded}
+        searchPending={bodySearchState.pending}
+        searchError={bodySearchState.error === undefined ? undefined : gatewayError(bodySearchState.error)}
         contentError={contentError}
         total={noteFilter ? undefined : collectionTotal}
-        contentTotal={collectionTotal}
         selectedPath={selectedCollectionFile || openNew ? undefined : selectedPath}
         drafts={newNotes.notes.map((note) => {
           const write = newNoteWrites.current.get(note.id);
@@ -2429,6 +2455,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => { setPaletteMode("commands"); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
+        onRetrySearch={() => bodySearch.retry()}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={(path, options) => {
@@ -2471,7 +2498,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} /> : <PropertiesPanel
           key={document.path}
           note={document}
-          wordCount={wordCount}
+          body={draft?.body}
           types={description.types}
           recordPaths={allNotes.map((note) => note.path)}
           error={propertiesError}
@@ -2613,6 +2640,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     <NotePreviewCard preview={notePreviewController.preview} />
     <Toaster items={activeToasts} onDismiss={dismissToast} />
   </div>;
+}
+
+function recoveryUnavailable(): string {
+  return t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
 }
 
 function collectionExplicitTypeKeys(configuration: unknown): string[] {

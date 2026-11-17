@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "repository": "https://github.com/mdbase-dev/mdbase-connect",
+  "revision": "3d3f95b80c9aa11634bd2fc0c099855d61d5f124",
+  "artifacts": [
+    {
+      "package": "protocol",
+      "file": "mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz",
+      "bytes": 112974,
+      "sha512": "F0hhr8t6Z4FpbE5QpLEAt//EfTg+VuUrKpg1Iw6+l2fQFptvyaUlQc2VATTP8EGs5cgkBnAqHqOKMkYLpmPhgw=="
+    }
+  ]
+}

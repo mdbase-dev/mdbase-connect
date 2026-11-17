@@ -226,7 +226,8 @@ export type ApplicationCapabilityId =
   | "views.manage"
   | "definitions.manage"
   | "background.schedule"
-  | "offline.replica";
+  | "offline.replica"
+  | "history.read";
 
 export type ApplicationFileAction =
   | "list" | "read" | "add" | "replace" | "move" | "delete";

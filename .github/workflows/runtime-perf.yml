@@ -65,6 +65,7 @@ jobs:
         if: always() && steps.report.outcome == 'success' && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         with:
           node-version: '24'
+          package-manager-cache: false
       - name: Normalize runtime history
         id: performance_report
         continue-on-error: true
