@@ -147,7 +147,7 @@ test("only system shards that start the provider or its cargo tests build Rust",
   const shards = workflow("server-ci").split("  hosted-provider-system:\n")[1].split("  runtime-native:\n")[0];
   const entries = [...shards.matchAll(/- shard: ([\w-]+)\n\s+suites: [\w-]+\n\s+rust: (true|false)\n/g)];
   assert.deepEqual(Object.fromEntries(entries.map(([, shard, rust]) => [shard, rust === "true"])), {
-    relay: false, sync: false, provider: true, files: true, "files-adversarial": true,
+    relay: false, provider: true, files: true, "files-adversarial": true,
     "projection-scale": true, "linux-packages": false
   });
   for (const step of ["repository: callumalpass/mdbase-rs", "rustup toolchain install 1.94.0", "rustup override set 1.94.0",

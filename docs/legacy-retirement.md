@@ -137,15 +137,41 @@ the provider and the tables below: the to-hosted expiry branch of
 `auth-admin repairs authority-import-sources` command, adoption-row revocation in
 `instance-admin.ts` (with `abortAuthorityImport`), and the tables themselves.
 
+Also removed ahead of the provider (2026-11-15): the `sync` system suite
+(`scripts/sync-e2e.mjs`, `pnpm e2e:sync` and its `server-ci` shard) and the
+functional stress runner for the `packages/sync` client (`scripts/stress/*`,
+`test-fixtures/stress-regressions/`, the `stress:*` and
+`test:stress-regressions` scripts and `docs/functional-stress-testing.md`). The
+suite and the runner's HTTP mode ran the legacy sync protocol against the
+development-only reference authority, which only loopback development
+authentication can enable. No CI job ran the stress runner, and three of its
+entry points had failed on `main` since at least 2026-10-05: the HTTP half of
+`stress:quick` and the regression replay ("Replica 2 did not converge"), and
+`stress:functional` ("Resolve the record's existing sync issue before editing
+it again."). It was deleted rather than repaired because it stress-tested a
+legacy client that no shipped product uses. The provider suite remains the test
+of that client against the real provider, and `packages/sync` keeps its unit
+tests.
+
+The reference authority itself stays: `HostedAuthorityRegistry` in
+`features/hosted/hosted.ts`, `features/hosted/reference-sync-routes.ts`, the
+`MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY` flag and its validation, and the
+`hostedReference` branches. It is the fixture for the route-level tests of
+mirror pairing (including renewal), the hosted-to-local transfer, the
+migration-freeze fences and legacy hosted collection creation, so it goes with
+those routes in the cluster below rather than behind a new mocked-provider
+fixture. Its `docker-compose.yml` passthrough is gone; an operations LAB flag
+map still pins the flag off, and that entry goes with the flag.
+
 | Unit | Lines | Consumers to remove first |
 | --- | --- | --- |
 | `crates/connect-hosted-provider` (also `mdbase-hosted-backup-admin`, `-key-admin` and `-projection-indexer`), `connect-runtime`, `connect-protocol` (generated Rust) | 86,922 | <ul><li>Render service `mdbase-connect-hosted-provider` and DB `mdbase-connect-hosted-db`, plus the staging and LAB services.</li><li>Connect env `MDBASE_CONNECT_HOSTED_PROVIDER_URL` and `MDBASE_CONNECT_HOSTED_COLLECTIONS`.</li><li>**cloud-ops:** `monitor-production.yml` probe; `validate_desired_state.rb`; the backup and recovery-drill profile `hosted-provider`; `bin/hosted-*` admin tools; `bin/lib/rollback_compat.py`; the provider digests in `ci.yml`.</li><li>Here: `Dockerfile.hosted-provider`, `Cargo.lock.hosted-provider` (also listed in `scripts/lib/release-version.mjs`), `config/release-components.json`, and the Rust outputs of `scripts/generate-{change-events,connect-problems,operation-catalog,application-capabilities}.mjs`, which must stop emitting Rust; also `CODEOWNERS`.</li></ul> |
 | `../mdbase-rs` path dependency | n/a | <ul><li>Root `Cargo.toml`.</li><li>`deploy/docker/mdbase-rs-revision`.</li><li>`pnpm check:mdbase-rs-pin` (`scripts/mdbase-rs-pin.mjs`).</li><li>Every `callumalpass/mdbase-rs` checkout in `server-ci` (two jobs), `flake-stress`, `performance-observations` and `rust-caches`, and the `Cargo.lock.hosted-provider` and `mdbase-rs-revision` inputs of `publish-images`.</li><li>cloud-ops `check-release-locks`, `verify-release-bundle` and the `RUNTIME_PATHS` in `continuous_deployment.py`.</li></ul>It goes when the last root crate goes, which ends the root Cargo workspace. Outside this repo, mdbase.dev `site-sources.json` still lists mdbase-rs as the "rust" implementation; that is a separate decision. |
-| `packages/sync` (`@mdbase-dev/connect-sync`, private; npm publishing stopped in #1290) | about 21,800 | Server imports in `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/account-routes.ts`, `features/mirrors/pairing-routes.ts`, `features/authority-transfer/lifecycle.ts` and `platform/error-handler.ts` (`SyncError`). Also `Dockerfile.server:44`, `scripts/sync-e2e.mjs` and `flake-stress`. |
+| `packages/sync` (`@mdbase-dev/connect-sync`, private; npm publishing stopped in #1290) | about 21,800 | Server imports in `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/account-routes.ts`, `features/mirrors/pairing-routes.ts`, `features/authority-transfer/lifecycle.ts` and `platform/error-handler.ts` (`SyncError`). Also `Dockerfile.server:44` and `flake-stress`. |
 | Legacy hosted, mirror and authority server cluster: `features/hosted/hosted-provider*.ts`, `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/hosted-replica-policy.ts`, `features/hosted/hosted-capability-lifecycle.ts`, `features/hosted/*` except `sharing-routes.ts`, `features/mirrors/*`, `features/authority-transfer/*` except `authority-proof.ts`, `features/authorizations/hosted-approval-service.ts` | about 6,640 prod and about 3.3k tests | `HostedProviderClient` is also used by `features/usage/usage-report.ts` (provider `protocolUsage`), account management and deletion, `auth-admin-entitlements`, notifications, `timers/hosted-import` and the migration provider. Each of these needs its provider branch removed. |
 | Legacy tables: `hosted_replicas`, `mirror_pairing_requests`, `authority_transfers`, `authority_adoption_requests`, `authority_import_abort_receipts`, `provider_collection_deletion_jobs`, `provider_revocation_jobs` | n/a | Drop them in a forward migration after the code above is gone. Keep the frozen bootstrap (see Keep). |
 | `deploy/postgres/*.sql` | 1,167 | cloud-ops `hosted-schema-admin` and `hosted-database-drain-admin` |
-| Provider system suites: `scripts/hosted-provider-e2e.mjs`, `hosted-files-e2e.mjs`, `hosted-file-adversarial-e2e.mjs`, `hosted-projection-scale-e2e.mjs`, `sync-e2e.mjs`, `scripts/system/provider/*`; `server-ci` jobs `hosted-provider-rust` and the `hosted-provider-system` shards | about 6.2k | These guard the provider that every CD still deploys. Freezing the provider image digest would move them to Tier 1. Already removed: the opt-in `binary-transfer-benchmark` job, and the engine checkout and Cargo build in the `relay`, `sync` and `linux-packages` shards, which never started the provider, and the provider Rust stress on the macOS and Windows legs of `flake-stress`. |
+| Provider system suites: `scripts/hosted-provider-e2e.mjs`, `hosted-files-e2e.mjs`, `hosted-file-adversarial-e2e.mjs`, `hosted-projection-scale-e2e.mjs`, `scripts/system/provider/*`; `server-ci` jobs `hosted-provider-rust` and the `hosted-provider-system` shards | about 6.0k | These guard the provider that every CD still deploys. Freezing the provider image digest would move them to Tier 1. Already removed: the opt-in `binary-transfer-benchmark` job, the engine checkout and Cargo build in the `relay` and `linux-packages` shards, which never started the provider, the provider Rust stress on the macOS and Windows legs of `flake-stress`, and the `sync` shard and `sync-e2e.mjs` (see above). |
 | Upgrade lanes: `test/upgrade/*`; `server-ci` jobs `previous-release-upgrade`, `current-provider-upgrade` (`--current-upgrade` against `.github/previous-release.env`) and `retained-v2-server-pending` (beta95) | about 1.7k | Same as above. `retained-v2-server-pending` also stays because it is the only lane that starts an older server on the candidate's migrated control-plane schema; it goes once a check against the merge-base server replaces it. Already removed, because both ends were published historical images or the workflow was not a gate: `previous-provider-upgrade` (beta94 `--legacy-prelude`), the beta95 `--retained-v2` step of the former `retained-v2-provider-upgrade`, and `rollback-read-compat.yml`. |
 | Self-host: `deploy/self-host/compose.yml`, `docs/self-hosting.md` | 877 | They run the legacy provider with no next log service, and new accounts are `legacy`. No shipped client can use such a stack: the legacy connector is gone, and installation sign-in refuses a `legacy` account (`installation_legacy_backend`). Replace them with a next self-host, or withdraw self-hosting; that is a product decision. |
 | Legacy-stack docs: `docs/sync.md`, `hosted-provider.md`, `lossless-opaque-sync-acceptance.md`, `docs/architecture/hosted-*` and `sdk-wave-b-*`, decisions 0003, 0005, 0006, 0010 and 0011, the legacy sections of `architecture.md`, `performance.md` and `encryption.md` | about 3.8k | Links only |
