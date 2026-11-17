@@ -4791,6 +4791,7 @@ MdbaseSetupResult@application/front-door.ts
 
 MdbaseSignInOpener@application/entry.ts
   close?: (() => void | Promise<void>) | undefined
+  readonly grantReturnUrl?: string | undefined
   open: (url: string) => void | Promise<void>
   readonly returnUrl?: string | undefined
 

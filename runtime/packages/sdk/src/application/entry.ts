@@ -145,6 +145,14 @@ export interface MdbaseSignInOpener {
    * private-use scheme derived from the manifest ID (RFC 8252), e.g.
    * `dev.example.app://auth/mdbase/callback` for ID `dev.example.app`. */
   readonly returnUrl?:string;
+  /** Where a Private collection grant returns when its approval runs in this
+   * opener's window rather than a popup of this page (a native shell's system
+   * browser cannot reach the page's callback channel). Must exactly equal one
+   * of the manifest's `redirect_uris` on the homepage origin. The app's page at
+   * this URL hands the result back to the waiting page (for example through
+   * `returnUrl`), which passes the https URL to `deliverAppGrantCallback`.
+   * Without it, grants return to the first declared redirect on the origin. */
+  readonly grantReturnUrl?:string;
 }
 export interface MdbaseOptions {
   readonly signIn?:MdbaseSignInOpener;
@@ -259,12 +267,15 @@ function signInOpener(value:MdbaseSignInOpener|undefined,declaration:Application
   if(value===undefined)return null;
   const fail=():never=>{throw mdbaseError("invalid_request","Invalid sign-in opener","application_sign_in_opener");};
   if(!value||typeof value!=="object"||typeof value.open!=="function"||(value.close!==undefined&&typeof value.close!=="function"))return fail();
-  const returnUrl=value.returnUrl;
+  const returnUrl=value.returnUrl,grantReturnUrl=value.grantReturnUrl;
   if(returnUrl!==undefined){
     if(!declaredReturnUrl(returnUrl,declaration.manifest))fail();
   }
+  // The grant's redirect binds the application origin (PKCE, Native completion):
+  // only a declared URL on the app's own origin, never a private-use scheme.
+  if(grantReturnUrl!==undefined&&(!declaredReturnUrl(grantReturnUrl,declaration.manifest)||new URL(grantReturnUrl).origin!==declaration.origin))fail();
   const open=value.open.bind(value),close=value.close?.bind(value);
-  return Object.freeze({open,...(close?{close}:{}),...(returnUrl!==undefined?{returnUrl}:{})});
+  return Object.freeze({open,...(close?{close}:{}),...(returnUrl!==undefined?{returnUrl}:{}),...(grantReturnUrl!==undefined?{grantReturnUrl}:{})});
 }
 /** Page-side sign-out follow-up: the app's Web Push subscription (created on
  * the page by `registerWebPush`) and console diagnostics. Never throws. */
@@ -349,7 +360,7 @@ export class MdbaseEntry {
     if(options.followVisibility!==false)this.followVisibility();
     this.followPageLifecycle();this.followFocus();this.followStoragePolicy();this.followNetwork();
     this.memory=selectionMemory(this.declaration.storage.applicationNamespace);
-    if(options.privateCollections!==false)this.privates=new ApplicationPrivateCollections({declaration:this.declaration,onChange:()=>{this.revision++;this.notify();}});
+    if(options.privateCollections!==false)this.privates=new ApplicationPrivateCollections({declaration:this.declaration,...(this.signIn?.grantReturnUrl?{grantRedirectUri:this.signIn.grantReturnUrl}:{}),onChange:()=>{this.revision++;this.notify();}});
     this.selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(this.declaration.origin,{},options.urlSelection===false?null:browserApplicationSelectionPort()),
       session:this.selectionSession(),memory:this.memory});
     this.selection.subscribe(()=>{this.unforgetApproved();this.notify(false);});
