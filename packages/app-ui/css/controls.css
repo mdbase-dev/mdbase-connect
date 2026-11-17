@@ -387,8 +387,8 @@ textarea.mdbase-field {
   height: 0;
   overflow: hidden;
   transition:
-    height var(--motion-slow) var(--ease-out),
-    content-visibility var(--motion-slow) allow-discrete;
+    height var(--motion-enter) var(--ease-out),
+    content-visibility var(--motion-enter) allow-discrete;
 }
 
 .mdbase-disclosure[open]::details-content {
@@ -1110,6 +1110,28 @@ textarea.mdbase-field {
   /* Without the fade, a confirmation still shows for the same time, then goes. */
   .mdbase-settle {
     animation-timing-function: steps(1, end);
+  }
+
+  .mdbase-tooltip {
+    transition: none;
+  }
+
+  /* A press changes colour only; nothing shrinks or stretches under it. */
+  :is(.mdbase-button, .mdbase-icon-button, .mdbase-checkbox):active:not(:disabled),
+  .mdbase-segmented-option:active:not(:has(:disabled)) {
+    scale: none;
+  }
+
+  .mdbase-switch:active:not(:disabled) > span {
+    width: 16px;
+  }
+
+  .mdbase-switch[aria-checked="true"]:active:not(:disabled) > span {
+    translate: 14px;
+  }
+
+  .mdbase-switch[aria-checked="true"]:dir(rtl):active:not(:disabled) > span {
+    translate: -14px;
   }
 }
 

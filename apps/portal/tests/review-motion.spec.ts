@@ -260,10 +260,13 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) test(`new rows
   await page.mouse.down();
   const press = await button.evaluate(async element => {
     await new Promise(requestAnimationFrame);
-    return { transform: getComputedStyle(element).transform, transitions: element.getAnimations().map(animation => ({ property: animation instanceof CSSTransition ? animation.transitionProperty : animation.id, duration: animation.effect!.getTiming().duration })) };
+    const transitions = element.getAnimations().map(animation => ({ property: animation instanceof CSSTransition ? animation.transitionProperty : animation.id, duration: animation.effect!.getTiming().duration }));
+    await Promise.all(element.getAnimations().map(animation => animation.finished));
+    return { scale: getComputedStyle(element).scale, transitions };
   });
-  expect(press.transitions.some(animation => animation.property === "transform")).toBe(false);
-  expect(press.transform).toBe(reducedMotion === "reduce" ? "none" : "matrix(0.97, 0, 0, 0.97, 0, 0)");
+  // The press goes in quickly (--motion-press); under reduced motion nothing shrinks.
+  expect(press.transitions.filter(animation => animation.property === "scale")).toEqual(reducedMotion === "reduce" ? [] : [{ property: "scale", duration: 90 }]);
+  expect(press.scale).toBe(reducedMotion === "reduce" ? "none" : "0.97");
   await page.mouse.move(0, 0);
   await page.mouse.up();
   await testInfo.attach("creation-receipt-press-motion", { body: JSON.stringify({ washes, reflow, press }, null, 2), contentType: "application/json" });
