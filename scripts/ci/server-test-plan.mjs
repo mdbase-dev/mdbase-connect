@@ -34,13 +34,23 @@ const nativeFiles = new Set([
   ".github/previous-release.env",
   ".github/retained-v2-predecessor.env",
   ".github/workflows/server-ci.yml",
-  ...Object.values(systemSuites).map((suite) => suite.command.at(-1))
+  ...Object.values(systemSuites).map((suite) => suite.command[1])
 ]);
+
+// The control plane and protocol talk to the hosted-provider image pinned in
+// deploy/docker/hosted-provider-image; a pull request changing them runs the
+// pinned-provider suite even when it selects no other native qualification.
+const providerContractPrefixes = [
+  "services/server/",
+  "packages/protocol/",
+  "scripts/pinned-hosted-provider.mjs"
+];
 
 export function serverTestPlan(paths) {
   return {
     native: paths.some((path) => nativeFiles.has(path)
-      || nativePrefixes.some((prefix) => path.startsWith(prefix)))
+      || nativePrefixes.some((prefix) => path.startsWith(prefix))),
+    providerContract: paths.some((path) => providerContractPrefixes.some((prefix) => path.startsWith(prefix)))
   };
 }
 

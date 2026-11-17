@@ -14,6 +14,13 @@ export const systemSuites = Object.freeze({
     prepare: ["packages", "provider-binary"],
     command: ["node", "scripts/hosted-provider-e2e.mjs"]
   },
+  // The control plane at HEAD against the provider image pinned in
+  // deploy/docker/hosted-provider-image, without cargo or provider source.
+  "provider-pinned": {
+    description: "The provider suite against the pinned hosted-provider image",
+    prepare: ["packages", "provider-image"],
+    command: ["node", "scripts/hosted-provider-e2e.mjs", "--pinned-image"]
+  },
   files: {
     description: "Hosted file storage integration",
     prepare: ["packages", "provider-binary"],
@@ -46,6 +53,7 @@ export const preparationSteps = Object.freeze({
   "provider-binary": [
     "cargo", "build", "-p", "mdbase-connect-hosted-provider"
   ],
+  "provider-image": ["node", "scripts/pinned-hosted-provider.mjs"],
   "runtime-daemon": [
     "cargo", "build", "-p", "mdbn-daemon", "--bin", "mdbase", "--example", "loopback_daemon"
   ]

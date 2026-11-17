@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       run_full: ${{ steps.depth.outputs.run_full }}
+      provider_contract: ${{ steps.plan.outputs.providerContract }}
       upstream_run_id: ${{ steps.depth.outputs.upstream_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -737,6 +738,56 @@ jobs:
           MDBASE_CONNECT_ENV: test
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
 
+  # The control plane at this commit against the hosted-provider image pinned
+  # in deploy/docker/hosted-provider-image, the provider production runs until
+  # it is switched off. No cargo or provider source: the binary is copied out
+  # of the image. Pull requests changing the control plane or the protocol run
+  # it as well, since those are the changes it guards. The from-source
+  # provider shard above is deleted with crates/ once one deployment has run
+  # on the pinned provider.
+  hosted-provider-pinned:
+    name: System suite (provider-pinned)
+    needs: classify
+    if: needs.classify.outputs.run_full == 'true' || needs.classify.outputs.provider_contract == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+        with:
+          version: 11.15.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: pnpm
+      - name: Prefetch pinned Electron through authenticated release assets
+        uses: ./.github/actions/prefetch-electron
+        with:
+          token: ${{ github.token }}
+      - run: pnpm install --frozen-lockfile
+      - name: Restore Playwright cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        id: playwright-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+      - name: Install Chromium (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm exec playwright install --with-deps chromium
+        timeout-minutes: 30
+      - name: Install Chromium (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm exec playwright install chromium
+        timeout-minutes: 5
+      # Builds the packages and copies the provider out of the public image.
+      - name: Run the provider suite against the pinned provider image
+        run: node test/system/run.mjs --suite provider-pinned
+        env:
+          MDBASE_CONNECT_ENV: test
+          MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
+
   qualification:
     name: Qualification
     if: always()
@@ -752,12 +803,14 @@ jobs:
       - log-do-conformance
       - hosted-provider-rust
       - hosted-provider-system
+      - hosted-provider-pinned
       - provider-migration-rollback
     runs-on: ubuntu-24.04
     steps:
       - name: Require the selected qualification lane
         env:
           RUN_FULL: ${{ needs.classify.outputs.run_full }}
+          PROVIDER_CONTRACT: ${{ needs.classify.outputs.provider_contract }}
           UPSTREAM_RUN_ID: ${{ needs.classify.outputs.upstream_run_id }}
           RUNTIME_NATIVE: ${{ needs.runtime-native.result }}
           NODE: ${{ needs.node.result }}
@@ -769,18 +822,20 @@ jobs:
           LOG_DO: ${{ needs.log-do-conformance.result }}
           PROVIDER_RUST: ${{ needs.hosted-provider-rust.result }}
           PROVIDER_SYSTEM: ${{ needs.hosted-provider-system.result }}
+          PROVIDER_PINNED: ${{ needs.hosted-provider-pinned.result }}
           MIGRATION_ROLLBACK: ${{ needs.provider-migration-rollback.result }}
         run: |
           if [[ "$RUN_FULL" == true ]]; then
             [[ "$GITHUB_EVENT_NAME" != merge_group || "$RUNTIME_NATIVE" == success ]]
             for result in "$NODE" "$CONTAINER" \
               "$SERVER_UPGRADE" "$SERVER_RETAINED_V2" "$PROVIDER_UPGRADE" "$PROVIDER_RUST" \
-              "$PROVIDER_SYSTEM" "$LOG_POSTGRES" "$LOG_DO"
+              "$PROVIDER_SYSTEM" "$PROVIDER_PINNED" "$LOG_POSTGRES" "$LOG_DO"
             do
               [[ $result == success ]]
             done
           elif [[ -z "$UPSTREAM_RUN_ID" ]]; then
             [[ "$NODE" == success ]]
+            [[ "$PROVIDER_CONTRACT" != true || "$PROVIDER_PINNED" == success ]]
           fi
           # The migration rollback gate runs at every depth; it is a no-op
           # without new provider migrations.

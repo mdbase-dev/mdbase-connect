@@ -14,6 +14,7 @@ test("every system suite has an existing command and known preparation steps", a
     "runtime-daemon",
     "relay",
     "provider",
+    "provider-pinned",
     "files",
     "files-adversarial",
     "projection-scale",
@@ -23,7 +24,7 @@ test("every system suite has an existing command and known preparation steps", a
   for (const [name, suite] of Object.entries(systemSuites)) {
     assert.ok(suite.description, `${name} needs a description`);
     assert.ok(suite.command.length >= 2, `${name} needs a command`);
-    await access(resolve(repoRoot, suite.command.at(-1)));
+    await access(resolve(repoRoot, suite.command[1]));
     for (const preparation of suite.prepare) {
       assert.ok(preparationSteps[preparation], `${name} has unknown preparation ${preparation}`);
     }
@@ -41,13 +42,15 @@ test("full Server CI covers every registered system suite exactly once", async (
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/server-ci.yml"), "utf8");
   const matrixSuites = [...workflow.matchAll(/^\s+suites:\s*([a-z,-]+)\s*$/gm)]
     .flatMap((match) => match[1].split(","));
-  const containerCommands = [...workflow.matchAll(/--suite\s+container\b/g)];
-  assert.equal(containerCommands.length, 1, "container suite must have one full-CI job");
+  for (const suite of ["container", "provider-pinned"]) {
+    const commands = [...workflow.matchAll(new RegExp(`--suite\\s+${suite}\\b`, "g"))];
+    assert.equal(commands.length, 1, `${suite} suite must have one full-CI job`);
+  }
   // Server CI's runtime-native job reuses the daemon shard's test build.
   const native = await readFile(resolve(repoRoot, ".github/workflows/runtime-native-tests.yml"), "utf8");
   assert.equal([...native.matchAll(/--suite\s+runtime-daemon\b/g)].length, 1, "runtime-daemon suite must have one native-CI step");
   assert.deepEqual(
-    [...matrixSuites, "container", "runtime-daemon"].sort(),
+    [...matrixSuites, "container", "provider-pinned", "runtime-daemon"].sort(),
     Object.keys(systemSuites).sort()
   );
 });
