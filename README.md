@@ -170,10 +170,6 @@ folder. Output is human-readable; `--json` prints machine-readable results. Run 
 installation guide](docs/headless.md) for verified standalone installation,
 service operation and record commands.
 
-## Self-hosting
-
-Self-hosting is not currently supported.
-
 ## Contributing
 
 This repository contains the editor, desktop app, CLI and connector, browser

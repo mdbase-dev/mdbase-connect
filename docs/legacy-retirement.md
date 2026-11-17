@@ -137,13 +137,13 @@ the provider and the tables below: the to-hosted expiry branch of
 `auth-admin repairs authority-import-sources` command, adoption-row revocation in
 `instance-admin.ts` (with `abortAuthorityImport`), and the tables themselves.
 
-Withdrawn ahead of the provider (2026-11-15): **self-hosting**. The
+Removed ahead of the provider (2026-11-15): the **self-host stack**. The
 `deploy/self-host/` stack ran the legacy provider with no next log service and
 created `legacy` accounts. No shipped client could use it: the legacy connector
 is gone, and installation sign-in refuses a `legacy` account
 (`installation_legacy_backend`). Removed: `deploy/self-host/` (`compose.yml`,
 `.env.example` and `Caddyfile.example`), `docs/self-hosting.md` and their
-references. Self-hosting is not currently supported.
+references.
 
 Also removed ahead of the provider (2026-11-15): the `sync` system suite
 (`scripts/sync-e2e.mjs`, `pnpm e2e:sync` and its `server-ci` shard) and the
