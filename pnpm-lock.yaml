@@ -205,11 +205,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/i18n
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-ddf569a0-production-0.1.1.tgz
-        version: file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz
+        specifier: file:vendor/sdk-535b45e6-production-0.1.2.tgz
+        version: file:apps/editor/vendor/sdk-535b45e6-production-0.1.2.tgz
       '@mdbase-dev/ui':
         specifier: 0.1.0
-        version: 0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-535b45e6-production-0.1.2.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2329,9 +2329,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz':
-    resolution: {integrity: sha512-4p4Gge4Xwzl4m0wU/RyIZOTTt4T4TuUhuzLvhV4+x6xXKUHe65Gx1ywwoEcQ42S3nMWq1lNuKd7WY0n0VroySQ==, tarball: file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz}
-    version: 0.1.1
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-535b45e6-production-0.1.2.tgz':
+    resolution: {integrity: sha512-rcVqlymdVeQIkwoBWElu3uly72mAFlUqFkGW5yxTU5SJn2wmFzB8o0CU3piHXsZ9XN+8tuKUzjfxXkjyGFiReg==, tarball: file:apps/editor/vendor/sdk-535b45e6-production-0.1.2.tgz}
+    version: 0.1.2
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8216,13 +8216,13 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-535b45e6-production-0.1.2.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.1.0(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-535b45e6-production-0.1.2.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8239,7 +8239,7 @@ snapshots:
       '@codemirror/view': 6.43.12
       '@lezer/common': 1.5.2
       '@lezer/markdown': 1.7.2
-      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-ddf569a0-production-0.1.1.tgz
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-535b45e6-production-0.1.2.tgz
       react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
