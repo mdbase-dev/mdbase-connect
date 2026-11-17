@@ -14,9 +14,11 @@ const METADATA_ROWS: u32 = 128;
 /// before it keeps the Base.
 const PAGE_ROWS: u32 = 1000;
 const PAGE_BYTES: u64 = 1 << 20;
-/// The largest source a page may select: half the page, so a Base can always
-/// be classified and reread within one page.
-const INITIAL_BYTES: u64 = PAGE_BYTES / 2;
+/// The largest Base: half the page, so a Base can always be classified and
+/// reread within one page. Only a Base is reread, so any other record may be
+/// as large as the page itself; the scan's reread check is what holds a Base
+/// to this bound (tasknotes-app#436: a 512 KiB-1 MiB note failed discovery).
+const MAX_BASE_BYTES: u64 = PAGE_BYTES / 2;
 const SLOT_BYTES: u64 = 4096;
 /// A discovery REQUEST is bounded by time across pages, not by one page's
 /// bytes: it serves further pages of the same frozen cut until one has a view,
@@ -342,9 +344,6 @@ impl<S: Store> Replica<S> {
                 if rows_left == 0 || row.encoded_bytes > bytes_left {
                     break;
                 }
-                if selected == 0 && admitted.is_empty() && row.encoded_bytes > INITIAL_BYTES {
-                    return Err(budget("bases_discovery_source_bytes"));
-                }
                 rows_left -= 1;
                 bytes_left -= row.encoded_bytes;
                 admitted.push(row);
@@ -626,7 +625,7 @@ impl<S: Store> Replica<S> {
         self.recheck_discovery(session, &entry)?;
         ledger.retain(16 * 1024).map_err(failure)?;
         let source_bytes = self.bases_local_source_bytes(selection, entry.head)?;
-        if source_bytes > INITIAL_BYTES {
+        if source_bytes > MAX_BASE_BYTES {
             return Err(budget("bases_view_source_bytes"));
         }
         // Cover the bounded encoded record and parsed/output source ownership
@@ -771,7 +770,7 @@ impl<S: Store> Replica<S> {
         if row.id != id
             || row.doc.len() as u64 > encoded_bytes
             || row.path.len() > 4096
-            || row.doc.len() > INITIAL_BYTES as usize
+            || row.doc.len() as u64 > PAGE_BYTES
             || row.path_key != mdbn_core::paths::path_key(&row.path)
             || !self.bases_local_holder_matches(row)?
         {
