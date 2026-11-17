@@ -92,6 +92,7 @@ import { registerConnectorHostedRoutes } from "./features/hosted/connector-route
 import { registerHostedAccountRoutes } from "./features/hosted/account-routes.js";
 import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js";
 import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
+import { registerMirrorRenewalRoute } from "./features/mirrors/renewal-route.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import type { PushTargetSealer } from "./features/next/push-target-seal.js";
 import { backgroundTimerGrantResolver, legacyTimerGrantResolver, type TimerGrantResolver } from "./features/next/timers/grants.js";
@@ -437,7 +438,13 @@ export async function buildApp(options: BuildOptions) {
   authorityTransferRecovery.start();
 
   app.addHook("onRequest", async (request, reply) => {
-    if (!options.hostedCollections && request.url.startsWith("/v1/hosted/")) {
+    if (
+      !options.hostedCollections
+      && (
+        request.url.startsWith("/v1/hosted/")
+        || request.url.startsWith("/v1/mirror-pairing-requests")
+      )
+    ) {
       return reply.code(404).send(apiError("not_found", "Not found."));
     }
     if (
@@ -575,6 +582,12 @@ export async function buildApp(options: BuildOptions) {
         "hosted account cleanup trigger failed"
       ));
     }
+  });
+  registerMirrorRenewalRoute(app, {
+    db: options.db,
+    publicUrl,
+    hostedProvider: options.hostedProvider,
+    hostedReference
   });
   registerConnectorManagementRoutes(app, {
     db: options.db,

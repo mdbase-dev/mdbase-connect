@@ -5,7 +5,6 @@ import {
   readFile,
   realpath,
   rename,
-  stat,
   unlink,
   writeFile
 } from "node:fs/promises";

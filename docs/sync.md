@@ -214,9 +214,13 @@ removed: the portal pages on 2026-11-15, and the control-plane routes, the
 `connect` and `promote` commands of `mdbase-mirror` and the portal's "Sync
 folder" actions on 2026-11-17. Obsidian plugin releases 0.4.2 and earlier and
 the deprecated `mdbase-mirror` CLI now get 404 when they try to pair a folder
-or move the main copy. Hosted-to-local transfer rows that already exist are
-still expired by the recovery worker, collections already moved keep their
-inventory binding, and existing synced folders can still be disconnected.
+or move the main copy. A folder that was already paired keeps syncing: the
+renewal route `POST /v1/mirror-pairing-requests/:id/renew` stays until the
+legacy hosted provider is switched off, because those clients have no other
+way to replace an access token before its 30-day expiry. Hosted-to-local
+transfer rows that already exist are still expired by the recovery worker,
+collections already moved keep their inventory binding, and existing synced
+folders can still be disconnected.
 
 ## Replication data model
 
@@ -581,6 +585,10 @@ export a hosted collection as an ordinary mdbase directory at any time,
 including its Markdown records, type definitions, and selected files.
 
 ## Implementation sequence
+
+This is the order in which the design was built. Enrollment approved from the
+desktop app (step 4) and the hosted-to-local handoff (step 6) were later
+removed; see "Creating and moving collections".
 
 ### 1. Protocol and storage foundation
 

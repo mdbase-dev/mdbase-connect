@@ -330,8 +330,9 @@ A writable mirror imports existing ordinary Markdown through the same
 conditional mutation path during its first sync. A future atomic bulk-import
 path will instead build an uncommitted hosted collection, validate it through
 `mdbase-rs`, and commit sequence zero only after the source manifest is still
-current. Export is already available by enrolling a receive-only directory
-mirror, which reconstructs a complete ordinary directory. Authority transfer in
+current. Export is already available through a receive-only directory mirror,
+which reconstructs a complete ordinary directory; since browser pairing was
+removed, such a mirror is registered with the account replica route. Authority transfer in
 either direction creates a new authority epoch only when the handoff completes.
 
 Local-to-hosted transfers were removed on 2026-11-15; no new import can be

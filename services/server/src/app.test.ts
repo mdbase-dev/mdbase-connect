@@ -2637,6 +2637,33 @@ describe("mdbase connect server", () => {
       })
     );
 
+    // A folder paired in the browser before pairing was removed: its consumed
+    // pairing row is the refresh credential that keeps it syncing.
+    const pairingId = randomUUID();
+    await db.query(
+      `INSERT INTO mirror_pairing_requests
+         (id, secret_hash, mirror_name, mode, user_id, collection_id,
+          replica_id, approved_at, consumed_at, expires_at)
+       SELECT $1, $2, name, mode, authorized_user_id, collection_id, id, now(), now(), now()
+       FROM hosted_replicas WHERE id = $3`,
+      [pairingId, tokenHash("mirror-refresh-secret"), replicaId]
+    );
+    const renew = (secret: string) => app.inject({
+      method: "POST",
+      url: `/v1/mirror-pairing-requests/${pairingId}/renew`,
+      headers: { authorization: `Bearer ${secret}` }
+    });
+    expect((await renew("another-secret")).statusCode).toBe(404);
+    expect(hostedProvider.rotateReplicaToken).not.toHaveBeenCalled();
+    const renewed = await renew("mirror-refresh-secret");
+    expect(renewed.statusCode, renewed.body).toBe(200);
+    expect(renewed.json()).toMatchObject({
+      status: "paired",
+      sync_url: `https://sync.example/v1/authorities/${collectionId}/sync`,
+      replica: { id: replicaId, collection_id: collectionId, name: "Owner desktop mirror", mode: "read_write" }
+    });
+    expect(hostedProvider.rotateReplicaToken).toHaveBeenCalledWith(replicaId, renewed.json().token);
+
     const revoked = await app.inject({
       method: "DELETE",
       url: `/v1/connectors/hosted/replicas/${replicaId}`,
@@ -2645,6 +2672,9 @@ describe("mdbase connect server", () => {
     expect(revoked.statusCode).toBe(200);
     expect(revoked.json()).toEqual({ ok: true, revocation_status: "revoked" });
     expect(hostedProvider.revokeReplica).toHaveBeenCalledWith(replicaId);
+    expect((await renew("mirror-refresh-secret")).statusCode).toBe(404);
+    expect(hostedProvider.rotateReplicaToken).toHaveBeenCalledTimes(1);
+    expect((await db.query("SELECT 1 FROM mirror_pairing_requests WHERE id = $1", [pairingId])).rows).toEqual([]);
 
     const removed = await app.inject({
       method: "DELETE",

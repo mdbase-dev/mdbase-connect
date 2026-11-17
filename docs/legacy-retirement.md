@@ -186,8 +186,9 @@ those pages. No current app starts either flow; Obsidian plugin releases 0.4.2
 and earlier and the deprecated `mdbase-mirror` CLI now get 404 when they try to
 pair a folder or move the main copy. Removed:
 
-- `features/mirrors/pairing-routes.ts` (413 lines: `/v1/mirror-pairing-requests`
-  create, read, approve, exchange and renew) and the desktop approval route
+- `features/mirrors/pairing-routes.ts` (`/v1/mirror-pairing-requests` create,
+  read, approve and exchange; its renew route moved, see below) and the desktop
+  approval route
   `POST /v1/connectors/mirror-pairing-requests/:id/approve` in
   `features/hosted/connector-routes.ts`, with `approveMirrorPairing` in
   `hosted-mirror-policy.ts`;
@@ -206,18 +207,25 @@ pair a folder or move the main copy. Removed:
 - the portal's "Sync a folder" and "Sync folder" actions, the
   `mdbase-connect://mirror` link they opened, and the desktop's handling of that
   link, which its renderer ignored;
-- in `packages/sync`: the `connect` and `promote` commands and token renewal of
-  `mdbase-mirror`, `enrollment.ts`, `promotion.ts`, their tests (about 2,100
+- in `packages/sync`: the `connect` and `promote` commands of `mdbase-mirror`
+  and its token renewal for folders those commands set up, `enrollment.ts`, `promotion.ts`, their tests (about 2,100
   lines), the `./enrollment` and `./promotion` exports, and the device-state
   helpers only promotion used. `init`, `sync`, `watch`, `status` and `resolve`
   stay; the provider suites use them.
 
 Kept for rows that already exist, and going with the provider and the tables:
-the to-local expiry branch of `recoverExpiredAuthorityTransfers` and its
-recovery worker, the inventory binding in `POST /v1/connectors/sync`, the
-replica, revocation and Disconnect routes for existing synced folders, and the
+the renewal route `POST /v1/mirror-pairing-requests/:id/renew`
+(`features/mirrors/renewal-route.ts`), the to-local expiry branch of
+`recoverExpiredAuthorityTransfers` and its recovery worker, the inventory
+binding in `POST /v1/connectors/sync`, the replica, revocation and Disconnect
+routes for existing synced folders, and the
 `mirror_pairing_requests` and `authority_transfers` tables, which no migration
-drops, so the previous server still runs after a rollback.
+drops, so the previous server still runs after a rollback. The renewal route is
+the only unattended way a folder paired by Obsidian plugin 0.4.2 or earlier, or
+by an old `mdbase-mirror connect`, replaces its access token before the
+provider's 30-day expiry. Its consumer is any such folder on an account still
+on the legacy backend; it goes when the provider is switched off, or sooner if
+production shows no consumed pairing row with a live replica.
 
 | Unit | Lines | Consumers to remove first |
 | --- | --- | --- |

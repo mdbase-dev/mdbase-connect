@@ -847,18 +847,22 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
   const working = busy.has(`collection-${collection.id}`);
   const folders = hosted?.replicas.filter(replica => replica.revocation_status !== "revoked").length ?? 0;
   const locationIcon = hosted || collection.kind === "native" && collection.source.sync === "cloud_copy" ? <Cloud aria-hidden="true" /> : <Computer aria-hidden="true" />;
+  const canRename = !!hosted && active && hosted.access.can_rename_collection;
+  const canDelete = !!hosted?.access.can_delete_collection;
+  // A member of someone else's hosted collection has no action on the Storage tab.
+  const hasActions = !!navigate || !hosted || canRename || canDelete;
   return <div className={`connect-collection-row ${className}`} data-list-item data-command={`collection:${collection.id}`}>
     <span className="connect-location-glyph">{locationIcon}</span>
     <div className="connect-collection-name">{navigate ? <RouteLink className="connect-collection-link" view="overview" collectionId={collection.id} navigate={navigate}><strong>{collection.name}</strong></RouteLink> : <strong>{collection.name}</strong>}<small>{collection.detail}{folders > 0 && <> · {countLabel(folders, "folder")}</>}</small></div>
     <span className="connect-status">{collection.glyph !== "idle" && !hosted && <StatusGlyph state={collection.glyph} />}{hosted && active ? "" : collection.status}</span>
     <span className="connect-collection-open">{editorOrigin && editorId && (collection.kind !== "local" || collection.available) && <a className="mdbase-button is-tertiary" aria-label={t(i18n)`Open in editor: ${collection.name}`} href={editorCollectionUrl(editorId, editorOrigin)}><Trans>Open in editor</Trans></a>}</span>
-    <span className="connect-collection-menu"><Tooltip label={t(i18n)`Actions for ${collection.name}`}><button ref={trigger} className="mdbase-icon-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button></Tooltip>
+    <span className="connect-collection-menu">{hasActions && <><Tooltip label={t(i18n)`Actions for ${collection.name}`}><button ref={trigger} className="mdbase-icon-button" aria-haspopup="menu" aria-expanded={menuOpen} onClick={() => setMenuOpen(!menuOpen)}><DotsThree aria-hidden="true" /></button></Tooltip>
       <Menu open={menuOpen} triggerRef={trigger} id={`collection-menu-${collection.id}`} label={collection.name} onClose={refocus => { setMenuOpen(false); if (refocus) trigger.current?.focus(); }}>
         {navigate && <button role="menuitem" className="mdbase-menu-item" onClick={() => { setMenuOpen(false); navigate("overview", collection.id); }}>{t(i18n)({ message: "Overview", context: "Connect interface" })}</button>}
         {!hosted && <DesktopLink role="menuitem" href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink>}
-        {active && hosted.access.can_rename_collection && <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { renameReturn.current = trigger.current!.closest("[data-list-item]")!.querySelector<HTMLElement>(".connect-collection-link") ?? trigger.current; setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
-        {hosted?.access.can_delete_collection && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
-      </Menu>
+        {canRename && <button role="menuitem" className="mdbase-menu-item" data-action="rename" onClick={() => { renameReturn.current = trigger.current!.closest("[data-list-item]")!.querySelector<HTMLElement>(".connect-collection-link") ?? trigger.current; setMenuOpen(false); setName(collection.name); setEditing("rename"); }}><Trans>Rename</Trans></button>}
+        {canDelete && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
+      </Menu></>}
     </span>
     {hosted && <><Dialog open={editing === "rename"} title={t(i18n)`Rename ${collection.name}`} returnFocusRef={renameReturn} closeDisabled={working} onClose={() => setEditing(null)}><form className="connect-edit-form" onSubmit={async event => {
       event.preventDefault();
