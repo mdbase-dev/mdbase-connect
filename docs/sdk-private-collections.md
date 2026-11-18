@@ -63,7 +63,10 @@ and `SdkEditorRoot.tsx` are the reference):
 5. **Open.** `connect({connector: grants.connector(id), app})` returns an
    `MdbaseClient` that the app owns. Check `client.collection === id`, and close
    the client when the person leaves the collection. A failure carries its
-   availability reason, so pass it to `describeError`.
+   availability reason, so pass it to `describeError`. With
+   `waitForDevice: true`, `connect` keeps retrying while the computer is offline
+   (`no_device_online`) or online but not serving the collection (`not_served`,
+   described as `device_not_serving`), calling `onWaiting` with why.
 
 6. **People.** `grants.people(id, client)` returns the same `MdbasePeopleClient`
    as cloud copies (`current()`, `members()`, `directory()`), reading Person

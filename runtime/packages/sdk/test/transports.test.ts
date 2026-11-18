@@ -13,6 +13,7 @@ import { clientPrologue, generateKeyPair } from "../src/transport/noise.js";
 import { MessageCarrier, streamCarrier, WebSocketLike } from "../src/transport/noise-session.js";
 import { portPair } from "../src/transport/port.js";
 import { relayConnector } from "../src/transport/relay.js";
+import { pipeCloseError } from "../src/transport/relay-pipe.js";
 import { MemoryReplica } from "../src/testing/index.js";
 import { serveNoise } from "../src/testing/noise-server.js";
 import { uuidv7 } from "../src/values.js";
@@ -211,6 +212,28 @@ describe("relay transport (Noise over WebSocket)", () => {
     setTimeout(() => (online = true), 50);
     const c = await connect({ app, connector, reconnect: { minDelayMs: 20 }, waitForDevice: true, onWaiting: (e) => waits.push(e.reason!) });
     expect(waits[0]).toBe("no_device_online");
+    expect(c.link).toBe("open");
+    c.close();
+  });
+
+  it("private collection its computer is not serving: waits, then connects with no new consent", async () => {
+    const replica = new MemoryReplica();
+    const served = replica.connector();
+    let refusals = 2;
+    const opened: unknown[] = [];
+    const connector = {
+      description: "test",
+      open: async (hello: Parameters<typeof served.open>[0], signal?: AbortSignal) => {
+        opened.push(hello);
+        if (refusals-- > 0) throw pipeCloseError(4000, "not_served");
+        return served.open(hello, signal);
+      },
+    };
+    await expect(connect({ app, connector, reconnect: false })).rejects.toMatchObject({ code: "unavailable", reason: "not_served" });
+    refusals = 2;
+    const waits: string[] = [];
+    const c = await connect({ app, connector, reconnect: { minDelayMs: 5 }, waitForDevice: true, onWaiting: (e) => waits.push(e.reason!) });
+    expect(waits).toEqual(["not_served", "not_served"]);
     expect(c.link).toBe("open");
     c.close();
   });

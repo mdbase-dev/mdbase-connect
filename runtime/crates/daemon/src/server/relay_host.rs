@@ -39,6 +39,10 @@ impl crate::relay::RelayHost for Daemon {
             }
             let inner = self.inner.lock().await;
             let mode = inner.registry.get(collection).map(|entry| entry.mode);
+            let serving = inner
+                .hosts
+                .iter()
+                .any(|h| h.entry().id == collection && h.is_serving());
             if mode != Some(SyncMode::Synced) {
                 return Some(
                     match inner.access.entries.iter().find(|entry| {
@@ -61,6 +65,16 @@ impl crate::relay::RelayHost for Daemon {
                             if !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
                         {
                             crate::access::Refusal::LeaseExpired.reason()
+                        }
+                        // The grant is current here but the collection is not being
+                        // served: say so, retryably, rather than "not yet authorized".
+                        Some(entry)
+                            if !serving
+                                && mode == Some(SyncMode::SyncedE2e)
+                                && entry.state == crate::access::AccessState::Active
+                                && !entry.delisted =>
+                        {
+                            crate::access::Refusal::NotServed.reason()
                         }
                         _ if mode != Some(SyncMode::Local) => {
                             crate::access::Refusal::Unavailable.reason()

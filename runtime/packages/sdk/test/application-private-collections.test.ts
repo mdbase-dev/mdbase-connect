@@ -6,6 +6,7 @@ import type { AppWebSignInSnapshot } from "../src/app-host/web-sign-in-session.j
 import type { MdbaseApplicationDeclaration } from "../src/application/declaration.js";
 import { pipeCloseError } from "../src/transport/relay-pipe.js";
 import { mdbaseError } from "../src/errors.js";
+import { describeError } from "../src/describe-error.js";
 
 const P = "11111111-1111-4111-8111-111111111111";
 const H = "22222222-2222-4222-8222-222222222222";
@@ -83,6 +84,28 @@ describe("SDK-10 Private collections", () => {
     await pending;
     expect(privates.state()?.status).toBe("ready");
     expect(privates.entries()[0]?.availability).toEqual({ state: "available" });
+  });
+
+  it("says the computer is not serving the collection, then carries on opening once it does", async () => {
+    const { grants } = fakeGrants({ state: "available" });
+    const opened = client();
+    let serve!: () => void;
+    const connect = vi.fn(async (_g: ApplicationPrivateGrants, _id: string, _signal: AbortSignal, onWaiting?: (why: ReturnType<typeof pipeCloseError>) => void) => {
+      onWaiting?.(pipeCloseError(4000, "not_served"));
+      await new Promise<void>(resolve => { serve = resolve; });
+      return opened;
+    });
+    const privates = new ApplicationPrivateCollections({ declaration, grants: async () => grants, connect, onChange: () => {} });
+    await privates.refresh("acct");
+    const pending = privates.openCollection(P, scope);
+    await until(() => privates.state()?.status === "blocked");
+    expect(privates.state()?.problem).toBe("not_served");
+    expect(describeError(privates.state()?.problem)).toMatchObject({ key: "device_not_serving", action: "wait", transient: true });
+    serve();
+    await pending;
+    expect(privates.state()).toMatchObject({ status: "ready", problem: null });
+    expect(connect).toHaveBeenCalledOnce();
+    expect(grants.authorize).not.toHaveBeenCalled();
   });
 
   it("closing (another selection, sign-out) stops the wait and closes the client", async () => {

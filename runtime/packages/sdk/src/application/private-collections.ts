@@ -20,7 +20,7 @@ import type { MdbaseAppGrants, AppGrantPopup, MdbasePrivateCollection } from "..
 import type { MdbasePrivateSetup, MdbasePrivateSetupStatus } from "../app-grant/setup.js";
 import type { CollectionAvailability, CollectionUnavailableReason } from "../collection-availability.js";
 import type { MdbaseClient } from "../client.js";
-import { isMdbaseError, mdbaseError } from "../errors.js";
+import { isMdbaseError, mdbaseError, type MdbaseError } from "../errors.js";
 import type { MdbaseApplicationDeclaration } from "./declaration.js";
 import type { MdbaseApplicationConnection, MdbaseApplicationReadinessSnapshot } from "./entry.js";
 import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "./setup.js";
@@ -36,7 +36,7 @@ export interface ApplicationPrivateCollectionsOptions {
   /** Loads the grants on first use (the relay, Noise and grant store load lazily). */
   readonly grants?: () => Promise<ApplicationPrivateGrants>;
   /** Open the thin client; defaults to `connect` over the grant's connector. */
-  readonly connect?: (grants: ApplicationPrivateGrants, collectionId: string, signal: AbortSignal) => Promise<MdbaseClient>;
+  readonly connect?: (grants: ApplicationPrivateGrants, collectionId: string, signal: AbortSignal, onWaiting?: (why: MdbaseError) => void) => Promise<MdbaseClient>;
   readonly onChange: () => void;
   /** How long an open waits for the person's computer (default 10 minutes). */
   readonly waitMs?: number;
@@ -265,9 +265,15 @@ export class ApplicationPrivateCollections {
         this.set(open, { status: "blocked", problem: availabilityProblem(availability.reason), readiness: readiness(false, null) }); return; }
       this.set(open, { status: "opening", problem: null });
       await checkBinding();
-      const client = await (this.options.connect ?? defaultConnect(this.options.declaration))(grants, collectionId, signal);
+      // A computer that is offline or not serving the collection yet is waited for:
+      // say why meanwhile, and carry on opening once it serves (no new consent).
+      const client = await (this.options.connect ?? defaultConnect(this.options.declaration))(grants, collectionId, signal, why => {
+        if (this.open === open && !signal.aborted && (why.reason === "not_served" || why.reason === "no_device_online"))
+          this.set(open, { status: "blocked", problem: problemOf(why), problemDetail: problemDetailOf(why), readiness: readiness(false, null) });
+      });
       if (this.open !== open || signal.aborted || client.collection !== collectionId) { client.close(); if (this.open === open && !signal.aborted) throw mdbaseError("invalid_request", "a different collection opened", "collection_mismatch"); return; }
       open.client = client;
+      if (open.state.status === "blocked") this.set(open, { status: "opening", problem: null, readiness: readiness(true, null) });
       open.setup = grants.setup(client);
       open.connection = Object.freeze({
         id: collectionId, displayName: this.list.find(c => c.collectionId === collectionId)?.displayName ?? "Collection",
@@ -375,8 +381,8 @@ export class ApplicationPrivateCollections {
 }
 
 function defaultConnect(declaration: MdbaseApplicationDeclaration) {
-  return async (grants: ApplicationPrivateGrants, collectionId: string, signal: AbortSignal) => {
+  return async (grants: ApplicationPrivateGrants, collectionId: string, signal: AbortSignal, onWaiting?: (why: MdbaseError) => void) => {
     const { connect } = await import("../client.js");
-    return connect({ connector: grants.connector(collectionId), app: { name: declaration.id, version: "1" }, signal });
+    return connect({ connector: grants.connector(collectionId), app: { name: declaration.id, version: "1" }, signal, waitForDevice: true, onWaiting });
   };
 }

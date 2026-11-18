@@ -414,7 +414,10 @@ or signed policy not yet effective, closes with `4000 / authorization_unavailabl
 These existing reasons are retryable; `grant_inactive` remains terminal `4403`.
 The SDK's existing first-open wait accepts the two retryable reasons, including
 their Noise hello Problems, and stays bounded to 30 seconds. No new consent
-is needed when both arrive. Restart recovery requires a newer snapshot sequence:
+is needed when both arrive. A current Private grant (Active, listed, live lease)
+whose collection this device is not serving right now (paused, opening,
+recovering or failed) closes with `4000 / not_served` instead: retryable, and not
+an authorization wait. Restart recovery requires a newer snapshot sequence:
 replaying the persisted feed cursor deliberately cannot renew its lease.
 
 The daemon uses one gate over its synchronously published authority snapshot for
