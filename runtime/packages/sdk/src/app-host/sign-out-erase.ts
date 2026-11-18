@@ -58,6 +58,34 @@ function deleteDatabase(name: string): Promise<boolean> {
   }), false);
 }
 
+/** The original device custody of one installation: its key encryption key,
+ * device keys and Noise vault, named as their stores name them. */
+function deviceCustodyDatabaseNames(scope: AppDeviceCustodyScope): readonly string[] {
+  const { accountId, connectorId, deviceId, installationId } = scope;
+  const keyIds = [accountId, connectorId, deviceId, installationId].map(hex).join(".");
+  return [
+    `mdbase.app.device-key-kek.v1.${keyIds}`,
+    `mdbase.app.device-keys.v1.${keyIds}`,
+    `mdbase.app.noise.v1.${lower(installationId)}.${lower(connectorId)}.${lower(deviceId)}`,
+  ];
+}
+export interface AppDeviceCustodyScope {
+  readonly accountId: string;
+  readonly connectorId: string;
+  readonly deviceId: string;
+  readonly installationId: string;
+}
+/** Remove whatever an earlier, unfinished device creation left for this
+ * installation, before creating it afresh. Only for an installation whose
+ * device was never attested: nothing of it has left this browser. True once
+ * all three stores are gone (or never existed). Never throws. */
+export async function eraseUnattestedDeviceCustody(scope: AppDeviceCustodyScope): Promise<boolean> {
+  try {
+    if (!globalThis.indexedDB) return false;
+    return (await Promise.all(deviceCustodyDatabaseNames(scope).map(deleteDatabase))).every(Boolean);
+  } catch { return false; }
+}
+
 /** Exact database names for this scope, plus (where `indexedDB.databases()`
  * exists) collection-scoped stores of the same installation whose collection
  * is no longer listed, matched by the full account/connector/device/installation prefix. */
@@ -71,10 +99,7 @@ async function otherDatabaseNames(scope: AppSignOutEraseScope, ledger: string, u
   if (!scope.isolated && scope.storageNamespace === undefined) others.add(unlabelled); // an earlier unlabelled slot of this app (removed below when it is the current one)
   const { accountId: account, connectorId: connector, deviceId: device, installationId: installation } = scope;
   if (account && connector && device && installation) {
-    const keyIds = [account, connector, device, installation].map(hex).join(".");
-    others.add(`mdbase.app.device-key-kek.v1.${keyIds}`);
-    others.add(`mdbase.app.device-keys.v1.${keyIds}`);
-    others.add(`mdbase.app.noise.v1.${lower(installation)}.${lower(connector)}.${lower(device)}`);
+    for (const name of deviceCustodyDatabaseNames({ accountId: account, connectorId: connector, deviceId: device, installationId: installation })) others.add(name);
     const prefix = [account, connector, device, installation].map(lower).join(".");
     const scoped = [`mdbase.app.cloud-copy-outcome.v1.${prefix}.`, `mdbase.app.private-bootstrap.v1.${prefix}.`];
     for (const collection of scope.collectionIds) {

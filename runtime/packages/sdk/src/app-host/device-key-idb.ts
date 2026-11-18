@@ -3,8 +3,9 @@
 import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceKeyCustodyPin, AppDeviceKeyProtectedStore } from "./device-key-custody.js";
+import { AppDeviceCustodyError } from "./device-custody-error.js";
 const STORE="original-device-keys", KEY="custody", MAX=256;
-const fail=()=>new Error("app device key custody store unavailable");
+const fail=()=>new AppDeviceCustodyError("app device key custody store unavailable");
 function bytes(value: unknown): Uint8Array {
   if (!(value instanceof Uint8Array) || !value.length || value.length>MAX) throw fail();
   return new Uint8Array(value);

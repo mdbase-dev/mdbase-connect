@@ -1085,14 +1085,18 @@ export class AppProtectedInstallationSignIn {
     const s = this.confirmedSelection(); if (installation.isCurrent() !== true || installation.scope.account !== s.accountId || installation.scope.installation !== s.installationId) throw fail("fenced");
   }
   /** Commit the explicit original native attempt BEFORE KEK/provider/keys/native.
-   * Once attempted, even missing/partial stores require EXISTING restore or visible
-   * recovery; never infer fresh from a null key/Noise record. */
+   * The durable proof decides the mode, never a null key/Noise record: once the
+   * device signed its enrolment (proof saved before the attest request), its
+   * keys are the installation's and only an EXISTING restore may use them.
+   * Before that nothing of the device has left this browser, so an attempt that
+   * was cut off (a reload, a closed tab, an aborted request) starts over FRESH
+   * from empty stores instead of being stuck with half of them. */
   prepareOriginalDevice(installation: AppInstallationCustodyAuthority): Promise<Readonly<{mode: "fresh" | "existing"; pin: AppDeviceKeyCustodyPin}>> {
     const callback = installation.isCurrent;
     const current = () => { try { this.check(); this.owned(installation); return installation.isCurrent === callback; } catch { return false; } };
     return this.exclusive(async () => {
       if (!current()) throw fail("fenced");
-      const mode = this.state.nativeStarted ? "existing" : "fresh";
+      const mode = this.state.proof ? "existing" : "fresh";
       if (!this.state.nativeStarted) await this.save({...this.state, nativeStarted: true});
       if (!current()) throw fail("fenced");
       return Object.freeze({mode, pin: Object.freeze({...this.confirmedSelection(), isCurrent: current, installationOwned: current})});

@@ -29,6 +29,9 @@ import { uuidToBytes } from "../src/codec.js";
 import { appServerProblem } from "../src/app-host/cp-problem.js";
 import { AppHttpLogTransport } from "../src/app-host/http-log.js";
 import { IDBFactory } from "fake-indexeddb";
+import { AppDeviceCustodyError } from "../src/app-host/device-custody-error.js";
+import { webSignInProblem } from "../src/app-host/web-sign-in-problem.js";
+import { describeError } from "../src/describe-error.js";
 import { createAppWebCollectionAdapter } from "../src/app-host/web-collection.js";
 import * as collectionSql from "../src/app-storage/collection-sql.js";
 import { AppWebSignInSession } from "../src/app-host/web-sign-in-session.js";
@@ -1593,6 +1596,7 @@ describe("production web host device composition ordering (platform/native/CP st
 describe("SAME installation-device host composition (platform/native/flow stand-ins)", () => {
     async function installationFixture(mode: "fresh" | "existing" = "fresh", completed = false) {
         const f = await fixture(mode);
+        vi.stubGlobal("indexedDB", new IDBFactory());
         let state: AppInstallationSignInView["state"] = completed ? "paired" : "account_confirmed";
         const view = () => ({state} as AppInstallationSignInView);
         const pending = vi.spyOn(AppWebNoiseCustody.prototype, "pending").mockImplementation(async () => {f.calls.push("protected-noise-pending");});
@@ -1650,6 +1654,38 @@ describe("SAME installation-device host composition (platform/native/flow stand-
         await expect(AppWebCloudCopyHost.openInstallationDevice(f.options)).rejects.toMatchObject({reason: "recovery_required"});
         expect(f.register).not.toHaveBeenCalled(); expect(f.signIn.acknowledge).not.toHaveBeenCalled(); expect(f.provider.close).toHaveBeenCalled();
         if (reason !== "receipt-without-credential") expect(f.openNative).not.toHaveBeenCalled();
+    });
+    it("a device never attested starts from empty custody: what a cut-off attempt left is removed first", async () => {
+        const f = await installationFixture("fresh");
+        const ids = [f.session.accountId, f.session.connectorId, f.session.deviceId, f.session.installationId];
+        const hex = ids.map(id => Array.from(uuidToBytes(id), b => b.toString(16).padStart(2, "0")).join("")).join(".");
+        const names = [`mdbase.app.device-key-kek.v1.${hex}`, `mdbase.app.device-keys.v1.${hex}`, `mdbase.app.noise.v1.${f.session.installationId}.${f.session.connectorId}.${f.session.deviceId}`];
+        // As left in a browser whose first attempt stopped after the key
+        // encryption key: one record there, the other two stores empty.
+        for (const [i, name] of names.entries()) await new Promise<void>((resolve, reject) => {
+            const request = indexedDB.open(name, 1);
+            request.onupgradeneeded = () => { const store = request.result.createObjectStore(["device-key-kek", "original-device-keys", "opaque-noise"][i]!); if (i === 0) store.put({version: 1}, "original-device-kek"); };
+            request.onsuccess = () => { request.result.close(); resolve(); }; request.onerror = () => reject(request.error);
+        });
+        f.providerOpen.mockImplementation(async () => {
+            f.calls.push("provider-open");
+            const listed = (await indexedDB.databases()).map(d => d.name);
+            for (const name of names) expect(listed).not.toContain(name);
+            return f.provider as unknown as AppIndexedDbDeviceKeyProvider;
+        });
+        const host = await AppWebCloudCopyHost.openInstallationDevice(f.options);
+        expect(f.providerOpen.mock.calls[0]![0]).toMatchObject({mode: "fresh"});
+        expect(f.openNative.mock.calls[0]![1]).toMatchObject({mode: "fresh"});
+        await host.close();
+    });
+    it("custody that cannot be cleared is a described refusal, never an unbounded open failure", async () => {
+        const f = await installationFixture("fresh");
+        vi.stubGlobal("indexedDB", {deleteDatabase: () => { throw Error("storage refused"); }, open: () => { throw Error("storage refused"); }});
+        await expect(AppWebCloudCopyHost.openInstallationDevice(f.options)).rejects.toBeInstanceOf(AppDeviceCustodyError);
+        expect(f.providerOpen).not.toHaveBeenCalled();
+        const problem = webSignInProblem(new AppDeviceCustodyError("app device key custody store unavailable"));
+        expect(problem).toMatchObject({problem: "device_keys_unavailable", detail: {name: "AppDeviceCustodyError", code: "device_keys_unavailable"}});
+        expect(describeError({code: problem.problem})).toMatchObject({key: "device_keys_unavailable", action: "reload"});
     });
     it("unconfirmed selection or foreign ownership refuses before attempt/provider", async () => {
         const f = await installationFixture(); f.signIn.confirmedHostSession.mockImplementation(() => {throw Error("account_confirmation_required");});
