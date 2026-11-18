@@ -104,6 +104,20 @@ that change `services/server/`, `packages/protocol/` or the extraction script;
 `Qualification` requires it whenever it runs. The from-source `provider` shard
 is deleted with `crates/` once one deployment has run on the pinned provider.
 
+The pinned image and its signatures must stay in the registry until the provider
+is switched off. Nothing in this repository deletes versions of the
+`mdbase-connect-hosted-provider` package, and the registry has no retention rule
+that would; only someone with admin access to the package can delete a version.
+A cleanup of the package must leave these six versions for the pinned digest:
+
+- the image index, tagged `sha-<commit>`, with its platform manifest and its
+  build attestation manifest, both untagged;
+- the signature index, tagged `sha256-<digest>`, with the two untagged bundles
+  it lists: the image signature and the release-image attestation.
+
+Removing untagged versions would therefore break the image and its signatures.
+A deleted version can be restored for 30 days.
+
 ## Publication
 
 Server and client images are built after a successful `main` push qualification,
