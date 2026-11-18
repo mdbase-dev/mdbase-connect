@@ -216,8 +216,12 @@ order. Coordinators use a separate group and never displace a pending tag run.
 A coordinator that finds its production commit already reserved, by either
 line, reuses that tag: it dispatches nothing while its own workflow's run on the
 tag is in flight, redispatches it if the
-run ended without publishing, and fails with `publication-reservation-unconsumed`
-if that run succeeded yet the change is still unpublished. Existing Actions run/job history is the attempt journal; there is no new
+run ended without publishing, and stands down ("already published; nothing
+dispatched") if that run succeeded and every planned package reads as published
+with verified provenance for the reserved commit. npm can serve a stale version
+list for minutes after a publish, so a coordinator can plan a tag its run has
+already published; `reserve` rechecks for about three minutes and then fails
+with `publication-reservation-unconsumed` if the change is still unpublished. Existing Actions run/job history is the attempt journal; there is no new
 release database. Authorization failures and timeouts are not absence proof. An
 exact npm-version **404** is required before publishing. Concurrency is
 non-cancelling and global per existing publishing workflow, so a run can queue
