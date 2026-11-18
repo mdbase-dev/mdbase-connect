@@ -305,9 +305,14 @@ fn an_unreadable_plain_note_does_not_stop_a_view_reading_its_records() {
             |_, size| Ok(vec![0; size]),
         )
         .unwrap_or_else(|error| panic!("{step}: {error:?}"));
+        rows.sort();
         rows
     };
-    assert_eq!(read(&mut app, session, "confirmed"), vec![task]);
+    // The unfiltered view lists every readable record, its own source too,
+    // and never the unreadable notes.
+    let mut readable = vec![SOURCE_ID, task];
+    readable.sort();
+    assert_eq!(read(&mut app, session, "confirmed"), readable, "confirmed");
     // A second unreadable note that has not synced yet is skipped the same way.
     write_file(
         &mut app,
@@ -317,9 +322,9 @@ fn an_unreadable_plain_note_does_not_stop_a_view_reading_its_records() {
         invalid,
         42,
     );
-    assert_eq!(read(&mut app, session, "pending"), vec![task]);
+    assert_eq!(read(&mut app, session, "pending"), readable, "pending");
     settle(&mut app, &service);
-    assert_eq!(read(&mut app, session, "synced"), vec![task]);
+    assert_eq!(read(&mut app, session, "synced"), readable, "synced");
     // A store the previous runtime settled left both notes out and stayed
     // unready. Its older projection version is rebuilt on the next open.
     raw(&index, "DELETE FROM st_qraw WHERE length(fields)=0", vec![]);
@@ -337,5 +342,5 @@ fn an_unreadable_plain_note_does_not_stop_a_view_reading_its_records() {
     drop(index);
     let (mut app, session, _) = open(&path, probe);
     settle(&mut app, &service);
-    assert_eq!(read(&mut app, session, "reopened"), vec![task]);
+    assert_eq!(read(&mut app, session, "reopened"), readable, "reopened");
 }
