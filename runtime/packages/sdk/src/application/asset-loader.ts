@@ -62,8 +62,12 @@ export function applicationAssetLoader(input:ApplicationAsset,source:Application
     try{
       check(signal);
       if(!response.ok||response.redirected||(response.url&&response.url!==url.href))throw error("application_asset_response");
-      const length=response.headers.get("content-length");
-      if(length!==null&&(!/^(?:0|[1-9][0-9]*)$/.test(length)||Number(length)!==asset.bytes))throw error("application_asset_binding");
+      // Content-Length counts the encoded body: a compressed response (GitHub
+      // Pages gzips .wasm) states its gzip size while the reader yields the
+      // decoded bytes. Only an unencoded length is an early size check; the
+      // streamed cap, exact length and digest below hold either way.
+      const length=response.headers.get("content-length"),encoding=response.headers.get("content-encoding");
+      if(length!==null&&(encoding===null||encoding.trim().toLowerCase()==="identity")&&(!/^(?:0|[1-9][0-9]*)$/.test(length)||Number(length)!==asset.bytes))throw error("application_asset_binding");
       const bytes=new Uint8Array(asset.bytes);let offset=0;
       while(true){
         const part=await reader.read();check(signal);
