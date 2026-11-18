@@ -480,9 +480,13 @@ export async function plan(kind, output, env = process.env, {
 // concurrently and created the same tag first, a tag at this exact commit is this
 // reservation too; a tag anywhere else refuses. A reserved tag whose run of this
 // workflow is in flight is left alone; one whose run ended unpublished is
-// redispatched, unless that run succeeded, which needs review.
-export function reserve(planFile, env = process.env, { readApi = api, writeApi = postApi,
-  dispatch = (workflow, tag) => gh("workflow", "run", workflow, "--repo", repository, "--ref", tag, "-f", "dry_run=false") } = {}) {
+// redispatched. A run that succeeded consumed the reservation: the coordinator
+// may have planned on a stale npm read (the registry serves cached version lists
+// for minutes after a publish), so it stands down once every planned package
+// reads as published from this commit, and otherwise needs review.
+export async function reserve(planFile, env = process.env, { readApi = api, writeApi = postApi,
+  dispatch = (workflow, tag) => gh("workflow", "run", workflow, "--repo", repository, "--ref", tag, "-f", "dry_run=false"),
+  publication = publicationState, wait = delay } = {}) {
   requireRunning(env.SDK_RELEASE_STOPPED);
   assert.equal(env.GITHUB_REPOSITORY, repository);
   assert.equal(env.GITHUB_REF, "refs/heads/main");
@@ -518,10 +522,34 @@ export function reserve(planFile, env = process.env, { readApi = api, writeApi =
     const runs = readApi(`actions/workflows/${workflow}/runs?branch=${tag}&event=workflow_dispatch&per_page=100`).workflow_runs
       .filter(run => run.head_branch === tag && run.path === `.github/workflows/${workflow}`);
     if (runs.some(run => run.status !== "completed")) return reported(env, `${tag}: publication in progress; nothing dispatched.`);
-    if (runs.some(run => run.conclusion === "success")) throw new Error("publication-reservation-unconsumed");
+    if (runs.some(run => run.conclusion === "success")) {
+      if (await consumed(record, workflow, env, publication, wait)) {
+        return reported(env, `${tag}: already published from ${record.commit}; nothing dispatched.`);
+      }
+      throw new Error("publication-reservation-unconsumed");
+    }
   }
   dispatch(workflow, tag);
   return reported(env, `${tag}: ${!existing ? "reserved and dispatched" : record.reservation.existing ? "redispatched" : "joined the existing reservation and dispatched"} ${workflow} at ${record.commit}.`);
+}
+
+const delay = ms => new Promise(done => setTimeout(done, ms));
+const consumedChecks = 4;
+const consumedInterval = 60_000;
+
+// Only npm absence is retried; another commit's provenance or a refused read
+// still fails for owner review.
+async function consumed(record, workflow, env, publication, wait) {
+  // publicationState proves provenance against this run's own publisher workflow.
+  assert.equal(publisherWorkflow(env), workflow, "The coordinator must run in its line's publisher workflow.");
+  const proven = { ...env, GITHUB_SHA: record.commit };
+  for (let check = 1; ; check += 1) {
+    const states = [];
+    for (const item of record.packages) states.push(await publication(item.name, item.version, proven));
+    if (states.every(state => state === "published")) return true;
+    if (check === consumedChecks) return false;
+    await wait(consumedInterval);
+  }
 }
 
 function reported(env, line) {
@@ -643,7 +671,7 @@ export async function publicationState(name, version, env = process.env, prove =
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "plan") await plan(...args);
-  else if (command === "reserve") reserve(...args);
+  else if (command === "reserve") await reserve(...args);
   else if (command === "prepare-source") prepareSource(...args);
   else if (command === "pack-workspace") packWorkspace(...args);
   else if (command === "publish-workspace") await publishWorkspace(...args);

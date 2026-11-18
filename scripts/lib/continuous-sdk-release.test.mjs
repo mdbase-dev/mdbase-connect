@@ -202,11 +202,12 @@ test("the coordinator reserves only commits whose exact Runtime CI passed", () =
   }
 });
 
-test("the coordinator creates the protected tag, then dispatches the publisher on it", context => {
+test("the coordinator creates the protected tag, then dispatches the publisher on it", async context => {
   const directory = mkdtempSync(join(tmpdir(), "publication-reserve-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const planFile = join(directory, "plan.json");
-  const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main", GITHUB_RUN_ID: "77", SDK_RELEASE_STOPPED: "false" };
+  const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main", GITHUB_RUN_ID: "77", SDK_RELEASE_STOPPED: "false",
+    GITHUB_WORKFLOW: "Publish npm packages" };
   const write = (existing, change = {}) => writeFileSync(planFile, JSON.stringify({ schema: 1, kind: "workspace", commit,
     packages: [{ name: "@mdbase-dev/ui", directory: "packages/app-ui", version: "0.1.170" }],
     reservation: { tag: "v0.1.170", existing }, ...change }));
@@ -225,7 +226,7 @@ test("the coordinator creates the protected tag, then dispatches the publisher o
   };
   write(false);
   const fresh = harness();
-  reserve(planFile, env, fresh.options);
+  await reserve(planFile, env, fresh.options);
   assert.deepEqual(fresh.calls.map(call => call.slice(0, 2)), [["write", "git/tags"], ["write", "git/refs"], ["dispatch", "publish-npm.yml"]]);
   const [tagObject, reference, dispatch] = fresh.calls;
   assert.deepEqual({ ...tagObject[2], message: undefined }, { tag: "v0.1.170", object: commit, type: "commit", message: undefined });
@@ -238,25 +239,59 @@ test("the coordinator creates the protected tag, then dispatches the publisher o
   write(true);
   const run = change => ({ head_branch: "v0.1.170", path: ".github/workflows/publish-npm.yml", status: "completed", conclusion: "failure", ...change });
   const inFlight = harness({ runs: [run({ status: "queued", conclusion: null })] });
-  assert.match(reserve(planFile, env, inFlight.options), /in progress/);
+  assert.match(await reserve(planFile, env, inFlight.options), /in progress/);
   assert.deepEqual(inFlight.calls, [], "a reservation in flight is never redispatched");
   const retry = harness({ runs: [run()] });
-  reserve(planFile, env, retry.options);
+  await reserve(planFile, env, retry.options);
   assert.deepEqual(retry.calls, [["dispatch", "publish-npm.yml", "v0.1.170"]], "an unpublished reservation is redispatched without a new tag");
-  assert.throws(() => reserve(planFile, env, harness({ runs: [run({ conclusion: "success" })] }).options), /publication-reservation-unconsumed/);
+
+  // Runs 44202386761 and 44215114796: npm still served the previous version list
+  // when the coordinator planned, so it planned the tag its successful run had
+  // already published.
+  const succeeded = ({ states, ...change }) => {
+    const reads = [];
+    const waits = [];
+    const options = { ...harness({ runs: [run({ conclusion: "success" })] }).options,
+      publication: async (name, version, proven) => {
+        reads.push([name, version, proven.GITHUB_SHA, proven.GITHUB_WORKFLOW]);
+        return states.shift() ?? "absent";
+      },
+      wait: async ms => { waits.push(ms); },
+      ...change };
+    return { reads, waits, options };
+  };
+  const published = succeeded({ states: ["published"] });
+  assert.match(await reserve(planFile, env, published.options), new RegExp(`^v0\\.1\\.170: already published from ${commit}; nothing dispatched\\.$`));
+  assert.deepEqual(published.reads, [["@mdbase-dev/ui", "0.1.170", commit, "Publish npm packages"]],
+    "publication is proven against the reserved commit and this line's publisher");
+  assert.deepEqual(published.waits, []);
+  const never = succeeded({ states: [] });
+  await assert.rejects(() => reserve(planFile, env, never.options), /publication-reservation-unconsumed/);
+  assert.equal(never.reads.length, 4);
+  assert.equal(never.waits.reduce((sum, ms) => sum + ms, 0), 180_000, "npm gets about three minutes to show the version");
+  const late = succeeded({ states: ["absent", "published"] });
+  assert.match(await reserve(planFile, env, late.options), /already published/);
+  assert.deepEqual(late.waits, [60_000]);
+  const dispatched = [];
+  const foreign = succeeded({ states: [], dispatch: () => dispatched.push("dispatch"),
+    publication: async () => { throw new Error("@mdbase-dev/ui@0.1.170 came from another commit; owner review required."); } });
+  await assert.rejects(() => reserve(planFile, env, foreign.options), /another commit/, "foreign provenance is never retried or accepted");
+  assert.deepEqual([...foreign.waits, ...dispatched], []);
+  await assert.rejects(() => reserve(planFile, { ...env, GITHUB_WORKFLOW: "Publish source-built SDK" }, succeeded({ states: ["published"] }).options),
+    /line's publisher workflow/, "provenance is never proven against the other line's workflow");
 
   write(false);
-  assert.throws(() => reserve(planFile, env, harness({ state: "disabled_manually" }).options), /stopped/);
-  assert.throws(() => reserve(planFile, { ...env, GITHUB_REF: "refs/tags/v0.1.170" }, harness().options));
-  assert.throws(() => reserve(planFile, { ...env, SDK_RELEASE_STOPPED: "true" }, harness().options), /stopped/);
+  await assert.rejects(() => reserve(planFile, env, harness({ state: "disabled_manually" }).options), /stopped/);
+  await assert.rejects(() => reserve(planFile, { ...env, GITHUB_REF: "refs/tags/v0.1.170" }, harness().options));
+  await assert.rejects(() => reserve(planFile, { ...env, SDK_RELEASE_STOPPED: "true" }, harness().options), /stopped/);
   write(false, { packages: [{ name: "@mdbase-dev/ui", directory: "packages/app-ui", version: "0.1.171" }] });
-  assert.throws(() => reserve(planFile, env, harness().options));
+  await assert.rejects(() => reserve(planFile, env, harness().options));
   write(false, { packages: [] });
-  assert.throws(() => reserve(planFile, env, harness().options));
+  await assert.rejects(() => reserve(planFile, env, harness().options));
 });
 
 for (const [kind, workflow, other] of [["source", "publish-sdk-npm.yml", "workspace"], ["workspace", "publish-npm.yml", "source"]]) {
-  test(`a ${kind} coordinator that loses the tag race to the ${other} line at the same commit publishes from that tag`, context => {
+  test(`a ${kind} coordinator that loses the tag race to the ${other} line at the same commit publishes from that tag`, async context => {
     const directory = mkdtempSync(join(tmpdir(), "publication-race-"));
     context.after(() => rmSync(directory, { recursive: true, force: true }));
     const planFile = join(directory, "plan.json");
@@ -282,27 +317,41 @@ for (const [kind, workflow, other] of [["source", "publish-sdk-npm.yml", "worksp
       } };
     };
     const joined = lost({ existing: {} });
-    assert.match(reserve(planFile, env, joined.options), /joined the existing reservation and dispatched/);
+    assert.match(await reserve(planFile, env, joined.options), /joined the existing reservation and dispatched/);
     assert.deepEqual(joined.calls, [["write", "git/tags"], ["write", "git/refs"], ["dispatch", workflow, "v0.1.170"]]);
     const inFlight = lost({ existing: {}, runs: [{ head_branch: "v0.1.170", path: `.github/workflows/${workflow}`, status: "queued", conclusion: null }] });
-    assert.match(reserve(planFile, env, inFlight.options), /in progress/);
+    assert.match(await reserve(planFile, env, inFlight.options), /in progress/);
     assert.deepEqual(inFlight.calls.filter(call => call[0] === "dispatch"), []);
-    assert.throws(() => reserve(planFile, env, lost({ existing: { target: "b".repeat(40) } }).options), /not a reservation of .*exact commit/,
+    const done = lost({ existing: {}, runs: [{ head_branch: "v0.1.170", path: `.github/workflows/${workflow}`, status: "completed", conclusion: "success" }] });
+    const proofs = [];
+    const original = globalThis.fetch;
+    context.after(() => { globalThis.fetch = original; });
+    globalThis.fetch = async () => ({ status: 200, json: async () => ({ name: "@mdbase-dev/sdk", version: "0.1.170" }) });
+    const lineEnv = { ...env, GITHUB_WORKFLOW: kind === "source" ? "Publish source-built SDK" : "Publish npm packages" };
+    assert.match(await reserve(planFile, lineEnv, { ...done.options, wait: async () => assert.fail("no retry"),
+      publication: (name, version, proven) => publicationState(name, version, proven, async (_, baseline) => {
+        proofs.push(baseline.workflow);
+        return { commit };
+      }) }),
+    /already published from .*; nothing dispatched/, "a consumed reservation of either line's tag stands down");
+    assert.deepEqual(proofs, [workflow], "provenance is proven against this line's own publisher");
+    assert.deepEqual(done.calls.filter(call => call[0] === "dispatch"), []);
+    await assert.rejects(() => reserve(planFile, env, lost({ existing: { target: "b".repeat(40) } }).options), /not a reservation of .*exact commit/,
       "a tag at another commit is never adopted");
-    assert.throws(() => reserve(planFile, env, lost({ existing: { type: "commit" } }).options), /not a reservation of .*annotated/,
+    await assert.rejects(() => reserve(planFile, env, lost({ existing: { type: "commit" } }).options), /not a reservation of .*annotated/,
       "a lightweight tag is never adopted");
-    assert.throws(() => reserve(planFile, env, lost({ existing: { record: { commit: "b".repeat(40) } } }).options), /not a reservation of/);
+    await assert.rejects(() => reserve(planFile, env, lost({ existing: { record: { commit: "b".repeat(40) } } }).options), /not a reservation of/);
     const plan = JSON.parse(readFileSync(planFile, "utf8"));
     writeFileSync(planFile, JSON.stringify({ ...plan, reservation: { ...plan.reservation, shared: false } }));
     const predates = lost({ existing: {} });
-    assert.throws(() => reserve(planFile, env, predates.options), new RegExp(`${other} line's reservation and .* predates shared reservations`),
+    await assert.rejects(() => reserve(planFile, env, predates.options), new RegExp(`${other} line's reservation and .* predates shared reservations`),
       "a production commit whose own planner requires its line's tag never publishes from the other line's tag");
     assert.deepEqual(predates.calls.filter(call => call[0] === "dispatch"), []);
     const own = lost({ existing: { record: { kind } } });
-    assert.match(reserve(planFile, env, own.options), /joined the existing reservation/, "its own line's tag is always this reservation");
+    assert.match(await reserve(planFile, env, own.options), /joined the existing reservation/, "its own line's tag is always this reservation");
     writeFileSync(planFile, JSON.stringify(plan));
     const absent = lost({});
-    assert.throws(() => reserve(planFile, env, absent.options), error => error.cause?.message.includes("Reference already exists"),
+    await assert.rejects(() => reserve(planFile, env, absent.options), error => error.cause?.message.includes("Reference already exists"),
       "a ref failure without a matching tag keeps its cause and dispatches nothing");
     assert.deepEqual(absent.calls.filter(call => call[0] === "dispatch"), []);
   });
