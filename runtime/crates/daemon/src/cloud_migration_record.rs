@@ -173,7 +173,7 @@ impl Cloud {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .map_err(|e| CloudError::Network(e.to_string()))?;
+            .map_err(CloudError::network)?;
         let request = client
             .get(format!(
                 "{}/v1/next/collections/{collection_id}/migration-record",

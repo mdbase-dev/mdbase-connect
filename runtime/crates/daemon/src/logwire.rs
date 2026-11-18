@@ -14,7 +14,7 @@
 //!   connection drops is answered [`Event::Lost`] (outcome unknown).
 //! - **Reconnect** backs off from 1 s to 30 s. The session is renewed a minute
 //!   before the token expires.
-//! - **TLS** uses the daemon's rustls config with the OS roots. Plain `ws` is
+//! - **TLS** uses the daemon's rustls config ([`crate::cloud::tls_config`]). Plain `ws` is
 //!   accepted only on loopback (tests, local log server).
 //! - **Large objects** (log-service-api §6). A sealed object over the 1 MiB inline
 //!   limit rides with its call as [`Outbound::object`]. When `put_object` answers

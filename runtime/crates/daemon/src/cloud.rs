@@ -11,7 +11,7 @@
 //! (`<namespace>:connector-token`) and never appears in files, logs, status or
 //! process arguments.
 //!
-//! **TLS** uses rustls with the OS trust store (`rustls-native-certs`). Plain
+//! **TLS** uses rustls with the OS certificate verifier (`rustls-platform-verifier`). Plain
 //! `http` is accepted only for loopback hosts (tests and LAB tunnels).
 
 use std::path::Path;
@@ -87,6 +87,22 @@ impl std::fmt::Display for CloudError {
 }
 
 impl std::error::Error for CloudError {}
+
+impl CloudError {
+    /// A transport failure with its cause chain. reqwest's own message names
+    /// only the request; the connect or TLS cause (an untrusted issuer, say) is
+    /// in its sources.
+    pub(crate) fn network(e: impl std::error::Error) -> CloudError {
+        let mut m = e.to_string();
+        let mut source = e.source();
+        while let Some(s) = source {
+            m.push_str(": ");
+            m.push_str(&s.to_string());
+            source = s.source();
+        }
+        CloudError::Network(m)
+    }
+}
 
 /// An authenticated connector client.
 pub struct Cloud {
