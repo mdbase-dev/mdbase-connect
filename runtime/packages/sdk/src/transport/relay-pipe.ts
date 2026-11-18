@@ -103,9 +103,24 @@ export function relayPipeCarrier(
     let opened = false;
     let settled = false;
     let buf = new Uint8Array(0);
+    // Handlers live in variables behind accessors, not as `onmessage: null` in the
+    // literal: the carrier leaves only through resolve(), and Rollup would decide
+    // those properties stay null and delete the calls below, dropping every relay message.
+    let onmessage: MessageCarrier["onmessage"] = null;
+    let onclose: MessageCarrier["onclose"] = null;
     const carrier: MessageCarrier = {
-      onmessage: null,
-      onclose: null,
+      get onmessage() {
+        return onmessage;
+      },
+      set onmessage(f) {
+        onmessage = f;
+      },
+      get onclose() {
+        return onclose;
+      },
+      set onclose(f) {
+        onclose = f;
+      },
       send(m) {
         if (m.length > 65535) throw mdbaseError("too_large", "Noise message over 65535 bytes");
         const f = new Uint8Array(4 + m.length);
@@ -126,7 +141,7 @@ export function relayPipeCarrier(
         settled = true;
         signal?.removeEventListener("abort", onAbort);
         reject(e);
-      } else carrier.onclose?.(e);
+      } else onclose?.(e);
     };
     const onAbort = () => {
       ws.close();
@@ -192,7 +207,7 @@ export function relayPipeCarrier(
           return;
         }
         if (b.length - off - 4 < len) break;
-        carrier.onmessage?.(b.slice(off + 4, off + 4 + len));
+        onmessage?.(b.slice(off + 4, off + 4 + len));
         off += 4 + len;
       }
       buf = b.slice(off);
