@@ -402,7 +402,33 @@ fn registry_error(e: RegistryError) -> ControlError {
     }
 }
 
+/// How often the daemon checks for collections due an automatic reopen.
+const RECOVERY_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl Daemon {
+    /// Reopen collections stopped by a sync incident as their backoff falls due
+    /// (`CollectionHost::recover`).
+    async fn watch_sync_recovery(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(RECOVERY_POLL).await;
+            let now = std::time::Instant::now();
+            let mut reopened = false;
+            {
+                let mut inner = self.inner.lock().await;
+                let inner = &mut *inner;
+                for h in inner.hosts.iter_mut() {
+                    if h.recover(now).await {
+                        h.publish_grants(&inner.access);
+                        reopened = true;
+                    }
+                }
+            }
+            if reopened {
+                self.bump();
+            }
+        }
+    }
+
     /// Open runtimes that can now open (account published), or report why not.
     async fn reopen_hosts(&self) {
         let ctx = self.host_ctx();

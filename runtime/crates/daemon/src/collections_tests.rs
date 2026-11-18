@@ -1348,3 +1348,116 @@ async fn log_revocation_drops_cached_tokens_only_for_the_removed_collection() {
     assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 2);
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn integrity_recovery_backs_off_and_resets_once_serving() {
+    let t0 = std::time::Instant::now();
+    let s = std::time::Duration::from_secs;
+    let mut r = Recovery::default();
+    // Opening, paused or another failure: nothing to do.
+    assert_eq!(r.step(false, false, t0), None);
+    assert_eq!(r, Recovery::default());
+    // The first stop is reopened after 10 s, not at once.
+    assert_eq!(r.step(true, false, t0), None);
+    assert_eq!(r.step(true, false, t0 + s(9)), None);
+    assert_eq!(r.step(true, false, t0 + s(10)), Some(1));
+    // While that reopen is opening, nothing; a second stop waits a minute.
+    assert_eq!(r.step(false, false, t0 + s(11)), None);
+    assert_eq!(r.step(true, false, t0 + s(20)), None);
+    assert_eq!(r.step(true, false, t0 + s(79)), None);
+    assert_eq!(r.step(true, false, t0 + s(80)), Some(2));
+    assert_eq!(r.step(true, false, t0 + s(80)), None);
+    assert_eq!(r.step(true, false, t0 + s(380)), Some(3));
+    // From the fourth attempt on: every 30 minutes, never giving up.
+    let mut at = t0 + s(380);
+    for attempt in 4..=6 {
+        assert_eq!(r.step(true, false, at), None);
+        at += s(30 * 60);
+        assert_eq!(r.step(true, false, at - s(1)), None);
+        assert_eq!(r.step(true, false, at), Some(attempt));
+    }
+    // Serving again resets the policy: the next stop waits 10 s again.
+    assert_eq!(r.step(false, true, at), None);
+    assert_eq!(r, Recovery::default());
+    assert_eq!(r.step(true, false, at), None);
+    assert_eq!(r.step(true, false, at + s(10)), Some(1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_collection_stopped_by_an_integrity_incident_reopens_with_a_notice() {
+    let dir = scratch("integrity-reopen");
+    let mut h = host(&dir, SyncMode::SyncedE2e, ctx(&dir, None, None));
+    // A runtime stopped by the readiness gate, as `current()` reports it.
+    h.state = CollectionState::Failed;
+    h.reason = Some(SYNC_INTEGRITY.into());
+    let t0 = std::time::Instant::now();
+    assert!(
+        !h.recover(t0).await,
+        "the first reopen waits for its backoff"
+    );
+    let notice = h
+        .status()
+        .notices
+        .into_iter()
+        .find(|n| n.code == SYNC_INTEGRITY)
+        .expect("a failed collection says what happens next");
+    assert!(notice.message.contains("reopens it automatically in about"));
+    assert!(notice.message.contains("(attempt 1)"));
+    assert!(
+        notice
+            .message
+            .contains(&format!("mdbase collection resume {COLLECTION}"))
+    );
+    assert!(notice.message.contains("mdbase logs"));
+    assert!(h.recover(t0 + std::time::Duration::from_secs(10)).await);
+    assert_ne!(
+        h.current(),
+        (CollectionState::Failed, Some(SYNC_INTEGRITY.into())),
+        "reopened through refresh, which re-evaluates the collection"
+    );
+    assert_eq!(h.recovery.attempts, 1);
+    // An explicit retry starts the backoff over.
+    h.state = CollectionState::Failed;
+    h.reason = Some(SYNC_INTEGRITY.into());
+    h.retry().await;
+    assert_eq!(h.recovery, Recovery::default());
+    h.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleted_and_revoked_collections_are_never_reopened_automatically() {
+    for code in ["collection_deleted", "device_revoked"] {
+        let dir = scratch(&format!("terminal-{code}"));
+        save(&dir, &link("cloud_copy"));
+        let (server, posts) =
+            connect_counted(409, format!(r#"{{"error":{{"code":"{code}"}}}}"#)).await;
+        let mut h = host(
+            &dir,
+            SyncMode::Synced,
+            ctx(&dir, Some(&server), Some(trust_for(&server))),
+        );
+        let (state, _) = settled(&h).await;
+        assert_eq!(state, CollectionState::Failed);
+        let opened = posts.load(std::sync::atomic::Ordering::SeqCst);
+        let t0 = std::time::Instant::now();
+        for minutes in [0, 1, 10, 60, 600] {
+            assert!(
+                !h.recover(t0 + std::time::Duration::from_secs(minutes * 60))
+                    .await,
+                "{code} stays terminal"
+            );
+        }
+        assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), opened);
+        assert!(
+            !h.status().notices.iter().any(|n| n.code == SYNC_INTEGRITY),
+            "no promise of an automatic reopen"
+        );
+        // `mdbase collection resume` still asks again at once.
+        h.retry().await;
+        settled(&h).await;
+        assert!(posts.load(std::sync::atomic::Ordering::SeqCst) > opened);
+        h.close().await;
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}

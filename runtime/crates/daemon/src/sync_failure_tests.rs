@@ -366,3 +366,51 @@ fn saved_path_details_do_not_expand_the_strict_control_failure_shape() {
     );
     assert!(serde_json::from_value::<Failure>(json).is_ok());
 }
+
+#[test]
+fn the_log_detail_is_bounded_text_and_never_enters_the_failure() {
+    let text = format!(
+        "attachment_unavailable: notes/a.md:\nbad\u{7}{}",
+        "é".repeat(600)
+    );
+    let s = status(IncidentKind::Integrity, Some(Value::Text(text)));
+    let detail = log_detail(&s).unwrap();
+    assert!(detail.starts_with("attachment_unavailable: notes/a.md: bad "));
+    assert!(!detail.chars().any(char::is_control));
+    assert!(detail.len() <= LOG_DETAIL_BYTES + '…'.len_utf8());
+    assert!(detail.ends_with('…'));
+    let json = serde_json::to_string(&Failure::project(&s, &None).unwrap()).unwrap();
+    assert!(!json.contains("attachment_unavailable"));
+    // Maps and absent details give no text; waiting incidents are not terminal.
+    assert_eq!(log_detail(&status(IncidentKind::Integrity, None)), None);
+    assert_eq!(
+        log_detail(&status(
+            IncidentKind::WaitingForKey,
+            Some(Value::Text("x".into()))
+        )),
+        None
+    );
+}
+
+#[tokio::test]
+async fn clearing_forgets_the_failure_in_memory_and_on_disk() {
+    let dir = crate::testutil::TestDir::new("failure-clear");
+    crate::fsutil::ensure_private_dir(dir.path()).unwrap();
+    let shared = Shared::default();
+    let failure = Failure::project(&status(IncidentKind::Integrity, None), &None).unwrap();
+    retain_and_stop(
+        &shared,
+        dir.path(),
+        failure,
+        || {},
+        async { Vec::new() },
+        async {},
+    )
+    .await;
+    assert!(Failure::load(dir.path()).unwrap().is_some());
+    clear(&shared, dir.path());
+    assert!(shared.lock().unwrap().is_none());
+    assert_eq!(Failure::load(dir.path()).unwrap(), None);
+    // Idempotent: nothing left to remove is not an error.
+    clear(&shared, dir.path());
+}
