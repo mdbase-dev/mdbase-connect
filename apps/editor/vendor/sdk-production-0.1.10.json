@@ -1,20 +1,20 @@
 {
   "schema": "tnapp/production-sdk-original/1",
-  "artifact": "sdk-7e627613-production-0.1.6.tgz",
-  "version": "0.1.6",
-  "sourceCommit": "7e627613134d0942f01278bbe807e7a31537ae37",
+  "artifact": "sdk-35ca1a38-production-0.1.10.tgz",
+  "version": "0.1.10",
+  "sourceCommit": "35ca1a383f43732cae08697a6b104ffb9bbe3ea2",
   "environment": "production",
-  "bytes": 4897508,
-  "sha256": "6f00ca8133040633c949fa658e5487edacf7a37c1a59f13e96ca7bd4ef4f0e20",
-  "sri": "sha512-IJxsu69wscL4lpqD7Q4LuyBjDAE1nMX1VITek7dicKVpevjmzT0mVXwSbco5y49VKnf4kgKLIOWK4gkOh/a1JQ==",
+  "bytes": 4897503,
+  "sha256": "9600322f31668c56e16ca891371764edc263543b4e844ad507d872a8c32d5b02",
+  "sri": "sha512-YRbgWoU0/sNLjG7KDTfLqlvR+iPF2wHMhfHLOY0bEbHCea0uhaWm4H7FjMsQIiIROWKmxXkMDe5JauqVEmfZqw==",
   "publication": {
     "repository": "mdbase-dev/mdbase-connect",
     "workflow": ".github/workflows/publish-sdk-npm.yml",
-    "ref": "refs/tags/v0.1.6",
-    "npm": "@mdbase-dev/sdk@0.1.6",
-    "integrity": "sha512-IJxsu69wscL4lpqD7Q4LuyBjDAE1nMX1VITek7dicKVpevjmzT0mVXwSbco5y49VKnf4kgKLIOWK4gkOh/a1JQ==",
-    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.1.6.tgz",
-    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.1.6"
+    "ref": "refs/tags/v0.1.10",
+    "npm": "@mdbase-dev/sdk@0.1.10",
+    "integrity": "sha512-YRbgWoU0/sNLjG7KDTfLqlvR+iPF2wHMhfHLOY0bEbHCea0uhaWm4H7FjMsQIiIROWKmxXkMDe5JauqVEmfZqw==",
+    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.1.10.tgz",
+    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.1.10"
   },
   "trust": {
     "package": "@mdbase-dev/sdk",
@@ -43,6 +43,6 @@
       "sha256": "f1e56dbcdd434340362fb7bfdd268fb04293fedd002eddb833d8188f743b51d3"
     }
   ],
-  "artifactFacts": "sdk-7e627613-production-0.1.6.facts.json",
-  "artifactFactsSha256": "f16d1e2ee7f5575b71500f08682cc0773845873251e2afb9699410fce7a64905"
+  "artifactFacts": "sdk-35ca1a38-production-0.1.10.facts.json",
+  "artifactFactsSha256": "aaed16b1b3be497e9b33dc396bd70b12289b78cd2e96d23c14e5bbd3a8893e49"
 }
