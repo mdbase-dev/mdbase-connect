@@ -26,7 +26,7 @@ impl Cloud {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .map_err(|e| CloudError::Network(e.to_string()))?;
+            .map_err(CloudError::network)?;
         let request = client
             .get(format!("{}/v1/next/rollout", self.server))
             .bearer_auth(self.token.as_str())
@@ -50,7 +50,7 @@ impl Cloud {
             .redirect(reqwest::redirect::Policy::none())
             .timeout(std::time::Duration::from_secs(30))
             .build()
-            .map_err(|e| CloudError::Network(e.to_string()))?;
+            .map_err(CloudError::network)?;
         let request = client
             .post(format!("{}/v1/next/migration/local-takeover", self.server))
             .bearer_auth(self.token.as_str())
