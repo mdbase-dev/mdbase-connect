@@ -86,6 +86,12 @@ signed policy use `4000 / authorization_unavailable`. Both are `unavailable`;
 `4403 / grant_inactive` remains terminal. The SDK's existing 30-second first-open
 wait accepts those actual retryable reasons, including Noise hello Problems,
 and resumes without another consent once both arrive.
+A current Private grant (Active, listed, live lease) on a device that is not
+serving the collection right now (paused, opening, recovering or failed) closes
+with `4000 / not_served`, not `authorization_unavailable`: the grant is not what
+is missing. It is retryable; with `waitForDevice` (the default for Private
+collections an application opens) the SDK shows `device_not_serving` and keeps
+retrying, then opens once the device serves the collection, with no new consent.
 After restart a newer snapshot sequence is required: replaying the persisted
 cursor does not renew a feed lease.
 

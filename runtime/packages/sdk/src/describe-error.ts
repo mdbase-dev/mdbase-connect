@@ -73,7 +73,7 @@ const LABELS: Record<MdbaseErrorAction, string | null> = {
 /** Every problem code an app can meet. Each has plain copy in COPY. */
 export const PROBLEM_CODES = [
   // Collection availability.
-  "device_offline", "desktop_update_required", "old_connector_running", "sync_required", "no_device_registered",
+  "device_offline", "device_not_serving", "desktop_update_required", "old_connector_running", "sync_required", "no_device_registered",
   "access_removed", "read_only", "capability_missing", "collection_deleted", "collection_unavailable", "moved_to_next_runtime", "device_approval_required",
   // Server outcomes.
   "collection_migrating", "collection_not_yet_migrated", "account_suspended", "update_required", "account_collection_quota_exceeded",
@@ -122,6 +122,7 @@ const UNFINISHED_SIGN_IN: Entry = ["Sign-in wasn't finished", "Access wasn't app
 const COPY = {
   // Private collections served by one of the account's computers (collection availability).
   device_offline: ["Your computer isn't online", "This collection is kept on your computer. Open the mdbase desktop app on a computer that has it, and this app connects as soon as it's online.", "wait", "info", true],
+  device_not_serving: ["Your computer can't open this collection", "Your computer is online, but mdbase there isn't serving this collection right now. Open the mdbase desktop app on that computer to see why. This app connects as soon as it can.", "wait", "warning", true],
   desktop_update_required: ["Update mdbase on your computer", "The mdbase desktop app on the computer that has this collection is out of date. Update it there, then try again.", "update_app", "warning", false, "Get the update"],
   old_connector_running: ["Quit the old mdbase Connect app", "The old mdbase Connect app is still running on the computer that has this collection. Quit it there (including its menu-bar or tray icon), then open the mdbase desktop app.", "retry", "warning"],
   sync_required: ["Give this app access again", "Access to this collection changed since you approved this app. Approve it again to keep using the collection.", "approve", "warning", false, "Approve again"],
@@ -250,7 +251,7 @@ const COPY = {
 /** Codes that mean the same outcome as a ProblemCode (server reasons, facet
  * and entry variants). Explicit: there is no suffix guessing. */
 const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.create(null) as Record<string, ProblemCode>, {
-  no_device_online: "device_offline", collection_moved: "moved_to_next_runtime", client_update_required: "update_required",
+  no_device_online: "device_offline", not_served: "device_not_serving", collection_moved: "moved_to_next_runtime", client_update_required: "update_required",
   upgrade_required: "update_required",
   // Compatibility details can be published without their upgrade_required wrapper.
   declared_setup_unsupported: "update_required", resource_setup_unsupported: "update_required",
@@ -349,6 +350,7 @@ export const INTERNAL_PROBLEM_CODES = [
 
 const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(null) as Record<string, string>, {
   device_offline: "Collection availability device_offline: no device serving this Private collection is connected to the relay.",
+  device_not_serving: "Relay close not_served: the device holds a current grant for this Private collection but is not serving it (paused, opening, recovering or failed). Check the collection's status in mdbase on that computer; connect with waitForDevice keeps retrying.",
   desktop_update_required: "Collection availability desktop_update_required: the serving device's last relay connection was refused as incompatible.",
   old_connector_running: "Collection availability old_connector_running: the serving device reports a legacy connector still holding its collections.",
   device_approval_required: "Collection availability approval_required: no device has signed an approval for this app's grant yet.",

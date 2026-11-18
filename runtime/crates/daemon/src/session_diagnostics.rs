@@ -95,12 +95,23 @@ pub(crate) fn problem_code(code: &str) -> &'static str {
     }
 }
 
+/// The pre-live class for a grant refusal reason: a collection this device is not
+/// serving is not an inactive grant.
+pub(crate) fn refusal_class(reason: &str) -> &'static str {
+    if reason == crate::access::Refusal::NotServed.reason() {
+        "not_served"
+    } else {
+        "grant_not_live"
+    }
+}
+
 pub(crate) fn pre_live(class: &'static str) {
     let mut trace = SessionTrace::new(Origin::RelayPipe);
     trace.phase = "pre_live";
     trace.class = class;
     trace.code = match class {
         "grant_not_live" => "grant_inactive",
+        "not_served" => "unavailable",
         "nil_grant" => "unauthenticated",
         "invalid_open_ids" => "invalid_request",
         _ => "other",

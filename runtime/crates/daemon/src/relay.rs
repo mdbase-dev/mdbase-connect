@@ -768,7 +768,9 @@ async fn open_pipe<H: RelayHost>(
     };
     if !live && activation.is_none() {
         if let Some(reason) = host.grant_refusal(&col_s, &grant_s).await {
-            crate::session_diagnostics::pre_live("grant_not_live");
+            crate::session_diagnostics::pre_live(crate::session_diagnostics::refusal_class(
+                &reason,
+            ));
             return close(&reason);
         }
         live = true;
@@ -790,7 +792,6 @@ async fn open_pipe<H: RelayHost>(
             .await
                 == Ok(true);
             if !activated {
-                crate::session_diagnostics::pre_live("grant_not_live");
                 let reason = h
                     .grant_refusal(
                         &secrets::uuid_string(&collection),
@@ -798,6 +799,9 @@ async fn open_pipe<H: RelayHost>(
                     )
                     .await
                     .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into());
+                crate::session_diagnostics::pre_live(crate::session_diagnostics::refusal_class(
+                    &reason,
+                ));
                 let _ = out2.send(PipeOut::Close(pipe, reason)).await;
                 return;
             }

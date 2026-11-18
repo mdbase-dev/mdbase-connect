@@ -114,7 +114,7 @@ export interface ClientOptions {
   features?: string[];
   /** Reconnect after the link drops (default on). */
   reconnect?: false | { minDelayMs?: number; maxDelayMs?: number };
-  /** Private collections: wait for a device replica to come online instead of failing. */
+  /** Private collections: wait for a device replica to come online and serve the collection instead of failing. */
   waitForDevice?: boolean;
   /** Called while waiting for a device or the original Native grant to become live. */
   onWaiting?: (why: MdbaseError) => void;
@@ -153,6 +153,8 @@ export interface ChangesWatch {
 
 /** Changes asked for at a time while a watch catches up from its cursor. */
 const CHANGES_PAGE = 1000;
+/** With `waitForDevice`: the computer is offline, or online but not serving the collection yet. */
+const DEVICE_WAITS = new Set(["no_device_online", "not_served"]);
 
 /** A spec 11 query object. Plain objects are converted to data maps. */
 export type Query = {
@@ -658,8 +660,9 @@ export class MdbaseClient {
   }
 
   /**
-   * Connect to a replica and say hello. With `waitForDevice`, a private collection with
-   * no device online keeps retrying (calling `onWaiting`) instead of failing.
+   * Connect to a replica and say hello. With `waitForDevice`, a private collection whose
+   * computer is offline or not serving it right now keeps retrying (calling `onWaiting`)
+   * instead of failing.
    * A next-relay pre-live grant waits up to 30 seconds on this same connector.
    * This is initial hello only: no application request or unknown write is replayed.
    */
@@ -697,7 +700,7 @@ export class MdbaseClient {
           if (signal?.aborted) throw stopped();
           const pending = nextRelay && isMdbaseError(e, "unavailable")
             && (e.reason === "grant_lease_expired" || e.reason === "authorization_unavailable");
-          if (!(pending || opts.waitForDevice && isMdbaseError(e, "unavailable") && e.reason === "no_device_online")) throw e;
+          if (!(pending || opts.waitForDevice && isMdbaseError(e, "unavailable") && DEVICE_WAITS.has(e.reason ?? ""))) throw e;
           if (pending && !deadline) {
             deadline = new AbortController();
             timeout = mdbaseError("unavailable", "The approved grant did not become live within 30 seconds", { reason: "grant_activation_timeout", details: e.toProblem().details });
