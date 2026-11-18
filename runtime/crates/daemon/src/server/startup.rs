@@ -79,6 +79,7 @@ pub async fn run_with(
     daemon.spawn(daemon.clone().account_key_reconcile());
     daemon.spawn(daemon.clone().device_approval_requests());
     daemon.spawn(daemon.clone().watch_old_connector());
+    daemon.spawn(daemon.clone().watch_sync_recovery());
     daemon.spawn(daemon.clone().publish_status());
 
     let mut stop = daemon.shutdown.subscribe();

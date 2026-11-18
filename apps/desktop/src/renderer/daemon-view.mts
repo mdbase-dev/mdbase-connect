@@ -143,7 +143,9 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   const base = {
     mode: MODES[collection.mode] ?? collection.mode,
     canEnableSync: collection.mode === "local" && collection.state === "ready",
-    canResume: collection.state === "paused" && collection.reason !== "private_sync_pending" && collection.reason !== "collection_deleted",
+    // A collection stopped by a sync consistency check reopens on its own; Resume retries it now.
+    canResume: (collection.state === "paused" && collection.reason !== "private_sync_pending" && collection.reason !== "collection_deleted")
+      || (collection.state === "failed" && collection.reason === "sync_integrity"),
     paused: collection.state === "paused",
     holds
   };

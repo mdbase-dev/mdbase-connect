@@ -649,6 +649,9 @@ impl Daemon {
             .ok_or_else(|| ControlError::internal("registry and hosts disagree"))?;
         if paused {
             host.close().await;
+        } else if host.state() == crate::control::CollectionState::Failed {
+            // Resuming a stopped collection is the explicit retry: open it again now.
+            host.retry().await;
         }
         host.set_entry(entry);
         let status = host.status();

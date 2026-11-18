@@ -63,6 +63,13 @@ test("collections: automatic Private sync setup and deleted collections do not o
   }
 });
 
+test("collections: only a sync consistency stop offers Resume among failed collections", () => {
+  assert.equal(presentCollection({ mode: "synced", state: "failed", reason: "sync_integrity" }).canResume, true);
+  for (const reason of ["sync_revoked", "collection_deleted", "upgrade_required", "open_failed"]) {
+    assert.equal(presentCollection({ mode: "synced", state: "failed", reason }).canResume, false);
+  }
+});
+
 test("connection follows collection outages even while the account relay is online", () => {
   const account = { signed_in: true, online: true };
   const collection = { mode: "synced", state: "opening", sync: { pending: 1, holds: 0, unresolved: 0, connection: "offline" } };

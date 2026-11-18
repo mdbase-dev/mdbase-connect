@@ -1,5 +1,6 @@
 //! Bounded last terminal sync failure with local path diagnostics. Diagnostic only: never
-//! permission, currentness, replay, recovery or migration authority.
+//! permission, currentness, replay, recovery or migration authority. Cleared once the
+//! collection serves again (see `CollectionHost`'s automatic reopen).
 
 use std::io::{self, Read};
 use std::path::Path;
@@ -94,9 +95,63 @@ struct Stored {
     paths_omitted: Option<u64>,
 }
 
+/// The first incident the readiness gate stops on, if any.
+fn terminal_incident(s: &SyncStatus) -> Option<&mdbn_wire::client::Incident> {
+    s.incidents.iter().find(|i| {
+        matches!(
+            i.kind,
+            IncidentKind::Integrity
+                | IncidentKind::VerificationMismatch
+                | IncidentKind::KeyInconsistent
+                | IncidentKind::AccessRevoked
+                | IncidentKind::Gone
+                | IncidentKind::UpgradeRequired
+        )
+    })
+}
+
+/// Longest incident detail written to the daemon log.
+const LOG_DETAIL_BYTES: usize = 512;
+
+/// The terminal incident's text detail for the local daemon log only: control
+/// characters become spaces and it is cut to [`LOG_DETAIL_BYTES`]. It may name a
+/// local path or quote an error, so it never enters the retained [`Failure`],
+/// control status or anything sent off this computer.
+pub(crate) fn log_detail(s: &SyncStatus) -> Option<String> {
+    let Some(Value::Text(text)) = &terminal_incident(s)?.details else {
+        return None;
+    };
+    let mut out: String = text
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    if out.len() > LOG_DETAIL_BYTES {
+        let mut end = LOG_DETAIL_BYTES;
+        while !out.is_char_boundary(end) {
+            end -= 1;
+        }
+        out.truncate(end);
+        out.push('…');
+    }
+    Some(out)
+}
+
+/// Forget the retained failure once the collection serves again: in memory and
+/// on disk. A failed removal is logged; the stale diagnostic is then reported
+/// until the next successful clear.
+pub(crate) fn clear(shared: &Shared, dir: &Path) {
+    *shared.lock().unwrap_or_else(|e| e.into_inner()) = None;
+    match std::fs::remove_file(dir.join(FILE)) {
+        Ok(()) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => tracing::warn!(error = %e, "last sync failure not removed"),
+    }
+}
+
 impl Failure {
     /// Project only typed fatal kinds and one exact static cause. All other
-    /// incident details (including maps, paths and malformed text) are discarded.
+    /// incident details (including maps, paths and malformed text) are discarded
+    /// here; [`log_detail`] gives the text to the local daemon log instead.
     pub(crate) fn project(
         s: &SyncStatus,
         adopt: &Option<mdbn_replica::AdoptStatus>,
@@ -112,17 +167,7 @@ impl Failure {
         let (kind, stage, cause) = if matches!(adopt, Some(mdbn_replica::AdoptStatus::Failed(_))) {
             (Kind::AdoptionFailed, Stage::GenerationZeroAdoption, None)
         } else {
-            let incident = s.incidents.iter().find(|i| {
-                matches!(
-                    i.kind,
-                    IncidentKind::Integrity
-                        | IncidentKind::VerificationMismatch
-                        | IncidentKind::KeyInconsistent
-                        | IncidentKind::AccessRevoked
-                        | IncidentKind::Gone
-                        | IncidentKind::UpgradeRequired
-                )
-            })?;
+            let incident = terminal_incident(s)?;
             let kind = match incident.kind {
                 IncidentKind::Integrity => Kind::Integrity,
                 IncidentKind::VerificationMismatch => Kind::VerificationMismatch,

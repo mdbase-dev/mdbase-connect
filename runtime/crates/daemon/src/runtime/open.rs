@@ -109,7 +109,7 @@ pub fn synced_ready(
     for i in &s.incidents {
         match i.kind {
             K::Integrity | K::VerificationMismatch | K::KeyInconsistent => {
-                return Err("sync_integrity");
+                return Err(crate::collections::SYNC_INTEGRITY);
             }
             K::AccessRevoked => return Err("sync_revoked"),
             K::Gone => return Err("collection_deleted"),

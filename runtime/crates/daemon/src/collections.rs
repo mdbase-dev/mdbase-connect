@@ -47,6 +47,56 @@ pub struct CollectionHost {
     mirror_closed: Arc<std::sync::Mutex<Option<crate::takeover::mirror_driver::Diagnostic>>>,
     /// Last allowlisted terminal incident; retained after the actor stops.
     last_sync_failure: crate::sync_failure::Shared,
+    /// Automatic reopening after a `sync_integrity` stop.
+    recovery: Recovery,
+}
+
+/// Status reason of a runtime stopped by an integrity, verification or key
+/// incident (`runtime::synced_ready`).
+pub const SYNC_INTEGRITY: &str = "sync_integrity";
+
+/// Waits before each automatic reopen after a [`SYNC_INTEGRITY`] stop, by attempt;
+/// later attempts repeat the last. The replica raises these incidents for
+/// conditions it retries itself and for faults it documents as lasting until it
+/// is reopened, so a stop is never final: a reopen re-verifies the log and the
+/// local state, and a persistent fault only stops it again.
+const RECOVERY_BACKOFF: [std::time::Duration; 4] = [
+    std::time::Duration::from_secs(10),
+    std::time::Duration::from_secs(60),
+    std::time::Duration::from_secs(5 * 60),
+    std::time::Duration::from_secs(30 * 60),
+];
+
+/// When a host stopped for [`SYNC_INTEGRITY`] reopens next.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+struct Recovery {
+    /// Reopens since the collection last served.
+    attempts: u32,
+    /// When the next reopen is due; set when the stop is first observed.
+    due: Option<std::time::Instant>,
+}
+
+impl Recovery {
+    /// One observation. Serving resets the policy; a stop schedules a reopen
+    /// after the backoff for the attempts so far, and returns the attempt number
+    /// once it is due. Anything else (opening, paused, other failures) waits.
+    fn step(&mut self, stopped: bool, serving: bool, now: std::time::Instant) -> Option<u32> {
+        if serving {
+            *self = Recovery::default();
+            return None;
+        }
+        if !stopped {
+            return None;
+        }
+        let wait = RECOVERY_BACKOFF[(self.attempts as usize).min(RECOVERY_BACKOFF.len() - 1)];
+        let due = *self.due.get_or_insert(now + wait);
+        if now < due {
+            return None;
+        }
+        self.attempts += 1;
+        self.due = None;
+        Some(self.attempts)
+    }
 }
 
 /// One readiness observation as a state (terminal reasons are kept).
@@ -172,6 +222,7 @@ impl CollectionHost {
             telemetry_authority: None,
             mirror_closed: Arc::new(std::sync::Mutex::new(None)),
             last_sync_failure: Arc::new(std::sync::Mutex::new(last_sync_failure)),
+            recovery: Recovery::default(),
         };
         host.refresh();
         host
@@ -388,9 +439,17 @@ impl CollectionHost {
                                 } else {
                                     crate::sync_failure::Failure::project(&s, &adopt)
                                 };
-                                if let Readiness::Failed(_) = now
+                                if let Readiness::Failed(reason) = now
                                     && let Some(failure) = failure
                                 {
+                                    tracing::warn!(
+                                        collection = %id,
+                                        reason,
+                                        kind = ?failure.kind,
+                                        confirmed_through = failure.seq,
+                                        detail = crate::sync_failure::log_detail(&s).as_deref().unwrap_or("none"),
+                                        "collection stopped by a sync incident"
+                                    );
                                     let resource_failure = failure.cause == Some(crate::sync_failure::Cause::ResourceIngestDeferred);
                                     crate::sync_failure::retain_and_stop(
                                         &last_sync_failure,
@@ -417,6 +476,13 @@ impl CollectionHost {
                                 if now != last {
                                     if let Ok(mut g) = ready.lock() {
                                         *g = now;
+                                    }
+                                    // Serving again: an earlier stop is resolved.
+                                    if now == Readiness::Ready
+                                        && last_sync_failure.lock().unwrap_or_else(|e| e.into_inner()).is_some()
+                                    {
+                                        tracing::info!(collection = %id, "collection serves again; last sync failure cleared");
+                                        crate::sync_failure::clear(&last_sync_failure, &failure_dir);
                                     }
                                     last = now;
                                     notify();
@@ -682,6 +748,32 @@ impl CollectionHost {
         )
     }
 
+    /// One supervision tick: reopen a runtime stopped for [`SYNC_INTEGRITY`] once
+    /// its backoff is due. Returns whether it reopened.
+    pub async fn recover(&mut self, now: std::time::Instant) -> bool {
+        let (state, reason) = self.current();
+        let stopped = state == CollectionState::Failed && reason.as_deref() == Some(SYNC_INTEGRITY);
+        let Some(attempt) = self.recovery.step(stopped, self.is_serving(), now) else {
+            return false;
+        };
+        tracing::warn!(collection = %self.entry.id, attempt, "reopening a collection stopped by a sync incident");
+        self.reopen().await;
+        true
+    }
+
+    /// The explicit retry (`collection resume` on a failed collection): open it
+    /// again now, and start any later automatic reopens from the shortest wait.
+    pub async fn retry(&mut self) {
+        self.recovery = Recovery::default();
+        self.reopen().await;
+    }
+
+    /// Stop the runtime, if any, and open the collection again.
+    async fn reopen(&mut self) {
+        self.close().await;
+        self.refresh();
+    }
+
     pub(crate) async fn close_with_failure(
         &mut self,
         dir: &Path,
@@ -812,6 +904,35 @@ impl CollectionHost {
                 message: "This computer was removed from this collection and can no longer sync it. To rejoin, use a new device identity in a separate mdbase profile (--state-dir), sign in, and join the collection into a new empty folder. Local edits held in this folder are kept for you to copy across. Keep this folder and the old profile until you have copied your edits.".into(),
             });
         }
+        if self.current().1.as_deref() == Some(SYNC_INTEGRITY) {
+            let next = match self.recovery.due {
+                Some(due) => format!(
+                    "mdbase reopens it automatically in about {} (attempt {})",
+                    wait_text(due.saturating_duration_since(std::time::Instant::now())),
+                    self.recovery.attempts + 1
+                ),
+                None => "mdbase reopens it automatically".into(),
+            };
+            notices.push(Notice {
+                path: None,
+                code: SYNC_INTEGRITY.into(),
+                message: format!(
+                    "Sync stopped after a consistency check failed; {next}. To retry now, run \
+                     `mdbase collection resume {}`. Your files are untouched; `mdbase logs` has \
+                     the details.",
+                    e.id
+                ),
+            });
+        } else if self.recovery.attempts > 0 && self.current().0 == CollectionState::Opening {
+            notices.push(Notice {
+                path: None,
+                code: "sync_reopening".into(),
+                message: format!(
+                    "Reopening after sync stopped (attempt {}).",
+                    self.recovery.attempts
+                ),
+            });
+        }
         if let Ok(closed) = self.mirror_closed.lock()
             && let Some(diagnostic) = closed.as_ref()
         {
@@ -909,6 +1030,16 @@ async fn current_telemetry<T>(
         return None;
     }
     observed
+}
+
+/// A short human wait: seconds under two minutes, else minutes.
+fn wait_text(d: std::time::Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 120 {
+        format!("{} s", secs.max(1))
+    } else {
+        format!("{} min", secs.div_ceil(60))
+    }
 }
 
 fn is_dir(p: &Path) -> bool {
