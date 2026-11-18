@@ -215,3 +215,84 @@ fn all_five_original_default_sources_execute_through_both_native_capture_paths()
     }
     assert_eq!(app.store().meta(meta_keys::KEYRING).unwrap(), None);
 }
+
+/// tasknotes-app ship cycle 2026-11-18 F1: one note whose frontmatter is not a
+/// YAML mapping blanked every Bases view in a Cloud copy, because the raw
+/// projection left it out and so never became ready. It is skipped instead,
+/// confirmed or still pending, and the view reads its other records.
+#[test]
+fn an_unreadable_plain_note_does_not_stop_a_view_reading_its_records() {
+    let path = scratch("bases_unreadable_plain_note").join("app.db");
+    let service = log();
+    let probe = Rc::new(Probe::default());
+    let (mut app, session, index) = open(&path, probe.clone());
+    settle(&mut app, &service);
+    configure_resources(&mut app, session, &service);
+    let source = "views:\n  - type: table\n    order: [file.name]\n    sort: [{property: file.name, direction: ASC}]\n";
+    let task = B16([70; 16]);
+    let invalid = "---\ntitle: Invalid frontmatter test\ntags: [unclosed\n---\n";
+    submit(
+        &mut app,
+        session,
+        vec![
+            create(SOURCE_ID, SOURCE_PATH, source),
+            create(task, "tasks/open.md", "---\nstatus: open\n---\n"),
+            create(B16([71; 16]), "notes/invalid.md", invalid),
+        ],
+        40,
+    );
+    settle(&mut app, &service);
+    let hints = BTreeMap::new();
+    let read = |app: &mut App, session: SessionId| {
+        let mut rows = Vec::new();
+        app.encode_indexed_bases_read_request(
+            session,
+            BasesReadRequest {
+                selection: BasesViewSelection {
+                    record: SOURCE_ID,
+                    revision: w::hash::sha256(source.as_bytes()),
+                    index: 0,
+                },
+                property_types: &hints,
+                timezone: "UTC",
+                window: None,
+            },
+            |result| {
+                rows = result.rows.iter().map(|row| row.record).collect();
+                Ok(1)
+            },
+            |_, size| Ok(vec![0; size]),
+        )
+        .unwrap();
+        rows
+    };
+    assert_eq!(read(&mut app, session), vec![task]);
+    // A second unreadable note that has not synced yet is skipped the same way.
+    submit(
+        &mut app,
+        session,
+        vec![create(B16([72; 16]), "notes/pending.md", invalid)],
+        41,
+    );
+    assert_eq!(read(&mut app, session), vec![task]);
+    settle(&mut app, &service);
+    assert_eq!(read(&mut app, session), vec![task]);
+    // A store the previous runtime settled left both notes out and stayed
+    // unready. Its older projection version is rebuilt on the next open.
+    raw(&index, "DELETE FROM st_qraw WHERE length(fields)=0", vec![]);
+    raw(
+        &index,
+        "UPDATE st_qraw_state SET ready=0,version=version-1",
+        vec![],
+    );
+    raw(
+        &index,
+        "INSERT OR REPLACE INTO st_kv(k,v) SELECT 'qraw_settled',generation FROM st_qraw_state",
+        vec![],
+    );
+    drop(app);
+    drop(index);
+    let (mut app, session, _) = open(&path, probe);
+    settle(&mut app, &service);
+    assert_eq!(read(&mut app, session), vec![task]);
+}

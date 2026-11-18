@@ -225,7 +225,7 @@ pub(crate) fn page<I: IndexStorage>(
         index,
         Stmt::new(
             format!(
-                "SELECT CASE WHEN length(id)=16 THEN id ELSE NULL END,CASE WHEN length(source_sha)=32 THEN source_sha ELSE NULL END,source_bytes,length(path),length(fields),length(tags) FROM st_qraw q WHERE {condition} ORDER BY id LIMIT CAST(? AS INTEGER)"
+                "SELECT CASE WHEN length(id)=16 THEN id ELSE NULL END,CASE WHEN length(source_sha)=32 THEN source_sha ELSE NULL END,source_bytes,length(path),length(fields),length(tags) FROM st_qraw q WHERE ({condition}) AND {READABLE} ORDER BY id LIMIT CAST(? AS INTEGER)"
             ),
             params,
         ),

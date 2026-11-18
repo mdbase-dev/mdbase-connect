@@ -59,6 +59,11 @@ impl<S: Store> Replica<S> {
                     .map_err(|_| EvaluationFailure::BudgetExceeded("pending_source_structure"))
             })
             .map_err(failure)?;
+        // As the confirmed projection does: a record whose frontmatter cannot
+        // be read is skipped, never matched as if it had no properties.
+        if document.problem().is_some() {
+            return Ok(None);
+        }
         ledger
             .retain(footprint.estimated_heap_bytes * 2 + fields.len() as u64 * 128)
             .map_err(failure)?;

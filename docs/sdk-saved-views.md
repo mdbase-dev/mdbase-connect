@@ -35,6 +35,9 @@ continuation. A replica without the feature refuses the discovery as before, so
 an empty `unreadable` on a successful page means nothing was skipped. Budget,
 cancellation and catalog failures still refuse the whole discovery.
 
+Reading a saved view skips records whose frontmatter cannot be read, too: they
+are never rows, under any filter, and the view's other records still load.
+
 To read a whole saved view in pages, iterate `executeAppBasesPages(request,
 {firstPageSize?, pageSize?, signal?})` (defaults 200 then 1000 rows; at most
 65536). Each page is one independent windowed read with `page`, `offset`,
