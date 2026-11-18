@@ -250,14 +250,14 @@ fn total_changes(index: &Rc<RefCell<SqliteIndex>>) -> i64 {
     }
 }
 
-/// A record the raw projection cannot hold (over its source bound, or a
-/// document with a frontmatter problem from disk) has no raw row, so the raw
-/// projection can never be ready. One complete backfill pass settles it, and
-/// later opens skip the rebuild instead of redoing the whole collection on
-/// every open. It is still unready (raw pages are never served), and any
-/// reset clears the settled marker.
+/// A document with a frontmatter problem from disk is a skipped raw row, not
+/// missing coverage (#436 ship-cycle F1: it made every Bases view refuse). The
+/// raw projection stays ready, so opens neither rebuild the collection nor
+/// settle it unready; pages never serve the skipped row. A reset still clears
+/// readiness. A record the projection cannot hold at all (over its source
+/// bound) still settles it unready; see `sql_bases` tests.
 #[test]
-fn an_unprojectable_record_settles_the_raw_projection_instead_of_rebuilding_on_every_open() {
+fn a_record_with_unreadable_frontmatter_keeps_the_raw_projection_ready_without_a_rebuild() {
     use mdbn_replica::store::{Store as _, Tx};
     use mdbn_replica::store_query::QueryIndexTx;
     const TASKS: u32 = 150;
@@ -286,37 +286,28 @@ fn an_unprojectable_record_settles_the_raw_projection_instead_of_rebuilding_on_e
         Some(mdbn_wire::intent::Level::Off),
     );
     node.pump();
-    let store = node.r.into_store();
+    let mut store = node.r.into_store();
     let raw = store.query_projection_state().unwrap().expect("raw");
-    assert!(!raw.ready && !raw.settled, "unready, no complete pass yet");
-
-    // The first open runs one complete pass, which settles the projection.
-    let before = total_changes(&index);
-    let node = open(&svc, store);
-    let rebuilt = total_changes(&index) - before;
-    assert!(rebuilt > i64::from(TASKS), "full pass: {rebuilt} rows");
-    let store = node.r.into_store();
+    assert!(raw.ready && !raw.settled, "ready with the skipped row");
     let fields = store.query_index_state().unwrap().unwrap();
     assert!(fields.ready);
-    let raw = store.query_projection_state().unwrap().unwrap();
-    assert!(!raw.ready, "never served while a record has no row");
-    assert!(raw.settled);
 
-    // Later opens do not rebuild.
-    let before = total_changes(&index);
-    let node = open(&svc, store);
-    let skipped = total_changes(&index) - before;
-    assert!(
-        skipped < i64::from(TASKS) / 10,
-        "settled open rewrote {skipped} rows"
-    );
-    let state = node.r.store().query_index_state().unwrap().unwrap();
-    assert_eq!(state, fields, "field index untouched and still ready");
-    let mut store = node.r.into_store();
-    let after = store.query_projection_state().unwrap().unwrap();
-    assert_eq!(after, raw, "still settled and still never served");
+    // Opens do not rebuild.
+    for _ in 0..2 {
+        let before = total_changes(&index);
+        let node = open(&svc, store);
+        let rewritten = total_changes(&index) - before;
+        assert!(
+            rewritten < i64::from(TASKS) / 10,
+            "open rewrote {rewritten} rows"
+        );
+        let opened = node.r.into_store();
+        assert_eq!(opened.query_index_state().unwrap().unwrap(), fields);
+        assert_eq!(opened.query_projection_state().unwrap().unwrap(), raw);
+        store = opened;
+    }
 
-    // A reset (a new generation) clears the marker with the rows it described.
+    // A reset (a new generation) clears readiness with the rows it described.
     store
         .commit(Tx {
             query_index: Some(QueryIndexTx {
