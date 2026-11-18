@@ -216,6 +216,39 @@ fn all_five_original_default_sources_execute_through_both_native_capture_paths()
     assert_eq!(app.store().meta(meta_keys::KEYRING).unwrap(), None);
 }
 
+/// Record a document as a file edited on disk is: broken frontmatter is
+/// recorded, not refused.
+fn write_file(app: &mut App, session: SessionId, id: B16, path: &str, doc: &str, mutation: u8) {
+    let receipts = app
+        .submit(
+            session,
+            w::client::SubmitParams {
+                ops: vec![Op::Document(w::intent::Document {
+                    id,
+                    base: None,
+                    new: Some(w::intent::DocVersion {
+                        path: path.into(),
+                        doc: w::common::Text::Inline(doc.into()),
+                    }),
+                    if_revision: None,
+                })],
+                mutation_id: Some(B16([mutation; 16])),
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: Some(w::intent::Level::Off),
+            },
+        )
+        .unwrap();
+    for receipt in &receipts {
+        assert!(receipt.problem.is_none(), "{:?}", receipt.problem);
+    }
+}
+
 /// tasknotes-app ship cycle 2026-11-18 F1: one note whose frontmatter is not a
 /// YAML mapping blanked every Bases view in a Cloud copy, because the raw
 /// projection left it out and so never became ready. It is skipped instead,
@@ -237,13 +270,21 @@ fn an_unreadable_plain_note_does_not_stop_a_view_reading_its_records() {
         vec![
             create(SOURCE_ID, SOURCE_PATH, source),
             create(task, "tasks/open.md", "---\nstatus: open\n---\n"),
-            create(B16([71; 16]), "notes/invalid.md", invalid),
         ],
         40,
     );
+    write_file(
+        &mut app,
+        session,
+        B16([71; 16]),
+        "notes/invalid.md",
+        invalid,
+        41,
+    );
     settle(&mut app, &service);
+    assert!(app.store().record(&B16([71; 16])).unwrap().is_some());
     let hints = BTreeMap::new();
-    let read = |app: &mut App, session: SessionId| {
+    let read = |app: &mut App, session: SessionId, step: &str| {
         let mut rows = Vec::new();
         app.encode_indexed_bases_read_request(
             session,
@@ -263,20 +304,22 @@ fn an_unreadable_plain_note_does_not_stop_a_view_reading_its_records() {
             },
             |_, size| Ok(vec![0; size]),
         )
-        .unwrap();
+        .unwrap_or_else(|error| panic!("{step}: {error:?}"));
         rows
     };
-    assert_eq!(read(&mut app, session), vec![task]);
+    assert_eq!(read(&mut app, session, "confirmed"), vec![task]);
     // A second unreadable note that has not synced yet is skipped the same way.
-    submit(
+    write_file(
         &mut app,
         session,
-        vec![create(B16([72; 16]), "notes/pending.md", invalid)],
-        41,
+        B16([72; 16]),
+        "notes/pending.md",
+        invalid,
+        42,
     );
-    assert_eq!(read(&mut app, session), vec![task]);
+    assert_eq!(read(&mut app, session, "pending"), vec![task]);
     settle(&mut app, &service);
-    assert_eq!(read(&mut app, session), vec![task]);
+    assert_eq!(read(&mut app, session, "synced"), vec![task]);
     // A store the previous runtime settled left both notes out and stayed
     // unready. Its older projection version is rebuilt on the next open.
     raw(&index, "DELETE FROM st_qraw WHERE length(fields)=0", vec![]);
@@ -294,5 +337,5 @@ fn an_unreadable_plain_note_does_not_stop_a_view_reading_its_records() {
     drop(index);
     let (mut app, session, _) = open(&path, probe);
     settle(&mut app, &service);
-    assert_eq!(read(&mut app, session), vec![task]);
+    assert_eq!(read(&mut app, session, "reopened"), vec![task]);
 }
