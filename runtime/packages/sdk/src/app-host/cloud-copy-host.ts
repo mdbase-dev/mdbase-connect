@@ -43,6 +43,8 @@ import { AppIndexedDbDeviceKeyProvider } from "./device-key-provider.js";
 import { AppIndexedDbDeviceKeyProtectedStore } from "./device-key-idb.js";
 import { AppWebDeviceKeyCustody } from "./device-key-custody.js";
 import { AppIndexedDbNoiseProtectedStore } from "./noise-idb.js";
+import { AppDeviceCustodyError } from "./device-custody-error.js";
+import { eraseUnattestedDeviceCustody } from "./sign-out-erase.js";
 import { AppWebNoiseCustody } from "./noise-custody.js";
 import type { AppProtectedInstallationSignIn, AppInstallationSignInView, AppInstallationTimerConsent } from "./installation-sign-in.js";
 import {
@@ -390,6 +392,9 @@ export class AppWebCloudCopyHost {
             host = new AppWebCloudCopyHost(session, installation, release, origin, signal);
             host.signIn = signIn;
             const prepared = await signIn.prepareOriginalDevice(installation);
+            host.check(signal);
+            // Never attested: clear what an earlier, unfinished attempt left.
+            if (prepared.mode === "fresh" && !await eraseUnattestedDeviceCustody(prepared.pin)) throw new AppDeviceCustodyError("an unfinished device creation could not be cleared");
             host.check(signal);
             const {custody, restored} = await host.openOwnedDevice({mode: prepared.mode, signal, loadRuntime, requireReceipt: false});
             host.originalCustody = custody;

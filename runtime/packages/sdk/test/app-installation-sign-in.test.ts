@@ -874,12 +874,22 @@ describe("protected installation lifecycle (stand-in store/CP/native, actual ran
   it("missing-existing/fresh-existing do not create replacements", async () => {
     const f = await fixture(); const original = f.read(); await f.flow.close(); await expect(AppProtectedInstallationSignIn.open(f.options)).rejects.toThrow("recovery_required"); expect(f.read()).toEqual(original);
   });
-  it("records original native attempt before keys; interrupted attempt can only restore existing", async () => {
+  it("records original native attempt before keys; an attempt cut off before attestation starts over fresh", async () => {
     const f = await fixture(); f.setSelected(); await f.flow.exchange(); await f.flow.confirmSelectedAccount(account);
     const first = await f.flow.prepareOriginalDevice(f.installation); expect(first.mode).toBe("fresh"); expect(first.pin.installationOwned()).toBe(true); expect(f.read().nativeStarted).toBe(true);
-    const second = await f.flow.prepareOriginalDevice(f.installation); expect(second.mode).toBe("existing");
+    // Interrupted (reload, aborted request) before the device signed its enrolment:
+    // nothing of it left this browser, so the next attempt creates it again.
+    const second = await f.flow.prepareOriginalDevice(f.installation); expect(second.mode).toBe("fresh");
     f.installation.isCurrent = () => true; expect(first.pin.isCurrent()).toBe(false);
-    await f.flow.close(); const warm = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"}); expect((await warm.prepareOriginalDevice(f.installation)).mode).toBe("existing"); await warm.close();
+    await f.flow.close(); const warm = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    const installation = {...f.installation, isCurrent: () => true};
+    expect((await warm.prepareOriginalDevice(installation)).mode).toBe("fresh"); await warm.close();
+  });
+  it("once the device signed its enrolment, only its existing keys may be used", async () => {
+    const f = await fixture(); await confirmed(f); f.setFailHttp();
+    // The proof is saved before the attest request, whose reply was lost.
+    await expect(f.flow.attest(f)).rejects.toThrow("outcome_unknown"); expect(f.read().proof).not.toBeNull();
+    expect((await f.flow.prepareOriginalDevice(f.installation)).mode).toBe("existing");
   });
   it("lost START HTTP repeats exact request only, does not reset protected operation", async () => {
     const f = await fixture(), original = f.read(); f.setFailHttp(); await expect(f.flow.start()).rejects.toThrow("outcome_unknown"); await expect(f.flow.start()).rejects.toThrow("outcome_unknown"); expect(f.read()).toEqual(original); expect(f.requests[0]!.body).toEqual(f.requests[1]!.body);

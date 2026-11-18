@@ -5,8 +5,9 @@
 import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceKeyCustodyPin } from "./device-key-custody.js";
+import { AppDeviceCustodyError } from "./device-custody-error.js";
 const STORE="device-key-kek",KEY="original-device-kek";
-const fail=()=>new Error("app device key provider unavailable; preserve storage and reopen");
+const fail=()=>new AppDeviceCustodyError("app device key provider unavailable; preserve storage and reopen");
 export interface AppIndexedDbDeviceKeyProviderOptions {
   readonly source: AppDeviceKeyCustodyPin;
   readonly origin: string;

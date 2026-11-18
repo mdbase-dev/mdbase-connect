@@ -5,11 +5,12 @@ import { currentAppOrigin, isAppOrigin } from "./app-origin.js";
 import { uuidToBytes } from "../codec.js";
 import type { AppDeviceIdentityPin } from "./wasm-runtime.js";
 import type { AppNoiseProtectedStore } from "./noise-custody.js";
+import { AppDeviceCustodyError } from "./device-custody-error.js";
 
 const STORE = "opaque-noise";
 const KEY = "custody";
 const MAX = 4096;
-const fail = () => new Error("app noise custody store unavailable");
+const fail = () => new AppDeviceCustodyError("app noise custody store unavailable");
 function bytes(v: unknown): Uint8Array {
   if (!(v instanceof Uint8Array) || v.byteLength < 1 || v.byteLength > MAX) throw fail();
   return new Uint8Array(v);

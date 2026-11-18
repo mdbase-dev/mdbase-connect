@@ -14,6 +14,7 @@ import { AppHttpLogError } from "./http-log.js";
 import { AppPrivateBootstrapError } from "./private-bootstrap.js";
 import { AppAccountKeyUnlockError } from "./account-key-host.js";
 import { AppReplicaOwnerError } from "./owner.js";
+import { AppDeviceCustodyError } from "./device-custody-error.js";
 import { sanitizeAppServerProblem, type AppServerProblem } from "./cp-problem.js";
 import type { RegistrationRefusal } from "../application/registration-refusal.js";
 import type { RelayCloseDiagnostic } from "../transport/relay-close.js";
@@ -71,6 +72,7 @@ export function webSignInProblem(error: unknown): Readonly<{problem: string; det
         return reasons.has(code) ? result(code, name, code, extra) : result("open_failed", name, null, extra);
       }
     }
+    if (error instanceof AppDeviceCustodyError) return result(error.reason, "AppDeviceCustodyError", error.reason);
     // Another tab of this app owns the collection's replica (Web Lock held).
     if (error instanceof AppReplicaOwnerError && error.reason === "busy") return result("open_in_another_tab", "AppReplicaOwnerError", "busy");
     if (error instanceof MdbaseError) {

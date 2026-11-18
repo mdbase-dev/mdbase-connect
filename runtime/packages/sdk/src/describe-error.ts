@@ -81,7 +81,7 @@ export const PROBLEM_CODES = [
   "invalid_request", "invalid_record", "not_found", "conflict", "unauthenticated", "forbidden", "collection_invalid",
   "unavailable", "rate_limited", "quota_exceeded", "too_large", "outcome_unknown", "internal",
   // Sign-in, open and sign-out.
-  "refused", "expired", "approval_window_closed", "account_confirmation_required", "recovery_required", "open_failed",
+  "refused", "expired", "approval_window_closed", "account_confirmation_required", "recovery_required", "open_failed", "device_keys_unavailable",
   "busy", "open_in_another_tab", "not_authorized", "sign_out_pending_writes", "sign_out_failed",
   // Application entry.
   "application_popup_blocked", "sign_in_window", "application_not_yet_available", "application_failed",
@@ -159,6 +159,7 @@ const COPY = {
   recovery_account_mismatch: ["Use a different account", "Sign in with the account you originally used for this collection to continue.", "approve", "info", false, "Use a different account"],
   recovery_required: ["Reload required", "The app stopped to keep your data safe. Reload to continue.", "reload", "error"],
   open_failed: ["Couldn't open your collection", "Something went wrong while opening it. Reload the app to try again.", "reload", "error"],
+  device_keys_unavailable: ["Couldn't read this device's sign-in", "This browser couldn't open the keys this app uses to sign in to mdbase. Reload to try again. If it keeps happening, sign out of mdbase in this app and sign in again.", "reload", "error"],
   busy: BUSY,
   file_read_failed: ["Couldn't load the file", "mdbase couldn't finish downloading this file. Check your connection and try opening the collection again.", "retry", "warning"],
   file_read_idle: ["File download timed out", "The file download stopped making progress. Try opening the collection again.", "retry", "warning"],
@@ -369,6 +370,7 @@ const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(
   browser_unsupported: "browser_unsupported: the SDK's upfront capability probe found a required browser feature missing (Web Crypto/X25519, AbortSignal.any, Web Locks, BroadcastChannel, IndexedDB, Worker/MessageChannel or crypto.randomUUID); see the MdbaseError details for the missing tokens.",
   application_storage_unavailable: "application_storage_unavailable: navigator.storage.getDirectory() (OPFS) is absent or rejected, as in private browsing; the local replica cannot be kept on this device.",
   storage_may_be_evicted: "storage_may_be_evicted: replica edits are pending for at least 30 seconds or while disconnected on nonpersistent storage (`storage_may_be_evicted` in snapshot.sync.attention); only a log-confirmed receipt counts as saved.",
+  device_keys_unavailable: "device_keys_unavailable: this installation's device custody in IndexedDB (key encryption key, device keys or Noise vault) could not be opened or did not hold the attested device. Before attestation the SDK recreates it by itself; after attestation only signOut() and a fresh sign-in replace it.",
   sign_out_pending_writes: "sign_out_pending_writes: unconfirmed writes are still queued on this device; signOut({discard: true}) discards them.",
 });
 
