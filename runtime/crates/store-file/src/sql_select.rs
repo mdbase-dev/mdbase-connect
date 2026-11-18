@@ -266,7 +266,7 @@ pub(crate) fn projection_ids<I: IndexStorage>(
         index,
         vec![Stmt::new(
             format!(
-                "SELECT CASE WHEN length(q.id)=16 THEN q.id ELSE NULL END FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins} WHERE {predicate}{after} ORDER BY q.id ASC LIMIT ?"
+                "SELECT CASE WHEN length(q.id)=16 THEN q.id ELSE NULL END FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins} WHERE ({predicate}){after} AND NOT EXISTS(SELECT 1 FROM st_qraw s WHERE s.id=q.id AND length(s.fields)=0) ORDER BY q.id ASC LIMIT ?"
             ),
             params,
         )],

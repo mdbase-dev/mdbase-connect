@@ -108,7 +108,8 @@ fn raw_backfill_reuses_index_transactions_and_unavailable_is_not_empty() {
     let mut invalid = row(3, "a: [");
     invalid.revision = revision(invalid.doc.as_bytes());
     // Configured zero-field projection is valid, but invalid raw frontmatter
-    // remains unavailable and cannot be represented as absent keys.
+    // cannot be represented as absent keys: it is a skipped row with empty
+    // payloads, which pages never serve.
     store
         .commit(Tx {
             records_put: vec![invalid.clone()],
@@ -128,8 +129,13 @@ fn raw_backfill_reuses_index_transactions_and_unavailable_is_not_empty() {
             ..Tx::default()
         })
         .unwrap();
-    assert!(!ready(&index));
-    assert!(raw(&index, 3).is_empty());
+    assert!(
+        !ready(&index),
+        "record 2 has no row under the new generation"
+    );
+    let skipped = raw(&index, 3);
+    assert_eq!(skipped[3], SqlValue::Blob(vec![]));
+    assert_eq!(skipped[4], SqlValue::Blob(vec![]));
     assert!(store.record(&id(3)).unwrap().is_some());
 }
 
