@@ -87,6 +87,20 @@ describe("SDK-private bundled asset intake (transport integrity, not release aut
     const cancel=vi.fn(),fetcher=vi.fn(async()=>new Response(new ReadableStream({cancel}),{headers:{"content-length":"9"}})),load=applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher});
     await expect(load({signal:signal()})).rejects.toMatchObject({reason:"application_asset_binding"});expect(cancel).toHaveBeenCalledTimes(1);
   });
+  it("accepts a compressed response whose content-length is the encoded size",async()=>{
+    // GitHub Pages serves .wasm gzipped with the gzip size as Content-Length;
+    // the body stream yields the decoded bytes.
+    const fetcher=vi.fn(async()=>new Response(bytes,{headers:{"content-encoding":"gzip","content-length":"5"}}));
+    expect(await applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher})({signal:signal()})).toEqual(bytes);
+  });
+  it.each([new Uint8Array(8).fill(2),new Uint8Array(9)])("still refuses changed or oversized bytes behind a compressed content-length",async supplied=>{
+    const fetcher=vi.fn(async()=>new Response(supplied,{headers:{"content-encoding":"gzip","content-length":"5"}}));
+    await expect(applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher})({signal:signal()})).rejects.toMatchObject({reason:"application_asset_binding"});
+  });
+  it("an identity encoding keeps the early content-length check",async()=>{
+    const cancel=vi.fn(),fetcher=vi.fn(async()=>new Response(new ReadableStream({cancel}),{headers:{"content-encoding":"identity","content-length":"9"}}));
+    await expect(applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher})({signal:signal()})).rejects.toMatchObject({reason:"application_asset_binding"});expect(cancel).toHaveBeenCalledTimes(1);
+  });
   it("stream and fetch exceptions do not expose body/provider details or retry",async()=>{
     const fetcher=vi.fn(async()=>{throw new Error("private bearer/account/response");}),load=applicationAssetLoader(await asset(),{origin,environment:"production",fetch:fetcher});
     await expect(load({signal:signal()})).rejects.toMatchObject({reason:"application_asset_fetch",message:"application asset unavailable"});expect(fetcher).toHaveBeenCalledTimes(1);
