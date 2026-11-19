@@ -1237,6 +1237,22 @@ mod tests {
         assert!(to_cached(&unsigned).is_err());
     }
 
+    /// mdbase-connect#1717: seven TaskNotes grants overflowed the 1 MiB
+    /// control frame of `access.list` with their stored setup.
+    #[test]
+    fn access_list_summaries_leave_out_declared_setup() {
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        assert!(cached.declared_setup.is_some());
+        let mut access = crate::access::AccessList::default();
+        access.sync_from_control_plane(&cached.collection, &[cached.clone()], 1, 1000, true);
+        let summaries = access.summaries(None);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].grant.grant, cached.grant);
+        let value = serde_json::to_value(&summaries).unwrap();
+        assert!(value[0].get("declared_setup").is_none());
+        assert!(access.list(None)[0].grant.declared_setup.is_some());
+    }
+
     #[test]
     fn grants_without_a_valid_binding_are_dropped() {
         let g = json!({ "id": "x", "application_id": "y", "collection_id": "z" });

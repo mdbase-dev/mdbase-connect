@@ -586,6 +586,20 @@ impl AccessList {
             .collect()
     }
 
+    /// The entries `access.list` returns: [`AccessList::list`] without each
+    /// grant's declared-setup evidence. No list reader shows it, and a few app
+    /// declarations (hundreds of kB each) overflow one control frame.
+    pub fn summaries(&self, collection: Option<&str>) -> Vec<AccessEntry> {
+        self.list(collection)
+            .into_iter()
+            .map(|entry| {
+                let mut entry = entry.clone();
+                entry.grant.declared_setup = None;
+                entry
+            })
+            .collect()
+    }
+
     /// Drop every entry of an unregistered collection.
     pub fn forget_collection(&mut self, collection: &str) {
         self.entries.retain(|e| e.grant.collection != collection);

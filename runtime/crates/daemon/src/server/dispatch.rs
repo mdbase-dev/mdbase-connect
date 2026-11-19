@@ -213,7 +213,7 @@ impl Daemon {
                     .and_then(Value::as_str)
                     .map(str::to_string);
                 let inner = self.inner.lock().await;
-                to_value(&inner.access.list(c.as_deref()))
+                to_value(&inner.access.summaries(c.as_deref()))
             }
             Method::ACCESS_REVOKE | Method::ACCESS_DENY => {
                 let p: GrantRef = params(req)?;
