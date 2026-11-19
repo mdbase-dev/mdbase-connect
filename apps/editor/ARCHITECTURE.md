@@ -63,7 +63,9 @@ complete.
 Files are a collection-scoped index and an on-demand asset pipeline, not note
 fields. `FileInventoryController` progressively lists descriptors, owns request
 generations and cancellation, exposes failures instead of silently dropping
-them, and reconciles accepted uploads and file watch events. Notes and files
+them, and reconciles accepted uploads and file watch events. Native file changes
+carry no descriptor, so the Editor coalesces them into a file inventory refresh
+instead of rereading their IDs as notes. Notes and files
 share the virtualized collection browser and folder tree while retaining
 separate identities and navigation behavior.
 
