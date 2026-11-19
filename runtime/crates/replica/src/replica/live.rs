@@ -101,7 +101,9 @@ impl<S: Store> Replica<S> {
                 base: &view,
                 layer: &self.layer,
             };
-            let catalog = self.catalog.clone();
+            // The catalog reads use (pending definitions included), so a
+            // change's types match what a read of the record returns.
+            let catalog = lv.catalog();
             let types_of = |path: &str, source: &str| -> Vec<String> {
                 let doc = mdbn_core::doc::Document::parse_at(path, source);
                 catalog.membership(path, doc.frontmatter()).types
@@ -411,15 +413,22 @@ impl<S: Store> Replica<S> {
             }
         };
         let limit = limit.unwrap_or(1000) as usize;
-        let changes: Vec<Change> = self
+        // One notification's changes share a version and the next page starts
+        // after the cursor's version, so a page never ends inside a version: it
+        // extends past `limit` to the end of the last one.
+        let mut changes: Vec<Change> = Vec::new();
+        for c in self
             .live
             .feed
             .iter()
             .filter(|c| c.version > at)
             .filter(|c| self.change_visible(session, c))
-            .take(limit)
-            .cloned()
-            .collect();
+        {
+            if changes.len() >= limit && changes.last().is_some_and(|l| l.version != c.version) {
+                break;
+            }
+            changes.push(c.clone());
+        }
         let cursor = changes.last().map(|c| c.version).unwrap_or(now);
         let cursor = if changes.len() < limit {
             now.max(cursor)
@@ -431,6 +440,31 @@ impl<S: Store> Replica<S> {
             cursor: format!("{inst}:{cursor}"),
             reset: false,
         })
+    }
+
+    /// The catalog changed: every record's types and derived values may have
+    /// changed with it, and the feed cannot name them. Retire every older
+    /// cursor and tell watchers to re-read what they cache.
+    pub(crate) fn reset_feed(&mut self) {
+        self.view_version += 1;
+        let version = self.view_version;
+        self.live.feed.clear();
+        self.live.feed_floor = version;
+        let cursor = format!("{}:{version}", self.live.instance);
+        let watchers: Vec<SessionId> = self.live.watchers.iter().copied().collect();
+        for w in watchers {
+            if self.require(w, crate::policy::capability::READ).is_err() {
+                continue;
+            }
+            self.pushes.push((
+                w,
+                Push::Changes(ChangesResult {
+                    changes: Vec::new(),
+                    cursor: cursor.clone(),
+                    reset: true,
+                }),
+            ));
+        }
     }
 
     /// Drop a closed session's push state.

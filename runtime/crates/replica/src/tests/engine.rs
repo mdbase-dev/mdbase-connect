@@ -1175,6 +1175,32 @@ fn own_write_confirmation_is_not_announced_again() {
     );
 }
 
+/// One notification's changes share a version and a page resumes after its
+/// cursor's version, so a page never ends inside a version.
+#[test]
+fn change_feed_pages_end_on_a_version_boundary() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let start = a.r.changes(a.s, None, None, false).unwrap().cursor;
+    a.create(10, "a.md", "a");
+    a.create(11, "b.md", "b");
+    // One notification that announced two records: same version as b.md.
+    let mut grouped = a.r.live.feed.back().unwrap().clone();
+    grouped.id = mdbn_wire::common::B16([9; 16]);
+    grouped.path = "c.md".into();
+    a.r.live.feed.push_back(grouped);
+    let paths = |r: &crate::api::ChangesResult| {
+        r.changes.iter().map(|c| c.path.clone()).collect::<Vec<_>>()
+    };
+    let first = a.r.changes(a.s, Some(start), Some(2), false).unwrap();
+    assert_eq!(paths(&first), ["a.md", "b.md", "c.md"], "{first:?}");
+    let rest = a.r.changes(a.s, Some(first.cursor), Some(2), false).unwrap();
+    assert!(rest.changes.is_empty() && !rest.reset, "{rest:?}");
+    let single = a.r.changes(a.s, Some(rest.cursor), Some(1), false).unwrap();
+    assert!(single.changes.is_empty());
+}
+
 /// Live queries are capped per session (each is
 /// re-run on every change); an unsubscribe frees a slot; other sessions are
 /// unaffected.
