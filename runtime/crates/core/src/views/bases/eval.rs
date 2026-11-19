@@ -897,8 +897,17 @@ impl Evaluator<'_, '_> {
             }
             _ => {}
         }
-        if self.refuse_link(&receiver) {
-            return RuntimeValue::Null;
+        match self.contains_link(&receiver) {
+            Some(true) => {
+                if let ("contains", RuntimeValue::List(values), [arg]) =
+                    (name, &receiver, arguments)
+                {
+                    return self.link_list_contains_text(values, arg, scope);
+                }
+                return self.refuse("link_property");
+            }
+            None => return RuntimeValue::Null,
+            Some(false) => {}
         }
         match receiver {
             RuntimeValue::Null => RuntimeValue::Null,

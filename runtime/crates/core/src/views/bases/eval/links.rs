@@ -1,6 +1,8 @@
 //! Link property capture and the boundary of what a link value may do.
-//! Grouping, sorting, emptiness and rendering are observed on Obsidian. Other
-//! operations have no qualified link semantics, so they refuse, not guess.
+//! In the Obsidian 1.12.7 bundle pinned in `docs/bases-list-grouping.md`,
+//! `ListValue.includes` compares the needle first. Plain text matches a link's
+//! written target (everything before its last alias pipe), not its resolved file.
+//! Unqualified operations refuse rather than guessing at link semantics.
 use super::super::links::property_link;
 use super::*;
 
@@ -40,7 +42,38 @@ impl Evaluator<'_, '_> {
         }
     }
 
-    fn contains_link(&mut self, value: &RuntimeValue) -> Option<bool> {
+    pub(super) fn link_list_contains_text(
+        &mut self,
+        values: &[RuntimeValue],
+        arg: &Expr,
+        scope: &Scope,
+    ) -> RuntimeValue {
+        let RuntimeValue::String(needle) = self.evaluate(arg, scope) else {
+            return self.refuse("link_property");
+        };
+        if needle.starts_with("[[") && needle.ends_with("]]") {
+            return self.refuse("link_property");
+        }
+        let mut found = false;
+        for value in values {
+            if !self.budget.charge(1, 0) {
+                return RuntimeValue::Null;
+            }
+            found |= match value {
+                RuntimeValue::String(text) => text == &needle,
+                RuntimeValue::Link(link) => {
+                    match link.display().and_then(|alias| alias.rsplit_once('|')) {
+                        Some((middle, _)) => needle.split_once('|') == Some((link.path(), middle)),
+                        None => link.path() == needle,
+                    }
+                }
+                _ => return self.refuse("link_property"),
+            };
+        }
+        RuntimeValue::Bool(found)
+    }
+
+    pub(super) fn contains_link(&mut self, value: &RuntimeValue) -> Option<bool> {
         if !self.budget.charge(1, 0) {
             return None;
         }
