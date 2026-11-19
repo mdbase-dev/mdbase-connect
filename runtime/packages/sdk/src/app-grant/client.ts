@@ -270,6 +270,7 @@ function bounded(signal: AbortSignal | undefined, ms: number): { signal: AbortSi
 
 type GrantIdentity = Pick<StoredAppGrant, "collection" | "owner" | "noisePublicKey">;
 interface Tokens extends GrantIdentity { access: string; expiresAt: number }
+interface AvailabilityProbe { ready?: { credentials: Tokens; route: NextRouteResponse; until: number; signal?: AbortSignal } }
 const equalBytes = (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((v, i) => v === b[i]);
 const sameGrant = (a: GrantIdentity, b: GrantIdentity | undefined) => !!b && a.collection === b.collection && a.owner === b.owner && equalBytes(a.noisePublicKey, b.noisePublicKey);
 const sameRevision = (a: StoredAppGrant, b: StoredAppGrant | undefined) => sameGrant(a, b) && equalBytes(a.refresh, b!.refresh);
@@ -303,6 +304,7 @@ export class MdbaseAppGrants {
   private storeValue: AppGrantStore | null;
   private registration: Promise<Readonly<ApplicationRegistration>> | null = null;
   private readonly tokens = new Map<string, Tokens>();
+  private routeProbe?: AvailabilityProbe;
   private readonly refreshing = new Map<string, { grant: StoredAppGrant; work: Promise<string> }>();
   private readonly forgotten = new Set<string>();
   /** Bumped by every whole-store wipe: work prepared under an older epoch
@@ -753,7 +755,15 @@ export class MdbaseAppGrants {
   /** The collection's availability now, from its route. Never throws for `unavailable`. */
   async availability(collection: string, options: { signal?: AbortSignal } = {}): Promise<CollectionAvailability> {
     const id = collection.toLowerCase();
-    try { return (await this.route(id, options.signal)).availability; }
+    const probe: AvailabilityProbe = this.routeProbe = {};
+    try {
+      const { token, route, availability } = await this.route(id, options.signal);
+      const credentials = this.tokens.get(id);
+      if (availability.state === "available" && !options.signal?.aborted && credentials?.access === token) {
+        probe.ready = { credentials, route, until: performance.now() + 3_000, signal: options.signal };
+      }
+      return availability;
+    }
     catch (e) {
       const reason = isMdbaseError(e) ? fieldOf(e.details, "availability") : undefined;
       if (typeof reason === "string") {
@@ -789,7 +799,7 @@ export class MdbaseAppGrants {
   }
 
   /**
-   * A connector for `connect()`: every (re)connect resolves the route, refuses an
+   * A connector for `connect()`: each open uses a fresh route, refuses an
    * unavailable collection with its reason, and opens a Noise IK session through the
    * relay to a serving device (sticky while it stays listed). The first open pins
    * its original consent/key identity; new consent requires a new connector.
@@ -803,6 +813,8 @@ export class MdbaseAppGrants {
     return registerNextRelayFence({
       description: `app-grant:${id}`,
       open: async (hello, signal) => {
+        const primed = original === undefined ? this.routeProbe?.ready : undefined;
+        this.routeProbe = undefined;
         const grant = await (original ??= this.heldGrant(id));
         await this.assertCurrent(grant);
         const connector = noiseConnector({
@@ -810,7 +822,10 @@ export class MdbaseAppGrants {
           staticKey: staticKeyOf(grant),
           target: async (s) => {
             await this.assertCurrent(grant);
-            const { token, route, availability } = await this.route(id, s);
+            const { token, route, availability } = primed && !primed.signal?.aborted && performance.now() < primed.until &&
+              primed.credentials === this.tokens.get(id) && sameGrant(grant, primed.credentials) && primed.credentials.expiresAt > Date.now()
+              ? { token: primed.credentials.access, route: primed.route, availability: { state: "available" } as const }
+              : await this.route(id, s);
             await this.assertCurrent(grant);
             if (availability.state === "unavailable") throw collectionUnavailableError(availability.reason);
             if (!UUID.test(route.grant)) throw mdbaseError("unauthenticated", "the route names no grant", "route_mismatch");
@@ -895,6 +910,7 @@ export class MdbaseAppGrants {
       await store.deleteGrant(id);
       this.forgotten.add(id);
       this.tokens.delete(id);
+      this.routeProbe = undefined;
     });
   }
 
@@ -914,6 +930,7 @@ export class MdbaseAppGrants {
    * or runs after and fails its revision/epoch check instead of re-saving.
    */
   async forgetAllGrants(): Promise<void> {
+    this.routeProbe = undefined;
     this.epoch++;
     const store = await this.store();
     let ids: string[] = [];
