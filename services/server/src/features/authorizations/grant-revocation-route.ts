@@ -11,7 +11,7 @@ import { audit } from "../../platform/audit-events.js";
 import { apiError } from "../../platform/http-errors.js";
 import { requireUser } from "../../platform/request-authentication.js";
 import type { RelayHub } from "../relay/relay.js";
-import { deliverGrantRevocations, localGrantRevocationStatus, queueLocalGrantRevocations } from "../grants/local-grant-revocation.js";
+import { deliverGrantRevocations, grantVisibleToManagementSql, localGrantRevocationStatus, queueLocalGrantRevocations } from "../grants/local-grant-revocation.js";
 
 interface GrantRevocationRouteOptions {
   db: DatabasePool;
@@ -43,7 +43,7 @@ export function registerGrantRevocationRoute(
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
        WHERE g.id IN (${grantParameters}) AND g.user_id = $${grantIds.length + 1}
-         AND g.activated_at IS NOT NULL`,
+         AND g.activated_at IS NOT NULL AND ${grantVisibleToManagementSql}`,
       [...grantIds, user.id]
     );
     if (found.rows.length !== grantIds.length) {
@@ -120,7 +120,7 @@ export function registerGrantRevocationRoute(
               g.hosted_replica_id, g.revoked_at
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
-       WHERE g.id = $1 AND g.user_id = $2 AND g.activated_at IS NOT NULL`,
+       WHERE g.id = $1 AND g.user_id = $2 AND g.activated_at IS NOT NULL AND ${grantVisibleToManagementSql}`,
       [grantId, user.id]
     );
     const grant = active.rows[0];
