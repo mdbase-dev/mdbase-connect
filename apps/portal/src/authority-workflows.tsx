@@ -59,7 +59,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setCollectionIds([...new Set([...retainedIds(value), ...(value.approved_collection_ids ?? []), ...(value.approved_private_device_collection_ids ?? [])])]);
     // A pick made on this page before the app sent the person away stays
     // chosen when the app opens the page again, while it is still offered.
-    const kept = value.approved_at ? null : pendingPairingChoice.read(pairingId);
+    const kept = value.approved_at || !value.return_url ? null : pendingPairingChoice.read(pairingId);
     setSelectedCollectionId(value.creation && !value.creation.completed ? NEW_COLLECTION
       : value.selected_collection_id || value.creation?.collection_id
         || (kept && value.collections?.some(c => c.collection_id === kept) ? kept : ""));
@@ -463,7 +463,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ? "private" as const : "cloud_copy" as const,
                         location: collectionLocation(collection.kind),
                         hint:collection.role&&collection.role!=="owner"?t(i18n)`Shared with you`:undefined}))}
-                      value={selectedCollectionId} onChoose={id=>{setSelectedCollectionId(id);pendingPairingChoice.write(pairingId,id);}} disabled={busy}
+                      value={selectedCollectionId} onChoose={id=>{setSelectedCollectionId(id);if(pairing.return_url)pendingPairingChoice.write(pairingId,id);}} disabled={busy}
                       onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
                       creationSelected={selectedCollectionId===NEW_COLLECTION}
                     />

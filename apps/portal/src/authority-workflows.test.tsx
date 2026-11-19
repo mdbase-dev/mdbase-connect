@@ -224,6 +224,12 @@ describe("approval collection chooser",()=>{
     expect(await screen.findByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","true");
     expect(screen.getByRole("button",{name:"Open Reader"})).toBeEnabled();
   });
+  it("forgets an unapproved pick on reload when the app gave no way back",async()=>{
+    await privateChoice("native-request");
+    cleanup();
+    render(<Pairing pairingId="pairing"/>);
+    expect(await screen.findByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","false");
+  });
   it("does not hold the page waiting for an app the person has to go back to first (tasknotes-app#492)",async()=>{
     let confirmed=false;
     vi.mocked(api).mockClear();
