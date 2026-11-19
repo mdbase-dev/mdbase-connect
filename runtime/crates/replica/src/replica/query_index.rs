@@ -42,17 +42,9 @@ fn capture(
     if excluded.contains(&body_field()) {
         context = context.without_body();
     }
-    // Type-match expressions need clock/dependency eligibility qualification.
-    // Conservatively disable this optional profile rather than label ClockNone
-    // membership as complete/current for arbitrary expressions.
-    if context
-        .catalog()
-        .types()
-        .iter()
-        .any(|t| t.match_spec.as_ref().is_some_and(|m| m.expr.is_some()))
-    {
-        return None;
-    }
+    // A `match.expr` type is indexed like any other: the catalog drops one that
+    // reads the clock, file times or other records (`nondeterministic_match`),
+    // so membership is a function of the record and the captured resources.
     Some(Arc::new(context))
 }
 /// Longest sort key one indexed field value may have.
