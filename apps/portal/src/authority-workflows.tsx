@@ -36,7 +36,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
   const [collectionIds,setCollectionIds] = useState<string[]>([]);
   const [createCollections,setCreateCollections] = useState(false);
   const [allowReminders,setAllowReminders] = useState(false);
-  const [selectedCollectionId,setSelectedCollectionId] = useState("");
+  const [chosenCollectionId,setChosenCollectionId] = useState("");
+  const selectedCollectionId = pairing?.recovery_collection_id && !pairing.approved_at
+    ? pairing.collections?.find(c => c.collection_id === pairing.recovery_collection_id)?.collection_id ?? ""
+    : chosenCollectionId;
   const [newCollectionName,setNewCollectionName] = useState("");
   const [removingId,setRemovingId] = useState("");
   const [revokingId,setRevokingId] = useState("");
@@ -60,7 +63,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     // A pick made on this page before the app sent the person away stays
     // chosen when the app opens the page again, while it is still offered.
     const kept = value.approved_at || !value.return_url ? null : pendingPairingChoice.read(pairingId);
-    setSelectedCollectionId(value.creation && !value.creation.completed ? NEW_COLLECTION
+    setChosenCollectionId(value.creation && !value.creation.completed ? NEW_COLLECTION
       : value.selected_collection_id || value.creation?.collection_id
         || (kept && value.collections?.some(c => c.collection_id === kept) ? kept : ""));
     setNewCollectionName(value.creation?.display_name ?? "");
@@ -74,7 +77,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
     setCollectionIds([]);
     setCreateCollections(false);
     setAllowReminders(false);
-    setSelectedCollectionId("");
+    setChosenCollectionId("");
     setNewCollectionName("");
     setDeepLink("");
     setError("");
@@ -203,7 +206,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
         approval = inspected.pairing;
         if (!inspected.pairing.creation?.completed || inspected.pairing.creation.collection_id !== created.collection_id || !inspected.pairing.collections?.some(collection=>collection.collection_id===created.collection_id)) throw new Error(t(i18n)({ message: "We couldn't confirm collection creation finished. Please try again." }));
         selected = created.collection_id;
-        setSelectedCollectionId(selected);
+        setChosenCollectionId(selected);
         setNewCollectionName(inspected.pairing.creation.display_name);
       }
       const privateChoice=approval.collections?.some(c=>c.collection_id===selected && c.kind==="private")===true;
@@ -261,7 +264,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
             approved = !!inspected.pairing.approved_at;
             if (inspected.pairing.creation && selectedCollectionId === NEW_COLLECTION) {
               setNewCollectionName(inspected.pairing.creation.display_name);
-              setSelectedCollectionId(inspected.pairing.creation.completed ? inspected.pairing.creation.collection_id : NEW_COLLECTION);
+              setChosenCollectionId(inspected.pairing.creation.completed ? inspected.pairing.creation.collection_id : NEW_COLLECTION);
             }
           }
         } catch { /* Keep the original failure, not a replacement request. */ }
@@ -463,8 +466,8 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                       collections={(pairing.collections ?? []).map(collection=>({id:collection.collection_id,name:collection.display_name,kind:collection.kind ? "private" as const : "cloud_copy" as const,
                         location: collectionLocation(collection.kind),
                         hint:collection.role&&collection.role!=="owner"?t(i18n)`Shared with you`:undefined}))}
-                      value={selectedCollectionId} onChoose={id=>{setSelectedCollectionId(id);if(pairing.return_url)pendingPairingChoice.write(pairingId,id);}} disabled={busy}
-                      onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setSelectedCollectionId(NEW_COLLECTION) : undefined}
+                      value={selectedCollectionId} onChoose={id=>{setChosenCollectionId(id);if(pairing.return_url)pendingPairingChoice.write(pairingId,id);}} disabled={busy}
+                      onCreate={pairing.can_create_collection && !pairing.creation?.completed ? ()=>setChosenCollectionId(NEW_COLLECTION) : undefined}
                       creationSelected={selectedCollectionId===NEW_COLLECTION}
                     />
                     {selectedCollectionId === NEW_COLLECTION && <div className="installation-choice">
@@ -475,7 +478,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
                     </div>}
                     {privateChoice && <p className="field-note"><Trans>This collection stays on your computer. It can connect when a computer signed in to this account is available.</Trans></p>}
                     {privateChoice && !pairing.native_authorization_id && (pairing.account_selection_confirmed || !pairing.return_url) && <p role="status">{preparing(preparationError)}</p>}
-                    {!privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || retained.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="mdbase-disclosure installation-advanced">
+                    {!pairing.recovery_collection_id && !privateChoice && (pairing.collections?.some(c=>c.kind!=="private") || retained.length || pairing.requested_create_collections || pairing.retained_create_collections) ? <details className="mdbase-disclosure installation-advanced">
                       <summary><Trans>Allow offline access to additional collections</Trans></summary>
                       <CheckboxGroup legend={t(i18n)({ message: "Additional collection access" })} disabled={busy}>
                         {(pairing.collections??[]).filter(c=>c.kind!=="private").map(collection=>(

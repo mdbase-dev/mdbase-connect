@@ -161,6 +161,19 @@ describe("one explicit collection consent", () => {
     expect(f.posts()).toEqual([]);
   });
 
+  it("selects a cloud recovery target when it becomes available", async () => {
+    const pairing: Partial<DevicePairing> = { recovery_collection_id: "notes", collections: [] };
+    const f = await fixture(pairing);
+    const open = screen.getByRole("button", { name: "Open Reader" });
+    expect(open).toBeDisabled();
+    pairing.collections = [{ collection_id: "notes", display_name: "Notes", role: "owner" }];
+    fireEvent(window, new Event("focus"));
+    expect(await within(f.picker).findByRole("option", { name: "Notes", selected: true })).toBeVisible();
+    expect(open).toBeEnabled();
+    expect(screen.queryByText("Allow offline access to additional collections")).not.toBeInTheDocument();
+    expect(f.posts()).toEqual([]);
+  });
+
   it("restores the server-recorded choice ahead of completed creation or an unrelated hint", async () => {
     const f = await fixture({selected_collection_id:"notes", collection_hint:"not-the-choice",
       creation:{collection_id:"created",display_name:"Earlier creation",completed:true}});
@@ -257,6 +270,16 @@ describe("device access to a Private collection", () => {
     fireEvent.click(screen.getByRole("option", { name: "Notes" }));
     expect(receipt().queryByText(keyCopy)).not.toBeInTheDocument();
     expect(f.posts()).toEqual([]);
+  });
+
+  it("preselects the offered recovery target and asks for its device key access only on approval", async () => {
+    const f = await fixture({ requested_private_device: true, recovery_collection_id: "vault",
+      collections: [{ collection_id: "vault", display_name: "Vault", role: "owner", kind: "private_device" }] });
+    expect(within(f.picker).getByRole("option", { name: "Vault", selected: true })).toBeVisible();
+    expect(receipt().getByText(keyCopy)).toBeVisible();
+    expect(screen.queryByText("Allow offline access to additional collections")).not.toBeInTheDocument();
+    expect(f.posts()).toEqual([]);
+    expect(await approve(f)).toEqual({ fingerprint: "1234-5678", collection_ids: [], create_collections: false, private_device_collection_ids: ["vault"] });
   });
 
   it("approves it in its own list, never as the selected collection, an app grant or a reminder target", async () => {
