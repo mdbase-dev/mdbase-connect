@@ -723,8 +723,7 @@ fn a_confirmed_catalog_change_resets_the_change_feed() {
     let record = a.r.changes(a.s, Some(before.clone()), None, false).unwrap();
     assert!(!record.reset, "a record change does not reset: {record:?}");
     assert!(
-        !a.r
-            .take_pushes()
+        !a.r.take_pushes()
             .iter()
             .any(|(_, p)| matches!(p, Push::Changes(c) if c.reset))
     );
@@ -746,5 +745,8 @@ fn a_confirmed_catalog_change_resets_the_change_feed() {
     let old = a.r.changes(a.s, Some(record.cursor), None, false).unwrap();
     assert!(old.reset, "a cursor from before the catalog change resets");
     let current = a.r.changes(a.s, Some(reset.cursor), None, false).unwrap();
-    assert!(!current.reset, "the reset's own cursor continues: {current:?}");
+    assert!(
+        !current.reset,
+        "the reset's own cursor continues: {current:?}"
+    );
 }
