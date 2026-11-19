@@ -303,7 +303,7 @@ export class AppProtectedInstallationSignIn {
   private closed = false;
   private busy = false;
   private nativeAcknowledged = false;
-  private expiredRequestId: string | null = null;
+  private closedPairing: {requestId: string; reason: "expired" | "refused"} | null = null;
   /** Definite authenticated pre-proof refusal only, never an HTTP unknown. */
   private wrongAccountRequestId: string | null = null;
   private readonly lifetime = new AbortController();
@@ -508,8 +508,9 @@ export class AppProtectedInstallationSignIn {
             ((error as Record<string,unknown>).code === "installation_pairing_expired" || (error as Record<string,unknown>).code === "installation_pairing_denied")) {
           // Expired or cancelled in the portal: the SAME actor may renew this
           // window from an explicit user retry. Any other 404 stays terminal.
-          this.expiredRequestId = this.state.requestId;
-          throw fail((error as Record<string,unknown>).code === "installation_pairing_expired" ? "expired" : "refused");
+          const reason = (error as Record<string,unknown>).code === "installation_pairing_expired" ? "expired" : "refused";
+          this.closedPairing = {requestId: this.state.requestId, reason};
+          throw fail(reason);
         }
         const server = appServerProblem(response.status, value, response.headers);
         const refusal = new AppInstallationSignInError(appServerOutcome(server) ?? "refused", server);
@@ -540,7 +541,7 @@ export class AppProtectedInstallationSignIn {
   renewExpiredPairing(): Promise<AppInstallationSignInView> {
     return this.exclusive(async () => {
       const s = this.state;
-      if (s.token || this.expiredRequestId !== s.requestId) throw fail("recovery_required");
+      if (s.token || this.closedPairing?.requestId !== s.requestId) throw fail("recovery_required");
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       try {
         const requestId = crypto.randomUUID(), secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
@@ -552,7 +553,7 @@ export class AppProtectedInstallationSignIn {
         // renewed window's own confirmation.
         const selection = s.selection ? withoutPortalMetadata(s.selection) : s.selection;
         await this.save({...unsent, selection, requestId, secret, renewal: {requestId:s.requestId, secret:s.secret}});
-        this.expiredRequestId = null;
+        this.closedPairing = null;
         return await this.startRequest();
       } finally { bytes.fill(0); }
     });
@@ -560,6 +561,7 @@ export class AppProtectedInstallationSignIn {
   private async startRequest(hint: string | null = null): Promise<AppInstallationSignInView> {
       if (this.state.token) return this.view(); const s = this.state;
       if (s.recoveryFor && hint !== null && hint !== s.recoveryFor.collectionId) throw fail("binding");
+      if (this.closedPairing?.requestId === s.requestId) throw fail(this.closedPairing.reason);
       let reply: {status: number; value: Record<string, unknown>};
       try {
         reply = await this.json("/v1/pairing-requests", false, {installation: {app_id: s.appId, request_id: s.requestId, pairing_secret: s.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: s.requestedCreateCollections, ...(s.requestedPrivateDevice === true ? {requested_private_device: true} : {}), ...(s.recoveryFor ? {recovery_collection_id: s.recoveryFor.collectionId} : {}), ...(s.renewal ? {renewal:{request_id:s.renewal.requestId, pairing_secret:s.renewal.secret}} : {})}, ...(hint ? {collection_hint: hint} : {})});
@@ -577,7 +579,6 @@ export class AppProtectedInstallationSignIn {
       this.assertRecoveryTarget(v);
       const uri = verificationUri(v.verification_uri, `${s.cpOrigin}/pair/${s.requestId}`, hint);
       if (v.pairing_id !== s.requestId || v.pairing_secret !== s.secret || uri === null || v.installation_device !== true || v.app_id !== s.appId || v.app_origin !== s.origin || v.app_name !== this.options.appName || !Number.isSafeInteger(v.expires_in) || (v.expires_in as number) < 0 || (v.expires_in as number) > 600) throw fail("response");
-      this.expiredRequestId = null;
       // One commit per accepted START: a restarted session keeps reading this request.
       if (this.state.requestSent !== s.requestId) await this.save({...this.state, requestSent: s.requestId});
       return Object.freeze({...this.view(), verificationUri: uri});
