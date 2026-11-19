@@ -53,6 +53,7 @@ export interface ApplicationPrivateState {
 
 interface Open {
   readonly id: string;
+  readonly scope: Pick<MdbaseApplicationConnection["scope"], "account" | "installation">;
   readonly life: AbortController;
   state: ApplicationPrivateState;
   client: MdbaseClient | null;
@@ -150,7 +151,17 @@ export class ApplicationPrivateCollections {
   bind(account:string|null,grants:readonly NativeCompletion[]):void {
     const next=grants.filter(c=>c.account_id===account);
     if(this.bindingsAccount===account && JSON.stringify(next)===JSON.stringify(this.bindings))return;
+    const previous=this.bindings;
     this.bindingsAccount=account;this.bindings=Object.freeze([...next]);this.settled=null;this.listed=null;
+    const open=this.open;
+    if(open){
+      const original=previous?.find(c=>c.collection_id===open.id);
+      const replacement=next.find(c=>c.collection_id===open.id);
+      if(!replacement || account!==open.scope.account)this.close(false);
+      else if(replacement.grant_id!==original?.grant_id || replacement.client_noise_public_key!==original?.client_noise_public_key){
+        void this.openCollection(open.id,open.scope).catch(()=>{/* openCollection reports the problem in its snapshot */});
+      }
+    }
     this.setList([]);
   }
   async nativeAuthorization(call:NativeAuthorizationCall,portal:AppWebSignInPortal,signal:AbortSignal):Promise<NativeAuthorizationResult>{
@@ -237,7 +248,7 @@ export class ApplicationPrivateCollections {
   async openCollection(collectionId: string, scope: { readonly account: string; readonly installation: string }): Promise<void> {
     if (this.closed) throw mdbaseError("cancelled", "Private collections closed", "application_entry_fenced");
     this.close(false);
-    const open: Open = { id: collectionId, life: new AbortController(), client: null, setup: null, connection: null, stopLink: null,
+    const open: Open = { id: collectionId, scope, life: new AbortController(), client: null, setup: null, connection: null, stopLink: null,
       state: Object.freeze({ collectionId, status: "opening", problem: null, readiness: readiness(true, null) }) };
     this.open = open; this.changed();
     const signal = open.life.signal;
