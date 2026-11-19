@@ -11,13 +11,19 @@ const opened:{close:ReturnType<typeof vi.fn>}[]=[];
 /** Holds the grant list read (from local storage) until released. */
 const gate:{wait:Promise<void>|null;error:unknown;wipeError:unknown}={wait:null,error:null,wipeError:null};
 vi.mock("../src/app-grant/client.js",()=>({MdbaseAppGrants:class{
-  verifiedStoredNativeGrant=async()=>true;
+  verifiedStoredNativeGrant=async(binding:{client_noise_public_key:string})=>binding.client_noise_public_key===storedKey;
   collections=async(options?:{bindings?:readonly {collection_id:string}[]})=>{await gate.wait;if(options?.bindings && !options.bindings.some(c=>c.collection_id===P))return [];return [{collectionId:P,displayName:"Private notes",operations:[],role:"owner",availability:{state:"available"}}];};
   availability=async()=>({state:"available"});waitForAvailable=async()=>({state:"available"});
-  connector=()=>({});people=()=>({});forget=async()=>{};forgetAllGrants=async()=>{if(gate.wipeError)throw gate.wipeError;};authorize=async()=>({collectionId:P});
+  connector=()=>({key:storedKey});people=()=>({});forget=async()=>{};forgetAllGrants=async()=>{if(gate.wipeError)throw gate.wipeError;};authorize=async()=>({collectionId:P});
   setup=()=>({assess:async()=>"ready",plan:async()=>({}),apply:async()=>"ready"});
 }}));
-vi.mock("../src/client.js",()=>({connect:async()=>{if(gate.error)throw gate.error;const c={collection:P,files:{},close:vi.fn(),ledger:{subscribe:()=>()=>{},getSnapshot:()=>null},status:{mode:"local_only",confirmedThrough:0,headKnown:0,pending:0,holds:0,unresolved:0,connection:"offline",incidents:[]},onStatus:()=>()=>{},onLink:()=>()=>{}};opened.push(c);return c;}}));
+vi.mock("../src/client.js",()=>({connect:async({connector}:{connector:{key:string}})=>{
+  if(gate.error)throw gate.error;
+  const c={collection:P,files:{},close:vi.fn(),
+    get:async()=>{if(connector.key!==storedKey)throw mdbaseError("unauthenticated","Grant replaced");return {path:"manuscript.md"};},
+    ledger:{subscribe:()=>()=>{},getSnapshot:()=>null},status:{mode:"local_only",confirmedThrough:0,headKnown:0,pending:0,holds:0,unresolved:0,connection:"offline",incidents:[]},onStatus:()=>()=>{},onLink:()=>()=>{}};
+  opened.push(c);return c;
+}}));
 vi.mock("../src/application/registration.js",()=>({resolveApplicationRegistration:async()=>({id:"55555555-5555-4555-8555-555555555555",name:"Example"})}));
 vi.mock("../src/application/packaged-assets.js",()=>({packagedApplicationAssets:()=>({})}));
 vi.mock("../src/application/packaged-trust.js",()=>({appReleaseTrust:()=>null}));
@@ -31,7 +37,8 @@ const {createMdbase}=await import("../src/application/front-door.js");
 const origin="https://app.test",A="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",B="bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const declaration={id:"org.example.app",name:"Example",origin,environment:"lab" as const,manifest:{manifest_version:1,id:"org.example.app",name:"Example",homepage:origin,
   redirect_uris:[`${origin}/callback`],requirements:{access:"full_collection",contracts:[]}}};
-const nativeGrant={account_id:"acct-1",collection_id:P,authorization_request_id:"n1",client_noise_public_key:"test-only-original-noise"};
+const nativeGrant={account_id:"acct-1",collection_id:P,authorization_request_id:"n1",grant_id:"grant-1",client_noise_public_key:"test-only-original-noise"};
+let storedKey=nativeGrant.client_noise_public_key;
 const signIn={nativeGrants:[nativeGrant],requestId:"r1",installationId:"i1",deviceId:"d1",appId:"p1",kind:"app-runtime",verificationUri:"https://cp.test/pair",state:"paired",accountId:"acct-1",
   collectionIds:[A,B],createCollections:false,requestedCreateCollections:false};
 const paired={status:"unselected",signIn,collections:[{collectionId:A,displayName:"A",role:"owner"},{collectionId:B,displayName:"B",role:"owner"}],selectedCollectionId:null,problem:null,timing:null};
@@ -62,6 +69,7 @@ const reload=(options={},href=`${origin}/`)=>{
 };
 beforeEach(()=>{
   opened.length=0;gate.wait=null;gate.error=null;gate.wipeError=null;
+  storedKey=nativeGrant.client_noise_public_key;
   FakeWorker.all=[];FakeWorker.snapshot=paired;store.clear();
   vi.stubGlobal("Worker",FakeWorker);vi.stubGlobal("localStorage",localStorage);
   // A browser page also has locks, storage and IndexedDB (entry capability probe).
@@ -70,6 +78,33 @@ beforeEach(()=>{
 afterEach(()=>{vi.unstubAllGlobals();});
 
 describe("Private collections",()=>{
+  it("reopens once when Add replaces the selected Private grant, not when its binding stays the same",async()=>{
+    const app=reload();Object.assign(window,{open:()=>({location:{href:"about:blank"},closed:false,close(){}})});
+    await app.start();
+    await vi.waitFor(()=>expect(app.getSnapshot().collections.some(c=>c.collectionId===P)).toBe(true));
+    await app.select(P);
+    await vi.waitFor(()=>expect(app.getSnapshot().status).toBe("ready"));
+    const original=app.connection(P)!;
+    await app.refreshCollectionList!();
+    expect(app.connection(P)).toBe(original);
+    expect(opened).toHaveLength(1);
+    expect(opened[0]!.close).not.toHaveBeenCalled();
+
+    storedKey="test-only-replacement-noise";
+    const replacement={...nativeGrant,authorization_request_id:"n2",grant_id:"grant-2",client_noise_public_key:storedKey};
+    FakeWorker.snapshot={...paired,signIn:{...signIn,nativeGrants:[replacement],nativeSelection:{requestId:"r2",authorizationRequestId:"n2",collectionId:P}}};
+    await app.addCollection();
+    await vi.waitFor(()=>expect(app.getSnapshot().selection.lastApproval).toEqual({kind:"add",outcome:"unchanged",collectionId:P}));
+    expect(original.isCurrent()).toBe(false);
+    await vi.waitFor(()=>expect(app.getSnapshot().phase.kind).toBe("ready"));
+    const current=app.connection(P)!;
+    expect(current.generation).not.toBe(original.generation);
+    expect(current.isCurrent()).toBe(true);
+    await expect(current.records.get({path:"manuscript.md"})).resolves.toMatchObject({path:"manuscript.md"});
+    expect(opened[0]!.close).toHaveBeenCalledTimes(1);
+    expect(opened).toHaveLength(2);
+    FakeWorker.snapshot={...paired,status:"closed"};await app.close();
+  });
   it("start retries a failed collection open without replacing the entry or Worker",async()=>{
     const app=reload();await app.start();
     await vi.waitFor(()=>expect(app.getSnapshot().collections.some(c=>c.collectionId===P)).toBe(true));
