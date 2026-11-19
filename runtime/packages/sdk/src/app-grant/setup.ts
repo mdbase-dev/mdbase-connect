@@ -38,7 +38,8 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
   const plans=new WeakMap<MdbaseSetupPlan,{session:Session;review:NativeSetupReview;options:MdbaseSetupPlanOptions;consumed:boolean}>();
   const noops=new WeakSet<MdbaseSetupPlan>();
   let busy=false;
-  async function exclusive<T>(work:()=>Promise<T>):Promise<T>{if(busy)throw mdbaseError("rate_limited","A setup operation is already running.");busy=true;try{return await work();}finally{busy=false;}}
+  let release:Promise<void>|undefined;
+  async function exclusive<T>(work:()=>Promise<T>):Promise<T>{if(busy)throw mdbaseError("rate_limited","A setup operation is already running.");busy=true;try{if(release){await release;release=undefined;}return await work();}finally{busy=false;}}
   async function fence(s?:Session,signal?:AbortSignal){if(!s)await client.readyForRead(signal);await input.assertCurrent();if(signal?.aborted)throw mdbaseError("cancelled","Setup cancelled.");if(s&&(s.closed||client.currentSession()!==s))throw changed();}
   async function cancel(s:Session,ticket:Uint8Array){try{await setupRequest(s,"cancel",[[2,ticket]],AbortSignal.timeout(1000));}catch{/* no write is issued by cancel */}}
   async function native(options:MdbaseSetupPlanOptions={}):Promise<{s:Session;review:NativeSetupReview;options:MdbaseSetupPlanOptions}>{
@@ -79,21 +80,20 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
   /** Everything the review screen shows or setup writes, without the digest
    * (which binds Native's head and review clock, so it differs on every review). */
   const shown=(p:MdbaseSetupPlan,review:NativeSetupReview)=>JSON.stringify([p.status,p.canApply,p.summary,p.changes,p.conflicts,p.adoptable,p.packs,p.staged,p.records,p.refusal??null,review.promoted,review.retained]);
+  async function plan(options:MdbaseSetupPlanOptions){
+    await fence(undefined,options.signal);
+    if(!declared){if(input.operations.includes("apply_collection_setup")||input.operations.includes("assess_collection_setup"))throw unavailable();const empty=setupPlan({status:"current",assessmentDigest:`sha256:${"0".repeat(64)}`,review:{configuration:[],packs:[],staged:[]}},{canManage:false,canCreateRecords:false,records:[]});noops.add(empty);return empty;}
+    await reconcile(options.signal);const {s,review,options:original}=await native(options);
+    const result=word(s,review);
+    plans.set(result,{session:s,review,options:original,consumed:false});return result;
+  }
   const api:MdbasePrivateSetup={
-    async assess(options={}){
-      const p=await api.plan(options),bound=plans.get(p);
-      // Assessment does not return a usable plan: release its original review,
-      // rather than occupying Native\'s bounded slot until the next page expires.
-      if(bound){await cancel(bound.session,bound.review.ticket);await fence(bound.session,options.signal);}
+    assess(options={}){return exclusive(async()=>{
+      const p=await plan(options),bound=plans.get(p);
+      if(bound){release=cancel(bound.session,bound.review.ticket);await fence(bound.session,options.signal);}
       return p.status==="current"?"ready":p.status==="conflict"?"incompatible":"setup_required";
-    },
-    async plan(options={}){return exclusive(async()=>{
-      await fence(undefined,options.signal);
-      if(!declared){if(input.operations.includes("apply_collection_setup")||input.operations.includes("assess_collection_setup"))throw unavailable();const empty=setupPlan({status:"current",assessmentDigest:`sha256:${"0".repeat(64)}`,review:{configuration:[],packs:[],staged:[]}},{canManage:false,canCreateRecords:false,records:[]});noops.add(empty);return empty;}
-      await reconcile(options.signal);const {s,review,options:original}=await native(options);
-      const result=word(s,review);
-      plans.set(result,{session:s,review,options:original,consumed:false});return result;
     });},
+    plan(options={}){return exclusive(()=>plan(options));},
     async apply(plan,options={}){return exclusive(async()=>{
       if(noops.has(plan)){await fence(undefined,options.signal);return "ready" as const;}
       let bound=plans.get(plan);if(!bound)throw new TypeError("setup.apply needs the original plan returned by setup.plan");

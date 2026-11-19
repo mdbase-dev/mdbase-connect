@@ -47,7 +47,7 @@ function fixture(o: { revokePrior?: boolean; expiresIn?: number } = {}) {
   const handoffs: { generation: number; coherent: boolean }[] = [];
   const refreshGenerations: number[] = [];
   let generation = -1;
-  let offlineCp = false, fetchCount = 0, listingStatus = 200;
+  let offlineCp = false, fetchCount = 0, routeCount = 0, listingStatus = 200;
   let callback = "";
   let listener: ((url: string) => void) | null = null;
   let pauseRoute = false, pauseCarrier = false, pauseHandshake = false;
@@ -90,6 +90,7 @@ function fixture(o: { revokePrior?: boolean; expiresIn?: number } = {}) {
       return mode !== "invalid" && requested === generation ? Response.json(tokens(requested)) : Response.json({ error: "invalid_grant" }, { status: 400 });
     }
     if (path === `/v1/next/collections/${COLLECTION}/route`) {
+      routeCount++;
       // Resolve the principal from THIS request's bearer, never from a shared CID.
       const requested = Number(new Headers(init?.headers).get("authorization")!.split("-")[1]);
       if (pauseRoute) {
@@ -152,13 +153,39 @@ function fixture(o: { revokePrior?: boolean; expiresIn?: number } = {}) {
   const grants = makeGrants();
   const authorize = (owner = grants) => owner.authorize({ popup: { closed: false, close: () => {}, navigate: () => { setTimeout(() => listener?.(callback), 0); } } });
   return {
-    grants, store, authorize, makeGrants, authorizeFromAnotherInstance: () => authorize(makeGrants()), handoffs, refreshGenerations, consentKeys,
+    grants, store, authorize, makeGrants, authorizeFromAnotherInstance: () => authorize(makeGrants()), handoffs, refreshGenerations, consentKeys, get routeCount() { return routeCount; },
     setOfflineCp: () => { offlineCp = true; }, get fetchCount() { return fetchCount; }, setListingStatus: (status: number) => { listingStatus = status; },
     routeEntered, routeRelease, carrierEntered, carrierRelease, handshakeEntered, handshakeRelease, refreshEntered, refreshRelease,
     pauseNextRoute: () => { pauseRoute = true; }, pauseNextCarrier: () => { pauseCarrier = true; }, pauseNextHandshake: () => { pauseHandshake = true; },
     pauseNextRefresh: (mode: "success" | "invalid") => { refreshMode = mode; }, get closedCarriers() { return closedCarriers; },
   };
 }
+
+it("uses the availability route once; reconnects and later connectors resolve fresh", async () => {
+  const f = fixture(); await f.authorize();
+  await f.grants.waitForAvailable(COLLECTION);
+  const connector = f.grants.connector(COLLECTION);
+  (await connector.open(new Map())).port.close();
+  expect(f.routeCount).toBe(1);
+  await f.grants.availability(COLLECTION);
+  (await connector.open(new Map())).port.close();
+  (await f.grants.connector(COLLECTION).open(new Map())).port.close();
+  expect(f.routeCount).toBe(4);
+});
+
+it.each(["expired", "aborted", "other collection", "replaced grant", "failed open"])("does not reuse an availability route after %s", async reason => {
+  const f = fixture(); await f.authorize();
+  const life = new AbortController();
+  await f.grants.availability(COLLECTION, { signal: life.signal });
+  if (reason === "expired") vi.spyOn(performance, "now").mockReturnValue(performance.now() + 10_000);
+  if (reason === "aborted") life.abort();
+  if (reason === "other collection") await expect(f.grants.connector(DEVICE).open(new Map())).rejects.toThrow();
+  if (reason === "replaced grant") await f.authorizeFromAnotherInstance();
+  if (reason === "failed open") await expect(f.grants.connector(COLLECTION).open(new Map(), AbortSignal.abort())).rejects.toThrow();
+  (await f.grants.connector(COLLECTION).open(new Map())).port.close();
+  expect(f.routeCount).toBe(2);
+  expect(f.handoffs).toEqual([{ generation: reason === "replaced grant" ? 1 : 0, coherent: true }]);
+});
 
 it("sequential reauthorization uses an explicit fresh connector, never a pending predecessor's keys", async () => {
   const f = fixture();

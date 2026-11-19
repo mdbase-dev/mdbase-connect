@@ -36,6 +36,21 @@ describe("Private collection setup",()=>{
       expect(f.state.attempt).toBeUndefined();expect(f.methods).not.toContain("submit");
     }
   });
+  it.each(["plan","apply"] as const)("returns assessment before release, but fences the following %s",async(operation)=>{
+    const f=await nativeSetupFixture(JOURNAL),original=await f.setup.plan();
+    let release!:()=>void;f.state.holdCancel=reply=>{release=reply;};
+    await expect(f.setup.assess()).resolves.toBe("setup_required");
+    const next=operation==="plan"?f.setup.plan():f.setup.apply(original);
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(f.requests.map(request=>request.get(1))).toEqual(["assess","assess","cancel"]);
+    f.state.holdCancel=undefined;release();await next;
+  });
+  it("continues after an unanswered release times out",async()=>{
+    const f=await nativeSetupFixture(JOURNAL);f.state.holdCancel=()=>{};
+    await expect(f.setup.assess()).resolves.toBe("setup_required");
+    await expect(f.setup.plan()).resolves.toMatchObject({status:"setup"});
+    expect(f.state.attempt).toBeUndefined();
+  });
   it("refreshes a review retired by a second plan and applies only identical consented changes",async()=>{
     const f=await nativeSetupFixture(JOURNAL),a=await f.setup.plan();
     const b=await f.setup.plan();expect(a.digest).toBe(b.digest);
