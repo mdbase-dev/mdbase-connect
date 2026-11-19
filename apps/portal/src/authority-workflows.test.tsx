@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from "./test/render";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "./test/render";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api, ApiError, type DevicePairing } from "./api";
 vi.mock("./api", async importOriginal => ({...await importOriginal<typeof import("./api")>(),api:vi.fn()}));
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 function preparedPairing(): DevicePairing {
   return { connector_name: "Reader", approved_at: null, installation_device: true, kind: "app-runtime",
     account_selection_confirmed: true, attested: true, fingerprint: "1234-5678", account_email: "owner@example.test",
@@ -216,6 +216,38 @@ describe("approval collection chooser",()=>{
   it("without a return address only reports that the app is preparing",async()=>{
     await privateChoice("");
     expect(screen.queryByRole("link",{name:"Continue in Reader"})).not.toBeInTheDocument();
+  });
+  it("keeps the person's pick when the app opens the same approval page again (tasknotes-app#492)",async()=>{
+    await privateChoice("native-request",{return_url:"org.example.reader://signed-in"});
+    cleanup();
+    render(<Pairing pairingId="pairing"/>);
+    expect(await screen.findByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","true");
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeEnabled();
+  });
+  it("forgets an unapproved pick on reload when the app gave no way back",async()=>{
+    await privateChoice("native-request");
+    cleanup();
+    render(<Pairing pairingId="pairing"/>);
+    expect(await screen.findByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","false");
+  });
+  it("does not hold the page waiting for an app the person has to go back to first (tasknotes-app#492)",async()=>{
+    let confirmed=false;
+    vi.mocked(api).mockClear();
+    vi.mocked(api).mockImplementation(async path=>{
+      if(String(path).endsWith("/select-account")){confirmed=true;return {ok:true};}
+      if(String(path).endsWith("/approve"))return {ok:true};
+      return {pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:confirmed,attested:false,
+        account_email:"test@example.test",signed_in_account_email:"test@example.test",return_url:"org.example.reader://signed-in",
+        collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}]}};
+    });
+    render(<Pairing pairingId="pairing"/>);
+    fireEvent.click(await screen.findByRole("option",{name:"[test] Original Private"}));
+    fireEvent.click(screen.getByRole("button",{name:"Open Reader"}));
+    expect(await screen.findByRole("link",{name:"Continue in Reader"})).toHaveAttribute("href","org.example.reader://signed-in");
+    expect(screen.getAllByRole("status")[0]).toHaveTextContent("Continue in Reader to finish. This page opens again when it's ready.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/couldn't prepare/)).not.toBeInTheDocument();
+    expect(vi.mocked(api).mock.calls.some(([path])=>String(path).endsWith("/approve"))).toBe(false);
   });
   it("does not approve Private from catalog metadata before its signed companion is prepared",async()=>{
     await privateChoice("");
