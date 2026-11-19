@@ -474,3 +474,95 @@ fn symlinks_above_the_collection_and_explicit_state_dirs_open() {
     drop(open_folder_at(&real, Some(dir.join("state-link"))).unwrap());
     assert!(state.join("index.sqlite").is_file());
 }
+
+/// TaskNotes pages its whole task index by path with fresh queries (no
+/// continuation cursor), so an edit between pages cannot invalidate the scan:
+/// `types` + `order_by: file.path asc` + `where: file.path > <last>`. Both
+/// query profiles answer it, in path order, with every task exactly once.
+#[test]
+fn path_keyset_pages_survive_edits_between_pages() {
+    for profile in [
+        mdbn_replica::QueryExecutionProfile::Desktop,
+        mdbn_replica::QueryExecutionProfile::MemoryConstrained,
+    ] {
+        let root = test_dir(&format!("path-keyset-{profile:?}"));
+        std::fs::write(root.join("mdbase.yaml"), "spec_version: \"0.3.0\"\n").unwrap();
+        std::fs::create_dir_all(root.join("_types")).unwrap();
+        std::fs::write(
+            root.join("_types/task.md"),
+            "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: \"tasks/**/*.md\"\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      status: { type: string }\n---\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("tasks/ü")).unwrap();
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        let mut expected = Vec::new();
+        for i in 0..2500 {
+            let path = if i % 10 == 0 {
+                format!("tasks/ü/t{i:04} it's.md")
+            } else {
+                format!("tasks/t{i:04}.md")
+            };
+            std::fs::write(
+                root.join(&path),
+                format!("---\nstatus: open\n---\nTask {i}\n"),
+            )
+            .unwrap();
+            expected.push(path);
+        }
+        for i in 0..50 {
+            std::fs::write(root.join(format!("notes/n{i}.md")), "plain\n").unwrap();
+        }
+        expected.sort();
+        let (_lock, mut rep) = open(&root);
+        rep.rescan().unwrap();
+        rep.replica().set_query_execution_profile(profile);
+        let session = rep.session();
+        let mut seen: Vec<String> = Vec::new();
+        let mut after: Option<String> = None;
+        for page in 0.. {
+            assert!(page < 10, "{profile:?}: too many pages");
+            let mut q = vec![
+                (
+                    "types".into(),
+                    Value::List(vec![Value::Text("task".into())]),
+                ),
+                (
+                    "order_by".into(),
+                    Value::List(vec![Value::Map(vec![
+                        ("field".into(), Value::Text("file.path".into())),
+                        ("direction".into(), Value::Text("asc".into())),
+                    ])]),
+                ),
+                ("limit".into(), Value::Int(1000)),
+            ];
+            if let Some(after) = &after {
+                q.push((
+                    "where".into(),
+                    Value::Text(
+                        format!("file.path > {}", serde_json::to_string(after).unwrap()).into(),
+                    ),
+                ));
+            }
+            let out = rep
+                .replica()
+                .query(session, Value::Map(q), include())
+                .unwrap_or_else(|e| panic!("{profile:?} page {page}: {e:?}"));
+            assert!(out.complete);
+            seen.extend(out.records.iter().map(|r| r.path.to_string()));
+            if out.cursor.is_none() {
+                break;
+            }
+            after = seen.last().cloned();
+            // An outside edit between pages.
+            std::fs::write(
+                root.join(format!("tasks/t{:04}.md", 1 + page)),
+                format!("---\nstatus: done\n---\nEdited {page}\n"),
+            )
+            .unwrap();
+            rep.rescan().unwrap();
+        }
+        assert_eq!(seen, expected, "{profile:?}");
+        eprintln!("{profile:?}: {:?}", rep.replica_ref().query_stats());
+        let _ = std::fs::remove_dir_all(root);
+    }
+}

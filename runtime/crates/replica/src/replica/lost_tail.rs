@@ -1001,6 +1001,7 @@ impl<S: Store> Replica<S> {
         self.tail_stats_dirty = true;
         self.refresh_retained_stats()?;
         self.catalog = std::sync::Arc::new(crate::plan::load_catalog(&self.store)?);
+        self.reset_feed();
         let changed: std::collections::BTreeSet<String> = self
             .all_pending()?
             .into_iter()

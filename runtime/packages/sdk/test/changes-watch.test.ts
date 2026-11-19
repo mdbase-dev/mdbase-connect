@@ -116,6 +116,24 @@ describe("change watch readiness and local lifetime (actual Client/Session wire 
       expect(paths).toEqual(["new.md"]);
     } finally { off(); watch(); f.client.close(); }
   });
+  it("exposes the delivered cursor so a stopped watch can resume from it", async () => {
+    const f = await fixture(true), paths: string[] = [];
+    const watch = f.client.watchChanges(b => paths.push(...b.changes.map(c => c.path)));
+    try {
+      expect(watch.cursor).toBeUndefined();
+      await f.request(); f.reply(0, batch("caught-up")); await watch.ready;
+      expect(watch.cursor).toBe("caught-up");
+      f.push(batch("pushed", "a.md")); expect(paths).toEqual(["a.md"]);
+      expect(watch.cursor).toBe("pushed");
+      f.ports[0]!.close(); await f.request(1);
+      expect(f.requests[1]!.cursor).toBe("pushed");
+      f.reply(1, batch("after-reconnect", "b.md")); await vi.waitFor(() => expect(watch.state).toBe("active"));
+      expect(watch.cursor).toBe("after-reconnect");
+      watch(); expect(watch.cursor).toBe("after-reconnect");
+      const resumed = f.client.watchChanges(() => {}, { cursor: watch.cursor });
+      await f.request(2); expect(f.requests[2]!.cursor).toBe("after-reconnect"); resumed();
+    } finally { watch(); f.client.close(); }
+  });
   it("throwing state observers do not interrupt terminal cleanup", async () => {
     const f = await fixture(), watch = f.client.watchChanges(() => {});
     try {

@@ -3631,6 +3631,7 @@ ChangesResult@wire.ts
 
 ChangesWatch@client.ts
   (): void
+  readonly cursor: string | undefined
   readonly error: MdbaseError | null
   readonly ready: Promise<void>
   readonly state: ChangesWatchState

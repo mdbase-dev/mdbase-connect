@@ -32,11 +32,15 @@ fn entry(path: &str, bytes: &[u8]) -> serde_json::Value {
     json!({"path": path, "revision": format!("sha256:{}", h(bytes)), "hash": h(bytes)})
 }
 
-/// Folder: a.md edited, b.md unchanged, c.md deleted, new.md created, temp files and
-/// .mdbase ignored.
+/// Folder: a.md edited, b.md unchanged, c.md deleted, new.md created, temp files,
+/// .mdbase and the authority's definition files (never in the record base) ignored.
 fn folder(root: &Path) {
     fs::create_dir_all(root.join("notes")).unwrap();
     fs::create_dir_all(root.join(".mdbase")).unwrap();
+    fs::create_dir_all(root.join("_types")).unwrap();
+    fs::create_dir_all(root.join("_contracts")).unwrap();
+    fs::write(root.join("_types/task.md"), b"---\nname: task\n---\n").unwrap();
+    fs::write(root.join("_contracts/tasknotes.task.md"), b"---\n---\n").unwrap();
     fs::write(root.join("notes/a.md"), b"A edited").unwrap();
     fs::write(root.join("notes/b.md"), b"B").unwrap();
     fs::write(root.join("notes/new.md"), b"N").unwrap();
