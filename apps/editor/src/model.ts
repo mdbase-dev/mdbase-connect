@@ -266,11 +266,12 @@ export interface NoteObservationSnapshot {
   readonly problem: ObservationProblem | null;
   readonly watchStatus: ObservationWatchStatus | null;
 }
-/** Record membership changes reported by a native observation. Its reset
+/** Collection changes reported by a native observation. Its reset
  * carries no Connect event cursor or raw wire payload. */
 export type NativeCollectionChange =
   | { source: "native"; kind: "record.created" | "record.updated" | "record.deleted"; path: string; revision?: string }
   | { source: "native"; kind: "record.renamed"; from: string; to: string; revision?: string }
+  | { source: "native"; kind: "file.changed"; path: string }
   | { source: "native"; kind: "reset" };
 export type EditorCollectionChange = import("@mdbase-dev/connect").CollectionChange | NativeCollectionChange;
 /** The collection-owned index observation the editor consumes. Implemented by

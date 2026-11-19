@@ -2,11 +2,15 @@ import { isMdbaseError, MdbaseError } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editorPermissions } from "./gateway";
 import { CollectionIndexController } from "./collection-index-controller";
+import { FileAssetStore } from "./file-asset-store";
+import { FileInventoryController } from "./file-inventory-controller";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
 import { summaryFromDocument } from "./note";
 import { outdatedPersonStarter } from "./person-setup";
 import { closeNativeFixtures, readyFixture } from "./test/native-fixture";
+import { renderHook } from "./test/locale";
+import { useCollectionWatch } from "./use-collection-watch";
 import manifest from "../public/.well-known/mdbase-app.json";
 
 const declaration = { id: manifest.id, name: manifest.name, origin: "https://editor.mdbase.dev", environment: "lab" as const, manifest };
@@ -563,6 +567,32 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(planned.map((p) => [p.get(2), p.has(3), p.has(7)])).toEqual([["dev.mdbase.editor", false, false], ["dev.mdbase.editor", true, false], ["dev.mdbase.editor", true, true]]);
     expect((await f.client.resources.get("mdbase.lock.yaml")).text).toBe("lock\n");
     expect((await f.client.resources.get("_types/note.md")).text).toBe(document);
+  });
+
+  it("updates the open file inventory when another client moves or deletes an attachment", async () => {
+    const f = await fixture();
+    const writer = await f.replica.client();
+    const index = new CollectionIndexController(f.gateway);
+    const files = new FileInventoryController(f.gateway);
+    const input = { phase: "ready", index, files, assets: new FileAssetStore(f.gateway),
+      refreshCachedNote: vi.fn(async () => {}), refreshDescription: vi.fn(async () => {}),
+      setConnectionState: vi.fn(), setConnectionIssue: vi.fn(), setNotice: vi.fn() };
+    const hook = renderHook(() => useCollectionWatch(input));
+    const paths = () => files.getSnapshot().files.map(file => file.path);
+    try {
+      const upload = await writer.files.upload("img/old.bin", new Uint8Array([1]));
+      await Promise.all([index.reload(), files.reload()]);
+      await vi.waitFor(() => expect(index.getWatchStatus()?.state).toBe("connected"));
+      expect(paths()).toEqual(["img/old.bin"]);
+      const find = vi.spyOn(f.client, "find");
+      await writer.files.move(await writer.files.get(upload.fileId), "img/new.bin");
+      await vi.waitFor(() => expect(paths()).toEqual(["img/new.bin"]));
+      await writer.files.delete(upload.fileId);
+      await vi.waitFor(() => expect(paths()).toEqual([]));
+      expect(find).not.toHaveBeenCalled();
+    } finally {
+      hook.unmount(); index.reset(); files.reset(); writer.close();
+    }
   });
 
   it("lists and reads files by native digest and never uploads with an unknown file grant", async () => {
