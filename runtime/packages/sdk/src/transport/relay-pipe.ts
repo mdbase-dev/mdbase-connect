@@ -101,7 +101,7 @@ export function relayPipeCarrier(
     }
     ws.binaryType = "arraybuffer";
     let opened = false;
-    let settled = false;
+    let terminal: MdbaseError | undefined;
     let buf = new Uint8Array(0);
     // Handlers live in variables behind accessors, not as `onmessage: null` in the
     // literal: the carrier leaves only through resolve(), and Rollup would decide
@@ -120,8 +120,10 @@ export function relayPipeCarrier(
       },
       set onclose(f) {
         onclose = f;
+        if (f && terminal) f(terminal);
       },
       send(m) {
+        if (terminal) throw terminal;
         if (m.length > 65535) throw mdbaseError("too_large", "Noise message over 65535 bytes");
         const f = new Uint8Array(4 + m.length);
         new DataView(f.buffer).setUint32(0, m.length);
@@ -137,8 +139,9 @@ export function relayPipeCarrier(
       },
     };
     const fail = (e: MdbaseError) => {
-      if (!settled) {
-        settled = true;
+      if (terminal) return;
+      terminal = e;
+      if (!opened) {
         signal?.removeEventListener("abort", onAbort);
         reject(e);
       } else onclose?.(e);
@@ -162,6 +165,7 @@ export function relayPipeCarrier(
       );
     };
     ws.onmessage = (ev) => {
+      if (terminal) return;
       const d = ev.data;
       if (typeof d === "string") {
         let msg: { type?: string; reason?: string };
@@ -172,12 +176,11 @@ export function relayPipeCarrier(
         }
         if (msg.type === "pipe_opened" && !opened) {
           opened = true;
-          settled = true;
           signal?.removeEventListener("abort", onAbort);
           resolve(carrier);
         } else if (msg.type === "pipe_close") {
-          ws.close();
           fail(pipeCloseError(4000, msg.reason));
+          ws.close();
         }
         return;
       }

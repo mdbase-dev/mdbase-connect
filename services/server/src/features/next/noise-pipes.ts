@@ -317,9 +317,9 @@ export function registerNoisePipeClientRoute(
         } else if (message[0] === DATA && opened) {
           socket.send(Buffer.from(message.subarray(1)));
         } else if (message[0] === CLOSE) {
-          clearTimeout(openTimer);
-          opened = false;
-          closeWith(Buffer.from(message.subarray(1)).toString("utf8"));
+          const reason = Buffer.from(message.subarray(1)).toString("utf8");
+          if (reason === "not_served") socket.send(JSON.stringify({ type: "pipe_close", pipe_id: id, reason }));
+          closeWith(reason);
         }
       });
       if (!alive()) { await binding.close(); return; }
