@@ -1165,6 +1165,11 @@ msgstr "이 mdbase Connect 배포의 운영자에게 문의하세요."
 msgid "Continue"
 msgstr "계속"
 
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Continue in {0} to finish. This page opens again when it's ready."
+msgstr "{0}에서 계속하여 완료하세요. 준비가 되면 이 페이지가 다시 열립니다."
+
 #: src/authorization-view.tsx
 msgid "Continue in {applicationName} to use this collection."
 msgstr "이 컬렉션을 사용하려면 {applicationName}에서 계속하세요."

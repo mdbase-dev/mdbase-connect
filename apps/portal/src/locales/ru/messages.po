@@ -1165,6 +1165,11 @@ msgstr "Свяжитесь с администратором этого экзе
 msgid "Continue"
 msgstr "Продолжить"
 
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Continue in {0} to finish. This page opens again when it's ready."
+msgstr "Продолжите в {0}, чтобы завершить. Эта страница откроется снова, когда всё будет готово."
+
 #: src/authorization-view.tsx
 msgid "Continue in {applicationName} to use this collection."
 msgstr "Продолжите в {applicationName}, чтобы использовать эту коллекцию."

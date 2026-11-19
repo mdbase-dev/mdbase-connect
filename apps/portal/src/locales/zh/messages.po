@@ -1165,6 +1165,11 @@ msgstr "请联系此 mdbase Connect 部署的管理员。"
 msgid "Continue"
 msgstr "继续"
 
+#. placeholder {0}: pairing.connector_name
+#: src/authority-workflows.tsx
+msgid "Continue in {0} to finish. This page opens again when it's ready."
+msgstr "请在 {0} 中继续以完成。准备就绪后，此页面会再次打开。"
+
 #: src/authorization-view.tsx
 msgid "Continue in {applicationName} to use this collection."
 msgstr "请返回 {applicationName} 以使用此集合。"
