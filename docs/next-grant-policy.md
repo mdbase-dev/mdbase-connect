@@ -96,6 +96,8 @@ with `4000 / not_served`, not `authorization_unavailable`: the grant is not what
 is missing. It is retryable; with `waitForDevice` (the default for Private
 collections an application opens) the SDK shows `device_not_serving` and keeps
 retrying, then opens once the device serves the collection, with no new consent.
+The relay sends `not_served` in a `pipe_close` text frame before closing the
+WebSocket, so the client doesn't depend on an intermediary preserving the close reason.
 After restart a newer snapshot sequence is required: replaying the persisted
 cursor does not renew a feed lease.
 

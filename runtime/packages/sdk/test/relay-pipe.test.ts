@@ -4,6 +4,7 @@ import { uuidToBytes } from "../src/codec.js";
 import { connect } from "../src/thin-client.js";
 import { clientPrologue, generateKeyPair } from "../src/transport/noise.js";
 import { MessageCarrier, WebSocketLike } from "../src/transport/noise-session.js";
+import { relayPipeCarrier } from "../src/transport/relay-pipe.js";
 import { relayConnector } from "../src/transport/relay.js";
 import { MemoryReplica, serveNoise } from "../src/testing/index.js";
 import { uuidv7 } from "../src/values.js";
@@ -133,12 +134,24 @@ describe("relay Noise pipe (Connect #596)", () => {
       reason: "not_served",
     });
   });
+
+  it("keeps a refusal after pipe_opened while the grant is being rechecked", async () => {
+    const socket: WebSocketLike = { readyState: 1, binaryType: "", send: vi.fn(), close: vi.fn(), onopen: null, onmessage: null, onclose: null, onerror: null };
+    const opening = relayPipeCarrier("wss://relay.test", { accessToken: "fixture", collection: "collection", grant, device, devicePublicKey: key.publicKey }, () => socket);
+    socket.onmessage!({ data: JSON.stringify({ type: "pipe_opened", pipe_id: "pipe" }) });
+    const carrier = await opening;
+    socket.onmessage!({ data: JSON.stringify({ type: "pipe_close", pipe_id: "pipe", reason: "not_served" }) });
+    socket.onclose!({ code: 1005, reason: "" });
+    const closed = vi.fn();
+    carrier.onclose = closed;
+    expect(closed).toHaveBeenCalledWith(expect.objectContaining({ code: "unavailable", reason: "not_served" }));
+    expect(() => carrier.send(new Uint8Array())).toThrow(closed.mock.calls[0]![0]);
+  });
 });
 
 describe("relay pipe preconditions", () => {
   const base = { accessToken: "t", collection: "c", grant: "g", device: "d", devicePublicKey: new Uint8Array(32) };
   it("refuses ws: and grantless pipes before opening anything", async () => {
-    const { relayPipeCarrier } = await import("../src/transport/relay-pipe.js");
     let opened = 0;
     const ws = () => {
       opened++;
