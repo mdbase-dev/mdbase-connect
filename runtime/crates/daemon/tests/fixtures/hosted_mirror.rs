@@ -4,7 +4,9 @@
 //!
 //! The mirror's base has a, b, c, d, e and u. In the folder: a is changed, b moved
 //! to sub/b2.md, c deleted, d holds non-UTF-8 bytes, e is changed, n.md is new and
-//! u is untouched. On the server, e was changed too ([`server_records`]).
+//! u is untouched. The folder also has the collection's type and contract
+//! definitions, which are not records. On the server, e was changed too
+//! ([`server_records`]).
 #![allow(dead_code)]
 
 use std::fs;
@@ -23,6 +25,8 @@ pub const RE: &str = "0192f0c1-7e1a-7b3c-8d4e-00000000000e";
 pub const RU: &str = "0192f0c1-7e1a-7b3c-8d4e-0000000000ff";
 /// The non-UTF-8 bytes of d.md in the folder.
 pub const BINARY: [u8; 4] = [0xff, 0xfe, 0x00, 0x01];
+/// A definition file in the folder's `_types` and `_contracts`.
+pub const DEFINITION: &str = "---\nname: task\n---\n";
 
 fn hx(b: &[u8]) -> String {
     mdbn_legacy::revision_of(b)["sha256:".len()..].to_owned()
@@ -38,6 +42,12 @@ pub fn build(old: &Path, folder: &Path) -> RegistryEntry {
     fs::write(folder.join("e.md"), "E mine").unwrap();
     fs::write(folder.join("n.md"), "New").unwrap();
     fs::write(folder.join("u.md"), "U").unwrap();
+    // The authority's definitions, pulled down as resources: never in the
+    // record base, and never queued for upload.
+    fs::create_dir_all(folder.join("_types")).unwrap();
+    fs::create_dir_all(folder.join("_contracts")).unwrap();
+    fs::write(folder.join("_types/task.md"), DEFINITION).unwrap();
+    fs::write(folder.join("_contracts/tasknotes.task.md"), DEFINITION).unwrap();
     let rec = |path: &str, bytes: &[u8]| json!({"path": path, "hash": hx(bytes)});
     fs::write(
         old.join("mirrors.json"),
