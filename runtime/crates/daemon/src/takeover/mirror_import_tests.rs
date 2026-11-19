@@ -15,7 +15,7 @@ use crate::takeover::adapter::CRASH_AT;
 
 #[path = "../../tests/fixtures/hosted_mirror.rs"]
 pub(crate) mod hosted_mirror;
-use hosted_mirror::{HOSTED, RA, RB, RC, RD, RE, RU, server_records};
+use hosted_mirror::{DEFINITION, HOSTED, RA, RB, RC, RD, RE, RU, server_records};
 
 fn hx(b: &[u8]) -> String {
     hex_of(b)
@@ -313,6 +313,57 @@ fn capture_records_every_kind_of_unsent_edit_and_never_touches_old_state() {
         }
     );
     assert_eq!(Capture::load(&s.legacy, HOSTED).unwrap().unwrap(), c);
+}
+
+/// A capture taken before the definition folders were skipped (Connect
+/// 0.1.15 and earlier, #1711) lists the collection's type and contract files as
+/// creates, and an import then recorded them as refused. They are not unsent
+/// edits: neither imported nor reported.
+#[test]
+fn definition_files_in_an_earlier_capture_are_not_unsent_edits() {
+    let s = setup("mi-definitions");
+    capture(&s.legacy, &s.old, &s.entry, "2026-10-18T00:00:00Z").unwrap();
+    let path = dir(&s.legacy, HOSTED).unwrap().join("capture.json");
+    let mut earlier: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    let content = keep_bytes(&dir(&s.legacy, HOSTED).unwrap(), DEFINITION.as_bytes()).unwrap();
+    let edits = earlier["edits"].as_array_mut().unwrap();
+    for p in ["_contracts/tasknotes.task.md", "_types/task.md"] {
+        edits.push(serde_json::json!({"kind": "create", "path": p, "content": content}));
+    }
+    fs::write(&path, serde_json::to_vec(&earlier).unwrap()).unwrap();
+    // An earlier import already settled one of them as refused.
+    let mut progress = Progress::load(&s.legacy, HOSTED).unwrap();
+    let refused = Done::Recovered {
+        cause: "refused".into(),
+        file: dir(&s.legacy, HOSTED).unwrap().join("bytes").join(&content),
+    };
+    settle(
+        &mut progress,
+        &s.legacy,
+        HOSTED,
+        "create:_types/task.md",
+        refused,
+    )
+    .unwrap();
+
+    let c = Capture::load(&s.legacy, HOSTED).unwrap().unwrap();
+    assert!(
+        c.edits.iter().all(|e| !e.path().starts_with('_')),
+        "{:?}",
+        c.edits
+    );
+    let mut f = Fake::new();
+    let pass = block_on(import(&s.legacy, HOSTED, &mut f, &mut counter())).unwrap();
+    assert!(pass.complete);
+    assert_eq!(pass.settled, 6);
+    assert_imported(&s, &f);
+    let st = status(&s.legacy, HOSTED).unwrap().unwrap();
+    assert_eq!(st["edits"], 6, "{st}");
+    assert_eq!(
+        st["recovered"].as_array().unwrap().len(),
+        1,
+        "only d.md: {st}"
+    );
 }
 
 #[test]

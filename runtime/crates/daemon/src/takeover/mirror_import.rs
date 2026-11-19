@@ -187,7 +187,7 @@ impl Capture {
         let Some(b) = fsutil::read_optional(&dir(legacy, collection)?.join("capture.json"))? else {
             return Ok(None);
         };
-        let c: Capture = serde_json::from_slice(&b)
+        let mut c: Capture = serde_json::from_slice(&b)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "malformed mirror capture"))?;
         if c.schema_version != SCHEMA_VERSION || c.collection_id != collection {
             return Err(io::Error::new(
@@ -195,6 +195,12 @@ impl Capture {
                 "unsupported mirror capture",
             ));
         }
+        // Captures taken before `queued_writes` skipped the definition folders
+        // (Connect 0.1.15 and earlier) list the collection's type and contract
+        // files as creates. They were never unsent edits, and the collection
+        // refuses records there: drop them, so they are neither imported nor
+        // reported. Remove with the legacy takeover.
+        c.edits.retain(|e| !mirror::is_definition_path(e.path()));
         Ok(Some(c))
     }
 
