@@ -46,6 +46,7 @@ export interface DevicePairing {
   signed_in_account_login?: string;
   selected_collection_id?: string | null;
   native_authorization_id?: string | null;
+  recovery_collection_id?: string;
   collection_hint?: string | null;
   can_create_collection?: boolean;
   creation?: {collection_id:string;display_name:string;completed:boolean} | null;
