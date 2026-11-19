@@ -1,5 +1,10 @@
 import type { DatabasePool } from "../../db.js";
 
+// Account management retires a revoked native grant with its collection.
+// The deletion fact is independent of the log's revocation acknowledgement.
+export const grantVisibleToManagementSql = `(g.revoked_at IS NULL OR g.next_collection_id IS NULL
+  OR g.next_collection_id NOT IN (SELECT collection_id FROM next_collection_deletion_facts))`;
+
 export async function deliverGrantRevocations(relay: { pushPolicy(connectorId: string): Promise<void> }, connectorIds: Array<string | null>, log: { warn(message: string): void }): Promise<void> {
   for (const connectorId of new Set(connectorIds)) {
     if (!connectorId) continue;

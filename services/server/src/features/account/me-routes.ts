@@ -22,6 +22,7 @@ import { requireUser } from "../../platform/request-authentication.js";
 import { sqlPlaceholders } from "../../platform/sql.js";
 import { liveAuthorizationCollections } from "../authorizations/local-collections.js";
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
+import { grantVisibleToManagementSql } from "../grants/local-grant-revocation.js";
 import { requiresHostedCollection } from "../grants/policy.js";
 import { hostedMirrorReplicas } from "../hosted/service.js";
 import type { LogServiceClient } from "../next/log-service-client.js";
@@ -206,6 +207,7 @@ export function registerAccountOverviewRoute(
        LEFT JOIN next_collections native ON native.collection_id = g.next_collection_id
        WHERE g.user_id = $1
          AND (g.activated_at IS NOT NULL OR g.revoked_at IS NOT NULL)
+         AND ${grantVisibleToManagementSql}
        ) listed
        WHERE listed.revocation_status <> 'revoked' OR listed.reauthorization_required_at IS NOT NULL
        ORDER BY listed.created_at DESC`,

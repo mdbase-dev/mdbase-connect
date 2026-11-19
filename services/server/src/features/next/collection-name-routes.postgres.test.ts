@@ -16,6 +16,10 @@ import { installationCollections } from "./installation-scope.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
+import { registerAccountOverviewRoute } from "../account/me-routes.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
+import { registerGrantRevocationRoute } from "../authorizations/grant-revocation-route.js";
+import { RelayHub } from "../relay/relay.js";
 import { issueApplicationTokens } from "../authorizations/token-service.js";
 
 const noLog = { controlItemsAfter: async () => { throw new Error("no abandoned switch in this suite"); } };
@@ -44,6 +48,11 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
+    const relay = new RelayHub(db);
+    app.addHook("onClose", () => relay.close());
+    registerAccountOverviewRoute(app, { db, relay, tailscaleAuth: true, publicUrl: "https://connect.test",
+      authenticationPolicy: new AuthenticationPolicyStore(db, "open") });
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true, drainProviderRevocations: async () => {} });
     registerCollectionNameRoutes(app, db, noLog, floor);
     registerNextRouteRoutes(app,{db,publicUrl:"https://connect.test",broker:{request:async () => {throw new Error("Catalog reads must not contact a relay.");}}});
   }, 60_000);
@@ -353,6 +362,40 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     // Soft delete: the collection's row and label are retained, unreachable.
     expect(await name(f.collection)).toBe("Initial label");
   });
+  it("removes a pending grant from account management when its collection is deleted", async () => {
+    const f = await fixture();
+    const grant = await localGrantFixture(db), sibling = await localGrantFixture(db);
+    await db.query(`UPDATE grants SET user_id=$2, collection_id=NULL, next_collection_id=$3,
+      next_collection_sync=$4, activated_at=now() WHERE id=$1`, [grant, f.user, f.collection, sync]);
+    await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",
+      [grant, f.collection, randomUUID(), Buffer.alloc(32)]);
+    await db.query("UPDATE connectors SET user_id=$2 WHERE id=$1", [sibling, f.user]);
+    await db.query("UPDATE collections SET user_id=$2 WHERE id=$1", [sibling, f.user]);
+    await db.query("UPDATE grants SET application_id=$1, user_id=$2, activated_at=now() WHERE id=$3", [grant, f.user, sibling]);
+    const headers = { "tailscale-user-login": `${f.user}@example.test` };
+    const revoke = () => app.inject({ method: "DELETE", url: `/v1/grants/${grant}`, headers });
+    const listed = async () => {
+      const response = await app.inject({ url: "/v1/me?native_storage=omit", headers });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json().grants.map((row: { id: string; revocation_status: string }) => [row.id, row.revocation_status]);
+    };
+
+    expect((await revoke()).json()).toEqual({ ok: true, revocation_status: "revoking" });
+    expect(await listed()).toContainEqual([grant, "revoking"]);
+    expect((await remove(f)).statusCode).toBe(200);
+    expect(await listed()).toEqual([[sibling, "active"]]);
+    const retry = await revoke();
+    expect(retry.statusCode).toBe(404);
+    expect(retry.json().error.code).toBe("grant_not_found");
+    const batch = await app.inject({ method: "POST", url: "/v1/grants/revoke-batch", headers,
+      payload: { grant_ids: [grant, sibling] } });
+    expect(batch.statusCode).toBe(404);
+    expect(batch.json().error.code).toBe("grant_not_found");
+    expect(await listed()).toEqual([[sibling, "active"]]);
+    expect((await db.query("SELECT revocation_confirmed_at FROM grants WHERE id=$1", [grant])).rows)
+      .toEqual([{ revocation_confirmed_at: null }]);
+  });
+
   it("keeps the CP denial when the native floor reply is lost", async () => {
     const f = await fixture();
     floorFails = true;
