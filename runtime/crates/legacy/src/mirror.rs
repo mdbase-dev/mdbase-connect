@@ -455,9 +455,23 @@ fn mutation(m: &Value) -> Option<Unreceipted> {
     })
 }
 
+/// The collection-root folders that hold an old hosted collection's authority
+/// resources (types, contracts, schemas, views): connect-mirror
+/// `RESERVED_FILE_DIRECTORIES`. The old mirror pulled them down but never queued
+/// them for upload (its local scan excluded resource and non-record paths, and
+/// its executor refused resource writes), and the base has no record for them.
+pub const DEFINITION_FOLDERS: [&str; 4] = ["_contracts", "_schemas", "_types", "_views"];
+
+/// Whether `path` (collection-relative) is inside one of [`DEFINITION_FOLDERS`]:
+/// a file there is never an unsent edit.
+pub fn is_definition_path(path: &str) -> bool {
+    path.split_once('/')
+        .is_some_and(|(top, _)| DEFINITION_FOLDERS.contains(&top))
+}
+
 /// The local edits the mirror had not uploaded, computed as the v3 engine does: Markdown
-/// and `.base` files under `root` (skipping `.git`, `.mdbase`, `node_modules` and temp
-/// files) against the base. A file at a new path whose bytes equal exactly one base
+/// and `.base` files under `root` (skipping `.git`, `.mdbase`, `node_modules`, the
+/// [`DEFINITION_FOLDERS`] and temp files) against the base. A file at a new path whose bytes equal exactly one base
 /// entry's is a move, and is reported as an update at the new path.
 pub fn queued_writes(state: &MirrorState, root: &Path) -> Result<Vec<Queued>> {
     let mut local = BTreeMap::new();
@@ -522,7 +536,8 @@ fn scan(root: &Path, dir: &Path, out: &mut BTreeMap<String, String>) -> Result<(
         let name = entry.file_name().to_string_lossy().into_owned();
         let ty = entry.file_type().map_err(|e| Error::io(&path, e))?;
         if ty.is_dir() {
-            if !matches!(name.as_str(), ".git" | ".mdbase" | "node_modules") {
+            let definitions = dir == root && DEFINITION_FOLDERS.contains(&name.as_str());
+            if !definitions && !matches!(name.as_str(), ".git" | ".mdbase" | "node_modules") {
                 scan(root, &path, out)?;
             }
             continue;

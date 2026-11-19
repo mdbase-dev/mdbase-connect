@@ -101,7 +101,9 @@ impl<S: Store> Replica<S> {
                 base: &view,
                 layer: &self.layer,
             };
-            let catalog = self.catalog.clone();
+            // The catalog reads use (pending definitions included), so a
+            // change's types match what a read of the record returns.
+            let catalog = lv.catalog();
             let types_of = |path: &str, source: &str| -> Vec<String> {
                 let doc = mdbn_core::doc::Document::parse_at(path, source);
                 catalog.membership(path, doc.frontmatter()).types
@@ -396,12 +398,26 @@ impl<S: Store> Replica<S> {
                 reset: false,
             });
         };
-        let parsed = c
-            .split_once(':')
-            .filter(|(i, _)| i.parse::<u64>().ok() == Some(inst))
-            .and_then(|(_, v)| v.parse::<u64>().ok());
-        let at: u64 = match parsed {
-            Some(v) if v <= now && v >= self.live.feed_floor => v,
+        // `instance:version` resumes after a whole version; `instance:version:k`
+        // resumes inside one, after its k-th change (0-based, before the
+        // per-session visibility filter). One notification's changes share a
+        // version, so a page that ends inside it needs the offset.
+        let mut parts = c.split(':');
+        let parsed = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+            (Some(i), Some(v), offset, None) if i.parse::<u64>().ok() == Some(inst) => {
+                match (v.parse::<u64>(), offset.map(str::parse::<usize>)) {
+                    (Ok(v), None) => Some((v, None)),
+                    (Ok(v), Some(Ok(k))) => Some((v, Some(k))),
+                    _ => None,
+                }
+            }
+            _ => None,
+        };
+        // The window drops whole entries from the front, so the floor's own
+        // version may be only partly retained: resuming inside it is refused.
+        let floor = self.live.feed_floor;
+        let (at, offset) = match parsed {
+            Some((v, k)) if v <= now && (v > floor || (v == floor && k.is_none())) => (v, k),
             _ => {
                 return Ok(ChangesResult {
                     changes: Vec::new(),
@@ -410,27 +426,79 @@ impl<S: Store> Replica<S> {
                 });
             }
         };
-        let limit = limit.unwrap_or(1000) as usize;
-        let changes: Vec<Change> = self
-            .live
-            .feed
-            .iter()
-            .filter(|c| c.version > at)
-            .filter(|c| self.change_visible(session, c))
-            .take(limit)
-            .cloned()
-            .collect();
-        let cursor = changes.last().map(|c| c.version).unwrap_or(now);
-        let cursor = if changes.len() < limit {
-            now.max(cursor)
-        } else {
-            cursor
+        let limit = (limit.unwrap_or(1000) as usize).max(1);
+        let mut changes: Vec<Change> = Vec::new();
+        // Position of the last delivered change, and whether its version
+        // continues after it.
+        let mut last: Option<(u64, usize)> = None;
+        let mut group: Option<(u64, usize)> = None;
+        let mut full = false;
+        for c in self.live.feed.iter() {
+            let index = match group {
+                Some((v, k)) if v == c.version => k + 1,
+                _ => 0,
+            };
+            group = Some((c.version, index));
+            if c.version < at || (c.version == at && offset.is_none_or(|k| index <= k)) {
+                continue;
+            }
+            if changes.len() >= limit {
+                full = true;
+                break;
+            }
+            if !self.change_visible(session, c) {
+                continue;
+            }
+            changes.push(c.clone());
+            last = Some((c.version, index));
+        }
+        let cursor = match (full, last) {
+            (true, Some((version, index))) => {
+                let continues = self
+                    .live
+                    .feed
+                    .iter()
+                    .filter(|c| c.version == version)
+                    .count()
+                    > index + 1;
+                if continues {
+                    format!("{inst}:{version}:{index}")
+                } else {
+                    format!("{inst}:{version}")
+                }
+            }
+            _ => format!("{inst}:{}", now.max(last.map_or(now, |(v, _)| v))),
         };
         Ok(ChangesResult {
             changes,
-            cursor: format!("{inst}:{cursor}"),
+            cursor,
             reset: false,
         })
+    }
+
+    /// The catalog changed: every record's types and derived values may have
+    /// changed with it, and the feed cannot name them. Retire every older
+    /// cursor and tell watchers to re-read what they cache.
+    pub(crate) fn reset_feed(&mut self) {
+        self.view_version += 1;
+        let version = self.view_version;
+        self.live.feed.clear();
+        self.live.feed_floor = version;
+        let cursor = format!("{}:{version}", self.live.instance);
+        let watchers: Vec<SessionId> = self.live.watchers.iter().copied().collect();
+        for w in watchers {
+            if self.require(w, crate::policy::capability::READ).is_err() {
+                continue;
+            }
+            self.pushes.push((
+                w,
+                Push::Changes(ChangesResult {
+                    changes: Vec::new(),
+                    cursor: cursor.clone(),
+                    reset: true,
+                }),
+            ));
+        }
     }
 
     /// Drop a closed session's push state.

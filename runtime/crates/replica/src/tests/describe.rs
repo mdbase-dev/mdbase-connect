@@ -709,3 +709,44 @@ fn contract_query_filters_on_contract_fields() {
         Some("invalid_query")
     );
 }
+
+/// A confirmed catalog change re-derives every record's types, which the feed
+/// cannot name: older cursors reset and watchers are told to re-read.
+#[test]
+fn a_confirmed_catalog_change_resets_the_change_feed() {
+    use crate::api::Push;
+    let (_, mut a) = configured(resources());
+    let before = a.r.changes(a.s, None, None, true).unwrap().cursor;
+    a.r.take_pushes();
+    a.create(1, "rows/a.md", "---\ntype: Zebra\n---\n");
+    settle(&mut [&mut a]);
+    let record = a.r.changes(a.s, Some(before.clone()), None, false).unwrap();
+    assert!(!record.reset, "a record change does not reset: {record:?}");
+    assert!(
+        !a.r.take_pushes()
+            .iter()
+            .any(|(_, p)| matches!(p, Push::Changes(c) if c.reset))
+    );
+    pending_resources(
+        &mut a,
+        vec![("_types/zebra.md", type_source("Zebra", "2.0.0", false))],
+    );
+    settle(&mut [&mut a]);
+    assert!(a.r.layer.catalog().is_none(), "the definition is confirmed");
+    let pushes = a.r.take_pushes();
+    let reset = pushes
+        .iter()
+        .find_map(|(s, p)| match p {
+            Push::Changes(c) if *s == a.s && c.reset => Some(c.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("watcher told to re-read: {pushes:?}"));
+    assert!(reset.changes.is_empty());
+    let old = a.r.changes(a.s, Some(record.cursor), None, false).unwrap();
+    assert!(old.reset, "a cursor from before the catalog change resets");
+    let current = a.r.changes(a.s, Some(reset.cursor), None, false).unwrap();
+    assert!(
+        !current.reset,
+        "the reset's own cursor continues: {current:?}"
+    );
+}

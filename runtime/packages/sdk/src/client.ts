@@ -148,6 +148,13 @@ export interface ChangesWatch {
   readonly ready: Promise<void>;
   readonly state: ChangesWatchState;
   readonly error: MdbaseError | null;
+  /** The feed position this watch has delivered up to: the last batch's
+   * cursor, or the last catch-up page's when it had nothing to deliver.
+   * `undefined` until the first catch-up read. A cache that has applied every
+   * delivered batch can stop the watch and later resume with
+   * `watchChanges(onChanges, { cursor })`; a cursor the replica can no longer
+   * serve resumes with `reset: true`. */
+  readonly cursor: string | undefined;
   subscribe(listener: (state: ChangesWatchState, error: MdbaseError | null) => void): () => void;
 }
 
@@ -1810,7 +1817,7 @@ export class MdbaseClient {
       notify(listener);
       return () => { listeners.delete(listener); };
     } });
-    Object.defineProperties(watch, { state: { get: () => state }, error: { get: () => error } });
+    Object.defineProperties(watch, { state: { get: () => state }, error: { get: () => error }, cursor: { get: () => last } });
     return Object.freeze(watch) as ChangesWatch;
   }
 
