@@ -35,7 +35,7 @@ function fixture(options: {autoSelect?: "only" | "never"; declaresPrivateDevice?
     return {store: store as unknown as AppInstallationStore, plaintext: new Uint8Array(saved)};
   });
   /** The portal and the server's ledger. `approved`/`consentApproved` are the approval receipts' own fields. */
-  const cp = {selected: false, approved: null as Receipt | null, consentApproved: null as Receipt | null, listing: [] as Record<string, unknown>[], grantsDeviceAccess: true,
+  const cp = {selected: false, deniedRequestId: null as string | null, approved: null as Receipt | null, consentApproved: null as Receipt | null, listing: [] as Record<string, unknown>[], grantsDeviceAccess: true,
     requests: [] as {method: string; path: string; body: Record<string, any> | undefined; bearer: string | undefined}[]};
   const request = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input)), path = url.pathname + url.search, method = init?.method ?? "GET";
@@ -44,6 +44,8 @@ function fixture(options: {autoSelect?: "only" | "never"; declaresPrivateDevice?
     const state = read(), consent = state.consentRequest;
     const selection = (requestId: string, challenge: string) => ({account_email: "person@example.test", account_selection_confirmed: true, request_id: requestId, account_id: account, connector_id: connector, device_id: state.deviceId, installation_id: state.installationId, kind: state.kind, challenge, approval_mode: "password-ak1", app_id: appId, app_origin: origin, expires_at: Date.now() + 600000});
     const reply = (status: number, value: unknown) => new Response(JSON.stringify(value), {status});
+    if (cp.deniedRequestId && (body?.installation?.request_id === cp.deniedRequestId || path === `/v1/pairing-requests/${cp.deniedRequestId}/exchange`))
+      return reply(404, {error: {code: "installation_pairing_denied", message: "Approval cancelled"}});
     if (method === "POST" && path === "/v1/pairing-requests") {
       const asked = body!.installation;
       return reply(201, {pairing_id: asked.request_id, pairing_secret: asked.pairing_secret, verification_uri: `${cpOrigin}/pair/${asked.request_id}`, expires_in: 600, installation_device: true, app_id: appId, app_origin: origin, app_name: appName});
@@ -107,6 +109,26 @@ function fixture(options: {autoSelect?: "only" | "never"; declaresPrivateDevice?
 }
 
 describe("installation sign-in with Private device access, from START", () => {
+  it("signing in again sends one pairing POST after the poll observes a cancelled approval", async () => {
+    const f = fixture();
+    await f.toApproval();
+    const original = f.read();
+    f.cp.deniedRequestId = original.requestId;
+    await f.until(() => f.session.getSnapshot().problem === "refused");
+
+    const before = f.cp.requests.length;
+    await f.session.authorize();
+    const starts = f.cp.requests.slice(before).filter(r => r.method === "POST" && r.path === "/v1/pairing-requests");
+    expect(starts).toHaveLength(1);
+    expect(starts[0]!.body!.installation).toMatchObject({
+      installation_id: original.installationId, device_id: original.deviceId,
+      renewal: {request_id: original.requestId, pairing_secret: original.secret},
+    });
+    const renewed = starts[0]!.body!.installation.request_id;
+    expect(renewed).not.toBe(original.requestId);
+    expect(f.navigatePortal).toHaveBeenLastCalledWith(`${cpOrigin}/pair/${renewed}`);
+    await f.close();
+  });
   it("a Private-only approval carries no selection: signed in, in the chooser, the collection listed as Private", async () => {
     const f = fixture();
     await f.toApproval();
