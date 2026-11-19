@@ -1923,6 +1923,7 @@ impl<S: Store> Replica<S> {
         if catalog_changed {
             self.catalog = catalog;
             self.reindex()?;
+            self.reset_feed();
             // Every pending row plans under the new catalog.
             changed.extend(self.pending_keys.values().flatten().cloned());
         }

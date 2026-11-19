@@ -798,6 +798,7 @@ impl<S: Store> Replica<S> {
         match crate::plan::load_catalog(&self.store) {
             Ok(c) => {
                 self.catalog = std::sync::Arc::new(c);
+                self.reset_feed();
                 // Invalidate the cached query context after snapshot install.
                 self.query_context = None;
             }

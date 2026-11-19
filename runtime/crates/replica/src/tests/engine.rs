@@ -1175,6 +1175,77 @@ fn own_write_confirmation_is_not_announced_again() {
     );
 }
 
+/// One notification's changes share a version. A page that ends inside that
+/// version resumes inside it, so no change is skipped and no page exceeds its
+/// limit.
+#[test]
+fn change_feed_pages_resume_inside_a_version() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let start = a.r.changes(a.s, None, None, false).unwrap().cursor;
+    a.create(10, "a.md", "a");
+    a.create(11, "b.md", "b");
+    // One notification that announced three records: same version as b.md.
+    for (n, path) in [(9u8, "c.md"), (8, "d.md")] {
+        let mut grouped = a.r.live.feed.back().unwrap().clone();
+        grouped.id = mdbn_wire::common::B16([n; 16]);
+        grouped.path = path.into();
+        a.r.live.feed.push_back(grouped);
+    }
+    let paths = |r: &crate::api::ChangesResult| {
+        r.changes.iter().map(|c| c.path.clone()).collect::<Vec<_>>()
+    };
+    let first =
+        a.r.changes(a.s, Some(start.clone()), Some(2), false)
+            .unwrap();
+    assert_eq!(paths(&first), ["a.md", "b.md"], "{first:?}");
+    let second =
+        a.r.changes(a.s, Some(first.cursor), Some(1), false)
+            .unwrap();
+    assert_eq!(paths(&second), ["c.md"], "{second:?}");
+    let third =
+        a.r.changes(a.s, Some(second.cursor), Some(2), false)
+            .unwrap();
+    assert_eq!(paths(&third), ["d.md"], "{third:?}");
+    assert!(!third.reset);
+    let rest =
+        a.r.changes(a.s, Some(third.cursor), Some(2), false)
+            .unwrap();
+    assert!(rest.changes.is_empty() && !rest.reset, "{rest:?}");
+    // A page that ends exactly at a version's end needs no offset.
+    let whole = a.r.changes(a.s, Some(start), Some(4), false).unwrap();
+    assert_eq!(paths(&whole), ["a.md", "b.md", "c.md", "d.md"]);
+    assert_eq!(whole.cursor.split(':').count(), 2, "{whole:?}");
+}
+
+/// A cursor inside a version the window has partly dropped cannot resume:
+/// it resets rather than skip the dropped changes.
+#[test]
+fn change_feed_cursor_inside_a_trimmed_version_resets() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    a.create(10, "a.md", "a");
+    let version = a.r.live.feed.back().unwrap().version;
+    let inst = a.r.live.instance;
+    a.r.live.feed_floor = version;
+    let inside =
+        a.r.changes(a.s, Some(format!("{inst}:{version}:0")), Some(5), false)
+            .unwrap();
+    assert!(inside.reset, "{inside:?}");
+    let after =
+        a.r.changes(a.s, Some(format!("{inst}:{version}")), Some(5), false)
+            .unwrap();
+    assert!(!after.reset, "{after:?}");
+    for bad in [
+        format!("{inst}:{version}:x"),
+        format!("{inst}:{version}:0:0"),
+    ] {
+        assert!(a.r.changes(a.s, Some(bad), Some(5), false).unwrap().reset);
+    }
+}
+
 /// Live queries are capped per session (each is
 /// re-run on every change); an unsubscribe frees a slot; other sessions are
 /// unaffected.
