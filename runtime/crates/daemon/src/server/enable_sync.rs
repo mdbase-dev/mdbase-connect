@@ -390,7 +390,7 @@ impl Daemon {
             let aside = collections.join(format!("{}.local-{}", entry.id, fsutil::now_ms()));
             std::fs::rename(&dir, &aside).map_err(|e| ControlError::internal(e.to_string()))?;
         }
-        self.write_link(
+        let link = self.verified_link(
             &entry.id,
             &collection,
             &trust,
@@ -398,6 +398,7 @@ impl Daemon {
             (&log_url, &genesis),
             true,
         )?;
+        self.save_link(&link, &collection, &trust)?;
         let mut next = inner.registry.clone();
         let updated = next
             .get_mut(&entry.id)

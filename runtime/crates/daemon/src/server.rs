@@ -49,6 +49,7 @@ mod grants;
 mod holds;
 mod legacy_takeover;
 mod lifecycle;
+mod rejoin;
 mod relay_host;
 mod runtime_calls;
 mod startup;

@@ -112,12 +112,13 @@ pub(super) async fn run_command(
             path,
             name,
             private,
+            recover_removed,
         }) => {
             let path = std::path::absolute(&path).map_err(ClientError::Io)?;
             let v = call(
                 profile,
                 Method::COLLECTION_JOIN,
-                json!({ "collection": collection, "path": path, "name": name, "private": private }),
+                json!({ "collection": collection, "path": path, "name": name, "private": private, "recover_removed": recover_removed }),
             )
             .await?;
             if out.json {

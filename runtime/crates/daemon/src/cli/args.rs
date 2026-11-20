@@ -180,6 +180,10 @@ pub(super) enum CollectionCmd {
         /// approve from another of your devices (`mdbase device approve`).
         #[arg(long)]
         private: bool,
+        /// Preserve the old sync store of a cloud copy you removed on this computer
+        /// and download a fresh copy into the empty folder.
+        #[arg(long, conflicts_with = "private")]
+        recover_removed: bool,
     },
     /// Unregister a local folder. Does not delete the synced collection or files.
     Remove {
