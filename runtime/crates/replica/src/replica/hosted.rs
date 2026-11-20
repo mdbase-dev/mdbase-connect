@@ -132,6 +132,7 @@ enum Lookup {
 #[derive(Debug, Default)]
 pub(crate) struct HostedState {
     pub(super) reindex_stamp: Option<Vec<u8>>,
+    repair_boundary: Option<HostedRepairBoundary>,
     pub(super) applied_since_tick: u32,
     profile: HostedProfile,
     rebuilt: bool,
@@ -162,6 +163,17 @@ pub(crate) struct HostedState {
     /// Cleared on every fault; an entry leaves when its fetch is answered or fails.
     /// A fetch not listed never counts.
     fetches: BTreeMap<u64, u64>,
+}
+
+/// Count-only boundaries crossed during one hosted open or alarm slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostedRepairBoundary {
+    /// Applied sequence held fixed for the pass.
+    pub applied_seq: u64,
+    /// This slice started at the beginning, not a saved cursor.
+    pub started: bool,
+    /// Committed pass totals (records visited, record rows written), at EOF only.
+    pub finished: Option<(u64, u64)>,
 }
 
 /// Crate-private currentness fact for the verified-admission observer (trust
@@ -1050,6 +1062,11 @@ fn not_hosted() -> ApiError {
 }
 
 impl<S: Store> Replica<S> {
+    /// Drain the last repair boundary for host diagnostics, not readiness.
+    pub fn take_hosted_repair_boundary(&mut self) -> Option<HostedRepairBoundary> {
+        self.hosted.as_mut()?.repair_boundary.take()
+    }
+
     pub(super) fn hosted_reindex_pending(&self) -> bool {
         self.hosted
             .as_ref()
@@ -1063,15 +1080,33 @@ impl<S: Store> Replica<S> {
         let version = crate::store::DERIVED_DATA_VERSION.to_be_bytes();
         let prefix = [version.as_slice(), stamp, &self.head.chain.0].concat();
         let saved = self.store.meta(CHECKPOINT)?;
-        let mut after = saved
+        let (mut after, mut visited, mut written) = match saved
             .as_deref()
-            .and_then(|value| value.strip_prefix(prefix.as_slice()))
-            .map(|id| {
-                id.try_into()
-                    .map(mdbn_wire::common::B16)
-                    .map_err(|_| StoreError::Corrupt("hosted reindex cursor".into()))
-            })
-            .transpose()?;
+            .and_then(|v| v.strip_prefix(prefix.as_slice()))
+        {
+            None => (None, 0u64, 0u64),
+            Some(value) => {
+                let (id, counts) = value
+                    .split_first_chunk::<16>()
+                    .ok_or_else(|| StoreError::Corrupt("hosted reindex cursor".into()))?;
+                let ([visits, writes], []) = counts.as_chunks::<8>() else {
+                    return Err(StoreError::Corrupt("hosted reindex counts".into()));
+                };
+                let (visited, written) = (u64::from_be_bytes(*visits), u64::from_be_bytes(*writes));
+                if written > visited || visited == u64::MAX {
+                    return Err(StoreError::Corrupt("hosted reindex counts".into()));
+                }
+                (Some(mdbn_wire::common::B16(*id)), visited, written)
+            }
+        };
+        let started = after.is_none();
+        if started {
+            hosted.repair_boundary = Some(HostedRepairBoundary {
+                applied_seq: self.head.seq,
+                started,
+                finished: None,
+            });
+        }
         let mut bytes = 0;
         for index in 0..8 {
             let Some(mut row) = self.store.records(Page { after, limit: 1 })?.pop() else {
@@ -1083,6 +1118,11 @@ impl<S: Store> Replica<S> {
                     ],
                     ..Tx::default()
                 })?;
+                hosted.repair_boundary = Some(HostedRepairBoundary {
+                    applied_seq: self.head.seq,
+                    started,
+                    finished: Some((visited, written)),
+                });
                 hosted.reindex_stamp = None;
                 break;
             };
@@ -1091,10 +1131,25 @@ impl<S: Store> Replica<S> {
             }
             bytes += row.doc.len();
             after = Some(row.id);
-            let cursor = [prefix.as_slice(), &row.id.0].concat();
-            row.meta = crate::plan::record_meta(&self.catalog, &row.path, &row.doc);
+            let meta = crate::plan::record_meta(&self.catalog, &row.path, &row.doc);
+            visited += 1;
+            let id = row.id;
+            let records_put = if row.meta == meta {
+                Vec::new()
+            } else {
+                row.meta = meta;
+                written += 1;
+                vec![row]
+            };
+            let cursor = [
+                prefix.as_slice(),
+                &id.0,
+                &visited.to_be_bytes(),
+                &written.to_be_bytes(),
+            ]
+            .concat();
             self.store.commit(Tx {
-                records_put: vec![row],
+                records_put,
                 meta: vec![(CHECKPOINT.into(), Some(cursor))],
                 ..Tx::default()
             })?;

@@ -650,7 +650,7 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
     let mut want = entry(&a, &c.payload);
     want.resources = vec![("_types/task.md".into(), TYPE.into())];
     want.settings = Some(inclusion);
-    want.record_meta_stamp = Some(record_meta_stamp(&want.resources));
+    want.record_meta_stamp = Some(record_meta_stamp(&n.r.catalog));
     want.records.push(stored(
         &n.r,
         B,
@@ -1839,19 +1839,13 @@ fn read_faults_by_read() {
             "legacy effects",
             every_legacy_arm,
             "file record tombstone record file tombstone file record_at file_at record_at \
-             file_at resources pending_get holds record record resources resources",
-            // The two captures of what the disk shows, then the catalog reload.
-            &[
-                (14, "applied"),
-                (15, "applied"),
-                (17, "error after the commit"),
-            ],
+             file_at resources pending_get holds record record resources",
+            &[(14, "applied"), (15, "applied")],
             &[
                 (0, &[]),
                 (13, &["changed"]),
                 (14, ALL_CATALOG),
                 (16, &["before", "policy", "changed"]),
-                (17, ALL_CATALOG),
             ],
         ),
         (

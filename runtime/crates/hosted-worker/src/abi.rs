@@ -35,6 +35,7 @@ use crate::runtime::{ConfiguredCppAudience, Engine, OpenConfig, Out};
 unsafe extern "C" {
     fn host_sql(ptr: *const u8, len: usize) -> u64;
     fn host_now_ms() -> f64;
+    fn host_repair_boundary(finished: u32, seq: u64, visited: u64, written: u64);
     fn host_random(ptr: *mut u8, len: usize);
     fn host_local_date(instant_ms: f64, tz: *const u8, tz_len: usize, out: *mut u8) -> u32;
     fn host_default_zone(out: *mut u8, cap: usize) -> u32;
@@ -333,7 +334,8 @@ unsafe fn open_native(ptr: *mut u8, len: usize, audience: Option<ConfiguredCppAu
         })
     });
     match r {
-        Ok(state) => {
+        Ok(mut state) => {
+            emit_repair_boundary(&mut state.engine);
             #[allow(static_mut_refs)]
             unsafe {
                 STATE = Some(state);
@@ -1512,7 +1514,21 @@ pub extern "C" fn hd_close(session: f64) {
 /// Run timers.
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_tick(now_ms: f64, after_open: u32) {
-    with(|s| s.engine.tick(now_ms as i64, after_open != 0));
+    with(|s| {
+        s.engine.tick(now_ms as i64, after_open != 0);
+        emit_repair_boundary(&mut s.engine);
+    });
+}
+
+fn emit_repair_boundary(engine: &mut Live) {
+    if let Some(event) = engine.take_repair_boundary() {
+        if event.started {
+            unsafe { host_repair_boundary(0, event.applied_seq, 0, 0) };
+        }
+        if let Some((visited, written)) = event.finished {
+            unsafe { host_repair_boundary(1, event.applied_seq, visited, written) };
+        }
+    }
 }
 
 /// Opaque applied progress for idle scheduling, never an authority observation.

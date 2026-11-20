@@ -92,21 +92,51 @@ pub fn value_key(v: &CValue) -> String {
     canonical(v).to_json()
 }
 
-/// Which catalog a store's record index entries were derived under: the exact
-/// resources it was compiled from. Open reindexes on a mismatch, which covers a
-/// crash between a catalog change and its reindex. Derivation changes bump
-/// [`crate::store::DERIVED_DATA_VERSION`] instead.
-pub fn record_meta_stamp(resources: &[(String, String)]) -> Vec<u8> {
-    let mut sorted: Vec<_> = resources.iter().collect();
-    sorted.sort();
-    let mut bytes = b"mdbase/v1/record-meta\0".to_vec();
-    for (path, doc) in sorted {
-        for part in [path, doc] {
-            bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
-            bytes.extend_from_slice(part.as_bytes());
-        }
+/// Fingerprint the catalog used by `record_meta`: membership, path-derived
+/// fields, uniqueness and link keys. A resolved schema may live outside the
+/// types folder. Unregistered resources and individual records are not inputs.
+pub fn record_meta_stamp(catalog: &Catalog) -> Vec<u8> {
+    let mut digest = Sha256::new();
+    digest.update(b"mdbase/v2/record-meta\0");
+    let mut part = |value: &str| {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    };
+    let settings = catalog.settings();
+    for values in [&settings.explicit_type_keys, &settings.record_extensions] {
+        part(&CValue::List(values.iter().cloned().map(CValue::Text).collect()).to_json());
     }
-    mdbn_wire::hash::sha256(&bytes).0.to_vec()
+    for optional in [&settings.timezone, &settings.id_field] {
+        part(
+            &optional
+                .clone()
+                .map_or(CValue::Null, CValue::Text)
+                .to_json(),
+        );
+    }
+    for definition in catalog.types() {
+        part(&definition.name);
+        part(
+            &definition
+                .raw
+                .get("match")
+                .unwrap_or(&CValue::Null)
+                .to_json(),
+        );
+        for field in ["path", "unique", "links"] {
+            part(
+                &definition
+                    .raw
+                    .get("collection")
+                    .and_then(|v| v.get(field))
+                    .unwrap_or(&CValue::Null)
+                    .to_json(),
+            );
+        }
+        part(&definition.schema_entry);
+        part(&definition.schema_document.to_json());
+    }
+    digest.finalize().to_vec()
 }
 
 /// The field references the catalog's `unique` rules name: what the store's

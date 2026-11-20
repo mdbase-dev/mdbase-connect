@@ -159,6 +159,12 @@ export class Engine {
     const instance = new WebAssembly.Instance(engineModule, {
       env: {
         host_sql: host,
+        host_repair_boundary: (finished: number, seq: bigint, visited: bigint, written: bigint) => {
+          try {
+            console.info(JSON.stringify({ event: finished ? "hosted_record_meta_repair_finish" : "hosted_record_meta_repair_start",
+              applied_seq: seq.toString(), records_visited: Number(visited), record_rows_written: Number(written) }));
+          } catch { /* Diagnostics cannot interrupt a committed slice. */ }
+        },
         host_now_ms: () => Date.now(),
         host_random: (p: number, n: number) => {
           for (let off = 0; off < n; off += 65536) {
