@@ -15,6 +15,7 @@ import {
 } from "../next/devices.js";
 import { ed25519PublicKeyObject } from "../next/policy-keys.js";
 import { currentMember, currentSession, inTransaction, lock, refuseRevoked } from "../next/bootstrap-common.js";
+import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
 import type { ConnectorIdentity, User } from "../../platform/request-authentication.js";
 import { installationCollections, privateDevicesEnabled, requireInstallationScope, type PrivateDeviceGate } from "../next/installation-scope.js";
 import { nextDeviceNeedsRevoke, queueNextPolicy } from "../next/policy-outbox.js";
@@ -638,6 +639,20 @@ export async function attestInstallationPairing(
     return { ok: true };
   });
 }
+async function requirePairingCollection(c: Connection, collection: string, mode: "cloud_copy" | "private", user: string, device: string, phase: "approval" | "exchange") {
+  const current = await c.query<{collection_id:string}>(`SELECT n.collection_id FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id
+    WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync=$2 AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL
+    ${phase === "approval" ? "FOR SHARE OF n,owner" : "FOR UPDATE OF n"}`, [collection,mode]);
+  if (!current.rows[0]) fail("installation_collection_unavailable",403);
+  try { await requireCollectionNotDeleted(c,current.rows[0].collection_id); }
+  catch (error) {
+    if (error instanceof Error && error.message === "collection_deleted") fail("installation_collection_unavailable",403);
+    throw error;
+  }
+  await currentMember(c,collection,user);
+  await refuseRevoked(c,collection,device);
+}
+
 export async function approveInstallationPairing(
   db: DatabasePool,
   id: string,
@@ -716,18 +731,8 @@ export async function approveInstallationPairing(
         const retained = r.scope_only && (await c.query("SELECT 1 FROM installation_collection_scopes WHERE connector_id=$1 AND collection_id=$2 AND NOT private_device",[r.connector_id,selected])).rows.length;
         if (!retained) fail("installation_invalid_scope",400);
       }
-      if (selected) {
-        await currentMember(c,selected,user);
-        await refuseRevoked(c,selected,r.device_id);
-        const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF n,owner",[selected]);
-        if (!current.rows.length) fail("installation_collection_unavailable",403);
-      }
-      for (const collection of ids) {
-        const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='cloud_copy' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF n,owner",[collection]);
-        if (!current.rows.length) return fail("installation_collection_unavailable",403);
-        await currentMember(c,collection,user);
-        await refuseRevoked(c,collection,r.device_id);
-      }
+      for (const collection of [...new Set(selected ? [...ids,selected] : ids)].sort())
+        await requirePairingCollection(c,collection,"cloud_copy",user,r.device_id,"approval");
       if (deviceIds.length) {
         // This request's own portal confirmation in the current session, as for a
         // selection: a manual approval can never record device access.
@@ -735,12 +740,8 @@ export async function approveInstallationPairing(
         const epoch = (await c.query<{session_epoch:string|number}>("SELECT session_epoch FROM users WHERE id=$1",[user])).rows[0]?.session_epoch;
         if (!r.portal_account_confirmed_at || String(epoch)!==String(r.portal_account_session_epoch)) fail("installation_account_confirmation_required",403);
       }
-      for (const collection of deviceIds) {
-        const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync='private' AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR SHARE OF n,owner",[collection]);
-        if (!current.rows.length) return fail("installation_collection_unavailable",403);
-        await currentMember(c,collection,user);
-        await refuseRevoked(c,collection,r.device_id);
-      }
+      for (const collection of deviceIds)
+        await requirePairingCollection(c,collection,"private",user,r.device_id,"approval");
       if (selected && (await c.query("SELECT 1 FROM installation_pairing_collection_creations WHERE pairing_id=$1 AND collection_id=$2 AND completed_at IS NULL",[id,selected])).rows.length)
         fail("installation_creation_incomplete",503);
       const created = selected ? (await c.query<{collection_id:string}>("SELECT collection_id FROM installation_pairing_collection_creations WHERE pairing_id=$1 AND completed_at IS NOT NULL AND collection_id=ANY($2::uuid[]) ORDER BY collection_id",[id,ids])).rows.map(row=>row.collection_id) : [];
@@ -940,11 +941,7 @@ async function persistScope(c: Connection, r: Row, privateDevice?: PrivateDevice
   // One lock order for both kinds. Each consent holds only while its collection
   // is still the mode the person approved it as.
   for (const collection of [...new Set([...r.approved_collection_ids,...(r.selected_collection_id?[r.selected_collection_id]:[]),...r.approved_private_device_collection_ids])].sort()) {
-    const current = await c.query("SELECT 1 FROM next_collections n JOIN users owner ON owner.id=n.owner_user_id WHERE n.collection_id=$1 AND n.runtime='next' AND n.sync=$2 AND n.left_sync_at IS NULL AND owner.suspended_at IS NULL FOR UPDATE OF n",
-      [collection,r.approved_private_device_collection_ids.includes(collection)?"private":"cloud_copy"]);
-    if (!current.rows.length) return fail("installation_collection_unavailable",403);
-    await currentMember(c,collection,r.user_id!);
-    await refuseRevoked(c,collection,r.device_id);
+    await requirePairingCollection(c,collection,r.approved_private_device_collection_ids.includes(collection)?"private":"cloud_copy",r.user_id!,r.device_id,"exchange");
   }
   // The row records the latest explicit consent of either kind, never both.
   // Optional file actions approved under the other kind are asked for again.

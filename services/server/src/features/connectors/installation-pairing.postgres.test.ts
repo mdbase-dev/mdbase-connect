@@ -1575,6 +1575,18 @@ describePg("installation device sign-in on daemon pairing", () => {
   async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string,timers?:boolean) {
     return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected,...(timers!==undefined?{timer_consent:timers}:{})}});
   }
+  it.each(["approval", "exchange"] as const)("refuses a cloud copy deleted before %s without issuing scope or credentials", async boundary => {
+    const pairing = await prepared(), collection = await scopeCollection(pairing.owner.user);
+    const approve = () => approvePicked(pairing,pairing.flow,[collection],collection);
+    if (boundary === "exchange") expect((await approve()).statusCode).toBe(200);
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')",[collection,randomUUID()]);
+    const refused = boundary === "approval" ? await approve() : await pairing.flow.exchange();
+    expect([refused.statusCode,refused.json().error.code]).toEqual([403,"installation_collection_unavailable"]);
+    const state = (await db.query("SELECT approved_at IS NOT NULL AS approved, consumed_at IS NOT NULL AS consumed FROM pairing_requests WHERE id=$1",[pairing.input.installation.request_id])).rows[0];
+    expect(state).toEqual({approved:boundary === "exchange",consumed:false});
+    expect(await scopes(pairing.selected.connector_id)).toEqual([]);
+    expect((await db.query("SELECT 1 FROM installation_device_credentials WHERE connector_id=$1",[pairing.selected.connector_id])).rows).toEqual([]);
+  });
   async function timerApp(nativeDelivery?: {mode:"managed_fcm";firebase_project_id:string}|{mode:"webhook";url:string}) {
     const id = await registeredApp(`bundle:synthetic.reminders.${randomUUID()}`);
     await db.query("UPDATE applications SET requirements=$2::jsonb,notifications=$3::jsonb WHERE id=$1", [id,
