@@ -1191,7 +1191,31 @@ describe("ConnectApp", () => {
     }
   });
 
-  it("keeps collection input open after a failed creation", async () => {
+  it("offers Close rather than Retry after a collection quota refusal", async () => {
+    history.replaceState(null, "", "/collections");
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    const add = await screen.findByRole("button", { name: "Add collection" });
+    await user.click(add);
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
+    await user.type(screen.getByLabelText("Collection name"), "Field notes");
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: { code: "account_collection_quota_exceeded" } }, { status: 429 }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    const dialog = within(screen.getByRole("dialog", { name: "Add collection" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Your account has reached its synced collection limit.");
+    expect(dialog.queryByText(/Your original request is kept/)).not.toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: "Retry creation" })).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "Close" }));
+    await user.click(add);
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
+    expect(screen.getByLabelText("Collection name")).toHaveValue("");
+  });
+
+  it.each([
+    [503, "unavailable", "Something went wrong on mdbase. Try again."],
+    [429, "rate_limited", "Try again later."]
+  ] as const)("keeps the original creation for retry after HTTP %s (%s)", async (status, code, expected) => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
@@ -1203,7 +1227,7 @@ describe("ConnectApp", () => {
     vi.mocked(fetch).mockImplementation((input, init) => {
       const path = new URL(String(input)).pathname;
       if (path === "/v1/account/collections" && init?.method === "POST") {
-        return Promise.resolve(Response.json({ error: { message: "Storage is temporarily unavailable." } }, { status: 503 }));
+        return Promise.resolve(Response.json({ error: { code, message: "Try again later." } }, { status }));
       }
       return originalFetch(input, init);
     });
@@ -1212,7 +1236,7 @@ describe("ConnectApp", () => {
     await user.type(input, "Field notes");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
     expect(input).toHaveValue("Field notes");
     expect(input).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry creation" })).toBeInTheDocument();

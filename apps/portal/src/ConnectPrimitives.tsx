@@ -137,9 +137,13 @@ export function relativeTime(value: string): string {
   return format.format(Math.round(hours / 24), "day");
 }
 
+export function isCollectionQuotaRefusal(value: unknown): boolean {
+  return value instanceof ManagementApiError && value.status === 429 && value.details !== null && typeof value.details === "object" && "code" in value.details && value.details.code === "account_collection_quota_exceeded";
+}
+
 export function errorMessage(value: unknown): string {
   if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
-  if (value instanceof ManagementApiError && value.details && typeof value.details === "object" && "code" in value.details && value.details.code === "account_collection_quota_exceeded") return collectionQuotaMessage();
+  if (isCollectionQuotaRefusal(value)) return collectionQuotaMessage();
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
     ? t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." })
