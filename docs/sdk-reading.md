@@ -36,6 +36,15 @@ and returns the same whole-page iterator. No records are flattened and no reset
 is added. Root exports `readMany(client, ...)`, `queryPages(client, ...)` and
 `ReadManyOptions` are also available.
 
+Use `records.pages(query)` to iterate a large result. For cursor-capable queries
+it requests up to 500 records per page by default and follows the returned
+cursor. An explicit `query.limit` remains the page size, not a total result cap.
+`records.query(query)` is a single request: it does not add a limit or fetch
+another page. To page manually, supply a positive `limit` and repeat the same
+query and Include with `result.cursor`. An unbounded scan on a constrained
+replica can exceed its work budget at 501 small records, or sooner by bytes.
+If the query cannot use indexed paging, narrow it rather than retrying the same scan.
+
 ## Query cursor resets
 
 `pages(query, { include?, signal?, onReset? })` repeats the original query with the
