@@ -50,6 +50,7 @@ describe("native installation display scopes", () => {
   it("also retains every application ID when revoking from the collection page", async () => {
     const { remove, revoke } = show([installation(),installation({application_id:"app-b",connector_id:"connector-b",installation_id:"installation-22222222"})], "Garden notes");
     expect(screen.queryByRole("button", {name:"Revoke collection access"})).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", {name:"Remove installation"})).not.toBeInTheDocument();
     expect(screen.queryByText("1 collection")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke access" }));
@@ -72,6 +73,15 @@ describe("native installation display scopes", () => {
     expect(screen.queryByText(/encryption key/)).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", {name:"Revoke access"}));
     expect(within(screen.getByRole("dialog")).queryByText(/encryption key/)).not.toBeInTheDocument();
+  });
+  it("removes only the selected installation after it loses its last collection", async () => {
+    const { remove, revoke } = show([installation(), installation({connector_id:"connector-b", installation_id:"installation-22222222", collection_id:null, collection_name:null, role:null, sync:null})]);
+    const row = screen.getByText("This installation has no approved collections.").parentElement!;
+    fireEvent.click(within(row).getByRole("button", {name:"Remove installation"}));
+    expect(revoke).not.toHaveBeenCalled();
+    fireEvent.click(within(screen.getByRole("dialog", {name:"Remove only this installation of Reader from your account?"})).getByRole("button", {name:"Remove installation"}));
+    await vi.waitFor(() => expect(revoke).toHaveBeenCalledExactlyOnceWith("connector-b", {}));
+    expect(remove).not.toHaveBeenCalled();
   });
   it("keeps creation-only and mobile registration details without inventing collection scopes", async () => {
     const { revoke } = show([installation({collection_id:null,collection_name:null,role:null,sync:null,create_collections:true}),installation({collection_id:null,collection_name:null,role:null,sync:null,create_collections:false,device_kind:"mobile",connector_id:"connector-b",installation_id:"installation-22222222"})]);
