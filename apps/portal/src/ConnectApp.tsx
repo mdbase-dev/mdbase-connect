@@ -45,7 +45,8 @@ import {
   RouteLink,
   type ConnectView,
   relativeTime,
-  errorMessage
+  errorMessage,
+  isCollectionQuotaRefusal
 } from "./ConnectPrimitives";
 import { FeedbackPage } from "./FeedbackPage";
 import { HomePage } from "./HomePage";
@@ -677,7 +678,15 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     }
     const created = await perform("create-collection", async options => {
       try {await management.createCollection(original, options);}
-      catch (error) {setCreationError(errorMessage(error)); throw error;}
+      catch (error) {
+        setCreationError(errorMessage(error));
+        if (isCollectionQuotaRefusal(error)) {
+          setLocation("quota");
+          finishCollectionCreation(original);
+          setIntent(null);
+        }
+        throw error;
+      }
     }, true, undefined, t(i18n)`Created ${original.displayName}`);
     if (created) {
       try {finishCollectionCreation(original);} catch {setCreationError(t(i18n)({ message: "Created, but this browser could not clear its request. Retrying will use the same collection." })); return;}
@@ -697,6 +706,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     </section>
     <Dialog open={creating} title={t(i18n)({ message: "Add collection", context: "Connect interface" })} closeDisabled={busy.has("create-collection")} onClose={() => setCreating(false)}>
       {!location && choices}
+      {location === "quota" && <p role="alert">{creationError}</p>}
       {cloud && <form className="connect-edit-form" noValidate onSubmit={event => void create(event)}>
         <p className="connect-muted"><Trans>Starts with a cloud copy</Trans></p>
         <label><span><Trans>Collection name</Trans></span><input className="mdbase-field" autoFocus maxLength={200} value={name} disabled={intent !== null || busy.has("create-collection")} aria-invalid={Boolean(creationError)} aria-describedby="collection-create-error" onBlur={validateName} onChange={event => setName(event.target.value)} /></label>
