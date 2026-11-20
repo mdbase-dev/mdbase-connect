@@ -57,7 +57,7 @@ import { isPermanentCustodyRefusal, withCustodyRetry } from "./custody-retry.ts"
 import { ProductionCustody, deploymentRelease, productionParts, serviceDeviceWrapper, type FactoryEnv } from "./factory.ts";
 import { localBuild, localOrigin } from "./local-origin.ts";
 import { devicePublicKeys, verifyHostedGenesis } from "./keygen.js";
-import { runIndex } from "./sql.js";
+import { resetIndex } from "./sql.js";
 import { labHealth } from "./health.js";
 import { locationHint, namedStub } from "./do-location.ts";
 import { fetchAttachment } from "./object-reads.js";
@@ -124,9 +124,6 @@ function openConfig(collection: string, k: OpenKeys, grantOnly = false): Uint8Ar
   ]);
   return encode(m);
 }
-
-/** An encoded index Reset request (drop the `st_*` tables). */
-const RESET = Uint8Array.of(0x4d, 0x44, 0x42, 0x49, 0x44, 0x58, 0x00, 0x01, 1);
 
 function pitrConfigured(env: Env): boolean {
   const p = env as Env & PitrFactorySettings & { PITR_PHASE?: R2Bucket };
@@ -660,7 +657,7 @@ export class HostedCollection extends DurableObject<Env> {
         for (const r of this.readers.values()) r.wipe();
         this.readers.clear();
         // Drops only the `st_*` cache tables; the migration ledger stays.
-        runIndex(this.ctx.storage, RESET);
+        resetIndex(this.ctx.storage);
         await this.ready(collection);
       },
       putObject: async (collection, object, signal) => {
@@ -851,7 +848,10 @@ export class HostedCollection extends DurableObject<Env> {
       return engine;
     })().catch(async (error: unknown) => {
       if (openFailures === undefined) throw error; // No attempt reserved (including parked opens).
-      if (this.lastingRefusal(error)) { await this.retireForVerdict(error); throw error; }
+      if (this.lastingRefusal(error)) {
+        try { await this.retireForVerdict(error); } catch (failure) { error = failure; }
+        if (this.lastingRefusal(error)) throw error;
+      }
       await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
       try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
       throw error;
@@ -870,7 +870,7 @@ export class HostedCollection extends DurableObject<Env> {
   private async pinMismatch(collection: string, pins: string, marker: unknown): Promise<never> {
     if (marker === pins) return this.parkPins(collection);
     if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
-    runIndex(this.ctx.storage, RESET);
+    resetIndex(this.ctx.storage);
     await this.ctx.storage.put(PIN_RESET_KEY, pins);
     pinLog(await wakeCollectionTag(collection), this.escrow ? "escrow" : "hosted", "pin_reset");
     await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.engine);
@@ -886,7 +886,7 @@ export class HostedCollection extends DurableObject<Env> {
     this.live = null;
     for (const reader of this.readers.values()) reader.wipe();
     this.readers.clear();
-    runIndex(this.ctx.storage, RESET);
+    resetIndex(this.ctx.storage);
     await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.pitrClosed && this.logGen === generation && !this.engine);
     throw new Error("hosted cache reset; retry");
   }
@@ -934,7 +934,7 @@ export class HostedCollection extends DurableObject<Env> {
       for (const r of this.readers.values()) r.wipe();
       this.readers.clear();
     }
-    if (!unconfiguredCustody(error)) runIndex(this.ctx.storage, RESET);
+    if (!unconfiguredCustody(error)) resetIndex(this.ctx.storage);
     await this.ctx.storage.delete(OPEN_FAILURES_KEY);
     await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
     await this.ctx.storage.deleteAlarm();

@@ -27,7 +27,7 @@ const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.
 const collection = "0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
 const pinBytes = Uint8Array.of(0x81, 1, 2, 3);
 
-function object(escrow = false) {
+function object(escrow = false, failDrop = false) {
   const data = new Map(); let alarm = null; const dropped = [];
   const storage = {
     async get(key) { return Array.isArray(key) ? new Map(key.filter(k => data.has(k)).map(k => [k, data.get(k)])) : data.get(key); },
@@ -40,6 +40,7 @@ function object(escrow = false) {
     sql: { exec(query) {
       if (/^SELECT name FROM sqlite_master/.test(query)) return { toArray: () => [{ name: "st_meta" }, { name: "st_log" }] };
       const drop = /^DROP TABLE IF EXISTS "(st_[a-z_]+)"$/.exec(query);
+      if (drop && failDrop) throw new Error("DROP failed");
       if (drop) { dropped.push(drop[1]); return { toArray: () => [] }; }
       throw new Error(`unexpected sql ${query}`);
     } },
@@ -62,6 +63,23 @@ async function logs(f) {
   try { await f(); } finally { console.warn = warn; }
   return lines.filter(l => l.event === "next_service_pin").map(l => `${l.role}:${l.phase}:${l.collection_tag.length}`);
 }
+
+test("a failed DROP retains the failed-open deadline and records no rebuild", async () => {
+  for (const open of [null, PIN_MISMATCH]) {
+    globalThis.pinTest = { opened: 0, open, reset: true };
+    const { o, data, alarm } = object(false, true);
+    data.set("service-open-failures", 3);
+    for (const failures of [3, 4]) {
+      await o.ctx.storage.deleteAlarm();
+      const start = Date.now();
+      await assert.rejects(o.ready(collection), /hosted index reset failed/);
+      assert.ok(alarm() >= start + 30_000 * 2 ** failures);
+      assert.equal(data.get("service-open-failures"), failures + 1);
+      assert.equal(data.has(PIN_RESET_KEY), false);
+      assert.ok(!o.engine);
+    }
+  }
+});
 
 test("a warm alarm discovering a cache mismatch drops the index and retries soon", async () => {
   globalThis.pinTest = { opened: 0 };
