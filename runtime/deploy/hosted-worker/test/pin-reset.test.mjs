@@ -32,6 +32,7 @@ function object(escrow = false) {
   const storage = {
     async get(key) { return Array.isArray(key) ? new Map(key.filter(k => data.has(k)).map(k => [k, data.get(k)])) : data.get(key); },
     async put(key, value) { data.set(key, value); },
+    async sync() {},
     async delete(key) { return data.delete(key); },
     async getAlarm() { return alarm; },
     async setAlarm(at) { alarm = at; },

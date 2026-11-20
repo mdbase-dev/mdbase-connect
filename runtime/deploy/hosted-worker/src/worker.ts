@@ -72,12 +72,13 @@ import { FrameReader, MAX_APP_BUFFERED, MAX_APP_SESSIONS, MAX_APP_SOCKETS, evide
 const UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
 /** Socket-independent hosted polling fallback; committed CP policy also wakes it. */
 const REFRESH_MS = 30_000;
-/** A failed engine open retries after REFRESH_MS, doubling per consecutive
- * failure up to this many doublings (16 min), so actors that cannot open (control
- * plane refusing, a store built under other keys) stop flooding the control
- * plane. A CP activation still opens at once. */
+/** Both caught failures and unfinished opens back off (capped at 16 min).
+ * Only consecutive unfinished opens on the same deployment can park the actor. */
 const OPEN_BACKOFF_STEPS = 5;
 const OPEN_FAILURES_KEY = "service-open-failures";
+const OPEN_UNFINISHED_KEY = "service-open-unfinished";
+const OPEN_PARK_AFTER = 3;
+class OpenParked extends Error {}
 const openRetryMs = (failures: number) =>
   REFRESH_MS * 2 ** Math.min(Math.max(0, Math.floor(failures)), OPEN_BACKOFF_STEPS) + Math.floor(Math.random() * 5_000);
 /** The escrow learns of new enrolments at least this often (no push from the log). */
@@ -729,15 +730,26 @@ export class HostedCollection extends DurableObject<Env> {
     if (this.engine) return this.engine;
     const openingTrace = this.openingTrace ??= { stage: "open_retry_read" };
     trace.opening = openingTrace;
-    let openFailures = 0;
+    let openFailures: number | undefined;
     this.opening ??= (async () => {
       // Reserve once, inside the shared opener, before custody/network work.
       // Only the alarm actually installed here may be replaced on success.
       openingTrace.stage = "open_retry_read";
+      const version = this.env.CF_VERSION_METADATA?.id ?? "";
+      const record = await this.ctx.storage.get<{ version: string; count: number }>(OPEN_UNFINISHED_KEY);
+      const unfinished = record?.version === version ? record.count : 0;
+      if (unfinished >= OPEN_PARK_AFTER) {
+        await this.ctx.storage.deleteAlarm();
+        console.warn(JSON.stringify({ event: "hosted_open_parked", role: this.escrow ? "escrow" : "hosted", unfinished, version }));
+        throw new OpenParked("hosted_open_parked");
+      }
       const stored = await this.ctx.storage.get<unknown>(OPEN_FAILURES_KEY);
       openFailures = typeof stored === "number" && Number.isSafeInteger(stored) && stored > 0 ? stored : 0;
+      // An isolate kill skips catch/finally. Commit its reservation before it can do work.
+      await this.ctx.storage.put(OPEN_UNFINISHED_KEY, { version, count: unfinished + 1 });
+      await this.ctx.storage.sync();
       openingTrace.stage = "open_retry_schedule";
-      const retry = await this.alarms.schedule(Date.now() + openRetryMs(openFailures), () => !this.engine);
+      const retry = await this.alarms.schedule(Date.now() + openRetryMs(openFailures + unfinished), () => !this.engine);
       openingTrace.stage = "alarm_guard";
       if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
       openingTrace.stage = "custody_open_sealer";
@@ -839,17 +851,20 @@ export class HostedCollection extends DurableObject<Env> {
         runIndex(this.ctx.storage, RESET);
         throw new Error("hosted cache reset; retry");
       }
-      openingTrace.stage = "open_failure_clear";
-      if (openFailures) await this.ctx.storage.delete(OPEN_FAILURES_KEY);
       // All open checks succeeded. Until here, a post-sync failure must still
       // have the earlier retry. Never replace a different pending wake.
-      if (retry !== null && next !== undefined) {
+      if (next !== undefined) {
         openingTrace.stage = "open_retry_schedule";
-        await this.alarms.schedule(next, () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine, retry);
+        await this.alarms.schedule(next, () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine, retry ?? undefined);
       }
+      openingTrace.stage = "open_failure_clear";
+      if (openFailures) await this.ctx.storage.delete(OPEN_FAILURES_KEY);
+      await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
       return engine;
     })().catch(async (error: unknown) => {
+      if (openFailures === undefined) throw error; // No attempt reserved (including parked opens).
       if (this.lastingRefusal(error)) { await this.retireForVerdict(error); throw error; }
+      await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
       try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
       throw error;
     }).finally(() => {
@@ -919,6 +934,7 @@ export class HostedCollection extends DurableObject<Env> {
     }
     if (!unconfiguredCustody(error)) runIndex(this.ctx.storage, RESET);
     await this.ctx.storage.delete(OPEN_FAILURES_KEY);
+    await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
     await this.ctx.storage.deleteAlarm();
     if (this.env.LAB === "1") {
       try { console.info(JSON.stringify({ event: "hosted_custody_verdict_retired", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
@@ -1024,7 +1040,7 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   /** Move log traffic until quiet, deliver output, schedule the next wakeup. */
-  private async sync(engine: Engine, timings?: CallTimings): Promise<number | undefined> {
+  private async sync(engine: Engine, openingTimings?: CallTimings): Promise<number | undefined> {
     if (this.pitrClosed) { this.closePitrResources(); return; }
     const gen = this.logGen;
     const current = () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine;
@@ -1034,7 +1050,7 @@ export class HostedCollection extends DurableObject<Env> {
     const applied = engine.appliedHead();
     const report = new PumpReport();
     let delivered = 0;
-    await pumpLog(this.log(), engine, this.token, current, this.staleAppends, 64, timings, tag ? (call) => {
+    await pumpLog(this.log(), engine, this.token, current, this.staleAppends, 64, openingTimings, tag ? (call) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_emitted", undefined, grantRecipients(call.frame));
     } : undefined, tag ? (call, observation) => {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
@@ -1097,7 +1113,8 @@ export class HostedCollection extends DurableObject<Env> {
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
     const at = Math.min(probe ?? poll, poll);
-    await this.alarms.schedule(at, current);
+    // During open, only the opener installs the poll, after its final native checks.
+    if (!openingTimings) await this.alarms.schedule(at, current);
     return at;
   }
 
@@ -1250,9 +1267,9 @@ export class HostedCollection extends DurableObject<Env> {
       const collection = await this.ctx.storage.get<string>("service-collection")
         ?? (this.escrow ? await this.ctx.storage.get<string>("escrow-collection") : undefined);
       if (collection && UUID.test(collection)) {
-        // A permanent verdict already retired the actor (no alarm left); return
-        // normally so the platform does not retry the alarm either.
-        try { await this.ready(collection); } catch (error) { if (error instanceof PinParked || this.lastingRefusal(error)) return; throw error; }
+        // Parking and retirement both cancel the alarm. Acknowledge delivery so
+        // the platform does not retry it either.
+        try { await this.ready(collection); } catch (error) { if (error instanceof OpenParked || error instanceof PinParked || this.lastingRefusal(error)) return; throw error; }
       }
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
@@ -1274,7 +1291,7 @@ export class HostedCollection extends DurableObject<Env> {
 
   async fetch(request: Request): Promise<Response> {
     try { return await this.respond(request); }
-    catch (error) { this.noteTrap(error); throw error; }
+    catch (error) { if (error instanceof OpenParked) return modeUnavailable(); this.noteTrap(error); throw error; }
   }
 
   private async respond(request: Request): Promise<Response> {
@@ -1313,14 +1330,23 @@ export class HostedCollection extends DurableObject<Env> {
         return modeUnavailable();
       }
       if (url.pathname.endsWith("/retire")) {
-        // Join any existing open OUTSIDE the short storage-only critical section.
-        try { if (this.opening) await this.opening; } catch { /* Refusal may already retire it. */ }
+        const matchesDevice = async () => {
+          this.requirePhysicalCollection(collection);
+          const device = await this.ctx.storage.get<string>("collection-mode-device");
+          return (!device || device === input.device) && (!this.live || this.live.device === input.device);
+        };
+        if (this.opening && !await matchesDevice()) return modeUnavailable();
+        const opening = this.opening;
+        if (opening) {
+          // Park before joining: a killed opener cannot acknowledge retirement.
+          await this.ctx.storage.put(OPEN_UNFINISHED_KEY, { version: this.env.CF_VERSION_METADATA?.id ?? "", count: OPEN_PARK_AFTER });
+          await this.ctx.storage.deleteAlarm();
+          await this.ctx.storage.sync();
+          try { await opening; } catch { /* Refusal may already retire it. */ }
+        }
         return this.ctx.blockConcurrencyWhile(async () => {
           try {
-            if (this.opening) return modeUnavailable();
-            this.requirePhysicalCollection(collection);
-            const device = await this.ctx.storage.get<string>("collection-mode-device");
-            if (device && device !== input.device || this.live && this.live.device !== input.device) return modeUnavailable();
+            if (this.opening || !await matchesDevice()) return modeUnavailable();
             await this.retireForVerdict();
             return modeAck(input); // Rebuildable cache retirement, not physical erasure.
           } catch { return modeUnavailable(); }
