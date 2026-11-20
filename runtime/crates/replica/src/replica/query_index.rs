@@ -60,6 +60,9 @@ impl<S: Store> Replica<S> {
         &self,
         tx: &mut Tx,
     ) -> StoreResult<Option<Arc<QueryProjectionContext>>> {
+        if self.is_hosted() && !self.store.query_index_supported() {
+            return Ok(None);
+        }
         let resources_changed =
             !tx.resources_put.is_empty() || !tx.resources_del.is_empty() || tx.clear_confirmed;
         let context = if resources_changed || self.query_context.is_none() {

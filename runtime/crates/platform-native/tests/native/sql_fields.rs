@@ -146,6 +146,48 @@ fn atom(v: CoreValue) -> QueryAtom {
         key: a.key().to_vec(),
     }
 }
+
+#[test]
+fn hosted_cache_fences_old_projections_without_rewriting_them() {
+    let (store, index, _, _, _) = open(
+        "hosted-projection-retirement",
+        vec![row(1, "priority: 1")],
+        &["priority"],
+    );
+    drop(store);
+    let open_cache = || mdbn_store_file::LogCache::open(index.clone(), Default::default()).unwrap();
+    let old_projection = || {
+        index
+            .borrow_mut()
+            .run(&Batch {
+                mode: BatchMode::Autocommit,
+                stmts: vec![Stmt::new("SELECT count(*) FROM st_qbody_n", vec![])],
+            })
+            .unwrap()[0]
+            .values
+            .clone()
+    };
+    assert_eq!(old_projection(), vec![SqlValue::Integer(1)]);
+    let mut cache = open_cache();
+    cache
+        .commit(Tx {
+            records_put: vec![row(1, "priority: 2"), row(2, "priority: 3")],
+            ..Tx::default()
+        })
+        .unwrap();
+    drop(cache);
+    let cache = open_cache();
+    assert!(!cache.query_index_supported());
+    assert_eq!(cache.record_count().unwrap(), 2);
+    assert_eq!(old_projection(), vec![SqlValue::Integer(1)]);
+    assert!(
+        SqlStore::open(index.clone())
+            .unwrap()
+            .query_index_state()
+            .unwrap()
+            .is_none()
+    );
+}
 fn request(store: &SqlStore<Trace>, refs: &[FieldRef]) -> QueryIndexRequest {
     let state = store.query_index_state().unwrap().unwrap();
     QueryIndexRequest {

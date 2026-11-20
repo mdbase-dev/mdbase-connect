@@ -698,6 +698,7 @@ impl<S: Store> Replica<S> {
         };
         // Finish only after complete source authentication and the exact digest.
         let digest = self.install_rows.index.digest();
+        let record_stamp = crate::plan::record_meta_stamp(&self.install_rows.resources);
         self.install_rows.clear();
         if digest != manifest.state_digest {
             return self.install_fail("state digest mismatch");
@@ -747,6 +748,9 @@ impl<S: Store> Replica<S> {
             staged.clear_confirmed = true;
         }
         staged.head = Some(head);
+        staged
+            .meta
+            .push((meta_keys::RECORD_META.into(), Some(record_stamp)));
         staged.meta.extend(source_meta);
         staged.meta.push((
             meta_keys::LOG_STATE.into(),

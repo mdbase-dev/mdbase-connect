@@ -131,6 +131,8 @@ enum Lookup {
 /// Hosted-mode state of a replica. RAM only.
 #[derive(Debug, Default)]
 pub(crate) struct HostedState {
+    pub(super) reindex_pending: bool,
+    pub(super) applied_since_tick: u32,
     profile: HostedProfile,
     rebuilt: bool,
     next_ticket: u64,
@@ -227,6 +229,7 @@ const KEY_REBUILD_PAGE: u64 = 64;
 /// servers without the field ignore it, so it bounds memory per read but replaces no
 /// apply-side check. Apply stays one item per store commit either way.
 pub(crate) const HOSTED_READ_BYTES: u64 = 512 << 10;
+pub(super) const HOSTED_APPLY_ITEMS: u32 = 16;
 
 impl HostedState {
     /// Record a final receipt for every ticket waiting on its mutation.
@@ -795,13 +798,13 @@ impl<S: Store> Replica<HostedCache<S>> {
             sealer,
             host,
             secrets,
-            None,
+            super::OpenHost::Hosted(Box::new(HostedState {
+                profile,
+                ..HostedState::default()
+            })),
         )?;
         let head = r.head.seq;
-        let mut state = HostedState {
-            profile,
-            ..HostedState::default()
-        };
+        let state = r.hosted.as_deref_mut().expect("opened hosted");
         if head == 0 {
             // Cold: whatever policy bytes the cache holds are not provenance. Start
             // from a fresh state; every item is applied from genesis in this instance.
@@ -835,15 +838,8 @@ impl<S: Store> Replica<HostedCache<S>> {
             r.sealer.set_epoch(0);
             r.calls.clear();
             r.inflight.clear();
+            state.fetches.clear();
         }
-        // A cold open's head fetch was queued before hosted state existed: it is
-        // this instance's generation-0 fetch.
-        for (id, kind) in &r.inflight {
-            if *kind == Inflight::Subscribe {
-                state.fetches.insert(id.0, state.generation);
-            }
-        }
-        r.hosted = Some(Box::new(state));
         r.snapshot_record_bytes = super::snapshot::HOSTED_SNAPSHOT_RECORD_BYTES;
         r.hosted_key_rebuild_step();
         Ok(r)
@@ -1054,6 +1050,61 @@ fn not_hosted() -> ApiError {
 }
 
 impl<S: Store> Replica<S> {
+    pub(super) fn hosted_reindex_pending(&self) -> bool {
+        self.hosted
+            .as_ref()
+            .is_some_and(|state| state.reindex_pending)
+    }
+
+    pub(super) fn hosted_reindex_step(&mut self) -> StoreResult<()> {
+        const CHECKPOINT: &str = "replica.hosted_record_meta_cursor";
+        let stamp = crate::plan::record_meta_stamp(&self.store.resources()?);
+        let version = crate::store::DERIVED_DATA_VERSION.to_be_bytes();
+        let prefix = [version.as_slice(), &stamp, &self.head.chain.0].concat();
+        let saved = self.store.meta(CHECKPOINT)?;
+        let mut after = saved
+            .as_deref()
+            .and_then(|value| value.strip_prefix(prefix.as_slice()))
+            .map(|id| {
+                id.try_into()
+                    .map(mdbn_wire::common::B16)
+                    .map_err(|_| StoreError::Corrupt("hosted reindex cursor".into()))
+            })
+            .transpose()?;
+        let mut bytes = 0;
+        for _ in 0..8 {
+            let Some(mut row) = self.store.records(Page { after, limit: 1 })?.pop() else {
+                self.store.commit(Tx {
+                    meta: vec![
+                        (meta_keys::RECORD_META.into(), Some(stamp)),
+                        (meta_keys::DERIVED_VERSION.into(), Some(version.to_vec())),
+                        (CHECKPOINT.into(), None),
+                    ],
+                    ..Tx::default()
+                })?;
+                self.hosted
+                    .as_mut()
+                    .expect("hosted reindex")
+                    .reindex_pending = false;
+                break;
+            };
+            bytes += row.doc.len();
+            after = Some(row.id);
+            let cursor = [prefix.as_slice(), &row.id.0].concat();
+            row.meta = crate::plan::record_meta(&self.catalog, &row.path, &row.doc);
+            self.store.commit(Tx {
+                records_put: vec![row],
+                meta: vec![(CHECKPOINT.into(), Some(cursor))],
+                ..Tx::default()
+            })?;
+            self.stats.reindexed += 1;
+            if bytes >= 128 << 10 {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     /// Hosted mode: whether this replica serves sessions (it has rebuilt from the log
     /// since open and no snapshot install is running). Always true on devices.
     pub fn hosted_serving(&self) -> bool {
@@ -1061,6 +1112,7 @@ impl<S: Store> Replica<S> {
             None => true,
             Some(h) => {
                 h.rebuilt
+                    && !h.reindex_pending
                     && h.keys.is_none()
                     && !h.needs_reset
                     && self.install.is_none()
@@ -1107,7 +1159,7 @@ impl<S: Store> Replica<S> {
             || self
                 .hosted
                 .as_deref()
-                .is_some_and(|h| h.keys.is_some() || h.needs_reset)
+                .is_some_and(|h| h.keys.is_some() || h.needs_reset || h.reindex_pending)
     }
 
     /// Queue the next control read of the warm-wake rebuild, if one is due.
@@ -1116,6 +1168,9 @@ impl<S: Store> Replica<S> {
         let Some(h) = self.hosted.as_deref_mut() else {
             return;
         };
+        if h.reindex_pending {
+            return;
+        }
         let Some(k) = h.keys.as_mut() else {
             return;
         };

@@ -648,8 +648,7 @@ export class HostedCollection extends DurableObject<Env> {
       logAppend: (t) => confirmed(t).migrationLogAppend(t),
       logResult: (t, signal) => this.#commitMigrationLogResult(t, signal),
       release: (t) => { this.engine?.finishMigrationPending(t); this.#migrationConfirmed.delete(t); },
-      // Ticks first, as the alarm does: retries can now repeat inside one wake.
-      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); e.tick(Date.now()); await this.sync(e); } },
+      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); await this.sync(e); } },
       resetForRebuild: async () => {
         const collection = this.collection;
         if (!collection || this.opening) throw new Error("migration_host_unavailable");

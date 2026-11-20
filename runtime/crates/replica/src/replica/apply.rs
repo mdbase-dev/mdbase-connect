@@ -136,7 +136,7 @@ struct ChangeStage {
 impl<S: Store> Replica<S> {
     /// Apply items in log order, starting at the first one after the head.
     pub(crate) fn apply_items(&mut self, items: Vec<SeqItem>) {
-        if self.apply_fault {
+        if self.apply_fault || self.hosted_reindex_pending() {
             return;
         }
         let mut changed: BTreeSet<String> = BTreeSet::new();
@@ -144,6 +144,12 @@ impl<S: Store> Replica<S> {
         for it in items {
             if it.seq <= self.head.seq {
                 continue;
+            }
+            if let Some(hosted) = self.hosted.as_mut() {
+                if hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS {
+                    break;
+                }
+                hosted.applied_since_tick += 1;
             }
             if it.seq != self.head.seq + 1 {
                 // A gap: read what's missing.
@@ -240,7 +246,7 @@ impl<S: Store> Replica<S> {
                     break;
                 }
             }
-            if self.apply_fault {
+            if self.apply_fault || self.hosted_reindex_pending() {
                 break;
             }
         }
@@ -1923,7 +1929,11 @@ impl<S: Store> Replica<S> {
         self.sem_ratchet_set(ratchet);
         if catalog_changed {
             self.catalog = catalog;
-            self.reindex()?;
+            if let Some(hosted) = self.hosted.as_mut() {
+                hosted.reindex_pending = true;
+            } else {
+                self.reindex()?;
+            }
             self.reset_feed();
             // Every pending row plans under the new catalog.
             changed.extend(self.pending_keys.values().flatten().cloned());

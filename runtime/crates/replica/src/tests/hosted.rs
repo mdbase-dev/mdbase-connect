@@ -156,6 +156,74 @@ fn open(svc: &FakeLogService, store: MemStore) -> Hosted {
     try_open(svc, store, None, HostedProfile::default()).expect("open hosted")
 }
 
+#[test]
+fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
+    use crate::store::{DERIVED_DATA_VERSION, meta_keys};
+    let svc = world();
+    let mut store = MemStore::default();
+    store
+        .commit(Tx {
+            records_put: (1..=22)
+                .map(|n| crate::conformance::record(n, &format!("{n}.md"), "[[target]]"))
+                .collect(),
+            ..Tx::default()
+        })
+        .unwrap();
+    for (expected, complete) in [(8, false), (8, false), (6, true), (0, true)] {
+        let mut hosted = open(&svc, store);
+        assert_eq!(hosted.r.stats.reindexed, expected);
+        pump(&mut hosted.r, &mut hosted.log, 100);
+        assert_eq!(hosted.r.hosted_serving(), complete);
+        assert!(!hosted.r.hosted_needs_reset());
+        store = hosted.r.into_store().into_inner();
+        assert_eq!(
+            store.meta(meta_keys::DERIVED_VERSION).unwrap(),
+            complete.then(|| DERIVED_DATA_VERSION.to_be_bytes().to_vec())
+        );
+    }
+    assert!(
+        store
+            .records(crate::store::Page {
+                after: None,
+                limit: 100
+            })
+            .unwrap()
+            .iter()
+            .all(|row| !row.meta.links.is_empty())
+    );
+}
+
+#[test]
+fn hosted_warm_cache_repairs_large_rows_before_replaying_control() {
+    let svc = world();
+    let mut initial = open(&svc, MemStore::new());
+    initial.pump();
+    let head = initial.r.head();
+    assert!(head.seq > 0);
+    let mut store = initial.r.into_store().into_inner();
+    store
+        .commit(Tx {
+            records_put: (1..=4)
+                .map(|n| crate::conformance::record(n, &format!("{n}.md"), &"x".repeat(130 << 10)))
+                .collect(),
+            meta: vec![(crate::store::meta_keys::RECORD_META.into(), None)],
+            ..Tx::default()
+        })
+        .unwrap();
+    let mut reader = open(&svc, store);
+    for expected in 1..=4 {
+        assert_eq!(reader.r.stats.reindexed, expected);
+        assert!(reader.r.next_wakeup().is_some());
+        assert!(reader.r.take_log_calls().is_empty());
+        assert!(!reader.r.hosted_serving());
+        assert!(!reader.r.hosted_needs_reset());
+        reader.r.tick();
+    }
+    pump(&mut reader.r, &mut reader.log, 100);
+    assert_eq!(reader.r.head(), head);
+    assert!(reader.r.hosted_serving());
+}
+
 /// Reopen after a cold restart. `keys` stands in for the KMS unwrap: the cache never
 /// holds them, so the host hands the sealer its keys at open.
 fn reopen(svc: &FakeLogService, store: MemStore, keys: Vec<u8>) -> Hosted {
@@ -361,6 +429,35 @@ fn ack_only_after_the_log_append() {
     let e = h.r.submit(s, create(2, "b.md", None)).unwrap_err();
     assert_eq!(e.code(), Some(ErrorCode::Internal));
     assert_eq!(svc.head(&COL).0, head + 1);
+}
+
+#[test]
+fn hosted_log_catchup_yields_and_reopens_at_the_committed_head() {
+    let svc = world();
+    let mut writer = open(&svc, MemStore::new());
+    writer.pump();
+    let session = writer.session(G1);
+    for index in 1..=24 {
+        let ticket = writer
+            .r
+            .submit_logged(session, create(index, &format!("{index}.md"), None))
+            .unwrap();
+        writer.pump();
+        assert_eq!(writer.ack(ticket).state, ReceiptState::Confirmed);
+    }
+    let end = writer.r.head();
+    let mut reader = open(&svc, MemStore::new());
+    pump(&mut reader.r, &mut reader.log, 100);
+    assert_eq!(reader.r.head().seq, 16);
+    assert!(!reader.r.hosted_serving());
+    assert!(reader.r.next_wakeup().is_some());
+    pump(&mut reader.r, &mut reader.log, 100);
+    assert_eq!(reader.r.head().seq, 16);
+    let mut reader = open(&svc, reader.r.into_store().into_inner());
+    assert_eq!(reader.r.head().seq, 16);
+    reader.pump();
+    assert_eq!(reader.r.head(), end);
+    assert!(reader.r.hosted_serving());
 }
 
 #[test]

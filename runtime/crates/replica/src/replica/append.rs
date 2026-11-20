@@ -238,6 +238,7 @@ impl<S: Store> Replica<S> {
 
     pub(crate) fn request_read(&mut self) {
         if self.apply_fault
+            || self.hosted_reindex_pending()
             || self.reading
             || self.unindexed_sources.pending()
             || self.reverse_text_sources.pending()
@@ -255,12 +256,17 @@ impl<S: Store> Replica<S> {
         } else {
             self.stall_read.clear();
         }
+        let limit = self.hosted.as_ref().map_or(1000, |hosted| {
+            super::hosted::HOSTED_APPLY_ITEMS - hosted.applied_since_tick
+        });
+        if limit == 0 {
+            return;
+        }
         self.reading = true;
         let id = self.queue(LogRequest::Read(ReadParams {
             collection: self.cfg.collection,
             after: self.head.seq,
-            // Hosted: at most 500 entries applied per read (DO request budget).
-            limit: if self.is_hosted() { 500 } else { 1000 },
+            limit: u64::from(limit),
             kinds: None,
             max_bytes: self.read_bytes(),
         }));
@@ -1604,6 +1610,17 @@ impl<S: Store> Replica<S> {
 
     /// Run timers: retries and backoff.
     pub fn tick(&mut self) {
+        if let Some(hosted) = self.hosted.as_mut() {
+            hosted.applied_since_tick = 0;
+        }
+        if !self.apply_fault && self.hosted_reindex_pending() {
+            if self.hosted_reindex_step().is_err() {
+                self.terminal_store_fault("hosted_record_reindex_failed");
+            }
+            if self.hosted_reindex_pending() {
+                return;
+            }
+        }
         if let Some(session) = self.attachment_read_tick(self.now()) {
             self.attachment_read_end_idle(session);
         }
@@ -1683,6 +1700,13 @@ impl<S: Store> Replica<S> {
         let native_blob = self.unindexed_blob_fetches.next_wakeup();
         [
             append,
+            (!self.apply_fault
+                && self.hosted.as_ref().is_some_and(|hosted| {
+                    hosted.reindex_pending
+                        || (hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS
+                            && self.head.seq < self.head_known)
+                }))
+            .then(|| self.now().saturating_add(1000)),
             grant,
             stall_probe,
             upload,
