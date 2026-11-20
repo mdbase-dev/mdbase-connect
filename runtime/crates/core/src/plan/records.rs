@@ -916,12 +916,18 @@ fn declare_type(catalog: &Catalog, fm: &mut Map, selected: &str) {
 /// The record an op addresses, live or resurrected from its tombstone (D8).
 fn current_or_resurrect(
     ov: &Overlay<'_>,
-    id: RecordId,
+    update: &Update,
 ) -> Result<(String, String, bool), Rejection> {
+    let id = update.id;
     if let Some(r) = ov.record(&id) {
         return Ok((r.path, r.source.to_string(), false));
     }
     match ov.tombstone(&id) {
+        Some(Tombstone::Record { .. }) if update.require_live => Err(Rejection::new(
+            RejectCode::NotFound,
+            Some("deleted"),
+            "the record was deleted",
+        )),
         Some(Tombstone::Record { path, doc }) => {
             let path = allocate(ov, &path, Some(id));
             Ok((path, doc.to_string(), true))
@@ -1009,9 +1015,9 @@ fn field_conflict(id: RecordId, c: merge::Conflict) -> RecordedConflict {
 pub(super) fn update(ctx: &mut Ctx<'_>, ov: &mut Overlay<'_>, u: &Update) -> Result<(), Rejection> {
     let catalog = ov.catalog();
     ctx.touch_id(u.id);
-    let (path, current, resurrected) = match current_or_resurrect(ov, u.id) {
+    let (path, current, resurrected) = match current_or_resurrect(ov, u) {
         Ok(x) => x,
-        Err(_) if ctx.resurrect() => {
+        Err(r) if ctx.resurrect() && r.reason.is_none() => {
             ctx.note(
                 u.id,
                 "record_missing",

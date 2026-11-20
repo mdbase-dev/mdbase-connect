@@ -345,7 +345,9 @@ impl<S: Store> Replica<S> {
         };
         let mut mutation = legacy;
         for fill in &planned.base_text_fills {
-            if let Some(Op::Update(update)) = mutation.ops.get_mut(fill.op_index as usize) {
+            if let Some(Op::Update(update) | Op::UpdateLive(update)) =
+                mutation.ops.get_mut(fill.op_index as usize)
+            {
                 update.body_base_text = Some(Text::Inline(fill.text.clone()));
             }
         }

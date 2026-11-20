@@ -58,7 +58,7 @@ text-index = uint      ; index into the enclosing log entry's text table (log-en
 
 ; from docs/contracts/intent.md
 ; ---- operations (intent.md §3) ----
-op = create / update / document / delete / rename
+op = create / update / update-live / document / delete / rename
    / resource-put / resource-delete
    / file-put / file-delete / file-move
    / conflict-dismiss / sync-settings / file-attach-v1
@@ -93,8 +93,9 @@ create = {
 }
 
 ; from docs/contracts/intent.md
-update = {
-  0: 2,
+update = { 0: 2, update-fields }
+update-live = { 0: 19, update-fields }
+update-fields = (
   1: uuid,                          ; id
   ? 2: fm-map,                      ; patch: set these top-level keys
   ? 3: [+ field-ref],               ; unset: remove these keys
@@ -107,7 +108,7 @@ update = {
   ? 10: [+ base-field],             ; base: observed values of the touched keys
   ? 11: hash,                       ; if_revision: opt-in CAS on the whole document
   ? 12: bool,                       ; update_refs: rewrite inbound links on path-stored moves (default true)
-}
+)
 body-edit = [start: uint, end: uint, insert: tstr]   ; offsets in Unicode scalar values of the base body
 
 ; from docs/contracts/intent.md

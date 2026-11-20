@@ -74,6 +74,8 @@ export interface RecordLease {
     release(): void;
 }
 export interface RecordOpenOptions {
+    /** Apply requireLive to every update captured by this editing session. */
+    requireLive?: boolean;
     autosave?: { idleMs: number } | false;
     timeoutMs?: number;
     signal?: AbortSignal;

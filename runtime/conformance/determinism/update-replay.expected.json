@@ -1,0 +1,5 @@
+[
+  {"requireLive":true,"delete":true,"doc":null,"state":"Rejected","status":null,"problem":["not_found","deleted"]},
+  {"requireLive":false,"delete":true,"doc":"edited\n","state":"Confirmed","status":"Merged","problem":null},
+  {"requireLive":true,"delete":false,"doc":"edited\n","state":"Confirmed","status":"Applied","problem":null}
+]

@@ -895,7 +895,7 @@ fn op_key(o: &mdbn_wire::intent::Op) -> String {
     use mdbn_wire::intent::Op as O;
     match o {
         O::Create(c) => id_key(&c.id),
-        O::Update(u) => id_key(&u.id),
+        O::Update(u) | O::UpdateLive(u) => id_key(&u.id),
         O::Document(d) => id_key(&d.id),
         O::Delete(d) => id_key(&d.id),
         O::Rename(r) => id_key(&r.id),

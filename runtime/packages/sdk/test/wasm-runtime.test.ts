@@ -21,6 +21,22 @@ if (!WebAssembly.Module.exports(mod).some(e => e.name === "rt_info") ||
 }
 
 describe("runtime.wasm", () => {
+  it("refuses a guarded update of a deleted ID but still restores it for an ordinary update", async () => {
+    const rt = await WasmRuntime.instantiate(readFileSync(path));
+    rt.open({collection: uuidv7(), replicaId: uuidv7(), deviceId: uuidv7(), mode: "local_only", signSecretKey: crypto.getRandomValues(new Uint8Array(32)), kemSecretKey: crypto.getRandomValues(new Uint8Array(32))});
+    const client = await connect({app: {name: "guarded-update", version: "1"}, connector: inProcessConnector(rt), reconnect: false});
+    try {
+      const created = await client.create({path: "entry.md", body: "original"});
+      const seen = await client.get(created.records[0]!.id, {include: {body: true}});
+      await client.delete(seen);
+      const changes = {body: "edited", ifRevision: seen.revision};
+      const refused = await client.update(seen, {...changes, requireLive: true}, {conflictMode: "reject"});
+      await expect(refused.confirmed).rejects.toMatchObject({code: "not_found", reason: "deleted"});
+      expect(await client.find(seen.id)).toBeNull();
+      await client.update(seen, changes, {conflictMode: "reject"});
+      expect((await client.get(seen.id, {include: {body: true}})).body).toBe("edited");
+    } finally {client.close(); rt.dispose();}
+  });
   it("carries no account-key or log proof signer: those exist only in the app runtime", () => {
     const names = WebAssembly.Module.exports(mod).map(e => e.name);
     expect(names.filter(n => n.startsWith("rt_app_"))).toEqual([]);
