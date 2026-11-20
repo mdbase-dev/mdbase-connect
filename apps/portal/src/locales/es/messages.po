@@ -3520,6 +3520,10 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "Esos navegadores deberán iniciar sesión de nuevo. Este navegador seguirá conectado."
 
 #: src/ConnectApp.tsx
+msgid "To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”."
+msgstr "Para eliminar esta colección, abre la lista de colecciones en el editor. Abre el menú junto al nombre de la colección y elige «Eliminar colección…»."
+
+#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "Prueba otro nombre de ordenador. El filtrado no revoca el acceso."
 

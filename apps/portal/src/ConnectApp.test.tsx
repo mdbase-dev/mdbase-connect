@@ -40,6 +40,16 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it.each(["owner", "member"] as const)("shows the Editor deletion path only to the cloud copy owner: %s", async relationship => {
+    history.replaceState(null, "", "/?collection=native");
+    overview.native_collections = [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: [],
+      access: { relationship, role: relationship === "owner" ? "owner" : "editor", can_manage_members: relationship === "owner" } }];
+    render(<ConnectApp />);
+    const link = await screen.findByRole("link", { name: "Open in editor: Cloud notes" });
+    expect(new URL(link.getAttribute("href")!).searchParams.get("collection")).toBe("native");
+    expect(!!screen.queryByText(/open the menu next to the collection name and choose “Delete collection…”/i)).toBe(relationship === "owner");
+  });
+
   it.each([{ computerIds: [] }, { computerIds: ["computer"] }])("only describes synced computer copies when a computer is enrolled: $computerIds", async ({ computerIds }) => {
     history.replaceState(null, "", "/storage?collection=native");
     Object.assign(overview, { native_collections: [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: computerIds,
