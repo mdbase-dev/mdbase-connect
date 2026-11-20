@@ -2650,6 +2650,15 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "移除访问权限"
 
+#: src/ApplicationAccess.tsx
+msgid "Remove installation"
+msgstr "移除此安装"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+msgid "Remove only this installation of {0} from your account?"
+msgstr "仅从你的账户中移除 {0} 的这个安装实例吗？"
+
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
 #: src/ConnectApp.tsx
@@ -2664,6 +2673,7 @@ msgstr "正在移除访问权限…"
 msgid "Removing app and folder access…"
 msgstr "正在移除应用和文件夹的访问权限…"
 
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"

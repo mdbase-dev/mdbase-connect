@@ -2650,6 +2650,15 @@ msgctxt "Connect interface"
 msgid "Remove access"
 msgstr "Отозвать доступ"
 
+#: src/ApplicationAccess.tsx
+msgid "Remove installation"
+msgstr "Удалить установку"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+msgid "Remove only this installation of {0} from your account?"
+msgstr "Удалить из вашей учётной записи только эту установку {0}?"
+
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
 #: src/ConnectApp.tsx
@@ -2664,6 +2673,7 @@ msgstr "Удаление доступа…"
 msgid "Removing app and folder access…"
 msgstr "Отзыв доступа к приложениям и папкам…"
 
+#: src/ApplicationAccess.tsx
 #: src/ConnectApp.tsx
 msgctxt "Connect interface"
 msgid "Removing…"
