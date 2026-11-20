@@ -1905,6 +1905,7 @@ impl<S: Store> Replica<S> {
                 StoreError::CommitAborted(reason) => StoreError::Io(reason),
                 other => other,
             })?;
+        let deferred_projection = query_context.is_some() && tx.query_index.is_none();
         if self.local_only() {
             // Local confirmation has no synced log bytes or retention material.
             self.store.commit(tx)?;
@@ -1926,6 +1927,13 @@ impl<S: Store> Replica<S> {
             self.reset_feed();
             // Every pending row plans under the new catalog.
             changed.extend(self.pending_keys.values().flatten().cloned());
+        }
+        if deferred_projection {
+            self.backfill_query_index_within_budget()
+                .map_err(|error| match error {
+                    StoreError::CommitAborted(reason) => StoreError::Io(reason),
+                    other => other,
+                })?;
         }
         if relocated_from.is_some() {
             self.resurrected.remove(&payload.mutation.id);

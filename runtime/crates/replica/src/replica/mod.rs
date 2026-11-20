@@ -998,19 +998,8 @@ impl<S: Store> Replica<S> {
         // leaves it unready, as after an install: the backend alone certifies
         // readiness, queries use the per-record path or decline visibly, and the
         // incident reports it. Other store errors stop the open.
-        match r.backfill_query_index() {
-            Ok(()) => {}
-            Err(StoreError::Full) => {
-                r.query_context = None;
-                r.incident(
-                    IncidentKind::Integrity,
-                    Some(mdbn_wire::common::Value::Text(
-                        "store: query index backfill: over budget".into(),
-                    )),
-                );
-            }
-            Err(e) => return Err(OpenError::StoreAt("query_index_backfill", e)),
-        }
+        r.backfill_query_index_within_budget()
+            .map_err(|error| OpenError::StoreAt("query_index_backfill", error))?;
         // Whatever the view captured while rebuilding is replaced by what the disk holds.
         r.before.clear();
         r.load_regressed().map_err(OpenError::Store)?;
