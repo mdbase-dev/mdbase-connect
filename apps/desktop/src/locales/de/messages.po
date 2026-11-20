@@ -489,10 +489,6 @@ msgid "change record types"
 msgstr "Datensatztypen ändern"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "Von einem mdbase unbekannten Programm geändert"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "Hier und an anderer Stelle geändert"
 
@@ -1166,6 +1162,10 @@ msgstr "mdbase konnte diesen Computer noch nicht registrieren. Solange mdbase l�
 #: src/renderer/daemon-view.mts
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "mdbase konnte die Kontoeinstellungen dieses Computers nicht speichern. Prüfen Sie den freien Speicherplatz und starten Sie mdbase dann neu."
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "mdbase konnte nicht feststellen, auf welcher Version diese Datei basiert"
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -2079,6 +2079,10 @@ msgstr "Diese Datei ist keine Notiz: Stellen Sie die andere Version bei Bedarf m
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "Dieser Ordner hat eine alte mdbase-Connect-Identität"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "Diese Datei wird nur auf diesem Computer zurückgehalten. Wenn die Datei auf einem anderen Computer bearbeitet wurde, wird sie dort nicht als zurückgehalten angezeigt. Wähle hier „Beide behalten“, um beide Versionen zu behalten. Sobald die Computer denselben Stand haben, verschiebe die bearbeitete Version in den gewünschten Ordner, falls sie noch im alten Ordner liegt."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

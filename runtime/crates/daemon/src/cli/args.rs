@@ -2,6 +2,11 @@
 
 use super::*;
 
+pub(super) const UNKNOWN_PROVENANCE_GUIDANCE: &str = "An unknown_provenance hold exists only on this computer. \
+    If another computer edited the file, it won't show this hold. \
+    Resolve it here with `mdbase resolve <collection> <id> keep_both` to preserve both versions. \
+    Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder.";
+
 /// The data commands' examples, after the command list.
 const DATA_HELP: &str = "\
 Records: `read`, `query`, `validate`, `types` and the writes work on the folder
@@ -66,6 +71,7 @@ pub(super) enum Command {
         limit: u64,
     },
     /// Files held instead of overwritten, waiting for you to resolve them.
+    #[command(after_long_help = UNKNOWN_PROVENANCE_GUIDANCE)]
     Holds {
         /// Collection ID, ID prefix or name.
         collection: String,
@@ -437,6 +443,19 @@ mod takeover_cli_tests {
         assert!(update.contains("shared name") && update.contains("Portal"));
         let delete = help("delete");
         assert!(delete.contains("shared name") && delete.contains("Portal"));
+    }
+
+    #[test]
+    fn holds_help_explains_local_recovery_and_folder_cleanup() {
+        let help = Cli::try_parse_from(["mdbase", "holds", "--help"])
+            .unwrap_err()
+            .to_string();
+        assert!(help.contains("An unknown_provenance hold exists only on this computer."));
+        assert!(help.contains("If another computer edited the file, it won't show this hold."));
+        assert!(
+            help.contains("`mdbase resolve <collection> <id> keep_both` to preserve both versions")
+        );
+        assert!(help.contains("Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."));
     }
 
     #[test]

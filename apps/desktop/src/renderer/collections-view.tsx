@@ -254,7 +254,7 @@ function SyncedFiles({ collection, onDone }: { collection: DaemonCollection; onD
 
 const HOLD_REASONS: Record<string, string> = {
   get conflict() { return t(i18n)({ message: "Changed here and elsewhere" }); },
-  get unknown_provenance() { return t(i18n)({ message: "Changed by a program mdbase does not recognise" }); },
+  get unknown_provenance() { return t(i18n)({ message: "mdbase could not tell which version this file was based on" }); },
   get deleted_elsewhere() { return t(i18n)({ message: "Deleted on another device" }); },
   get read_only() { return t(i18n)({ message: "Changed while read-only", context: "Local collection management" }); },
   get editor_busy() { return t(i18n)({ message: "Open in an editor", context: "Local collection management" }); },
@@ -286,7 +286,11 @@ function Holds({ collection, busy, onAct, onLoaded }: {
       {holds === null ? <small><Trans>Loading…</Trans></small> : holds.length === 0 ? <small><Trans>Nothing is waiting.</Trans></small> : (
         <ul>{holds.map((hold) => (
           <li key={hold.id}>
-            <div><code>{hold.path}</code><small><Trans>{HOLD_REASONS[hold.reason] ?? hold.reason} · since {relativeTime(new Date(hold.since).toISOString())}</Trans></small></div>
+            <div>
+              <code>{hold.path}</code>
+              <small><Trans>{HOLD_REASONS[hold.reason] ?? hold.reason} · since {relativeTime(new Date(hold.since).toISOString())}</Trans></small>
+              {hold.reason === "unknown_provenance" && !hold.binary && <small><Trans>This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder.</Trans></small>}
+            </div>
             {hold.binary && hold.reason === "taken_over"
               ? <div className="row-actions">
                 <button className="mdbase-button is-tertiary" disabled={busy} onClick={() => resolve(hold, "keep_mine")}><Trans>Keep this computer's</Trans></button>

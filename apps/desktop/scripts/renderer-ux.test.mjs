@@ -1254,6 +1254,25 @@ test("deleted collection keeps skipped-file details without repeating the deleti
   } finally { await page.close(); }
 });
 
+test("an unknown-provenance hold explains where to resolve it and when to move the edit", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection({ sync: { holds: 1 } })] });
+  try {
+    await page.evaluate(() => {
+      window.fixture.holds = [{ id: "moved-note", path: "Renamed/note.md", reason: "unknown_provenance", since: Date.now(), saves: 1, has_theirs: true, binary: false }];
+    });
+    await nav(page, "Collections").click();
+    await collectionAction(page, "Review 1 file");
+    const hold = page.getByRole("listitem").filter({ hasText: "Renamed/note.md" });
+    await hold.getByText(/mdbase could not tell which version this file was based on/).waitFor();
+    await hold.getByText(/This hold exists only on this computer\. If another computer edited the file, it won’t show this hold\./).waitFor();
+    await hold.getByText(/Choose Keep both here to preserve both versions\. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder\./).waitFor();
+    await hold.getByRole("button", { name: "Keep both", exact: true }).click();
+    await page.getByText("Nothing is waiting.", { exact: true }).waitFor();
+    assert.deepEqual(await calls("resolveHold"), [["c-notes", "moved-note", "keep_both"]]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
 test("a view-only new file can be discarded without a synced version", async () => {
   const { page, errors, calls } = await desktop({ collections: [collection({ sync: { holds: 1 } })] });
   try {

@@ -489,10 +489,6 @@ msgid "change record types"
 msgstr "레코드 유형 변경"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "mdbase가 인식하지 못하는 프로그램에서 변경됨"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "여기와 다른 곳에서 모두 변경됨"
 
@@ -1166,6 +1162,10 @@ msgstr "아직 이 컴퓨터를 등록하지 못했습니다. mdbase가 실행 �
 #: src/renderer/daemon-view.mts
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "이 컴퓨터의 계정 설정을 저장하지 못했습니다. 디스크 여유 공간을 확인한 후 mdbase를 다시 시작하세요."
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "mdbase가 이 파일이 어느 버전을 기반으로 하는지 확인하지 못했습니다"
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -2079,6 +2079,10 @@ msgstr "이 파일은 노트가 아닙니다. 필요하면 다른 버전을 직�
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "이 폴더에 이전 mdbase Connect ID가 있습니다"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "이 보류는 이 컴퓨터에만 표시됩니다. 다른 컴퓨터에서 파일을 편집했다면 그 컴퓨터에는 이 보류가 표시되지 않습니다. 여기에서 ‘둘 다 유지’를 선택해 두 버전을 모두 보존하세요. 컴퓨터에 같은 파일이 표시되면, 편집한 버전이 아직 이전 폴더에 있을 경우 원하는 폴더로 옮기세요."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
