@@ -417,7 +417,10 @@ their Noise hello Problems, and stays bounded to 30 seconds. No new consent
 is needed when both arrive. A current Private grant (Active, listed, live lease)
 whose collection this device is not serving right now (paused, opening,
 recovering or failed) closes with `4000 / not_served` instead: retryable, and not
-an authorization wait. Restart recovery requires a newer snapshot sequence:
+an authorization wait. If the pipe opens during resume but the daemon is not yet
+serving at Noise hello, its `unavailable / not_serving` Problem means the same
+thing. The SDK reports `not_served` and `waitForDevice` retries the original grant.
+Restart recovery requires a newer snapshot sequence:
 replaying the persisted feed cursor deliberately cannot renew its lease.
 
 The daemon uses one gate over its synchronously published authority snapshot for
