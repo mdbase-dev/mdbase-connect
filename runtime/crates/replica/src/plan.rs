@@ -93,49 +93,79 @@ pub fn value_key(v: &CValue) -> String {
 }
 
 /// Fingerprint the catalog used by `record_meta`: membership, path-derived
-/// fields, uniqueness and link keys. A resolved schema may live outside the
-/// types folder. Unregistered resources and individual records are not inputs.
+/// fields, uniqueness and link keys. Schemas affect which definitions compile,
+/// but validation itself does not derive record metadata.
 pub fn record_meta_stamp(catalog: &Catalog) -> Vec<u8> {
     let mut digest = Sha256::new();
-    digest.update(b"mdbase/v2/record-meta\0");
+    digest.update(b"mdbase/v3/record-meta\0");
     let mut part = |value: &str| {
         digest.update((value.len() as u64).to_be_bytes());
         digest.update(value.as_bytes());
     };
     let settings = catalog.settings();
-    for values in [&settings.explicit_type_keys, &settings.record_extensions] {
+    let mut extensions: Vec<_> = settings
+        .record_extensions
+        .iter()
+        .map(|ext| ext.to_ascii_lowercase())
+        .collect();
+    extensions.sort();
+    extensions.dedup();
+    for values in [&settings.explicit_type_keys, &extensions] {
         part(&CValue::List(values.iter().cloned().map(CValue::Text).collect()).to_json());
     }
-    for optional in [&settings.timezone, &settings.id_field] {
-        part(
-            &optional
-                .clone()
-                .map_or(CValue::Null, CValue::Text)
-                .to_json(),
-        );
+    let timezone = settings.timezone.as_deref().filter(|_| {
+        catalog.types().iter().any(|def| {
+            def.match_spec
+                .as_ref()
+                .is_some_and(|spec| spec.program.is_some())
+        })
+    });
+    for optional in [timezone, settings.id_field.as_deref()] {
+        part(&optional.map_or(CValue::Null, CValue::string).to_json());
     }
     for definition in catalog.types() {
         part(&definition.name);
+        let matching = definition
+            .raw
+            .get("match")
+            .and_then(CValue::as_map)
+            .map(|spec| {
+                CValue::Map(
+                    spec.iter()
+                        .filter(|(key, _)| !key.starts_with("x-"))
+                        .map(|(key, val)| (key.to_owned(), val.clone()))
+                        .collect(),
+                )
+            });
+        part(&value_key(&matching.unwrap_or(CValue::Null)));
+        let policy = definition
+            .path_policy
+            .as_ref()
+            .filter(|policy| !policy.fields.is_empty());
+        part(policy.and(definition.path_pattern.as_deref()).unwrap_or(""));
+        let fields = policy.into_iter().flat_map(|policy| &policy.fields);
+        part(&CValue::List(fields.cloned().map(CValue::Text).collect()).to_json());
         part(
-            &definition
-                .raw
-                .get("match")
-                .unwrap_or(&CValue::Null)
-                .to_json(),
+            &CValue::List(
+                definition
+                    .link_fields
+                    .keys()
+                    .cloned()
+                    .map(CValue::Text)
+                    .collect(),
+            )
+            .to_json(),
         );
-        for field in ["path", "unique", "links"] {
-            part(
-                &definition
-                    .raw
-                    .get("collection")
-                    .and_then(|v| v.get(field))
-                    .unwrap_or(&CValue::Null)
-                    .to_json(),
-            );
-        }
-        part(&definition.schema_entry);
-        part(&definition.schema_document.to_json());
     }
+    part(
+        &CValue::List(
+            unique_fields(catalog)
+                .into_iter()
+                .map(CValue::string)
+                .collect(),
+        )
+        .to_json(),
+    );
     digest.finalize().to_vec()
 }
 

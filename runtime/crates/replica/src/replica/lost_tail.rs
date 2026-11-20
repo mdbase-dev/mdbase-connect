@@ -963,7 +963,7 @@ impl<S: Store> Replica<S> {
             resurrected.insert(row.mutation.id, *seq);
         }
         let policy = crate::policy::PolicyState::new();
-        let tx = crate::store::Tx {
+        let mut tx = crate::store::Tx {
             clear_confirmed: true,
             head: Some(Head::GENESIS),
             tail_drop_above: Some(l),
@@ -985,7 +985,22 @@ impl<S: Store> Replica<S> {
             ],
             ..crate::store::Tx::default()
         };
+        if self.is_hosted() {
+            tx.meta.push((
+                crate::store::meta_keys::HOSTED_RECORD_META_CURSOR.into(),
+                None,
+            ));
+            tx.meta.push((
+                crate::store::meta_keys::RECORD_META.into(),
+                Some(crate::plan::record_meta_stamp(
+                    &mdbn_core::types::Catalog::empty(),
+                )),
+            ));
+        }
         self.store.commit(tx)?;
+        if let Some(hosted) = self.hosted.as_mut() {
+            hosted.reindex_stamp = None;
+        }
         self.store_generation += 1;
         self.repair_stats.resurrected += own.len() as u64;
         self.resurrected = resurrected;

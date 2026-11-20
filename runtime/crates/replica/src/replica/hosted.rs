@@ -168,12 +168,26 @@ pub(crate) struct HostedState {
 /// Count-only boundaries crossed during one hosted open or alarm slice.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HostedRepairBoundary {
-    /// Applied sequence held fixed for the pass.
+    /// Applied sequence at this boundary, not a cursor binding.
     pub applied_seq: u64,
-    /// This slice started at the beginning, not a saved cursor.
-    pub started: bool,
+    /// Why this slice started at the beginning rather than a saved cursor.
+    pub started: Option<HostedRepairStart>,
     /// Committed pass totals (records visited, record rows written), at EOF only.
     pub finished: Option<(u64, u64)>,
+}
+
+/// Count-only reason codes for the hosted Worker diagnostics import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum HostedRepairStart {
+    /// No completed metadata stamp.
+    FirstOpen = 1,
+    /// The completed stamp does not describe the current catalog.
+    CatalogChanged = 2,
+    /// A saved checkpoint belongs to another generation or format.
+    CursorInvalid = 3,
+    /// A new derived-data version requires verification.
+    DerivedVersionChanged = 4,
 }
 
 /// Crate-private currentness fact for the verified-admission observer (trust
@@ -1074,11 +1088,11 @@ impl<S: Store> Replica<S> {
     }
 
     pub(super) fn hosted_reindex_step(&mut self) -> StoreResult<()> {
-        const CHECKPOINT: &str = "replica.hosted_record_meta_cursor";
+        use meta_keys::HOSTED_RECORD_META_CURSOR as CHECKPOINT;
         let hosted = self.hosted.as_mut().expect("hosted reindex");
         let stamp = hosted.reindex_stamp.as_ref().expect("pending reindex");
         let version = crate::store::DERIVED_DATA_VERSION.to_be_bytes();
-        let prefix = [version.as_slice(), stamp, &self.head.chain.0].concat();
+        let prefix = [version.as_slice(), stamp].concat();
         let saved = self.store.meta(CHECKPOINT)?;
         let (mut after, mut visited, mut written) = match saved
             .as_deref()
@@ -1099,64 +1113,121 @@ impl<S: Store> Replica<S> {
                 (Some(mdbn_wire::common::B16(*id)), visited, written)
             }
         };
-        let started = after.is_none();
-        if started {
+        let started = if after.is_some() {
+            None
+        } else if saved.is_some() {
+            Some(HostedRepairStart::CursorInvalid)
+        } else {
+            Some(match self.store.meta(meta_keys::RECORD_META)? {
+                None => HostedRepairStart::FirstOpen,
+                Some(previous) if previous != *stamp => HostedRepairStart::CatalogChanged,
+                Some(_) => HostedRepairStart::DerivedVersionChanged,
+            })
+        };
+        let scan_limit = 2048
+            / u32::try_from(self.catalog.types().len().clamp(1, 2048))
+                .expect("bounded catalog work factor");
+        let deadline = self.host.clock.now_ms().saturating_add(100);
+        let mut scanned = 0;
+        let mut scan_bytes = 0;
+        let mut write_bytes: usize = 0;
+        let mut changed = Vec::new();
+        let result = self.store.records_visit(
+            Page {
+                after,
+                limit: scan_limit,
+            },
+            &mut |mut row| {
+                use std::ops::ControlFlow;
+                if scanned != 0
+                    && (self.host.clock.now_ms() >= deadline
+                        || scan_bytes + row.doc.len() > 1 << 20)
+                {
+                    return ControlFlow::Break(());
+                }
+                let meta = crate::plan::record_meta(&self.catalog, &row.path, &row.doc);
+                let id = row.id;
+                let bytes = row.doc.len();
+                if row.meta != meta {
+                    if !changed.is_empty() && write_bytes + bytes > 128 << 10 {
+                        return ControlFlow::Break(());
+                    }
+                    write_bytes += bytes;
+                    row.meta = meta;
+                    changed.push((scanned + 1, row));
+                }
+                after = Some(id);
+                scanned += 1;
+                scan_bytes += bytes;
+                if changed.len() == 8 || write_bytes >= 128 << 10 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )?;
+        let done = result.is_continue() && scanned < scan_limit;
+        let prior_visits = visited;
+        visited = visited
+            .checked_add(u64::from(scanned))
+            .ok_or_else(|| StoreError::Corrupt("hosted reindex counts".into()))?;
+        let checkpoint = |id: Uuid, visits: u64, writes: u64| {
+            (
+                CHECKPOINT.into(),
+                Some(
+                    [
+                        prefix.as_slice(),
+                        &id.0,
+                        &visits.to_be_bytes(),
+                        &writes.to_be_bytes(),
+                    ]
+                    .concat(),
+                ),
+            )
+        };
+        let mut tx = Tx::default();
+        let mut changed = changed.into_iter().peekable();
+        while let Some((offset, row)) = changed.next() {
+            written += 1;
+            if changed.peek().is_none() {
+                tx.records_put.push(row);
+            } else {
+                self.store.commit(Tx {
+                    meta: vec![checkpoint(
+                        row.id,
+                        prior_visits + u64::from(offset),
+                        written,
+                    )],
+                    records_put: vec![row],
+                    ..Tx::default()
+                })?;
+            }
+        }
+        if done {
+            tx.meta
+                .push((meta_keys::RECORD_META.into(), Some(stamp.clone())));
+            if self.store.meta(meta_keys::DERIVED_VERSION)?.as_deref() != Some(&version) {
+                tx.meta
+                    .push((meta_keys::DERIVED_VERSION.into(), Some(version.to_vec())));
+            }
+            if saved.is_some() || written > 1 {
+                tx.meta.push((CHECKPOINT.into(), None));
+            }
+        } else {
+            let id = after.expect("nonempty repair slice");
+            tx.meta.push(checkpoint(id, visited, written));
+        }
+        self.store.commit(tx)?;
+        self.stats.reindexed += u64::from(scanned);
+        if started.is_some() || done {
             hosted.repair_boundary = Some(HostedRepairBoundary {
                 applied_seq: self.head.seq,
                 started,
-                finished: None,
+                finished: done.then_some((visited, written)),
             });
         }
-        let mut bytes = 0;
-        for index in 0..8 {
-            let Some(mut row) = self.store.records(Page { after, limit: 1 })?.pop() else {
-                self.store.commit(Tx {
-                    meta: vec![
-                        (meta_keys::RECORD_META.into(), Some(stamp.clone())),
-                        (meta_keys::DERIVED_VERSION.into(), Some(version.to_vec())),
-                        (CHECKPOINT.into(), None),
-                    ],
-                    ..Tx::default()
-                })?;
-                hosted.repair_boundary = Some(HostedRepairBoundary {
-                    applied_seq: self.head.seq,
-                    started,
-                    finished: Some((visited, written)),
-                });
-                hosted.reindex_stamp = None;
-                break;
-            };
-            if index != 0 && row.doc.len() > (128 << 10) - bytes {
-                break;
-            }
-            bytes += row.doc.len();
-            after = Some(row.id);
-            let meta = crate::plan::record_meta(&self.catalog, &row.path, &row.doc);
-            visited += 1;
-            let id = row.id;
-            let records_put = if row.meta == meta {
-                Vec::new()
-            } else {
-                row.meta = meta;
-                written += 1;
-                vec![row]
-            };
-            let cursor = [
-                prefix.as_slice(),
-                &id.0,
-                &visited.to_be_bytes(),
-                &written.to_be_bytes(),
-            ]
-            .concat();
-            self.store.commit(Tx {
-                records_put,
-                meta: vec![(CHECKPOINT.into(), Some(cursor))],
-                ..Tx::default()
-            })?;
-            self.stats.reindexed += 1;
-            if bytes >= 128 << 10 {
-                break;
-            }
+        if done {
+            hosted.reindex_stamp = None;
         }
         Ok(())
     }

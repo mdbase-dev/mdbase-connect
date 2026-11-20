@@ -35,7 +35,7 @@ use crate::runtime::{ConfiguredCppAudience, Engine, OpenConfig, Out};
 unsafe extern "C" {
     fn host_sql(ptr: *const u8, len: usize) -> u64;
     fn host_now_ms() -> f64;
-    fn host_repair_boundary(finished: u32, seq: u64, visited: u64, written: u64);
+    fn host_repair_boundary(start_reason: u32, seq: u64, visited: u64, written: u64);
     fn host_random(ptr: *mut u8, len: usize);
     fn host_local_date(instant_ms: f64, tz: *const u8, tz_len: usize, out: *mut u8) -> u32;
     fn host_default_zone(out: *mut u8, cap: usize) -> u32;
@@ -1522,11 +1522,11 @@ pub extern "C" fn hd_tick(now_ms: f64, after_open: u32) {
 
 fn emit_repair_boundary(engine: &mut Live) {
     if let Some(event) = engine.take_repair_boundary() {
-        if event.started {
-            unsafe { host_repair_boundary(0, event.applied_seq, 0, 0) };
+        if let Some(reason) = event.started {
+            unsafe { host_repair_boundary(reason as u32, event.applied_seq, 0, 0) };
         }
         if let Some((visited, written)) = event.finished {
-            unsafe { host_repair_boundary(1, event.applied_seq, visited, written) };
+            unsafe { host_repair_boundary(0, event.applied_seq, visited, written) };
         }
     }
 }
