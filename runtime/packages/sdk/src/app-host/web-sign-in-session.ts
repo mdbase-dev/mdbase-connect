@@ -690,7 +690,6 @@ export class AppWebSignInSession<Connection> {
   private async finishNativeChoice(selection: import("./native-sign-in.js").AppNativeSelection): Promise<void> {
     const slot=this.nativePending;
     if(!slot || !slot.prepared || !slot.attempted || slot.context.requestId!==selection.requestId || slot.prepared.authorizationId!==selection.authorizationRequestId)throw failure("recovery_required");
-    await this.openDevice();this.check();
     const completion=await slot.port.finish(selection,AbortSignal.any([this.lifetime.signal,this.flowLifetime.signal,slot.life.signal]));this.check();
     if(this.nativePending!==slot || !this.acknowledged || !this.installation)throw failure("fenced");
     await this.flow!.completeNativeAuthorization(this.installation,completion);this.check();
@@ -702,6 +701,7 @@ export class AppWebSignInSession<Connection> {
    * Resolves false when the pick was forgotten; the sign-in itself is intact.
    * A closing session, or a pick that could not be forgotten, still rejects. */
   private async settleNativeChoice(selection: import("./native-sign-in.js").AppNativeSelection): Promise<boolean> {
+    await this.openDevice(); this.check();
     try { await this.finishNativeChoice(selection); return true; }
     catch (error) {
       this.check();
