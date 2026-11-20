@@ -1569,13 +1569,15 @@ export class MdbaseClient {
     return r.preflight ?? { rewrites: [], broken: [] };
   }
 
-  /** Every page of a query. `o.include` and `o.signal` apply to every page.
+  /** Every cursor page of a query. The page size defaults to 500 when `limit`
+   * is omitted. `o.include` and `o.signal` apply to every page.
    * Cursor resets require explicit caller clearing through `o.onReset`;
    * otherwise cursor_expired/cursor_stale is thrown unchanged. The query and
    * `o` are captured when iteration starts. */
   async *pages(query: Query, o: RecordReadOptions & PagesOptions = {}): AsyncGenerator<QueryResult> {
     const { include, signal, onReset } = o;
     const original = snapshotQueryValue(query) as Query;
+    if (original.limit === undefined) original.limit = 500;
     const originalInclude = include ? { ...include } : undefined;
     const read: RecordReadOptions = { ...(originalInclude ? { include: originalInclude } : {}), ...(signal ? { signal } : {}) };
     let cursor = original.cursor, restarted = false, pagesYielded = 0;

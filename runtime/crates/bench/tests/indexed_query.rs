@@ -788,14 +788,22 @@ fn budgeted_per_record_scan_is_charged_two_copies_a_record() {
         node.r
             .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
         let before = node.r.query_stats();
-        let all = q(&[("types", Value::List(vec![Value::Text("task".into())]))]);
-        let answer = node.r.query(node.s, all, none());
+        let types = ("types", Value::List(vec![Value::Text("task".into())]));
+        let answer = node
+            .r
+            .query(node.s, q(std::slice::from_ref(&types)), none());
         assert_eq!(node.r.query_stats().declined, before.declined + 1);
         match answer {
             Ok(page) => assert!(fits && page.records.len() == 500, "{count}"),
             Err(e) => {
                 assert!(!fits, "{count}: {e:?}");
                 assert_eq!(e.problem().reason.as_deref(), Some("query_budget_exceeded"));
+                assert!(e.problem().message.contains("limit"));
+                assert!(e.problem().message.contains("cursor"));
+                let pages = all_pages(&mut node, &[types, ("limit", Value::Int(500))]);
+                assert_eq!(pages.len(), 2);
+                assert_eq!(pages[0].records.len(), 500);
+                assert_eq!(pages[1].records.len(), 1);
             }
         }
     }

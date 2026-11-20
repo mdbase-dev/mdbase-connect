@@ -158,7 +158,7 @@ fn budget_error(what: &str) -> ApiError {
         "query_budget_exceeded",
         format!(
             "{what} exceeds the query budget of {MAX_SELECTED} records and {MAX_BYTES} bytes; \
-             narrow the query or page it"
+             narrow the query, or for indexed queries set a positive limit and follow the returned cursor"
         ),
     )
 }
