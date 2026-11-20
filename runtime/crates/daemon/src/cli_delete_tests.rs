@@ -59,7 +59,7 @@ async fn collection_delete_cli_success_and_refusals() {
             "Wrong name",
             Some(ControlError::invalid(
                 "collection_name_mismatch",
-                "The name you typed does not match this collection's name.",
+                "Use the current shared name shown in the Portal for --confirm. It may differ from the name on this computer.",
             )),
         ),
         (
