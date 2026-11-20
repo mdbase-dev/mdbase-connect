@@ -50,7 +50,7 @@ const frame = (method) => encode(new Map([[2, method], [3, new Map()]]));
 /** A bound engine that queues `methods` once per sync (refresh() re-arms it). */
 function engine(methods = [], outputs = []) {
   let queued = [], applied = 0, sent = [];
-  const e = { needsReset: () => false, appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
+  const e = { cacheRecovery: () => null, appliedHead: () => String(applied), logBound: true, nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null, signRpc: () => new Uint8Array(64),
     logCalls: () => { const q = queued; queued = []; return q; }, logBind: () => true,
     logReply(id) { if (sent[id] === "read") applied++; }, logFailed() {}, poll: () => { const out = outputs; outputs = []; return out; },
     arm(next = methods) { sent = next; queued = next.map((m, id) => ({ id, frame: frame(m) })); } };

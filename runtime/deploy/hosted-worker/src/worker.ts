@@ -835,7 +835,7 @@ export class HostedCollection extends DurableObject<Env> {
         try { console.info(JSON.stringify({ event: "hosted_first_open", role: this.escrow ? "escrow" : "hosted", ...this.timings })); } catch { /* Logging is not authority. */ }
       }
       openingTrace.stage = "engine_reset";
-      await this.checkCache(engine);
+      await this.checkCache(engine, true);
       // All open checks succeeded. Until here, a post-sync failure must still
       // have the earlier retry. Never replace a different pending wake.
       if (next !== undefined) {
@@ -877,17 +877,26 @@ export class HostedCollection extends DurableObject<Env> {
     throw new Error("hosted cache reset after pin mismatch; retry");
   }
 
-  private async checkCache(engine: Engine): Promise<void> {
-    if (this.engine !== engine || !engine.needsReset()) return;
+  private async checkCache(engine: Engine, opening: boolean): Promise<void> {
+    if (this.engine !== engine) return;
+    const recovery = engine.cacheRecovery();
+    if (!recovery) return;
     this.releaseAttachment(engine);
-    this.engineReset("cache_reset");
+    this.engineReset(`cache_${recovery}`);
     const generation = ++this.logGen;
     this.engine = null;
     this.live = null;
     for (const reader of this.readers.values()) reader.wipe();
     this.readers.clear();
-    resetIndex(this.ctx.storage);
-    await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.pitrClosed && this.logGen === generation && !this.engine);
+    const current = () => !this.pitrClosed && this.logGen === generation && !this.engine;
+    try {
+      if (recovery === "reopen") throw new Error("hosted cache reopen required");
+      resetIndex(this.ctx.storage);
+    } catch (error) {
+      if (!opening) await this.alarms.schedule(Date.now() + openRetryMs(0), current);
+      throw error;
+    }
+    await this.alarms.schedule(Date.now() + REFRESH_MS, current);
     throw new Error("hosted cache reset; retry");
   }
 
@@ -1059,7 +1068,7 @@ export class HostedCollection extends DurableObject<Env> {
     } : undefined, { tokenRefused: () => this.dropLogToken(), report, objectOrigins: this.objectOrigins, nonces: this.logNonces });
     if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
     if (!openingTimings) {
-      await this.checkCache(engine);
+      await this.checkCache(engine, false);
       if (!current()) return;
     }
     this.pruneAttachment();

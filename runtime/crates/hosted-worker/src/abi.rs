@@ -1454,6 +1454,12 @@ pub extern "C" fn hd_needs_reset() -> u32 {
     with(|s| u32::from(s.engine.needs_reset())).unwrap_or(0)
 }
 
+/// 1 when the engine must reopen over its durable store.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_requires_reopen() -> u32 {
+    with(|s| u32::from(s.engine.requires_reopen())).unwrap_or(0)
+}
+
 /// The pin check on the applied state (`Engine::pin_state`) plus 1: 1 the state
 /// fails the pins, 2 consistent while rebuilding, 3 consistent and rebuilt;
 /// 0 without an engine (no evidence either way).

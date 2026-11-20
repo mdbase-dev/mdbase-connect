@@ -194,6 +194,31 @@ fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
 }
 
 #[test]
+fn hosted_warm_repair_store_fault_reopens_at_the_last_checkpoint() {
+    let svc = world();
+    let mut store = MemStore::new();
+    store
+        .commit(Tx {
+            records_put: (1..=10)
+                .map(|id| crate::conformance::record(id, &format!("{id}.md"), "[[target]]"))
+                .collect(),
+            ..Tx::default()
+        })
+        .unwrap();
+    let mut hosted = open(&svc, store.clone());
+    assert_eq!(hosted.r.stats.reindexed, 8);
+    store.fail_commits(1);
+    hosted.r.tick();
+    assert!(hosted.r.requires_reopen());
+    assert!(!hosted.r.hosted_needs_reset());
+    drop(hosted);
+    let mut reopened = open(&svc, store);
+    assert_eq!(reopened.r.stats.reindexed, 2);
+    reopened.pump();
+    assert!(reopened.r.hosted_serving());
+}
+
+#[test]
 fn hosted_catalog_reset_waits_for_authorized_watcher_after_repair() {
     let svc = world();
     let mut hosted = open(&svc, MemStore::new());

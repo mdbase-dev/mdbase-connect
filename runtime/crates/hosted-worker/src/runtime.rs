@@ -787,6 +787,11 @@ impl<S: Store> Engine<S> {
         self.replica.hosted_needs_reset()
     }
 
+    /// Reopen over the durable checkpoint after a terminal store fault.
+    pub fn requires_reopen(&self) -> bool {
+        self.replica.requires_reopen()
+    }
+
     /// The pin check on the state applied so far: 0 inconsistent with the pins,
     /// 1 consistent while the rebuild runs, 2 consistent and rebuilt to the head.
     pub fn pin_state(&self) -> u32 {

@@ -65,6 +65,7 @@ interface Exports extends WebAssembly.Exports {
   mig_resolve(p: number, n: number): bigint;
   hd_serving(): number;
   hd_needs_reset(): number;
+  hd_requires_reopen(): number;
   hd_pin_state(): number;
   hd_hello(gp: number, gn: number, p: number, n: number): bigint;
   hd_frame(session: number, p: number, n: number): void;
@@ -697,8 +698,9 @@ export class Engine {
     return this.ex.hd_serving() === 1;
   }
 
-  needsReset(): boolean {
-    return this.ex.hd_needs_reset() === 1;
+  cacheRecovery(): "reset" | "reopen" | null {
+    if (this.ex.hd_needs_reset() === 1) return "reset";
+    return this.ex.hd_requires_reopen() === 1 ? "reopen" : null;
   }
 
   /** The native open-time pin check on the state applied so far. */
