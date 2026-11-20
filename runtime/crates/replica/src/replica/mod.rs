@@ -175,7 +175,9 @@ pub use disk::PUBLISH_WAIT_MS;
 pub(crate) use hosted::HOSTED_READ_BYTES;
 #[allow(unused_imports)]
 pub(crate) use hosted::{FreshHead, PolicyOrigin};
-pub use hosted::{HostedAck, HostedCache, HostedProfile, HostedRepairBoundary, SubmitTicket};
+pub use hosted::{
+    HostedAck, HostedCache, HostedProfile, HostedRepairBoundary, HostedRepairStart, SubmitTicket,
+};
 pub use log_session::{AuthenticatedLogSession, LogReplyScope, LogSessionError};
 pub use query_profile::{QueryExecutionProfile, QuerySourceLimits};
 pub use snapshot::{MAX_REQUEST_NODES, SnapshotBlocked, snapshot_refs_fit, state_digest};

@@ -179,12 +179,12 @@ fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
             ..Tx::default()
         })
         .unwrap();
-    for (expected, complete) in [(8, false), (8, false), (6, true), (0, true)] {
+    for (expected, complete) in [(15, false), (7, true), (0, true)] {
         let mut hosted = open(&svc, store);
         assert_eq!(hosted.r.stats.reindexed, expected);
-        if expected == 6 {
+        if expected == 7 {
             let boundary = hosted.r.take_hosted_repair_boundary().unwrap();
-            assert!(!boundary.started);
+            assert!(boundary.started.is_none());
             assert_eq!(boundary.finished, Some((22, 11)));
         }
         pump(&mut hosted.r, &mut hosted.log, 100);
@@ -209,7 +209,7 @@ fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
 }
 
 #[test]
-fn metadata_stamp_tracks_resolved_schema_and_membership_settings() {
+fn metadata_stamp_ignores_validation_only_schema_but_tracks_membership_settings() {
     use crate::plan::record_meta_stamp;
     use mdbn_core::types::Catalog;
     let definition = "---\nkind: mdbase.type\nname: task\nschema: {dialect: json-schema-2020-12, ref: '../schemas/task.json'}\n---\n";
@@ -226,7 +226,7 @@ fn metadata_stamp_tracks_resolved_schema_and_membership_settings() {
     let config = "spec_version: '0.3.0'\n";
     let initial = stamp("{}", config, "one");
     assert_eq!(initial, stamp("{}", config, "two"));
-    assert_ne!(initial, stamp(r#"{"type":"object"}"#, config, "one"));
+    assert_eq!(initial, stamp(r#"{"type":"object"}"#, config, "one"));
     assert_ne!(
         initial,
         stamp(

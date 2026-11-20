@@ -757,6 +757,11 @@ impl<S: Store> Replica<S> {
             meta_keys::LOG_STATE.into(),
             log_state(log_time, sem_ratchet),
         ));
+        if self.is_hosted() {
+            staged
+                .meta
+                .push((meta_keys::HOSTED_RECORD_META_CURSOR.into(), None));
+        }
         staged
             .meta
             .push((LAST_MANIFEST.into(), manifest.to_bytes().ok()));
@@ -801,6 +806,9 @@ impl<S: Store> Replica<S> {
         self.install_points.clear();
         self.stats.snapshots_installed += 1;
         self.catalog = std::sync::Arc::new(catalog);
+        if let Some(hosted) = self.hosted.as_mut() {
+            hosted.reindex_stamp = None;
+        }
         self.reset_feed();
         self.query_context = None;
         // The install replaced confirmed state; the derived query index follows.

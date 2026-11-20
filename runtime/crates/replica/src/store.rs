@@ -1510,4 +1510,6 @@ pub mod meta_keys {
     /// The catalog the records' index entries were derived under
     /// (`plan::record_meta_stamp`). Device-local; a mismatch reindexes on open.
     pub const RECORD_META: &str = "replica.record_meta";
+    /// Hosted repair progress within the current confirmed row set.
+    pub const HOSTED_RECORD_META_CURSOR: &str = "replica.hosted_record_meta_cursor";
 }

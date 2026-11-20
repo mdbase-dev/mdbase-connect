@@ -27,6 +27,20 @@ test("the Worker entry adds no export", () => {
   assert.deepEqual(Object.keys(worker).sort(), ["HostedCollection", "default", "idlePollMs"]);
 });
 
+test("a warm idle alarm at maximum backoff only rearms its deadline", async (ctx) => {
+  const t = object(false, new Map([["service-idle-streak", 7]]));
+  const storage = t.o.ctx.storage;
+  const put = ctx.mock.method(storage, "put");
+  const del = ctx.mock.method(storage, "delete");
+  const arm = ctx.mock.method(storage, "setAlarm");
+  const e = engine([]);
+  Object.assign(e, { tick() {}, refresh() { e.arm(["subscribe"]); }, serving: () => true });
+  t.o.log = logReplying();
+  t.o.engine = e;
+  await t.o.alarm();
+  assert.deepEqual([put.mock.callCount(), del.mock.callCount(), arm.mock.callCount()], [0, 0, 1]);
+});
+
 
 function object(escrow = false, data = new Map()) {
   let alarm = null;
