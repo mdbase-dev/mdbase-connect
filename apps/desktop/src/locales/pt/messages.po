@@ -489,10 +489,6 @@ msgid "change record types"
 msgstr "alterar tipos de registos"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "Alterada por um programa que o mdbase não reconhece"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "Alterada aqui e em outro lugar"
 
@@ -1166,6 +1162,10 @@ msgstr "O mdbase ainda não conseguiu registar este computador. Continuará a te
 #: src/renderer/daemon-view.mts
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "O mdbase não conseguiu guardar as definições da conta neste computador. Verifique se existe espaço livre em disco e reinicie o mdbase."
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "O mdbase não conseguiu determinar em qual versão este arquivo se baseava"
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -2079,6 +2079,10 @@ msgstr "Este arquivo não é uma nota: restaure manualmente a outra versão se p
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "Esta pasta tem uma identidade antiga do mdbase Connect"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "Este arquivo está retido apenas neste computador. Se foi editado em outro computador, não aparecerá como retido nele. Aqui, escolha “Manter ambos” para preservar as duas versões. Quando os computadores exibirem os mesmos arquivos, mova a versão editada para a pasta desejada se ela ainda estiver na pasta antiga."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

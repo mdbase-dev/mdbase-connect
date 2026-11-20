@@ -489,10 +489,6 @@ msgid "change record types"
 msgstr "modificare i tipi di record"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "Modificata da un programma che mdbase non riconosce"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "Modificata qui e altrove"
 
@@ -1166,6 +1162,10 @@ msgstr "mdbase non ha ancora potuto registrare questo computer. Continuerà a ri
 #: src/renderer/daemon-view.mts
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "mdbase non ha potuto salvare le impostazioni dell’account su questo computer. Verifica che ci sia spazio libero sul disco, poi riavvia mdbase."
+
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "mdbase non ha potuto stabilire su quale versione si basasse questo file"
 
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
@@ -2079,6 +2079,10 @@ msgstr "Questo file non è una nota: ripristina manualmente l'altra versione se 
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "Questa cartella ha una vecchia identità mdbase Connect"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "Questo file è in sospeso solo su questo computer. Se è stato modificato su un altro computer, lì non risulterà in sospeso. Scegli «Conserva entrambe» qui per mantenere entrambe le versioni. Quando i computer mostrano gli stessi file, sposta la versione modificata nella cartella desiderata se si trova ancora nella vecchia cartella."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"

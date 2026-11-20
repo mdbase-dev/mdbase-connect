@@ -92,6 +92,20 @@ With `--json`, each command prints its result, and a failure prints
 for an error (including `validate` finding an error), `2` for invalid usage
 and `3` when the daemon is not running.
 
+### Recover an `unknown_provenance` hold
+
+This hold exists only on the computer that shows it. For example, if one
+computer renames a folder while another edits a note in it, the renaming
+computer can show the hold even though the editing computer doesn't.
+
+1. On the computer that shows the hold, run `mdbase holds <collection>` to find
+   the held file and its ID. Run `mdbase resolve <collection> <id> keep_both`
+   to preserve both versions, or choose **Keep both** in Connect Desktop's
+   **Collections** → **Review files** action on that computer.
+2. Wait for the computers to sync and check that they show the same files. If
+   the preserved edit is still in the old folder, move it to the intended folder
+   on one computer and let that move sync.
+
 ## Hosted read canary
 
 `scripts/hosted-read-canary.mjs` proves, once per run, that a signed-in

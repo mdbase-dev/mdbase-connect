@@ -168,6 +168,15 @@ pub(super) async fn simple(
         print_collection(&c);
     } else {
         println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        if method == Method::COLLECTION_HOLDS
+            && v.as_array().is_some_and(|holds| {
+                holds
+                    .iter()
+                    .any(|hold| hold["reason"] == "unknown_provenance")
+            })
+        {
+            eprintln!("{UNKNOWN_PROVENANCE_GUIDANCE}");
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
