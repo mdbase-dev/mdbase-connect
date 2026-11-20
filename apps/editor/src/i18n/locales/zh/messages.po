@@ -380,21 +380,9 @@ msgstr "{count, plural, other {# 个字段}}"
 msgid "{count, plural, one {# link} other {# links}}"
 msgstr "{count, plural, other {# 个链接}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
-msgstr "{count, plural, other {{name} 中有 # 篇笔记}}"
-
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
 msgstr "{count, plural, other {# 篇笔记缺少必填字段 {field}。}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
-msgstr "{count, plural, other {# 篇笔记带有标签 {name}}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr "{count, plural, other {# 篇笔记具有类型 {name}}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
@@ -424,10 +412,6 @@ msgstr "{count, plural, other {已移动 # 篇笔记。}}"
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, other {已恢复 # 篇笔记。}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
-msgstr "{count, plural, other {显示 {path} 中的笔记，共 # 篇}}"
-
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
 msgstr "{count, plural, other {已更新 # 篇笔记。}}"
@@ -435,18 +419,6 @@ msgstr "{count, plural, other {已更新 # 篇笔记。}}"
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
 msgstr "{count, plural, other {正在更新 # 篇关联笔记}}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes in {name}"
-msgstr "{name} 中有至少 {count} 篇笔记"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes tagged {name}"
-msgstr "至少 {count} 篇笔记带有标签 {name}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes with type {name}"
-msgstr "至少 {count} 篇笔记具有类型 {name}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{entryName} value"
@@ -476,6 +448,7 @@ msgstr "{fieldLabel} 字段选项"
 msgid "{fieldLabel} field type"
 msgstr "{fieldLabel} 字段类型"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
 msgstr "{fileCount, plural, other {# 个文件}}"
@@ -609,15 +582,16 @@ msgstr "{next, plural, other {更新后有 # 篇笔记}}"
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
 msgstr "{next, plural, other {使用这些规则时有 # 篇笔记}}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{noteCount, plural, one {# note} other {# notes}}"
 msgstr "{noteCount, plural, other {# 篇笔记}}"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
 msgstr "{notes} · {files}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{notes} · {files} · {order}"
 msgstr "{notes} · {files} · {order}"
 
@@ -4846,11 +4820,13 @@ msgstr "显示集合侧边栏"
 msgid "Show fewer"
 msgstr "收起"
 
-#. placeholder {0}: node.path
-#. placeholder {1}: node.count
 #: src/CollectionRail.tsx
-msgid "Show notes in {0}, {1} or more notes"
-msgstr "显示 {0} 中的笔记（{1} 篇或更多）"
+msgid "Show notes in {path}, {counts}"
+msgstr "显示 {path} 中的笔记，{counts}"
+
+#: src/CollectionRail.tsx
+msgid "Show notes in {path}, {counts} so far"
+msgstr "显示 {path} 中的笔记，目前已加载 {counts}"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
@@ -5330,6 +5306,11 @@ msgstr "文件上传结果未知。"
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
 msgstr "文件已上传，但插入其链接前笔记已更改。"
+
+#. placeholder {0}: noteFilter.value
+#: src/App.tsx
+msgid "The folder “{0}” is no longer listed. Folder filter cleared."
+msgstr "列表中已没有“{0}”文件夹。已清除文件夹筛选条件。"
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."

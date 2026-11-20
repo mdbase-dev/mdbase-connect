@@ -380,21 +380,9 @@ msgstr "{count, plural, other {フィールド # 件}}"
 msgid "{count, plural, one {# link} other {# links}}"
 msgstr "{count, plural, other {リンク # 件}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
-msgstr "{count, plural, other {{name}内のノート # 件}}"
-
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
 msgstr "{count, plural, other {# 件のノートに必須フィールド {field} がありません。}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
-msgstr "{count, plural, other {{name}タグ付きノート # 件}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr "{count, plural, other {{name}型のノート # 件}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
@@ -424,10 +412,6 @@ msgstr "{count, plural, other {# 件のノートを移動しました。}}"
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, other {# 件のノートを復元しました。}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
-msgstr "{count, plural, other {{path}のノートを表示（#件）}}"
-
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
 msgstr "{count, plural, other {# 件のノートを更新しました。}}"
@@ -435,18 +419,6 @@ msgstr "{count, plural, other {# 件のノートを更新しました。}}"
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
 msgstr "{count, plural, other {リンク先ノート # 件を更新中}}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes in {name}"
-msgstr "{name}内のノート {count} 件以上"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes tagged {name}"
-msgstr "{name}タグ付きノート {count} 件以上"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes with type {name}"
-msgstr "{name}型のノート {count} 件以上"
 
 #: src/SchemaValueEditor.tsx
 msgid "{entryName} value"
@@ -476,6 +448,7 @@ msgstr "{fieldLabel}のフィールドの選択肢"
 msgid "{fieldLabel} field type"
 msgstr "{fieldLabel}のフィールド型"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
 msgstr "{fileCount, plural, other {ファイル # 件}}"
@@ -609,15 +582,16 @@ msgstr "{next, plural, other {更新後のノート # 件}}"
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
 msgstr "{next, plural, other {これらのルールに該当するノート # 件}}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{noteCount, plural, one {# note} other {# notes}}"
 msgstr "{noteCount, plural, other {ノート # 件}}"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
 msgstr "{notes} · {files}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{notes} · {files} · {order}"
 msgstr "{notes} · {files} · {order}"
 
@@ -4846,11 +4820,13 @@ msgstr "コレクションのサイドバーを表示"
 msgid "Show fewer"
 msgstr "表示を減らす"
 
-#. placeholder {0}: node.path
-#. placeholder {1}: node.count
 #: src/CollectionRail.tsx
-msgid "Show notes in {0}, {1} or more notes"
-msgstr "{0}内のノートを表示、{1}件以上"
+msgid "Show notes in {path}, {counts}"
+msgstr "{path} のノートを表示（{counts}）"
+
+#: src/CollectionRail.tsx
+msgid "Show notes in {path}, {counts} so far"
+msgstr "{path} のノートを表示（現在 {counts}）"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
@@ -5330,6 +5306,11 @@ msgstr "ファイルのアップロード結果は不明です。"
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
 msgstr "ファイルはアップロードされましたが、リンクの挿入前にノートが変更されました。"
+
+#. placeholder {0}: noteFilter.value
+#: src/App.tsx
+msgid "The folder “{0}” is no longer listed. Folder filter cleared."
+msgstr "フォルダー「{0}」が一覧にないため、フォルダーの絞り込みを解除しました。"
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."

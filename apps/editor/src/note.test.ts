@@ -124,18 +124,15 @@ describe("collection helpers", () => {
       summary("Personal/c.md", {})
     ];
     expect(noteTitle(notes[0], [titleType])).toBe("A");
-    expect(folderTree(notes).map(({ name, count }) => ({ name, count }))).toEqual([
-      { name: "Personal", count: 1 },
-      { name: "Work", count: 2 }
-    ]);
     expect(folderTree(notes)).toEqual([
-      { name: "Personal", path: "Personal", count: 1, children: [] },
+      { name: "Personal", path: "Personal", fileCount: 0, noteCount: 1, children: [] },
       {
         name: "Work",
         path: "Work",
-        count: 2,
+        fileCount: 0,
+        noteCount: 2,
         children: [
-          { name: "Deep", path: "Work/Deep", count: 1, children: [] }
+          { name: "Deep", path: "Work/Deep", fileCount: 0, noteCount: 1, children: [] }
         ]
       }
     ]);

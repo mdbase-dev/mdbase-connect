@@ -17,7 +17,7 @@ import { noteSortSummary, type NoteSort, type NoteSortPreference, type SortField
 import { NoteListViewOptions } from "./NoteListViewOptions";
 import { searchTextRanges, type NoteSearchContext, type NoteSearchResult, type SearchTextRange } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
-import { browserListItems, collectionFileFormat, collectionFileTitle, formatFileSize, type CollectionBrowserEntry } from "./collection-browser";
+import { browserListItems, noteAndFileCount, collectionFileFormat, collectionFileTitle, formatFileSize, type CollectionBrowserEntry } from "./collection-browser";
 
 // The glyph font is large; rows reserve the icon's space and draw it once the font module arrives.
 const PhosphorIcon = lazy(() => import("./PhosphorIcon").then((module) => ({ default: module.PhosphorIcon })));
@@ -341,7 +341,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
             {status?.label ? <span className="note-transition">{status.label}</span> : <span className="note-detail"><Timestamp value={noteTimestamp(note)} />{noteFolder && <span className="note-folder">{noteFolder}</span>}{note.types.length > 0 && <span className="note-type-badge" title={t`Type: ${note.types.join(", ")}`}>{note.types.map(typeDisplayName).join(" · ")}</span>}</span>}
           </>}
         </button></ContextMenu>;
-      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><Trans>Reading notes and files…</Trans></div> : searching && searchPending ? <div className="list-loading">{t`Searching`}</div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && searchError ? t`Search is incomplete.` : search ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && !structureError && onCreate && <button onClick={onCreate}><Trans>Create the first note</Trans></button>}</div>}
+      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><Trans>Reading notes and files…</Trans></div> : searching && searchPending ? <div className="list-loading">{t`Searching`}</div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && searchError ? t`Search is incomplete.` : search || filter ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && !filter && !structureError && onCreate && <button onClick={onCreate}><Trans>Create the first note</Trans></button>}</div>}
     </div>
     {peekPresent && <aside ref={peekRef} popover="manual" className="note-peek" data-open={Boolean(peek)} role="region" aria-label={peekContent.current.title}>{peekContent.current.body}</aside>}
   </section>;
@@ -358,10 +358,7 @@ function browserCountLabel(noteCount: number, fileCount: number, resultCount: nu
     return fileCount ? t`${notes} · ${files}` : notes;
   }
   if (searching) return t`${resultCount.toLocaleString(displayLocale())} found · relevance`;
-  const notes = plural(noteCount, { one: "# note", other: "# notes" });
-  const files = plural(fileCount, { one: "# file", other: "# files" });
-  const order = noteSortSummary(sort);
-  return order ? t`${notes} · ${files} · ${order}` : t`${notes} · ${files}`;
+  return noteAndFileCount(noteCount, fileCount, noteSortSummary(sort));
 }
 
 function fileTimestamp(file: CollectionFile): string {

@@ -207,7 +207,8 @@ function markdownHeading(body: string): string | undefined {
 export interface FolderTreeNode {
   name: string;
   path: string;
-  count: number;
+  noteCount: number;
+  fileCount: number;
   children: FolderTreeNode[];
 }
 
@@ -217,35 +218,33 @@ interface MutableFolderTreeNode extends Omit<FolderTreeNode, "children"> {
 
 const facetCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-export function folderTree(notes: NoteSummary[], additionalPaths: readonly string[] = []): FolderTreeNode[] {
+export function folderTree(notes: NoteSummary[], files: readonly { path: string }[] = []): FolderTreeNode[] {
   const roots = new Map<string, MutableFolderTreeNode>();
-  for (const itemPath of [...notes.map((note) => note.path), ...additionalPaths]) {
+  function addPath(itemPath: string, count: "noteCount" | "fileCount") {
     const directory = folder(itemPath);
-    if (!directory) continue;
+    if (!directory) return;
     let siblings = roots;
     let parentPath = "";
     for (const name of directory.split("/").filter(Boolean)) {
       const path = parentPath ? `${parentPath}/${name}` : name;
       let node = siblings.get(name);
       if (!node) {
-        node = { name, path, count: 0, children: new Map() };
+        node = { name, path, noteCount: 0, fileCount: 0, children: new Map() };
         siblings.set(name, node);
       }
-      node.count += 1;
+      node[count] += 1;
       parentPath = path;
       siblings = node.children;
     }
   }
 
+  for (const note of notes) addPath(note.path, "noteCount");
+  for (const file of files) addPath(file.path, "fileCount");
+
   const freeze = (nodes: Map<string, MutableFolderTreeNode>): FolderTreeNode[] =>
     [...nodes.values()]
       .sort((left, right) => facetCollator.compare(left.name, right.name))
-      .map((node) => ({
-        name: node.name,
-        path: node.path,
-        count: node.count,
-        children: freeze(node.children)
-      }));
+      .map((node) => ({ ...node, children: freeze(node.children) }));
 
   return freeze(roots);
 }
