@@ -493,6 +493,73 @@ fn ack_only_after_the_log_append() {
 }
 
 #[test]
+fn hosted_connected_watch_and_query_cover_both_replay_slices() {
+    use crate::api::Push;
+    use mdbn_wire::client::{Include, UpdateKind};
+    use mdbn_wire::common::Value;
+
+    let svc = world();
+    let mut reader = open(&svc, MemStore::new());
+    reader.pump();
+    let watcher = reader.session(G1);
+    reader.r.changes(watcher, None, None, true).unwrap();
+    let include = Include {
+        effective: None,
+        body: None,
+        document: None,
+        diagnostics: None,
+    };
+    let sub = reader
+        .r
+        .subscribe(watcher, Value::Map(vec![]), include)
+        .unwrap();
+    reader.r.take_pushes();
+    let start = reader.r.head().seq;
+
+    let mut writer = open(&svc, MemStore::new());
+    writer.pump();
+    let session = writer.session(G2);
+    for index in 1..=17 {
+        let ticket = writer
+            .r
+            .submit_logged(session, create(index, &format!("{index}.md"), None))
+            .unwrap();
+        writer.pump();
+        assert_eq!(writer.ack(ticket).state, ReceiptState::Confirmed);
+    }
+    reader.log.poll_pushes();
+    let (head, head_chain) = svc.head(&COL);
+    reader.r.on_log_push(crate::log::LogPush::Head {
+        collection: COL,
+        head,
+        head_chain,
+    });
+    for offset in [16, 17] {
+        reader.r.tick();
+        pump(&mut reader.r, &mut reader.log, 100);
+        assert_eq!(reader.r.head().seq, start + offset);
+        let updates: Vec<_> = reader
+            .r
+            .take_pushes()
+            .into_iter()
+            .filter_map(|(session, push)| {
+                (session == watcher && matches!(push, Push::Changes(_) | Push::QueryUpdate(_)))
+                    .then_some(push)
+            })
+            .collect();
+        if offset == 16 {
+            assert!(updates.is_empty());
+        } else {
+            assert!(
+                matches!(updates.as_slice(), [Push::Changes(change), Push::QueryUpdate(query)]
+                if change.reset && query.sub == sub && query.kind == UpdateKind::Snapshot &&
+                query.added.as_ref().is_some_and(|rows| rows.len() == 17))
+            );
+        }
+    }
+}
+
+#[test]
 fn hosted_log_catchup_yields_and_reopens_at_the_committed_head() {
     let svc = world();
     let mut writer = open(&svc, MemStore::new());

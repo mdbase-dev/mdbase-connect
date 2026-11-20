@@ -193,6 +193,13 @@ impl<S: Store> Replica<S> {
                 self.live.feed_floor = c.version;
             }
         }
+        if self.live.watchers.is_empty() && self.live.subs.is_empty() {
+            return;
+        }
+        if self.live.reset_pending || self.check_apply_health().is_err() {
+            self.live.reset_pending = true;
+            return;
+        }
         let watchers: Vec<SessionId> = self.live.watchers.iter().copied().collect();
         for w in watchers {
             if self.require(w, crate::policy::capability::READ).is_err() {
@@ -485,10 +492,10 @@ impl<S: Store> Replica<S> {
         let version = self.view_version;
         self.live.feed.clear();
         self.live.feed_floor = version;
-        self.live.reset_pending = !self.live.watchers.is_empty();
+        self.live.reset_pending = !self.live.watchers.is_empty() || !self.live.subs.is_empty();
     }
 
-    pub(super) fn flush_feed_reset(&mut self) {
+    pub(super) fn flush_live_reset(&mut self) {
         if !self.live.reset_pending || self.check_apply_health().is_err() {
             return;
         }
@@ -507,6 +514,9 @@ impl<S: Store> Replica<S> {
                     reset: true,
                 }),
             ));
+        }
+        for sub in self.live.subs.keys().copied().collect::<Vec<_>>() {
+            self.refresh_sub(sub, None);
         }
     }
 
