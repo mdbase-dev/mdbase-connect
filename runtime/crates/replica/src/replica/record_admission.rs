@@ -39,7 +39,7 @@ impl<S: Store> Replica<S> {
                         check(body)?;
                     }
                 }
-                Op::Update(u) => {
+                Op::Update(u) | Op::UpdateLive(u) => {
                     if let Some(body) = &u.body {
                         check(body)?;
                     }

@@ -864,7 +864,7 @@ impl<S: Store> Replica<S> {
                                 .any(|v| hit(&v.path))
                                 || ids.contains(&d.id)
                         }
-                        rt::Op::Legacy(Op::Update(u)) => ids.contains(&u.id),
+                        rt::Op::Legacy(Op::Update(u) | Op::UpdateLive(u)) => ids.contains(&u.id),
                         rt::Op::Legacy(Op::Delete(d)) => ids.contains(&d.id),
                         rt::Op::Legacy(Op::Rename(r)) => {
                             hit(&r.from) || hit(&r.to) || ids.contains(&r.id)

@@ -273,6 +273,8 @@ export interface CreateInput {
 }
 
 export interface UpdateInput {
+  /** Refuse with not_found/deleted rather than restoring a tombstone at replay. */
+  requireLive?: boolean;
   /** Rewrite inbound links on path-stored field moves (default true). */
   updateRefs?: boolean;
   /** Set these top-level keys. */
@@ -2012,6 +2014,7 @@ export class MdbaseClient {
     if (plan.patch.size) op.patch = plan.patch;
     if (plan.unset.length) op.unset = plan.unset;
     if (plan.base.length) op.base = plan.base;
+    if (c.requireLive) op.requireLive = true;
     if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.ifRevision) op.ifRevision = c.ifRevision;
     return this.record(op, o);
@@ -2022,6 +2025,7 @@ export class MdbaseClient {
     if (c.contract || c.promote) throw mdbaseError("invalid_request", "contract updates are mapped by the replica; use update()");
     const op: Op & { kind: "update" } = { kind: "update", id: refId(target) };
     const seen = typeof target === "object" && "frontmatter" in target ? (target as RecordView) : null;
+    if (c.requireLive) op.requireLive = true;
     if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.patch) op.patch = toFmMap(c.patch);
     if (c.unset?.length) op.unset = c.unset;

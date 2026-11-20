@@ -299,6 +299,14 @@ pub fn all() -> Vec<Fixture> {
         })]),
     ));
     v.push(fx("mutation", "update", mutation(vec![update_op()])));
+    let Op::Update(update) = update_op() else {
+        unreachable!()
+    };
+    v.push(fx(
+        "mutation",
+        "update-live",
+        mutation(vec![Op::UpdateLive(update)]),
+    ));
     let mut ext = mutation(vec![Op::Document(Document {
         id: b16(RECORD),
         base: Some(DocVersion {

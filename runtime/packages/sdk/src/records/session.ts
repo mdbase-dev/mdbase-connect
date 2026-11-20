@@ -56,6 +56,7 @@ export class RecordSessionImpl {
     private timer: ReturnType<typeof setTimeout> | undefined;
     private active = false;
     private idle: number | false = false;
+    private requireLive = false;
     private defaultTimeout = 30_000;
     constructor(
         private readonly client: MdbaseClient,
@@ -127,6 +128,7 @@ export class RecordSessionImpl {
             this.life = new AbortController();
             this.active = true;
         }
+        this.requireLive = options.requireLive ?? false;
         this.defaultTimeout = timeout(options.timeoutMs);
         this.idle = options.autosave ? options.autosave.idleMs : false;
         this.schedule();
@@ -474,6 +476,7 @@ export class RecordSessionImpl {
                 this.why = null;
                 this.publish();
                 const changes: UpdateInput = { ifRevision: this.base.revision };
+                if (this.requireLive) changes.requireLive = true;
                 if (body !== this.base.body) changes.body = body;
                 const sets = new Map<string, PlainValue>(),
                     unset: string[] = [];

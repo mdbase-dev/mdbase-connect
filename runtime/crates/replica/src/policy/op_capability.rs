@@ -20,9 +20,11 @@ pub struct OpContext<'a> {
 pub fn capability_for(op: &Op, ctx: &OpContext<'_>) -> &'static str {
     match op {
         Op::Create(_) => capability::CREATE,
-        Op::Update(_) | Op::Rename(_) | Op::ConflictDismiss(_) | Op::FileMove(_) => {
-            capability::EDIT
-        }
+        Op::Update(_)
+        | Op::UpdateLive(_)
+        | Op::Rename(_)
+        | Op::ConflictDismiss(_)
+        | Op::FileMove(_) => capability::EDIT,
         Op::Document(d) => match (&d.base, &d.new) {
             (_, None) => capability::DELETE,
             (None, Some(_)) => capability::CREATE,

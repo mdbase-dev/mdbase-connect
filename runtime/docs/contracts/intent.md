@@ -105,7 +105,7 @@ Every operation is a struct map with its kind at key 0.
 
 ```cddl
 ; ---- operations (intent.md §3) ----
-op = create / update / document / delete / rename
+op = create / update / update-live / document / delete / rename
    / resource-put / resource-delete
    / file-put / file-delete / file-move
    / conflict-dismiss / sync-settings / file-attach-v1
@@ -158,8 +158,9 @@ create = {
 ### 3.2 `update`
 
 ```cddl
-update = {
-  0: 2,
+update = { 0: 2, update-fields }
+update-live = { 0: 19, update-fields }
+update-fields = (
   1: uuid,                          ; id
   ? 2: fm-map,                      ; patch: set these top-level keys
   ? 3: [+ field-ref],               ; unset: remove these keys
@@ -172,7 +173,7 @@ update = {
   ? 10: [+ base-field],             ; base: observed values of the touched keys
   ? 11: hash,                       ; if_revision: opt-in CAS on the whole document
   ? 12: bool,                       ; update_refs: rewrite inbound links on path-stored moves (default true)
-}
+)
 body-edit = [start: uint, end: uint, insert: tstr]   ; offsets in Unicode scalar values of the base body
 ```
 
@@ -228,7 +229,11 @@ Spec 12 defines `patch`, `unset`, `add`, `remove`, `body`, `body_edits` with
 - **Update of a deleted record.** If the record has a tombstone (`snapshot.md` §3), it
   is resurrected from the tombstone's document and the update applies to it (spec
   boundary: this is the D8 policy). The path goes through the collision rule. The
-  status is `merged`.
+  status is `merged`. With `update-live` the same tombstone instead refuses the
+  mutation with `not_found`, reason `deleted`, including at pending replay. On a
+  live record both operations are identical. Tag 19 is critical: an older
+  replica cannot accept the guarded submit or advance past a log entry that
+  contains it until upgraded (see `00-overview.md` §6.2).
 - **Update of an unknown record** (no record, no tombstone) is `not_found`.
 
 ### 3.3 `document`

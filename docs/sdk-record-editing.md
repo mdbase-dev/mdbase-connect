@@ -24,6 +24,16 @@ Snapshots hold the plain `frontmatter` with unsaved changes applied, native `rec
 Saved requires actual confirmed, unprotected, same-UUID full native readback;
 receipt confirmation alone (or optimistic/pending readback) is insufficient.
 
+To keep a delete made on another device, open the lease with
+`db.records.open(id, {requireLive: true, autosave: {idleMs: 1200}, signal})`.
+This applies to autosave and explicit flush. For a direct write, use
+`db.update(record, {body, requireLive: true})`. The precondition travels with
+the queued update: if the ID is tombstoned at replay, its receipt is `rejected`
+with `problem.code === "not_found"` and `problem.reason === "deleted"`.
+Keep the draft for copying rather than creating a new record. Without the
+option, an update can still restore a deleted record. Older runtimes cannot
+process the guarded operation; do not retry it as an unguarded update.
+
 Submission is serialized per UUID/client. A mutation ID is exposed through the
 snapshot **before** submission. Ambiguous submit/readback failures keep that ID;
 subsequent flush only awaits its actual receipt, never resubmits or substitutes
@@ -47,7 +57,7 @@ cancellation after dispatch, uncertain storage failure or `outcome_unknown`
 retains the original recovery identity. A refusal after retrying a lost request
 also cannot prove that the earlier attempt applied nothing.
 
-Active leases share the UUID's draft/session and must agree on autosave/timeout
+Active leases share the UUID's draft/session and must agree on requireLive/autosave/timeout
 policy. Releasing/aborting one lease unsubscribes it without closing the client
 or evicting another lease. Last release stops autosave/observation and aborts
 late delivery, retaining unsaved/recovering data for reopen on the same client.

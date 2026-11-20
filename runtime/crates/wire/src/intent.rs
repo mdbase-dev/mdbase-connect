@@ -412,6 +412,8 @@ wire_union! {
         1 => Create(Create),
         /// Field-level update.
         2 => Update(Update),
+        /// Update only a live record, including when replanned at head.
+        19 => UpdateLive(Update),
         /// Whole-document change.
         3 => Document(Document),
         /// Delete a record.

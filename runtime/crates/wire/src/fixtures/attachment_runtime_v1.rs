@@ -211,7 +211,7 @@ pub(super) fn negative() -> Vec<BadFixture> {
     *field(field(element(field(&mut short_prior, 6), 1), 4), 0) = Cbor::Bytes(vec![0; 31]);
     let m = runtime_mutation().to_cbor();
     let mut unknown_op = m.clone();
-    *field(element(field(&mut unknown_op, 6), 1), 0) = Cbor::Uint(19);
+    *field(element(field(&mut unknown_op, 6), 1), 0) = Cbor::Uint(20);
     let mut unknown_content = m.clone();
     *element(field(element(field(&mut unknown_content, 6), 1), 3), 0) = Cbor::Uint(2);
     let mut short_hash = m;

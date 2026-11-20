@@ -106,6 +106,7 @@ mod path_fields;
 mod private_switch;
 mod private_switch_crypto;
 mod receipt_fanout;
+mod update_replay;
 
 pub(super) const COL: B16 = B16([7; 16]);
 

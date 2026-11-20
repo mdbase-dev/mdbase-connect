@@ -258,6 +258,7 @@ fn op_of(state: &MemState, kind: &str, input: &Value) -> Result<Op, Value> {
             })
         }
         "update" => Op::Update(it::Update {
+            require_live: input["require_live"].as_bool().unwrap_or(false),
             update_refs: input["update_refs"].as_bool(),
             id: existing()?,
             patch: input.get("patch").map(core_map),
