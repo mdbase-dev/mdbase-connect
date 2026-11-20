@@ -72,6 +72,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # Shared, zero-copy bodies for direct object PUT retries (log-service-api §6).
 bytes = "1"
 zeroize = "1"
+# Read-only inspection of a removed native store before cloud replay.
+rusqlite = { version = "0.37", features = ["bundled"] }
 # Native folder watcher (inotify / FSEvents / ReadDirectoryChangesW) for sub-second
 # ingest; the periodic rescan stays as the safety net.
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
@@ -100,8 +102,6 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [dev-dependencies]
 # The in-memory file platform for the adopt folder-source tests.
 mdbn-store-file = { workspace = true, features = ["testing"] }
-# Old connector state fixtures for the takeover tests (same version as mdbn-legacy).
-rusqlite = { version = "0.37", features = ["bundled"] }
 # Test tooling only (tests/sync_pair.rs, examples): the real log service, in memory,
 # with the deterministic test control plane.
 mdbn-log-service.workspace = true

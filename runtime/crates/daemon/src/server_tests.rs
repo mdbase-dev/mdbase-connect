@@ -1177,6 +1177,7 @@ async fn join_missing_current_account_denies_before_folder_io() {
         .unwrap();
     let error = d
         .join(crate::control::JoinCollection {
+            recover_removed: false,
             private: false,
             collection: "44444444-4444-4444-8444-444444444444".into(),
             path: dir.path().join("absent-folder"),
@@ -1206,6 +1207,7 @@ async fn join_and_enable_refuse_without_sign_in_or_the_pinned_control_plane() {
     let folder = dir.path().join("joined");
     std::fs::create_dir_all(&folder).unwrap();
     let join = || crate::control::JoinCollection {
+        recover_removed: false,
         private: false,
         collection: "44444444-4444-4444-8444-444444444444".into(),
         path: folder.clone(),
@@ -1303,6 +1305,7 @@ async fn private_join_needs_the_keychain_journal_before_any_io() {
     std::fs::create_dir_all(&folder).unwrap();
     let e = d
         .join(crate::control::JoinCollection {
+            recover_removed: false,
             private: true,
             collection: "44444444-4444-4444-8444-444444444444".into(),
             path: folder.clone(),

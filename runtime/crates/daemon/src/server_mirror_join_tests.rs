@@ -267,14 +267,22 @@ async fn record_doc(rt: &Arc<crate::runtime::Runtime>, key: &str) -> Option<(Str
     t.get(key).await.unwrap().map(|c| (c.path, c.document))
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step() {
+struct CloudFixture {
+    d: Arc<Daemon>,
+    hosted_rt: Arc<crate::runtime::Runtime>,
+    connect: Arc<Connect>,
+    cp_server: tokio::task::JoinHandle<()>,
+    log_server: tokio::task::JoinHandle<std::io::Result<()>>,
+}
+
+async fn cloud_fixture(
+    dir: &crate::testutil::TestDir,
+    elsewhere: &crate::testutil::TestDir,
+) -> CloudFixture {
     use mdbn_log_server::{AnyService, Gateway};
     use mdbn_log_service::Service;
     use mdbn_log_service::mem::{MemBackend, MemObjects};
 
-    let dir = crate::testutil::TestDir::new("mj-e2e");
-    let elsewhere = crate::testutil::TestDir::new("mj-e2e-dev");
     let cp = Arc::new(ControlPlane::new(CP_LABEL));
 
     // The log service (real, in memory) on loopback.
@@ -293,9 +301,10 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
     // This device: trust pinned to the test control plane and log.
     let cp_listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let cp_origin = format!("http://{}", cp_listener.local_addr().unwrap());
-    let mut d = daemon(&dir);
+    let mut d = daemon(dir);
     {
         let owned = Arc::get_mut(&mut d).unwrap();
+        owned.identity = Default::default();
         owned.trust = Some(Arc::new(crate::trust::Trust {
             environment: crate::trust::Environment::Lab.name().into(),
             cp_origin: cp_origin.clone(),
@@ -456,6 +465,26 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
     .await
     .unwrap();
 
+    CloudFixture {
+        d,
+        hosted_rt,
+        connect,
+        cp_server,
+        log_server,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step() {
+    let dir = crate::testutil::TestDir::new("mj-e2e");
+    let elsewhere = crate::testutil::TestDir::new("mj-e2e-dev");
+    let fixture = cloud_fixture(&dir, &elsewhere).await;
+    let CloudFixture {
+        d,
+        hosted_rt,
+        connect,
+        ..
+    } = &fixture;
     // The old device: a local collection and the hosted mirror with its queue.
     let old = elsewhere.path().join("connect");
     old_agent::build(&old, &elsewhere.path().join("notes"));
@@ -563,10 +592,10 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
     // The edits reached the hosted replica through the log.
     let deadline = std::time::Instant::now() + Duration::from_secs(60);
     loop {
-        let a = record_doc(&hosted_rt, "a.md").await;
-        let b = record_doc(&hosted_rt, RB).await;
-        let n = record_doc(&hosted_rt, "n.md").await;
-        let gone = record_doc(&hosted_rt, "c.md").await.is_none();
+        let a = record_doc(hosted_rt, "a.md").await;
+        let b = record_doc(hosted_rt, RB).await;
+        let n = record_doc(hosted_rt, "n.md").await;
+        let gone = record_doc(hosted_rt, "c.md").await.is_none();
         if a.as_ref().map(|x| x.1.as_str()) == Some("A edited")
             && b.as_ref().map(|x| x.0.as_str()) == Some("sub/b2.md")
             && n.as_ref().map(|x| x.1.as_str()) == Some("New")
@@ -581,7 +610,7 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
         tokio::time::sleep(Duration::from_millis(250)).await;
     }
     assert_eq!(
-        record_doc(&hosted_rt, "e.md").await.map(|x| x.1).as_deref(),
+        record_doc(hosted_rt, "e.md").await.map(|x| x.1).as_deref(),
         Some("E theirs"),
         "the conflicting edit is held, not written over"
     );
@@ -611,15 +640,24 @@ async fn takeover_joins_the_migrated_collection_and_imports_with_no_manual_step(
         4
     );
 
-    let mut inner = d.inner.lock().await;
-    for host in inner.hosts.iter_mut() {
-        host.close().await;
-    }
-    drop(inner);
-    hosted_rt.stop().await;
-    cp_server.abort();
-    log_server.abort();
+    fixture.stop().await;
 }
+
+impl CloudFixture {
+    async fn stop(self) {
+        let mut inner = self.d.inner.lock().await;
+        for host in &mut inner.hosts {
+            host.close().await;
+        }
+        drop(inner);
+        self.hosted_rt.stop().await;
+        self.cp_server.abort();
+        self.log_server.abort();
+    }
+}
+
+#[path = "server_rejoin_tests.rs"]
+mod rejoin_tests;
 
 fn walk(dir: &std::path::Path) -> Vec<(std::path::PathBuf, Vec<u8>)> {
     let mut out = Vec::new();

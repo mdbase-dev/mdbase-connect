@@ -393,6 +393,22 @@ async fn original_native_capture(lose_capture_ack: bool) {
         captured.receipt, baseline.receipt,
         "do not manufacture an Unknown/rejected receipt"
     );
+    // Even explicit legacy recovery must refuse a live registration before
+    // opening its store or disturbing its actual pending mutation and receipt.
+    let fresh = crate::testutil::TestDir::new("pending-rejoin");
+    let err = f
+        .daemon
+        .join(JoinCollection {
+            collection: f.id.clone(),
+            path: fresh.path().into(),
+            name: None,
+            private: false,
+            recover_removed: true,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(err.reason.as_deref(), Some("already_registered"));
+    assert_eq!(actor_ledger(&f, mid()).await.0, captured);
     let pending_path = f.folder.path().join("native-original-pending.md");
     // Native pending capture may optimistically publish bytes. Preserve exactly
     // what THIS original engine produced, not an invented absent-file outcome.

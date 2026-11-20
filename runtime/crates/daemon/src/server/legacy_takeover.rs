@@ -802,6 +802,7 @@ impl crate::takeover::mirror_join::Joiner for DaemonJoiner<'_> {
     ) -> Result<(), crate::takeover::mirror_join::Refused> {
         self.d
             .join(JoinCollection {
+                recover_removed: false,
                 collection: collection.to_owned(),
                 path: folder.to_path_buf(),
                 name: Some(name.to_owned()),

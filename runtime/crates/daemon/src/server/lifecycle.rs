@@ -150,9 +150,8 @@ impl Daemon {
         Ok((ctx, trust))
     }
 
-    /// Verify the control plane's candidate genesis under the pins and write the
-    /// collection's `sync.json`. Nothing is persisted unless the genesis verifies.
-    pub(super) fn write_link(
+    /// Build the local link from the verified control-plane genesis.
+    pub(super) fn verified_link(
         &self,
         id: &str,
         collection: &[u8; 16],
@@ -160,7 +159,7 @@ impl Daemon {
         state: mdbn_wire::policy::CState,
         binding: (&str, &[u8]),
         creating: bool,
-    ) -> Result<(), ControlError> {
+    ) -> Result<crate::sync::SyncConfig, ControlError> {
         let (log_url, genesis) = binding;
         let refused = |m: String| ControlError::unavailable("sync_integrity", m);
         if crate::trust::origin(log_url).map_err(|e| refused(e.0))? != trust.log_origin {
@@ -180,7 +179,7 @@ impl Daemon {
             })?
             .device_id;
         let cloud_copy = state == mdbn_wire::policy::CState::CloudCopy;
-        let cfg = crate::sync::SyncConfig {
+        Ok(crate::sync::SyncConfig {
             schema_version: 2,
             environment: trust.environment.clone(),
             collection_id: id.to_string(),
@@ -189,20 +188,30 @@ impl Daemon {
             chosen_state: if cloud_copy { "cloud_copy" } else { "private" }.into(),
             trusted_signers: vec![secrets::uuid_string(&device)],
             user_enabled_cloud_copy: cloud_copy,
-        };
-        let dir = self.profile.state_dir.join("collections").join(id);
+        })
+    }
+
+    pub(super) fn save_link(
+        &self,
+        cfg: &crate::sync::SyncConfig,
+        collection: &[u8; 16],
+        trust: &crate::trust::Trust,
+    ) -> Result<(), ControlError> {
+        let dir = self.profile.collection_dir(&cfg.collection_id);
         fsutil::ensure_private_dir(&dir).map_err(|e| ControlError::internal(e.to_string()))?;
-        cfg.save(
-            &crate::sync::SyncConfig::path(&self.profile.state_dir.join("collections"), id),
-            collection,
-            trust,
-        )
-        .map_err(|e| refused(e.0))
+        cfg.save(&dir.join(crate::sync::FILE), collection, trust)
+            .map_err(|e| ControlError::unavailable("sync_integrity", e.0))
     }
 
     /// Join an account's cloud copy into an empty folder. Connect enrols this
     /// device (control-signed); hosted (or escrow) then wraps the epoch key to it.
     pub(super) async fn join(&self, p: JoinCollection) -> Result<Value, ControlError> {
+        if p.private && p.recover_removed {
+            return Err(ControlError::invalid(
+                "recover_removed",
+                "Recovery is available for removed cloud copies only.",
+            ));
+        }
         // Serialize registration with account/collection lifecycle. The captured
         // source below additionally rechecks the actual durable incarnation.
         let _gate = self.account_gate.lock().await;
@@ -317,7 +326,8 @@ impl Daemon {
                 "the folder changed during enrolment; no local files were adopted",
             ));
         }
-        self.write_link(&id, &collection, &trust, state, (log_url, genesis), false)?;
+        let link =
+            self.verified_link(&id, &collection, &trust, state, (log_url, genesis), false)?;
         let name = join_name(p.name.as_deref(), joined.display_name.as_deref(), &root)?;
         let entry = Entry {
             id: id.clone(),
@@ -347,6 +357,29 @@ impl Daemon {
         })?;
         let mut next = inner.registry.clone();
         next.add(entry.clone()).map_err(registry_error)?;
+        if !p.private {
+            let removed = inner
+                .registry
+                .removed_cloud_replicas
+                .get(&id)
+                .map(String::as_str);
+            self.prepare_cloud_rejoin(&link, removed, p.recover_removed)?;
+            // Complete a remove interrupted after durable unregister. Grants for
+            // the old registration must never be attached to its replacement.
+            if removed.is_some() || p.recover_removed {
+                self.forget_removed_grants(&mut inner, &id)?;
+            }
+        }
+        self.save_link(&link, &collection, &trust)?;
+        if !p.private {
+            // An interrupted remove may have committed unregister before dropping its
+            // adopt journal. A fresh join must never adopt from that journal.
+            crate::adopt::Journal::remove(&crate::adopt::Journal::path(
+                &self.profile.state_dir.join("collections"),
+                &id,
+            ))
+            .map_err(|e| ControlError::internal(e.to_string()))?;
+        }
         self.save_registry(&next)?;
         inner.registry = next;
         self.authority.publish_registry(&inner.registry);
@@ -482,7 +515,23 @@ impl Daemon {
         let _gate = self.account_gate.lock().await;
         let mut inner = self.inner.lock().await;
         let mut next = inner.registry.clone();
-        next.remove(id).map_err(registry_error)?;
+        let entry = next.remove(id).map_err(registry_error)?;
+        if let Some(host) = inner.hosts.iter_mut().find(|h| h.entry().id == id) {
+            host.close().await;
+        }
+        // Older failed joins registered a different ID over the leftover store.
+        // An unreadable index can still be unregistered: even with a receipt,
+        // a later join must verify its identity before moving anything.
+        if entry.mode == SyncMode::Synced
+            && !rejoin::conflicting_replica(&self.profile.collection_dir(id), &entry)
+                .unwrap_or_else(|error| {
+                    tracing::warn!(collection = %id, ?error, "could not inspect removed store");
+                    false
+                })
+        {
+            next.removed_cloud_replicas
+                .insert(entry.id, entry.replica_id);
+        }
         self.save_registry(&next)?;
         if let Err(e) = crate::adopt::Journal::remove(&crate::adopt::Journal::path(
             &self.profile.state_dir.join("collections"),
@@ -492,24 +541,26 @@ impl Daemon {
         }
         inner.registry = next;
         self.authority.publish_registry(&inner.registry);
+        inner.hosts.retain(|h| h.entry().id != id);
+        self.forget_removed_grants(&mut inner, id)?;
+        drop(inner);
+        self.bump();
+        tracing::info!(collection = %id, "collection unregistered (files untouched)");
+        Ok(json!({}))
+    }
+
+    fn forget_removed_grants(&self, inner: &mut Inner, id: &str) -> Result<(), ControlError> {
         if !inner.access.list(Some(id)).is_empty() {
             let mut access = inner.access.clone();
             access.forget_collection(id);
-            self.save_access(&mut inner, &access)?;
+            self.save_access(inner, &access)?;
             inner.access = access;
             self.authority.publish_access(&inner.access);
             for h in &inner.hosts {
                 h.publish_grants(&inner.access);
             }
         }
-        if let Some(i) = inner.hosts.iter().position(|h| h.entry().id == id) {
-            let mut host = inner.hosts.remove(i);
-            host.close().await;
-        }
-        drop(inner);
-        self.bump();
-        tracing::info!(collection = %id, "collection unregistered (files untouched)");
-        Ok(json!({}))
+        Ok(())
     }
 
     /// Account deletion is separate from local unregister: no local state changes.

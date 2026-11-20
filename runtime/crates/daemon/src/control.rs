@@ -750,6 +750,9 @@ pub struct JoinCollection {
     /// the account key (`private.unlock`) or approve it from another device.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub private: bool,
+    /// Confirm this computer removed a cloud copy before it recorded removed replica IDs.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub recover_removed: bool,
 }
 
 /// `private.*` secrets: the password and/or recovery key. Zeroized on drop; never
