@@ -269,6 +269,20 @@ describe("unified Native choice lifecycle", () => {
     expect(f.session.getSnapshot()).toMatchObject({problem:null,signIn:{state:"paired"}});
     await f.session.close();
   });
+  it("returns to the chooser when the first receipt after reload contains an unfinished Private pick", async () => {
+    const f=fixture("awaiting_approval"), n=nativePick(f,f.flow.view().requestId);
+    const originalView=f.flow.view, exchange=f.flow.exchange.getMockImplementation()!;
+    f.flow.view=()=>({...originalView(),collectionSelection:null,collectionIds:[]});
+    f.flow.exchange.mockImplementation(async()=>{await exchange();n.pick();return f.flow.view();});
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    f.approve();
+    expect(await f.session.start()).toMatchObject({status:"authorizing"});
+    await approvalTick(f.session);
+    expect(f.session.getSnapshot()).toMatchObject({status:"unselected",problem:null,approval:{outcome:"closed"},signIn:{state:"paired"},collections:[]});
+    expect(n.abandon).toHaveBeenCalledOnce();expect(n.finish).not.toHaveBeenCalled();
+    expect(f.openPortal).not.toHaveBeenCalled();expect(f.openCollection).not.toHaveBeenCalled();
+    await f.session.close();
+  });
   it("starts past a Private pick an earlier page stored without its grant, instead of blocking every reload", async () => {
     const f=fixture("paired","never"), n=nativePick(f,f.flow.view().requestId);
     n.pick();
