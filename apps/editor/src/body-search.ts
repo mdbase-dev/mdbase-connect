@@ -1,3 +1,4 @@
+import { isMdbaseError } from "@mdbase-dev/sdk";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { parseSearchQuery } from "./search-query";
 
@@ -33,6 +34,10 @@ export function bodySearchTerm(word: string): string | undefined {
 
 export function bodySearchTerms(query: string): string[] {
   return [...new Set(parseSearchQuery(query).words.flatMap((word) => bodySearchTerm(word) ?? []))];
+}
+
+export function searchBudgetExceeded(error: unknown): boolean {
+  return isMdbaseError(error, "too_large") && error.reason === "query_budget_exceeded";
 }
 
 export interface BodySearchSnapshot {
@@ -92,6 +97,9 @@ export class BodySearch {
   /** Search for body `terms` and `tags` at index `revision`. */
   search(terms: readonly string[], tags: readonly string[], revision: number): void {
     const keys = [...new Set([...terms.map((term) => `b:${term}`), ...tags.map((tag) => `t:${tag}`)])];
+    const clearBudgetError = searchBudgetExceeded(this.snapshot.error) &&
+      (revision !== this.revision || keys.length !== this.keys.length || keys.some(key => !this.keys.includes(key)));
+    if (clearBudgetError) this.snapshot = { ...this.snapshot, error: undefined };
     this.keys = keys;
     this.revision = revision;
     for (const key of this.answers.keys()) if (!keys.includes(key)) this.answers.delete(key);
@@ -102,7 +110,7 @@ export class BodySearch {
       }
     }
     this.schedule();
-    this.publish();
+    this.publish(clearBudgetError);
   }
 
   retry(): void {
@@ -173,6 +181,10 @@ export class BodySearch {
     }, (error: unknown) => {
       if (controller.signal.aborted) return;
       this.running.delete(key);
+      if (revision !== this.revision && searchBudgetExceeded(error)) {
+        this.schedule();
+        return;
+      }
       for (const other of this.running.values()) other.abort();
       this.running.clear();
       this.snapshot = { ...this.snapshot, error };

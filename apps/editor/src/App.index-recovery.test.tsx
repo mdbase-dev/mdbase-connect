@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor } from "./test/locale";
 import { expect, it, vi } from "vitest";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { CollectionChange, WatchStatus } from "@mdbase-dev/connect";
@@ -38,6 +39,21 @@ it("shows a stopped connection and explicit retry after a permanent watch failur
     expect(screen.getByRole("button", { name: "Retry connection" })).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "Collection connected" })).not.toBeInTheDocument();
   } finally { unmount(); }
+});
+
+it("keeps partial results on a search budget refusal and starts a different search without Retry", async () => {
+  const gateway = new DemoCollectionGateway(999);
+  vi.spyOn(gateway, "searchBodies").mockRejectedValueOnce(new MdbaseError({
+    code: "too_large", reason: "query_budget_exceeded", recovery: "fix_request", message: "Query budget exceeded"
+  })).mockResolvedValue([]);
+  render(<App gateway={gateway} />);
+  await screen.findByText("1,000 notes · 2 files");
+  const input = screen.getByPlaceholderText("Search");
+  fireEvent.change(input, { target: { value: "999" } });
+  expect(await screen.findByText(/Search limit reached/)).toHaveTextContent("1 found so far · incomplete");
+  expect(screen.queryByRole("button", { name: "Retry search" })).not.toBeInTheDocument();
+  fireEvent.change(input, { target: { value: "998" } });
+  expect(await screen.findByText("1 found · relevance")).toBeInTheDocument();
 });
 
 it("retries the failed inventory and searches bodies without loading note text", async () => {

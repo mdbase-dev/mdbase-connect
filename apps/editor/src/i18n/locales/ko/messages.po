@@ -4686,6 +4686,10 @@ msgstr "검색 필터"
 msgid "Search is incomplete."
 msgstr "검색이 완료되지 않았습니다."
 
+#: src/NoteList.tsx
+msgid "Search limit reached. Try a different term."
+msgstr "검색 한도에 도달했습니다. 다른 검색어를 사용해 보세요."
+
 #: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"

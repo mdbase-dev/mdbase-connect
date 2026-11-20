@@ -4686,6 +4686,10 @@ msgstr "搜索筛选条件"
 msgid "Search is incomplete."
 msgstr "搜索结果不完整。"
 
+#: src/NoteList.tsx
+msgid "Search limit reached. Try a different term."
+msgstr "已达到搜索上限。请尝试其他搜索词。"
+
 #: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"
