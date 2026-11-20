@@ -190,6 +190,22 @@ fn body_batches(rows: Vec<QueryIndexedRow>) -> Vec<Vec<QueryIndexedRow>> {
 }
 
 impl<S: Store> Replica<S> {
+    pub(super) fn backfill_query_index_within_budget(&mut self) -> StoreResult<()> {
+        match self.backfill_query_index() {
+            Err(crate::store::StoreError::Full) => {
+                self.query_context = None;
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(
+                        "store: query index backfill: over budget".into(),
+                    )),
+                );
+                Ok(())
+            }
+            result => result,
+        }
+    }
+
     /// Make the maintained index complete for the current confirmed state, when it
     /// is absent, unready, or under another generation (a pre-index store, a
     /// snapshot install, an invalidating transaction). Index-only transactions:

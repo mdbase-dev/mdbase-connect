@@ -19,6 +19,8 @@ use w::intent::{Create, Op, ResourcePut};
 mod asfile_query;
 #[path = "tentative_discovery/host_views.rs"]
 mod host_views;
+#[path = "tentative_discovery/large_import.rs"]
+mod large_import;
 #[path = "tentative_discovery/local_only.rs"]
 mod local_only;
 #[path = "tentative_discovery/local_reads.rs"]
