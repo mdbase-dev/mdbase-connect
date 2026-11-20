@@ -191,15 +191,15 @@ pub(super) enum CollectionCmd {
     Delete {
         /// Registered name, ID prefix, or full synced collection ID.
         collection: String,
-        /// Type the collection's current shared name to confirm deletion.
+        /// Type the current shared name shown in the Portal, not a local alias.
         #[arg(long, value_name = "NAME")]
         confirm: String,
     },
-    /// Rename a collection or change its description. Files are untouched.
+    /// Change the collection name or description on this computer only. Files are untouched.
     Update {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// New display name.
+        /// Local display name. To change the shared name, rename the collection in the Portal.
         #[arg(long)]
         name: Option<String>,
         /// New description (an empty string clears it).
@@ -420,6 +420,20 @@ pub(super) enum RecoveryCmd {
 #[cfg(test)]
 mod takeover_cli_tests {
     use super::*;
+
+    #[test]
+    fn collection_help_distinguishes_local_and_shared_names() {
+        let help = |command| {
+            Cli::try_parse_from(["mdbase", "collection", command, "--help"])
+                .unwrap_err()
+                .to_string()
+        };
+        let update = help("update");
+        assert!(update.contains("on this computer only"));
+        assert!(update.contains("shared name") && update.contains("Portal"));
+        let delete = help("delete");
+        assert!(delete.contains("shared name") && delete.contains("Portal"));
+    }
 
     #[test]
     fn sync_parses_enable_and_disable() {

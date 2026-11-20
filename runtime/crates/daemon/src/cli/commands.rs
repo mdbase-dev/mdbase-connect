@@ -189,7 +189,13 @@ pub(super) async fn run_command(
                 &collection,
                 Value::Object(extra),
             )
-            .await
+            .await?;
+            if !out.json {
+                println!(
+                    "Updated on this computer only. The shared name in the Portal is unchanged."
+                );
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Collection(CollectionCmd::Pause { collection }) => {
             simple(
