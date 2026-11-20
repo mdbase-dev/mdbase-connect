@@ -30,9 +30,9 @@ function fixture(fault, error = new Error("private sentinel"), cleanupError) {
   const o = Object.create(HostedCollection.prototype), events = [];
   const hit = stage => { events.push(stage); if (stage === fault) throw error; };
   const storage = { fixture: { hit },
-    get: async key => { hit(key === "service-open-failures" ? "open_retry_read" : "pin_marker_read"); return key === "service-open-failures" ? 1 : undefined; },
-    put: async key => { hit(key === "service-collection" ? "service_collection_persist" : key === "service-open-failures" ? "failure_bookkeeping" : key === "collection-mode-device" ? "mode_device_persist" : "run_save"); },
-    delete: async () => hit("open_failure_clear"), sync: async () => hit("run_sync"),
+    get: async key => { hit(key === "service-open-unfinished" ? "unfinished_read" : key === "service-open-failures" ? "open_retry_read" : "pin_marker_read"); return key === "service-open-failures" ? 1 : undefined; },
+    put: async key => { hit(key === "service-collection" ? "service_collection_persist" : key === "service-open-unfinished" ? "unfinished_reserve" : key === "service-open-failures" ? "failure_bookkeeping" : key === "collection-mode-device" ? "mode_device_persist" : "run_save"); },
+    delete: async key => hit(key === "service-open-unfinished" ? "unfinished_clear" : "open_failure_clear"), sync: async () => hit("storage_sync"),
     sql: { exec: () => ({ toArray: () => [] }) } };
   const keys = { replicaId: collection, deviceId: collection, roots: [new Uint8Array(32)], signers: [],
     signSk: new Uint8Array(32), kemSk: new Uint8Array(32), noiseSk: new Uint8Array(32), policyPins: new Uint8Array([1]),
@@ -64,10 +64,10 @@ test("actual ready/RUN labels synthetic substep failures, cleanup and retained b
 test("successful ready keeps the existing side-effect order and cached-engine fast path", async () => {
   const { o, events } = fixture();
   const engine = await o.ready(collection);
-  assert.deepEqual(events, ["background_guard", "physical_collection_guard", "service_collection_persist", "open_retry_read",
+  assert.deepEqual(events, ["background_guard", "physical_collection_guard", "service_collection_persist", "unfinished_read", "open_retry_read", "unfinished_reserve", "storage_sync",
     "open_retry_schedule", "custody_open_sealer", "background_guard", "physical_collection_guard", "mode_device_persist", "background_guard", "physical_collection_guard", "engine_construct",
     "engine_cpp_open", "engine_noise_key", "custody_zeroize", "pin_marker_read", "live_admission", "background_guard",
-    "sync", "timing_snapshot", "engine_reset", "open_failure_clear"]);
+    "sync", "timing_snapshot", "engine_reset", "open_failure_clear", "unfinished_clear"]);
   assert.equal(await o.ready(collection), engine);
   assert.equal(events.filter(value => value === "custody_open_sealer").length, 1);
   assert.equal(o.opening, null); assert.equal(o.openingTrace, null);

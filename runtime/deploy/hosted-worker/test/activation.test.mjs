@@ -23,6 +23,7 @@ const { HostedCollection, default: worker } = await import(`data:text/javascript
 function object(escrow = false) {
   const data = new Map(); let alarm;
   const storage = { get: async (k) => Array.isArray(k) ? new Map(k.filter(key => data.has(key)).map(key => [key, data.get(key)])) : data.get(k), put: async (k, v) => data.set(k, v), getAlarm: async () => alarm ?? null, setAlarm: async (at) => { alarm = at; } };
+  storage.sync = async () => {}; storage.delete = async key => data.delete(key);
   const o = Object.create(HostedCollection.prototype);
   // Platform identity mock only; actual opaque IDs/namespaces are exercised in
   // physical-collection-workerd.test.mjs, not native/CPP admission here.
