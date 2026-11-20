@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { fromHex, toHex, type CborValue } from "../src/cbor.js";
+import { encode, fromHex, toHex, type CborValue } from "../src/cbor.js";
 import { clientFrame } from "../src/wire.js";
 import { uuidToBytes } from "../src/codec.js";
 import { MdbaseClient } from "../src/index.js";
 import { connect } from "../src/thin-client.js";
-import { clientPrologue, generateKeyPair } from "../src/transport/noise.js";
+import { clientPrologue, generateKeyPair, IkResponder } from "../src/transport/noise.js";
 import type { MessageCarrier } from "../src/transport/noise-session.js";
 import {
   type AuthenticatedRelayByteDuplex,
@@ -346,6 +346,34 @@ describe("bridge scope and session regressions", () => {
     await expect(
       connect({ app, connector: nextRelayConnector({ next: closing, collection: w.collection, staticKey: generateKeyPair() }), reconnect: false }),
     ).rejects.toBeDefined();
+  });
+
+  it("waits through a paused pipe and a not-yet-serving Noise hello, then opens the same collection", async () => {
+    const w = world();
+    const openPipe = vi.fn(w.next.openPipe)
+      .mockRejectedValueOnce(pipeCloseError(4000, "not_served"))
+      .mockImplementationOnce(async (_collection, target) => {
+        const resumed = pipe();
+        const responder = new IkResponder({ staticKey: w.devices[0]!.key,
+          prologue: clientPrologue(uuidToBytes(target.relay_collection!), uuidToBytes(w.grant), uuidToBytes(target.device)) });
+        resumed.daemon.onmessage = message => {
+          responder.readMessage1(message);
+          const refusal = clientFrame.enc({ kind: "response", id: 0,
+            problem: mdbaseError("unavailable", "the collection is not being served", "not_serving").toProblem() });
+          resumed.daemon.send(responder.writeMessage2(encode(refusal)).message);
+          queueMicrotask(() => resumed.end(4000, "closed"));
+        };
+        return resumed.app;
+      });
+    const connector = nextRelayConnector({ next: { ...w.next, openPipe }, collection: w.collection, staticKey: generateKeyPair() });
+    const waits: string[] = [];
+    const client = await connect({ app, connector, waitForDevice: true, reconnect: { minDelayMs: 1 }, onWaiting: why => waits.push(why.reason!) });
+    try {
+      expect(waits).toEqual(["not_served", "not_served"]);
+      expect(openPipe).toHaveBeenCalledTimes(3);
+      expect(client.collection).toBe(w.collection);
+      expect(client.link).toBe("open");
+    } finally { client.close(); }
   });
 
   it.each(["authorization_unavailable", "grant_lease_expired"])("keeps Private opening through %s, then opens the original Noise grant", async reason => {
