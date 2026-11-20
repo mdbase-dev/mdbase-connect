@@ -4686,6 +4686,10 @@ msgstr "Filtri di ricerca"
 msgid "Search is incomplete."
 msgstr "La ricerca è incompleta."
 
+#: src/NoteList.tsx
+msgid "Search limit reached. Try a different term."
+msgstr "Limite di ricerca raggiunto. Prova un altro termine."
+
 #: src/editor-commands.ts
 #: src/NoteSearchField.tsx
 msgid "Search notes and files"

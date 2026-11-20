@@ -302,6 +302,34 @@ try {
   const byId = () => new Map([[0, uuidToBytes(recordId)], [1, new Map([[1, true]])]]);
   const got = recordView.dec(call("get", byId()));
   assert.equal(got.path, "first.md"); assert.equal(got.body, "Started before connecting.\n");
+  for (const [start, count] of [[1, 100], [101, 900]]) {
+    const batchId = `01960001-0000-7000-8000-${String(start).padStart(12, "0")}`;
+    const ops = Array.from({ length: count }, (_, index) => {
+      const number = String(start + index).padStart(4, "0");
+      return { kind: "create", id: `01960002-0000-7000-8000-00000000${number}`, path: `notes/${number}.md`, body: `Shipment ${number}` };
+    });
+    if (start === 1) ops.unshift({ kind: "resource_put", path: "_types/task.md", mustNotExist: true,
+      doc: "---\nkind: mdbase.type\nname: task\nmatch: {path_glob: 'notes/*.md'}\nschema: {dialect: json-schema-2020-12, value: {type: object}}\n---\n" });
+    call("submit", submitParams.enc({ ops, mutationId: batchId }));
+    u2.x.rt_tick(1_800_000_000_000 + start);
+    assert.equal(receiptCodec.dec(call("receipt", new Map([[0, uuidToBytes(batchId)]]))).state, "confirmed");
+  }
+  for (const [term, limit, types] of [["ship", 500], ["0999", 500], ["0999", 1000, ["task"]]]) {
+    const paths = [];
+    let cursor;
+    do {
+      const query = new Map([["where", `file.body.lower().contains("${term}")`], ["limit", limit]]);
+      if (types) query.set("types", types);
+      if (cursor) query.set("cursor", cursor);
+      const page = call("query", new Map([[0, query]]));
+      assert.equal(page.get(2), true);
+      paths.push(...page.get(0).map(row => recordView.dec(row).path));
+      cursor = page.get(1);
+    } while (cursor);
+    assert.deepEqual(paths, term === "ship"
+      ? Array.from({ length: 1000 }, (_, index) => `notes/${String(index + 1).padStart(4, "0")}.md`)
+      : ["notes/0999.md"]);
+  }
   assert.equal(u2.x.rt_app_shutdown(), 1);
   const u3 = await create(); assert.equal(openLocal(u3, localConfig(1)), "");
   const again = recordView.dec(localSession(u3)("get", byId()));

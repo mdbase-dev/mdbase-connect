@@ -141,7 +141,7 @@ import {
   IncrementalNoteSearchIndex,
   searchNoteResults
 } from "./note-search";
-import { BodySearch, bodySearchTerms, EXCERPT_READS } from "./body-search";
+import { BodySearch, bodySearchTerms, EXCERPT_READS, searchBudgetExceeded } from "./body-search";
 import { parseSearchQuery } from "./search-query";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { takeQuickCapture } from "./quick-capture";
@@ -2466,7 +2466,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onClearScope={() => setNoteFilter(undefined)}
         onQuickOpen={() => { setPaletteMode("commands"); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
-        onRetrySearch={() => bodySearch.retry()}
+        onRetrySearch={searchBudgetExceeded(bodySearchState.error) ? undefined : () => bodySearch.retry()}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={(path, options) => {
