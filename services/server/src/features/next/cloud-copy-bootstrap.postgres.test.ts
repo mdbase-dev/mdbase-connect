@@ -124,10 +124,9 @@ class Log {
   };
 }
 
-/** Both deployments: each device request generates a candidate; the CP's first stored record wins. */
+/** Both deployments, stateless: every call generates a new device; the CP's first stored record wins. */
 class Deployments {
   readonly devices = new Map<string, Record<string, string>>();
-  readonly initializations: Array<{ collection: string; request_id: string; timezone: string }> = [];
   calls = 0;
   failing: "down" | "wrong-kind" | undefined;
   /** Runs once, while the route awaits generation. */
@@ -139,16 +138,9 @@ class Deployments {
     await hook?.();
     const url = new URL(String(input));
     const kind = url.hostname === "hosted.test" ? "hosted" : "escrow";
+    expect(url.pathname).toBe("/internal/v1/service-devices");
     expect(new Headers(init!.headers).get("authorization")).toBe(`Bearer ${kind === "hosted" ? tokens.hostedOut : tokens.escrowOut}`);
     if (this.failing === "down") throw new TypeError("unavailable");
-    if (url.pathname === "/internal/v1/collections/initialize") {
-      expect(kind).toBe("hosted");
-      expect(init?.method).toBe("POST");
-      const { collection, request_id, timezone } = JSON.parse(String(init!.body));
-      this.initializations.push({ collection, request_id, timezone });
-      return Response.json({ initialized: true, collection, request_id });
-    }
-    expect(url.pathname).toBe("/internal/v1/service-devices");
     const { collection } = JSON.parse(String(init!.body)) as { collection: string };
     const key = `${kind}/${collection}`;
     {
@@ -588,7 +580,6 @@ describePg("cloud-copy bootstrap", () => {
     const add = (requestId: string) => app.inject({ method: "POST", url: "/v1/account/collections", headers,
       payload: { account_id: owner, request_id: requestId, display_name: "Quota fixture", timezone: "UTC" } });
     const firstRequest = randomUUID(), refusedRequest = randomUUID();
-    const beforeInitialization = deployments.initializations.length;
     const first = await add(firstRequest);
     expect(first.statusCode).toBe(200);
     const collection = first.json().collection.id;
@@ -602,7 +593,6 @@ describePg("cloud-copy bootstrap", () => {
     expect((await db.query("SELECT 1 FROM next_service_devices WHERE collection_id=$1", [intent.collection_id])).rows).toEqual([]);
     expect((await db.query("SELECT 1 FROM next_policy_outbox WHERE collection_id=$1", [intent.collection_id])).rows).toEqual([]);
     expect(log.logs.has(intent.collection_id.replaceAll("-", ""))).toBe(false);
-    expect(deployments.initializations.slice(beforeInitialization)).toEqual([{ collection, request_id: firstRequest, timezone: "UTC" }]);
     expect((await join(who, collection, await joinProof(who, collection))).statusCode).toBe(200);
     const deleted = await app.inject({ method: "DELETE", url: `/v1/next/collections/${collection}`, headers: who.headers, payload: { confirm_name: "Quota fixture" } });
     expect(deleted.statusCode).toBe(200);

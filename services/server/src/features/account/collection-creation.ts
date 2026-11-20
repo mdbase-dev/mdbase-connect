@@ -3,7 +3,7 @@ import type {DatabaseConnection} from "../../database-types.js";
 import type {HostedAuthorityRegistry} from "../hosted/hosted.js";
 import {CreateError, inTransaction} from "../next/bootstrap-common.js";
 import {requireNextAccountNotMigrationFrozen} from "../next/migration-topology.js";
-import {createServiceCloudCopy, currentCloudCopy, initializeHostedCloudCopy, type CloudCopyBootstrapOptions} from "../next/service-cloud-copy.js";
+import {createServiceCloudCopy, currentCloudCopy, type CloudCopyBootstrapOptions} from "../next/service-cloud-copy.js";
 import {createHostedCollectionForUser, type HostedServiceOptions} from "../hosted/service.js";
 
 export interface AccountCollectionCreationOptions extends HostedServiceOptions {
@@ -75,16 +75,15 @@ async function readPublished(client: DatabaseConnection, intent: Intent): Promis
   if (!result.rows[0]) throw new CreateError(404, "collection_unavailable");
   return result.rows[0];
 }
-/** Account creation with an immutable intent. The browser never gets a device or content grant here. */
+/** Metadata-only account creation. Original UUID/name/runtime survive unknown
+ * outcomes. No pairing, browser device, content grant or readiness assertion. */
 export async function createAccountCollection(options: AccountCollectionCreationOptions, account: string, input: AccountCollectionRequest, principal: Principal) {
   const intent = await claim(options, account, input, principal);
   const current = (client: DatabaseConnection) => original(client, intent, principal);
   if (intent.published_at !== null) return inTransaction(options.db, async client => {await current(client); return readPublished(client, intent);});
   if (intent.runtime === "next") {
     if (!options.native) throw new CreateError(503, "not_ready");
-    const native = options.native;
-    await createServiceCloudCopy(native, {collection: intent.collection_id, owner: account, runtime: "next", displayName: intent.display_name, current,
-      initialContent: () => initializeHostedCloudCopy(native, intent.collection_id, intent.request_id, intent.timezone)});
+    await createServiceCloudCopy(options.native, {collection: intent.collection_id, owner: account, runtime: "next", displayName: intent.display_name, current});
     return inTransaction(options.db, async client => {
       await current(client); const result = await readPublished(client, intent); await publish(client, intent); return result;
     });
