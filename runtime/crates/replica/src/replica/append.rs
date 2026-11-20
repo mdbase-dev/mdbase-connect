@@ -1613,13 +1613,17 @@ impl<S: Store> Replica<S> {
         if let Some(hosted) = self.hosted.as_mut() {
             hosted.applied_since_tick = 0;
         }
-        if !self.apply_fault && self.hosted_reindex_pending() {
-            if self.hosted_reindex_step().is_err() {
-                self.terminal_store_fault("hosted_record_reindex_failed");
-            }
-            if self.hosted_reindex_pending() {
-                return;
-            }
+        if !self.apply_fault && self.hosted_reindex_pending() && self.hosted_reindex_step().is_err()
+        {
+            self.terminal_store_fault("hosted_record_reindex_failed");
+        }
+        self.tick_timers();
+    }
+
+    /// Run timers without granting another repair/replay slice after cold open.
+    pub fn tick_timers(&mut self) {
+        if self.hosted_reindex_pending() {
+            return;
         }
         if let Some(session) = self.attachment_read_tick(self.now()) {
             self.attachment_read_end_idle(session);
@@ -1667,6 +1671,11 @@ impl<S: Store> Replica<S> {
 
     /// When the replica next wants [`Replica::tick`] (host clock, ms), if ever.
     pub fn next_wakeup(&self) -> Option<i64> {
+        self.next_wakeup_with_stall_probe(true)
+    }
+
+    /// LAB idle polling can replace the stall probe, but no other deadline.
+    pub fn next_wakeup_with_stall_probe(&self, include_stall_probe: bool) -> Option<i64> {
         let append = match &self.append {
             AppendState::RetryAt(t, _) if *t != i64::MAX => Some(*t),
             AppendState::WaitUntil(t) => Some(*t),
@@ -1676,7 +1685,8 @@ impl<S: Store> Replica<S> {
         let grant = self.key_grant_turn().filter(|t| *t > self.now());
         let stall_probe = match self.stalled {
             Some((_, position))
-                if !self.reading
+                if include_stall_probe
+                    && !self.reading
                     && !self.local_only()
                     && !self.apply_fault
                     && self.install.is_none()
@@ -1702,7 +1712,7 @@ impl<S: Store> Replica<S> {
             append,
             (!self.apply_fault
                 && self.hosted.as_ref().is_some_and(|hosted| {
-                    hosted.reindex_pending
+                    hosted.reindex_stamp.is_some()
                         || (hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS
                             && self.head.seq < self.head_known)
                 }))

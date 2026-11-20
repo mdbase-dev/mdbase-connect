@@ -935,11 +935,15 @@ impl<S: Store> Engine<S> {
     }
 
     /// Run timers.
-    pub fn tick(&mut self, now_ms: i64) {
+    pub fn tick(&mut self, now_ms: i64, after_open: bool) {
         if let Some(session) = self.replica.attachment_read_tick(now_ms) {
             self.replica.attachment_read_end_idle(session);
         }
-        self.replica.tick();
+        if after_open {
+            self.replica.tick_timers();
+        } else {
+            self.replica.tick();
+        }
         self.frames.tick(&mut self.replica, now_ms);
         self.drain_acks();
     }
@@ -964,14 +968,9 @@ impl<S: Store> Engine<S> {
     }
 
     /// When to call [`Engine::tick`] next (host ms), if at all.
-    pub fn next_wakeup(&self) -> Option<i64> {
-        match (
-            self.replica.next_wakeup(),
-            self.replica.attachment_read_deadline(),
-        ) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+    pub fn next_wakeup(&self, include_stall_probe: bool) -> Option<i64> {
+        self.replica
+            .next_wakeup_with_stall_probe(include_stall_probe)
     }
 
     /// Bind the log session. The host calls this only after its transport

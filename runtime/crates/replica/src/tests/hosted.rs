@@ -194,6 +194,49 @@ fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
 }
 
 #[test]
+fn hosted_catalog_reset_waits_for_authorized_watcher_after_repair() {
+    let svc = world();
+    let mut hosted = open(&svc, MemStore::new());
+    hosted.pump();
+    hosted.r.planner = Box::new(crate::plan::CorePlanner);
+    let watcher = hosted.session(G1);
+    let before = hosted.r.changes(watcher, None, None, true).unwrap().cursor;
+    let owner = hosted.r.hello(SessionAuth::Host, hello()).unwrap().0;
+    let mut params = create(1, "unused.md", None);
+    params.ops = vec![Op::ResourcePut(mdbn_wire::intent::ResourcePut {
+        path: "_types/task.md".into(),
+        doc: Text::Inline("---\nkind: mdbase.type\nname: task\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n".into()),
+        base_revision: None,
+        must_not_exist: None,
+    })];
+    hosted.r.submit_logged(owner, params).unwrap();
+    pump(&mut hosted.r, &mut hosted.log, 100);
+    assert!(!hosted.r.hosted_serving(), "{:?}", hosted.r.take_acks());
+    let reset = |(session, push): &(SessionId, crate::api::Push)| {
+        *session == watcher && matches!(push, crate::api::Push::Changes(change) if change.reset)
+    };
+    assert!(!hosted.r.take_pushes().iter().any(reset));
+    hosted.pump();
+    assert!(
+        hosted
+            .r
+            .changes(watcher, Some(before), None, false)
+            .unwrap()
+            .reset
+    );
+    assert_eq!(
+        hosted
+            .r
+            .take_pushes()
+            .iter()
+            .filter(|push| reset(push))
+            .count(),
+        1
+    );
+    assert!(!hosted.r.take_pushes().iter().any(reset));
+}
+
+#[test]
 fn hosted_warm_cache_repairs_large_rows_before_replaying_control() {
     let svc = world();
     let mut initial = open(&svc, MemStore::new());
@@ -204,16 +247,34 @@ fn hosted_warm_cache_repairs_large_rows_before_replaying_control() {
     store
         .commit(Tx {
             records_put: (1..=4)
-                .map(|n| crate::conformance::record(n, &format!("{n}.md"), &"x".repeat(130 << 10)))
+                .map(|n| {
+                    crate::conformance::record(
+                        n,
+                        &format!("{n}.md"),
+                        &"x".repeat(if n == 4 { 130 << 10 } else { 80 << 10 }),
+                    )
+                })
                 .collect(),
             meta: vec![(crate::store::meta_keys::RECORD_META.into(), None)],
             ..Tx::default()
         })
         .unwrap();
     let mut reader = open(&svc, store);
+    reader
+        .r
+        .store()
+        .inner()
+        .data()
+        .borrow_mut()
+        .refuse_unbounded_resources = true;
     for expected in 1..=4 {
+        reader.r.tick_timers();
         assert_eq!(reader.r.stats.reindexed, expected);
         assert!(reader.r.next_wakeup().is_some());
+        assert_eq!(
+            reader.r.next_wakeup_with_stall_probe(false),
+            reader.r.next_wakeup()
+        );
         assert!(reader.r.take_log_calls().is_empty());
         assert!(!reader.r.hosted_serving());
         assert!(!reader.r.hosted_needs_reset());
@@ -451,6 +512,7 @@ fn hosted_log_catchup_yields_and_reopens_at_the_committed_head() {
     assert_eq!(reader.r.head().seq, 16);
     assert!(!reader.r.hosted_serving());
     assert!(reader.r.next_wakeup().is_some());
+    reader.r.tick_timers();
     pump(&mut reader.r, &mut reader.log, 100);
     assert_eq!(reader.r.head().seq, 16);
     let mut reader = open(&svc, reader.r.into_store().into_inner());
@@ -1611,14 +1673,22 @@ fn warm_wake_refuses_a_cache_that_disagrees_with_the_log() {
     tampered
         .commit(Tx {
             // A well-formed policy the log never produced (no devices, no grants).
-            meta: vec![(
-                crate::store::meta_keys::POLICY.into(),
-                Some(crate::policy::PolicyState::new().to_bytes().unwrap()),
-            )],
+            records_put: (1..=9)
+                .map(|n| crate::conformance::record(n, &format!("{n}.md"), "body"))
+                .collect(),
+            meta: vec![
+                (crate::store::meta_keys::RECORD_META.into(), None),
+                (
+                    crate::store::meta_keys::POLICY.into(),
+                    Some(crate::policy::PolicyState::new().to_bytes().unwrap()),
+                ),
+            ],
             ..Tx::default()
         })
         .unwrap();
     let mut h = open(&svc, MemStore::shared(data));
+    assert_eq!(h.r.stats.reindexed, 8);
+    assert!(!h.r.hosted_needs_reset());
     h.pump();
     assert!(h.r.hosted_needs_reset());
     assert!(!h.r.hosted_serving());

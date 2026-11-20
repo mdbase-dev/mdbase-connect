@@ -131,7 +131,7 @@ enum Lookup {
 /// Hosted-mode state of a replica. RAM only.
 #[derive(Debug, Default)]
 pub(crate) struct HostedState {
-    pub(super) reindex_pending: bool,
+    pub(super) reindex_stamp: Option<Vec<u8>>,
     pub(super) applied_since_tick: u32,
     profile: HostedProfile,
     rebuilt: bool,
@@ -1053,14 +1053,15 @@ impl<S: Store> Replica<S> {
     pub(super) fn hosted_reindex_pending(&self) -> bool {
         self.hosted
             .as_ref()
-            .is_some_and(|state| state.reindex_pending)
+            .is_some_and(|state| state.reindex_stamp.is_some())
     }
 
     pub(super) fn hosted_reindex_step(&mut self) -> StoreResult<()> {
         const CHECKPOINT: &str = "replica.hosted_record_meta_cursor";
-        let stamp = crate::plan::record_meta_stamp(&self.store.resources()?);
+        let hosted = self.hosted.as_mut().expect("hosted reindex");
+        let stamp = hosted.reindex_stamp.as_ref().expect("pending reindex");
         let version = crate::store::DERIVED_DATA_VERSION.to_be_bytes();
-        let prefix = [version.as_slice(), &stamp, &self.head.chain.0].concat();
+        let prefix = [version.as_slice(), stamp, &self.head.chain.0].concat();
         let saved = self.store.meta(CHECKPOINT)?;
         let mut after = saved
             .as_deref()
@@ -1072,22 +1073,22 @@ impl<S: Store> Replica<S> {
             })
             .transpose()?;
         let mut bytes = 0;
-        for _ in 0..8 {
+        for index in 0..8 {
             let Some(mut row) = self.store.records(Page { after, limit: 1 })?.pop() else {
                 self.store.commit(Tx {
                     meta: vec![
-                        (meta_keys::RECORD_META.into(), Some(stamp)),
+                        (meta_keys::RECORD_META.into(), Some(stamp.clone())),
                         (meta_keys::DERIVED_VERSION.into(), Some(version.to_vec())),
                         (CHECKPOINT.into(), None),
                     ],
                     ..Tx::default()
                 })?;
-                self.hosted
-                    .as_mut()
-                    .expect("hosted reindex")
-                    .reindex_pending = false;
+                hosted.reindex_stamp = None;
                 break;
             };
+            if index != 0 && row.doc.len() > (128 << 10) - bytes {
+                break;
+            }
             bytes += row.doc.len();
             after = Some(row.id);
             let cursor = [prefix.as_slice(), &row.id.0].concat();
@@ -1112,7 +1113,7 @@ impl<S: Store> Replica<S> {
             None => true,
             Some(h) => {
                 h.rebuilt
-                    && !h.reindex_pending
+                    && h.reindex_stamp.is_none()
                     && h.keys.is_none()
                     && !h.needs_reset
                     && self.install.is_none()
@@ -1159,7 +1160,7 @@ impl<S: Store> Replica<S> {
             || self
                 .hosted
                 .as_deref()
-                .is_some_and(|h| h.keys.is_some() || h.needs_reset || h.reindex_pending)
+                .is_some_and(|h| h.keys.is_some() || h.needs_reset || h.reindex_stamp.is_some())
     }
 
     /// Queue the next control read of the warm-wake rebuild, if one is due.
@@ -1168,7 +1169,7 @@ impl<S: Store> Replica<S> {
         let Some(h) = self.hosted.as_deref_mut() else {
             return;
         };
-        if h.reindex_pending {
+        if h.reindex_stamp.is_some() {
             return;
         }
         let Some(k) = h.keys.as_mut() else {

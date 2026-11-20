@@ -752,9 +752,15 @@ impl<S: Store> Replica<S> {
         }
         let head = store.head()?;
         let tail_stats = store.tail_stats()?;
-        let catalog = Arc::new(
-            crate::plan::load_catalog(&store).map_err(|e| OpenError::StoreAt("catalog", e))?,
-        );
+        let (catalog, stamp) = {
+            let resources = store
+                .resources()
+                .map_err(|e| OpenError::StoreAt("catalog", e))?;
+            (
+                Arc::new(crate::plan::compile_catalog(&resources)),
+                crate::plan::record_meta_stamp(&resources),
+            )
+        };
         let clock_floor = read_i64(&store, meta_keys::COUNTERS)?;
         // `log_state` is written by apply as `log_time ‖ sem_ratchet`.
         let (log_time, sem_ratchet) = match store.meta(meta_keys::LOG_STATE)? {
@@ -1012,17 +1018,15 @@ impl<S: Store> Replica<S> {
             .map_err(|e| OpenError::Corrupt(format!("{e:?}")))?;
         // Index entries derived under another catalog (a crash between a
         // catalog change and its reindex) are rederived.
-        if r.install.is_none() {
-            let stamp = crate::plan::record_meta_stamp(&r.store.resources()?);
-            if r.store.meta(meta_keys::RECORD_META)?.as_ref() != Some(&stamp)
-                || (r.is_hosted() && derived_version < crate::store::DERIVED_DATA_VERSION)
-            {
-                if let Some(hosted) = r.hosted.as_mut() {
-                    hosted.reindex_pending = true;
-                    r.hosted_reindex_step()?;
-                } else {
-                    r.reindex().map_err(OpenError::Store)?;
-                }
+        if r.install.is_none()
+            && (r.store.meta(meta_keys::RECORD_META)?.as_ref() != Some(&stamp)
+                || (r.is_hosted() && derived_version < crate::store::DERIVED_DATA_VERSION))
+        {
+            if let Some(hosted) = r.hosted.as_mut() {
+                hosted.reindex_stamp = Some(stamp);
+                r.hosted_reindex_step()?;
+            } else {
+                r.reindex().map_err(OpenError::Store)?;
             }
         }
         // A store opened without a complete query index (older store, crash after

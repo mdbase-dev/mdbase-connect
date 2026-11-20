@@ -17,7 +17,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
         constructor() { this.logBound = true; globalThis.pinTest.opened++; }
         open() { if (globalThis.pinTest.open) throw new Error(globalThis.pinTest.open); }
         pinState() { return [null, "inconsistent", "rebuilding", "rebuilt"][globalThis.pinTest.state]; }
-        appliedHead() { return "cached"; } serving() { return false; } needsReset() { return false; }
+        appliedHead() { return "cached"; } serving() { return false; } needsReset() { return globalThis.pinTest.reset; }
         logCalls() { return []; } poll() { return []; } installStatus() { return null; } snapshotDeclined() { return false; } nextWakeup() { return null; } attachmentObject() { return null; }
       }` }));
   },
@@ -62,6 +62,21 @@ async function logs(f) {
   try { await f(); } finally { console.warn = warn; }
   return lines.filter(l => l.event === "next_service_pin").map(l => `${l.role}:${l.phase}:${l.collection_tag.length}`);
 }
+
+test("a warm alarm discovering a cache mismatch drops the index and retries soon", async () => {
+  globalThis.pinTest = { opened: 0 };
+  const { o, dropped, alarm } = object();
+  const engine = await o.ready(collection);
+  engine.tick = (_now, afterOpen) => { assert.equal(afterOpen, false); globalThis.pinTest.reset = true; };
+  await o.ctx.storage.setAlarm(Date.now() + 3_600_000);
+  const start = Date.now();
+  await assert.rejects(o.alarm(), /hosted cache reset; retry/);
+  assert.equal(o.engine, null);
+  assert.deepEqual(dropped, ["st_meta", "st_log"]);
+  assert.ok(alarm() >= start && alarm() <= start + 31_000);
+  globalThis.pinTest.reset = false;
+  assert.notEqual(await o.ready(collection), engine);
+});
 
 test("a store built under unpinned keys is dropped once, rebuilt from the log, then forgotten", async () => {
   for (const escrow of [false, true]) {

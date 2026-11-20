@@ -1315,6 +1315,7 @@ impl<S: Store> ClientApi for Replica<S> {
             self.pushes.retain(|(_, p)| matches!(p, Push::Closed(_)));
         } else {
             self.flush_status();
+            self.flush_feed_reset();
         }
         let file = self.client_file_push();
         let mut pushes = std::mem::take(&mut self.pushes);

@@ -838,18 +838,7 @@ export class HostedCollection extends DurableObject<Env> {
         try { console.info(JSON.stringify({ event: "hosted_first_open", role: this.escrow ? "escrow" : "hosted", ...this.timings })); } catch { /* Logging is not authority. */ }
       }
       openingTrace.stage = "engine_reset";
-      if (engine.needsReset()) {
-        // The cache disagrees with the log: drop every store table and rebuild.
-        this.releaseAttachment(engine);
-        this.engineReset("cache_reset");
-        this.logGen++;
-        this.engine = null;
-        this.live = null;
-        for (const r of this.readers.values()) r.wipe();
-        this.readers.clear();
-        runIndex(this.ctx.storage, RESET);
-        throw new Error("hosted cache reset; retry");
-      }
+      await this.checkCache(engine);
       // All open checks succeeded. Until here, a post-sync failure must still
       // have the earlier retry. Never replace a different pending wake.
       if (next !== undefined) {
@@ -886,6 +875,20 @@ export class HostedCollection extends DurableObject<Env> {
     pinLog(await wakeCollectionTag(collection), this.escrow ? "escrow" : "hosted", "pin_reset");
     await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.engine);
     throw new Error("hosted cache reset after pin mismatch; retry");
+  }
+
+  private async checkCache(engine: Engine): Promise<void> {
+    if (this.engine !== engine || !engine.needsReset()) return;
+    this.releaseAttachment(engine);
+    this.engineReset("cache_reset");
+    const generation = ++this.logGen;
+    this.engine = null;
+    this.live = null;
+    for (const reader of this.readers.values()) reader.wipe();
+    this.readers.clear();
+    runIndex(this.ctx.storage, RESET);
+    await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.pitrClosed && this.logGen === generation && !this.engine);
+    throw new Error("hosted cache reset; retry");
   }
 
   /** No alarm, no engine; a later wake in a new isolate re-evaluates the open. */
@@ -1055,6 +1058,10 @@ export class HostedCollection extends DurableObject<Env> {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
     } : undefined, { tokenRefused: () => this.dropLogToken(), report, objectOrigins: this.objectOrigins, nonces: this.logNonces });
     if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
+    if (!openingTimings) {
+      await this.checkCache(engine);
+      if (!current()) return;
+    }
     this.pruneAttachment();
     delivered += this.deliver(engine); // read_file response precedes object/network waits
     if (!this.escrow) {
@@ -1096,7 +1103,6 @@ export class HostedCollection extends DurableObject<Env> {
     this.activitySeen = false;
     const pollMs = await this.idlePoll(active, current);
     if (!current()) return;
-    const next = engine.nextWakeup();
     const install = engine.installStatus();
     // Counts only, in every environment: the one sign of an install in production.
     if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
@@ -1108,7 +1114,7 @@ export class HostedCollection extends DurableObject<Env> {
     // LAB only (cost): an idle replica that is not serving (apply-stalled) waits
     // for the idle poll, not its in-memory stall probe, which restarts at 1 s
     // after every eviction and so never backs off.
-    const probe = lab && !active && installMs == null && !engine.serving() ? null : next;
+    const probe = engine.nextWakeup(lab && !active && installMs == null && !engine.serving());
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
     const at = Math.min(probe ?? poll, poll);
@@ -1261,7 +1267,8 @@ export class HostedCollection extends DurableObject<Env> {
       await this.alarms.inhibit();
       return;
     }
-    if (!this.engine) {
+    const cold = !this.engine;
+    if (cold) {
       // Keep the old escrow key readable for existing enrolled DOs.
       const collection = await this.ctx.storage.get<string>("service-collection")
         ?? (this.escrow ? await this.ctx.storage.get<string>("escrow-collection") : undefined);
@@ -1273,7 +1280,7 @@ export class HostedCollection extends DurableObject<Env> {
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
     const engine = this.engine;
-    engine.tick(Date.now());
+    engine.tick(Date.now(), cold);
     if (this.escrow || Date.now() - this.lastRefresh >= REFRESH_MS) {
       this.lastRefresh = Date.now();
       engine.refresh();

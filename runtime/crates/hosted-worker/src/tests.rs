@@ -341,7 +341,7 @@ fn unknown_append_keeps_the_request_open() {
     );
     // The retry (identical bytes) lands; the confirmed answer follows.
     h.clock.set(h.clock.get() + 10_000);
-    h.e.tick(h.clock.get() as i64);
+    h.e.tick(h.clock.get() as i64, false);
     h.pump(false);
     let r = responses(&h.e.poll(), s, 1);
     assert_eq!(r[0].as_ref().unwrap()[0].state, ReceiptState::Confirmed);

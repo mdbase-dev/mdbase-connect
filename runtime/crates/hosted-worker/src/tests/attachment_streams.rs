@@ -493,7 +493,7 @@ fn engine_revocation_timeout_and_retired_transport_block_ciphertext_supply() {
     let mut f = fixture(500);
     read(&mut f, None);
     let (ticket, _) = lease(&mut f).unwrap();
-    f.h.e.tick(1_700_000_060_000);
+    f.h.e.tick(1_700_000_060_000, false);
     assert!(!f.h.e.attachment_allowed(ticket));
     assert!(!f.h.e.attachment_reserve(ticket, 10));
 }
@@ -741,7 +741,7 @@ fn engine_stale_read_tickets_and_cleanup_never_touch_successor_region() {
         ack(&mut f, stream, 0);
         match cleanup {
             0 => f.h.e.close(f.session),
-            1 => f.h.e.tick(1_700_000_060_000),
+            1 => f.h.e.tick(1_700_000_060_000, false),
             2 => f.h.e.retire_log(),
             3 => f.h.e.attachment_failed(ticket),
             4 => {
@@ -786,7 +786,7 @@ fn engine_success_and_idle_release_lease_transport_retirement_only_scrubs() {
     let region = f.h.e.test_attachment_region();
     assert!(region.owns(held));
     assert!(region.borrow(held).unwrap().iter().all(|b| *b == 0));
-    f.h.e.tick(1_700_000_060_000);
+    f.h.e.tick(1_700_000_060_000, false);
     assert!(f.h.e.test_attachment_region().held_lease().is_none());
 }
 

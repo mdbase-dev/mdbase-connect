@@ -172,7 +172,7 @@ fn open_with_entropy(svc: &FakeLogService, seed: u8) -> AppHosted {
 impl AppHosted {
     fn pump(&mut self, lose_appends: bool) {
         for _ in 0..16 {
-            self.e.tick(i64::try_from(self.clock.get()).unwrap());
+            self.e.tick(i64::try_from(self.clock.get()).unwrap(), false);
             for _ in 0..50 {
                 let mut moved = false;
                 for p in self.log.poll_pushes() {
