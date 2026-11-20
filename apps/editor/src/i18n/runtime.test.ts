@@ -35,10 +35,14 @@ describe("editor catalogue composition", () => {
     await runtime.selectLocale(locale);
     for (const count of [0, 1, 2, 5]) {
       const field = runtime.i18n._("G_yv_v", { count, field: "field-SENTINEL" });
-      const folder = runtime.i18n._("xNjFKW", { count, path: "folder-SENTINEL" });
+      const notes = runtime.i18n._("p23Pw8", { noteCount: count });
+      const files = runtime.i18n._("u3BOHd", { fileCount: 3 });
+      const counts = runtime.i18n._("IkQdwW", { notes, files });
+      const folder = runtime.i18n._("P24a5x", { counts, path: "folder-SENTINEL" });
       const pack = runtime.i18n._("F2TEex", { newTypeCount: count, packName: "pack-SENTINEL", resourceCount: 7 });
       expect(field).toContain("field-SENTINEL");
       expect(folder).toContain("folder-SENTINEL");
+      expect(folder).toContain("3");
       expect(pack).toContain("pack-SENTINEL");
       expect(pack).toContain("7");
       for (const text of [field, folder, pack]) {

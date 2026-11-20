@@ -278,6 +278,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
+  const [changingFolder, setChangingFolder] = useState(false);
   const [surface, setSurface] = useState<Surface>(initialEditorSurface);
   useEffect(() => { setSelection((current) => current?.anchor === selectedPath ? current : undefined); setBulkPropertyKind(undefined); }, [selectedPath]);
   useEffect(() => { setSelection(undefined); setBulkPropertyKind(undefined); }, [search, noteFilter, surface]);
@@ -348,6 +349,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNoticeState(message ? { message, tone } : undefined);
     if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
   }, []);
+  const folderInventoryReady = structureComplete && !foldersLoading && !structureError && fileInventory.complete;
+  useLayoutEffect(() => {
+    if (noteFilter?.kind !== "folder" || !folderInventoryReady || changingFolder) return;
+    const prefix = `${noteFilter.value}/`;
+    if (allNotes.some(note => note.path.startsWith(prefix)) || fileInventory.files.some(file => file.path.startsWith(prefix))) return;
+    // Remote events identify individual records and files, not the directory they belonged to.
+    setNoteFilter(undefined);
+    setNotice(t`The folder “${noteFilter.value}” is no longer listed. Folder filter cleared.`, "info");
+  }, [noteFilter, folderInventoryReady, changingFolder, allNotes, fileInventory.files, setNotice]);
   const publishTypeDescription = useCallback((next: CollectionDescription) => {
     workspaceCollectionId.current = next.collectionId;
     typeDescriptorsRef.current = next.types;
@@ -1538,7 +1548,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   async function planFolderChange(from: string, to: string): Promise<FolderChangePlan> {
     if (mutationScope.current.isFrozen || !canRenameNotes) throw new Error(t`Moving notes is not available with this collection’s current access.`);
-    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+    if (!folderInventoryReady) {
       throw new Error(t`Wait for the complete note and attachment index before changing a folder.`);
     }
     const token = mutationScope.current.token();
@@ -1569,11 +1579,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     if (mutationScope.current.isFrozen || !canRenameNotes || token.epoch !== plan.epoch || token.collectionId !== plan.collectionId) {
       throw new Error(t`The collection changed. Review the folder change again.`);
     }
-    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+    if (!folderInventoryReady) {
       throw new Error(t`The note or attachment index is refreshing. Wait for it to finish, then review the folder change again.`);
     }
     const latestMoves = folderChangeMoves(plan.from, plan.to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
     if (JSON.stringify(latestMoves) !== JSON.stringify(plan.moves)) throw new Error(t`The folder’s notes changed. Review the folder change again.`);
+    setChangingFolder(true);
     return mutationScope.current.register(token, (async () => {
       const result: FolderChangeResult = { moved: 0, failures: [] };
       for (const [index, move] of plan.moves.entries()) {
@@ -1628,7 +1639,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
       if (noteFilter?.kind === "folder" && result.moved > 0) setNoteFilter({ kind: "folder", value: result.failures.length ? plan.from : plan.to });
       return result;
-    })());
+    })()).finally(() => setChangingFolder(false));
   }
 
   function menuCommand(id: CommandId, icon: ReactNode, run: () => void, disabled = false, label?: string): ActionMenuItem {

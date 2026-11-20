@@ -380,21 +380,9 @@ msgstr "{count, plural, one {# champ} other {# champs}}"
 msgid "{count, plural, one {# link} other {# links}}"
 msgstr "{count, plural, one {# lien} other {# liens}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
-msgstr "{count, plural, one {# note dans {name}} other {# notes dans {name}}}"
-
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
 msgstr "{count, plural, one {# note n’a pas le champ obligatoire {field}.} other {# notes n’ont pas le champ obligatoire {field}.}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
-msgstr "{count, plural, one {# note avec l’étiquette {name}} other {# notes avec l’étiquette {name}}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr "{count, plural, one {# note de type {name}} other {# notes de type {name}}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
@@ -424,10 +412,6 @@ msgstr "{count, plural, one {# note déplacée.} other {# notes déplacées.}}"
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, one {# note restaurée.} other {# notes restaurées.}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
-msgstr "{count, plural, one {Afficher les notes dans {path}, # note} other {Afficher les notes dans {path}, # notes}}"
-
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
 msgstr "{count, plural, one {# note mise à jour.} other {# notes mises à jour.}}"
@@ -435,18 +419,6 @@ msgstr "{count, plural, one {# note mise à jour.} other {# notes mises à jour.
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
 msgstr "{count, plural, one {Mise à jour de # note liée} other {Mise à jour de # notes liées}}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes in {name}"
-msgstr "{count} notes ou plus dans {name}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes tagged {name}"
-msgstr "{count} notes ou plus avec l’étiquette {name}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes with type {name}"
-msgstr "{count} notes ou plus de type {name}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{entryName} value"
@@ -476,6 +448,7 @@ msgstr "Options du champ {fieldLabel}"
 msgid "{fieldLabel} field type"
 msgstr "Type du champ {fieldLabel}"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
 msgstr "{fileCount, plural, one {# fichier} other {# fichiers}}"
@@ -609,15 +582,16 @@ msgstr "{next, plural, one {# note après la mise à jour} other {# notes après
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
 msgstr "{next, plural, one {# note avec ces règles} other {# notes avec ces règles}}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{noteCount, plural, one {# note} other {# notes}}"
 msgstr "{noteCount, plural, one {# note} other {# notes}}"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
 msgstr "{notes} · {files}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{notes} · {files} · {order}"
 msgstr "{notes} · {files} · {order}"
 
@@ -4846,11 +4820,13 @@ msgstr "Afficher la barre latérale des collections"
 msgid "Show fewer"
 msgstr "Afficher moins"
 
-#. placeholder {0}: node.path
-#. placeholder {1}: node.count
 #: src/CollectionRail.tsx
-msgid "Show notes in {0}, {1} or more notes"
-msgstr "Afficher les notes dans {0}, au moins {1} notes"
+msgid "Show notes in {path}, {counts}"
+msgstr "Afficher les notes dans {path}, {counts}"
+
+#: src/CollectionRail.tsx
+msgid "Show notes in {path}, {counts} so far"
+msgstr "Afficher les notes dans {path}, {counts} pour le moment"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
@@ -5330,6 +5306,11 @@ msgstr "Le résultat de l’envoi du fichier est inconnu."
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
 msgstr "Le fichier a été envoyé, mais la note a changé avant l’insertion de son lien."
+
+#. placeholder {0}: noteFilter.value
+#: src/App.tsx
+msgid "The folder “{0}” is no longer listed. Folder filter cleared."
+msgstr "Le dossier « {0} » ne figure plus dans la liste. Le filtre de dossier a été effacé."
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."

@@ -24,6 +24,36 @@ async function renameFolder(user: ReturnType<typeof userEvent.setup>, folder: st
 }
 
 describe("collection-wide folder changes", () => {
+  it("clears a vanished folder after remote record moves and explains the new scope", async () => {
+    const user = userEvent.setup(), gateway = new DemoCollectionGateway(3);
+    const first = await gateway.create({ path: "Before/one.md", title: "One", body: "", properties: {} });
+    const second = await gateway.create({ path: "Before/sub/two.md", title: "Two", body: "", properties: {} });
+    render(<App gateway={gateway} />);
+    const list = within(await screen.findByRole("region", { name: "Notes and files" }));
+    await user.click(await screen.findByRole("button", { name: /^Show notes in Before,/ }));
+    await act(() => gateway.rename(first.path, "After/one.md", first.revision, false));
+    await screen.findByRole("button", { name: /^Show notes in After,/ });
+    expect(list.getByRole("heading", { name: "Before" })).toBeInTheDocument();
+    await act(() => gateway.rename(second.path, "After/sub/two.md", second.revision, false));
+    expect(await list.findByRole("heading", { name: "All notes" })).toBeInTheDocument();
+    expect(await screen.findByText("The folder “Before” is no longer listed. Folder filter cleared.")).toBeVisible();
+    expect(list.queryByText("This collection is empty.")).not.toBeInTheDocument();
+    expect(list.queryByRole("button", { name: "Create the first note" })).not.toBeInTheDocument();
+    expect(list.getByRole("option", { name: /After\/sub/ })).toBeVisible();
+  });
+
+  it("announces the same note and file counts as the folder heading, including descendants", async () => {
+    const gateway = new DemoCollectionGateway(3), user = userEvent.setup();
+    await gateway.create({ path: "Assets/one.md", title: "One", body: "", properties: {} });
+    await gateway.create({ path: "Assets/sub/two.md", title: "Two", body: "", properties: {} });
+    render(<App gateway={gateway} />);
+    const row = await screen.findByRole("button", { name: /^Show notes in Assets,/ });
+    await user.click(row);
+    const list = within(screen.getByRole("region", { name: "Notes and files" }));
+    const counts = await list.findByText("2 notes · 1 file");
+    expect(row).toHaveAccessibleName(`Show notes in Assets, ${counts.textContent}`);
+  });
+
   it("uses the real Spanish catalogue for the unfiltered note-list heading", async () => {
     await editorLocaleRuntime.selectLocale("es");
     try {
@@ -43,6 +73,7 @@ describe("collection-wide folder changes", () => {
     const rename = vi.spyOn(gateway, "rename"), preflight = vi.spyOn(gateway, "preflightRename");
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note title" });
+    await user.click(screen.getByRole("button", { name: /^Show notes in Notes,/ }));
     const dialog = await renameFolder(user, "Notes", "Writing notes");
     await waitFor(() => expect(dialog).toHaveAccessibleName("Rename ‘Notes’ and move 3 notes and update 1 link?"));
     await waitFor(() => expect(within(dialog).getByRole("button", { name: "Cancel" })).toHaveFocus());
@@ -56,6 +87,8 @@ describe("collection-wide folder changes", () => {
     expect(screen.getByTitle("Rename Markdown path")).toHaveTextContent("Writing notes/the-shape-of-useful-tools.md");
     await user.click(within(dialog).getByRole("button", { name: "Done" }));
     await waitFor(() => expect(screen.getByRole("button", { name: /^Show notes in Writing notes,/ })).toHaveFocus());
+    expect(screen.getByRole("heading", { name: "Writing notes" })).toBeVisible();
+    expect(screen.queryByText(/Folder filter cleared/)).not.toBeInTheDocument();
   });
 
   it("provides keyboard Move to and preserves subfolders", async () => {

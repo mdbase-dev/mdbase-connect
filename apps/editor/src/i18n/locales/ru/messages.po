@@ -380,21 +380,9 @@ msgstr "{count, plural, one {# поле} few {# поля} many {# полей} ot
 msgid "{count, plural, one {# link} other {# links}}"
 msgstr "{count, plural, one {# ссылка} few {# ссылки} many {# ссылок} other {# ссылки}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note in {name}} other {# notes in {name}}}"
-msgstr "{count, plural, one {# заметка в {name}} few {# заметки в {name}} many {# заметок в {name}} other {# заметки в {name}}}"
-
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
 msgstr "{count, plural, one {В # заметке отсутствует обязательное поле {field}.} few {В # заметках отсутствует обязательное поле {field}.} many {В # заметках отсутствует обязательное поле {field}.} other {В # заметках отсутствует обязательное поле {field}.}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note tagged {name}} other {# notes tagged {name}}}"
-msgstr "{count, plural, one {# заметка с тегом {name}} few {# заметки с тегом {name}} many {# заметок с тегом {name}} other {# заметки с тегом {name}}}"
-
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {# note with type {name}} other {# notes with type {name}}}"
-msgstr "{count, plural, one {# заметка типа {name}} few {# заметки типа {name}} many {# заметок типа {name}} other {# заметки типа {name}}}"
 
 #: src/type-presentation.ts
 msgid "{count, plural, one {# path pattern} other {# path patterns}}"
@@ -424,10 +412,6 @@ msgstr "{count, plural, one {Перемещена # заметка.} few {Пер
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, one {Восстановлена # заметка.} few {Восстановлено # заметки.} many {Восстановлено # заметок.} other {Восстановлено # заметки.}}"
 
-#: src/CollectionRail.tsx
-msgid "{count, plural, one {Show notes in {path}, # note} other {Show notes in {path}, # notes}}"
-msgstr "{count, plural, one {Показать заметки в {path}: # заметка} few {Показать заметки в {path}: # заметки} many {Показать заметки в {path}: # заметок} other {Показать заметки в {path}: # заметки}}"
-
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
 msgstr "{count, plural, one {Обновлена # заметка.} few {Обновлено # заметки.} many {Обновлено # заметок.} other {Обновлено # заметки.}}"
@@ -435,18 +419,6 @@ msgstr "{count, plural, one {Обновлена # заметка.} few {Обно
 #: src/note-mutation-presentation.ts
 msgid "{count, plural, one {Updating # linked note} other {Updating # linked notes}}"
 msgstr "{count, plural, one {Обновляется # связанная заметка} few {Обновляются # связанные заметки} many {Обновляются # связанных заметок} other {Обновляются # связанные заметки}}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes in {name}"
-msgstr "Заметок в {name}: не менее {count}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes tagged {name}"
-msgstr "Заметок с тегом {name}: не менее {count}"
-
-#: src/CollectionRail.tsx
-msgid "{count} or more notes with type {name}"
-msgstr "Заметок типа {name}: не менее {count}"
 
 #: src/SchemaValueEditor.tsx
 msgid "{entryName} value"
@@ -476,6 +448,7 @@ msgstr "Варианты поля {fieldLabel}"
 msgid "{fieldLabel} field type"
 msgstr "Тип поля {fieldLabel}"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{fileCount, plural, one {# file} other {# files}}"
 msgstr "{fileCount, plural, one {# файл} few {# файла} many {# файлов} other {# файла}}"
@@ -609,15 +582,16 @@ msgstr "{next, plural, one {После обновления: # заметка} f
 msgid "{next, plural, one {# note with these rules} other {# notes with these rules}}"
 msgstr "{next, plural, one {Этим правилам соответствует # заметка} few {Этим правилам соответствуют # заметки} many {Этим правилам соответствует # заметок} other {Этим правилам соответствует # заметки}}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{noteCount, plural, one {# note} other {# notes}}"
 msgstr "{noteCount, plural, one {# заметка} few {# заметки} many {# заметок} other {# заметки}}"
 
+#: src/collection-browser.ts
 #: src/NoteList.tsx
 msgid "{notes} · {files}"
 msgstr "{notes} · {files}"
 
-#: src/NoteList.tsx
+#: src/collection-browser.ts
 msgid "{notes} · {files} · {order}"
 msgstr "{notes} · {files} · {order}"
 
@@ -4846,11 +4820,13 @@ msgstr "Показать боковую панель коллекций"
 msgid "Show fewer"
 msgstr "Показать меньше"
 
-#. placeholder {0}: node.path
-#. placeholder {1}: node.count
 #: src/CollectionRail.tsx
-msgid "Show notes in {0}, {1} or more notes"
-msgstr "Показать заметки в {0}: не менее {1}"
+msgid "Show notes in {path}, {counts}"
+msgstr "Показать заметки в папке {path}, {counts}"
+
+#: src/CollectionRail.tsx
+msgid "Show notes in {path}, {counts} so far"
+msgstr "Показать заметки в папке {path}, пока загружено: {counts}"
 
 #: src/App.tsx
 msgid "Show notes sidebar"
@@ -5330,6 +5306,11 @@ msgstr "Результат загрузки файла неизвестен."
 #: src/AttachmentUpload.tsx
 msgid "The file was uploaded, but the note changed before its link could be inserted."
 msgstr "Файл загружен, но заметка изменилась до вставки ссылки на него."
+
+#. placeholder {0}: noteFilter.value
+#: src/App.tsx
+msgid "The folder “{0}” is no longer listed. Folder filter cleared."
+msgstr "Папки «{0}» больше нет в списке. Фильтр по папке сброшен."
 
 #: src/App.tsx
 msgid "The folder’s notes changed. Review the folder change again."

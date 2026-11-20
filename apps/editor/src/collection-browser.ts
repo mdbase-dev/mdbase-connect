@@ -1,5 +1,5 @@
 import { i18n } from "@lingui/core";
-import { t } from "@lingui/core/macro";
+import { plural, t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { displayLocale } from "./i18n/format";
 import type { CollectionFile, NoteSummary } from "./model";
@@ -14,6 +14,12 @@ export type CollectionBrowserEntry =
   | { kind: "file"; path: string; file: CollectionFile };
 
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
+export function noteAndFileCount(noteCount: number, fileCount: number, order?: string): string {
+  const notes = plural(noteCount, { one: "# note", other: "# notes" });
+  const files = plural(fileCount, { one: "# file", other: "# files" });
+  return order ? t`${notes} · ${files} · ${order}` : t`${notes} · ${files}`;
+}
 
 export function collectionBrowserEntries(
   notes: readonly NoteSummary[],

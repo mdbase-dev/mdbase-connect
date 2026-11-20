@@ -579,14 +579,14 @@ describe("mdbase editor", () => {
     const folderNavigation = screen.getByRole("group", { name: "Folders" });
     expect(folderNavigation).toHaveAttribute("aria-busy", "true");
     expect(within(folderNavigation).getByRole("status")).toHaveTextContent("Loading");
-    expect(within(folderNavigation).getByLabelText("1 or more notes in Notes")).toHaveTextContent("1+");
+    expect(within(folderNavigation).getByRole("button", { name: "Show notes in Notes, 1 note · 0 files so far" })).toHaveTextContent("1+");
     expect(gateway.listCalls).toBe(1);
 
     gateway.releaseStructure();
     expect(await screen.findByText("13 notes · 2 files")).toBeInTheDocument();
     expect(folderNavigation).toHaveAttribute("aria-busy", "false");
     expect(within(folderNavigation).queryByRole("status")).not.toBeInTheDocument();
-    expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
+    expect(within(folderNavigation).getByRole("button", { name: "Show notes in Notes, 3 notes · 0 files" })).toHaveTextContent("3");
 
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
     // Body matches come from the collection: no note text is loaded for them,
