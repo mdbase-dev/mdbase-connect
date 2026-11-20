@@ -29,7 +29,8 @@ To keep a delete made on another device, open the lease with
 This applies to autosave and explicit flush. For a direct write, use
 `db.update(record, {body, requireLive: true})`. The precondition travels with
 the queued update: if the ID is tombstoned at replay, its receipt is `rejected`
-with `problem.code === "not_found"` and `problem.reason === "deleted"`.
+with `problem.code === "not_found"` and `problem.reason === "deleted"`. For a
+direct update, await `write.confirmed` to observe the refusal, not just `update()`.
 Keep the draft for copying rather than creating a new record. Without the
 option, an update can still restore a deleted record. Older runtimes cannot
 process the guarded operation; do not retry it as an unguarded update.

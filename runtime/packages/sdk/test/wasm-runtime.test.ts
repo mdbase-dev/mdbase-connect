@@ -30,7 +30,8 @@ describe("runtime.wasm", () => {
       const seen = await client.get(created.records[0]!.id, {include: {body: true}});
       await client.delete(seen);
       const changes = {body: "edited", ifRevision: seen.revision};
-      await expect(client.update(seen, {...changes, requireLive: true}, {conflictMode: "reject"})).rejects.toMatchObject({code: "not_found", reason: "deleted"});
+      const refused = await client.update(seen, {...changes, requireLive: true}, {conflictMode: "reject"});
+      await expect(refused.confirmed).rejects.toMatchObject({code: "not_found", reason: "deleted"});
       expect(await client.find(seen.id)).toBeNull();
       await client.update(seen, changes, {conflictMode: "reject"});
       expect((await client.get(seen.id, {include: {body: true}})).body).toBe("edited");
