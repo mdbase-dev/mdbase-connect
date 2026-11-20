@@ -3520,6 +3520,10 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "해당 브라우저에서 다시 로그인해야 합니다. 이 브라우저는 로그인 상태를 유지합니다."
 
 #: src/ConnectApp.tsx
+msgid "To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”."
+msgstr "이 컬렉션을 삭제하려면 편집기에서 컬렉션 목록을 여세요. 컬렉션 이름 옆의 메뉴에서 «컬렉션 삭제…»를 선택하세요."
+
+#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "다른 컴퓨터 이름을 입력하세요. 필터링은 접근 권한을 해지하지 않습니다."
 

@@ -3520,6 +3520,10 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "那些浏览器需要重新登录。此浏览器将保持登录。"
 
 #: src/ConnectApp.tsx
+msgid "To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”."
+msgstr "要删除此集合，请在编辑器中打开集合列表，然后在集合名称旁的菜单中选择“删除集合…”。"
+
+#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "请尝试其他电脑名称。筛选不会撤销访问权限。"
 
