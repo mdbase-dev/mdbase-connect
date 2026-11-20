@@ -156,6 +156,160 @@ fn open(svc: &FakeLogService, store: MemStore) -> Hosted {
     try_open(svc, store, None, HostedProfile::default()).expect("open hosted")
 }
 
+#[test]
+fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
+    use crate::store::{DERIVED_DATA_VERSION, meta_keys};
+    let svc = world();
+    let mut store = MemStore::default();
+    store
+        .commit(Tx {
+            records_put: (1..=22)
+                .map(|n| crate::conformance::record(n, &format!("{n}.md"), "[[target]]"))
+                .collect(),
+            ..Tx::default()
+        })
+        .unwrap();
+    for (expected, complete) in [(8, false), (8, false), (6, true), (0, true)] {
+        let mut hosted = open(&svc, store);
+        assert_eq!(hosted.r.stats.reindexed, expected);
+        pump(&mut hosted.r, &mut hosted.log, 100);
+        assert_eq!(hosted.r.hosted_serving(), complete);
+        assert!(!hosted.r.hosted_needs_reset());
+        store = hosted.r.into_store().into_inner();
+        assert_eq!(
+            store.meta(meta_keys::DERIVED_VERSION).unwrap(),
+            complete.then(|| DERIVED_DATA_VERSION.to_be_bytes().to_vec())
+        );
+    }
+    assert!(
+        store
+            .records(crate::store::Page {
+                after: None,
+                limit: 100
+            })
+            .unwrap()
+            .iter()
+            .all(|row| !row.meta.links.is_empty())
+    );
+}
+
+#[test]
+fn hosted_warm_repair_store_fault_reopens_at_the_last_checkpoint() {
+    let svc = world();
+    let mut store = MemStore::new();
+    store
+        .commit(Tx {
+            records_put: (1..=10)
+                .map(|id| crate::conformance::record(id, &format!("{id}.md"), "[[target]]"))
+                .collect(),
+            ..Tx::default()
+        })
+        .unwrap();
+    let mut hosted = open(&svc, store.clone());
+    assert_eq!(hosted.r.stats.reindexed, 8);
+    store.fail_commits(1);
+    hosted.r.tick();
+    assert!(hosted.r.requires_reopen());
+    assert!(!hosted.r.hosted_needs_reset());
+    drop(hosted);
+    let mut reopened = open(&svc, store);
+    assert_eq!(reopened.r.stats.reindexed, 2);
+    reopened.pump();
+    assert!(reopened.r.hosted_serving());
+}
+
+#[test]
+fn hosted_catalog_reset_waits_for_authorized_watcher_after_repair() {
+    let svc = world();
+    let mut hosted = open(&svc, MemStore::new());
+    hosted.pump();
+    hosted.r.planner = Box::new(crate::plan::CorePlanner);
+    let watcher = hosted.session(G1);
+    let before = hosted.r.changes(watcher, None, None, true).unwrap().cursor;
+    let owner = hosted.r.hello(SessionAuth::Host, hello()).unwrap().0;
+    let mut params = create(1, "unused.md", None);
+    params.ops = vec![Op::ResourcePut(mdbn_wire::intent::ResourcePut {
+        path: "_types/task.md".into(),
+        doc: Text::Inline("---\nkind: mdbase.type\nname: task\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n".into()),
+        base_revision: None,
+        must_not_exist: None,
+    })];
+    hosted.r.submit_logged(owner, params).unwrap();
+    pump(&mut hosted.r, &mut hosted.log, 100);
+    assert!(!hosted.r.hosted_serving(), "{:?}", hosted.r.take_acks());
+    let reset = |(session, push): &(SessionId, crate::api::Push)| {
+        *session == watcher && matches!(push, crate::api::Push::Changes(change) if change.reset)
+    };
+    assert!(!hosted.r.take_pushes().iter().any(reset));
+    hosted.pump();
+    assert!(
+        hosted
+            .r
+            .changes(watcher, Some(before), None, false)
+            .unwrap()
+            .reset
+    );
+    assert_eq!(
+        hosted
+            .r
+            .take_pushes()
+            .iter()
+            .filter(|push| reset(push))
+            .count(),
+        1
+    );
+    assert!(!hosted.r.take_pushes().iter().any(reset));
+}
+
+#[test]
+fn hosted_warm_cache_repairs_large_rows_before_replaying_control() {
+    let svc = world();
+    let mut initial = open(&svc, MemStore::new());
+    initial.pump();
+    let head = initial.r.head();
+    assert!(head.seq > 0);
+    let mut store = initial.r.into_store().into_inner();
+    store
+        .commit(Tx {
+            records_put: (1..=4)
+                .map(|n| {
+                    crate::conformance::record(
+                        n,
+                        &format!("{n}.md"),
+                        &"x".repeat(if n == 4 { 130 << 10 } else { 80 << 10 }),
+                    )
+                })
+                .collect(),
+            meta: vec![(crate::store::meta_keys::RECORD_META.into(), None)],
+            ..Tx::default()
+        })
+        .unwrap();
+    let mut reader = open(&svc, store);
+    reader
+        .r
+        .store()
+        .inner()
+        .data()
+        .borrow_mut()
+        .refuse_unbounded_resources = true;
+    for expected in 1..=4 {
+        reader.r.tick_timers();
+        assert_eq!(reader.r.stats.reindexed, expected);
+        assert!(reader.r.next_wakeup().is_some());
+        assert_eq!(
+            reader.r.next_wakeup_with_stall_probe(false),
+            reader.r.next_wakeup()
+        );
+        assert!(reader.r.take_log_calls().is_empty());
+        assert!(!reader.r.hosted_serving());
+        assert!(!reader.r.hosted_needs_reset());
+        reader.r.tick();
+    }
+    pump(&mut reader.r, &mut reader.log, 100);
+    assert_eq!(reader.r.head(), head);
+    assert!(reader.r.hosted_serving());
+}
+
 /// Reopen after a cold restart. `keys` stands in for the KMS unwrap: the cache never
 /// holds them, so the host hands the sealer its keys at open.
 fn reopen(svc: &FakeLogService, store: MemStore, keys: Vec<u8>) -> Hosted {
@@ -361,6 +515,103 @@ fn ack_only_after_the_log_append() {
     let e = h.r.submit(s, create(2, "b.md", None)).unwrap_err();
     assert_eq!(e.code(), Some(ErrorCode::Internal));
     assert_eq!(svc.head(&COL).0, head + 1);
+}
+
+#[test]
+fn hosted_connected_watch_and_query_cover_both_replay_slices() {
+    use crate::api::Push;
+    use mdbn_wire::client::{Include, UpdateKind};
+    use mdbn_wire::common::Value;
+
+    let svc = world();
+    let mut reader = open(&svc, MemStore::new());
+    reader.pump();
+    let watcher = reader.session(G1);
+    reader.r.changes(watcher, None, None, true).unwrap();
+    let include = Include {
+        effective: None,
+        body: None,
+        document: None,
+        diagnostics: None,
+    };
+    let sub = reader
+        .r
+        .subscribe(watcher, Value::Map(vec![]), include)
+        .unwrap();
+    reader.r.take_pushes();
+    let start = reader.r.head().seq;
+
+    let mut writer = open(&svc, MemStore::new());
+    writer.pump();
+    let session = writer.session(G2);
+    for index in 1..=17 {
+        let ticket = writer
+            .r
+            .submit_logged(session, create(index, &format!("{index}.md"), None))
+            .unwrap();
+        writer.pump();
+        assert_eq!(writer.ack(ticket).state, ReceiptState::Confirmed);
+    }
+    reader.log.poll_pushes();
+    let (head, head_chain) = svc.head(&COL);
+    reader.r.on_log_push(crate::log::LogPush::Head {
+        collection: COL,
+        head,
+        head_chain,
+    });
+    for offset in [16, 17] {
+        reader.r.tick();
+        pump(&mut reader.r, &mut reader.log, 100);
+        assert_eq!(reader.r.head().seq, start + offset);
+        let updates: Vec<_> = reader
+            .r
+            .take_pushes()
+            .into_iter()
+            .filter_map(|(session, push)| {
+                (session == watcher && matches!(push, Push::Changes(_) | Push::QueryUpdate(_)))
+                    .then_some(push)
+            })
+            .collect();
+        if offset == 16 {
+            assert!(updates.is_empty());
+        } else {
+            assert!(
+                matches!(updates.as_slice(), [Push::Changes(change), Push::QueryUpdate(query)]
+                if change.reset && query.sub == sub && query.kind == UpdateKind::Snapshot &&
+                query.added.as_ref().is_some_and(|rows| rows.len() == 17))
+            );
+        }
+    }
+}
+
+#[test]
+fn hosted_log_catchup_yields_and_reopens_at_the_committed_head() {
+    let svc = world();
+    let mut writer = open(&svc, MemStore::new());
+    writer.pump();
+    let session = writer.session(G1);
+    for index in 1..=24 {
+        let ticket = writer
+            .r
+            .submit_logged(session, create(index, &format!("{index}.md"), None))
+            .unwrap();
+        writer.pump();
+        assert_eq!(writer.ack(ticket).state, ReceiptState::Confirmed);
+    }
+    let end = writer.r.head();
+    let mut reader = open(&svc, MemStore::new());
+    pump(&mut reader.r, &mut reader.log, 100);
+    assert_eq!(reader.r.head().seq, 16);
+    assert!(!reader.r.hosted_serving());
+    assert!(reader.r.next_wakeup().is_some());
+    reader.r.tick_timers();
+    pump(&mut reader.r, &mut reader.log, 100);
+    assert_eq!(reader.r.head().seq, 16);
+    let mut reader = open(&svc, reader.r.into_store().into_inner());
+    assert_eq!(reader.r.head().seq, 16);
+    reader.pump();
+    assert_eq!(reader.r.head(), end);
+    assert!(reader.r.hosted_serving());
 }
 
 #[test]
@@ -1514,14 +1765,22 @@ fn warm_wake_refuses_a_cache_that_disagrees_with_the_log() {
     tampered
         .commit(Tx {
             // A well-formed policy the log never produced (no devices, no grants).
-            meta: vec![(
-                crate::store::meta_keys::POLICY.into(),
-                Some(crate::policy::PolicyState::new().to_bytes().unwrap()),
-            )],
+            records_put: (1..=9)
+                .map(|n| crate::conformance::record(n, &format!("{n}.md"), "body"))
+                .collect(),
+            meta: vec![
+                (crate::store::meta_keys::RECORD_META.into(), None),
+                (
+                    crate::store::meta_keys::POLICY.into(),
+                    Some(crate::policy::PolicyState::new().to_bytes().unwrap()),
+                ),
+            ],
             ..Tx::default()
         })
         .unwrap();
     let mut h = open(&svc, MemStore::shared(data));
+    assert_eq!(h.r.stats.reindexed, 8);
+    assert!(!h.r.hosted_needs_reset());
     h.pump();
     assert!(h.r.hosted_needs_reset());
     assert!(!h.r.hosted_serving());

@@ -6,7 +6,7 @@
 //!
 //! Exports: `alloc`, `dealloc`, `hd_open(cfg)` (empty out = ok, else UTF-8 error),
 //! `hd_serving()`, `hd_hello(grant48, frame)` → `[session, frame]`, `hd_frame`,
-//! `hd_close`, `hd_tick(now_ms)`, `hd_next_wakeup()` (−1 = none), `hd_poll()` →
+//! `hd_close`, `hd_tick(now_ms, after_open)`, `hd_next_wakeup(omit_stall_probe)` (−1 = none), `hd_poll()` →
 //! `[* [session, bytes / null]]`, `hd_log_calls()` → `[* [call_id, host call]]`
 //! (`mdbn_replica::log_codec::host_call`), `hd_log_reply(call_id, bytes)`,
 //! `hd_log_failed(call_id, offline)`, `hd_log_push(bytes)`, `hd_log_event(kind)`
@@ -1454,6 +1454,12 @@ pub extern "C" fn hd_needs_reset() -> u32 {
     with(|s| u32::from(s.engine.needs_reset())).unwrap_or(0)
 }
 
+/// 1 when the engine must reopen over its durable store.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_requires_reopen() -> u32 {
+    with(|s| u32::from(s.engine.requires_reopen())).unwrap_or(0)
+}
+
 /// The pin check on the applied state (`Engine::pin_state`) plus 1: 1 the state
 /// fails the pins, 2 consistent while rebuilding, 3 consistent and rebuilt;
 /// 0 without an engine (no evidence either way).
@@ -1505,8 +1511,8 @@ pub extern "C" fn hd_close(session: f64) {
 
 /// Run timers.
 #[unsafe(no_mangle)]
-pub extern "C" fn hd_tick(now_ms: f64) {
-    with(|s| s.engine.tick(now_ms as i64));
+pub extern "C" fn hd_tick(now_ms: f64, after_open: u32) {
+    with(|s| s.engine.tick(now_ms as i64, after_open != 0));
 }
 
 /// Opaque applied progress for idle scheduling, never an authority observation.
@@ -1542,8 +1548,8 @@ pub extern "C" fn hd_snapshot_declined() -> u32 {
 
 /// The next wakeup (host ms), or −1.
 #[unsafe(no_mangle)]
-pub extern "C" fn hd_next_wakeup() -> f64 {
-    with(|s| s.engine.next_wakeup())
+pub extern "C" fn hd_next_wakeup(omit_stall_probe: u32) -> f64 {
+    with(|s| s.engine.next_wakeup(omit_stall_probe == 0))
         .flatten()
         .map_or(-1.0, |t| t as f64)
 }

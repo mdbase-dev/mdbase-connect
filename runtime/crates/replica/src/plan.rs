@@ -640,10 +640,15 @@ impl<'a> StoreView<'a> {
 
 /// Compile the catalog from a store's resources.
 pub fn load_catalog(store: &dyn Store) -> Result<Catalog, StoreError> {
-    let rs = store.resources()?;
-    Ok(Catalog::load(
-        rs.iter().map(|(p, d)| (p.as_str(), d.as_str())),
-    ))
+    Ok(compile_catalog(&store.resources()?))
+}
+
+pub(crate) fn compile_catalog(resources: &[(String, String)]) -> Catalog {
+    Catalog::load(
+        resources
+            .iter()
+            .map(|(path, doc)| (path.as_str(), doc.as_str())),
+    )
 }
 
 impl StateView for StoreView<'_> {

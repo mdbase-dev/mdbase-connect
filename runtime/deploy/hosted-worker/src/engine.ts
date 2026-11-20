@@ -65,12 +65,13 @@ interface Exports extends WebAssembly.Exports {
   mig_resolve(p: number, n: number): bigint;
   hd_serving(): number;
   hd_needs_reset(): number;
+  hd_requires_reopen(): number;
   hd_pin_state(): number;
   hd_hello(gp: number, gn: number, p: number, n: number): bigint;
   hd_frame(session: number, p: number, n: number): void;
   hd_close(session: number): void;
-  hd_tick(now: number): void;
-  hd_next_wakeup(): number;
+  hd_tick(now: number, afterOpen: number): void;
+  hd_next_wakeup(omitStallProbe: number): number;
   hd_install_status(): bigint;
   hd_applied_head(): bigint;
   hd_poll(): bigint;
@@ -697,8 +698,9 @@ export class Engine {
     return this.ex.hd_serving() === 1;
   }
 
-  needsReset(): boolean {
-    return this.ex.hd_needs_reset() === 1;
+  cacheRecovery(): "reset" | "reopen" | null {
+    if (this.ex.hd_needs_reset() === 1) return "reset";
+    return this.ex.hd_requires_reopen() === 1 ? "reopen" : null;
   }
 
   /** The native open-time pin check on the state applied so far. */
@@ -721,8 +723,8 @@ export class Engine {
     this.ex.hd_close(session);
   }
 
-  tick(now: number): void {
-    this.ex.hd_tick(now);
+  tick(now: number, afterOpen = false): void {
+    this.ex.hd_tick(now, Number(afterOpen));
   }
 
   /** Opaque native applied progress, for idle scheduling only. Never persisted,
@@ -745,8 +747,8 @@ export class Engine {
     return this.ex.hd_snapshot_declined() === 1;
   }
 
-  nextWakeup(): number | null {
-    const t = this.ex.hd_next_wakeup();
+  nextWakeup(omitStallProbe = false): number | null {
+    const t = this.ex.hd_next_wakeup(Number(omitStallProbe));
     return t < 0 ? null : t;
   }
 

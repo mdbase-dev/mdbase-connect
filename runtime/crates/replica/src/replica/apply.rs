@@ -114,6 +114,7 @@ struct EffectStage {
 /// What staging the entry's metadata and receipt rows decides for the commit.
 struct MetaStage {
     catalog: std::sync::Arc<mdbn_core::types::Catalog>,
+    hosted_reindex_stamp: Option<Vec<u8>>,
     receipt_conflicts: Vec<mdbn_wire::entry::Conflict>,
     log_time: i64,
     ratchet: u64,
@@ -136,7 +137,7 @@ struct ChangeStage {
 impl<S: Store> Replica<S> {
     /// Apply items in log order, starting at the first one after the head.
     pub(crate) fn apply_items(&mut self, items: Vec<SeqItem>) {
-        if self.apply_fault {
+        if self.apply_fault || self.hosted_reindex_pending() {
             return;
         }
         let mut changed: BTreeSet<String> = BTreeSet::new();
@@ -144,6 +145,12 @@ impl<S: Store> Replica<S> {
         for it in items {
             if it.seq <= self.head.seq {
                 continue;
+            }
+            if let Some(hosted) = self.hosted.as_mut() {
+                if hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS {
+                    break;
+                }
+                hosted.applied_since_tick += 1;
             }
             if it.seq != self.head.seq + 1 {
                 // A gap: read what's missing.
@@ -240,7 +247,7 @@ impl<S: Store> Replica<S> {
                     break;
                 }
             }
-            if self.apply_fault {
+            if self.apply_fault || self.hosted_reindex_pending() {
                 break;
             }
         }
@@ -1661,7 +1668,7 @@ impl<S: Store> Replica<S> {
         tx: &mut Tx,
     ) -> Result<MetaStage, StoreError> {
         // Record metadata under the catalog after this entry's resource effects.
-        let catalog = if catalog_changed {
+        let (catalog, hosted_reindex_stamp) = if catalog_changed {
             let mut rs: std::collections::BTreeMap<String, String> =
                 self.store.resources()?.into_iter().collect();
             for p in &tx.resources_del {
@@ -1670,11 +1677,14 @@ impl<S: Store> Replica<S> {
             for (p, d) in &tx.resources_put {
                 rs.insert(p.clone(), d.clone());
             }
-            std::sync::Arc::new(mdbn_core::types::Catalog::load(
-                rs.iter().map(|(a, b)| (a.as_str(), b.as_str())),
-            ))
+            let resources: Vec<_> = rs.into_iter().collect();
+            (
+                std::sync::Arc::new(crate::plan::compile_catalog(&resources)),
+                self.is_hosted()
+                    .then(|| crate::plan::record_meta_stamp(&resources)),
+            )
         } else {
-            self.catalog.clone()
+            (self.catalog.clone(), None)
         };
         for r in &mut tx.records_put {
             r.meta = record_meta(&catalog, &r.path, &r.doc);
@@ -1722,6 +1732,7 @@ impl<S: Store> Replica<S> {
             .push((meta_keys::LOG_STATE.into(), log_state(log_time, ratchet)));
         Ok(MetaStage {
             catalog,
+            hosted_reindex_stamp,
             receipt_conflicts,
             log_time,
             ratchet,
@@ -1873,6 +1884,7 @@ impl<S: Store> Replica<S> {
     ) -> Result<Outcome, StoreError> {
         let MetaStage {
             catalog,
+            hosted_reindex_stamp,
             receipt_conflicts,
             log_time,
             ratchet,
@@ -1923,7 +1935,11 @@ impl<S: Store> Replica<S> {
         self.sem_ratchet_set(ratchet);
         if catalog_changed {
             self.catalog = catalog;
-            self.reindex()?;
+            if let Some(hosted) = self.hosted.as_mut() {
+                hosted.reindex_stamp = hosted_reindex_stamp;
+            } else {
+                self.reindex()?;
+            }
             self.reset_feed();
             // Every pending row plans under the new catalog.
             changed.extend(self.pending_keys.values().flatten().cloned());

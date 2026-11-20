@@ -17,7 +17,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
       openForCppClaim() { this.storage.fixture.hit('engine_cpp_open'); }
       noiseKey() { this.storage.fixture.hit('engine_noise_key'); return true; }
       serving() { this.storage.fixture.hit('timing_snapshot'); return false; }
-      needsReset() { this.storage.fixture.hit('engine_reset'); return false; }
+      cacheRecovery() { this.storage.fixture.hit('engine_reset'); return null; }
     }` }));
   } }] });
 const { HostedCollection } = await import(`data:text/javascript;base64,${Buffer.from(compiled.outputFiles[0].text + "\n//# sourceURL=ready-diagnostic-worker.mjs").toString("base64")}`);

@@ -43,6 +43,7 @@ pub(crate) struct Live {
     /// Lowest version still in the feed window (exclusive cursor floor).
     pub(crate) feed_floor: u64,
     pub(crate) watchers: BTreeSet<SessionId>,
+    reset_pending: bool,
     /// This instance's cursor prefix: cursors from before a restart reset.
     pub(crate) instance: u64,
     /// Fingerprint of the visible state last announced per ID, so a change
@@ -191,6 +192,13 @@ impl<S: Store> Replica<S> {
             if let Some(c) = self.live.feed.pop_front() {
                 self.live.feed_floor = c.version;
             }
+        }
+        if self.live.watchers.is_empty() && self.live.subs.is_empty() {
+            return;
+        }
+        if self.live.reset_pending || self.check_apply_health().is_err() {
+            self.live.reset_pending = true;
+            return;
         }
         let watchers: Vec<SessionId> = self.live.watchers.iter().copied().collect();
         for w in watchers {
@@ -484,7 +492,15 @@ impl<S: Store> Replica<S> {
         let version = self.view_version;
         self.live.feed.clear();
         self.live.feed_floor = version;
-        let cursor = format!("{}:{version}", self.live.instance);
+        self.live.reset_pending = !self.live.watchers.is_empty() || !self.live.subs.is_empty();
+    }
+
+    pub(super) fn flush_live_reset(&mut self) {
+        if !self.live.reset_pending || self.check_apply_health().is_err() {
+            return;
+        }
+        self.live.reset_pending = false;
+        let cursor = format!("{}:{}", self.live.instance, self.view_version);
         let watchers: Vec<SessionId> = self.live.watchers.iter().copied().collect();
         for w in watchers {
             if self.require(w, crate::policy::capability::READ).is_err() {
@@ -498,6 +514,9 @@ impl<S: Store> Replica<S> {
                     reset: true,
                 }),
             ));
+        }
+        for sub in self.live.subs.keys().copied().collect::<Vec<_>>() {
+            self.refresh_sub(sub, None);
         }
     }
 

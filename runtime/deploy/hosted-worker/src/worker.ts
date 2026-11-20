@@ -57,7 +57,7 @@ import { isPermanentCustodyRefusal, withCustodyRetry } from "./custody-retry.ts"
 import { ProductionCustody, deploymentRelease, productionParts, serviceDeviceWrapper, type FactoryEnv } from "./factory.ts";
 import { localBuild, localOrigin } from "./local-origin.ts";
 import { devicePublicKeys, verifyHostedGenesis } from "./keygen.js";
-import { runIndex } from "./sql.js";
+import { resetIndex } from "./sql.js";
 import { labHealth } from "./health.js";
 import { locationHint, namedStub } from "./do-location.ts";
 import { fetchAttachment } from "./object-reads.js";
@@ -124,9 +124,6 @@ function openConfig(collection: string, k: OpenKeys, grantOnly = false): Uint8Ar
   ]);
   return encode(m);
 }
-
-/** An encoded index Reset request (drop the `st_*` tables). */
-const RESET = Uint8Array.of(0x4d, 0x44, 0x42, 0x49, 0x44, 0x58, 0x00, 0x01, 1);
 
 function pitrConfigured(env: Env): boolean {
   const p = env as Env & PitrFactorySettings & { PITR_PHASE?: R2Bucket };
@@ -648,8 +645,7 @@ export class HostedCollection extends DurableObject<Env> {
       logAppend: (t) => confirmed(t).migrationLogAppend(t),
       logResult: (t, signal) => this.#commitMigrationLogResult(t, signal),
       release: (t) => { this.engine?.finishMigrationPending(t); this.#migrationConfirmed.delete(t); },
-      // Ticks first, as the alarm does: retries can now repeat inside one wake.
-      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); e.tick(Date.now()); await this.sync(e); } },
+      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); await this.sync(e); } },
       resetForRebuild: async () => {
         const collection = this.collection;
         if (!collection || this.opening) throw new Error("migration_host_unavailable");
@@ -661,7 +657,7 @@ export class HostedCollection extends DurableObject<Env> {
         for (const r of this.readers.values()) r.wipe();
         this.readers.clear();
         // Drops only the `st_*` cache tables; the migration ledger stays.
-        runIndex(this.ctx.storage, RESET);
+        resetIndex(this.ctx.storage);
         await this.ready(collection);
       },
       putObject: async (collection, object, signal) => {
@@ -839,18 +835,7 @@ export class HostedCollection extends DurableObject<Env> {
         try { console.info(JSON.stringify({ event: "hosted_first_open", role: this.escrow ? "escrow" : "hosted", ...this.timings })); } catch { /* Logging is not authority. */ }
       }
       openingTrace.stage = "engine_reset";
-      if (engine.needsReset()) {
-        // The cache disagrees with the log: drop every store table and rebuild.
-        this.releaseAttachment(engine);
-        this.engineReset("cache_reset");
-        this.logGen++;
-        this.engine = null;
-        this.live = null;
-        for (const r of this.readers.values()) r.wipe();
-        this.readers.clear();
-        runIndex(this.ctx.storage, RESET);
-        throw new Error("hosted cache reset; retry");
-      }
+      await this.checkCache(engine, true);
       // All open checks succeeded. Until here, a post-sync failure must still
       // have the earlier retry. Never replace a different pending wake.
       if (next !== undefined) {
@@ -863,7 +848,10 @@ export class HostedCollection extends DurableObject<Env> {
       return engine;
     })().catch(async (error: unknown) => {
       if (openFailures === undefined) throw error; // No attempt reserved (including parked opens).
-      if (this.lastingRefusal(error)) { await this.retireForVerdict(error); throw error; }
+      if (this.lastingRefusal(error)) {
+        try { await this.retireForVerdict(error); } catch (failure) { error = failure; }
+        if (this.lastingRefusal(error)) throw error;
+      }
       await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
       try { await this.ctx.storage.put(OPEN_FAILURES_KEY, openFailures + 1); } catch { /* the retry alarm is already set */ }
       throw error;
@@ -882,11 +870,34 @@ export class HostedCollection extends DurableObject<Env> {
   private async pinMismatch(collection: string, pins: string, marker: unknown): Promise<never> {
     if (marker === pins) return this.parkPins(collection);
     if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
-    runIndex(this.ctx.storage, RESET);
+    resetIndex(this.ctx.storage);
     await this.ctx.storage.put(PIN_RESET_KEY, pins);
     pinLog(await wakeCollectionTag(collection), this.escrow ? "escrow" : "hosted", "pin_reset");
     await this.alarms.schedule(Date.now() + REFRESH_MS, () => !this.engine);
     throw new Error("hosted cache reset after pin mismatch; retry");
+  }
+
+  private async checkCache(engine: Engine, opening: boolean): Promise<void> {
+    if (this.engine !== engine) return;
+    const recovery = engine.cacheRecovery();
+    if (!recovery) return;
+    this.releaseAttachment(engine);
+    this.engineReset(`cache_${recovery}`);
+    const generation = ++this.logGen;
+    this.engine = null;
+    this.live = null;
+    for (const reader of this.readers.values()) reader.wipe();
+    this.readers.clear();
+    const current = () => !this.pitrClosed && this.logGen === generation && !this.engine;
+    try {
+      if (recovery === "reopen") throw new Error("hosted cache reopen required");
+      resetIndex(this.ctx.storage);
+    } catch (error) {
+      if (!opening) await this.alarms.schedule(Date.now() + openRetryMs(0), current);
+      throw error;
+    }
+    await this.alarms.schedule(Date.now() + REFRESH_MS, current);
+    throw new Error("hosted cache reset; retry");
   }
 
   /** No alarm, no engine; a later wake in a new isolate re-evaluates the open. */
@@ -932,7 +943,7 @@ export class HostedCollection extends DurableObject<Env> {
       for (const r of this.readers.values()) r.wipe();
       this.readers.clear();
     }
-    if (!unconfiguredCustody(error)) runIndex(this.ctx.storage, RESET);
+    if (!unconfiguredCustody(error)) resetIndex(this.ctx.storage);
     await this.ctx.storage.delete(OPEN_FAILURES_KEY);
     await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
     await this.ctx.storage.deleteAlarm();
@@ -1056,6 +1067,10 @@ export class HostedCollection extends DurableObject<Env> {
       if (current() && hasGrantAppend(call.frame)) wakeLog(tag, this.escrow ? "escrow" : "hosted", "grant_append_outcome", observation);
     } : undefined, { tokenRefused: () => this.dropLogToken(), report, objectOrigins: this.objectOrigins, nonces: this.logNonces });
     if (!current() || !await this.checkPinRebuild(engine) || !current()) return;
+    if (!openingTimings) {
+      await this.checkCache(engine, false);
+      if (!current()) return;
+    }
     this.pruneAttachment();
     delivered += this.deliver(engine); // read_file response precedes object/network waits
     if (!this.escrow) {
@@ -1097,7 +1112,6 @@ export class HostedCollection extends DurableObject<Env> {
     this.activitySeen = false;
     const pollMs = await this.idlePoll(active, current);
     if (!current()) return;
-    const next = engine.nextWakeup();
     const install = engine.installStatus();
     // Counts only, in every environment: the one sign of an install in production.
     if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
@@ -1109,7 +1123,7 @@ export class HostedCollection extends DurableObject<Env> {
     // LAB only (cost): an idle replica that is not serving (apply-stalled) waits
     // for the idle poll, not its in-memory stall probe, which restarts at 1 s
     // after every eviction and so never backs off.
-    const probe = lab && !active && installMs == null && !engine.serving() ? null : next;
+    const probe = engine.nextWakeup(lab && !active && installMs == null && !engine.serving());
     // Preserve earlier deadlines; inhibited or stale storage continuations must
     // not schedule another wake. This local fence is not deletion currentness.
     const at = Math.min(probe ?? poll, poll);
@@ -1262,7 +1276,8 @@ export class HostedCollection extends DurableObject<Env> {
       await this.alarms.inhibit();
       return;
     }
-    if (!this.engine) {
+    const cold = !this.engine;
+    if (cold) {
       // Keep the old escrow key readable for existing enrolled DOs.
       const collection = await this.ctx.storage.get<string>("service-collection")
         ?? (this.escrow ? await this.ctx.storage.get<string>("escrow-collection") : undefined);
@@ -1274,7 +1289,7 @@ export class HostedCollection extends DurableObject<Env> {
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
     const engine = this.engine;
-    engine.tick(Date.now());
+    engine.tick(Date.now(), cold);
     if (this.escrow || Date.now() - this.lastRefresh >= REFRESH_MS) {
       this.lastRefresh = Date.now();
       engine.refresh();

@@ -250,6 +250,11 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
   }
 }
 
+export function resetIndex(storage: DurableObjectStorage): void {
+  const reply = runIndex(storage, Uint8Array.of(...MAGIC, 1));
+  if (reply[MAGIC.length] !== 4) throw new Error("hosted index reset failed");
+}
+
 export function sqlHost(storage: DurableObjectStorage, ex: () => Ex) {
   return (p: number, n: number): bigint => {
     // Copy out before running SQL: Wasm memory can grow under us later.

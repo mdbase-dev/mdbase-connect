@@ -852,12 +852,12 @@ impl<I: IndexStorage> SqlStore<I> {
     }
 
     /// Statements putting and removing a transaction's confirmed-state rows.
-    fn confirmed_stmts(tx: &Tx, s: &mut Vec<Stmt>) -> StoreResult<()> {
+    fn confirmed_stmts(tx: &Tx, s: &mut Vec<Stmt>, projections: bool) -> StoreResult<()> {
         for id in &tx.records_del {
-            Self::del_record_stmts(id, s);
+            Self::del_record_stmts(id, s, projections);
         }
         for r in &tx.records_put {
-            Self::del_record_stmts(&r.id, s);
+            Self::del_record_stmts(&r.id, s, projections);
             s.push(st(
                 "INSERT INTO st_rec(id, path_key, bucket, row) VALUES (?, ?, ?, ?)",
                 vec![
@@ -940,12 +940,14 @@ impl<I: IndexStorage> SqlStore<I> {
         Ok(())
     }
 
-    fn del_record_stmts(id: &Uuid, out: &mut Vec<Stmt>) {
+    fn del_record_stmts(id: &Uuid, out: &mut Vec<Stmt>, projections: bool) {
         out.push(st("DELETE FROM st_rec WHERE id = ?", vec![b(id)]));
         out.push(st("DELETE FROM st_link WHERE id = ?", vec![b(id)]));
         out.push(st("DELETE FROM st_uniq WHERE id = ?", vec![b(id)]));
-        crate::sql_fields::delete_row(&id.0, out);
-        crate::sql_bases::delete_row(&id.0, out);
+        if projections {
+            crate::sql_fields::delete_row(&id.0, out);
+            crate::sql_bases::delete_row(&id.0, out);
+        }
     }
 }
 
@@ -1604,7 +1606,17 @@ impl<I: IndexStorage> Store for SqlStore<I> {
     ) -> Result<(), mdbn_replica::mirror_admission::candidate::Error> {
         mirror_candidate::write(self, request, ordinal, body, working)
     }
-    fn commit(&mut self, mut tx: Tx) -> StoreResult<CommitReport> {
+    fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+        self.commit_rows(tx, true)
+    }
+}
+
+impl<I: IndexStorage> SqlStore<I> {
+    pub(crate) fn commit_rows(
+        &mut self,
+        mut tx: Tx,
+        projections: bool,
+    ) -> StoreResult<CommitReport> {
         // Preserve the gate shape before Stage::Put moves confirmed rows. Only
         // metadata is copied; payloads are never cloned. Reject invalid input
         // before this new metadata read, preserving the pre-I/O bounds contract.
@@ -1641,7 +1653,7 @@ impl<I: IndexStorage> Store for SqlStore<I> {
             Stage::Put => {
                 let rows = tx.take_confirmed_rows();
                 let mut staged = Vec::new();
-                Self::confirmed_stmts(&rows, &mut staged)?;
+                Self::confirmed_stmts(&rows, &mut staged, false)?;
                 s.extend(staged_stmts(staged)?);
             }
             Stage::Swap => {
@@ -1691,7 +1703,7 @@ impl<I: IndexStorage> Store for SqlStore<I> {
                 vec![blob(head_c(&h)?)],
             ));
         }
-        Self::confirmed_stmts(&tx, &mut s)?;
+        Self::confirmed_stmts(&tx, &mut s, projections)?;
         if let Some(p) = tx.prune {
             s.push(st(
                 "DELETE FROM st_receipt WHERE seq < ? AND time < ?",
@@ -1821,8 +1833,20 @@ impl<I: IndexStorage> Store for SqlStore<I> {
                 vec![blob(d.0.to_vec())],
             ));
         }
-        let mut derived = crate::sql_fields::maintenance(&self.index, &tx)?;
-        derived.extend(crate::sql_bases::maintenance(&self.index, &tx)?);
+        let mut derived = Vec::new();
+        if projections {
+            derived = crate::sql_fields::maintenance(&self.index, &tx)?;
+            derived.extend(crate::sql_bases::maintenance(&self.index, &tx)?);
+        } else if !tx.records_put.is_empty()
+            || !tx.records_del.is_empty()
+            || !tx.resources_put.is_empty()
+            || !tx.resources_del.is_empty()
+            || tx.clear_confirmed
+            || tx.stage == Stage::Swap
+        {
+            derived.push(st("DELETE FROM st_qstate WHERE slot=0", vec![]));
+            derived.push(st("DELETE FROM st_qraw_state WHERE slot=0", vec![]));
+        }
         // This is optional derived-maintenance admission, not a new native
         // authoritative-write cap. Pending-only transactions have no derived
         // work and retain the existing durable 10k-queue contract.

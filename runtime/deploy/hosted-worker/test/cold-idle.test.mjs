@@ -23,7 +23,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
       constructor(storage) { this.f = storage.fixture; this.f.constructs++; this.logBound = false; this.refresh(); }
       open() { this.queued.push({ id: 2, frame: new Uint8Array(${JSON.stringify(read)}) }); }
       noiseKey() { return false; } serving() { return this.f.serving; }
-      needsReset() { if (this.f.endFail) throw new Error("synthetic post-sync failure"); return false; }
+      cacheRecovery() { if (this.f.endFail) throw new Error("synthetic post-sync failure"); return null; }
       appliedHead() { return String(this.f.applied); }
       refresh() { this.queued = [{ id: 1, frame: new Uint8Array(${JSON.stringify(head)}) }]; }
       tick() {} installStatus() { return null; } snapshotDeclined() { return false; } nextWakeup() { return this.f.deadline; } attachmentObject() { return null; } poll() { return []; }

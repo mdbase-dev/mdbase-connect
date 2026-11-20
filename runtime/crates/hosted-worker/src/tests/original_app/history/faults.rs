@@ -3,7 +3,7 @@ use super::*;
 
 fn first_read_with_fault(h: &mut AppHosted, fault: u8) {
     for _ in 0..50 {
-        h.e.tick(i64::try_from(h.clock.get()).unwrap());
+        h.e.tick(i64::try_from(h.clock.get()).unwrap(), false);
         for call in h.e.take_log_calls() {
             let read = matches!(call.request, LogRequest::Read(_));
             let reply = h.log.call(call.request);

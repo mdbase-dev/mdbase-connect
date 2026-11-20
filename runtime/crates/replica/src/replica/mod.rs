@@ -645,6 +645,11 @@ fn read_i64(store: &dyn Store, key: &str) -> Result<i64, StoreError> {
         .unwrap_or(0))
 }
 
+enum OpenHost {
+    Device(Option<Box<dyn crate::policy::GrantSource>>),
+    Hosted(Box<hosted::HostedState>),
+}
+
 impl<S: Store> Replica<S> {
     /// Open a replica over its store: load the head and catalog, and rebuild the
     /// local view from the pending queue.
@@ -656,7 +661,15 @@ impl<S: Store> Replica<S> {
         host: Host,
         secrets: DeviceSecrets,
     ) -> Result<Replica<S>, OpenError> {
-        Self::open_inner(cfg, store, planner, sealer, host, secrets, None)
+        Self::open_inner(
+            cfg,
+            store,
+            planner,
+            sealer,
+            host,
+            secrets,
+            OpenHost::Device(None),
+        )
     }
 
     /// Open with the trusted local host authority already installed, BEFORE any
@@ -671,7 +684,15 @@ impl<S: Store> Replica<S> {
         secrets: DeviceSecrets,
         source: Box<dyn crate::policy::GrantSource>,
     ) -> Result<Replica<S>, OpenError> {
-        Self::open_inner(cfg, store, planner, sealer, host, secrets, Some(source))
+        Self::open_inner(
+            cfg,
+            store,
+            planner,
+            sealer,
+            host,
+            secrets,
+            OpenHost::Device(Some(source)),
+        )
     }
 
     fn open_inner(
@@ -681,8 +702,12 @@ impl<S: Store> Replica<S> {
         sealer: Box<dyn Sealer>,
         host: Host,
         secrets: DeviceSecrets,
-        source: Option<Box<dyn crate::policy::GrantSource>>,
+        open_host: OpenHost,
     ) -> Result<Replica<S>, OpenError> {
+        let (source, hosted) = match open_host {
+            OpenHost::Device(source) => (source, None),
+            OpenHost::Hosted(state) => (None, Some(state)),
+        };
         // This gate is checked before key import, pending replay, recovery or any
         // reconcile/append/client route exists. It does not restrict OS access.
         if let Some(fence) = crate::mirror_admission::Fence::load(&store)? {
@@ -727,9 +752,15 @@ impl<S: Store> Replica<S> {
         }
         let head = store.head()?;
         let tail_stats = store.tail_stats()?;
-        let catalog = Arc::new(
-            crate::plan::load_catalog(&store).map_err(|e| OpenError::StoreAt("catalog", e))?,
-        );
+        let (catalog, stamp) = {
+            let resources = store
+                .resources()
+                .map_err(|e| OpenError::StoreAt("catalog", e))?;
+            (
+                Arc::new(crate::plan::compile_catalog(&resources)),
+                crate::plan::record_meta_stamp(&resources),
+            )
+        };
         let clock_floor = read_i64(&store, meta_keys::COUNTERS)?;
         // `log_state` is written by apply as `log_time ‖ sem_ratchet`.
         let (log_time, sem_ratchet) = match store.meta(meta_keys::LOG_STATE)? {
@@ -927,7 +958,7 @@ impl<S: Store> Replica<S> {
             grant_source: source,
             declared_setup_pending: BTreeMap::new(),
             declared_setup_rpc_job: None,
-            hosted: None,
+            hosted,
             attachment_uploads: attachment_upload::Uploads::default(),
             unindexed_uploads: unindexed_upload::Uploads::default(),
             reverse_text_sources: unindexed_reverse_text::Sources::default(),
@@ -964,7 +995,7 @@ impl<S: Store> Replica<S> {
         if r.local_only() {
             r.validate_local_pending_on_open()?;
         }
-        if derived_version < crate::store::DERIVED_DATA_VERSION {
+        if derived_version < crate::store::DERIVED_DATA_VERSION && !r.is_hosted() {
             // Reuse the catalog rebuild; never reset authoritative local state.
             // Stamp only after ALL pages succeed so an interrupted open retries.
             r.reindex().map_err(|e| OpenError::StoreAt("reindex", e))?;
@@ -988,10 +1019,15 @@ impl<S: Store> Replica<S> {
         // Index entries derived under another catalog (a crash between a
         // catalog change and its reindex) are rederived.
         if r.install.is_none()
-            && r.store.meta(meta_keys::RECORD_META)?
-                != Some(crate::plan::record_meta_stamp(&r.store.resources()?))
+            && (r.store.meta(meta_keys::RECORD_META)?.as_ref() != Some(&stamp)
+                || (r.is_hosted() && derived_version < crate::store::DERIVED_DATA_VERSION))
         {
-            r.reindex().map_err(OpenError::Store)?;
+            if let Some(hosted) = r.hosted.as_mut() {
+                hosted.reindex_stamp = Some(stamp);
+                r.hosted_reindex_step()?;
+            } else {
+                r.reindex().map_err(OpenError::Store)?;
+            }
         }
         // A store opened without a complete query index (older store, crash after
         // an invalidating write) is backfilled before serving. A budget refusal
