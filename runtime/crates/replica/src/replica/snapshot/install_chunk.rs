@@ -104,7 +104,7 @@ impl ChunkRows {
         *self = ChunkRows::new(self.collection, self.epoch);
     }
 
-    fn catalog(&self) -> mdbn_core::types::Catalog {
+    pub(super) fn catalog(&self) -> mdbn_core::types::Catalog {
         mdbn_core::types::Catalog::load(
             self.resources.iter().map(|(p, d)| (p.as_str(), d.as_str())),
         )

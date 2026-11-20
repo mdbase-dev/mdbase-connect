@@ -398,6 +398,11 @@ impl<S: Store> Engine<S> {
         &self.replica
     }
 
+    /// Drain count-only diagnostics after each hosted open or tick.
+    pub fn take_repair_boundary(&mut self) -> Option<mdbn_replica::replica::HostedRepairBoundary> {
+        self.replica.take_hosted_repair_boundary()
+    }
+
     #[cfg(test)]
     pub(crate) fn replica_mut(&mut self) -> &mut Replica<HostedCache<S>> {
         &mut self.replica

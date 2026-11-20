@@ -59,6 +59,7 @@ function instantiate(module: WebAssembly.Module): KeyExports {
   const instance = new WebAssembly.Instance(module, {
     env: {
       host_sql: refused,
+      host_repair_boundary: refused,
       host_now_ms: () => Date.now(),
       host_random: (p: number, n: number) => {
         for (let off = 0; off < n; off += 65536) {

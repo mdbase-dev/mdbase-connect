@@ -6,6 +6,7 @@ mod attachments;
 mod mode_lifecycle;
 mod original_app;
 mod projected_queries;
+mod record_meta_repair;
 mod signed_control_plain;
 use signed_control_plain::SignedControlPlain;
 
@@ -254,15 +255,22 @@ fn submit(id: u64, path: &str) -> Vec<u8> {
 }
 
 fn submit_doc(id: u64, path: &str, doc: &str) -> Vec<u8> {
-    let p = SubmitParams {
-        ops: vec![Op::Create(Create {
+    submit_op(
+        id,
+        Op::Create(Create {
             id: B16([id as u8; 16]),
             path: Some(path.into()),
             type_name: None,
             frontmatter: None,
             body: None,
             document: Some(Text::Inline(doc.into())),
-        })],
+        }),
+    )
+}
+
+fn submit_op(id: u64, op: Op) -> Vec<u8> {
+    let p = SubmitParams {
+        ops: vec![op],
         mutation_id: Some(B16([0xa0 + id as u8; 16])),
         conflict_mode: None,
         timezone: None,

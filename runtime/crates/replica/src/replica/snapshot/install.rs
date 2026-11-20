@@ -698,7 +698,8 @@ impl<S: Store> Replica<S> {
         };
         // Finish only after complete source authentication and the exact digest.
         let digest = self.install_rows.index.digest();
-        let record_stamp = crate::plan::record_meta_stamp(&self.install_rows.resources);
+        let catalog = self.install_rows.catalog();
+        let record_stamp = crate::plan::record_meta_stamp(&catalog);
         self.install_rows.clear();
         if digest != manifest.state_digest {
             return self.install_fail("state digest mismatch");
@@ -799,15 +800,9 @@ impl<S: Store> Replica<S> {
         // after `seq` are applied already and only advance the head on the tail read.
         self.install_points.clear();
         self.stats.snapshots_installed += 1;
-        match crate::plan::load_catalog(&self.store) {
-            Ok(c) => {
-                self.catalog = std::sync::Arc::new(c);
-                self.reset_feed();
-                // Invalidate the cached query context after snapshot install.
-                self.query_context = None;
-            }
-            Err(e) => return self.install_abort(IncidentKind::Integrity, &format!("store: {e}")),
-        }
+        self.catalog = std::sync::Arc::new(catalog);
+        self.reset_feed();
+        self.query_context = None;
         // The install replaced confirmed state; the derived query index follows.
         // A failure leaves it unready (queries use the per-record path) and is
         // reported, never swallowed.

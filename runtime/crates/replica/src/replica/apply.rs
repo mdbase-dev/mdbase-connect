@@ -1678,11 +1678,14 @@ impl<S: Store> Replica<S> {
                 rs.insert(p.clone(), d.clone());
             }
             let resources: Vec<_> = rs.into_iter().collect();
-            (
-                std::sync::Arc::new(crate::plan::compile_catalog(&resources)),
-                self.is_hosted()
-                    .then(|| crate::plan::record_meta_stamp(&resources)),
-            )
+            let catalog = crate::plan::compile_catalog(&resources);
+            let stamp = if self.is_hosted() {
+                let stamp = crate::plan::record_meta_stamp(&catalog);
+                (self.store.meta(meta_keys::RECORD_META)?.as_ref() != Some(&stamp)).then_some(stamp)
+            } else {
+                None
+            };
+            (std::sync::Arc::new(catalog), stamp)
         } else {
             (self.catalog.clone(), None)
         };
@@ -2685,7 +2688,7 @@ impl<S: Store> Replica<S> {
                 self.query_context = context;
             }
         }
-        let stamp = crate::plan::record_meta_stamp(&self.store.resources()?);
+        let stamp = crate::plan::record_meta_stamp(&self.catalog);
         self.store.commit(Tx {
             meta: vec![(crate::store::meta_keys::RECORD_META.into(), Some(stamp))],
             ..Tx::default()

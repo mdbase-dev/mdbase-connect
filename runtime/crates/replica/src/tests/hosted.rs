@@ -164,7 +164,17 @@ fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
     store
         .commit(Tx {
             records_put: (1..=22)
-                .map(|n| crate::conformance::record(n, &format!("{n}.md"), "[[target]]"))
+                .map(|n| {
+                    let mut row = crate::conformance::record(n, &format!("{n}.md"), "[[target]]");
+                    if n % 2 == 0 {
+                        row.meta = crate::plan::record_meta(
+                            &mdbn_core::types::Catalog::empty(),
+                            &row.path,
+                            &row.doc,
+                        );
+                    }
+                    row
+                })
                 .collect(),
             ..Tx::default()
         })
@@ -172,6 +182,11 @@ fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
     for (expected, complete) in [(8, false), (8, false), (6, true), (0, true)] {
         let mut hosted = open(&svc, store);
         assert_eq!(hosted.r.stats.reindexed, expected);
+        if expected == 6 {
+            let boundary = hosted.r.take_hosted_repair_boundary().unwrap();
+            assert!(!boundary.started);
+            assert_eq!(boundary.finished, Some((22, 11)));
+        }
         pump(&mut hosted.r, &mut hosted.log, 100);
         assert_eq!(hosted.r.hosted_serving(), complete);
         assert!(!hosted.r.hosted_needs_reset());
@@ -190,6 +205,35 @@ fn hosted_reindex_checkpoints_survive_repeated_cold_opens() {
             .unwrap()
             .iter()
             .all(|row| !row.meta.links.is_empty())
+    );
+}
+
+#[test]
+fn metadata_stamp_tracks_resolved_schema_and_membership_settings() {
+    use crate::plan::record_meta_stamp;
+    use mdbn_core::types::Catalog;
+    let definition = "---\nkind: mdbase.type\nname: task\nschema: {dialect: json-schema-2020-12, ref: '../schemas/task.json'}\n---\n";
+    let stamp = |schema: &str, config: &str, unrelated: &str| {
+        let catalog = Catalog::load([
+            ("_types/task.md", definition),
+            ("schemas/task.json", schema),
+            ("mdbase.yaml", config),
+            ("_types/unused.json", unrelated),
+        ]);
+        assert!(catalog.type_named("task").is_some());
+        record_meta_stamp(&catalog)
+    };
+    let config = "spec_version: '0.3.0'\n";
+    let initial = stamp("{}", config, "one");
+    assert_eq!(initial, stamp("{}", config, "two"));
+    assert_ne!(initial, stamp(r#"{"type":"object"}"#, config, "one"));
+    assert_ne!(
+        initial,
+        stamp(
+            "{}",
+            &format!("{config}settings: {{id_field: slug}}"),
+            "one"
+        )
     );
 }
 

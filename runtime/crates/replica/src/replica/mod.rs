@@ -175,7 +175,7 @@ pub use disk::PUBLISH_WAIT_MS;
 pub(crate) use hosted::HOSTED_READ_BYTES;
 #[allow(unused_imports)]
 pub(crate) use hosted::{FreshHead, PolicyOrigin};
-pub use hosted::{HostedAck, HostedCache, HostedProfile, SubmitTicket};
+pub use hosted::{HostedAck, HostedCache, HostedProfile, HostedRepairBoundary, SubmitTicket};
 pub use log_session::{AuthenticatedLogSession, LogReplyScope, LogSessionError};
 pub use query_profile::{QueryExecutionProfile, QuerySourceLimits};
 pub use snapshot::{MAX_REQUEST_NODES, SnapshotBlocked, snapshot_refs_fit, state_digest};
@@ -756,10 +756,9 @@ impl<S: Store> Replica<S> {
             let resources = store
                 .resources()
                 .map_err(|e| OpenError::StoreAt("catalog", e))?;
-            (
-                Arc::new(crate::plan::compile_catalog(&resources)),
-                crate::plan::record_meta_stamp(&resources),
-            )
+            let catalog = crate::plan::compile_catalog(&resources);
+            let stamp = crate::plan::record_meta_stamp(&catalog);
+            (Arc::new(catalog), stamp)
         };
         let clock_floor = read_i64(&store, meta_keys::COUNTERS)?;
         // `log_state` is written by apply as `log_time ‖ sem_ratchet`.
