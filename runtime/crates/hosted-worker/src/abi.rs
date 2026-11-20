@@ -25,6 +25,7 @@ use mdbn_replica::{Host, HostedProfile};
 use mdbn_store_file::{LogCache, SqlStoreLimits};
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::common::{B16, B32, Uuid};
+use mdbn_wire::schema::Wire;
 
 use crate::cpp_claim_ticket::{CppClaimTicketSlot, handle as cpp_handle};
 use crate::do_index::{DoIndex, SqlHost};
@@ -1446,6 +1447,29 @@ pub unsafe extern "C" fn hd_migration_sample(ptr: *mut u8, len: usize) -> u64 {
 #[unsafe(no_mangle)]
 pub extern "C" fn hd_serving() -> u32 {
     with(|s| u32::from(s.engine.serving())).unwrap_or(0)
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn hd_initialize_collection(ptr: *mut u8, len: usize, start: u32) -> u32 {
+    let input = unsafe { take(ptr, len) };
+    if input.len() > 128 {
+        return 2;
+    }
+    let Ok(Cbor::Array(fields)) = cbor::decode(&input) else {
+        return 2;
+    };
+    let [id, Cbor::Text(timezone)] = fields.as_slice() else {
+        return 2;
+    };
+    let Ok(request) = B16::from_cbor(id) else {
+        return 2;
+    };
+    with(|state| {
+        state
+            .engine
+            .initialize_collection(request, timezone, start == 1) as u32
+    })
+    .unwrap_or(0)
 }
 
 /// 1 when the cache must be dropped (it disagrees with the log), else 0.

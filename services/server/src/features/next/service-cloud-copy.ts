@@ -4,10 +4,11 @@
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { migrationDeployments } from "./migration-routing.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
+import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { CreateError, enrolOp, inTransaction, lock, refuseCollectionIdOfOther, SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
-import type { LogPlacement, LogServiceClient } from "./log-service-client.js";
+import { isLogRegion, type LogPlacement, type LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { generateServiceDevice, loadServiceDevice, storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
@@ -83,6 +84,36 @@ export async function loadCloudCopyRecords(client: DatabaseConnection, collectio
   }
   return records;
 }
+
+export async function initializeHostedCloudCopy(options: CloudCopyBootstrapOptions, collection: string, requestId: string, timezone: string): Promise<void> {
+  const deployments = options.next.cloudCopyBootstrap;
+  if (!deployments) throw new CreateError(503, "not_ready");
+  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.migrationRouting, collection);
+  if (!selected) throw new CreateError(409, "migration_routing_retired");
+  const {url, token} = selected.hosted;
+  const endpoint = new URL("internal/v1/collections/initialize", `${url.replace(/\/+$/u, "")}/`);
+  if (token.length < 32 || (localBuild() ? !localDeployment("local", url) : endpoint.protocol !== "https:")) {
+    throw new CreateError(503, "not_ready");
+  }
+  const region = (await options.db.query<{region: string | null}>(
+    "SELECT ops->>'region' AS region FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id LIMIT 1", [collection]
+  )).rows[0]?.region;
+  const input = {collection, request_id: requestId, timezone, ...(isLogRegion(region) ? {region} : {})};
+  let confirmed = false;
+  try {
+    const response = await (options.fetchImpl ?? fetch)(endpoint, {method: "POST", redirect: "error",
+      headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
+      body: JSON.stringify(input), signal: AbortSignal.timeout(20_000)});
+    if (response.status === 200) {
+      const receipt = await response.json() as {initialized?: boolean; collection?: string; request_id?: string};
+      confirmed = receipt.initialized === true && receipt.collection === collection && receipt.request_id === requestId;
+    } else {
+      await response.body?.cancel();
+    }
+  } catch { throw new CreateError(503, "not_ready"); }
+  if (!confirmed) throw new CreateError(503, "not_ready");
+}
+
 export function cloudCopyMetadata(options: CloudCopyBootstrapOptions, collection: string, owner: string,
   head: { seq: number; chain: Uint8Array }, genesis: Buffer, records: ServiceDeviceRecord[]) {
   return {
