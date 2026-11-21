@@ -19,7 +19,7 @@ const originalPackage=await readFile('apps/editor/package.json'),originalLock=aw
 try {
  await writeFile(join(directory,'plan.json'),JSON.stringify(plan,null,2));
  await prepareInstall(plan,root);
- execFileSync('pnpm',['install','--frozen-lockfile','--ignore-scripts','--ignore-pnpmfile'],{stdio:'inherit'});
+ execFileSync('pnpm',['install','--frozen-lockfile','--ignore-scripts','--ignore-pnpmfile','--child-concurrency=1'],{stdio:'inherit'});
  execFileSync(process.execPath,['apps/editor/scripts/native/build.mjs',directory],{stdio:'inherit',env:{...process.env,
   VITE_MDBASE_FEEDBACK_URL:target==='production'?'https://feedback-api.mdbase.dev/v1/feedback':'https://feedback-api-staging.mdbase.dev/v1/feedback',
   VITE_MDBASE_TURNSTILE_SITE_KEY:target==='production'?'0x4AAAAAAEboz_mLT-taI3H-':'0x4AAAAAAEbkvA4d9vQJq2D1'}});
