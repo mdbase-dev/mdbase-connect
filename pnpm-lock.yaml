@@ -205,11 +205,11 @@ importers:
         specifier: workspace:*
         version: link:../../packages/i18n
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-a50a4b1a-production-0.1.28.tgz
-        version: file:apps/editor/vendor/sdk-a50a4b1a-production-0.1.28.tgz
+        specifier: file:vendor/sdk-5ac75ecd-production-0.1.30.tgz
+        version: file:apps/editor/vendor/sdk-5ac75ecd-production-0.1.30.tgz
       '@mdbase-dev/ui':
         specifier: 0.1.12
-        version: 0.1.12(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-a50a4b1a-production-0.1.28.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.1.12(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-5ac75ecd-production-0.1.30.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2329,9 +2329,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-a50a4b1a-production-0.1.28.tgz':
-    resolution: {integrity: sha512-MkBLgmodDhyGOlg7MVCiTMkPy/FzeTSZ+PYg/HJix4xRrrKiNLI3dUEcIrM9YLnKyugn6dIiNhpS5ju3HwGUfA==, tarball: file:apps/editor/vendor/sdk-a50a4b1a-production-0.1.28.tgz}
-    version: 0.1.28
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-5ac75ecd-production-0.1.30.tgz':
+    resolution: {integrity: sha512-Z0Zq9EysjjUGzv7kLv6li1Dl/sPSHzVi5ykmXpghiiEMqwtXQWqxDGnNOIsC3Ye+9aO5HrJBSVGAysvRZexzrg==, tarball: file:apps/editor/vendor/sdk-5ac75ecd-production-0.1.30.tgz}
+    version: 0.1.30
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8216,13 +8216,13 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-a50a4b1a-production-0.1.28.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-5ac75ecd-production-0.1.30.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.1.12(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-a50a4b1a-production-0.1.28.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.1.12(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-5ac75ecd-production-0.1.30.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8239,7 +8239,7 @@ snapshots:
       '@codemirror/view': 6.43.12
       '@lezer/common': 1.5.2
       '@lezer/markdown': 1.7.2
-      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-a50a4b1a-production-0.1.28.tgz
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-5ac75ecd-production-0.1.30.tgz
       react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
