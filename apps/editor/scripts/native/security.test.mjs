@@ -55,6 +55,13 @@ it('scopes the read-only job token to SDK intake rather than dependency installa
  }
  const install=jobs['native-build'].steps.find(step=>step.run?.startsWith('pnpm install'));
  assert.equal(install.env?.GITHUB_TOKEN,undefined);
+ const installCommands=install.run.split(/&&|\|\||[;\n{}]/).map(part=>part.trim()).filter(part=>part.startsWith('pnpm install'));
+ assert.equal(installCommands.length,2);
+ for(const command of installCommands) {
+  for(const flag of ['--frozen-lockfile','--ignore-scripts','--ignore-pnpmfile','--child-concurrency=1']) {
+   assert.ok(command.includes(flag),`native-build install command missing ${flag}`);
+  }
+ }
  const guard=jobs['native-deploy'].steps.find(step=>step.run?.includes('publisher.mjs guard'));
  assert.ok(guard['timeout-minutes']*60000>5*30000+5000+20000+60000+120000);
 });

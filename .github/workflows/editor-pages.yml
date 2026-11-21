@@ -210,7 +210,9 @@ jobs:
       - run: node apps/editor/scripts/native/install-inputs.mjs "$RUNNER_TEMP/editor-build/plan.json"
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile
+      # Serialize hoisted dependency hard-linking and retry once on pnpm's
+      # transient temp-directory rename race (ERR_PNPM_ENOENT on esbuild).
+      - run: pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --child-concurrency=1 || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile --ignore-scripts --ignore-pnpmfile --child-concurrency=1; }
       - name: ALL installed original members, then unprivileged build once
         env:
           GITHUB_TOKEN: ${{ github.token }}
