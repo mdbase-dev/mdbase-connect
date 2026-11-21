@@ -1,4 +1,5 @@
 use super::*;
+use crate::testutil::{json_reply as reply, json_request as request};
 use mdbn_wire::cbor::Cbor;
 
 fn vectors() -> Vec<Vec<u8>> {
@@ -170,68 +171,6 @@ async fn peer_read_stale_source_and_invalid_ack_deny_before_any_io() {
         .await
         .unwrap_err();
     assert!(matches!(error,CloudError::Local(ref code) if code=="invalid_peer_ids"));
-}
-
-async fn request(listener: &tokio::net::TcpListener) -> (tokio::net::TcpStream, String, Value) {
-    use tokio::io::AsyncReadExt;
-    let (mut socket, _) = listener.accept().await.unwrap();
-    let mut bytes = Vec::new();
-    let end = loop {
-        let mut chunk = [0; 1024];
-        let read = socket.read(&mut chunk).await.unwrap();
-        assert!(read > 0);
-        bytes.extend_from_slice(&chunk[..read]);
-        assert!(bytes.len() <= 8192);
-        if let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
-            break end + 4;
-        }
-    };
-    let headers = String::from_utf8(bytes[..end].to_vec()).unwrap();
-    let length: usize = headers
-        .lines()
-        .find_map(|line| {
-            line.to_ascii_lowercase()
-                .strip_prefix("content-length: ")
-                .map(str::to_owned)
-        })
-        .unwrap()
-        .parse()
-        .unwrap();
-    assert!(length + end <= 8192);
-    while bytes.len() < end + length {
-        let mut chunk = [0; 1024];
-        let read = socket.read(&mut chunk).await.unwrap();
-        assert!(read > 0);
-        bytes.extend_from_slice(&chunk[..read]);
-    }
-    let path = headers
-        .lines()
-        .next()
-        .unwrap()
-        .split_whitespace()
-        .nth(1)
-        .unwrap()
-        .to_owned();
-    (
-        socket,
-        path,
-        serde_json::from_slice(&bytes[end..end + length]).unwrap(),
-    )
-}
-async fn reply(mut socket: tokio::net::TcpStream, value: Value) {
-    use tokio::io::AsyncWriteExt;
-    let body = serde_json::to_string(&value).unwrap();
-    socket
-        .write_all(
-            format!(
-                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-                body.len(),
-                body
-            )
-            .as_bytes(),
-        )
-        .await
-        .unwrap();
 }
 
 #[tokio::test]

@@ -7,7 +7,9 @@
 //! known head) and evaluates them on a copy of its policy state with the same
 //! signature, certificate and authority checks ordered apply makes. Each
 //! `key_grant` is therefore judged under the policy in force at its own position.
-//! Nothing read ahead changes the applied policy, the head or any content. Content
+//! An unkeyed requester can check a signed approval challenge against the verified
+//! control view once the scan reaches the known head. Nothing read ahead changes
+//! the applied policy, the head or any content. Content
 //! is never applied out of order, and ordered apply later re-evaluates every item,
 //! grants included.
 //!
@@ -151,6 +153,20 @@ enum Step {
 }
 
 impl<S: Store> Replica<S> {
+    pub(super) fn key_wait_policy(&self, position: u64) -> Option<&PolicyState> {
+        let scan = self.join_ahead.as_ref()?;
+        if scan.position != position
+            || !self.join_ahead_eligible()
+            || scan.reading
+            || scan.paused
+            || scan.done
+            || scan.after < scan.target.max(self.head_known)
+        {
+            return None;
+        }
+        scan.policy.as_deref()
+    }
+
     fn join_ahead_eligible(&self) -> bool {
         !self.apply_fault
             && !self.local_only()
