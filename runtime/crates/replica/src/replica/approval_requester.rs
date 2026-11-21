@@ -7,9 +7,10 @@ use super::{
 use crate::api::{ApiResult, ErrorCode};
 use crate::approval::{Answer, NewDevice};
 use crate::crypto::{hpke::KemKeyPair, keys::EnrolledKeys, sign::DeviceSigner};
-use crate::policy::SERVICE_ACCOUNT;
+use crate::policy::{PolicyState, SERVICE_ACCOUNT};
 use crate::{SessionId, Store};
 use mdbn_wire::cbor::{self, Cbor};
+use mdbn_wire::client::IncidentKind;
 use mdbn_wire::common::{B32, Uuid};
 use mdbn_wire::policy::{CState, DeviceKind, Role};
 use mdbn_wire::schema::Wire;
@@ -62,12 +63,17 @@ pub(super) struct RequesterCode {
 /// Memory only; checkpointed with apply.
 #[derive(Clone, Copy, Default)]
 pub(super) struct RequesterTrust {
-    /// The latest revealed exchange: its selected approver and commitment.
-    exchange: Option<(Uuid, B32)>,
+    exchange: Option<SelectedApprover>,
     /// The approver whose grant keyed this device, for the host to persist.
     signer: Option<Uuid>,
     /// The saved exchange was consulted for a keyed, untrusted device.
     restored: bool,
+}
+#[derive(Clone, Copy)]
+struct SelectedApprover {
+    device: Uuid,
+    commitment: B32,
+    policy_seq: u64,
 }
 impl Context {
     fn identity_matches(&self, b: &Self) -> bool {
@@ -217,20 +223,30 @@ impl Record {
     }
 }
 impl<S: Store> Replica<S> {
+    fn requester_policy(&self) -> ApiResult<&PolicyState> {
+        match self.stalled {
+            None => Ok(&self.policy),
+            Some((IncidentKind::WaitingForKey, position)) => {
+                self.key_wait_policy(position).ok_or_else(denied)
+            }
+            Some(_) => Err(denied()),
+        }
+    }
+
     fn requester_context(&self, session: SessionId) -> ApiResult<Context> {
         self.host_only(session)?;
+        let policy = self.requester_policy()?;
         if self.approval.poisoned
             || self.apply_fault
             || self.is_apply_recovering()
-            || self.stalled.is_some()
             || self.install.is_some()
             || self.hosted.is_some()
             || self.local_only()
             || self.key_untrusted
-            || self.policy.frozen
-            || self.policy.rekey_required
-            || self.policy.cstate != Some(CState::E2e)
-            || self.policy.epoch == 0
+            || policy.frozen
+            || policy.rekey_required
+            || policy.cstate != Some(CState::E2e)
+            || policy.epoch == 0
             || !self.log_state_healthy()
         {
             return Err(denied());
@@ -240,12 +256,8 @@ impl<S: Store> Replica<S> {
             account: source.active_account().ok_or_else(denied)?,
             epoch: source.authority_epoch().ok_or_else(denied)?,
         };
-        let me = self
-            .policy
-            .devices
-            .get(&self.cfg.device_id)
-            .ok_or_else(denied)?;
-        let role = *self.policy.members.get(&stamp.account).ok_or_else(denied)?;
+        let me = policy.devices.get(&self.cfg.device_id).ok_or_else(denied)?;
+        let role = *policy.members.get(&stamp.account).ok_or_else(denied)?;
         if stamp.account == SERVICE_ACCOUNT
             || stamp.epoch == 0
             || !me.active
@@ -272,10 +284,10 @@ impl<S: Store> Replica<S> {
                 kem_pk: me.kem_pk,
                 noise_pk: me.noise_pk,
             },
-            chain: self.policy.ctl_chain,
-            root: self.policy.root,
-            root_pk: self.policy.root_pk,
-            epoch: self.policy.epoch,
+            chain: policy.ctl_chain,
+            root: policy.root,
+            root_pk: policy.root_pk,
+            epoch: policy.epoch,
             role,
         })
     }
@@ -371,8 +383,8 @@ impl<S: Store> Replica<S> {
         let Some(peer) = &record.peer else {
             return Ok(None);
         };
-        if record.context != *context || !peer.verify_for_policy(self.cfg.collection, &self.policy)
-        {
+        let policy = self.requester_policy()?;
+        if record.context != *context || !peer.verify_for_policy(self.cfg.collection, policy) {
             return Err(denied());
         }
         let ApprovalPeerMessage::Challenge(challenge) = &peer.message else {
@@ -387,7 +399,7 @@ impl<S: Store> Replica<S> {
         {
             return Err(denied());
         }
-        let code = n.code(&self.policy, &challenge.r_a.0).ok_or_else(denied)?;
+        let code = n.code(policy, &challenge.r_a.0).ok_or_else(denied)?;
         let display = RequesterCode {
             context: context.clone(),
             code: Zeroizing::new(code),
@@ -451,7 +463,7 @@ impl<S: Store> Replica<S> {
     /// expired without a key, or when `renew` (the host could not watch for an
     /// approver's challenge for longer than one may live, so an approver may
     /// have spent the commitment unseen), saved before it is returned; else the
-    /// saved one while the applied policy does not carry it yet. Never while a
+    /// saved one while the verified policy does not carry it yet. Never while a
     /// revealed exchange is still live.
     pub fn device_approval_commitment_to_log(
         &mut self,
@@ -484,7 +496,11 @@ impl<S: Store> Replica<S> {
             && let Ok(Some((approver, commitment, display))) =
                 self.requester_saved_exchange(&context, &record)
         {
-            self.approval.requester_trust.exchange = Some((approver.device, commitment));
+            self.approval.requester_trust.exchange = Some(SelectedApprover {
+                device: approver.device,
+                commitment,
+                policy_seq: self.requester_policy()?.seq,
+            });
             if live && self.approval.requester_code.is_none() {
                 self.approval.requester_code = Some(display);
                 self.status_dirty = true;
@@ -512,7 +528,7 @@ impl<S: Store> Replica<S> {
             return Err(denied());
         }
         let logged = self
-            .policy
+            .requester_policy()?
             .devices
             .get(&self.cfg.device_id)
             .and_then(|d| d.sas_commit);
@@ -534,7 +550,7 @@ impl<S: Store> Replica<S> {
             return Err(denied());
         };
         let now = self.now();
-        if !peer.verify_for_policy(self.cfg.collection, &self.policy)
+        if !peer.verify_for_policy(self.cfg.collection, self.requester_policy()?)
             || challenge.binding.requester != context.me
             || now >= challenge.expires_at_ms
             || challenge.expires_at_ms.saturating_sub(now) > 120_000
@@ -556,7 +572,7 @@ impl<S: Store> Replica<S> {
             return Err(denied());
         }
         let Answer::Reveal { r_n, code, state } = n.on_challenge(
-            &self.policy,
+            self.requester_policy()?,
             &challenge.binding.approver.device,
             &challenge.r_a.0,
         ) else {
@@ -584,10 +600,11 @@ impl<S: Store> Replica<S> {
         if self.requester_context(session)? != context {
             return Err(denied());
         }
-        self.approval.requester_trust.exchange = Some((
-            challenge.binding.approver.device,
-            challenge.binding.commitment,
-        ));
+        self.approval.requester_trust.exchange = Some(SelectedApprover {
+            device: challenge.binding.approver.device,
+            commitment: challenge.binding.commitment,
+            policy_seq: self.requester_policy()?.seq,
+        });
         self.approval.requester_code = Some(RequesterCode {
             context,
             code: code.clone(),
@@ -604,13 +621,17 @@ impl<S: Store> Replica<S> {
     /// after expiry, Deny or an unseen challenge), or a key from anyone else,
     /// ends the exchange with no trust.
     pub(super) fn latch_requester_signer(&mut self) {
-        let Some((approver, commitment)) = self.approval.requester_trust.exchange else {
+        let Some(selected) = self.approval.requester_trust.exchange else {
             return;
         };
         let Some(me) = self.policy.devices.get(&self.cfg.device_id) else {
             return;
         };
-        if me.sas_commit != Some(commitment) {
+        if me.sas_commit != Some(selected.commitment) {
+            // Ordered replay may not have reached the commitment seen read-ahead.
+            if !me.keyed && self.policy.seq < selected.policy_seq {
+                return;
+            }
             self.approval.requester_trust.exchange = None;
             return;
         }
@@ -618,8 +639,8 @@ impl<S: Store> Replica<S> {
             return;
         }
         self.approval.requester_trust.exchange = None;
-        if me.delivered_by == Some(approver) {
-            self.trust_requester_signer(approver);
+        if me.delivered_by == Some(selected.device) {
+            self.trust_requester_signer(selected.device);
         }
     }
     fn trust_requester_signer(&mut self, approver: Uuid) {

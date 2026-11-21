@@ -6,6 +6,9 @@ mod conflict_tests;
 #[cfg(unix)]
 #[path = "server_mirror_join_tests.rs"]
 mod mirror_join_tests;
+#[cfg(unix)]
+#[path = "server_private_approval_tests.rs"]
+mod private_approval_tests;
 use super::doctor::loopback_check;
 use super::enable_sync::{adopt_holds_refusal, sync_e2e};
 use super::holds::hold_summary;

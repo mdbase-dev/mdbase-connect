@@ -244,7 +244,7 @@ impl CollectionHost {
         }
     }
 
-    /// The running runtime, if serving.
+    /// The opened runtime, which may not yet be ready to serve.
     pub fn runtime(&self) -> Option<Arc<crate::runtime::Runtime>> {
         self.runtime.as_ref()?.get()?.as_ref().ok().cloned()
     }
@@ -746,6 +746,20 @@ impl CollectionHost {
             self.state(),
             CollectionState::Ready | CollectionState::Moving
         )
+    }
+
+    /// Approval can make an opened Private replica ready, but cannot serve requests.
+    pub(crate) fn private_requester_runtime(&self) -> Option<Arc<crate::runtime::Runtime>> {
+        if self.entry.mode != SyncMode::SyncedE2e
+            || self.cancel.load(Ordering::SeqCst)
+            || !matches!(
+                self.state(),
+                CollectionState::Opening | CollectionState::Ready | CollectionState::Moving
+            )
+        {
+            return None;
+        }
+        self.runtime()
     }
 
     /// One supervision tick: reopen a runtime stopped for [`SYNC_INTEGRITY`] once

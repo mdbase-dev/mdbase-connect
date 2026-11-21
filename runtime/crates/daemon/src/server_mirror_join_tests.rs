@@ -20,7 +20,7 @@ use crate::takeover::mirror_import::tests::hosted_mirror::{self, BINARY, HOSTED,
 
 use crate::takeover::tests::old_agent;
 
-const CP_LABEL: &str = "conformance";
+pub(super) const CP_LABEL: &str = "conformance";
 const ACCOUNT: &str = "11111111-1111-4111-8111-111111111111";
 const CONNECTOR: &str = "22222222-2222-4222-8222-222222222222";
 
@@ -37,7 +37,12 @@ fn hex32(h: &str) -> [u8; 32] {
 }
 
 /// A device log token from the test control plane's issuer, bound to `sign_pk`.
-fn device_token(device: [u8; 16], sign_pk: [u8; 32], collection: [u8; 16], exp: i64) -> String {
+pub(super) fn device_token(
+    device: [u8; 16],
+    sign_pk: [u8; 32],
+    collection: [u8; 16],
+    exp: i64,
+) -> String {
     use ed25519_dalek::Signer;
     let claims = mdbn_log_service::auth::Claims {
         control_plane: false,
@@ -198,9 +203,30 @@ impl GrantSource for NoGrants {
 }
 
 /// Create the collection's log with the control plane's own credential.
-async fn create_log(log: &str, cp: &ControlPlane, c: Uuid, genesis: Vec<u8>) {
-    use futures_util::{SinkExt, StreamExt};
+pub(super) async fn create_log(log: &str, cp: &ControlPlane, c: Uuid, genesis: Vec<u8>) {
     use mdbn_wire::cbor::Cbor;
+    use mdbn_wire::schema::Wire;
+    admin_log_rpc(
+        log,
+        cp,
+        c,
+        "create_log",
+        Cbor::Map(vec![
+            (Cbor::Uint(0), c.to_cbor()),
+            (Cbor::Uint(1), Cbor::Bytes(genesis)),
+        ]),
+    )
+    .await;
+}
+
+pub(super) async fn admin_log_rpc(
+    log: &str,
+    cp: &ControlPlane,
+    c: Uuid,
+    method: &str,
+    params: mdbn_wire::cbor::Cbor,
+) -> mdbn_wire::cbor::Cbor {
+    use futures_util::{SinkExt, StreamExt};
     use mdbn_wire::log_service::{LsFrame, LsRequest};
     use mdbn_wire::schema::Wire;
     use tokio_tungstenite::tungstenite::Message;
@@ -242,11 +268,8 @@ async fn create_log(log: &str, cp: &ControlPlane, c: Uuid, genesis: Vec<u8>) {
     }
     let frame = LsFrame::Request(LsRequest {
         id: 1,
-        method: "create_log".into(),
-        params: Cbor::Map(vec![
-            (Cbor::Uint(0), c.to_cbor()),
-            (Cbor::Uint(1), Cbor::Bytes(genesis)),
-        ]),
+        method: method.into(),
+        params,
     });
     ws.send(Message::Binary(frame.to_bytes().unwrap().into()))
         .await
@@ -254,14 +277,18 @@ async fn create_log(log: &str, cp: &ControlPlane, c: Uuid, genesis: Vec<u8>) {
     loop {
         if let Some(Ok(Message::Binary(b))) = ws.next().await
             && let Ok(LsFrame::Response(r)) = LsFrame::from_bytes(&b)
+            && r.id == 1
         {
-            assert!(r.error.is_none(), "create_log: {:?}", r.error);
-            break;
+            assert!(r.error.is_none(), "{method}: {:?}", r.error);
+            return r.result.unwrap();
         }
     }
 }
 
-async fn record_doc(rt: &Arc<crate::runtime::Runtime>, key: &str) -> Option<(String, String)> {
+pub(super) async fn record_doc(
+    rt: &Arc<crate::runtime::Runtime>,
+    key: &str,
+) -> Option<(String, String)> {
     use crate::takeover::mirror_import::Target;
     let mut t = HostTarget { rt: rt.clone() };
     t.get(key).await.unwrap().map(|c| (c.path, c.document))
