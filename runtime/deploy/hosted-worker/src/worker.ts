@@ -34,7 +34,7 @@ import { withDeadline } from "./deadline.ts";
 import { attachmentSlots, ChunkBusy, type ChunkPermit } from "./chunk-slots.ts";
 import { deploymentLog, pumpLog, PumpReport, SpareNonces, StaleAppendStore, type CallTimings } from "./log.js";
 import { DENY_ADMISSION, DENY_CUSTODY, DENY_WRAPPER, type Admission, type Custody, type OpenKeys } from "./seams.js";
-import { distinctServiceTokens, generateServiceDevice, serviceActivation, serviceCollection } from "./service-devices.js";
+import { distinctServiceTokens, generateServiceDevice, serviceActivation, serviceCollection, serviceInitialization } from "./service-devices.js";
 import { PitrCut, PitrWork } from "./pitr-cut.ts";
 import { PitrActorRestriction } from "./pitr-actor.ts";
 import { pitrFactory, type PitrFactorySettings } from "./pitr-factory.ts";
@@ -1518,6 +1518,38 @@ export class HostedCollection extends DurableObject<Env> {
         return json(500, { error: "migration_run_failed", ...labRawError(this.env.LAB, error) });
       }
     }
+    if (url.pathname === "/v1/hosted/initialize") {
+      if (this.escrow) return new Response("not found", { status: 404 });
+      const input = await serviceInitialization(request, (this.env as Env & { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      if (input.collection !== collection) return new Response("bad collection", { status: 400 });
+      this.noteActivity();
+      const headers = { "cache-control": "no-store" };
+      const pending = () => Response.json({ error: "initialization_not_confirmed" }, { status: 503, headers });
+      try {
+        const engine = await this.ready(collection);
+        const generation = this.logGen;
+        const current = () => this.engine === engine && this.logGen === generation && !request.signal.aborted;
+        engine.requestHead();
+        await this.sync(engine);
+        if (!current()) return pending();
+        let status = engine.initializeCollection(input.request_id, input.timezone, true);
+        if (status === 0) {
+          await this.sync(engine);
+          if (!current()) return pending();
+          status = engine.initializeCollection(input.request_id, input.timezone, false);
+        }
+        if (status === 1) return Response.json({ initialized: true, collection, request_id: input.request_id }, { headers });
+        if (status === 2) return Response.json({ error: "initialization_refused" }, { status: 409, headers });
+        return pending();
+      } catch (error) {
+        if (this.lastingRefusal(error)) {
+          await this.retireForVerdict(error);
+          return verdictAnswer(error);
+        }
+        return pending();
+      }
+    }
     if (url.pathname === "/v1/hosted/activate") {
       const approved = await serviceCollection(request, (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
       if (approved instanceof Response) return approved;
@@ -1885,6 +1917,19 @@ export default {
         method: "POST", headers, body: JSON.stringify(input),
       }));
     }
+    if (url.pathname === "/internal/v1/collections/initialize") {
+      if (kind !== "hosted") return new Response("not found", { status: 404 });
+      const input = await serviceInitialization(request, e.HOSTED_SERVICE_TOKEN);
+      if (input instanceof Response) return input;
+      const { region, ...body } = input;
+      const stub = namedStub(env.COLLECTIONS, input.collection, region ?? hint);
+      const headers = new Headers(request.headers);
+      headers.delete("content-length");
+      return stub.fetch(new Request(`${url.origin}/v1/hosted/initialize?collection=${input.collection}`, {
+        method: "POST", headers, body: JSON.stringify(body), signal: request.signal,
+      }));
+    }
+    if (url.pathname === "/v1/hosted/initialize") return new Response("not found", { status: 404 });
     if (url.pathname === "/internal/v1/collections/activate") {
       const activation = await serviceActivation(request, e.HOSTED_SERVICE_TOKEN);
       if (activation instanceof Response) return activation;

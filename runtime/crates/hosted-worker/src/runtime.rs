@@ -19,6 +19,8 @@
 use std::collections::BTreeMap;
 
 mod cpp_claim;
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) mod initialization;
 pub(crate) use cpp_claim::{ConfiguredCppAudience, CppClaimSignRefused};
 
 use mdbn_replica::ClientApi;

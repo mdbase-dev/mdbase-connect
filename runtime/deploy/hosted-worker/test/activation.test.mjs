@@ -56,6 +56,61 @@ test("CP activation routes only the exact authenticated collection and is repeat
   assert.equal((await worker.fetch(post({}, "Bearer wrong"), env)).status, 401);
   assert.equal(seen.length, 2);
 });
+
+const requestId = "12345678-1234-4234-8234-123456789abc";
+const initialization = { collection, request_id: requestId, timezone: "UTC" };
+const initialize = (path, auth = `Bearer ${token}`, body = initialization) => new Request(`https://hosted.test${path}`, {
+  method: "POST", headers: auth ? { authorization: auth } : {}, body: JSON.stringify(body),
+});
+const internalInitialization = "/internal/v1/collections/initialize";
+const actorInitialization = `/v1/hosted/initialize?collection=${collection}`;
+
+test("initialization requires the hosted service identity before routing or touching the actor", async () => {
+  const { o } = object();
+  o.ready = () => assert.fail("refused initialization must not open custody");
+  const env = { HOSTED_SERVICE_TOKEN: token, COLLECTIONS: { idFromName: () => assert.fail("refused request routed") } };
+  for (const auth of [null, "Bearer wrong"]) {
+    assert.equal((await worker.fetch(initialize(internalInitialization, auth), env)).status, 401);
+    assert.equal((await o.fetch(initialize(actorInitialization, auth))).status, 401);
+  }
+  assert.equal((await worker.fetch(initialize(actorInitialization), env)).status, 404);
+  assert.equal((await worker.fetch(initialize(internalInitialization), { ...env, SERVICE_KIND: "escrow" })).status, 404);
+  assert.equal((await object(true).o.fetch(initialize(actorInitialization))).status, 404);
+  assert.equal((await o.fetch(initialize(actorInitialization, undefined, { ...initialization, collection: requestId }))).status, 400);
+  assert.equal((await worker.fetch(initialize(internalInitialization, undefined, { ...initialization, request_id: "bogus" }), env)).status, 400);
+});
+
+test("only the distinct initialization route drives the log confirmation barrier", async () => {
+  const { o } = object();
+  let outcome = 0;
+  const calls = [];
+  const engine = {
+    refresh() {}, requestHead() {},
+    initializeCollection(request, timezone, start) {
+      assert.equal(request, requestId);
+      assert.equal(timezone, "UTC");
+      calls.push(start);
+      return start ? 0 : outcome;
+    },
+  };
+  o.noteActivity = () => {};
+  o.ready = async () => { o.engine = engine; return engine; };
+  o.sync = async () => {};
+  const placements = [];
+  const env = { HOSTED_SERVICE_TOKEN: token, COLLECTIONS: {
+    idFromName(id) { assert.equal(id, collection); return id; },
+    get(_id, placement) { placements.push(placement); return { fetch: request => o.fetch(request) }; },
+  } };
+  assert.deepEqual(await (await worker.fetch(post(), env)).json(), { activated: true });
+  assert.deepEqual(calls, []);
+  assert.equal((await worker.fetch(initialize(internalInitialization), env)).status, 503);
+  outcome = 1;
+  assert.deepEqual(await (await worker.fetch(initialize(internalInitialization, undefined, { ...initialization, region: "oc" }), env)).json(), {
+    initialized: true, collection, request_id: requestId,
+  });
+  assert.deepEqual(calls, [true, false, true, false]);
+  assert.deepEqual(placements, [undefined, undefined, { locationHint: "oc" }]);
+});
 test("both service roles persist reopen identity and an alarm before failed custody", async () => {
   for (const escrow of [false, true]) {
     const { o, data, alarm } = object(escrow);

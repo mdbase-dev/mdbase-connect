@@ -4,6 +4,7 @@
 use super::*;
 mod cpp_claim;
 mod history;
+mod initialization;
 use crate::noise_sessions::{NoiseSessions, VerifiedAppCaller};
 use crate::original_app::{MAX_ORIGINAL_POLICY_BYTES, OriginalAppPins};
 use mdbn_noise::{Initiator, public_key};
@@ -34,12 +35,7 @@ fn caller(server: [u8; 32]) -> VerifiedAppCaller {
     noise.app_caller(h).unwrap()
 }
 
-fn fixture() -> (
-    FakeLogService,
-    TestControlPlane,
-    OriginalAppPins,
-    VerifiedAppCaller,
-) {
+fn genesis_fixture() -> (FakeLogService, TestControlPlane) {
     let svc = FakeLogService::new();
     let mut cp = TestControlPlane::signed(COL);
     cp.append(
@@ -76,6 +72,16 @@ fn fixture() -> (
             }),
         ],
     );
+    (svc, cp)
+}
+
+fn fixture() -> (
+    FakeLogService,
+    TestControlPlane,
+    OriginalAppPins,
+    VerifiedAppCaller,
+) {
+    let (svc, mut cp) = genesis_fixture();
     let raw_genesis = svc.items(&COL)[0].clone();
     let genesis = Item::from_bytes(&raw_genesis).unwrap();
     let payload = PolicyPayload::from_bytes(&genesis.body.0).unwrap();

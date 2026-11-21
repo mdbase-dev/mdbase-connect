@@ -64,6 +64,7 @@ interface Exports extends WebAssembly.Exports {
   hd_migration_settlement_confirmed(h:number):number;
   mig_resolve(p: number, n: number): bigint;
   hd_serving(): number;
+  hd_initialize_collection(p: number, n: number, start: number): number;
   hd_needs_reset(): number;
   hd_requires_reopen(): number;
   hd_pin_state(): number;
@@ -812,6 +813,11 @@ export class Engine {
    * other writers appended, such as the control plane's migration cutover. */
   requestHead(): boolean {
     return this.ex.hd_log_request_head() === 1;
+  }
+
+  initializeCollection(requestId: string, timezone: string, start: boolean): number {
+    const id = Uint8Array.from(requestId.replaceAll("-", "").match(/../g)!, pair => Number.parseInt(pair, 16));
+    return this.ex.hd_initialize_collection(...this.put(encode([id, timezone])), Number(start));
   }
 
   // ---------------------------------------------------- app sessions (Noise)
