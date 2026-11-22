@@ -47,7 +47,7 @@ pub struct CollectionHost {
     mirror_closed: Arc<std::sync::Mutex<Option<crate::takeover::mirror_driver::Diagnostic>>>,
     /// Last allowlisted terminal incident; retained after the actor stops.
     last_sync_failure: crate::sync_failure::Shared,
-    /// Automatic reopening after a `sync_integrity` stop.
+    /// Automatic reopening after a `sync_integrity` stop or a storage fence.
     recovery: Recovery,
 }
 
@@ -55,61 +55,125 @@ pub struct CollectionHost {
 /// incident (`runtime::synced_ready`).
 pub const SYNC_INTEGRITY: &str = "sync_integrity";
 
-/// Waits before each automatic reopen after a [`SYNC_INTEGRITY`] stop, by attempt;
-/// later attempts repeat the last. The replica raises these incidents for
-/// conditions it retries itself and for faults it documents as lasting until it
-/// is reopened, so a stop is never final: a reopen re-verifies the log and the
-/// local state, and a persistent fault only stops it again.
-const RECOVERY_BACKOFF: [std::time::Duration; 4] = [
+/// The replica fenced itself after a fault of its own storage
+/// ([`mdbn_replica::Fence::Store`]). The collection reports `opening` while it
+/// is reopened; this is its status reason only once [`FENCE_REOPENS`] reopens
+/// fenced again with the same cause and automatic reopening stopped.
+pub const STORAGE_FAULT: &str = "storage_fault";
+
+/// Waits before each automatic reopen, by step; later steps repeat the last.
+/// A fenced collection reopens at once on its first attempt (step = attempts);
+/// a [`SYNC_INTEGRITY`] stop starts one step in (step = attempts + 1). The
+/// replica raises those incidents for conditions it retries itself and for
+/// faults it documents as lasting until it is reopened, so such a stop is never
+/// final: a reopen re-verifies the log and the local state, and a persistent
+/// fault only stops it again.
+const RECOVERY_BACKOFF: [std::time::Duration; 5] = [
+    std::time::Duration::ZERO,
     std::time::Duration::from_secs(10),
     std::time::Duration::from_secs(60),
     std::time::Duration::from_secs(5 * 60),
     std::time::Duration::from_secs(30 * 60),
 ];
 
-/// When a host stopped for [`SYNC_INTEGRITY`] reopens next.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+/// Automatic reopens a storage fence gets: when the reopened replica fences
+/// again with the same cause this many times without serving in between, the
+/// collection stays [`STORAGE_FAULT`] until `mdbase collection resume`.
+const FENCE_REOPENS: u32 = 3;
+
+/// Why a host stopped, for [`Recovery::step`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Stop<'a> {
+    /// Failed for [`SYNC_INTEGRITY`].
+    Integrity,
+    /// Fenced by its own storage, with the fence's cause.
+    Fenced(&'a str),
+}
+
+/// When a stopped host reopens next.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
 struct Recovery {
     /// Reopens since the collection last served.
     attempts: u32,
     /// When the next reopen is due; set when the stop is first observed.
     due: Option<std::time::Instant>,
+    /// The last fence's cause, and how many stops in a row ended with it.
+    fenced: Option<(String, u32)>,
 }
 
 impl Recovery {
     /// One observation. Serving resets the policy; a stop schedules a reopen
     /// after the backoff for the attempts so far, and returns the attempt number
-    /// once it is due. Anything else (opening, paused, other failures) waits.
-    fn step(&mut self, stopped: bool, serving: bool, now: std::time::Instant) -> Option<u32> {
+    /// once it is due. Anything else (opening, paused, other failures) waits,
+    /// and so does a fence that has used up its reopens ([`Self::gave_up`]).
+    fn step(
+        &mut self,
+        stop: Option<Stop<'_>>,
+        serving: bool,
+        now: std::time::Instant,
+    ) -> Option<u32> {
         if serving {
             *self = Recovery::default();
             return None;
         }
-        if !stopped {
-            return None;
-        }
-        let wait = RECOVERY_BACKOFF[(self.attempts as usize).min(RECOVERY_BACKOFF.len() - 1)];
-        let due = *self.due.get_or_insert(now + wait);
-        if now < due {
+        let stop = stop?;
+        let due = match self.due {
+            Some(due) => due,
+            // The first observation of this stop.
+            None => {
+                let step = match stop {
+                    Stop::Integrity => {
+                        self.fenced = None;
+                        self.attempts as usize + 1
+                    }
+                    Stop::Fenced(cause) => {
+                        let repeats = match &self.fenced {
+                            Some((last, n)) if last == cause => n + 1,
+                            _ => 1,
+                        };
+                        self.fenced = Some((cause.to_owned(), repeats));
+                        self.attempts as usize
+                    }
+                };
+                *self
+                    .due
+                    .insert(now + RECOVERY_BACKOFF[step.min(RECOVERY_BACKOFF.len() - 1)])
+            }
+        };
+        if self.gave_up() || now < due {
             return None;
         }
         self.attempts += 1;
         self.due = None;
         Some(self.attempts)
     }
+
+    /// The same storage fence ended the stop before each of the last
+    /// [`FENCE_REOPENS`] reopens too: reopening again would only repeat it.
+    fn gave_up(&self) -> bool {
+        self.fenced
+            .as_ref()
+            .is_some_and(|(_, n)| *n > FENCE_REOPENS)
+    }
 }
 
 /// One readiness observation as a state (terminal reasons are kept).
-fn readiness_of(verdict: Result<bool, &'static str>) -> Readiness {
+fn readiness_of(
+    verdict: Result<bool, &'static str>,
+    s: &mdbn_wire::client::SyncStatus,
+) -> Readiness {
     match verdict {
         Ok(true) => Readiness::Ready,
         Ok(false) => Readiness::Pending,
+        Err(STORAGE_FAULT) => {
+            Readiness::Fenced(crate::sync_failure::log_detail(s).unwrap_or_default())
+        }
         Err(reason) => Readiness::Failed(reason),
     }
 }
 
 /// Whether an opened synced runtime may serve.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Readiness {
     /// Not yet (or a local runtime, which needs no gate).
     Pending,
@@ -119,6 +183,10 @@ enum Readiness {
     Ready,
     /// Never: the runtime was stopped (the reason is a status reason).
     Failed(&'static str),
+    /// The runtime was stopped because its replica fenced itself after a fault
+    /// of its own storage, with the fence's cause (sanitised, bounded): reopened
+    /// by [`Recovery`], never retained as a sync failure.
+    Fenced(String),
 }
 
 /// Filled once by the background opener: the runtime, or why it did not open.
@@ -435,7 +503,7 @@ impl CollectionHost {
                                 if cancel.load(Ordering::SeqCst) {
                                     return;
                                 }
-                                let Some((s, caught_up, adopt)) = rt.readiness().await else {
+                                let Some((s, caught_up, adopt, fence)) = rt.readiness().await else {
                                     return; // stopped
                                 };
                                 let deleted = tokens.terminal_reason() == Some("collection_deleted") || s.incidents.iter().any(|i| i.kind == mdbn_wire::client::IncidentKind::Gone);
@@ -460,7 +528,7 @@ impl CollectionHost {
                                                     Err(e) => tracing::warn!(collection = %id, error = %e, "adopt journal not removed"),
                                                 }
                                             }
-                                            readiness_of(crate::runtime::synced_ready(&s, caught_up, offline))
+                                            readiness_of(crate::runtime::synced_ready(&s, fence, caught_up, offline), &s)
                                         }
                                     }
                                 };
@@ -512,9 +580,17 @@ impl CollectionHost {
                                     notify(); // persisted=true/false is now final
                                     return;
                                 }
+                                if let Readiness::Fenced(cause) = &now {
+                                    tracing::warn!(
+                                        collection = %id,
+                                        cause = cause.as_str(),
+                                        confirmed_through = s.confirmed_through,
+                                        "collection stopped: its replica fenced itself after a storage fault; reopening it"
+                                    );
+                                }
                                 if now != last {
                                     if let Ok(mut g) = ready.lock() {
-                                        *g = now;
+                                        *g = now.clone();
                                     }
                                     // Serving again: an earlier stop is resolved.
                                     if now == Readiness::Ready
@@ -523,10 +599,10 @@ impl CollectionHost {
                                         tracing::info!(collection = %id, "collection serves again; last sync failure cleared");
                                         crate::sync_failure::clear(&last_sync_failure, &failure_dir);
                                     }
-                                    last = now;
+                                    last = now.clone();
                                     notify();
                                 }
-                                if let Readiness::Failed(_) = now {
+                                if let Readiness::Failed(_) | Readiness::Fenced(_) = now {
                                     rt.stop().await;
                                     return;
                                 }
@@ -753,10 +829,14 @@ impl CollectionHost {
             (CollectionState::Opening, Some(Some(Ok(_)))) if self.entry.mode == SyncMode::Local => {
                 (CollectionState::Ready, None)
             }
-            (CollectionState::Opening, Some(Some(Ok(_)))) => match self.ready.lock().map(|g| *g) {
+            (CollectionState::Opening, Some(Some(Ok(_)))) => match self.ready.lock().as_deref() {
                 Ok(Readiness::Ready) => (CollectionState::Ready, None),
-                Ok(Readiness::Failed(reason)) => (CollectionState::Failed, Some(reason.into())),
+                Ok(Readiness::Failed(reason)) => (CollectionState::Failed, Some((*reason).into())),
+                Ok(Readiness::Fenced(_)) if self.recovery.gave_up() => {
+                    (CollectionState::Failed, Some(STORAGE_FAULT.into()))
+                }
                 Ok(Readiness::Adopting) => (CollectionState::Opening, Some("adopting".into())),
+                // Fenced: reopened by the supervisor, at once the first time.
                 _ => (CollectionState::Opening, None),
             },
             (CollectionState::Opening, Some(Some(Err(e))))
@@ -823,9 +903,29 @@ impl CollectionHost {
             return None;
         }
         let (state, reason) = self.current();
-        let stopped = state == CollectionState::Failed && reason.as_deref() == Some(SYNC_INTEGRITY);
-        let attempt = self.recovery.step(stopped, self.is_serving(), now)?;
-        tracing::warn!(collection = %self.entry.id, attempt, "reopening a collection stopped by a sync incident");
+        let fenced = self.fenced();
+        let stop = match &fenced {
+            Some(cause) => Some(Stop::Fenced(cause)),
+            None if state == CollectionState::Failed
+                && reason.as_deref() == Some(SYNC_INTEGRITY) =>
+            {
+                Some(Stop::Integrity)
+            }
+            None => None,
+        };
+        let gave_up = self.recovery.gave_up();
+        let attempt = self.recovery.step(stop, self.is_serving(), now);
+        if !gave_up && self.recovery.gave_up() {
+            tracing::error!(
+                collection = %self.entry.id,
+                reopens = FENCE_REOPENS,
+                cause = fenced.as_deref().unwrap_or_default(),
+                "collection fenced itself again with the same storage fault after every automatic reopen; \
+                 left stopped until `mdbase collection resume`"
+            );
+        }
+        let attempt = attempt?;
+        tracing::warn!(collection = %self.entry.id, attempt, "reopening a stopped collection");
         self.state = state;
         self.reason = reason;
         Some(self.begin_stop())
@@ -838,6 +938,21 @@ impl CollectionHost {
         }
     }
 
+    /// The cause of the storage fence that stopped this host's opened runtime,
+    /// if one did.
+    fn fenced(&self) -> Option<String> {
+        if !matches!(
+            self.runtime.opener().map(|o| o.slot.get()),
+            Some(Some(Ok(_)))
+        ) {
+            return None;
+        }
+        match &*self.ready.lock().ok()? {
+            Readiness::Fenced(cause) => Some(cause.clone()),
+            _ => None,
+        }
+    }
+
     /// Only the registration that still owns this completed stop may reopen.
     /// Keep its backoff, diagnostic and live grant source across the new open.
     pub(crate) fn next_after_stop(&self, stop: &HostStop) -> Option<Self> {
@@ -846,7 +961,7 @@ impl CollectionHost {
         }
         Some(Self {
             grants: self.grants.clone(),
-            recovery: self.recovery,
+            recovery: self.recovery.clone(),
             other_devices_online: self.other_devices_online,
             ..Self::closed(
                 self.entry.clone(),
@@ -985,14 +1100,27 @@ impl CollectionHost {
                     e.id
                 ),
             });
-        } else if self.recovery.attempts > 0 && self.current().0 == CollectionState::Opening {
+        } else if self.current().1.as_deref() == Some(STORAGE_FAULT) {
+            notices.push(Notice {
+                path: None,
+                code: STORAGE_FAULT.into(),
+                message: format!(
+                    "Sync stopped: this collection's storage on this computer failed the same \
+                     way after {FENCE_REOPENS} automatic reopens ({}). Check this computer's \
+                     disk, free space and keychain, then run `mdbase collection resume {}`.",
+                    self.fenced().unwrap_or_default(),
+                    e.id
+                ),
+            });
+        } else if self.current().0 == CollectionState::Opening
+            && (self.recovery.attempts > 0 || self.fenced().is_some())
+        {
+            // A fenced runtime is about to reopen; a reopened one is opening.
+            let attempt = self.recovery.attempts + u32::from(self.fenced().is_some());
             notices.push(Notice {
                 path: None,
                 code: "sync_reopening".into(),
-                message: format!(
-                    "Reopening after sync stopped (attempt {}).",
-                    self.recovery.attempts
-                ),
+                message: format!("Reopening after sync stopped (attempt {attempt})."),
             });
         }
         if let Ok(closed) = self.mirror_closed.lock()

@@ -1001,8 +1001,8 @@ struct Observed {
 /// after the status is read, so `in_place` cannot predate the reported state.
 async fn observe(rt: &Runtime, t0: Instant, file: Option<(&Path, &[u8])>) -> Observed {
     use mdbn_daemon::control::CollectionState as S;
-    let (status, caught_up, _) = rt.readiness().await.expect("runtime stopped");
-    let serving = match mdbn_daemon::runtime::synced_ready(&status, caught_up, false) {
+    let (status, caught_up, _, fence) = rt.readiness().await.expect("runtime stopped");
+    let serving = match mdbn_daemon::runtime::synced_ready(&status, fence, caught_up, false) {
         Ok(true) => S::Ready,
         Ok(false) => S::Opening,
         Err(reason) => panic!("terminal readiness {reason}"),

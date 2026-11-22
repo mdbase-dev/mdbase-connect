@@ -100,14 +100,23 @@ pub fn cached_eligibility(
 /// and no missing epoch key, and then either: online, having read up to the head
 /// heard in this connection (`caught_up`); or, only while not online, the verified
 /// cached membership checked before open (`cached`).
+///
+/// A replica fenced by its own storage ([`mdbn_replica::Fence::Store`]) is
+/// [`crate::collections::STORAGE_FAULT`], to be reopened: its `integrity`
+/// incident is then that fault's cause, which the replica keeps there, not a
+/// problem of the log. Every other terminal incident still decides first. A
+/// genesis fence is the log's integrity problem: `sync_integrity`.
 pub fn synced_ready(
     s: &mdbn_wire::client::SyncStatus,
+    fence: Option<mdbn_replica::Fence>,
     caught_up: bool,
     cached: bool,
 ) -> Result<bool, &'static str> {
+    use mdbn_replica::Fence;
     use mdbn_wire::client::{Connection, IncidentKind as K};
     for i in &s.incidents {
         match i.kind {
+            K::Integrity if fence == Some(Fence::Store) => {}
             K::Integrity | K::VerificationMismatch | K::KeyInconsistent => {
                 return Err(crate::collections::SYNC_INTEGRITY);
             }
@@ -116,6 +125,11 @@ pub fn synced_ready(
             K::UpgradeRequired => return Err("sync_upgrade_required"),
             _ => {}
         }
+    }
+    match fence {
+        Some(Fence::Store) => return Err(crate::collections::STORAGE_FAULT),
+        Some(Fence::Genesis) => return Err(crate::collections::SYNC_INTEGRITY),
+        None => {}
     }
     if s.confirmed_through == 0 || s.incidents.iter().any(|i| i.kind == K::WaitingForKey) {
         return Ok(false);

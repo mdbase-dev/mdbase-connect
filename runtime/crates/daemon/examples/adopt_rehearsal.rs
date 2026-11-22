@@ -108,7 +108,7 @@ async fn main() {
             println!("OPEN {}ms", ms(t0));
             let mut last = String::new();
             loop {
-                let (s, _, adopt) = rt.readiness().await.expect("runtime stopped");
+                let (s, _, adopt, _) = rt.readiness().await.expect("runtime stopped");
                 let now = format!(
                     "{:?} confirmed={} pending={} holds={}",
                     adopt, s.confirmed_through, s.pending, s.holds

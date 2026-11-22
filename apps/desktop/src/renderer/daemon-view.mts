@@ -144,8 +144,9 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     mode: MODES[collection.mode] ?? collection.mode,
     canEnableSync: collection.mode === "local" && collection.state === "ready",
     // A collection stopped by a sync consistency check reopens on its own; Resume retries it now.
+    // One left stopped by a repeating storage fault reopens only when resumed.
     canResume: (collection.state === "paused" && collection.reason !== "private_sync_pending" && collection.reason !== "collection_deleted")
-      || (collection.state === "failed" && collection.reason === "sync_integrity"),
+      || (collection.state === "failed" && (collection.reason === "sync_integrity" || collection.reason === "storage_fault")),
     paused: collection.state === "paused",
     holds
   };
@@ -171,8 +172,8 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     case "failed": {
       // The daemon owns the recovery instructions, including the manual rejoin
       // boundary. Keep its notice intact through the existing status projection.
-      const recovery = collection.reason === "sync_revoked"
-        ? collection.notices?.find((notice) => notice.code === "sync_revoked")?.message
+      const recovery = collection.reason === "sync_revoked" || collection.reason === "storage_fault"
+        ? collection.notices?.find((notice) => notice.code === collection.reason)?.message
         : undefined;
       return { ...base, status: t(i18n)`Stopped`, detail: t(i18n)`${recovery ?? reasonText(collection.reason) ?? missingOpenReason()} Your files are untouched.` };
     }
