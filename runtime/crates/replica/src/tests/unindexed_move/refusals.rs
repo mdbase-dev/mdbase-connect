@@ -107,7 +107,7 @@ fn native_move_recovery_refuses_lifecycle_authority_and_fence_drift_without_reso
             "policy_ahead" => a.r.policy.seq = a.r.head().seq + 1,
             "not_caught_up" => a.r.caught_up = false,
             "blocked" => a.r.apply_blocked = Some(a.r.head().seq + 1),
-            "fault" => a.r.apply_fault = true,
+            "fault" => a.r.apply_fault = Some(crate::Fence::Store),
             "rekey" => a.r.policy.rekey_required = true,
             "lost_control" => a.r.latch.frozen = true,
             "path" => {

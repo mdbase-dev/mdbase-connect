@@ -176,7 +176,7 @@ pub(crate) enum Inflight {
 impl<S: Store> Replica<S> {
     /// Drive the loop: read if behind, otherwise plan and send a batch.
     pub(crate) fn pump(&mut self) {
-        if self.apply_fault || self.install.is_some() || self.hosted_blocked() {
+        if self.apply_fault.is_some() || self.install.is_some() || self.hosted_blocked() {
             return;
         }
         self.retire_completed_setups();
@@ -237,7 +237,7 @@ impl<S: Store> Replica<S> {
     }
 
     pub(crate) fn request_read(&mut self) {
-        if self.apply_fault
+        if self.apply_fault.is_some()
             || self.hosted_reindex_pending()
             || self.reading
             || self.unindexed_sources.pending()
@@ -1543,7 +1543,7 @@ impl<S: Store> Replica<S> {
                     return;
                 }
                 self.apply_items(r.items);
-                if self.apply_fault {
+                if self.apply_fault.is_some() {
                     return;
                 }
                 if self.rolling_back() {
@@ -1613,7 +1613,9 @@ impl<S: Store> Replica<S> {
         if let Some(hosted) = self.hosted.as_mut() {
             hosted.applied_since_tick = 0;
         }
-        if !self.apply_fault && self.hosted_reindex_pending() && self.hosted_reindex_step().is_err()
+        if self.apply_fault.is_none()
+            && self.hosted_reindex_pending()
+            && self.hosted_reindex_step().is_err()
         {
             self.terminal_store_fault("hosted_record_reindex_failed");
         }
@@ -1631,7 +1633,7 @@ impl<S: Store> Replica<S> {
         self.prune_hosted_uploads();
         // An unlock's control read-ahead retries after transport trouble.
         self.account_key_ahead_step();
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             self.flush_status();
             return;
         }
@@ -1688,7 +1690,7 @@ impl<S: Store> Replica<S> {
                 if include_stall_probe
                     && !self.reading
                     && !self.local_only()
-                    && !self.apply_fault
+                    && self.apply_fault.is_none()
                     && self.install.is_none()
                     && !self.hosted_blocked()
                     && self.log_move == LogMove::None
@@ -1710,7 +1712,7 @@ impl<S: Store> Replica<S> {
         let native_blob = self.unindexed_blob_fetches.next_wakeup();
         [
             append,
-            (!self.apply_fault
+            (self.apply_fault.is_none()
                 && self.hosted.as_ref().is_some_and(|hosted| {
                     hosted.reindex_stamp.is_some()
                         || (hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS
@@ -1783,7 +1785,7 @@ impl<S: Store> Replica<S> {
         provenance: Option<super::log_session::MatchedLogReply>,
     ) {
         self.forget_log_reply_scope(id);
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return;
         }
         let Some(kind) = self.inflight.remove(&id) else {
@@ -1918,7 +1920,7 @@ impl<S: Store> Replica<S> {
         if matches!(&push, LogPush::Disconnected) {
             self.attachment_read_retire_transport();
         }
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return;
         }
         match push {

@@ -227,7 +227,7 @@ fn queued_expired_owned_put_is_retired_before_legacy_send_even_during_fault() {
     let id = B16([0xe8; 16]);
     start(&mut h, a, "files/late.bin", id).unwrap();
     h.clock.set(h.clock.get() + 60_000);
-    h.r.apply_fault = true;
+    h.r.apply_fault = Some(crate::Fence::Store);
     h.r.tick();
     assert!(
         h.r.take_log_calls()

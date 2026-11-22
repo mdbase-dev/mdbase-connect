@@ -318,7 +318,7 @@ impl<S: Store> Replica<S> {
         // A control-read failure may have an unknown committed outcome. Do not
         // issue a staging cleanup transaction after the terminal fail-stop.
         // Known-abort recovery can still discard/refetch and finish an install.
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(StoreError::Io("apply_reopen_required".into()));
         }
         self.install_staged = Tx::default();

@@ -237,7 +237,7 @@ impl<S: Store> Replica<S> {
         self.host_only(session)?;
         let policy = self.requester_policy()?;
         if self.approval.poisoned
-            || self.apply_fault
+            || self.apply_fault.is_some()
             || self.is_apply_recovering()
             || self.install.is_some()
             || self.hosted.is_some()

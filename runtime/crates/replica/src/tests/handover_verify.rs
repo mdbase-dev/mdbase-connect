@@ -216,7 +216,7 @@ fn every_serving_verification_rebuild_repair_revocation_gate_refuses_consumer() 
                 assert!(n.r.start_device_key_rebuild());
                 assert!(n.r.keyring_rebuilding());
             }
-            11 => n.r.apply_fault = true,
+            11 => n.r.apply_fault = Some(crate::Fence::Store),
             12 => n.r.cfg.mode = SyncMode::LocalOnly,
             13 => n.r.policy.seq += 1,
             14 => n.r.install = Some(crate::replica::TestInstall::Control),

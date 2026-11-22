@@ -524,7 +524,7 @@ fn unknown_swap_outcome_is_terminal_and_never_issues_cleanup_or_retry() {
     b.r.store.fail_after_head_commit(m.seq);
     reply_install(&mut b, source, &objects, false);
     for _ in 0..16 {
-        if b.r.apply_fault {
+        if b.r.apply_fault.is_some() {
             break;
         }
         for c in b.r.take_log_calls() {
@@ -532,7 +532,7 @@ fn unknown_swap_outcome_is_terminal_and_never_issues_cleanup_or_retry() {
         }
         b.r.retry_install();
     }
-    assert!(b.r.apply_fault);
+    assert!(b.r.apply_fault.is_some());
     assert_eq!(
         b.r.store.head().unwrap().seq,
         m.seq,

@@ -1245,7 +1245,7 @@ impl<S: Store> Replica<S> {
                     && !h.needs_reset
                     && self.install.is_none()
                     && self.stalled.is_none()
-                    && !self.apply_fault
+                    && self.apply_fault.is_none()
                     && !self.is_apply_recovering()
                     // Not while a newer reported head is still unapplied.
                     && self.head.seq >= self.head_known
@@ -1350,8 +1350,8 @@ impl<S: Store> Replica<S> {
             }
             // Cached GENESIS/POLICY metadata is not the raw identity of the log
             // being replayed. Check the host's pin before decoding or importing keys.
-            if self.check_genesis(it.seq, &it.item.0).is_err() {
-                self.genesis_fault();
+            if let Err(why) = self.check_genesis(it.seq, &it.item.0) {
+                self.genesis_fault(why);
                 return;
             }
             let Ok(item) = Item::from_bytes(&it.item.0) else {
@@ -1432,7 +1432,7 @@ impl<S: Store> Replica<S> {
             ..Default::default()
         };
         if self.commit_with_read_health(None, tx).is_err()
-            || self.apply_fault
+            || self.apply_fault.is_some()
             || self.is_apply_recovering()
         {
             return self.hosted_reset_required("original history commit/read health unavailable");
@@ -1480,7 +1480,7 @@ impl<S: Store> Replica<S> {
         let ready = self.caught_up
             && self.install.is_none()
             && self.stalled.is_none()
-            && !self.apply_fault
+            && self.apply_fault.is_none()
             && !self.is_apply_recovering();
         let applied = self.head;
         if let Some(h) = self.hosted.as_deref_mut()

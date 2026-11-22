@@ -148,7 +148,7 @@ impl<S: Store> Replica<S> {
     }
     pub(crate) fn reverse_text_step(&mut self) {
         if self.local_only()
-            || self.apply_fault
+            || self.apply_fault.is_some()
             || self.install.is_some()
             || (self.repairing() && !self.rolling_back())
             || self.hosted_blocked()

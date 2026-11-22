@@ -353,11 +353,16 @@ fn failed_staging_cleanup_cannot_be_downgraded_to_upgrade() {
 fn terminal_apply_fault_is_not_cleared_and_no_cleanup_commit_is_issued() {
     let bad = field(&manifest().to_cbor(), 0, Cbor::Uint(2));
     let mut r = replica();
-    r.apply_fault = true;
+    r.raise_fence(crate::Fence::Store, "test fence".into());
     let commits = r.store.data().borrow().commits;
     manifest_reply(&mut r, &bad);
     assert_prior(&r, IncidentKind::Integrity, false);
-    assert!(r.apply_fault);
+    assert_eq!(
+        r.incidents.values().next().unwrap().details,
+        Some(mdbn_wire::common::Value::Text("test fence".into())),
+        "the refused install does not replace the fence's cause"
+    );
+    assert!(r.apply_fault.is_some());
     assert_eq!(r.store.data().borrow().commits, commits);
     assert_eq!(r.store.staged_rows(), 1);
 }

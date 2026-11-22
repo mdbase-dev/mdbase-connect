@@ -26,7 +26,7 @@ impl<S: Store> Replica<S> {
     }
     fn build_snapshot_body(&mut self, native: bool) -> Result<(), StoreError> {
         crate::mirror_admission::ensure_open(&self.store)?;
-        if self.apply_fault || self.is_apply_recovering() {
+        if self.apply_fault.is_some() || self.is_apply_recovering() {
             return Err(StoreError::Io("apply state is unavailable".into()));
         }
         if self.store.durability_deferred() {

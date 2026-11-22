@@ -69,11 +69,18 @@ impl<S: Store> Replica<S> {
     /// A known aborted transaction may retry normally and returns `false` here.
     /// Client sessions are closed on either fault and must reconnect/resubscribe.
     pub fn requires_reopen(&self) -> bool {
+        self.apply_fault.is_some()
+    }
+
+    /// What fenced this instance, while [`Self::requires_reopen`]. The
+    /// `integrity` incident then names the cause, not a later
+    /// `apply_reopen_required` echo.
+    pub fn fence(&self) -> Option<super::Fence> {
         self.apply_fault
     }
 
     pub(crate) fn check_apply_health(&self) -> ApiResult<()> {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(ErrorCode::Unavailable.err_with_reason(
                 "apply_reopen_required",
                 "dispose and reopen the replica from recovered durable storage",
@@ -179,7 +186,7 @@ impl<S: Store> Replica<S> {
         active_account: Uuid,
         collection: Uuid,
     ) -> Option<mdbn_wire::policy::Role> {
-        if self.apply_fault
+        if self.apply_fault.is_some()
             || collection != self.cfg.collection
             || active_account == crate::policy::SERVICE_ACCOUNT
             // a member removed in a lost window stays removed here.
@@ -231,7 +238,7 @@ impl<S: Store> Replica<S> {
     /// account, custody or Ready: hosts combine it with live verified admission, and
     /// the replica still authorizes each method/path/record itself.
     pub fn grant_authorized(&self, grant: &Uuid, client_pk: &[u8; 32]) -> bool {
-        !self.apply_fault
+        self.apply_fault.is_none()
             && !self.local_only()
             && self.policy.grant_for_client(grant, client_pk).is_some()
     }
@@ -1462,7 +1469,7 @@ impl<S: Store> ClientApi for Replica<S> {
         if self.local_only() {
             self.close_revoked_sessions();
         }
-        if self.apply_fault || self.is_apply_recovering() {
+        if self.apply_fault.is_some() || self.is_apply_recovering() {
             self.pushes.retain(|(_, p)| matches!(p, Push::Closed(_)));
         } else {
             self.flush_status();

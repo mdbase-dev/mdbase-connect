@@ -1279,7 +1279,7 @@ impl<S: Store> Replica<S> {
     /// Independent bounded hosted progress, preserving the device/external FIFO.
     pub(crate) fn attachment_upload_step(&mut self) {
         self.prune_hosted_uploads();
-        if self.log_move != super::LogMove::None || self.apply_fault {
+        if self.log_move != super::LogMove::None || self.apply_fault.is_some() {
             return;
         }
         self.drive_uploads();

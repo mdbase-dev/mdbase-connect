@@ -85,6 +85,7 @@ mod apply;
 #[cfg(test)]
 pub(crate) mod apply;
 pub(crate) mod apply_checkpoint;
+pub use apply_checkpoint::Fence;
 mod approval_peer;
 mod approval_requester;
 mod approval_runtime;
@@ -500,7 +501,9 @@ pub struct Replica<S: Store> {
     /// RAM-only actual authenticated cloud key delivery; never loaded from Store.
     pub(crate) hosted_key_delivery: Option<admission::HostedKeyDelivery>,
     pub(crate) apply_blocked: Option<u64>,
-    pub(crate) apply_fault: bool,
+    /// Set once, by the first fence, until this instance is disposed
+    /// ([`Replica::fence`]).
+    pub(crate) apply_fault: Option<Fence>,
     /// The chain hash of seq 1 as applied by this store (`None` before seq 1).
     pub(crate) genesis: Option<mdbn_wire::common::Hash>,
     /// Committed prefix changes held until the failed apply barrier is verified.
@@ -905,7 +908,7 @@ impl<S: Store> Replica<S> {
             private_switch,
             hosted_key_delivery: None,
             apply_blocked: None,
-            apply_fault: false,
+            apply_fault: None,
             genesis,
             apply_deferred_changed: BTreeSet::new(),
             log_move: LogMove::None,
@@ -1264,17 +1267,26 @@ impl<S: Store> Replica<S> {
         convert::wuuid(&mdbn_core::ids::Uuid::v7_from_parts(ms, r))
     }
 
+    /// Once fenced, the `integrity` incident is the fence's cause: every later
+    /// store call fails with `apply_reopen_required`, and those echoes neither
+    /// replace nor clear it.
     pub(crate) fn incident(
         &mut self,
         kind: IncidentKind,
         details: Option<mdbn_wire::common::Value>,
     ) {
+        if kind == IncidentKind::Integrity && self.apply_fault.is_some() {
+            return;
+        }
         self.incidents
             .insert(kind.value(), Incident { kind, details });
         self.status_dirty = true;
     }
 
     pub(crate) fn clear_incident(&mut self, kind: IncidentKind) {
+        if kind == IncidentKind::Integrity && self.apply_fault.is_some() {
+            return;
+        }
         if self.incidents.remove(&kind.value()).is_some() {
             self.status_dirty = true;
         }

@@ -366,7 +366,7 @@ fn captured_reference_and_native_pending_row_share_the_actual_capture_transactio
         frames.pump(&mut a.r);
         assert!(!frames.take_outgoing().iter().any(|(_, bytes)| matches!(ClientFrame::from_cbor(&cbor::decode(bytes).unwrap()).unwrap(), ClientFrame::Response(r) if r.id == 3 && r.result.is_some())));
         if unknown {
-            assert!(a.r.apply_fault);
+            assert!(a.r.apply_fault.is_some());
             assert!(store.meta(&key).unwrap().is_some());
             let row = store.pending_get(&mutation).unwrap().unwrap();
             let rt::Op::FileAttach(op) = &row.mutation.ops[0] else {
@@ -375,7 +375,7 @@ fn captured_reference_and_native_pending_row_share_the_actual_capture_transactio
             assert_eq!(Some(op.id), opened.file_id);
             assert_eq!(op.content.total_plain_bytes, 31);
         } else {
-            assert!(!a.r.apply_fault);
+            assert!(a.r.apply_fault.is_none());
             assert!(store.meta(&key).unwrap().is_none());
             assert!(store.pending_get(&mutation).unwrap().is_none());
             assert!(store.file(&opened.file_id.unwrap()).unwrap().is_none());
@@ -443,10 +443,10 @@ fn native_rpc_pointer_commit_abort_or_unknown_never_advertises_progress() {
         if unknown {
             // The bytes happened to commit, but unchanged cached state is no proof.
             assert!(a.r.client_resume_reference(owner).unwrap().is_some());
-            assert!(a.r.apply_fault);
+            assert!(a.r.apply_fault.is_some());
         } else {
             assert_eq!(a.r.client_resume_reference(owner).unwrap(), Some(initial));
-            assert!(!a.r.apply_fault);
+            assert!(a.r.apply_fault.is_none());
         }
     }
 }

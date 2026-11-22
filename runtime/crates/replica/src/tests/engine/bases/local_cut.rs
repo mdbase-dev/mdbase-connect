@@ -135,7 +135,7 @@ fn local_only_reads_bases_under_the_same_generation_catalogue_and_head_fence() {
                 r.submit(s, submission(vec![create])).unwrap();
                 r.tick();
             }
-            4 => r.apply_fault = true,
+            4 => r.apply_fault = Some(crate::Fence::Store),
             _ => unreachable!(),
         }
         assert!(

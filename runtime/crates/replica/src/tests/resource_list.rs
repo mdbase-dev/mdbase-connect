@@ -318,7 +318,7 @@ fn resource_list_pending_put_delete_install_and_apply_fault_refuse_before_reads(
         if install {
             a.r.install = Some(crate::replica::TestInstall::Control);
         } else {
-            a.r.apply_fault = true;
+            a.r.apply_fault = Some(crate::Fence::Store);
         }
         let before = a.r.store.data().borrow().resource_copy_limits.len();
         reason(
