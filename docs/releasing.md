@@ -185,6 +185,9 @@ and adds a keyless signature plus an mdbase release attestation that binds the
 component and source commit. Operations promotes those exact digests to staging
 and production; tag creation never rebuilds them.
 
+Before deploying the Connect server to production with billing enabled, confirm
+that `MDBASE_CONNECT_STRIPE_SECRET_KEY` is a live-mode Stripe key.
+
 Release tags are reserved only by the continuous release coordinators; never
 create one by hand.
 

@@ -370,29 +370,48 @@ describe("public runtime configuration", () => {
     })).toThrow(/invalid/);
   });
 
-  it("turns billing on only with all four Stripe settings", () => {
+  describe("Stripe billing configuration", () => {
     const local = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
     const stripe = {
-      MDBASE_CONNECT_STRIPE_SECRET_KEY: "sk_test_51Abc",
-      MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET: "whsec_0123456789abcdefABCDEF",
+      MDBASE_CONNECT_STRIPE_SECRET_KEY: "sk_test_placeholder",
+      MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET: "whsec_placeholderForTests",
       MDBASE_CONNECT_STRIPE_PLUS_MONTHLY_PRICE_ID: "price_month1",
       MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_year1"
     };
-    expect(legacyConfigFromEnv(local).billing).toBeNull();
-    expect(legacyConfigFromEnv({ ...local, ...stripe }).billing).toEqual({
-      secretKey: "sk_test_51Abc",
-      webhookSecret: "whsec_0123456789abcdefABCDEF",
-      prices: { month: "price_month1", year: "price_year1" }
+    it.each(["production", "staging", "lab", "local"])("disables billing without Stripe settings in %s", (environment) => {
+      expect(legacyConfigFromEnv({ ...local, MDBASE_CONNECT_ENVIRONMENT: environment }).billing).toBeNull();
     });
-    expect(() => legacyConfigFromEnv({
-      ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: " "
-    })).toThrow(/configured together/);
-    expect(() => legacyConfigFromEnv({
-      ...local, ...stripe, MDBASE_CONNECT_STRIPE_SECRET_KEY: "pk_test_51Abc"
-    })).toThrow("MDBASE_CONNECT_STRIPE_SECRET_KEY is invalid.");
-    expect(() => legacyConfigFromEnv({
-      ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_month1"
-    })).toThrow(/different Stripe prices/);
+
+    it.each(["sk_test_placeholder", "rk_test_placeholder"])("rejects %s in production", (secretKey) => {
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_ENVIRONMENT: "production", MDBASE_CONNECT_STRIPE_SECRET_KEY: secretKey
+      })).toThrow(/^MDBASE_CONNECT_STRIPE_SECRET_KEY must be a live-mode Stripe key in production\.$/);
+    });
+
+    it.each([
+      ["production", "sk_live_placeholder"], ["production", "rk_live_placeholder"],
+      ["staging", "sk_test_placeholder"], ["lab", "rk_test_placeholder"], ["local", "sk_test_placeholder"]
+    ])("enables billing in %s with %s", (environment, secretKey) => {
+      expect(legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_ENVIRONMENT: environment, MDBASE_CONNECT_STRIPE_SECRET_KEY: secretKey
+      }).billing).toEqual({
+        secretKey,
+        webhookSecret: stripe.MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET,
+        prices: { month: "price_month1", year: "price_year1" }
+      });
+    });
+
+    it("requires all four Stripe settings with valid values and distinct prices", () => {
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: " "
+      })).toThrow(/configured together/);
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_STRIPE_SECRET_KEY: "pk_test_placeholder"
+      })).toThrow("MDBASE_CONNECT_STRIPE_SECRET_KEY is invalid.");
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_month1"
+      })).toThrow(/different Stripe prices/);
+    });
   });
 
   it("rejects public URLs containing path or credential components", () => {
