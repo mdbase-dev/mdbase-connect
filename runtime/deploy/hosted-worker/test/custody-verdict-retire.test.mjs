@@ -103,6 +103,63 @@ test("retire commits the park before joining an opener; after eviction a retry c
   assert.deepEqual([...t.tables], ["migration_run"]);
 });
 
+test("retirement follows the settled device and preserves its scheduled work", async () => {
+  const expected = "device-before-open";
+  const priorWake = Date.now() + 60_000;
+  const nextWake = priorWake + 60_000;
+  for (const [device, settledWake] of [[expected, null], ["new-device", null], ["new-device", nextWake]]) {
+    const t = object();
+    t.setAlarm(priorWake);
+    t.data.set("collection-mode-device", expected);
+    const parked = Promise.withResolvers();
+    t.o.ctx.storage.sync = async () => {
+      assert.equal(t.data.get("service-open-unfinished")?.count, 3);
+      assert.equal(t.alarm(), null);
+      parked.resolve();
+    };
+    t.o.opening = parked.promise.then(() => {
+      t.data.set("collection-mode-device", device);
+      if (settledWake !== null) {
+        t.data.delete("service-open-unfinished");
+        t.setAlarm(settledWake);
+      }
+      warmEngine(t);
+      t.o.live.device = device;
+      t.o.opening = null;
+    });
+    t.o.ctx.blockConcurrencyWhile = finish => finish();
+    const matching = device === expected;
+    assert.equal(await t.o.retireModeDevice(collection, expected), matching);
+    assert.equal(t.data.has("service-open-unfinished"), false);
+    assert.equal(t.alarm(), matching ? null : settledWake ?? priorWake);
+    assert.equal(t.tables.has("st_records"), !matching);
+    assert.equal(t.o.engine === null, matching);
+  }
+});
+
+test("a settled cold actor resumes a pending retry and respects a completed retirement", async () => {
+  for (const retry of [true, false]) {
+    const t = object();
+    const priorWake = Date.now() + 60_000;
+    t.setAlarm(priorWake);
+    t.o.opening = Promise.resolve();
+    t.o.ctx.blockConcurrencyWhile = async finish => {
+      t.o.opening = null;
+      t.data.set("collection-mode-device", "current");
+      if (retry) {
+        t.data.delete("service-open-unfinished");
+        t.data.set("service-open-failures", 1);
+      } else {
+        await t.o.retireForVerdict();
+      }
+      return finish();
+    };
+    assert.equal(await t.o.retireModeDevice(collection, "previous"), false);
+    assert.equal(t.data.has("service-open-unfinished"), false);
+    assert.equal(t.alarm(), retry ? priorWake : null);
+  }
+});
+
 test("permanent custody verdict on a cold wake cancels the alarm instead of re-arming a retry", async () => {
   for (const escrow of [false, true]) for (const code of PERMANENT) {
     const t = coldWake(escrow, code);
