@@ -1494,7 +1494,7 @@ class RetryingContentGateway extends DemoCollectionGateway {
     return super.searchBodies(term);
   }
 
-  override async backlinks(path: string): Promise<string[]> {
+  override async backlinks(path: string): ReturnType<DemoCollectionGateway["backlinks"]> {
     this.backlinksCalls += 1;
     if (this.backlinksCalls === 1) throw new Error("The backlinks lookup failed.");
     return super.backlinks(path);

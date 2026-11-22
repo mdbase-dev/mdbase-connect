@@ -47,6 +47,10 @@ msgstr "“{0}”이(가) 다른 곳에서 변경되었습니다. 편집 내용�
 msgid "“{0}” has no “{1}” section or block."
 msgstr "“{0}”에 “{1}” 섹션 또는 블록이 없습니다."
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "“{raw}”은(는) 어떤 노트로도 이어지지 않습니다."
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "{0}개 선택됨"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "대상 유형 {0}개"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "고유성 경로 패턴 {0}개"
 
@@ -326,6 +325,11 @@ msgstr "{0}: <0>{1}</0> (설정 영수증)"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}. 이 규칙은 위의 시각적 규칙과 함께 적용됩니다."
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}. 이 규칙은 위 필드에 표시되지 않는 값을 설명합니다."
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, other {필드 선택자 #개}}"
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, other {필드 #개}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, other {링크 #개}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "{itemLabel} 필드 유형"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 제안"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label} “{title}”"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "이 노트를 저장하려면 ‘{label}’ 항목이 필요합니다."
@@ -536,18 +541,10 @@ msgstr "{name}은(는) 필수입니다."
 msgid "{name} is too large to upload."
 msgstr "{name}이(가) 너무 커서 업로드할 수 없습니다."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "{name} 항목 제안"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "{name} JSON 값"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "{name} 노트 제안"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -561,6 +558,7 @@ msgstr "{name} 유형 정의"
 msgid "{name} type YAML"
 msgstr "{name} 유형 YAML"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "{name} 값"
@@ -625,6 +623,10 @@ msgstr "{title} 노트 작업"
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"
+
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "{typeLabel} 노트에는 이름 외의 정보도 필요합니다. 새 노트에서 만든 다음 링크하세요."
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
@@ -726,13 +728,13 @@ msgstr "“{name}” 필드가 이미 있습니다."
 msgid "A folder cannot be moved inside itself."
 msgstr "폴더를 자기 자신 안으로 이동할 수 없습니다."
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "링크"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "{path}의 링크가 계속 끊어진 상태로 남습니다."
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "“{field}”의 링크 규칙이 이미 있습니다."
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -798,6 +800,14 @@ msgstr "{0} 추가"
 msgid "Add a custom property…"
 msgstr "사용자 지정 속성 추가…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "링크 추가"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "{name}에 링크 추가"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "비공개 컬렉션 추가"
@@ -813,6 +823,10 @@ msgstr "앱 호환성을 위해 준비된 유형을 추가하거나, 이 유형�
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "유형 추가"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "{fieldLabel}이(가) 링크할 유형 추가"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -853,10 +867,6 @@ msgid "Add item"
 msgstr "항목 추가"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "링크 규칙 추가"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "중첩 필드 추가"
 
@@ -888,8 +898,8 @@ msgid "Add tag"
 msgstr "태그 추가"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "대상 유형 추가"
+msgid "Add type"
+msgstr "유형 추가"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -1003,6 +1013,10 @@ msgstr "로컬 접근 허용"
 msgid "Allow person records in this collection?"
 msgstr "이 컬렉션에서 사람 레코드를 허용할까요?"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "여러 링크 허용"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -1015,10 +1029,6 @@ msgstr "편집기가 계정 ID를 확인하도록 허용"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "선언되지 않은 필드 허용"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "허용된 대상 유형"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1044,6 +1054,10 @@ msgstr "및"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "모두"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "모든 노트"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1391,6 +1405,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "기존 연락처 의미를 유지하려면 Person과 Contact를 모두 구현하는 대상 유형을 선택하세요."
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "유형 선택"
 
@@ -1795,6 +1810,10 @@ msgstr "이 필드를 {0}(으)로 변환할까요?"
 msgid "Copied {label}."
 msgstr "{label} 복사됨."
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "노트 텍스트를 복사했습니다."
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "링크 복사"
@@ -1808,6 +1827,10 @@ msgstr "경로 복사"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "{name} 경로 복사"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "텍스트 복사"
 
 #: direct/DirectEditor.tsx
 msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
@@ -1968,6 +1991,10 @@ msgstr "계정 이름으로 시작해 나를 나타내는 노트를 만드세요
 msgid "Create a note from what was shared?"
 msgstr "공유된 내용으로 노트를 만들까요?"
 
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "만들고 연결"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "설치된 계약과 일치하는 필드를 만듭니다. 나중에 이름을 바꾸고 다시 매핑할 수 있습니다."
@@ -2098,10 +2125,6 @@ msgstr "{title} 삭제 중…"
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
 msgstr "노트 삭제 중"
-
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "다른 레코드를 가리키는 속성과 대상을 확인하는 방법을 설명하세요."
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2509,6 +2532,14 @@ msgstr "명령 필터링"
 msgid "Filter links by type"
 msgstr "유형별 링크 필터"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "{onlyType} 찾기"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "노트 찾기"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "제목이나 경로로 노트 찾기"
@@ -2532,6 +2563,14 @@ msgstr "속성 찾기"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "노트에서 찾기"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "{onlyType} 찾기 또는 만들기"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "노트 찾기 또는 만들기"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2857,6 +2896,10 @@ msgstr "초대"
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "추가된 이후 편집되지 않아 새 기본 유형으로 대체됩니다."
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "이 노트는 더 이상 컬렉션에 없습니다. 복사할 수 있도록 마지막 텍스트를 여기에 표시합니다."
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -2936,6 +2979,11 @@ msgstr "수명 주기"
 msgid "Link"
 msgstr "링크"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "링크"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "이미 나를 나타내는 레코드를 연결하세요."
@@ -2948,19 +2996,10 @@ msgstr "링크 및 고유성 규칙에 따라 원본 파일을 변경하지 않�
 msgid "Link anyway"
 msgstr "그래도 연결"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "링크 필드 {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "{0}의 언급 연결"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "링크 규칙"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -3000,9 +3039,13 @@ msgstr "연결된 스키마 필드"
 msgid "Linked to {0}"
 msgstr "{0}에 연결됨"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "링크"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "링크 대상"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3279,6 +3322,10 @@ msgstr "YAML에서 더 많은 컬렉션 동작 설정"
 msgid "More inferred rules in YAML"
 msgstr "YAML에서 더 많은 추론 규칙"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "YAML에 있는 추가 링크 규칙"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "추가 노트 작업"
@@ -3360,6 +3407,7 @@ msgstr "현재 컬렉션 접근 권한으로는 노트를 이동할 수 없습�
 msgid "Moving…"
 msgstr "이동 중…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3412,12 +3460,20 @@ msgstr "중첩 필수 필드"
 msgid "New {name}"
 msgstr "새 {name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "새로 만들기: {typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "새 폴더"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3557,7 +3613,7 @@ msgstr "일치하는 필터가 없습니다."
 msgid "No matching icons."
 msgstr "일치하는 아이콘이 없습니다."
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "일치하는 노트가 없습니다."
 
@@ -3589,10 +3645,6 @@ msgstr "아직 이곳을 가리키는 노트가 없습니다."
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "노트나 파일을 찾을 수 없습니다."
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "링크로 표시된 속성이 없습니다."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3668,6 +3720,10 @@ msgid "Note changed elsewhere"
 msgstr "노트가 다른 곳에서 변경됨"
 
 #: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "다른 곳에서 삭제된 노트"
+
+#: src/App.tsx
 msgid "Note editor"
 msgstr "노트 편집기"
 
@@ -3703,6 +3759,7 @@ msgstr "노트 보기 옵션"
 
 #: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "노트"
 
@@ -3752,6 +3809,10 @@ msgstr "노트는 이 필드로 유형을 선언합니다. 변경하려면 YAML�
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "명시적으로 할당되지 않은 노트는 아래 설정된 모든 조건 그룹이 일치할 때 이 유형에 속합니다."
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "아직 링크할 항목이 없습니다."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -4092,10 +4153,6 @@ msgstr "저장된 Null"
 msgid "Person definitions needed"
 msgstr "Person 정의 필요"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "Person 또는 모두"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Person 유형"
@@ -4349,10 +4406,6 @@ msgstr "컬렉션에 다시 연결 중…"
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "레코드 프런트매터는 YAML 매핑이어야 합니다."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "레코드 링크"
-
 #: src/PropertiesPanel.tsx
 msgid "Record source"
 msgstr "레코드 원본"
@@ -4433,6 +4486,10 @@ msgstr "{field} 제거"
 msgid "Remove {fieldLabel} field"
 msgstr "{fieldLabel} 필드 제거"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "{name}에서 {label} 제거"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4446,11 +4503,6 @@ msgstr "{name} 속성 제거"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "이 브라우저에서 제거"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "{0}의 링크 규칙 제거"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -5109,6 +5161,10 @@ msgstr "시작 계약"
 msgid "status"
 msgstr "상태"
 
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "{fieldLabel}에서 {target}(으)로의 링크 중지"
+
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
 msgstr "안전하게 중단하는 중"
@@ -5545,6 +5601,10 @@ msgstr "노트 또는 첨부 파일 색인을 새로고침 중입니다. 완료�
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "아직 저장되지 않은 노트는 버려집니다. 저장된 노트 및 속성 변경은 먼저 완료됩니다."
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "노트 텍스트를 복사할 수 없습니다. 대신 편집기에서 선택하세요."
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "전체 노트 원본을 사용할 수 없습니다."
@@ -5904,6 +5964,10 @@ msgstr "이름 변경을 확인하기 전에 노트가 이동했습니다."
 msgid "This note moved before the rename could begin."
 msgstr "이름을 바꾸기 전에 노트가 이동했습니다."
 
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "이 노트는 다른 앱이나 다른 기기에서 삭제되었습니다."
+
 #: direct/RecordWorkspace.tsx
 msgid "This note was deleted."
 msgstr "이 노트가 삭제되었습니다."
@@ -6092,6 +6156,10 @@ msgstr "유형"
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
 msgstr "유형 ({typeCount})"
+
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "{fieldLabel}이(가) 링크하는 유형"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

@@ -932,3 +932,77 @@ label.schema-value {
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
 }
+
+/* A link property: its links as chips, then the field that finds or makes another. */
+.link-property {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.link-property-picker {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.link-property-picker .mdbase-link-picker-input {
+  min-height: 34px;
+  padding: 6px var(--space-2);
+  border-color: var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  font-size: var(--font-size-ui);
+}
+
+.link-property-picker .mdbase-link-picker-input:focus {
+  border-color: var(--line-strong);
+  outline: 0;
+  background: var(--white);
+}
+
+/* Beside chips the field is one more item in the row, not a second control under them. */
+.link-chip ~ .link-property-picker .mdbase-link-picker-input {
+  min-height: 26px;
+  padding-block: 2px;
+}
+
+.link-property-add {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--faint);
+}
+
+.link-property-add:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.link-property-add svg {
+  width: 13px;
+  height: 13px;
+}
+
+.link-property-add:disabled {
+  display: none;
+}
+
+.property-row.invalid .link-property-picker .mdbase-link-picker-input {
+  border-color: var(--danger);
+}
+
+/* The record's required properties inside the shared quick-create form (QuickCreateRecord).
+   A required property cannot be removed here, so its row keeps no room for the control that would. */
+.quick-create .mdbase-quick-create-fields .property-row {
+  padding-right: 0;
+}
+
+.quick-create .mdbase-quick-create-fields .property-row:last-child {
+  border-bottom: 0;
+}

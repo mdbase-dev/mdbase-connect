@@ -40,6 +40,7 @@ import type {
   FileListRequest,
   FileReadRequest,
   FileUploadRequest,
+  Backlink,
   LinkTarget,
   MutationOperationOptions,
   NoteDocument,
@@ -315,16 +316,19 @@ export class NativeEditorGateway implements CollectionGateway {
   /** Every page of one backlinks answer. A local change between pages ends
    * that answer (`cursor_stale`); the contract says to start again, which is
    * bounded here so a constantly changing collection still fails visibly. */
-  async backlinks(path: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+  async backlinks(path: string, options: { signal?: AbortSignal } = {}): Promise<Backlink[]> {
     const signal = this.signal(options.signal);
     for (let attempt = 1; ; attempt++) {
-      const paths: string[] = [];
+      const paths: Backlink[] = [];
       let cursor: string | undefined;
       try {
         do {
           const page = await this.client.backlinks({ path }, { limit: BACKLINKS_PAGE, signal, ...(cursor ? { cursor } : {}) });
           this.check();
-          for (const backlink of page.backlinks) paths.push(backlink.record.path);
+          for (const backlink of page.backlinks) {
+            const fields = backlink.links.flatMap((link) => link.field ? [link.field] : []);
+            paths.push({ path: backlink.record.path, fields: [...new Set(fields)] });
+          }
           cursor = page.cursor;
         } while (cursor);
         return paths;

@@ -322,6 +322,10 @@ off unless all four of `MDBASE_CONNECT_STRIPE_SECRET_KEY`,
 refuses startup. With billing off, `/v1/billing/*` and `/v1/webhooks/stripe`
 are not registered and `/v1/me` reports `billing.available: false`.
 
+When `MDBASE_CONNECT_ENVIRONMENT=production`, billing requires a live-mode
+Stripe secret key (`sk_live_`) or restricted key (`rk_live_`). Other
+environments also accept test-mode keys.
+
 `POST /v1/billing/checkout` (same-origin, signed in, `{"interval":"month"|"year"}`)
 creates the account's Stripe customer on first use and returns a Checkout URL.
 It refuses legacy accounts and accounts that already have Plus that hasn't

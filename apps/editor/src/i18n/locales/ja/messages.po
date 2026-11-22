@@ -47,6 +47,10 @@ msgstr "「{0}」は別の場所で変更されました。あなたの編集は
 msgid "“{0}” has no “{1}” section or block."
 msgstr "「{0}」に「{1}」というセクションまたはブロックはありません。"
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "「{raw}」はどのノートにもつながっていません。"
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "選択済み {0} 件"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "対象の型 {0} 件"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "一意性のパスパターン {0} 件"
 
@@ -326,6 +325,11 @@ msgstr "{0}：<0>{1}</0>（設定の記録）"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}。これらのルールは上記のビジュアルルールと併用されます。"
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}。これらのルールは、上のフィールドに表示されない値を対象としています。"
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, other {フィールドセレクター # 件}}"
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, other {フィールド # 件}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, other {リンク # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "{itemLabel}のフィールド型"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel}の候補"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label}「{title}」"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "このノートを保存するには「{label}」が必要です。"
@@ -536,18 +541,10 @@ msgstr "{name}は必須です。"
 msgid "{name} is too large to upload."
 msgstr "{name}はサイズが大きすぎてアップロードできません。"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "{name}の項目の候補"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "{name}の JSON 値"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "{name}のノート候補"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -561,6 +558,7 @@ msgstr "{name}の型定義"
 msgid "{name} type YAML"
 msgstr "{name}の型 YAML"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "{name}の値"
@@ -625,6 +623,10 @@ msgstr "{title}のノート操作"
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"
+
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "{typeLabel} のノートには名前以外の情報も必要です。「新しいノート」から作成してからリンクしてください。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
@@ -726,13 +728,13 @@ msgstr "「{name}」というフィールドはすでに存在します。"
 msgid "A folder cannot be moved inside itself."
 msgstr "フォルダーを自分自身の中に移動することはできません。"
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "リンク"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "{path}内のリンクは壊れたままになります。"
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "「{field}」のリンクルールはすでに存在します。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -798,6 +800,14 @@ msgstr "{0}を追加"
 msgid "Add a custom property…"
 msgstr "カスタムプロパティを追加…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "リンクを追加"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "{name}にリンクを追加"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "プライベートコレクションを追加"
@@ -813,6 +823,10 @@ msgstr "アプリとの互換性がある既成の型を追加するか、自分
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "型を追加"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "{fieldLabel}のリンク先タイプを追加"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -853,10 +867,6 @@ msgid "Add item"
 msgstr "項目を追加"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "リンクルールを追加"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "入れ子のフィールドを追加"
 
@@ -888,8 +898,8 @@ msgid "Add tag"
 msgstr "タグを追加"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "対象の型を追加"
+msgid "Add type"
+msgstr "タイプを追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -1003,6 +1013,10 @@ msgstr "ローカルアクセスを許可"
 msgid "Allow person records in this collection?"
 msgstr "このコレクションで人物レコードを許可しますか？"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "複数のリンクを許可"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -1015,10 +1029,6 @@ msgstr "エディターにアカウントの識別情報の閲覧を許可"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "未宣言のフィールドを許可"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "許可される対象の型"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1044,6 +1054,10 @@ msgstr "および"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "すべて"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "すべてのノート"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1391,6 +1405,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "既存の連絡先の意味を維持するため、Person と Contact の両方を実装する対象の型を選択してください。"
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "型を選択"
 
@@ -1795,6 +1810,10 @@ msgstr "このフィールドを{0}に変換しますか？"
 msgid "Copied {label}."
 msgstr "{label}をコピーしました。"
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "ノートのテキストをコピーしました。"
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "リンクをコピー"
@@ -1808,6 +1827,10 @@ msgstr "パスをコピー"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "{name}のパスをコピー"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "テキストをコピー"
 
 #: direct/DirectEditor.tsx
 msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
@@ -1968,6 +1991,10 @@ msgstr "アカウント名を使って自分のノートを作成します。"
 msgid "Create a note from what was shared?"
 msgstr "共有された内容からノートを作成しますか？"
 
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "作成してリンク"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "インストール済みの契約にすでに一致するフィールドを作成します。名前と対応付けは後で変更できます。"
@@ -2098,10 +2125,6 @@ msgstr "{title} を削除中…"
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
 msgstr "ノートを削除中"
-
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "どのプロパティがほかのレコードを指し、対象をどう検証するかを記述します。"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2509,6 +2532,14 @@ msgstr "コマンドを絞り込む"
 msgid "Filter links by type"
 msgstr "型でリンクを絞り込む"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "{onlyType} を検索"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "ノートを検索"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "タイトルまたはパスでノートを検索"
@@ -2532,6 +2563,14 @@ msgstr "プロパティを検索"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "ノート内を検索"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "{onlyType} を検索または作成"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "ノートを検索または作成"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2857,6 +2896,10 @@ msgstr "招待"
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "追加後に編集されていないため、新しい初期データに置き換えられます。"
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "このノートはコレクションにもうありません。コピーできるよう、最後のテキストをここに表示しています。"
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -2936,6 +2979,11 @@ msgstr "ライフサイクル"
 msgid "Link"
 msgstr "リンク"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "リンク"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "自分を表す既存のレコードにリンクします。"
@@ -2948,19 +2996,10 @@ msgstr "リンクと一意性のルールにより、ソースファイルを変
 msgid "Link anyway"
 msgstr "そのままリンク"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "リンクフィールド {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "{0}内のメンションをリンク"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "リンクルール"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -3000,9 +3039,13 @@ msgstr "リンクされたスキーマフィールド"
 msgid "Linked to {0}"
 msgstr "{0}にリンク済み"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "リンク"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "リンク先"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3279,6 +3322,10 @@ msgstr "その他のコレクション動作を YAML で設定"
 msgid "More inferred rules in YAML"
 msgstr "その他の推論ルールを YAML で設定"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "その他のリンクルールは YAML にあります"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "その他のノート操作"
@@ -3360,6 +3407,7 @@ msgstr "このコレクションへの現在のアクセス権ではノートを
 msgid "Moving…"
 msgstr "移動中…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3412,12 +3460,20 @@ msgstr "入れ子の必須フィールド"
 msgid "New {name}"
 msgstr "新しい{name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "新規: {typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "新しいフォルダー"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3557,7 +3613,7 @@ msgstr "一致するフィルターはありません"
 msgid "No matching icons."
 msgstr "一致するアイコンはありません。"
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "一致するノートはありません。"
 
@@ -3589,10 +3645,6 @@ msgstr "ここへのリンクがあるノートはまだありません。"
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "ノートやファイルが見つかりませんでした。"
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "リンクとして指定されたプロパティはありません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3668,6 +3720,10 @@ msgid "Note changed elsewhere"
 msgstr "ノートが別の場所で変更されました"
 
 #: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "別の場所で削除されたノート"
+
+#: src/App.tsx
 msgid "Note editor"
 msgstr "ノートエディター"
 
@@ -3703,6 +3759,7 @@ msgstr "ノートの表示オプション"
 
 #: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "ノート"
 
@@ -3752,6 +3809,10 @@ msgstr "ノートはこのフィールドを使って型を宣言します。変
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "明示的に割り当てられていないノートのうち、以下の条件グループすべてに一致するものがこの型に属します。"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "リンクできるものはまだありません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -4092,10 +4153,6 @@ msgstr "保存された null 値"
 msgid "Person definitions needed"
 msgstr "人物の定義が必要です"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "人物またはすべて"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Person 型"
@@ -4349,10 +4406,6 @@ msgstr "コレクションに再接続中…"
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "レコードのフロントマターは YAML マッピングにしてください。"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "レコードへのリンク"
-
 #: src/PropertiesPanel.tsx
 msgid "Record source"
 msgstr "レコードのソース"
@@ -4433,6 +4486,10 @@ msgstr "{field}を削除"
 msgid "Remove {fieldLabel} field"
 msgstr "{fieldLabel}フィールドを削除"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "{name}から{label}を削除"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4446,11 +4503,6 @@ msgstr "{name}プロパティを削除"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "このブラウザーから削除"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "{0}のリンクルールを削除"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -5109,6 +5161,10 @@ msgstr "最初の契約"
 msgid "status"
 msgstr "状態"
 
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "{fieldLabel}から{target}へのリンクをやめる"
+
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
 msgstr "安全に停止中"
@@ -5545,6 +5601,10 @@ msgstr "ノートまたは添付ファイルの索引を更新中です。完了
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "まだ保存されていないノートは破棄されます。保存済みのノートとプロパティの変更は先に完了します。"
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "ノートのテキストをコピーできませんでした。代わりにエディターで選択してください。"
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "元の完全なノートのソースを利用できません。"
@@ -5904,6 +5964,10 @@ msgstr "名前変更の確認を始める前に、このノートが移動され
 msgid "This note moved before the rename could begin."
 msgstr "名前変更を始める前に、このノートが移動されました。"
 
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "このノートは別のアプリまたは別のデバイスで削除されました。"
+
 #: direct/RecordWorkspace.tsx
 msgid "This note was deleted."
 msgstr "このノートは削除されました。"
@@ -6092,6 +6156,10 @@ msgstr "型"
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
 msgstr "型（{typeCount}件）"
+
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "{fieldLabel}のリンク先タイプ"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

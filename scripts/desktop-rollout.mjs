@@ -12,7 +12,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { repository } from "./lib/continuous-client-release.mjs";
+import { repository, requireRunning } from "./lib/continuous-client-release.mjs";
 import {
   parseRollout,
   rolloutAudience,
@@ -69,6 +69,7 @@ export async function readRollout(service, tag, { verifySignature = true } = {})
 }
 
 export async function publish(stage, env = process.env) {
+  if (stage !== "held") requireRunning(env.DESKTOP_RELEASE_STOPPED);
   assert.equal(env.GITHUB_EVENT_NAME, "workflow_dispatch");
   assert.equal(env.GITHUB_REPOSITORY, repository);
   const tag = env.GITHUB_REF_NAME;

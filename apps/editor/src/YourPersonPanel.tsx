@@ -286,7 +286,7 @@ function PersonRecordForm({ types, typeName, name, properties, recordPaths, onCr
       <input id="person-record-name" value={note.title} autoFocus onChange={(event) => setNote((current) => changedNewNote(current, { title: event.target.value }))} />
     </div>
     {form.required.length > 0 && <StructuredPropertiesEditor value={note.properties} contract={{ properties: form.properties, required: form.required }}
-      propertyNames={form.required} recordPaths={recordPaths} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+      propertyNames={form.required} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
       onChange={(next) => setNote((current) => changedNewNote(current, { properties: next }))}
       onValidityChange={(propertiesValid) => setNote((current) => changedNewNote(current, { propertiesValid }))} />}
     {error ? <p className="settings-alert" role="alert">{error}</p> : blocker && note.title.trim() && <p>{blocker}</p>}

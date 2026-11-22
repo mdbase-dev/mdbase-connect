@@ -280,6 +280,146 @@ textarea.mdbase-field {
   cursor: default;
 }
 
+/* Link picker: a text field whose list links to a record or makes one (LinkPicker). */
+.mdbase-link-picker {
+  min-width: 0;
+  display: flex;
+}
+
+.mdbase-link-picker-list {
+  min-width: 240px;
+}
+
+.mdbase-link-option {
+  gap: 8px;
+  padding-right: 9px;
+  /* The title and detail truncate themselves; the row lets its divider show above it. */
+  overflow: visible;
+}
+
+/* The active row is the one Enter takes; nothing here is a held selection. */
+.mdbase-link-option[aria-selected="true"] {
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-link-option[aria-selected="true"]::after {
+  content: none;
+}
+
+.mdbase-link-option-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+}
+
+.mdbase-link-option-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-link-option-detail {
+  min-width: 0;
+  flex: 1 10 auto;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-link-option.is-create .mdbase-link-option-title {
+  color: var(--color-text-soft);
+}
+
+/* Making a record is a different act from picking one: a rule sets the first create row apart. */
+.mdbase-link-option:not(.is-create) + .mdbase-link-option.is-create {
+  margin-top: var(--space-1);
+}
+
+.mdbase-link-option:not(.is-create) + .mdbase-link-option.is-create::before {
+  position: absolute;
+  top: calc(-0.5 * var(--space-1) - 0.5px);
+  right: 0;
+  left: 0;
+  border-top: 1px solid var(--color-border);
+  content: "";
+}
+
+.mdbase-link-picker-empty {
+  padding: 7px 9px;
+  color: var(--color-text-muted);
+}
+
+/* Quick create: a short form beside the place a record is made from (QuickCreate). */
+.mdbase-quick-create {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 16px));
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface-overlay);
+  font-size: var(--control-font-size);
+}
+
+.mdbase-quick-create-header {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.mdbase-quick-create-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.mdbase-quick-create-title svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The name reads as the record's title, not as one more field. */
+.mdbase-quick-create-name {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  outline: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.mdbase-quick-create-fields {
+  padding-inline: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.mdbase-quick-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
 /* Menus anchored to a trigger (useMenuPopover). */
 .mdbase-menu {
   position: fixed;

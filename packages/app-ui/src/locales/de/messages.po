@@ -219,6 +219,7 @@ msgstr "{collection} kann nicht geöffnet werden"
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
+#: src/QuickCreate.tsx
 msgid "Cancel"
 msgstr "Abbrechen"
 

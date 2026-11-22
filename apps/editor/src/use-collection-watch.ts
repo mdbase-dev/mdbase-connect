@@ -14,6 +14,8 @@ export function useCollectionWatch(input: {
   files: FileInventoryController;
   assets: FileAssetStore;
   refreshCachedNote(path: string, revision?: string): Promise<void>;
+  /** The watch confirmed the record at `path` is gone: an open note shows it was deleted. */
+  noteDeleted(path: string): void;
   refreshDescription(): Promise<unknown>;
   setConnectionState: Dispatch<SetStateAction<ConnectionState>>;
   setConnectionIssue: Dispatch<SetStateAction<string | undefined>>;
@@ -56,10 +58,10 @@ export function useCollectionWatch(input: {
       if (isFileChange(change)) { reconcileFileChange(change, input.files, input.assets); if (change.kind === "file.changed") files = true; }
       else if (change.kind === "record.renamed") { paths.set(change.from, undefined); paths.set(change.to, change.revision); }
       else if (change.kind === "record.created" || change.kind === "record.updated") paths.set(change.path, change.revision);
-      else if (change.kind === "record.deleted") paths.set(change.path, undefined);
+      else if (change.kind === "record.deleted") { paths.delete(change.path); input.noteDeleted(change.path); return; }
       else { description = true; files = true; }
       schedule();
     });
     return () => { active = false; clearTimeout(timer); statusChanged(); changed(); };
-  }, [input.phase, input.index, input.files, input.assets, input.refreshCachedNote, input.refreshDescription, input.setConnectionState, input.setConnectionIssue, input.setNotice]);
+  }, [input.phase, input.index, input.files, input.assets, input.refreshCachedNote, input.noteDeleted, input.refreshDescription, input.setConnectionState, input.setConnectionIssue, input.setNotice]);
 }

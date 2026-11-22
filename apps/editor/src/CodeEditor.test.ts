@@ -1,5 +1,6 @@
-import { CompletionContext, type CompletionResult } from "@codemirror/autocomplete";
+import { CompletionContext, type Completion, type CompletionResult } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
 import {
   internalLinkAt,
@@ -10,6 +11,7 @@ import {
   restoreLineSeparators,
   yamlFrontmatterDiagnostics
 } from "./CodeEditor";
+import type { CreateLinkedRecord, LinkCreation } from "./LinkPropertyEditor";
 import type { LinkSuggestion } from "./links";
 import type { CollectionFile, NoteSummary } from "./model";
 import { linkTargets } from "./test/link-targets";
@@ -154,6 +156,54 @@ describe("object link completion", () => {
   it("keeps [[ completion and ignores email addresses", () => {
     expect(complete("See [[Ada")?.options[0]).toMatchObject({ label: "Ada", apply: "People/ada]]" });
     expect(complete("hello@example.com")).toBeNull();
+  });
+
+  it("offers to make the record being linked to, as each type it could be", () => {
+    const made: Array<[string | undefined, string]> = [];
+    const create: CreateLinkedRecord = (type, title, creation) => {
+      made.push([type, title]);
+      creation.link({ path: `People/${title}.md`, title });
+    };
+    const doc = "Ask [[Grace  Hopper";
+    const view = new EditorView({ state: EditorState.create({ doc }), parent: document.body });
+    const result = linkCompletion(new CompletionContext(view.state, doc.length, false), suggestions, ["person", "project"], undefined, [], [], [], undefined, create) as CompletionResult;
+    expect(result.options.map((option) => option.label)).toEqual([
+      "New note “Grace Hopper”", "New person “Grace Hopper”", "New project “Grace Hopper”"
+    ]);
+    expect(result.options[1]).toMatchObject({ type: "create" });
+
+    (result.options[1]!.apply as (view: EditorView, completion: Completion, from: number, to: number) => void)(view, result.options[1]!, result.from, result.to!);
+    expect(made).toEqual([["person", "Grace Hopper"]]);
+    expect(view.state.doc.toString()).toBe("Ask [[People/Grace Hopper]]");
+    view.destroy();
+  });
+
+  it("makes only the asked-for type from @/type/, and nothing a match already names", () => {
+    const create: CreateLinkedRecord = (_type, title, creation) => creation.link({ path: `People/${title}.md`, title });
+    const options = (doc: string) => (linkCompletion(new CompletionContext(EditorState.create({ doc }), doc.length, false), suggestions, types, undefined, [], [], [], undefined, create) as CompletionResult).options.map((option) => option.label);
+    expect(options("@/person/Grace")).toEqual(["New person “Grace”"]);
+    // The collection's own "note" type is what "New note" means there.
+    expect(options("@Grace")).toEqual(["New note “Grace”", "New person “Grace”"]);
+    expect(options("@Ada")).toEqual(["Ada", "Ada notes"]);
+    expect(options("![[Grace")).toEqual([]);
+    expect(options("[[Ada#Gra")).toEqual([]);
+  });
+
+  it("keeps the typed text until a record that needs a form is made, then links it there", () => {
+    const doc = "@Grace";
+    const view = new EditorView({ state: EditorState.create({ doc }), parent: document.body });
+    let pending: LinkCreation | undefined;
+    const result = linkCompletion(new CompletionContext(view.state, doc.length, false), suggestions, ["person"], undefined, [], [], [], undefined, (_type, _title, creation) => { pending = creation; }) as CompletionResult;
+    (result.options[0]!.apply as (view: EditorView, completion: Completion, from: number, to: number) => void)(view, result.options[0]!, result.from, result.to!);
+    expect(view.state.doc.toString()).toBe("@Grace");
+
+    pending!.link({ path: "People/Grace.md", title: "Grace" });
+    expect(view.state.doc.toString()).toBe("[[People/Grace]]");
+
+    // Once the editor has gone there is nowhere to write a link, and nothing to open a form beside.
+    view.destroy();
+    expect(pending!.anchor()).toBeUndefined();
+    expect(() => pending!.link({ path: "People/Grace.md", title: "Grace" })).not.toThrow();
   });
 
   it("replaces the link's closing brackets already after the caret", () => {

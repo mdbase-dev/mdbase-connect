@@ -1,35 +1,35 @@
 import { describe, expect, it } from "vitest";
 import {
   addTypeField,
-  addTypeLinkRule,
   addTypeReadDefault,
   addTypeUniqueRule,
   readVisualType,
-  removeTypeLinkRule,
+  removeTypeField,
   removeTypeReadDefault,
   removeTypeUniqueRule,
-  removeTypeField,
-  renameTypeLinkRule,
-  renameTypeReadDefault,
   renameTypeField,
-  setTypeLinkRule,
-  setTypeLinkTargets,
-  setTypeReadDefault,
+  renameTypeReadDefault,
   setTypeFieldChoices,
   setTypeFieldConstraint,
   setTypeFieldDescription,
   setTypeFieldKind,
+  setTypeFieldLink,
   setTypeFieldRequired,
+  setTypeLinkRule,
+  setTypeLinkTargets,
   setTypeListItemKind,
+  setTypeReadDefault,
   setTypeUniqueRule,
   typeFieldConversionImpact,
+  typeFieldLink,
   typeFieldPathLabel,
   typeImpact,
+  unattachedTypeLinkRules,
   updateTypeCollectionDisplay,
   updateTypeFieldsPresent,
-  updateTypePathPolicy,
   updateTypePathGlob,
-  updateTypePathGlobs
+  updateTypePathGlobs,
+  updateTypePathPolicy
 } from "./type-schema";
 import type { NoteSummary } from "./model";
 
@@ -316,10 +316,9 @@ describe("recursive visual type source editing", () => {
     next = setTypeReadDefault(next, "profile", { timezone: "Australia/Melbourne" });
     next = addTypeReadDefault(next, "title", "Untitled person");
     next = renameTypeReadDefault(next, "title", "timezone");
-    next = addTypeLinkRule(next, "profile.display_name");
-    next = setTypeLinkTargets(next, "profile.display_name", ["person"]);
-    next = setTypeLinkRule(next, "profile.display_name", "validate_exists", true);
-    next = renameTypeLinkRule(next, "profile.display_name", "profile.timezone");
+    next = setTypeFieldLink(next, ["properties", "profile", "properties", "timezone"], false);
+    next = setTypeLinkTargets(next, "profile.timezone", ["person"]);
+    next = setTypeLinkRule(next, "profile.timezone", "validate_exists", true);
     next = setTypeUniqueRule(next, 0, "scope", "collection");
     next = addTypeUniqueRule(next, "profile.display_name");
     next = updateTypePathPolicy(next, "pattern", "Contacts/{title}.md");
@@ -348,13 +347,61 @@ describe("recursive visual type source editing", () => {
 
   it("removes collection rules and prunes empty containers", () => {
     let next = addTypeReadDefault(recursiveSource, "title", "");
-    next = addTypeLinkRule(next, "title");
+    next = setTypeFieldLink(next, "title", false);
     next = addTypeUniqueRule(next, "title");
     next = removeTypeReadDefault(next, "title");
-    next = removeTypeLinkRule(next, "title");
+    next = setTypeFieldKind(next, "title", "string");
     next = removeTypeUniqueRule(next, 0);
 
     expect(next).not.toContain("collection:");
+  });
+
+  it("makes a field one link or several, keeping the rule's settings between them", () => {
+    let next = setTypeFieldLink(recursiveSource, "title", false);
+    next = setTypeLinkTargets(next, "title", ["person"]);
+    next = setTypeLinkRule(next, "title", "validate_exists", true);
+    let visual = readVisualType(next);
+    let title = visual.fields.find((field) => field.name === "title")!;
+    expect(title.kind).toBe("string");
+    expect(typeFieldLink(visual, title)).toEqual({ many: false, rule: expect.objectContaining({ field: "title", targetTypes: ["person"], validateExists: true }) });
+
+    next = setTypeFieldLink(next, "title", true);
+    visual = readVisualType(next);
+    title = visual.fields.find((field) => field.name === "title")!;
+    expect(title.kind).toBe("array");
+    expect(title.item?.kind).toBe("string");
+    expect(visual.collection.links.map((rule) => rule.field)).toEqual(["title[]"]);
+    expect(typeFieldLink(visual, title)).toEqual({ many: true, rule: expect.objectContaining({ targetTypes: ["person"], validateExists: true }) });
+  });
+
+  it("leaves text rules in place when text becomes a link", () => {
+    const displayName = ["properties", "profile", "properties", "display_name"];
+    const next = setTypeFieldLink(recursiveSource, displayName, false);
+    expect(readVisualType(next).fields.find((field) => field.name === "profile")!.fields[0]!.constraints.minLength).toBe(1);
+  });
+
+  it("keeps a link's rule with its field when the field is renamed, converted or removed", () => {
+    const profile = ["properties", "profile"];
+    let next = setTypeFieldLink(recursiveSource, [...profile, "properties", "timezone"], true);
+    next = setTypeFieldLink(next, "title", false);
+    next = renameTypeField(next, profile, "about");
+    next = renameTypeField(next, "title", "titles");
+    expect(readVisualType(next).collection.links.map((rule) => rule.field).sort()).toEqual(["about.timezone[]", "titles"]);
+
+    next = setTypeFieldKind(next, "titles", "number");
+    expect(readVisualType(next).collection.links.map((rule) => rule.field)).toEqual(["about.timezone[]"]);
+    next = removeTypeField(next, ["properties", "about"]);
+    expect(next).not.toContain("collection:");
+  });
+
+  it("lists link rules that no visual field shows", () => {
+    const next = recursiveSource.replace("schema:", `collection:
+  links:
+    title: { target_type: person }
+    category: { target_type: person }
+    "contacts[]": { target_type: person }
+schema:`);
+    expect(unattachedTypeLinkRules(readVisualType(next)).map((rule) => rule.field)).toEqual(["category", "contacts[]"]);
   });
 
   it("preserves spaces while editing a field description", () => {

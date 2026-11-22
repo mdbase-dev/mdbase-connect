@@ -42,6 +42,7 @@ import {
 import type { ActionMenuItem } from "./ContextMenu";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { MoveNoteDialog } from "./MoveNoteDialog";
+import { QuickCreateRecord } from "./QuickCreateRecord";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
@@ -131,6 +132,8 @@ import {
   type NewNoteContext
 } from "./new-note";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
+import type { LinkCreation, NewLinkTarget, RecordLinking } from "./LinkPropertyEditor";
+import { recordLinkProperties } from "./record-links";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
@@ -327,10 +330,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
-  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
+  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft) || Boolean(noteSessions.current.active?.deletedElsewhere);
   const privateCollection = connectionSummary?.private === true;
   const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const linkCreations = useRef(new Set<string>());
+  /** The record being filled in beside the link that will point at it. */
+  const [quickCreate, setQuickCreate] = useState<{ note: NewNote; creation: LinkCreation }>();
   /** One record ID per link target until its create is confirmed: following the
    * same link after a lost reply reuses it as the intent, so the note lands once. */
   const linkCreationIds = useRef(new Map<string, string>());
@@ -658,6 +663,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     requireSaved(await session.record.refresh());
   }, []);
 
+  const noteDeleted = useCallback((path: string) => {
+    const session = noteSessions.current.get(path);
+    // A delete made here stages its own tombstone; only one made elsewhere is news.
+    if (session && !session.deleted) session.record.markDeleted();
+  }, []);
+
   const refreshChangedNote = useCallback(async (path: string) => {
     const epoch = collectionEpoch.current;
     if (noteSessions.current.has(path)) {
@@ -816,7 +827,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [connectionSummary?.collectionId, gateway, phase]);
 
   useCollectionWatch({ phase, index: indexController, files: fileController, assets: fileAssetStore,
-    refreshCachedNote, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
+    refreshCachedNote, noteDeleted, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
 
   const flushSession = useCallback(
     async (session: NoteSession) => { requireSaved(await session.record.flush()); },
@@ -1099,6 +1110,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     selection: () => activeEditorSelection(paneDocumentId(focusedPane(latestWorkspace.current), noteSessions.current.active?.editorSessionKey)),
     applyBody: (body) => changeActiveDraft((current) => ({ ...current, body }))
   } });
+  // What every link property and link suggestion of this collection works with.
+  const linking: RecordLinking = {
+    suggestions: linkOptions,
+    types: typeDescriptors,
+    recentPaths,
+    onOpen: (path) => navigateToNote(path),
+    ...(canCreateNotes && !mutationsFrozen ? { onCreate: createLinkedRecord } : {})
+  };
   const focusMode = preferences.focusMode && surface === "notes" && Boolean(document || openNew) && !selectedCollectionFile;
 
   function closeSidePanels() { setInspector(undefined); setMentionsOpen(false); }
@@ -1193,7 +1212,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   async function flushCollectionWork() {
     await Promise.all([...noteSessions.current.values()]
-      .filter((session) => !session.deleted)
+      .filter((session) => !session.deleted && !session.deletedElsewhere)
       .map((session) => flushSession(session)));
     await mutationScope.current.drain();
   }
@@ -1492,6 +1511,58 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     void navigator.clipboard.writeText(value)
       .then(() => setNotice(t`Copied ${label}.`, "success"))
       .catch(() => setNotice(t`Couldn’t copy ${label}.`));
+  }
+
+  /**
+   * Makes a record to link to without leaving the note the link is written in.
+   * One that needs only its name is written and linked at once. One whose type
+   * requires more opens a short form beside the link, and is linked when that
+   * form is submitted.
+   */
+  function createLinkedRecord(typeName: string | undefined, title: string, creation: LinkCreation) {
+    if (mutationScope.current.isFrozen || !canCreateNotes) return;
+    const types = typeDescriptorsRef.current;
+    const note = beginNewNote({ ...(typeName ? { type: typeName } : {}), title }, types);
+    const form = newNoteForm(note.type, types);
+    // A required number or checkbox starts filled in (0, off), which nobody chose: the form shows it.
+    if (!form.required.length && !newNoteBlocker(note, form)) creation.link(writeLinkedRecord(note));
+    else if (!quickCreate) setQuickCreate({ note, creation });
+    else {
+      // One form at a time: a link inside the form is to a record that exists, or one that needs only a name.
+      const typeLabel = typeDisplayName(note.type ?? "");
+      setNotice(t`${typeLabel} notes need more than a name. Create one from New note, then link to it.`);
+    }
+  }
+
+  /** Writes `note` in the background and says where it will be, so the link to it can be written first. */
+  function writeLinkedRecord(note: NewNote): NewLinkTarget {
+    const occupied = new Set(takenPaths);
+    for (const path of linkCreations.current) occupied.add(path.toLocaleLowerCase());
+    const input = newNoteInput(note, newNoteForm(note.type, typeDescriptorsRef.current), occupied);
+    linkCreations.current.add(input.path);
+    const token = mutationScope.current.token();
+    void mutationScope.current.register(token, gateway.create(input)).then((created) => {
+      if (mutationScope.current.isCurrent(token)) indexController.create(summaryFromDocument(created));
+    }).catch((error: unknown) => {
+      if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t create “${input.path}”. ${gatewayError(error)}`);
+    }).finally(() => {
+      if (mutationScope.current.isCurrent(token)) linkCreations.current.delete(input.path);
+    });
+    return { path: input.path, title: input.title };
+  }
+
+  function closeQuickCreate(refocus: boolean) {
+    if (refocus) quickCreate?.creation.restoreFocus();
+    setQuickCreate(undefined);
+  }
+
+  /** The form's record, linked where the form was opened from, unless that place has gone meanwhile. */
+  function submitQuickCreate(note: NewNote) {
+    const creation = quickCreate?.creation;
+    setQuickCreate(undefined);
+    if (!creation?.anchor() || mutationScope.current.isFrozen || !canCreateNotes) return;
+    creation.link(writeLinkedRecord(note));
+    creation.restoreFocus();
   }
 
   function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
@@ -2206,7 +2277,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const shown = focused ? editing : session && !session.deleted
       ? { key: session.editorSessionKey, path: session.document.path, title: session.draft.title, body: session.draft.body } : undefined;
     const loading = focused ? noteLoading : Boolean(backgroundPath && !session && backgroundFailure?.path !== backgroundPath);
-    const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft);
+    const deletedElsewhere = !isNew && Boolean(session?.deletedElsewhere);
+    const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft) || deletedElsewhere;
     const leadingActions = index === 0 ? editorLeadingActions : undefined;
     const tabs = !mobileLayout && (workspace.panes.length > 1 || pane.tabs.length > 1)
       ? <NoteTabs tabs={pane.tabs} active={pane.active} label={(tab) => tabLabel(pane, tab)} onSelect={switchTab} onClose={closeNoteTab} />
@@ -2318,6 +2390,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               } catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
             }}><Trans>Discard recovered edits</Trans></button>
           </section>}
+          {deletedElsewhere && session && <section className="conflict-resolver" role="status" aria-label={t`Note deleted elsewhere`}>
+            <strong><Trans>This note was deleted in another app or on another device.</Trans></strong>
+            <p><Trans>It is no longer in the collection. Its last text is shown here so you can copy it.</Trans></p>
+            <button onClick={() => void navigator.clipboard.writeText(session.record.snapshot.body)
+              .then(() => setNotice(t`Copied the note’s text.`, "success"), () => setNotice(t`The note’s text could not be copied. Select it in the editor instead.`))}><Trans>Copy text</Trans></button>
+          </section>}
           {focused && <AttachmentTransfer controller={attachments} />}
           {focused && !isNew && draft && activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
           {focused && !isNew && renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
@@ -2326,7 +2404,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
           </div>}
           {/* A new note and the saved note it becomes share this editor: same place, same key, so the caret stays where it is. */}
-          <MarkdownNoteEditor footer={<BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
+          <MarkdownNoteEditor footer={deletedElsewhere ? undefined : <BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
             draft={shown} preferences={preferences} documentId={paneDocumentId(pane, shown.key)} readOnly={readOnly}
             provenance={mobileLayout ? <>
               {notePathControl}
@@ -2337,14 +2415,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             titlePlaceholder={isNew ? openNewForm?.titleLabel : undefined} focusTitle={isNew && !editorAutoFocus ? isNew.id : undefined}
             titleProperties={isNew && openNewForm && openNewForm.required.length > 0 ? <section aria-label={t`Required properties`}>
               <StructuredPropertiesEditor value={isNew.properties} contract={{ properties: openNewForm.properties, required: openNewForm.required }}
-                propertyNames={openNewForm.required} recordPaths={allNotes.map((note) => note.path)} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+                propertyNames={openNewForm.required} links={{ ...linking, targets: around.linkTargets, properties: recordLinkProperties(isNew.type ? [isNew.type] : [], typeDescriptors) }} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
                 readOnly={mutationsFrozen}
                 onChange={(properties) => editNewNote(isNew.id, { properties })}
                 onValidityChange={(propertiesValid) => editNewNote(isNew.id, { propertiesValid })} />
             </section> : undefined}
             onTitleCommit={isNew ? () => void writeNewNote(isNew.id) : focused ? nameUntitledNote : undefined}
             remoteApplyToken={session?.replaced} autoFocus={focused && editorAutoFocus}
-            currentPath={shown.path} linkTargets={around.linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
+            currentPath={shown.path} linkTargets={around.linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames} onCreateLinked={linking.onCreate}
             embeddedFiles={around.embeddedFiles} embeddedNotes={around.embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={focused && !isNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={focused && !isNew && attachments.insertion?.editorKey === shown.key ? attachments.insertion : undefined} onTitleVisibilityChange={focused ? setNoteTitleVisible : noop}
@@ -2511,7 +2589,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           note={document}
           body={draft?.body}
           types={description.types}
-          recordPaths={allNotes.map((note) => note.path)}
+          linking={{ ...linking, targets: surfaces[workspace.focused]!.linkTargets, currentPath: document.path }}
           error={propertiesError}
           readOnly={noteReadOnly}
           onClose={() => setInspector(undefined)}
@@ -2645,6 +2723,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       selectSurface("settings");
       requestAnimationFrame(() => globalThis.document.getElementById("keyboard-shortcuts")?.scrollIntoView({ block: "start" }));
     }} />}
+    {quickCreate && <QuickCreateRecord key={quickCreate.note.id} note={quickCreate.note} types={typeDescriptors}
+      linking={{ ...linking, targets: surfaces[workspace.focused]!.linkTargets }} anchor={quickCreate.creation.anchor}
+      onCreate={submitQuickCreate} onClose={closeQuickCreate} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}

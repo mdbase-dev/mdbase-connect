@@ -18,6 +18,8 @@ use super::*;
 #[cfg(unix)]
 #[path = "server_grant_session_tests.rs"]
 mod grant_sessions;
+#[path = "server_recovery_tests.rs"]
+mod recovery_tests;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer, Prompt};
 use std::collections::BTreeMap;
