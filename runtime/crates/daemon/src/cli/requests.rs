@@ -29,7 +29,6 @@ pub(super) async fn call(
 
 fn call_timeout(method: &str) -> Duration {
     match method {
-        Method::MIGRATE_START => MIGRATE_START_TIMEOUT,
         Method::DEVICE_APPROVE => DEVICE_APPROVE_TIMEOUT,
         Method::COLLECTION_MODE => COLLECTION_MODE_TIMEOUT,
         Method::ACCESS_APPROVE | Method::SETTINGS_SET => CONFIRM_TIMEOUT,
@@ -50,12 +49,6 @@ fn unknown_outcome(method: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
-/// `migrate start` answers only after the takeover run: the journal drain alone may
-/// take [`crate::takeover::DRAIN`], so the ordinary call bound would report a
-/// still-running takeover as an unreachable daemon.
-const MIGRATE_START_TIMEOUT: Duration = Duration::from_secs(600);
-const _: () = assert!(MIGRATE_START_TIMEOUT.as_secs() > crate::takeover::DRAIN.as_secs() * 2);
 
 /// `device approve` answers once the other computer has answered (its challenge
 /// lives two minutes) and the key grant is applied.

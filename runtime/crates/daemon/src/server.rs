@@ -47,7 +47,6 @@ mod enable_sync;
 mod folder;
 mod grants;
 mod holds;
-mod legacy_takeover;
 mod lifecycle;
 mod rejoin;
 mod relay_host;
@@ -148,10 +147,6 @@ pub struct Daemon {
     online: std::sync::atomic::AtomicBool,
     /// AK1: per-collection account-key keying (background pass, status).
     account_keys: private_key::AccountKeys,
-    /// Local takeover runs one at a time; whether the old connector came back.
-    takeover: crate::takeover::Gate,
-    /// Private sync turned on automatically for taken-over collections.
-    auto_private: crate::auto_private::State,
     /// This build's verified environment trust (`None`: synced collections report
     /// `trust_missing`). Embedded only; no file, flag or environment override.
     trust: Option<Arc<crate::trust::Trust>>,
@@ -222,6 +217,7 @@ impl Daemon {
     /// awaiting it does not stop a started closure, which could otherwise still
     /// write after [`run`] returns. `None` once shutdown has begun, or when the
     /// work panicked.
+    #[cfg(test)]
     async fn run_blocking<T: Send + 'static>(
         &self,
         work: impl FnOnce() -> T + Send + 'static,
@@ -326,10 +322,12 @@ impl Daemon {
     }
 
     /// The registered collection `raw` names, as the registry spells it. Only
-    /// the exact canonical ID of a registered collection is accepted, before
-    /// anything (a takeover directory above all) is derived from it.
+    /// the exact canonical lowercase UUID of a registered collection is accepted.
     async fn registered_collection(&self, raw: &str) -> Result<String, ControlError> {
-        if !crate::takeover::held::is_collection_id(raw) {
+        let canonical = crate::attest::uuid_bytes(raw)
+            .map(|b| secrets::uuid_string(&b))
+            .is_some_and(|s| s == raw);
+        if !canonical {
             return Err(ControlError::invalid(
                 "invalid_collection",
                 "collection is not a collection ID",
@@ -343,17 +341,6 @@ impl Daemon {
             .map(|e| e.id.clone())
             .filter(|id| id == raw)
             .ok_or_else(|| ControlError::not_found(format!("no registered collection {raw}")))
-    }
-
-    /// The registered folder of `id`.
-    async fn entry_root(&self, id: &str) -> Result<std::path::PathBuf, ControlError> {
-        self.inner
-            .lock()
-            .await
-            .registry
-            .get(id)
-            .map(|e| e.root.clone())
-            .ok_or_else(|| ControlError::not_found(format!("no registered collection {id}")))
     }
 
     async fn e2e_collection(&self, id: &str) -> Result<(), ControlError> {
@@ -457,7 +444,6 @@ impl Daemon {
                 .ok()
                 .flatten()
                 .and_then(|c| c.computer_name),
-            old_connector_running: self.takeover.old_running.clone(),
         })
     }
 

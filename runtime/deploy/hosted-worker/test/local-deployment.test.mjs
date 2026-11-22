@@ -9,9 +9,8 @@ const original = trust;
 mock.module('#hosted-release-trust', { namedExports: { appReleaseTrust: () => trust } });
 const { LocalSoftwareKms } = await import('../src/custody/local-kms.ts');
 const { localOrigin } = await import('../src/local-origin.ts');
-const { productionParts, deploymentRelease, serviceDeviceWrapper, ownedCppControlOrigin } = await import('../src/factory.ts');
+const { productionParts, deploymentRelease, serviceDeviceWrapper } = await import('../src/factory.ts');
 const { ControlClient } = await import('../src/control.ts');
-const { connectClient } = await import('../src/migration-connect.ts');
 const collection = '11111111-1111-4111-8111-111111111111', device = '22222222-2222-4222-8222-222222222222';
 const arn = 'arn:local:kms:local:000000000000:key/33333333-3333-4333-8333-333333333333';
 const key = 'ab'.repeat(32);
@@ -35,15 +34,12 @@ test('local software KMS roundtrips actual 96-byte secrets and binds context/key
   await assert.rejects(kms.wrapDeviceKeys({ collection, device, secret: new Uint8Array(95) }, signal), /secret_invalid/);
 });
 
-test('local factory preserves actual ControlClient provenance and rejects all managed contexts', () => {
+test('local factory composes local software KMS and rejects all managed contexts', () => {
   const parts = productionParts(environment);
   assert.ok(parts?.kms instanceof LocalSoftwareKms);
-  assert.equal(ownedCppControlOrigin(parts.control), trust.cpOrigin);
   const escrow = productionParts(environment, fetch, 'escrow');
   assert.ok(escrow?.kms instanceof LocalSoftwareKms);
-  assert.equal(ownedCppControlOrigin(escrow.control), null);
   assert.ok(serviceDeviceWrapper(environment, 'escrow'));
-  assert.equal(ownedCppControlOrigin(new ControlClient({ url: trust.cpOrigin, token: 't'.repeat(40), environment: 'local' })), null);
   for (const scope of ['lab', 'staging', 'production']) {
     assert.throws(() => new LocalSoftwareKms(arn, key, scope, [collection]), /invalid_config/);
     assert.equal(productionParts({ ...environment, KMS_ENVIRONMENT: scope }), null);
@@ -59,12 +55,10 @@ test('HTTP needs local build AND environment=local AND exact literal loopback', 
   for (const origin of ['http://127.1:8111', 'http://localhost:8111', 'http://127.0.0.1:8111/', 'http://user@127.0.0.1:8111', 'http://127.0.0.1:8111/path', 'https://cp.test']) {
     assert.equal(localOrigin(origin, 'local'), false);
     assert.throws(() => new ControlClient({ url: origin, token: 't'.repeat(40), environment: 'local' }));
-    assert.throws(() => connectClient({ url: origin, token: 't'.repeat(40), environment: 'local' }));
   }
   for (const scope of [undefined, 'lab', 'staging', 'production']) {
     assert.equal(localOrigin('http://127.0.0.1:8111', scope), false);
     assert.throws(() => new ControlClient({ url: 'http://127.0.0.1:8111', token: 't'.repeat(40), environment: scope }));
-    assert.throws(() => connectClient({ url: 'http://127.0.0.1:8111', token: 't'.repeat(40), environment: scope }));
   }
-  assert.ok(connectClient({ url: original.cpOrigin, token: 't'.repeat(40), environment: 'local' }));
+  assert.ok(new ControlClient({ url: original.cpOrigin, token: 't'.repeat(40), environment: 'local' }));
 });

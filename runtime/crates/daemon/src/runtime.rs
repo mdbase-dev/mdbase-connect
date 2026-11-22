@@ -68,7 +68,7 @@ pub(crate) use readouts::capture_counts;
 pub(crate) use types::AccountKeyGuard;
 
 pub use handle::{OpenFailed, Runtime};
-pub use open::{cached_eligibility, preopen_cache_check, preopen_mirror_status, synced_ready};
+pub use open::{cached_eligibility, preopen_cache_check, synced_ready};
 pub use types::{
     AccountKeyOp, AuthoritySource, Frozen, GrantApprovalOp, GrantApprovalReply, Inventory,
     LocalGrantSet, LocalGrants, PrivateSwitchOp, ReadinessView, RuntimeConfig, Synced,

@@ -25,32 +25,16 @@ impl Daemon {
                 "a collection cannot contain or sit inside the daemon's state directory",
             ));
         }
-        let old_state = crate::takeover::old_state_dir(&self.profile);
-        let claim = classify_folder(&root, &self.profile, old_state.as_deref())?;
-        match claim {
-            FolderClaim::Connect(reason) => {
-                // Local migration: the takeover (drain, import, v2 marker) runs first.
-                return Err(ControlError::unavailable(
-                    "migration_pending",
-                    format!(
-                        "this folder is managed by today's mdbase Connect ({reason}); \
-                         it is taken over by the migration first"
-                    ),
-                ));
-            }
-            FolderClaim::OrphanedIdentity if !p.remove_legacy_identity => {
-                return Err(ControlError::new(
-                    "conflict",
-                    "orphaned_legacy_identity",
-                    format!(
-                        "mdbase.yaml has an mdbase Connect identity (`{LEGACY_IDENTITY_KEY}`) \
-                         that no Connect on this computer manages, for example because the \
-                         folder was copied or removed from Connect; confirm removing that \
-                         key to add the folder"
-                    ),
-                ));
-            }
-            _ => {}
+        let claim = classify_folder(&root)?;
+        if claim == FolderClaim::OrphanedIdentity && !p.remove_legacy_identity {
+            return Err(ControlError::new(
+                "conflict",
+                "orphaned_legacy_identity",
+                format!(
+                    "mdbase.yaml has a legacy mdbase Connect identity (`{LEGACY_IDENTITY_KEY}`); \
+                     confirm removing that key to add the folder"
+                ),
+            ));
         }
         let orphaned = claim == FolderClaim::OrphanedIdentity;
         let name = p
@@ -63,17 +47,9 @@ impl Daemon {
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|| root.display().to_string())
             });
-        let (id, replica_id, origin) = match claim {
-            FolderClaim::Ours {
-                collection,
-                replica_id,
-            } => (collection, replica_id, Origin::MigratedLocal),
-            _ => (
-                secrets::new_uuid().map_err(|e| ControlError::internal(e.to_string()))?,
-                secrets::new_uuid().map_err(|e| ControlError::internal(e.to_string()))?,
-                Origin::Adopted,
-            ),
-        };
+        let id = secrets::new_uuid().map_err(|e| ControlError::internal(e.to_string()))?;
+        let replica_id = secrets::new_uuid().map_err(|e| ControlError::internal(e.to_string()))?;
+        let origin = Origin::Adopted;
         let _gate = self.account_gate.lock().await;
         let owner = self.authority.active_account().ok_or_else(|| {
             ControlError::new(

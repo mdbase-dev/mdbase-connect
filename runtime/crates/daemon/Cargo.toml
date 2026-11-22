@@ -9,8 +9,8 @@ publish.workspace = true
 
 # Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica,
 # mdbn-store-file, mdbn-platform-native, mdbn-local-host, mdbn-log-service,
-# mdbn-legacy, mdbn-takeover, mdbn-noise, mdbn-trust. This is a composition
-# point: it wires stores to replicas. Native only; never linked into WASM.
+# mdbn-noise, mdbn-trust. This is a composition point: it wires stores to
+# replicas. Native only; never linked into WASM.
 
 [features]
 # A LAB build: embeds the LAB environment's trust asset and signs in only to the
@@ -41,8 +41,6 @@ mdbn-local-host.workspace = true
 mdbn-core.workspace = true
 mdbn-store-file.workspace = true
 mdbn-platform-native.workspace = true
-mdbn-legacy.workspace = true
-mdbn-takeover.workspace = true
 mdbn-noise.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true

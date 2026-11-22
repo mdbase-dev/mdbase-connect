@@ -2,28 +2,6 @@
 
 use super::*;
 
-/// Read the closed mirror fence from daemon-private authoritative metadata only.
-/// Never opens a folder, host lock, FileStore, replica, or network connection.
-pub fn preopen_mirror_status(
-    private_dir: &std::path::Path,
-) -> Result<Option<crate::takeover::mirror_driver::Diagnostic>, String> {
-    let path = private_dir.join("index.sqlite");
-    if !path.exists() {
-        return Ok(None);
-    }
-    crate::fsutil::verify_owner_only(private_dir).map_err(|e| format!("private state: {e}"))?;
-    let index = Rc::new(RefCell::new(
-        SqliteIndex::open(path, IndexDurability::Durable).map_err(|e| format!("index: {e:?}"))?,
-    ));
-    let store = SqlStore::open_with_limits(index, SqlStoreLimits::DESKTOP)
-        .map_err(|e| format!("store: {e:?}"))?;
-    match crate::takeover::mirror_driver::Closed::resume(store) {
-        Ok(closed) => Ok(Some(closed.diagnostic())),
-        Err(crate::takeover::mirror_driver::Error::MissingFence) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
 /// The verified policy a synced collection's index already holds, checked before
 /// user-file IO. Missing/new cache is not trusted; genesis/pins must match.
 /// Reads committed private metadata, never the folder.

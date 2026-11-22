@@ -2,7 +2,6 @@
 //! Real CP signatures, Noise and KeyringSealer key delivery over FakeLog/MemStore.
 //! No actual service-binding/PoP/KMS/provider qualification.
 use super::*;
-mod cpp_claim;
 mod history;
 mod initialization;
 use crate::noise_sessions::{NoiseSessions, VerifiedAppCaller};

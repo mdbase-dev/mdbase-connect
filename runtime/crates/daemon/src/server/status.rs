@@ -19,18 +19,11 @@ impl Daemon {
     pub(super) async fn status(&self) -> DaemonStatus {
         self.reconcile_private_choices().await;
         let inner = self.inner.lock().await;
-        let taken = self.takeover_record();
         let observed =
             futures_util::future::join_all(inner.hosts.iter().map(|h| h.observed_status())).await;
         let mut collections: Vec<_> = observed
             .into_iter()
-            .map(|status| {
-                with_private_sync_pending(
-                    with_takeover_holds(with_access_notices(status, &inner.access), taken.as_ref()),
-                    &self.auto_private,
-                    &self.profile.state_dir.join("collections"),
-                )
-            })
+            .map(|status| with_access_notices(status, &inner.access))
             .collect();
         bound_file_notices(&mut collections);
         let clock_skew = inner.hosts.iter().any(CollectionHost::clock_skew);
@@ -104,71 +97,6 @@ impl Daemon {
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
-}
-
-/// A taken-over collection that is still local: say that Private sync turns on
-/// by itself (and why it has not yet), and present a folder paused by an
-/// interrupted attempt as that, not as a user pause.
-pub(super) fn with_private_sync_pending(
-    mut s: CollectionStatus,
-    auto: &crate::auto_private::State,
-    collections: &std::path::Path,
-) -> CollectionStatus {
-    if s.origin != crate::registry::Origin::MigratedLocal || s.mode != SyncMode::Local {
-        return s;
-    }
-    let journal = crate::adopt::Journal::path(collections, &s.id).exists();
-    let paused = s.state == crate::control::CollectionState::Paused;
-    if paused && !journal {
-        return s; // paused by the user: resuming it turns sync on
-    }
-    if paused {
-        s.reason = Some("private_sync_pending".into());
-    }
-    let message = match auto.failure(&s.id) {
-        Some(why) => format!(
-            "mdbase turns on Private sync for this collection so apps that used it with \
-             mdbase Connect keep working. It has not finished yet: {}. mdbase tries again \
-             on its own.",
-            crate::auto_private::explain(&why)
-        ),
-        None => "mdbase is turning on Private sync for this collection so apps that used it \
-                 with mdbase Connect keep working."
-            .into(),
-    };
-    s.notices.push(Notice {
-        path: None,
-        code: "private_sync_pending".into(),
-        message,
-    });
-    s
-}
-
-/// Add the access-list notices for one collection.
-/// Files held at the takeover count as holds: they are listed and resolved with
-/// the replica's (`collection.holds`), and sync turns on once none are left.
-pub(super) fn with_takeover_holds(
-    mut s: CollectionStatus,
-    record: Option<&crate::takeover::record::Record>,
-) -> CollectionStatus {
-    let held = record
-        .and_then(|r| r.collections.get(&s.id))
-        .map_or(0, |c| c.holds);
-    if held > 0 {
-        if let Some(sync) = s.sync.as_mut() {
-            sync.holds += held;
-        }
-        s.notices.push(Notice {
-            path: None,
-            code: "takeover_holds".into(),
-            message: format!(
-                "{held} file(s) were held when mdbase took over from the old connector: \
-                 the folder has this computer's version and mdbase kept the other. \
-                 Review them; Private sync turns on once they are resolved."
-            ),
-        });
-    }
-    s
 }
 
 pub(super) fn with_access_notices(

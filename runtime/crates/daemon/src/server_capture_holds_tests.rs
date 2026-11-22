@@ -82,7 +82,6 @@ async fn complete_seeded_hold_capture_refuses_only_holds_and_resumes_original_lo
         .enable_sync(EnableSync {
             collection: f.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await;
     assert_eq!(

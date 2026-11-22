@@ -311,11 +311,6 @@ pub trait RelayHost: crate::session::Handler {
     }
     /// Report connection state for status.
     fn set_online(&self, online: bool);
-    /// Whether an old mdbase Connect daemon runs on this device (reported in
-    /// `relay_hello`; a change reconnects so Connect sees it).
-    fn old_connector_running(&self) -> bool {
-        false
-    }
 }
 
 /// Original captured consent/epoch/runtime/lease fence, never authority itself.
@@ -463,9 +458,8 @@ async fn session<H: RelayHost>(
         Err(_) => return Ended::Retry("connect timed out".into()),
     };
     let (mut tx, mut rx) = ws.split();
-    let old_connector_running = host.old_connector_running();
     if tx
-        .send(Message::text(hello(old_connector_running).to_string()))
+        .send(Message::text(hello(false).to_string()))
         .await
         .is_err()
     {
@@ -598,9 +592,6 @@ async fn session<H: RelayHost>(
                 }
             }
             _ = sweep.tick() => {
-                if host.old_connector_running() != old_connector_running {
-                    break Ended::Retry("old connector state changed".into());
-                }
                 close_dead(host, &mut open, &out_tx).await;
                 open.retain(|_, p| !p.task.is_finished());
             }
@@ -1244,7 +1235,13 @@ mod tests {
         let cached = to_cached(&declared_setup_grant()).unwrap();
         assert!(cached.declared_setup.is_some());
         let mut access = crate::access::AccessList::default();
-        access.sync_from_control_plane(&cached.collection, &[cached.clone()], 1, 1000, true);
+        access.sync_from_control_plane(
+            &cached.collection,
+            std::slice::from_ref(&cached),
+            1,
+            1000,
+            true,
+        );
         let summaries = access.summaries(None);
         assert_eq!(summaries.len(), 1);
         assert_eq!(summaries[0].grant.grant, cached.grant);

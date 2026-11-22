@@ -35,19 +35,13 @@ test("a creating request's region places the new actor; absent or default uses t
   assert.deepEqual(ns.calls, [["id:c1", { locationHint: "wnam" }], ["id:c2", { locationHint: "oc" }]]);
 });
 
-test("activation and migration admission accept an optional region and refuse an unknown one", async () => {
+test("activation accepts an optional region and refuses an unknown one", async () => {
   const { serviceActivation } = await import("../src/service-devices.ts");
-  const { migrationAdmissionRequest } = await import("../src/migration-admission.ts");
   const token = "t".repeat(32);
   const post = body => new Request("https://hosted/x", { method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
   const collection = "0123abcd-0000-4000-8000-0000000000aa";
-  const challenge = btoa(String.fromCharCode(...new Uint8Array(32).fill(7)));
   assert.deepEqual(await serviceActivation(post({ collection }), token), { collection });
   assert.deepEqual(await serviceActivation(post({ collection, region: "wnam" }), token), { collection, region: "wnam" });
   assert.deepEqual(await serviceActivation(post({ collection, region: "default" }), token), { collection });
   assert.equal((await serviceActivation(post({ collection, region: "sam" }), token)).status, 400);
-  assert.deepEqual(await migrationAdmissionRequest(post({ collection, challenge, region: "oc" }), token), { collection, challenge, region: "oc" });
-  assert.deepEqual(await migrationAdmissionRequest(post({ collection, challenge }), token), { collection, challenge });
-  assert.equal((await migrationAdmissionRequest(post({ collection, challenge, region: "mars" }), token)).status, 400);
-  assert.equal((await migrationAdmissionRequest(post({ collection, challenge, extra: 1 }), token)).status, 400);
 });

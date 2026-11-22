@@ -10,8 +10,8 @@ use std::rc::Rc;
 use mdbn_store_file::{LogCache, SqlStoreLimits};
 use mdbn_wire::client::QueryResult;
 
+use super::sqlite::Sqlite;
 use super::*;
-use crate::migration_action_ledger::tests::Sqlite;
 
 const DOCS: [(u64, &str, &str); 3] = [
     (1, "projects/Alpha.md", "---\ntitle: Alpha\n---\n"),

@@ -52,7 +52,7 @@ async fn dismiss_conflict_clears_list_without_changing_files() {
             )
             .await
             .unwrap(),
-            crate::takeover::held::Outcome::Confirmed
+            mdbn_wire::client::ReceiptState::Confirmed
         );
         for title in ["first", "second"] {
             assert_eq!(
@@ -68,7 +68,7 @@ async fn dismiss_conflict_clears_list_without_changing_files() {
                 )
                 .await
                 .unwrap(),
-                crate::takeover::held::Outcome::Confirmed
+                mdbn_wire::client::ReceiptState::Confirmed
             );
         }
     }
@@ -89,7 +89,7 @@ async fn dismiss_conflict_clears_list_without_changing_files() {
     .await
     .unwrap();
     assert_eq!(list.as_array().unwrap().len(), 2, "{list}");
-    let before = doc_at(&rt, "144.md").await.unwrap();
+    let before = record_at(&rt, "144.md").await.unwrap().and_then(|r| r.document).unwrap();
     let dismiss = |id: &str| json!({"collection": collection, "id": id});
     assert_eq!(
         call(Method::CONFLICTS_DISMISS, dismiss("9"))
@@ -121,7 +121,7 @@ async fn dismiss_conflict_clears_list_without_changing_files() {
     .unwrap();
     assert_eq!(list.as_array().unwrap().len(), 1, "{list}");
     assert!(list[0]["id"].as_str().unwrap().starts_with("9191"));
-    assert_eq!(doc_at(&rt, "144.md").await.unwrap(), before);
+    assert_eq!(record_at(&rt, "144.md").await.unwrap().and_then(|r| r.document).unwrap(), before);
     call(
         Method::CONFLICTS_DISMISS,
         dismiss(list[0]["id"].as_str().unwrap()),

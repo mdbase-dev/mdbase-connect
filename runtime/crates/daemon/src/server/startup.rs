@@ -55,8 +55,6 @@ pub async fn run_with(
         tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
-        takeover: Default::default(),
-        auto_private: Default::default(),
         inner: Mutex::new(Inner {
             registry: Registry::default(),
             access: AccessList::default(),
@@ -78,7 +76,6 @@ pub async fn run_with(
     daemon.spawn(daemon.clone().strict_witness_reports());
     daemon.spawn(daemon.clone().account_key_reconcile());
     daemon.spawn(daemon.clone().device_approval_requests());
-    daemon.spawn(daemon.clone().watch_old_connector());
     daemon.spawn(daemon.clone().watch_sync_recovery());
     daemon.spawn(daemon.clone().publish_status());
 
@@ -149,15 +146,6 @@ pub async fn run_with(
 
 /// How long `auth.challenge` waits for a credential retry it started.
 pub(super) const CREDENTIAL_RETRY_WAIT: Duration = Duration::from_secs(5);
-
-/// Each registered collection's ID and root (the takeover's marker guard).
-pub(super) fn registered_roots(registry: &Registry) -> Vec<(String, std::path::PathBuf)> {
-    registry
-        .collections
-        .iter()
-        .map(|e| (e.id.clone(), e.root.clone()))
-        .collect()
-}
 
 pub(super) async fn initialize(d: Arc<Daemon>) {
     let device = loop {
@@ -240,8 +228,6 @@ pub(super) async fn initialize(d: Arc<Daemon>) {
             }
         }
     }
-    // Before any host opens: a taken-over folder stays closed while an old daemon runs.
-    d.check_old_connector().await;
     {
         let mut inner = d.inner.lock().await;
         inner.access = access;
@@ -279,8 +265,6 @@ pub(super) async fn initialize(d: Arc<Daemon>) {
             Err(e) => tracing::warn!(error = %e, "localhost link unavailable"),
         }
     }
-    // Take over (or resume taking over) an old connector's collections.
-    d.spawn(d.clone().takeover_task(false));
 }
 
 /// Load the device identity and control key from the credential store.

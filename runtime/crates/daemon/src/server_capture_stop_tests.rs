@@ -221,7 +221,6 @@ async fn terminal_capture_sync_enable_retains_original_paused_source_without_bas
         .enable_sync(EnableSync {
             collection: f.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await;
     assert_eq!(
@@ -349,7 +348,6 @@ async fn source_recapture_checks_current_files_without_replacing_identity() {
         .enable_sync(EnableSync {
             collection: fixture.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await
         .unwrap_err();
@@ -360,7 +358,6 @@ async fn source_recapture_checks_current_files_without_replacing_identity() {
         .enable_sync(EnableSync {
             collection: fixture.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await
         .expect_err("sync setup must not reopen the paused source");
@@ -374,7 +371,6 @@ async fn source_recapture_checks_current_files_without_replacing_identity() {
         .enable_sync(EnableSync {
             collection: fixture.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await
         .unwrap_err();
@@ -439,7 +435,6 @@ async fn stopped_original_actor_none_cannot_silently_restart_during_sync_enable(
         .enable_sync(EnableSync {
             collection: f.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await;
     assert_eq!(
@@ -624,7 +619,6 @@ async fn sync_enable_retries_after_an_interrupted_or_refused_create() {
         fixture.daemon.enable_sync(EnableSync {
             collection: fixture.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
     };
     let paused = |daemon: &Arc<Daemon>| {

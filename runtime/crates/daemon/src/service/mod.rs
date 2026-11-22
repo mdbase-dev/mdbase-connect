@@ -18,16 +18,13 @@
 //! profile (`--state-dir`, `MDBASE_HOME`), as the connector does.
 //!
 //! **Never the connector's.** Names, paths and the binary copy are disjoint from
-//! today's connector (`mdbase-connect.service`, `dev.mdbase.connect`, task
-//! `"mdbase connect"`, `<connect state>/runtime/mdbase`). Nothing here writes,
-//! stops or disables those; stopping the old connector is the takeover's job
-//! (`mdbn_migrate::takeover::OldService`). `status` only reports whether it is
-//! registered.
+//! any legacy `mdbase-connect` installation (`mdbase-connect.service`,
+//! `dev.mdbase.connect`, task `"mdbase connect"`). `status` only reports whether
+//! one is still registered.
 //!
 //! Service managers are driven through their CLIs (`systemctl`, `launchctl`,
-//! `schtasks`), as the connector does: no new dependencies.
+//! `schtasks`): no new dependencies.
 
-pub mod legacy;
 pub mod templates;
 
 use std::io;

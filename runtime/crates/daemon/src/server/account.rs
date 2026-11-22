@@ -863,8 +863,6 @@ impl Daemon {
                     } else {
                         d.activity
                             .record(crate::activity::ActivityEntry::now("signed_in"));
-                        // Taken-over collections wait for an account to register.
-                        d.spawn(d.clone().takeover_task(false));
                     }
                 }
             }

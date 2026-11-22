@@ -284,10 +284,4 @@ impl crate::relay::RelayHost for Daemon {
         }
         self.bump();
     }
-
-    fn old_connector_running(&self) -> bool {
-        self.takeover
-            .old_running
-            .load(std::sync::atomic::Ordering::SeqCst)
-    }
 }

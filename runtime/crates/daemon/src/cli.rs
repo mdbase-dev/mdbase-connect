@@ -19,8 +19,8 @@ use serde_json::{Value, json};
 
 use crate::client::{self, ClientError, ControlClient};
 use crate::control::{
-    AddCollection, Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus,
-    HoldSummary, Method, PendingDevice,
+    AddCollection, Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus, Method,
+    PendingDevice,
 };
 use crate::paths::Profile;
 use crate::registry::SyncMode;

@@ -3,6 +3,7 @@
 use super::*;
 
 /// A random UUIDv7 (ms timestamp, then random bits).
+#[cfg(test)]
 pub(super) fn new_uuid_v7() -> [u8; 16] {
     let mut b = [0u8; 16];
     let _ = getrandom::fill(&mut b);
@@ -13,10 +14,11 @@ pub(super) fn new_uuid_v7() -> [u8; 16] {
     b
 }
 
-/// The record at `path` with its exact source, or `None`.
+/// The record at `path` (or record ID) with its exact source, or `None`.
+#[cfg(test)]
 pub(super) async fn record_at(
     rt: &Arc<crate::runtime::Runtime>,
-    path: &str,
+    key: &str,
 ) -> Result<Option<mdbn_wire::client::RecordView>, ControlError> {
     use mdbn_wire::Wire;
     use mdbn_wire::cbor::Cbor;
@@ -27,7 +29,7 @@ pub(super) async fn record_at(
         diagnostics: None,
     };
     let params = Cbor::Map(vec![
-        (Cbor::Uint(0), Cbor::Text(path.into())),
+        (Cbor::Uint(0), Cbor::Text(key.into())),
         (Cbor::Uint(1), include.to_cbor()),
     ]);
     match host_call(rt, "get", params).await {
@@ -39,25 +41,13 @@ pub(super) async fn record_at(
     }
 }
 
-fn outcome_of(state: mdbn_wire::client::ReceiptState) -> crate::takeover::held::Outcome {
-    use crate::takeover::held::Outcome;
-    use mdbn_wire::client::ReceiptState;
-    match state {
-        ReceiptState::Pending => Outcome::Pending,
-        ReceiptState::Confirmed => Outcome::Confirmed,
-        ReceiptState::Unknown => Outcome::Unknown,
-        ReceiptState::Rejected => Outcome::Rejected,
-    }
-}
-
-/// Submit `ops` as the hosting app under `mutation` and wait for confirmation:
-/// the receipt's outcome. A mutation the replica already has answers with its
-/// original receipt; nothing is applied twice.
+/// Submit `ops` as the hosting app under `mutation` and wait for confirmation.
+#[cfg(test)]
 pub(super) async fn submit_as(
     rt: &Arc<crate::runtime::Runtime>,
     ops: Vec<mdbn_wire::intent::Op>,
     mutation: [u8; 16],
-) -> Result<crate::takeover::held::Outcome, ControlError> {
+) -> Result<mdbn_wire::client::ReceiptState, ControlError> {
     use mdbn_wire::Wire;
     use mdbn_wire::client::{Receipt, SubmitParams, WaitFor};
     let submit = SubmitParams {
@@ -84,29 +74,7 @@ pub(super) async fn submit_as(
             "the receipt is for another mutation",
         ));
     }
-    Ok(outcome_of(r.state))
-}
-
-/// The outcome of `mutation` as the replica's receipt says, or `None` when the
-/// replica has no receipt for it.
-pub(super) async fn read_back(
-    rt: &Arc<crate::runtime::Runtime>,
-    mutation: [u8; 16],
-) -> Result<Option<crate::takeover::held::Outcome>, ControlError> {
-    use mdbn_wire::Wire;
-    use mdbn_wire::cbor::Cbor;
-    use mdbn_wire::client::Receipt;
-    let params = Cbor::Map(vec![(
-        Cbor::Uint(0),
-        mdbn_wire::common::B16(mutation).to_cbor(),
-    )]);
-    match host_call(rt, "receipt", params).await {
-        Ok(v) => Receipt::from_cbor(&v)
-            .map(|r| Some(outcome_of(r.state)))
-            .map_err(|_| ControlError::internal("the replica's receipt does not decode")),
-        Err(e) if e.code == "not_found" => Ok(None),
-        Err(e) => Err(e),
-    }
+    Ok(r.state)
 }
 
 /// How long a one-shot host call may take.

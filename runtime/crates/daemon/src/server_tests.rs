@@ -9,10 +9,8 @@ mod mirror_join_tests;
 #[cfg(unix)]
 #[path = "server_private_approval_tests.rs"]
 mod private_approval_tests;
-use super::doctor::loopback_check;
 use super::enable_sync::{adopt_holds_refusal, sync_e2e};
 use super::holds::hold_summary;
-use super::legacy_takeover::HostTarget;
 use super::*;
 
 #[cfg(unix)]
@@ -128,8 +126,6 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
-        takeover: Default::default(),
-        auto_private: Default::default(),
         inner: Mutex::new(Inner {
             registry: Registry {
                 collections: vec![crate::registry::Entry {
@@ -1113,7 +1109,6 @@ async fn enable_right_after_add_waits_for_the_open() {
         .enable_sync(crate::control::EnableSync {
             collection: id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await;
     if let Err(e) = &out {
@@ -1236,7 +1231,6 @@ async fn join_and_enable_refuse_without_sign_in_or_the_pinned_control_plane() {
         .enable_sync(crate::control::EnableSync {
             collection: "44444444-4444-4444-8444-444444444444".into(),
             mode: Some(SyncMode::Synced),
-            accept_takeover_holds: false,
         })
         .await
         .unwrap_err();
@@ -1330,18 +1324,6 @@ async fn private_join_needs_the_keychain_journal_before_any_io() {
             .is_none()
     );
     assert_eq!(std::fs::read_dir(&folder).unwrap().count(), 0);
-}
-
-#[tokio::test]
-async fn loopback_port_busy_only_after_the_old_service_was_fenced() {
-    let held = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = held.local_addr().unwrap();
-    let busy = loopback_check(true, addr).await;
-    assert_eq!(busy.status, "warn");
-    assert!(busy.detail.starts_with("loopback_port_busy"));
-    assert_eq!(loopback_check(false, addr).await.status, "ok");
-    drop(held);
-    assert_eq!(loopback_check(true, addr).await.status, "ok");
 }
 
 /// `collection.update` renames and describes a collection, persists it, and
@@ -1461,181 +1443,15 @@ async fn control_changes_are_logged_as_activity() {
     );
 }
 
-/// Adopt is refused while files the takeover held are unreviewed (only an
-/// explicit acceptance passes) and while the local replica has holds or
-/// conflicts, with the command to run.
+/// Adopt is refused while the local replica has holds or conflicts.
 #[test]
-fn adopt_is_refused_while_takeover_or_replica_holds_are_open() {
-    use crate::takeover::record::{Collection, CollectionState, Record, SCHEMA_VERSION, State};
-    let dir = crate::testutil::TestDir::new("adopt-holds");
-    let state = dir.path();
-    assert!(adopt_holds_refusal(state, "c", false, Some((0, 0))).is_ok());
-    let mut held = Collection::new(CollectionState::Held);
-    held.holds = 2;
-    Record {
-        schema_version: SCHEMA_VERSION,
-        state: State::Complete,
-        updated_at: "2026-10-11T00:00:00Z".into(),
-        old_state_dir: state.join("old"),
-        collections: [("c".to_string(), held)].into(),
-    }
-    .save(&state.join("takeover.json"))
-    .unwrap();
-    let e = adopt_holds_refusal(state, "c", false, None).unwrap_err();
-    assert_eq!(e.reason.as_deref(), Some("takeover_holds"));
-    assert!(
-        e.message.contains("--accept-takeover-holds"),
-        "{}",
-        e.message
-    );
-    assert!(adopt_holds_refusal(state, "c", true, Some((0, 0))).is_ok());
-    assert!(adopt_holds_refusal(state, "other", false, None).is_ok());
+fn adopt_is_refused_while_replica_holds_are_open() {
+    assert!(adopt_holds_refusal("c", Some((0, 0))).is_ok());
+    assert!(adopt_holds_refusal("other", None).is_ok());
     for replica in [(1, 0), (0, 1)] {
-        let e = adopt_holds_refusal(state, "c", true, Some(replica)).unwrap_err();
+        let e = adopt_holds_refusal("c", Some(replica)).unwrap_err();
         assert_eq!(e.reason.as_deref(), Some("holds_pending"));
     }
-}
-
-// A captured old hosted mirror is imported once its collection serves here.
-use crate::takeover::mirror_import::tests::hosted_mirror::{self, HOSTED};
-
-fn uuid(s: &str) -> [u8; 16] {
-    secrets::hex_decode(&s.replace('-', ""))
-        .unwrap()
-        .try_into()
-        .unwrap()
-}
-
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn captured_mirror_edits_are_imported_listed_and_resolvable() {
-    let dir = crate::testutil::TestDir::new("mi-daemon");
-    let d = paired_daemon(&dir).await;
-    // The hosted collection, registered here under its own ID (as a joined
-    // collection would be), served locally for the test.
-    let joined = crate::testutil::TestDir::new("mi-daemon-joined");
-    let folder = joined.path().join("Hosted");
-    std::fs::create_dir_all(folder.join(".mdbase")).unwrap();
-    let replica =
-        crate::registry::StoreIds::get_or_issue(&d.profile.store_ids_file(), HOSTED).unwrap();
-    std::fs::write(
-        folder.join(".mdbase/connect-role.json"),
-        serde_json::to_vec(
-            &json!({"version": 2, "role": "replica", "collection": HOSTED,
-            "replica_id": replica, "runtime": "mdbase-next",
-            "claimed_at": "2026-10-18T00:00:00Z", "notice": "test"}),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-    d.add(crate::control::AddCollection {
-        path: folder.clone(),
-        name: Some("Hosted".into()),
-        remove_legacy_identity: false,
-    })
-    .await
-    .unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
-    while d.runtime_of(HOSTED).await.is_err() {
-        assert!(std::time::Instant::now() < deadline, "never served");
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-    let rt = d.runtime_of(HOSTED).await.unwrap();
-    for (rid, path, doc) in hosted_mirror::server_records() {
-        let ops = vec![mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
-            id: mdbn_wire::common::B16(uuid(rid)),
-            path: Some(path.into()),
-            type_name: None,
-            frontmatter: None,
-            body: None,
-            document: Some(mdbn_wire::common::Text::Inline(doc.into())),
-        })];
-        assert_eq!(
-            submit_as(&rt, ops, new_uuid_v7()).await.unwrap(),
-            crate::takeover::held::Outcome::Confirmed
-        );
-    }
-
-    // Captured at the takeover (before any join).
-    let elsewhere = crate::testutil::TestDir::new("mi-daemon-old");
-    let old = elsewhere.path().join("connect");
-    let entry = hosted_mirror::build(&old, &elsewhere.path().join("Hosted notes"));
-    let legacy = d.takeover_paths().legacy;
-    crate::takeover::mirror_import::capture(&legacy, &old, &entry, "2026-10-18T00:00:00Z").unwrap();
-
-    // Nothing happens before the takeover is complete (an old mirror could
-    // still be uploading).
-    d.import_mirrors().await;
-    assert_eq!(
-        d.takeover_status().await.unwrap()["mirror_imports"][HOSTED]["applied"],
-        0
-    );
-    complete_takeover_record(&d, &old);
-
-    d.import_mirrors().await;
-
-    let st = d.takeover_status().await.unwrap();
-    let mi = &st["mirror_imports"][HOSTED];
-    assert_eq!(mi["join"]["state"], "joined", "{st}");
-    assert_eq!(mi["join"]["folder"], json!(folder.canonicalize().unwrap()));
-    assert_eq!(mi["complete"], true, "{st}");
-    assert_eq!(mi["registered"], true);
-    assert_eq!(mi["name"], "Hosted");
-    assert_eq!(mi["applied"], 4);
-    assert_eq!(mi["held"], 1);
-    assert_eq!(mi["recovered"][0]["path"], "d.md");
-    assert_eq!(doc_at(&rt, "a.md").await.as_deref(), Some("A edited"));
-
-    // The conflict is listed with the replica's own holds and resolves there.
-    let holds = d.holds(HOSTED).await.unwrap();
-    let hold = holds
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|h| h["reason"] == crate::takeover::mirror_import::HOLD_REASON)
-        .unwrap_or_else(|| panic!("{holds}"))
-        .clone();
-    assert_eq!(hold["path"], "e.md");
-    d.resolve_hold(ResolveHold {
-        collection: HOSTED.into(),
-        id: hold["id"].as_str().unwrap().into(),
-        how: HoldAction::KeepBoth,
-    })
-    .await
-    .unwrap();
-    assert_eq!(doc_at(&rt, "e.md").await.as_deref(), Some("E theirs"));
-    assert_eq!(
-        doc_at(&rt, "e (old version).md").await.as_deref(),
-        Some("E mine")
-    );
-    let st = d.takeover_status().await.unwrap();
-    assert_eq!(st["mirror_imports"][HOSTED]["held"], 0, "{st}");
-
-    // Another pass changes nothing.
-    d.import_mirrors().await;
-    assert_eq!(doc_at(&rt, "n.md").await.as_deref(), Some("New"));
-    let mut inner = d.inner.lock().await;
-    for host in inner.hosts.iter_mut() {
-        host.close().await;
-    }
-}
-
-fn complete_takeover_record(d: &Daemon, old: &std::path::Path) {
-    use crate::takeover::record::{Record, SCHEMA_VERSION, State};
-    Record {
-        schema_version: SCHEMA_VERSION,
-        state: State::Complete,
-        updated_at: "2026-10-18T00:00:00Z".into(),
-        old_state_dir: old.to_path_buf(),
-        collections: Default::default(),
-    }
-    .save(&d.takeover_paths().record)
-    .unwrap();
-}
-
-async fn doc_at(rt: &Arc<crate::runtime::Runtime>, path: &str) -> Option<String> {
-    use crate::takeover::mirror_import::Target;
-    let mut t = HostTarget { rt: rt.clone() };
-    t.get(path).await.unwrap().map(|c| c.document)
 }
 
 #[tokio::test]
@@ -1733,7 +1549,6 @@ fn only_the_legacy_identity_entry_is_removed() {
 #[test]
 fn a_commented_identity_is_no_claim() {
     let dir = crate::testutil::TestDir::new("classify-comment");
-    let profile = crate::paths::Profile::isolated(&dir.path().join("state")).unwrap();
     let folder = dir.path().join("notes");
     std::fs::create_dir_all(&folder).unwrap();
     std::fs::write(
@@ -1741,156 +1556,11 @@ fn a_commented_identity_is_no_claim() {
         "spec_version: 0.3.0 # x-mdbase-connect\n# x-mdbase-connect:\n#   collection_id: x\n",
     )
     .unwrap();
-    assert_eq!(
-        classify_folder(&folder, &profile, None).unwrap(),
-        FolderClaim::Free
-    );
+    assert_eq!(classify_folder(&folder).unwrap(), FolderClaim::Free);
     std::fs::write(folder.join("mdbase.yaml"), "a: [\n").unwrap();
     assert_eq!(
-        classify_folder(&folder, &profile, None)
-            .unwrap_err()
-            .reason
-            .as_deref(),
+        classify_folder(&folder).unwrap_err().reason.as_deref(),
         Some("invalid_config")
-    );
-}
-
-/// A captured mirror whose hosted collection cannot be joined is reported once
-/// per attempt, and doctor names the waiting edits, the folder and what to do.
-#[tokio::test]
-async fn an_unjoinable_mirror_capture_is_a_doctor_warning_with_an_action() {
-    use crate::takeover::mirror_join::{self, Joiner, Refused, Step};
-    struct Gone;
-    impl Joiner for Gone {
-        async fn registered(&mut self, _: &str) -> Option<std::path::PathBuf> {
-            None
-        }
-        async fn join(&mut self, _: &str, _: &std::path::Path, _: &str) -> Result<(), Refused> {
-            Err(Refused("not_found".into()))
-        }
-    }
-    let dir = crate::testutil::TestDir::new("mi-doctor");
-    let d = daemon(&dir);
-    assert!(d.mirror_join_checks().is_empty());
-    let old = dir.path().join("connect");
-    let mirror = dir.path().join("Hosted notes");
-    let entry = hosted_mirror::build(&old, &mirror);
-    let legacy = d.takeover_paths().legacy;
-    crate::takeover::mirror_import::capture(&legacy, &old, &entry, "2026-10-18T00:00:00Z").unwrap();
-    // Captured but not attempted yet: nothing to report.
-    assert!(d.mirror_join_checks().is_empty());
-
-    let first = mirror_join::step(&legacy, HOSTED, &mut Gone, 1_000)
-        .await
-        .unwrap();
-    assert!(matches!(first, Step::Waiting { ref reason, .. } if reason == "not_found"));
-    // Within the backoff no attempt runs, so the daemon has nothing to log.
-    assert_eq!(
-        mirror_join::step(&legacy, HOSTED, &mut Gone, 2_000)
-            .await
-            .unwrap(),
-        Step::NotDue
-    );
-
-    let checks = d.mirror_join_checks();
-    assert_eq!(checks.len(), 1, "{checks:?}");
-    let c = &checks[0];
-    assert_eq!(c.id, format!("mirror_import:{HOSTED}"));
-    assert_eq!(c.status, "warn");
-    assert!(c.detail.contains("6 unsent edit(s)"), "{}", c.detail);
-    assert!(
-        c.detail.contains(&mirror.display().to_string()),
-        "{}",
-        c.detail
-    );
-    assert!(c.detail.contains("(not_found)"), "{}", c.detail);
-    let action = c.action.as_deref().unwrap();
-    assert!(action.contains("copy what you need"), "{action}");
-}
-
-/// A taken-over folder refused for overlapping a registered collection is named,
-/// with the choices the user has.
-#[test]
-fn an_overlapping_taken_over_folder_is_named_with_its_choices() {
-    use crate::takeover::record::{Collection, CollectionState, Record, State};
-    let dir = crate::testutil::TestDir::new("takeover-overlap");
-    let d = daemon(&dir);
-    let id = "c972b4f2-6ec0-47ae-a0b1-4731135fde0a";
-    let mut c = Collection::new(CollectionState::Complete);
-    c.reason = Some("registration_pending:overlapping_root".into());
-    Record {
-        schema_version: crate::takeover::record::SCHEMA_VERSION,
-        state: State::Complete,
-        updated_at: "2026-11-02T00:00:00Z".into(),
-        old_state_dir: dir.path().join("connect"),
-        collections: [(id.to_owned(), c)].into_iter().collect(),
-    }
-    .save(&d.takeover_paths().record)
-    .unwrap();
-    let check = d.takeover_check(&Registry::default()).unwrap();
-    assert_eq!(check.status, "warn");
-    assert!(
-        check.detail.contains(&format!(
-            "not registered yet: {id} (registration_pending:overlapping_root)"
-        )),
-        "{}",
-        check.detail
-    );
-    let action = check.action.unwrap();
-    assert!(action.contains("cannot nest"), "{action}");
-    assert!(action.contains("mdbase collection remove"), "{action}");
-}
-
-/// Doctor's marker check: a taken-over folder that lost its claim fails, until
-/// the user has registered that folder as another collection.
-#[test]
-fn doctor_does_not_fail_a_taken_over_folder_registered_again_as_another_collection() {
-    use crate::takeover::tests::old_agent;
-    let dir = crate::testutil::TestDir::new("doctor-marker-superseded");
-    let d = daemon(&dir);
-    let old = dir.path().join("connect");
-    let notes = dir.path().join("agents-notes");
-    old_agent::build(&old, &notes);
-    let paths = d.takeover_paths();
-    let opts = crate::takeover::Options {
-        stop_mirrors: false,
-        account_moved: false,
-        drain: Duration::ZERO,
-        now: "2026-10-27T21:20:00Z".into(),
-        registered: Vec::new(),
-    };
-    crate::takeover::run(
-        &paths,
-        &old,
-        &mut crate::takeover::IsolatedOldService,
-        &opts,
-    )
-    .unwrap();
-    crate::takeover::mark_registered(&paths, old_agent::CID, "2026-10-27T21:20:30Z").unwrap();
-    std::fs::remove_file(notes.join(".mdbase/connect-role.json")).unwrap();
-    crate::takeover::run(
-        &paths,
-        &old,
-        &mut crate::takeover::IsolatedOldService,
-        &opts,
-    )
-    .unwrap();
-
-    let mut registry = Registry::default();
-    let check = d.takeover_check(&registry).unwrap();
-    assert_eq!(check.status, "fail", "{}", check.detail);
-    assert!(check.detail.contains("marker_incident"), "{}", check.detail);
-
-    let mut entry = d.inner.try_lock().unwrap().registry.collections[0].clone();
-    entry.id = "36be1780-539e-46c9-a99e-04314e84426f".into();
-    entry.root = notes.canonicalize().unwrap();
-    registry.collections.push(entry);
-    let check = d.takeover_check(&registry).unwrap();
-    assert_ne!(check.status, "fail", "{}", check.detail);
-    assert!(
-        !check.detail.contains("marker_incident"),
-        "{}",
-        check.detail
     );
 }
 

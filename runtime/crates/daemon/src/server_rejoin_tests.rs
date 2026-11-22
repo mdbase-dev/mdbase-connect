@@ -41,7 +41,7 @@ impl CloudFixture {
             crate::control::CollectionState::Ready,
             "{status:?}"
         );
-        for (_, path, document) in hosted_mirror::server_records() {
+        for (_, path, document) in server_records() {
             assert_eq!(
                 std::fs::read(folder.join(path)).unwrap(),
                 document.as_bytes(),
@@ -141,7 +141,7 @@ async fn cloud_rejoin_replays_after_interrupted_remove_and_join() {
         std::fs::read(old.join("kept-local.md")).unwrap(),
         b"original folder only"
     );
-    for (_, path, document) in hosted_mirror::server_records() {
+    for (_, path, document) in server_records() {
         assert_eq!(std::fs::read(old.join(path)).unwrap(), document.as_bytes());
     }
     assert!(

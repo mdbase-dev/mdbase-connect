@@ -538,9 +538,10 @@ fn path_keyset_pages_survive_edits_between_pages() {
             if let Some(after) = &after {
                 q.push((
                     "where".into(),
-                    Value::Text(
-                        format!("file.path > {}", serde_json::to_string(after).unwrap()).into(),
-                    ),
+                    Value::Text(format!(
+                        "file.path > {}",
+                        serde_json::to_string(after).unwrap()
+                    )),
                 ));
             }
             let out = rep

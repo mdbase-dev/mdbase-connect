@@ -31,9 +31,7 @@
 //! **Allowed dependencies.** Internal: `mdbn-core`, `mdbn-wire`, `mdbn-replica`,
 //! `mdbn-store-file`, `mdbn-platform-native`, `mdbn-local-host` (the shared native
 //! folder composition under the collection runtime), `mdbn-log-service`,
-//! `mdbn-noise`, `mdbn-trust`, `mdbn-legacy` (reading the old connector's
-//! state for the local takeover) and `mdbn-takeover` (the takeover steps T0–T6,
-//! driven by [`takeover`]).
+//! `mdbn-noise`, and `mdbn-trust`.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
 pub mod access;
@@ -42,7 +40,6 @@ pub mod adopt;
 pub mod approval_journal;
 pub mod attest;
 pub mod authority;
-pub mod auto_private;
 pub mod cli;
 pub mod client;
 pub mod cloud;
@@ -73,7 +70,6 @@ pub mod session;
 mod session_diagnostics;
 pub mod sync;
 pub mod sync_failure;
-pub mod takeover;
 pub mod trust;
 pub mod update;
 pub mod watch;

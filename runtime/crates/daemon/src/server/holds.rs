@@ -1,4 +1,4 @@
-//! Holds, conflicts and per-file sync choices, including holds kept by the local takeover.
+//! Holds, conflicts and per-file sync choices.
 
 use super::*;
 
@@ -7,25 +7,12 @@ impl Daemon {
     pub(super) async fn holds(&self, id: &str) -> Result<Value, ControlError> {
         use mdbn_wire::Wire;
         use mdbn_wire::client::Hold;
-        // Files held at the takeover list beside the replica's own holds, and
-        // even while the collection does not serve.
         let id = &self.registered_collection(id).await?;
-        if let Ok(rt) = self.runtime_of(id).await {
-            self.reconcile_takeover_resolutions(&rt, id).await?;
-        }
-        let taken = crate::takeover::held::open(&self.takeover_paths().legacy, id)
-            .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
-        let mut out = match self.runtime_of(id).await {
-            Ok(rt) => {
-                let result = host_call(&rt, "list_holds", mdbn_wire::cbor::Cbor::Null).await?;
-                let holds: Vec<Hold> = Wire::from_cbor(&result)
-                    .map_err(|_| ControlError::internal("the replica's holds do not decode"))?;
-                holds.iter().map(hold_summary).collect::<Vec<_>>()
-            }
-            Err(e) if taken.is_empty() => return Err(e),
-            Err(_) => Vec::new(),
-        };
-        out.extend(taken.iter().map(takeover_hold_summary));
+        let rt = self.runtime_of(id).await?;
+        let result = host_call(&rt, "list_holds", mdbn_wire::cbor::Cbor::Null).await?;
+        let holds: Vec<Hold> = Wire::from_cbor(&result)
+            .map_err(|_| ControlError::internal("the replica's holds do not decode"))?;
+        let out: Vec<_> = holds.iter().map(hold_summary).collect();
         Ok(json!(out))
     }
 
@@ -259,273 +246,12 @@ impl Daemon {
         Ok(json!(self.sync_files(&p.collection).await?))
     }
 
-    /// Read back the takeover hold resolutions still in flight for `collection`:
-    /// a confirmed one resolves its hold, a rejected one is dropped (the hold
-    /// stays open), and a pending or unknown one is left to read back again.
-    async fn reconcile_takeover_resolutions(
-        &self,
-        rt: &Arc<crate::runtime::Runtime>,
-        collection: &str,
-    ) -> Result<(), ControlError> {
-        let paths = self.takeover_paths();
-        let io = |e: std::io::Error| ControlError::internal(format!("takeover holds: {e}"));
-        if crate::takeover::held::in_flight(&paths.legacy, collection)
-            .map_err(io)?
-            .is_empty()
-        {
-            return Ok(());
-        }
-        let _run = self.takeover.run.lock().await;
-        let mut settled = false;
-        for (path, r) in crate::takeover::held::in_flight(&paths.legacy, collection).map_err(io)? {
-            let Some(outcome) = read_back(rt, r.mutation).await? else {
-                continue;
-            };
-            settled |= crate::takeover::held::settle(
-                &paths.record,
-                &paths.legacy,
-                collection,
-                &path,
-                outcome,
-            )
-            .map_err(io)?;
-        }
-        drop(_run);
-        if settled {
-            self.bump();
-        }
-        Ok(())
-    }
-
-    /// Resolve a file held at the takeover. Keep this computer's: the folder
-    /// already has it. Take the other: the old engine's version (or its
-    /// delete) is written as this device's edit. Keep both: the old version is
-    /// added beside it as `<name> (old version).md`. The hold is cleared only
-    /// once that edit is confirmed: a pending or unknown one leaves it open, and
-    /// asking again (or listing the holds) reads the same mutation back.
-    async fn resolve_takeover_hold(&self, p: &ResolveHold) -> Result<Value, ControlError> {
-        use crate::takeover::held::{self, Outcome};
-        use mdbn_wire::intent::{Create, Delete, DocVersion, Document, Op};
-        let collection = self.registered_collection(&p.collection).await?;
-        let io = |e: std::io::Error| ControlError::internal(format!("takeover holds: {e}"));
-        let _run = self.takeover.run.lock().await;
-        let paths = self.takeover_paths();
-        let held = held::open(&paths.legacy, &collection)
-            .map_err(io)?
-            .into_iter()
-            .find(|h| h.id == p.id)
-            .ok_or_else(|| ControlError::not_found(format!("no hold {}", p.id)))?;
-        let how = match p.how {
-            HoldAction::KeepMine => "keep_mine",
-            HoldAction::TakeTheirs => "take_theirs",
-            HoldAction::KeepBoth => "keep_both",
-            HoldAction::Delete => "delete",
-        };
-        let in_flight = held::resolving(&paths.legacy, &collection, &held.path).map_err(io)?;
-        if let Some(r) = &in_flight {
-            if r.how != how {
-                return Err(ControlError::new(
-                    "conflict",
-                    "resolution_pending",
-                    "this file is already being resolved another way; ask again once that settles",
-                ));
-            }
-            // Read the earlier submission back; resubmit only if the replica
-            // has no receipt for it.
-            let rt = self.runtime_of(&collection).await?;
-            if let Some(outcome) = read_back(&rt, r.mutation).await? {
-                return self.settle_takeover_hold(
-                    &paths,
-                    &collection,
-                    &held.path,
-                    r.mutation,
-                    outcome,
-                    _run,
-                );
-            }
-        }
-        let identity = in_flight.unwrap_or_else(|| held::Resolution {
-            how: how.into(),
-            mutation: new_uuid_v7(),
-            record: new_uuid_v7(),
-        });
-        let ops = match p.how {
-            HoldAction::KeepMine => Vec::new(),
-            HoldAction::Delete => {
-                return Err(ControlError::invalid(
-                    "unsupported",
-                    "files held at the takeover are resolved with keep_mine, take_theirs or keep_both",
-                ));
-            }
-            HoldAction::TakeTheirs | HoldAction::KeepBoth => {
-                let text = match &held.intended {
-                    None => None,
-                    Some(b) => Some(
-                        std::str::from_utf8(b)
-                            .ok()
-                            .filter(|_| is_markdown_path(&held.path))
-                            .ok_or_else(|| {
-                                ControlError::invalid(
-                                    "binary",
-                                    "this file is not a note; keep this computer's version \
-                                     (`keep_mine`) and restore the other one by hand",
-                                )
-                            })?
-                            .to_string(),
-                    ),
-                };
-                let rt = self.runtime_of(&p.collection).await?;
-                let current = record_at(&rt, &held.path).await?;
-                match (p.how, text) {
-                    // The other version is a delete: there is nothing to keep beside.
-                    (HoldAction::KeepBoth, None) => Vec::new(),
-                    (HoldAction::KeepBoth, Some(t)) => {
-                        let root = self.entry_root(&p.collection).await?;
-                        let mut target = None;
-                        for c in crate::takeover::held::keep_both_paths(&held.path) {
-                            if !root.join(&c).exists() && record_at(&rt, &c).await?.is_none() {
-                                target = Some(c);
-                                break;
-                            }
-                        }
-                        let target = target.ok_or_else(|| {
-                            ControlError::new(
-                                "conflict",
-                                "no_free_name",
-                                "no free name for the old version",
-                            )
-                        })?;
-                        vec![Op::Create(Create {
-                            id: mdbn_wire::common::B16(identity.record),
-                            path: Some(target),
-                            type_name: None,
-                            frontmatter: None,
-                            body: None,
-                            document: Some(mdbn_wire::common::Text::Inline(t)),
-                        })]
-                    }
-                    (_, Some(t)) => match current {
-                        Some(r) => vec![Op::Document(Document {
-                            id: r.id,
-                            base: r.document.map(|d| DocVersion {
-                                path: r.path.clone(),
-                                doc: mdbn_wire::common::Text::Inline(d),
-                            }),
-                            new: Some(DocVersion {
-                                path: held.path.clone(),
-                                doc: mdbn_wire::common::Text::Inline(t),
-                            }),
-                            if_revision: Some(r.revision),
-                        })],
-                        None => vec![Op::Create(Create {
-                            id: mdbn_wire::common::B16(identity.record),
-                            path: Some(held.path.clone()),
-                            type_name: None,
-                            frontmatter: None,
-                            body: None,
-                            document: Some(mdbn_wire::common::Text::Inline(t)),
-                        })],
-                    },
-                    (_, None) => match current {
-                        Some(r) => vec![Op::Delete(Delete {
-                            id: r.id,
-                            base_revision: Some(r.revision),
-                            if_revision: None,
-                        })],
-                        None => Vec::new(),
-                    },
-                }
-            }
-        };
-        if ops.is_empty() {
-            return self.settle_takeover_hold(
-                &paths,
-                &collection,
-                &held.path,
-                [0u8; 16],
-                Outcome::Confirmed,
-                _run,
-            );
-        }
-        // The identity is durable before anything is submitted, so a retry
-        // after any outcome reuses it.
-        let identity = match held::begin(&paths.legacy, &collection, &held.path, how, || {
-            (identity.mutation, identity.record)
-        })
-        .map_err(io)?
-        {
-            Ok(r) => r,
-            Err(_) => {
-                return Err(ControlError::new(
-                    "conflict",
-                    "resolution_pending",
-                    "this file is already being resolved another way; ask again once that settles",
-                ));
-            }
-        };
-        let rt = self.runtime_of(&collection).await?;
-        let outcome = submit_as(&rt, ops, identity.mutation).await?;
-        self.settle_takeover_hold(
-            &paths,
-            &collection,
-            &held.path,
-            identity.mutation,
-            outcome,
-            _run,
-        )
-    }
-
-    /// Settle a takeover hold resolution by its outcome (see
-    /// `takeover::held::settle`) and answer for it.
-    fn settle_takeover_hold(
-        &self,
-        paths: &crate::takeover::Paths,
-        collection: &str,
-        path: &str,
-        mutation: [u8; 16],
-        outcome: crate::takeover::held::Outcome,
-        run: tokio::sync::MutexGuard<'_, ()>,
-    ) -> Result<Value, ControlError> {
-        use crate::takeover::held::Outcome;
-        let resolved =
-            crate::takeover::held::settle(&paths.record, &paths.legacy, collection, path, outcome)
-                .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
-        drop(run);
-        if resolved {
-            self.bump();
-        }
-        let state = match outcome {
-            Outcome::Confirmed => "confirmed",
-            Outcome::Pending => "pending",
-            Outcome::Unknown => "unknown",
-            Outcome::Rejected => {
-                return Err(ControlError::new(
-                    "conflict",
-                    "rejected",
-                    "the change was rejected; the hold stays open",
-                ));
-            }
-        };
-        Ok(json!(HoldResolved {
-            mutation: secrets::uuid_string(&mutation),
-            state: state.into(),
-        }))
-    }
-
     /// `collection.resolve_hold`: resolve one hold as the hosting app (the user's
     /// own device; the SDK resolves with content on behalf of an app grant).
     pub(super) async fn resolve_hold(&self, p: ResolveHold) -> Result<Value, ControlError> {
         use mdbn_wire::Wire;
         use mdbn_wire::cbor::Cbor;
         use mdbn_wire::client::{Receipt, ReceiptState};
-        if p.id.starts_with(crate::takeover::held::ID_PREFIX) {
-            let out = self.resolve_takeover_hold(&p).await;
-            if out.is_ok() {
-                // The last held file resolved lets Private sync turn on.
-                self.spawn_auto_private();
-            }
-            return out;
-        }
         let id: [u8; 16] = secrets::hex_decode(&p.id.replace('-', ""))
             .ok()
             .and_then(|v| v.try_into().ok())
@@ -578,32 +304,6 @@ pub(super) fn hold_summary(h: &mdbn_wire::client::Hold) -> HoldSummary {
         has_theirs: h.theirs.is_some(),
         binary: matches!(h.mine, TextOrBlob::Blob(_) | TextOrBlob::Attachment(_)),
     }
-}
-
-fn takeover_hold_summary(h: &crate::takeover::held::Held) -> HoldSummary {
-    HoldSummary {
-        id: h.id.clone(),
-        path: h.path.clone(),
-        reason: if h.unsent {
-            crate::takeover::mirror_import::HOLD_REASON
-        } else {
-            crate::takeover::held::REASON
-        }
-        .into(),
-        since: h.since,
-        saves: 0,
-        has_theirs: true,
-        // An unsent edit is always text (other files were recovered instead).
-        binary: (!h.unsent && !is_markdown_path(&h.path))
-            || h.intended
-                .as_ref()
-                .is_some_and(|b| std::str::from_utf8(b).is_err()),
-    }
-}
-
-fn is_markdown_path(path: &str) -> bool {
-    path.rsplit_once('.')
-        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("md"))
 }
 
 /// One client-API request on a collection's runtime as the hosting app: a
