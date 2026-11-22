@@ -36,3 +36,17 @@ test("missing management manifest or source fails the container closure guard", 
     assert.throws(() => checkWorkspaceClosure(recipe.replace(copy, "")), /@mdbase\/connect-management/);
   }
 });
+test("container recipes copy every file-pinned archive the lockfile resolves", async () => {
+  const lock = await readFile(resolve(root, "pnpm-lock.yaml"), "utf8");
+  const pinned = new Set([...lock.matchAll(/tarball: file:(apps\/editor\/vendor\/[^,}\s]+)/g)].map(match => match[1]));
+  assert.ok(pinned.size > 0);
+  for (const name of ["server", "mcp"]) {
+    const dockerfile = await readFile(resolve(root, `deploy/docker/Dockerfile.${name}`), "utf8");
+    const copied = dockerfile.slice(0, dockerfile.indexOf("RUN pnpm install")).split("\n")
+      .filter(line => line.startsWith("COPY apps/editor/vendor/")).flatMap(line => line.split(" ").slice(1, -1))
+      .map(source => new RegExp(`^${source.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", "[^/]*")}$`));
+    for (const file of pinned) {
+      assert.ok(copied.some(source => source.test(file)), `Dockerfile.${name} must copy ${file} before the frozen install`);
+    }
+  }
+});
