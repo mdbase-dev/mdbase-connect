@@ -32,6 +32,9 @@ else:
 
 # Send a real pointer click at the observed button. The browser applies its own
 # decision; the caller independently verifies the resulting Permissions API state.
+# Chrome ignores input on a prompt it has only just shown, and on an idle machine
+# the screen is read sooner than that.
+time.sleep(0.7)
 button = buttons[0]
 x = int(button["left"]) + int(button["width"]) // 2
 y = int(button["top"]) + int(button["height"]) // 2
