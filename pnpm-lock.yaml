@@ -207,6 +207,9 @@ importers:
       '@mdbase-dev/sdk':
         specifier: file:vendor/sdk-d3b89b09-production-0.1.37.tgz
         version: file:apps/editor/vendor/sdk-d3b89b09-production-0.1.37.tgz
+      '@mdbase-dev/sdk-self-hosted':
+        specifier: file:vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz
+        version: '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz'
       '@mdbase-dev/ui':
         specifier: 0.1.35
         version: 0.1.35(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-d3b89b09-production-0.1.37.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -2332,6 +2335,13 @@ packages:
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-d3b89b09-production-0.1.37.tgz':
     resolution: {integrity: sha512-MgQSedc2t9EHML0jZ0/HRa/0adkwOOUd/cro4s/CcRRwvYnmcDA4KHcOBIIrfk1sJ7T2Y1B/sDsQ3uwwZyU/kw==, tarball: file:apps/editor/vendor/sdk-d3b89b09-production-0.1.37.tgz}
     version: 0.1.37
+    engines: {node: '>=20'}
+    bundledDependencies:
+      - '@mdbase-dev/connect-protocol'
+
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz':
+    resolution: {integrity: sha512-cqXQ7u+W6+SqGHWZk04DPTkrzYD9vfCbVqRz2CG9bBIA9XOiT1y1Nz10lY049mhMMnJWUOIRNzIjKT0bnNOshQ==, tarball: file:apps/editor/vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz}
+    version: 0.1.0-beta.152
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8217,6 +8227,12 @@ snapshots:
       '@noble/hashes': 2.4.0
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-d3b89b09-production-0.1.37.tgz':
+    dependencies:
+      '@noble/ciphers': 2.4.0
+      '@noble/curves': 2.4.0
+      '@noble/hashes': 2.4.0
+
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0

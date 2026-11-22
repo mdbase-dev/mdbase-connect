@@ -1,0 +1,304 @@
+import assert from 'node:assert/strict';
+import { execFileSync, spawn } from 'node:child_process';
+import { createHash, X509Certificate } from 'node:crypto';
+import { once } from 'node:events';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:https';
+import { connect } from 'node:net';
+import { tmpdir } from 'node:os';
+import { extname, join, resolve } from 'node:path';
+import { Transform } from 'node:stream';
+import { createServer as tlsServer } from 'node:tls';
+import { fileURLToPath } from 'node:url';
+import AxeBuilder from '@axe-core/playwright';
+import { chromium, expect } from '@playwright/test';
+
+assert.equal(process.argv.length, 3, 'Usage: node scripts/direct-proof.mjs <fixture mdbase binary>');
+const inputBinary = resolve(process.argv[2]);
+const dist = fileURLToPath(new URL('../dist-direct/', import.meta.url));
+const origin = 'https://127.0.0.1:15917';
+const headers = Object.fromEntries((await readFile(join(dist, '_headers'), 'utf8')).trim().split('\n').slice(1).map(line => {
+  const [name, ...value] = line.trim().split(': ');
+  return [name, value.join(': ')];
+}));
+assert.match(headers['Content-Security-Policy'], /^default-src 'none'; .*; frame-ancestors 'none'$/);
+assert.equal(headers['Cross-Origin-Opener-Policy'], 'same-origin');
+const files = new Set((await readdir(join(dist, 'assets'))).map(name => `/assets/${name}`));
+const fixture = await mkdtemp(join(tmpdir(), 'editor-direct-proof-'));
+const binary = join(fixture, 'mdbase');
+const collection = join(fixture, 'collection');
+const args = ['self-host', '--state-dir', join(fixture, 'state'), '--collection', collection, '--origin', origin, '--auth-dir', join(fixture, 'auth')];
+const operator = (...action) => execFileSync(binary, [...args, ...action], { encoding: 'utf8', timeout: 10000 }).trim();
+const canary = 'private-editor-body-177';
+const note = 'private-proof-note.md';
+const violations = new Set();
+const sockets = [];
+const connections = new Set();
+let delayReplies = false;
+let reachable = true;
+let daemon, browser, proxy, publisher, exited;
+let workerFixture = false;
+try {
+  await copyFile(inputBinary, binary);
+  console.log('Native worktree binary SHA-256', createHash('sha256').update(await readFile(binary)).digest('hex'));
+  await mkdir(collection);
+  await writeFile(join(collection, 'mdbase.yaml'), 'spec_version: "0.3.0"\n');
+  await writeFile(join(collection, note), `---\ntitle: Source test\n---\n${canary}\n![External image](https://unexpected.invalid/${canary})\n`);
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=Disposable Editor Test', '-addext',
+    'subjectAltName=IP:127.0.0.1,IP:127.0.0.2', '-keyout', join(fixture, 'key'), '-out', join(fixture, 'cert')], { stdio: 'ignore' });
+  const tls = { key: await readFile(join(fixture, 'key')), cert: await readFile(join(fixture, 'cert')) };
+  const pin = createHash('sha256').update(new X509Certificate(tls.cert).publicKey.export({ type: 'spki', format: 'der' })).digest('base64');
+  daemon = spawn(binary, [...args, 'serve'], { stdio: ['ignore', 'pipe', 'inherit'] });
+  exited = once(daemon, 'exit');
+  const ready = await Promise.race([once(daemon.stdout, 'data', { signal: AbortSignal.timeout(15000) }), exited]);
+  const port = /^listening 127\.0\.0\.1:(\d+)\s*$/u.exec(String(ready[0]))?.[1];
+  assert(port, 'Disposable daemon must announce a loopback port');
+  proxy = tlsServer(tls, socket => {
+    if (!reachable) { socket.destroy(); return; }
+    socket.on('close', () => connections.delete(socket));
+    const upstream = connect(Number(port), '127.0.0.1');
+    connections.add(socket);
+    socket.on('error', () => upstream.destroy()).on('close', () => upstream.destroy());
+    upstream.on('error', () => socket.destroy()).on('close', () => socket.destroy());
+    const replies = new Transform({ transform(chunk, _encoding, done) {
+      if (delayReplies) setTimeout(done, 1000, null, chunk);
+      else done(null, chunk);
+    } });
+    socket.pipe(upstream).pipe(replies).pipe(socket);
+  });
+  await new Promise((done, fail) => proxy.once('error', fail).listen(0, '127.0.0.2', done));
+  const backend = `https://127.0.0.2:${proxy.address().port}`;
+  const forbidden = [canary, note];
+  publisher = createServer(tls, async (req, res) => {
+    const path = req.url;
+    if (workerFixture && path === '/fixture-install') { res.writeHead(200, { 'content-type': 'text/html' }).end('<title>Worker fixture</title>'); return; }
+    if (workerFixture && path === '/fixture-worker.js') { res.writeHead(200, { 'content-type': 'text/javascript' }).end(''); return; }
+    if (req.method !== 'GET' || req.headers.authorization || req.headers.cookie || !files.has(path) && path !== '/') violations.add('unexpected UI request');
+    if (forbidden.some(secret => JSON.stringify(req.rawHeaders).includes(secret))) violations.add('private UI header');
+    req.on('data', () => violations.add('UI request body'));
+    if (!files.has(path) && path !== '/') { res.writeHead(404).end(); return; }
+    for (const [name, value] of Object.entries(headers)) res.setHeader(name, value);
+    res.setHeader('content-type', path === '/' ? 'text/html' : ({ '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2' }[extname(path)] ?? 'application/octet-stream'));
+    res.end(await readFile(join(dist, path === '/' ? 'index.html' : path)));
+  });
+  publisher.on('upgrade', (_request, socket) => { violations.add('UI websocket'); socket.destroy(); });
+  await new Promise((done, fail) => publisher.once('error', fail).listen(15917, '127.0.0.1', done));
+  browser = await chromium.launch({ args: [`--ignore-certificate-errors-spki-list=${pin}`] });
+  const context = await browser.newContext({ viewport: { width: 375, height: 760 }, locale: 'en-US' });
+  await context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin });
+  context.on('serviceworker', worker => { if (!workerFixture || worker.url() !== `${origin}/fixture-worker.js`) violations.add('service worker'); });
+  await context.route('**/*', async route => {
+    if (new URL(route.request().url()).origin !== origin) { violations.add('external HTTP'); await route.abort(); }
+    else await route.continue();
+  });
+  const page = await context.newPage();
+  page.on('pageerror', error => { throw Error(`Direct editor crashed: ${error.name}`); });
+  page.on('websocket', socket => {
+    const url = new URL(socket.url());
+    if (url.origin !== backend.replace('https:', 'wss:') || url.search || !['/_mdbase/pair', '/_mdbase/replica'].includes(url.pathname)) violations.add('unexpected websocket');
+    sockets.push(url.pathname);
+    socket.once('framesent', ({ payload }) => { if (typeof payload === 'string') forbidden.push(payload); });
+  });
+  const connectButton = page.getByRole('button', { name: 'Pair and open collection' });
+  await page.goto(origin);
+  const csp = await page.locator('meta[http-equiv="Content-Security-Policy"]').getAttribute('content');
+  for (const directive of ["script-src 'self'", "worker-src 'none'", "form-action 'none'", "img-src 'none'", "connect-src wss: https:"])
+    assert(csp.split('; ').includes(directive));
+  await expect(connectButton).toBeVisible();
+  const back = page.getByRole('link', { name: 'Return to mdbase editor' });
+  await expect(back).toHaveAttribute('href', 'https://editor.mdbase.dev/');
+  await expect(page.locator('#backend')).toBeFocused();
+  assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  const accessibility = await new AxeBuilder({ page }).analyze();
+  assert.deepEqual(accessibility.violations.map(issue => issue.id), [], 'pairing form accessibility');
+  assert.deepEqual(sockets, []);
+  const pair = async (label, remember) => {
+    const code = operator('pair', label);
+    assert(/^\d{8}$/u.test(code), 'Operator must issue an eight-digit code');
+    forbidden.push(code);
+    await page.getByLabel(/server address/i).fill(backend);
+    await page.getByLabel(/pairing code/i).fill(code);
+    await page.getByLabel('Remember this browser').setChecked(remember);
+    await connectButton.click();
+    await expect(page.getByRole('button', { name: note })).toBeVisible();
+  };
+  const field = page.getByRole('textbox', { name: 'Note body' });
+  const recovery = page.getByRole('textbox', { name: /Unsaved text/ });
+  const save = page.getByRole('button', { name: 'Save note' });
+  const reconnect = page.getByRole('button', { name: 'Reconnect' });
+  const privateDraft = 'unsaved private draft\nsecond line';
+  forbidden.push(privateDraft);
+  const original = await readFile(join(collection, note), 'utf8');
+  async function expectCopy(text) {
+    await expect(recovery).toHaveValue(text);
+    await expect(recovery).toHaveAttribute('readonly', '');
+    await expect(field).toHaveCount(0);
+    await expect(save).toHaveCount(0);
+    await recovery.focus();
+    await recovery.press('Control+a');
+    await recovery.press('Control+c');
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), text);
+    await recovery.press('X');
+    await expect(recovery).toHaveValue(text);
+  }
+  async function discardCopy(connected = false) {
+    const discard = page.getByRole('button', { name: connected ? 'Discard and open notes' : 'Discard unsaved text' });
+    page.once('dialog', dialog => dialog.dismiss());
+    await discard.click();
+    await expect(recovery).toBeVisible();
+    page.once('dialog', dialog => dialog.accept());
+    await discard.click();
+    await expect(recovery).toHaveCount(0);
+  }
+  await pair('Ephemeral', false);
+  await page.getByRole('button', { name: note }).click();
+  await expect(save).toBeDisabled();
+  await field.fill(privateDraft);
+  await expect(save).toBeEnabled();
+  reachable = false;
+  for (const socket of connections) socket.destroy();
+  await expect(reconnect).toBeVisible();
+  await expectCopy(privateDraft);
+  const count = sockets.length;
+  await reconnect.click();
+  await expect(reconnect).toBeVisible();
+  await expectCopy(privateDraft);
+  reachable = true;
+  await reconnect.click();
+  await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
+  await expectCopy(privateDraft);
+  assert.deepEqual(sockets.slice(count), ['/_mdbase/replica', '/_mdbase/replica']);
+  await discardCopy(true);
+  await page.getByRole('button', { name: note }).click();
+  await expect(field).toContainText(canary);
+  assert(!(await field.innerText()).includes(privateDraft));
+  await expect(save).toBeDisabled();
+  assert.equal(await readFile(join(collection, note), 'utf8'), original);
+  console.log('PASS Chromium/native WSS: live mid-edit network drop, byte-exact clipboard recovery, failed retry, tab-only reconnect, fresh read and unchanged Markdown on disk.');
+
+  // A submitted save can reach disk even when the browser never sees its reply.
+  await field.fill(privateDraft);
+  assert.equal(connections.size, 1);
+  delayReplies = true;
+  await save.click();
+  await expect.poll(() => readFile(join(collection, note), 'utf8'), { intervals: [25], timeout: 15000 }).toContain(privateDraft);
+  await expect(page.getByRole('status')).toHaveText('Saving…');
+  delayReplies = false;
+  for (const socket of connections) socket.destroy();
+  await expectCopy(privateDraft);
+  await reconnect.click();
+  await expect(page.getByRole('button', { name: 'Disconnect' })).toBeVisible();
+  await discardCopy(true);
+  await page.getByRole('button', { name: note }).click();
+  await expect(field).toHaveText(privateDraft, { useInnerText: true });
+  await expect(save).toBeDisabled();
+  console.log('PASS Chromium/native WSS: unacknowledged save reached disk, text remained copyable, reconnect read back the committed record.');
+
+  await field.fill(canary + ' edit to discard');
+  const allNotes = page.getByRole('button', { name: 'All notes' });
+  page.once('dialog', dialog => dialog.dismiss());
+  await allNotes.click();
+  await expect(field).toHaveText(canary + ' edit to discard');
+  page.once('dialog', dialog => dialog.accept());
+  await allNotes.click();
+  await page.getByRole('button', { name: note }).click();
+  await expect(field).toHaveText(privateDraft, { useInnerText: true });
+  await expect(save).toBeDisabled();
+
+  // A new invitation in this very tab can change the editor without a page reload.
+  const invitation = '#mdbase-pair=' + encodeURIComponent('https://127.0.0.1:1443#sha256=' + 'a'.repeat(64));
+  const beforeChange = sockets.length;
+  const changedDraft = 'copy across server change';
+  forbidden.push(changedDraft);
+  await field.fill(changedDraft);
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.evaluate(hash => { location.hash = hash; }, invitation);
+  await expect(field).toHaveText(changedDraft);
+  await expect.poll(() => page.url()).toBe(origin + '/');
+  page.once('dialog', dialog => dialog.accept());
+  await page.evaluate(hash => { location.hash = hash; }, invitation);
+  await expect(page.locator('#pairing')).toBeFocused();
+  await expectCopy(changedDraft);
+  assert.equal(sockets.length, beforeChange);
+  await discardCopy();
+  await page.reload();
+  await expect(connectButton).toBeVisible();
+  await pair('Remembered', true);
+  await page.getByRole('button', { name: note }).click();
+  await expect(field).toHaveText(privateDraft, { useInnerText: true });
+  await field.fill(`${canary} saved`);
+  page.once('dialog', dialog => dialog.dismiss());
+  await page.getByRole('button', { name: 'Forget this browser' }).click();
+  await page.getByRole('button', { name: 'Save note' }).click();
+  await expect(page.getByRole('status')).toHaveText('Saved');
+  await expect.poll(() => readFile(join(collection, note), 'utf8')).toContain(`${canary} saved`);
+  assert((await readFile(join(collection, note), 'utf8')).includes('title: Source test'));
+  await page.reload();
+  await page.getByRole('button', { name: note }).click();
+  await expect(field).toHaveText(`${canary} saved`);
+  const grant = operator('list').split('\n').find(line => line.endsWith('\tRemembered'))?.split('\t')[0];
+  assert(grant && /^[a-f0-9]{32}$/u.test(grant));
+  await field.fill(privateDraft);
+  operator('revoke', grant);
+  await expect(connectButton).toBeVisible();
+  await expectCopy(privateDraft);
+  await expect(page.getByRole('status')).toContainText('revoked');
+  await discardCopy();
+  const afterRevocation = sockets.length;
+  await page.reload();
+  await expect(connectButton).toBeVisible();
+  assert.equal(sockets.length, afterRevocation);
+  await pair('Forgotten', true);
+  await page.getByRole('button', { name: note }).click();
+  await field.fill(privateDraft);
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Forget this browser' }).click();
+  await expect(connectButton).toBeVisible();
+  await expectCopy(privateDraft);
+  await discardCopy();
+  const afterForget = sockets.length;
+  await page.reload();
+  await expect(connectButton).toBeVisible();
+  assert.equal(sockets.length, afterForget);
+  assert.equal(page.url(), origin + '/');
+  workerFixture = true;
+  const installer = await context.newPage();
+  await installer.goto(origin + '/fixture-install');
+  const install = () => installer.evaluate(() => navigator.serviceWorker.register('/fixture-worker.js', { scope: '/unused/' }).then(() => true));
+  await install();
+  assert.equal(await page.evaluate(() => navigator.serviceWorker.controller), null);
+  await page.getByLabel(/server address/i).fill(backend);
+  await page.getByLabel(/pairing code/i).fill('00000000');
+  await connectButton.click();
+  const blocked = page.getByRole('alert').filter({ hasText: 'without a query, fragment or service worker' });
+  await expect(blocked).toBeVisible();
+  assert.equal(sockets.length, afterForget);
+  await installer.evaluate(async () => { for (const worker of await navigator.serviceWorker.getRegistrations()) await worker.unregister(); });
+  await page.reload();
+  await pair('Worker check', true);
+  const beforeRestore = sockets.length;
+  await install();
+  await page.reload();
+  await expect(blocked).toBeVisible();
+  assert.equal(sockets.length, beforeRestore);
+  for (const locale of ['de', 'es', 'fr', 'it', 'ja', 'ko', 'pt', 'ru', 'zh']) {
+    const localized = await browser.newContext({ locale });
+    const translated = await localized.newPage();
+    await translated.goto(origin);
+    await expect(translated.locator('html')).toHaveAttribute('lang', locale);
+    const submit = translated.locator('button[type=submit]');
+    await expect(submit).toBeVisible();
+    assert((await submit.innerText()).trim());
+    await expect(submit).not.toHaveText('Pair and open collection');
+    await localized.close();
+  }
+  assert.deepEqual([...violations], []);
+  console.log('PASS Chromium: pairing form accessibility scan at 375px and localized submit controls in all ten locales.');
+  console.log('PASS Chromium/native WSS: opt-in, ephemeral and remembered reload, CodeEditor disk read/write, active revocation, local forget, registered-worker refusal before pairing and restore; no unexpected HTTP, WebSocket or worker.');
+} finally {
+  await browser?.close();
+  publisher?.closeAllConnections(); publisher?.close(); proxy?.close();
+  if (daemon?.exitCode === null && !daemon.signalCode) daemon.kill('SIGTERM');
+  if (exited) await exited;
+  await rm(fixture, { recursive: true, force: true });
+}

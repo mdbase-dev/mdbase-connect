@@ -78,7 +78,8 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   const developerMessage = problem?.developerMessage ?? null;
   useEffect(() => { if (developerMessage) console.warn(t`mdbase editor: ${developerMessage}`); }, [developerMessage]);
   const priv = usePrivateSection(sdk, privates);
-  const sections = priv.section ? [priv.section] : undefined;
+  const directOrigin = import.meta.env.MDBASE_EDITOR_DIRECT_ORIGIN;
+  const sections: CollectionSection[] = priv.section ? [priv.section] : [];
   const switcher: EditorCollectionSwitcher = (onBeforeLeave) => <CollectionSwitcher mdbase={sdk} app={editorCollectionApp} allowDelete unsynced
     variant="full" allowPrivate={false} className="editor-collection-switcher" sections={sections} onBeforeLeave={onBeforeLeave} />;
   const extraActions = (view: CollectionView) => <>
@@ -86,6 +87,9 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
     {priv.section && view.kind === "choosing" && <button type="button" className="mdbase-button" onClick={priv.add}><Trans>Add a Private collection</Trans></button>}
     {priv.problem && <p className="editor-private-problem" role="alert">{priv.problem}</p>}
     <FeedbackButton />
+    {view.kind === "signed_out" && directOrigin && directOrigin !== location.origin && <small className="editor-direct-entry">
+      <Trans>Advanced</Trans>{" · "}<a href={directOrigin} referrerPolicy="no-referrer"><Trans>Connect to your own server</Trans></a>
+    </small>}
   </>;
   if (declaration && !snapshot.links) return <EditorEntryPage title={t`This Editor build cannot open collections here`}>
     <Trans>Open the Editor configured for your mdbase environment from Collections.</Trans>

@@ -690,6 +690,10 @@ msgstr "<0>更多</0>，另有 {0} 篇笔记"
 msgid "1 person record needs attention"
 msgstr "1 条人员记录需要处理"
 
+#: direct/DirectEditor.tsx
+msgid "8-digit pairing code"
+msgstr "8 位配对码"
+
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
 msgstr "“{name}”的{label}已存在。"
@@ -711,6 +715,10 @@ msgstr "日期"
 #: src/type-presentation.ts
 msgid "a date and time"
 msgstr "日期和时间"
+
+#: direct/DirectEditor.tsx
+msgid "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+msgstr "已保存其他连接。请重新连接已保存的服务器，或先移除该连接再配对。"
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
@@ -769,6 +777,10 @@ msgstr "“{field}”的读取默认值已存在。"
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "关于现有联系人"
+
+#: direct/DirectEditor.tsx
+msgid "Access was refused or revoked. Ask for a new pairing code."
+msgstr "访问被拒绝或授权已被撤销。请索取新的配对码。"
 
 #: src/QuickOpen.tsx
 msgid "Actions"
@@ -951,7 +963,9 @@ msgstr "添加 1 个类型"
 msgid "Adopt and update"
 msgstr "纳入管理并更新"
 
+#: direct/DirectEditor.tsx
 #: src/PropertiesPanel.tsx
+#: src/SdkEditorRoot.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
 msgstr "高级"
@@ -973,6 +987,7 @@ msgstr "高级 YAML 规则"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "显示此类型的记录时使用的提示标签和颜色。"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
@@ -1119,6 +1134,10 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "可用"
 
+#: direct/RecordWorkspace.tsx
+msgid "Awaiting confirmation"
+msgstr "正在等待确认"
+
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
@@ -1201,6 +1220,10 @@ msgstr "布尔值"
 msgid "Browse ready-made types"
 msgstr "浏览现成类型"
 
+#: direct/DirectEditor.tsx
+msgid "Browser storage is unavailable. Pair without remembering this browser."
+msgstr "浏览器存储不可用。请在不记住此浏览器的情况下配对。"
+
 #: src/code-editor-completions.ts
 #: src/CodeEditor.tsx
 msgid "Bulleted list"
@@ -1248,6 +1271,10 @@ msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "调整笔记文字大小，不改变周围的界面。"
 
+#: direct/DirectEditor.tsx
+msgid "Change server"
+msgstr "更换服务器"
+
 #. placeholder {0}: label(id)
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
@@ -1279,6 +1306,10 @@ msgstr "检查笔记"
 #: src/ConnectionScreens.tsx
 msgid "check notes"
 msgstr "检查笔记"
+
+#: direct/DirectEditor.tsx
+msgid "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
+msgstr "请与提供配对码的人核对服务器地址。配对后，此编辑器可以在连接期间读取和编辑笔记。"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
@@ -1675,6 +1706,12 @@ msgstr "关联应用契约"
 msgid "Connect server: {server}"
 msgstr "Connect 服务器：{server}"
 
+#: direct/DirectEditor.tsx
+#: direct/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Connect to your own server"
+msgstr "连接到自己的服务器"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "已连接"
@@ -1689,10 +1726,18 @@ msgctxt "connection route"
 msgid "Connected through mdbase"
 msgstr "已通过 mdbase 连接"
 
+#: direct/DirectEditor.tsx
+msgid "Connecting…"
+msgstr "正在连接…"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
 msgstr "连接"
+
+#: direct/DirectEditor.tsx
+msgid "Connection lost. Check the server and network, then reconnect."
+msgstr "连接已断开。请检查服务器和网络，然后重新连接。"
 
 #: src/type-schema.ts
 msgid "constant value"
@@ -1787,9 +1832,17 @@ msgstr "复制 {name} 的路径"
 msgid "Copy text"
 msgstr "复制文本"
 
+#: direct/DirectEditor.tsx
+msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
+msgstr "请在关闭此标签页前复制文本。重新连接时不会发送这些文本。"
+
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
 msgstr "无法添加人员定义。请重新检查设置。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not confirm the save."
+msgstr "无法确认是否已保存。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
@@ -1802,6 +1855,18 @@ msgstr "无法关联此人员。"
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
 msgstr "无法加载人员。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not load the collection."
+msgstr "无法加载集合。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not read this note."
+msgstr "无法读取这篇笔记。"
+
+#: direct/DirectEditor.tsx
+msgid "Could not remove the saved connection. Try forgetting it again."
+msgstr "无法移除已保存的连接。请再次尝试移除。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
@@ -2110,6 +2175,10 @@ msgctxt "explicit type keys setting"
 msgid "Disabled"
 msgstr "已禁用"
 
+#: direct/DirectEditor.tsx
+msgid "Discard and open notes"
+msgstr "放弃更改并打开笔记"
+
 #: src/App.tsx
 msgid "Discard changes"
 msgstr "放弃更改"
@@ -2137,6 +2206,27 @@ msgstr "放弃类型"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "放弃类型更改？"
+
+#: direct/DirectEditor.tsx
+#: direct/RecordWorkspace.tsx
+msgid "Discard unsaved changes?"
+msgstr "放弃未保存的更改？"
+
+#: direct/DirectEditor.tsx
+msgid "Discard unsaved text"
+msgstr "丢弃未保存的文本"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect"
+msgstr "断开连接"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect this tab? You will need a new code to pair again."
+msgstr "断开此标签页的连接？再次配对时需要新的配对码。"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnected."
+msgstr "连接已断开。"
 
 #: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
@@ -2284,6 +2374,10 @@ msgstr "输入列表。"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
 msgstr "输入数字。"
+
+#: direct/DirectEditor.tsx
+msgid "Enter a server HTTPS address or an invitation for this editor."
+msgstr "请输入服务器的 HTTPS 地址或此编辑器的邀请链接。"
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
@@ -2578,6 +2672,14 @@ msgctxt "settings view"
 msgid "Forget from this browser"
 msgstr "从此浏览器中移除"
 
+#: direct/DirectEditor.tsx
+msgid "Forget this browser"
+msgstr "忘记此浏览器"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
+msgstr "忘记此浏览器并断开连接？如需在服务器端撤销访问权限，请联系提供配对码的人。"
+
 #: src/TypeBrowser.tsx
 msgid "Format"
 msgstr "格式"
@@ -2702,6 +2804,10 @@ msgstr "图标"
 msgid "Identity"
 msgstr "标识"
 
+#: direct/DirectEditor.tsx
+msgid "If the browser asked, allow local network access for this site."
+msgstr "如果浏览器曾询问是否允许访问本地网络，请为此网站开启该权限。"
+
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "影响评估基于当前已索引的笔记。你确认时，集合会验证完整定义。"
@@ -2781,6 +2887,10 @@ msgstr "JSON 架构无效"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON 无效。"
+
+#: direct/DirectEditor.tsx
+msgid "Invitation"
+msgstr "邀请"
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
@@ -3228,6 +3338,10 @@ msgstr "多篇笔记与此嵌入引用匹配。"
 msgid "More than one person record claims your account, so the editor will not guess which is you."
 msgstr "有多条人员记录声明了你的账户，因此编辑器不会猜测哪一条是你。"
 
+#: direct/main.tsx
+msgid "Most people use mdbase editor with their mdbase account."
+msgstr "大多数用户使用自己的 mdbase 账户登录 mdbase editor。"
+
 #: src/MoveNoteDialog.tsx
 msgid "Move"
 msgstr "移动"
@@ -3520,6 +3634,10 @@ msgstr "无笔记"
 msgid "No note or file matches “{0}”."
 msgstr "没有与“{0}”匹配的笔记或文件。"
 
+#: direct/RecordWorkspace.tsx
+msgid "No notes in this collection."
+msgstr "此集合中没有笔记。"
+
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
 msgstr "暂无笔记链接到此处。"
@@ -3592,6 +3710,7 @@ msgstr "笔记"
 msgid "Note actions, in the list"
 msgstr "列表中的笔记操作"
 
+#: direct/RecordWorkspace.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Note body"
 msgstr "笔记正文"
@@ -3638,6 +3757,7 @@ msgstr "笔记类型"
 msgid "Note view options"
 msgstr "笔记视图选项"
 
+#: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Notes"
@@ -3822,6 +3942,14 @@ msgstr "已打开的标签页"
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "请从集合中打开为您的 mdbase 环境配置的编辑器。"
 
+#: direct/DirectEditor.tsx
+msgid "Open the invitation from {host}?"
+msgstr "打开来自 {host} 的邀请？"
+
+#: direct/main.tsx
+msgid "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
+msgstr "请通过此编辑器专用的 HTTPS 地址打开，不要使用查询参数、片段或 Service Worker。"
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "展开以查找提及。"
@@ -3860,6 +3988,7 @@ msgstr "正在打开集合"
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "正在打开 mdbase connect… <0>继续</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
 msgstr "正在打开笔记…"
@@ -3939,6 +4068,18 @@ msgstr "包"
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
 msgstr "packs[{index}].resource_count 必须是正整数。"
+
+#: direct/DirectEditor.tsx
+msgid "Pair and open collection"
+msgstr "配对并打开集合"
+
+#: direct/DirectEditor.tsx
+msgid "Paired for this tab only. The connection could not be remembered."
+msgstr "仅在此标签页中完成了配对。无法保存连接信息。"
+
+#: direct/DirectEditor.tsx
+msgid "Pairing could not be confirmed. Check the server and network before trying again."
+msgstr "无法确认配对是否成功。请检查服务器和网络后再试。"
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
@@ -4233,6 +4374,10 @@ msgstr "正在读取笔记和文件"
 msgid "Reading notes and files…"
 msgstr "正在读取笔记和文件…"
 
+#: direct/RecordWorkspace.tsx
+msgid "Reading notes…"
+msgstr "正在读取笔记…"
+
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
 msgstr "正在读取类型定义…"
@@ -4244,6 +4389,10 @@ msgstr "现成类型"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "最近的集合"
+
+#: direct/DirectEditor.tsx
+msgid "Reconnect"
+msgstr "重新连接"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4297,6 +4446,10 @@ msgstr "重新加载 Connect"
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
 msgstr "重新加载编辑器"
+
+#: direct/DirectEditor.tsx
+msgid "Remember this browser"
+msgstr "记住此浏览器"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
@@ -4541,6 +4694,7 @@ msgstr "已恢复未链接的提及。"
 msgid "Resume rename"
 msgstr "继续重命名"
 
+#: direct/RecordWorkspace.tsx
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4585,6 +4739,10 @@ msgstr "重试搜索"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "请返回集合并重新打开该集合。"
+
+#: direct/main.tsx
+msgid "Return to mdbase editor"
+msgstr "返回 mdbase editor"
 
 #: src/note-sort.ts
 msgid "Reversed"
@@ -4674,9 +4832,17 @@ msgstr "运行时路径处理"
 msgid "Save failed"
 msgstr "保存失败"
 
+#: direct/RecordWorkspace.tsx
+msgid "Save note"
+msgstr "保存笔记"
+
 #: src/PropertiesPanel.tsx
 msgid "Save source"
 msgstr "保存源码"
+
+#: direct/RecordWorkspace.tsx
+msgid "Saved"
+msgstr "已保存"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4706,6 +4872,7 @@ msgstr "保存会影响所有匹配的笔记"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "保存会影响所有类型为 <0>{0}</0> 的笔记"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4799,6 +4966,10 @@ msgstr "发送反馈"
 #: src/code-editor-completions.ts
 msgid "Separate sections"
 msgstr "分隔章节"
+
+#: direct/DirectEditor.tsx
+msgid "Server address or invitation link"
+msgstr "服务器地址或邀请链接"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
@@ -5409,6 +5580,10 @@ msgstr "新的类型定义尚未保存。"
 msgid "The note change was rejected."
 msgstr "笔记更改已被拒绝。"
 
+#: direct/RecordWorkspace.tsx
+msgid "The note changed elsewhere. Copy your text before reopening it."
+msgstr "这篇笔记已在其他地方更改。请先复制文本，再重新打开笔记。"
+
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5433,6 +5608,10 @@ msgstr "无法复制笔记文本。请改为在编辑器中选中它。"
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "原始的完整笔记源码不可用。"
+
+#: direct/DirectEditor.tsx
+msgid "The pairing code was refused. Check the digits or ask for a new code if it expired."
+msgstr "配对码被拒绝。请核对数字，如果已过期，请索取新的配对码。"
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
@@ -5478,6 +5657,10 @@ msgstr "所选集合尚未就绪。"
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
 msgstr "所选文件的大小无效。"
+
+#: direct/DirectEditor.tsx
+msgid "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
+msgstr "未能连接到服务器，因此配对码尚未使用。请检查服务器和网络，然后重新输入配对码。"
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
@@ -5618,6 +5801,14 @@ msgstr "这些属性必须写入存储后，此记录才有效。"
 #: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "此应用无权进行此更改。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+msgstr "此浏览器无法连接到服务器。请在支持该服务器传输协议的浏览器中打开邀请。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser forgot the connection. The server still controls the grant."
+msgstr "此浏览器已移除连接信息。访问权限仍由服务器管理。"
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: literal(conversion.typeName)
@@ -5776,6 +5967,10 @@ msgstr "重命名开始前，此笔记已被移动。"
 #: src/App.tsx
 msgid "This note was deleted in another app or on another device."
 msgstr "此笔记已在其他应用或其他设备上删除。"
+
+#: direct/RecordWorkspace.tsx
+msgid "This note was deleted."
+msgstr "这篇笔记已被删除。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
@@ -6023,6 +6218,10 @@ msgstr "取消固定"
 msgid "Unpinned"
 msgstr "已取消置顶"
 
+#: direct/RecordWorkspace.tsx
+msgid "Unsaved changes"
+msgstr "未保存的更改"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "发现未保存的草稿"
@@ -6034,6 +6233,10 @@ msgstr "此浏览器无法备份未保存的编辑。保存完成前，请保持
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
 msgstr "有上次会话中未保存的编辑可恢复。"
+
+#: direct/DirectEditor.tsx
+msgid "Unsaved text"
+msgstr "未保存的文本"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -6227,6 +6430,10 @@ msgstr "分享的内容太长，无法创建笔记。请将其粘贴到新笔记
 msgid "Which notes use this type"
 msgstr "哪些笔记使用此类型"
 
+#: direct/DirectEditor.tsx
+msgid "Without this option, reloading the page requires a new code."
+msgstr "如果不选中此项，刷新页面后需要新的配对码。"
+
 #: src/PropertiesPanel.tsx
 msgid "Words"
 msgstr "字数"
@@ -6293,6 +6500,10 @@ msgstr "你的账户未关联到此集合中的人员。"
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "你在 {date} 所做的更改尚未确认。请再次检查以完成保存。"
+
+#: direct/DirectEditor.tsx
+msgid "Your collection"
+msgstr "你的集合"
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."

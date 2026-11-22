@@ -346,6 +346,8 @@ export const INTERNAL_PROBLEM_CODES = [
   "control_unreachable", "daemon_not_running", "grant_invalid", "grant_storage", "key_storage", "redirect_uri",
   "relay_insecure", "relay_unauthenticated", "relay_unavailable", "relay_url", "route_mismatch", "token_error",
   "token_response", "untrusted_identity",
+  // Direct pairing: the code never left the browser (describes as `unavailable`).
+  "code_not_sent",
 ] as const;
 
 const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(null) as Record<string, string>, {

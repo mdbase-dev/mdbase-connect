@@ -690,6 +690,10 @@ msgstr "<0>その他</0>追加のノート {0} 件"
 msgid "1 person record needs attention"
 msgstr "人物レコード 1 件に確認が必要です"
 
+#: direct/DirectEditor.tsx
+msgid "8-digit pairing code"
+msgstr "8桁のペアリングコード"
+
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
 msgstr "「{name}」の{label}はすでに存在します。"
@@ -711,6 +715,10 @@ msgstr "日付"
 #: src/type-presentation.ts
 msgid "a date and time"
 msgstr "日時"
+
+#: direct/DirectEditor.tsx
+msgid "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+msgstr "別の接続が保存されています。保存済みのサーバーに再接続するか、接続情報を削除してからペアリングしてください。"
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
@@ -769,6 +777,10 @@ msgstr "「{field}」の読み取り時の既定値はすでに存在します�
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "既存の連絡先について"
+
+#: direct/DirectEditor.tsx
+msgid "Access was refused or revoked. Ask for a new pairing code."
+msgstr "アクセスが拒否されたか、取り消されました。新しいペアリングコードを依頼してください。"
 
 #: src/QuickOpen.tsx
 msgid "Actions"
@@ -951,7 +963,9 @@ msgstr "型を1件追加"
 msgid "Adopt and update"
 msgstr "採用して更新"
 
+#: direct/DirectEditor.tsx
 #: src/PropertiesPanel.tsx
+#: src/SdkEditorRoot.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
 msgstr "詳細設定"
@@ -973,6 +987,7 @@ msgstr "高度な YAML ルール"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "この型のレコードを表示する際に使う補助的なラベルと色です。"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
@@ -1119,6 +1134,10 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "利用可能"
 
+#: direct/RecordWorkspace.tsx
+msgid "Awaiting confirmation"
+msgstr "確認待ち"
+
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
@@ -1201,6 +1220,10 @@ msgstr "真偽値"
 msgid "Browse ready-made types"
 msgstr "既成の型を探す"
 
+#: direct/DirectEditor.tsx
+msgid "Browser storage is unavailable. Pair without remembering this browser."
+msgstr "ブラウザーのストレージを利用できません。接続を記憶せずにペアリングしてください。"
+
 #: src/code-editor-completions.ts
 #: src/CodeEditor.tsx
 msgid "Bulleted list"
@@ -1248,6 +1271,10 @@ msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "周囲の画面を変えずにノート本文を編集します。"
 
+#: direct/DirectEditor.tsx
+msgid "Change server"
+msgstr "サーバーを変更"
+
 #. placeholder {0}: label(id)
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
@@ -1279,6 +1306,10 @@ msgstr "ノートを確認"
 #: src/ConnectionScreens.tsx
 msgid "check notes"
 msgstr "ノートを確認"
+
+#: direct/DirectEditor.tsx
+msgid "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
+msgstr "コードを渡した人とサーバーのアドレスを確認してください。ペアリングすると、このエディターは接続中にノートを読み書きできます。"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
@@ -1675,6 +1706,12 @@ msgstr "アプリの契約を接続"
 msgid "Connect server: {server}"
 msgstr "Connect サーバー: {server}"
 
+#: direct/DirectEditor.tsx
+#: direct/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Connect to your own server"
+msgstr "自分のサーバーに接続"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "接続済み"
@@ -1689,10 +1726,18 @@ msgctxt "connection route"
 msgid "Connected through mdbase"
 msgstr "mdbase 経由で接続"
 
+#: direct/DirectEditor.tsx
+msgid "Connecting…"
+msgstr "接続中…"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
 msgstr "接続"
+
+#: direct/DirectEditor.tsx
+msgid "Connection lost. Check the server and network, then reconnect."
+msgstr "接続が切れました。サーバーとネットワークを確認して再接続してください。"
 
 #: src/type-schema.ts
 msgid "constant value"
@@ -1787,9 +1832,17 @@ msgstr "{name}のパスをコピー"
 msgid "Copy text"
 msgstr "テキストをコピー"
 
+#: direct/DirectEditor.tsx
+msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
+msgstr "このタブを閉じる前にテキストをコピーしてください。再接続時にこのテキストは送信されません。"
+
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
 msgstr "人物の定義を追加できませんでした。設定を再確認してください。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not confirm the save."
+msgstr "保存を確認できませんでした。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
@@ -1802,6 +1855,18 @@ msgstr "この人物をリンクできませんでした。"
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
 msgstr "人物データを読み込めませんでした。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not load the collection."
+msgstr "コレクションを読み込めませんでした。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not read this note."
+msgstr "このノートを読み取れませんでした。"
+
+#: direct/DirectEditor.tsx
+msgid "Could not remove the saved connection. Try forgetting it again."
+msgstr "保存済みの接続を削除できませんでした。もう一度削除してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
@@ -2110,6 +2175,10 @@ msgctxt "explicit type keys setting"
 msgid "Disabled"
 msgstr "無効"
 
+#: direct/DirectEditor.tsx
+msgid "Discard and open notes"
+msgstr "破棄してノートを開く"
+
 #: src/App.tsx
 msgid "Discard changes"
 msgstr "変更を破棄"
@@ -2137,6 +2206,27 @@ msgstr "型を破棄"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "型の変更を破棄しますか？"
+
+#: direct/DirectEditor.tsx
+#: direct/RecordWorkspace.tsx
+msgid "Discard unsaved changes?"
+msgstr "未保存の変更を破棄しますか？"
+
+#: direct/DirectEditor.tsx
+msgid "Discard unsaved text"
+msgstr "未保存のテキストを破棄"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect"
+msgstr "切断"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect this tab? You will need a new code to pair again."
+msgstr "このタブを切断しますか？再度ペアリングするには新しいコードが必要です。"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnected."
+msgstr "切断しました。"
 
 #: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
@@ -2284,6 +2374,10 @@ msgstr "リストを入力してください。"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
 msgstr "数値を入力してください。"
+
+#: direct/DirectEditor.tsx
+msgid "Enter a server HTTPS address or an invitation for this editor."
+msgstr "サーバーのHTTPSアドレスか、このエディター用の招待リンクを入力してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
@@ -2578,6 +2672,14 @@ msgctxt "settings view"
 msgid "Forget from this browser"
 msgstr "このブラウザーから削除"
 
+#: direct/DirectEditor.tsx
+msgid "Forget this browser"
+msgstr "このブラウザーの接続情報を削除"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
+msgstr "このブラウザーの接続情報を削除して切断しますか？サーバー側のアクセス許可を取り消すには、コードを渡した人に依頼してください。"
+
 #: src/TypeBrowser.tsx
 msgid "Format"
 msgstr "形式"
@@ -2702,6 +2804,10 @@ msgstr "アイコン"
 msgid "Identity"
 msgstr "識別情報"
 
+#: direct/DirectEditor.tsx
+msgid "If the browser asked, allow local network access for this site."
+msgstr "ブラウザーが許可を求めた場合は、このサイトのローカルネットワークへのアクセスを許可してください。"
+
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "影響範囲は現在索引に登録されているノートに基づきます。確定時にコレクションが定義全体を検証します。"
@@ -2781,6 +2887,10 @@ msgstr "無効な JSON Schema"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON が無効です。"
+
+#: direct/DirectEditor.tsx
+msgid "Invitation"
+msgstr "招待"
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
@@ -3228,6 +3338,10 @@ msgstr "この埋め込みに一致するノートが複数あります。"
 msgid "More than one person record claims your account, so the editor will not guess which is you."
 msgstr "複数の人物レコードがあなたのアカウントを主張しているため、エディターはどれがあなたかを推測しません。"
 
+#: direct/main.tsx
+msgid "Most people use mdbase editor with their mdbase account."
+msgstr "通常はmdbaseアカウントでmdbase editorを利用します。"
+
 #: src/MoveNoteDialog.tsx
 msgid "Move"
 msgstr "移動"
@@ -3520,6 +3634,10 @@ msgstr "ノートなし"
 msgid "No note or file matches “{0}”."
 msgstr "「{0}」に一致するノートまたはファイルはありません。"
 
+#: direct/RecordWorkspace.tsx
+msgid "No notes in this collection."
+msgstr "このコレクションにはノートがありません。"
+
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
 msgstr "ここへのリンクがあるノートはまだありません。"
@@ -3592,6 +3710,7 @@ msgstr "ノート"
 msgid "Note actions, in the list"
 msgstr "一覧内のノート操作"
 
+#: direct/RecordWorkspace.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Note body"
 msgstr "ノート本文"
@@ -3638,6 +3757,7 @@ msgstr "ノートの型"
 msgid "Note view options"
 msgstr "ノートの表示オプション"
 
+#: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Notes"
@@ -3822,6 +3942,14 @@ msgstr "開いているタブ"
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "コレクションから、お使いのmdbase環境用に設定されたエディターを開いてください。"
 
+#: direct/DirectEditor.tsx
+msgid "Open the invitation from {host}?"
+msgstr "{host} からの招待を開きますか？"
+
+#: direct/main.tsx
+msgid "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
+msgstr "クエリやフラグメント、サービスワーカーのない専用のHTTPSアドレスでこのエディターを開いてください。"
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "メンションを探すために開きます。"
@@ -3860,6 +3988,7 @@ msgstr "コレクションを開いています"
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "mdbase connect を開いています… <0>続行</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
 msgstr "ノートを開いています…"
@@ -3939,6 +4068,18 @@ msgstr "パック"
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
 msgstr "packs[{index}].resource_countには正の整数を指定してください。"
+
+#: direct/DirectEditor.tsx
+msgid "Pair and open collection"
+msgstr "ペアリングしてコレクションを開く"
+
+#: direct/DirectEditor.tsx
+msgid "Paired for this tab only. The connection could not be remembered."
+msgstr "このタブのみでペアリングしました。接続情報は保存できませんでした。"
+
+#: direct/DirectEditor.tsx
+msgid "Pairing could not be confirmed. Check the server and network before trying again."
+msgstr "ペアリングを確認できませんでした。再試行する前にサーバーとネットワークを確認してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
@@ -4233,6 +4374,10 @@ msgstr "ノートとファイルを読み込み中"
 msgid "Reading notes and files…"
 msgstr "ノートとファイルを読み込み中…"
 
+#: direct/RecordWorkspace.tsx
+msgid "Reading notes…"
+msgstr "ノートを読み込み中…"
+
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
 msgstr "型定義を読み込み中…"
@@ -4244,6 +4389,10 @@ msgstr "既成の型"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "最近使ったコレクション"
+
+#: direct/DirectEditor.tsx
+msgid "Reconnect"
+msgstr "再接続"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4297,6 +4446,10 @@ msgstr "Connect を再読み込み"
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
 msgstr "エディターを再読み込み"
+
+#: direct/DirectEditor.tsx
+msgid "Remember this browser"
+msgstr "このブラウザーに接続を記憶する"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
@@ -4541,6 +4694,7 @@ msgstr "リンクされていないメンションを復元しました。"
 msgid "Resume rename"
 msgstr "名前の変更を再開"
 
+#: direct/RecordWorkspace.tsx
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4585,6 +4739,10 @@ msgstr "検索を再試行"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "コレクションに戻り、もう一度コレクションを開いてください。"
+
+#: direct/main.tsx
+msgid "Return to mdbase editor"
+msgstr "mdbase editorに戻る"
 
 #: src/note-sort.ts
 msgid "Reversed"
@@ -4674,9 +4832,17 @@ msgstr "ランタイムでのパス処理"
 msgid "Save failed"
 msgstr "保存に失敗しました"
 
+#: direct/RecordWorkspace.tsx
+msgid "Save note"
+msgstr "ノートを保存"
+
 #: src/PropertiesPanel.tsx
 msgid "Save source"
 msgstr "ソースを保存"
+
+#: direct/RecordWorkspace.tsx
+msgid "Saved"
+msgstr "保存済み"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4706,6 +4872,7 @@ msgstr "保存すると一致するすべてのノートに影響します"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "保存すると<0>{0}</0>型のすべてのノートに影響します"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4799,6 +4966,10 @@ msgstr "フィードバックを送信"
 #: src/code-editor-completions.ts
 msgid "Separate sections"
 msgstr "セクションを区切る"
+
+#: direct/DirectEditor.tsx
+msgid "Server address or invitation link"
+msgstr "サーバーのアドレスまたは招待リンク"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
@@ -5409,6 +5580,10 @@ msgstr "新しい型定義はまだ保存されていません。"
 msgid "The note change was rejected."
 msgstr "ノートの変更は拒否されました。"
 
+#: direct/RecordWorkspace.tsx
+msgid "The note changed elsewhere. Copy your text before reopening it."
+msgstr "このノートは別の場所で変更されました。開き直す前にテキストをコピーしてください。"
+
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5433,6 +5608,10 @@ msgstr "ノートのテキストをコピーできませんでした。代わり
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "元の完全なノートのソースを利用できません。"
+
+#: direct/DirectEditor.tsx
+msgid "The pairing code was refused. Check the digits or ask for a new code if it expired."
+msgstr "ペアリングコードが拒否されました。数字を確認し、有効期限が切れている場合は新しいコードを依頼してください。"
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
@@ -5478,6 +5657,10 @@ msgstr "選択したコレクションは準備ができていません。"
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
 msgstr "選択したファイルのサイズは無効です。"
+
+#: direct/DirectEditor.tsx
+msgid "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
+msgstr "サーバーに接続できなかったため、コードは使用されていません。サーバーとネットワークを確認してから、もう一度コードを入力してください。"
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
@@ -5618,6 +5801,14 @@ msgstr "このレコードを有効にするには、これらのプロパティ
 #: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "このアプリにはその変更を行う権限がありません。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+msgstr "このブラウザーではサーバーに接続できません。サーバーの通信方式に対応するブラウザーで招待を開いてください。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser forgot the connection. The server still controls the grant."
+msgstr "このブラウザーの接続情報を削除しました。アクセス許可は引き続きサーバー側で管理されます。"
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: literal(conversion.typeName)
@@ -5776,6 +5967,10 @@ msgstr "名前変更を始める前に、このノートが移動されました
 #: src/App.tsx
 msgid "This note was deleted in another app or on another device."
 msgstr "このノートは別のアプリまたは別のデバイスで削除されました。"
+
+#: direct/RecordWorkspace.tsx
+msgid "This note was deleted."
+msgstr "このノートは削除されました。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
@@ -6023,6 +6218,10 @@ msgstr "ピン留めを解除"
 msgid "Unpinned"
 msgstr "ピン留めを解除しました"
 
+#: direct/RecordWorkspace.tsx
+msgid "Unsaved changes"
+msgstr "未保存の変更"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "未保存の下書きが見つかりました"
@@ -6034,6 +6233,10 @@ msgstr "このブラウザーでは未保存の編集をバックアップでき
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
 msgstr "以前のセッションで保存されなかった編集があります。"
+
+#: direct/DirectEditor.tsx
+msgid "Unsaved text"
+msgstr "未保存のテキスト"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -6227,6 +6430,10 @@ msgstr "共有された内容が長すぎるため、ノートを作成できま
 msgid "Which notes use this type"
 msgstr "この型を使用するノート"
 
+#: direct/DirectEditor.tsx
+msgid "Without this option, reloading the page requires a new code."
+msgstr "この設定を選ばない場合、ページを再読み込みすると新しいコードが必要になります。"
+
 #: src/PropertiesPanel.tsx
 msgid "Words"
 msgstr "単語"
@@ -6293,6 +6500,10 @@ msgstr "あなたのアカウントはこのコレクションの人物にリン
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "{date}の変更はまだ確認されていません。再確認して保存を完了してください。"
+
+#: direct/DirectEditor.tsx
+msgid "Your collection"
+msgstr "コレクション"
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."

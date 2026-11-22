@@ -273,6 +273,9 @@ pub enum SessionAuth {
     /// that owns the shared runtime). Needs no grant; may approve devices and set
     /// materialization.
     Host,
+    /// A native host's locally authorized web client, scoped to a local-only
+    /// collection's data API. Not a Connect grant or a Noise-authenticated peer.
+    LocalWeb(Uuid),
     /// A client whose Noise static key matched this grant's `client_pk`.
     Grant {
         /// Grant ID.
@@ -280,6 +283,15 @@ pub enum SessionAuth {
         /// The client's static public key, as authenticated.
         client_pk: [u8; 32],
     },
+}
+
+impl SessionAuth {
+    pub(crate) fn local_web_owner(&self) -> Option<Uuid> {
+        match self {
+            Self::LocalWeb(owner) => Some(*owner),
+            _ => None,
+        }
+    }
 }
 
 /// What to read: a record or file by ID or by path.
@@ -807,6 +819,11 @@ pub trait ClientApi {
     ) -> ApiResult<(SessionId, HelloResult)>;
     /// Close a session: drops its subscriptions, presence and streams.
     fn close(&mut self, session: SessionId);
+
+    /// Authorize a wire method before any frame dispatch or bookkeeping.
+    fn authorize_frame(&self, _session: SessionId, _method: &str) -> ApiResult<()> {
+        Ok(())
+    }
 
     // ---- reads (§3, §4) ----
 

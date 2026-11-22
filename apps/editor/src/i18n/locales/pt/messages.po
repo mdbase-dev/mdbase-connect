@@ -690,6 +690,10 @@ msgstr "<0>Mais</0>{0} notas adicionais"
 msgid "1 person record needs attention"
 msgstr "1 registro de pessoa precisa de atenção"
 
+#: direct/DirectEditor.tsx
+msgid "8-digit pairing code"
+msgstr "Código de pareamento de oito dígitos"
+
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
 msgstr "Já existe um {label} para “{name}”."
@@ -711,6 +715,10 @@ msgstr "uma data"
 #: src/type-presentation.ts
 msgid "a date and time"
 msgstr "uma data e hora"
+
+#: direct/DirectEditor.tsx
+msgid "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+msgstr "Há outra conexão salva. Reconecte-se ao servidor salvo ou remova a conexão antes de parear."
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
@@ -769,6 +777,10 @@ msgstr "Já existe um valor padrão de leitura para “{field}”."
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "Sobre os contatos existentes"
+
+#: direct/DirectEditor.tsx
+msgid "Access was refused or revoked. Ask for a new pairing code."
+msgstr "O acesso foi negado ou revogado. Peça um novo código de pareamento."
 
 #: src/QuickOpen.tsx
 msgid "Actions"
@@ -951,7 +963,9 @@ msgstr "Adiciona 1 tipo"
 msgid "Adopt and update"
 msgstr "Adotar e atualizar"
 
+#: direct/DirectEditor.tsx
 #: src/PropertiesPanel.tsx
+#: src/SdkEditorRoot.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
 msgstr "Avançado"
@@ -973,6 +987,7 @@ msgstr "Regras avançadas de YAML"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Rótulos e cores informativos usados ao exibir registros deste tipo."
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
@@ -1119,6 +1134,10 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "Disponível"
 
+#: direct/RecordWorkspace.tsx
+msgid "Awaiting confirmation"
+msgstr "Aguardando confirmação"
+
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
@@ -1201,6 +1220,10 @@ msgstr "Booleano"
 msgid "Browse ready-made types"
 msgstr "Explorar tipos prontos"
 
+#: direct/DirectEditor.tsx
+msgid "Browser storage is unavailable. Pair without remembering this browser."
+msgstr "O armazenamento do navegador está indisponível. Faça o pareamento sem memorizar este navegador."
+
 #: src/code-editor-completions.ts
 #: src/CodeEditor.tsx
 msgid "Bulleted list"
@@ -1248,6 +1271,10 @@ msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "Altere o texto da nota sem alterar o restante da interface."
 
+#: direct/DirectEditor.tsx
+msgid "Change server"
+msgstr "Alterar servidor"
+
 #. placeholder {0}: label(id)
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
@@ -1279,6 +1306,10 @@ msgstr "Verificar nota"
 #: src/ConnectionScreens.tsx
 msgid "check notes"
 msgstr "verificar notas"
+
+#: direct/DirectEditor.tsx
+msgid "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
+msgstr "Confira o endereço do servidor com quem forneceu o código. O pareamento permite que este editor leia e edite notas enquanto estiver conectado."
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
@@ -1675,6 +1706,12 @@ msgstr "Conectar contrato de aplicativo"
 msgid "Connect server: {server}"
 msgstr "Servidor Connect: {server}"
 
+#: direct/DirectEditor.tsx
+#: direct/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Connect to your own server"
+msgstr "Conectar ao seu próprio servidor"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "Conectado"
@@ -1689,10 +1726,18 @@ msgctxt "connection route"
 msgid "Connected through mdbase"
 msgstr "Conectado pelo mdbase"
 
+#: direct/DirectEditor.tsx
+msgid "Connecting…"
+msgstr "Conectando…"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
 msgstr "Conexão"
+
+#: direct/DirectEditor.tsx
+msgid "Connection lost. Check the server and network, then reconnect."
+msgstr "A conexão caiu. Verifique o servidor e a rede e tente se reconectar."
 
 #: src/type-schema.ts
 msgid "constant value"
@@ -1787,9 +1832,17 @@ msgstr "Copiar caminho de {name}"
 msgid "Copy text"
 msgstr "Copiar texto"
 
+#: direct/DirectEditor.tsx
+msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
+msgstr "Copie o texto antes de fechar esta aba. Ele não será enviado quando você se reconectar."
+
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
 msgstr "Não foi possível adicionar definições de pessoas. Revise a configuração novamente."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not confirm the save."
+msgstr "Não foi possível confirmar o salvamento."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
@@ -1802,6 +1855,18 @@ msgstr "Não foi possível vincular esta pessoa."
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
 msgstr "Não foi possível carregar as pessoas."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not load the collection."
+msgstr "Não foi possível carregar a coleção."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not read this note."
+msgstr "Não foi possível ler esta nota."
+
+#: direct/DirectEditor.tsx
+msgid "Could not remove the saved connection. Try forgetting it again."
+msgstr "Não foi possível remover a conexão salva. Tente removê-la novamente."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
@@ -2110,6 +2175,10 @@ msgctxt "explicit type keys setting"
 msgid "Disabled"
 msgstr "Desativado"
 
+#: direct/DirectEditor.tsx
+msgid "Discard and open notes"
+msgstr "Descartar e abrir as notas"
+
 #: src/App.tsx
 msgid "Discard changes"
 msgstr "Descartar alterações"
@@ -2137,6 +2206,27 @@ msgstr "Descartar tipo"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "Descartar alterações do tipo?"
+
+#: direct/DirectEditor.tsx
+#: direct/RecordWorkspace.tsx
+msgid "Discard unsaved changes?"
+msgstr "Descartar as alterações não salvas?"
+
+#: direct/DirectEditor.tsx
+msgid "Discard unsaved text"
+msgstr "Descartar o texto não salvo"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect"
+msgstr "Desconectar"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect this tab? You will need a new code to pair again."
+msgstr "Desconectar esta aba? Você precisará de um novo código para pareá-la novamente."
+
+#: direct/DirectEditor.tsx
+msgid "Disconnected."
+msgstr "Desconectado."
 
 #: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
@@ -2284,6 +2374,10 @@ msgstr "Digite uma lista."
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
 msgstr "Digite um número."
+
+#: direct/DirectEditor.tsx
+msgid "Enter a server HTTPS address or an invitation for this editor."
+msgstr "Insira o endereço HTTPS do servidor ou um convite para este editor."
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
@@ -2578,6 +2672,14 @@ msgctxt "settings view"
 msgid "Forget from this browser"
 msgstr "Esquecer neste navegador"
 
+#: direct/DirectEditor.tsx
+msgid "Forget this browser"
+msgstr "Esquecer este navegador"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
+msgstr "Esquecer este navegador e desconectá-lo? Para revogar o acesso no servidor, fale com quem forneceu o código."
+
 #: src/TypeBrowser.tsx
 msgid "Format"
 msgstr "Formato"
@@ -2702,6 +2804,10 @@ msgstr "Ícone"
 msgid "Identity"
 msgstr "Identidade"
 
+#: direct/DirectEditor.tsx
+msgid "If the browser asked, allow local network access for this site."
+msgstr "Se o navegador solicitou permissão, permita que este site acesse a rede local."
+
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "O impacto se baseia nas notas indexadas no momento. A coleção valida a definição completa quando você confirma."
@@ -2781,6 +2887,10 @@ msgstr "JSON Schema inválido"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON inválido."
+
+#: direct/DirectEditor.tsx
+msgid "Invitation"
+msgstr "Convite"
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
@@ -3228,6 +3338,10 @@ msgstr "Mais de uma nota corresponde a esta transclusão."
 msgid "More than one person record claims your account, so the editor will not guess which is you."
 msgstr "Mais de um registro de pessoa reivindica sua conta, então o editor não vai adivinhar qual é você."
 
+#: direct/main.tsx
+msgid "Most people use mdbase editor with their mdbase account."
+msgstr "A maioria das pessoas usa o mdbase editor com sua conta mdbase."
+
 #: src/MoveNoteDialog.tsx
 msgid "Move"
 msgstr "Mover"
@@ -3520,6 +3634,10 @@ msgstr "Nenhuma nota"
 msgid "No note or file matches “{0}”."
 msgstr "Nenhuma nota ou arquivo corresponde a “{0}”."
 
+#: direct/RecordWorkspace.tsx
+msgid "No notes in this collection."
+msgstr "Não há notas nesta coleção."
+
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
 msgstr "Ainda não há notas com links para cá."
@@ -3592,6 +3710,7 @@ msgstr "Nota"
 msgid "Note actions, in the list"
 msgstr "Ações da nota, na lista"
 
+#: direct/RecordWorkspace.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Note body"
 msgstr "Corpo da nota"
@@ -3638,6 +3757,7 @@ msgstr "Tipos de nota"
 msgid "Note view options"
 msgstr "Opções de visualização da nota"
 
+#: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Notes"
@@ -3822,6 +3942,14 @@ msgstr "Abas abertas"
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "Em Coleções, abra o Editor configurado para o seu ambiente mdbase."
 
+#: direct/DirectEditor.tsx
+msgid "Open the invitation from {host}?"
+msgstr "Abrir o convite de {host}?"
+
+#: direct/main.tsx
+msgid "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
+msgstr "Abra este editor em seu endereço HTTPS dedicado, sem parâmetros de consulta, fragmentos ou service worker."
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "Abra para encontrar menções."
@@ -3860,6 +3988,7 @@ msgstr "Abrindo coleção"
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "Abrindo o mdbase connect… <0>Continuar</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
 msgstr "Abrindo nota…"
@@ -3939,6 +4068,18 @@ msgstr "Pacote"
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
 msgstr "packs[{index}].resource_count deve ser um número inteiro positivo."
+
+#: direct/DirectEditor.tsx
+msgid "Pair and open collection"
+msgstr "Parear e abrir a coleção"
+
+#: direct/DirectEditor.tsx
+msgid "Paired for this tab only. The connection could not be remembered."
+msgstr "O pareamento vale apenas para esta aba. Não foi possível memorizar a conexão."
+
+#: direct/DirectEditor.tsx
+msgid "Pairing could not be confirmed. Check the server and network before trying again."
+msgstr "Não foi possível confirmar o pareamento. Verifique o servidor e a rede antes de tentar novamente."
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
@@ -4233,6 +4374,10 @@ msgstr "Lendo notas e arquivos"
 msgid "Reading notes and files…"
 msgstr "Lendo notas e arquivos…"
 
+#: direct/RecordWorkspace.tsx
+msgid "Reading notes…"
+msgstr "Lendo notas…"
+
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
 msgstr "Lendo definição do tipo…"
@@ -4244,6 +4389,10 @@ msgstr "Tipos prontos"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "Coleções recentes"
+
+#: direct/DirectEditor.tsx
+msgid "Reconnect"
+msgstr "Reconectar"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4297,6 +4446,10 @@ msgstr "Recarregar Connect"
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
 msgstr "Recarregar editor"
+
+#: direct/DirectEditor.tsx
+msgid "Remember this browser"
+msgstr "Memorizar este navegador"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
@@ -4541,6 +4694,7 @@ msgstr "Menção sem vínculo restaurada."
 msgid "Resume rename"
 msgstr "Retomar renomeação"
 
+#: direct/RecordWorkspace.tsx
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4585,6 +4739,10 @@ msgstr "Tentar pesquisar novamente"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "Volte às coleções e abra a coleção novamente."
+
+#: direct/main.tsx
+msgid "Return to mdbase editor"
+msgstr "Voltar ao mdbase editor"
 
 #: src/note-sort.ts
 msgid "Reversed"
@@ -4674,9 +4832,17 @@ msgstr "Tratamento de caminhos em tempo de execução"
 msgid "Save failed"
 msgstr "Falha ao salvar"
 
+#: direct/RecordWorkspace.tsx
+msgid "Save note"
+msgstr "Salvar nota"
+
 #: src/PropertiesPanel.tsx
 msgid "Save source"
 msgstr "Salvar código-fonte"
+
+#: direct/RecordWorkspace.tsx
+msgid "Saved"
+msgstr "Salvo"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4706,6 +4872,7 @@ msgstr "Salvar afeta todas as notas correspondentes"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "Salvar afeta todas as notas do tipo <0>{0}</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4799,6 +4966,10 @@ msgstr "Enviar comentários"
 #: src/code-editor-completions.ts
 msgid "Separate sections"
 msgstr "Seções separadas"
+
+#: direct/DirectEditor.tsx
+msgid "Server address or invitation link"
+msgstr "Endereço do servidor ou link de convite"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
@@ -5409,6 +5580,10 @@ msgstr "A nova definição de tipo ainda não foi salva."
 msgid "The note change was rejected."
 msgstr "A alteração da nota foi rejeitada."
 
+#: direct/RecordWorkspace.tsx
+msgid "The note changed elsewhere. Copy your text before reopening it."
+msgstr "A nota foi alterada em outro lugar. Copie o texto antes de abri-la novamente."
+
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5433,6 +5608,10 @@ msgstr "Não foi possível copiar o texto da nota. Selecione-o no editor."
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "O código-fonte original completo da nota está indisponível."
+
+#: direct/DirectEditor.tsx
+msgid "The pairing code was refused. Check the digits or ask for a new code if it expired."
+msgstr "O código de pareamento foi recusado. Confira os dígitos ou peça um novo código se ele tiver expirado."
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
@@ -5478,6 +5657,10 @@ msgstr "A coleção selecionada não está pronta."
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
 msgstr "O arquivo selecionado tem tamanho inválido."
+
+#: direct/DirectEditor.tsx
+msgid "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
+msgstr "Não foi possível alcançar o servidor, então seu código não foi usado. Verifique o servidor e a rede e digite o código novamente."
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
@@ -5618,6 +5801,14 @@ msgstr "Estas propriedades precisam ser persistidas para que este registro seja 
 #: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "Este aplicativo não tem permissão para fazer essa alteração."
+
+#: direct/DirectEditor.tsx
+msgid "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+msgstr "Este navegador não consegue se conectar ao servidor. Abra o convite em um navegador compatível com o protocolo de transporte usado."
+
+#: direct/DirectEditor.tsx
+msgid "This browser forgot the connection. The server still controls the grant."
+msgstr "Este navegador esqueceu a conexão. O servidor continua controlando a autorização."
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: literal(conversion.typeName)
@@ -5776,6 +5967,10 @@ msgstr "Esta nota foi movida antes que a renomeação começasse."
 #: src/App.tsx
 msgid "This note was deleted in another app or on another device."
 msgstr "Esta nota foi excluída em outro app ou em outro dispositivo."
+
+#: direct/RecordWorkspace.tsx
+msgid "This note was deleted."
+msgstr "Esta nota foi excluída."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
@@ -6023,6 +6218,10 @@ msgstr "Desafixar"
 msgid "Unpinned"
 msgstr "Desafixado"
 
+#: direct/RecordWorkspace.tsx
+msgid "Unsaved changes"
+msgstr "Alterações não salvas"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "Rascunho não salvo encontrado"
@@ -6034,6 +6233,10 @@ msgstr "Não é possível fazer cópia de segurança das edições não salvas n
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
 msgstr "Há edições não salvas de uma sessão anterior."
+
+#: direct/DirectEditor.tsx
+msgid "Unsaved text"
+msgstr "Texto não salvo"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -6227,6 +6430,10 @@ msgstr "O conteúdo compartilhado é longo demais para criar uma nota. Cole-o em
 msgid "Which notes use this type"
 msgstr "Quais notas usam este tipo"
 
+#: direct/DirectEditor.tsx
+msgid "Without this option, reloading the page requires a new code."
+msgstr "Sem essa opção, você precisará de um novo código ao recarregar a página."
+
 #: src/PropertiesPanel.tsx
 msgid "Words"
 msgstr "Palavras"
@@ -6293,6 +6500,10 @@ msgstr "Sua conta não está vinculada a uma pessoa nesta coleção."
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "Sua alteração de {date} ainda não foi confirmada. Verifique novamente para concluir o salvamento."
+
+#: direct/DirectEditor.tsx
+msgid "Your collection"
+msgstr "Sua coleção"
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
