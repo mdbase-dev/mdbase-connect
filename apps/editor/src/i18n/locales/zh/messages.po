@@ -1750,6 +1750,10 @@ msgstr "将此字段转换为{0}？"
 msgid "Copied {label}."
 msgstr "已复制{label}。"
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "已复制笔记文本。"
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "复制链接"
@@ -1763,6 +1767,10 @@ msgstr "复制路径"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "复制 {name} 的路径"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "复制文本"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -2747,6 +2755,10 @@ msgstr "JSON 无效。"
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "此类型自添加后未被编辑过，因此会被新的初始模板替换。"
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "它已不在此集合中。这里显示它最后的文本，方便你复制。"
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -3547,6 +3559,10 @@ msgstr "笔记正文"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "笔记已在其他地方更改"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "笔记已在别处删除"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -5370,6 +5386,10 @@ msgstr "笔记或附件索引正在刷新。请等待完成后，重新检查文
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "尚未保存的笔记将被丢弃。笔记和属性更改会先完成保存。"
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "无法复制笔记文本。请改为在编辑器中选中它。"
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "原始的完整笔记源码不可用。"
@@ -5712,6 +5732,10 @@ msgstr "重命名检查开始前，此笔记已被移动。"
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "重命名开始前，此笔记已被移动。"
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "此笔记已在其他应用或其他设备上删除。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."

@@ -1750,6 +1750,10 @@ msgstr "Dieses Feld in {0} umwandeln?"
 msgid "Copied {label}."
 msgstr "{label} kopiert."
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "Text der Notiz kopiert."
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "Link kopieren"
@@ -1763,6 +1767,10 @@ msgstr "Pfad kopieren"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "Pfad für {name} kopieren"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "Text kopieren"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -2747,6 +2755,10 @@ msgstr "Ungültiges JSON."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "Er wurde seit dem Hinzufügen nicht bearbeitet und wird deshalb durch die neue Vorlage ersetzt."
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "Sie ist nicht mehr in der Sammlung. Ihr letzter Text wird hier angezeigt, damit du ihn kopieren kannst."
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -3547,6 +3559,10 @@ msgstr "Notizinhalt"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "Notiz an anderer Stelle geändert"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "Notiz an anderer Stelle gelöscht"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -5370,6 +5386,10 @@ msgstr "Der Notiz- oder Anhangsindex wird aktualisiert. Warten Sie, bis dies abg
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "Die noch nicht gespeicherte Notiz wird verworfen. Gespeicherte Notiz- und Eigenschaftsänderungen werden zuvor abgeschlossen."
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "Der Text der Notiz konnte nicht kopiert werden. Markiere ihn stattdessen im Editor."
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "Der ursprüngliche vollständige Notizquelltext ist nicht verfügbar."
@@ -5712,6 +5732,10 @@ msgstr "Diese Notiz wurde verschoben, bevor die Prüfung der Umbenennung beginne
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "Diese Notiz wurde verschoben, bevor die Umbenennung beginnen konnte."
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "Diese Notiz wurde in einer anderen App oder auf einem anderen Gerät gelöscht."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."

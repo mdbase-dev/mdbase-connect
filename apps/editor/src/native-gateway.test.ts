@@ -575,7 +575,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const index = new CollectionIndexController(f.gateway);
     const files = new FileInventoryController(f.gateway);
     const input = { phase: "ready", index, files, assets: new FileAssetStore(f.gateway),
-      refreshCachedNote: vi.fn(async () => {}), refreshDescription: vi.fn(async () => {}),
+      refreshCachedNote: vi.fn(async () => {}), noteDeleted: vi.fn(), refreshDescription: vi.fn(async () => {}),
       setConnectionState: vi.fn(), setConnectionIssue: vi.fn(), setNotice: vi.fn() };
     const hook = renderHook(() => useCollectionWatch(input));
     const paths = () => files.getSnapshot().files.map(file => file.path);

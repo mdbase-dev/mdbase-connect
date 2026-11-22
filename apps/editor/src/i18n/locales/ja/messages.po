@@ -1750,6 +1750,10 @@ msgstr "このフィールドを{0}に変換しますか？"
 msgid "Copied {label}."
 msgstr "{label}をコピーしました。"
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "ノートのテキストをコピーしました。"
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "リンクをコピー"
@@ -1763,6 +1767,10 @@ msgstr "パスをコピー"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "{name}のパスをコピー"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "テキストをコピー"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -2747,6 +2755,10 @@ msgstr "JSON が無効です。"
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "追加後に編集されていないため、新しい初期データに置き換えられます。"
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "このノートはコレクションにもうありません。コピーできるよう、最後のテキストをここに表示しています。"
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -3547,6 +3559,10 @@ msgstr "ノート本文"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "ノートが別の場所で変更されました"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "別の場所で削除されたノート"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -5370,6 +5386,10 @@ msgstr "ノートまたは添付ファイルの索引を更新中です。完了
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "まだ保存されていないノートは破棄されます。保存済みのノートとプロパティの変更は先に完了します。"
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "ノートのテキストをコピーできませんでした。代わりにエディターで選択してください。"
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "元の完全なノートのソースを利用できません。"
@@ -5712,6 +5732,10 @@ msgstr "名前変更の確認を始める前に、このノートが移動され
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "名前変更を始める前に、このノートが移動されました。"
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "このノートは別のアプリまたは別のデバイスで削除されました。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."

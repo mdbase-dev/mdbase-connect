@@ -135,6 +135,35 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
   });
 });
 
+describe("a note deleted in another app", () => {
+  it("leaves the list, and its open note says it was deleted and keeps its text to copy", async () => {
+    const h = await readyFixture({}, (replica) => {
+      replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n\nLast words\n" });
+      replica.seed({ path: "notes/other.md", frontmatter: { title: "Other" }, body: "# Other\n\nOther words\n" });
+    });
+    const write = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: write } });
+    render(<SdkEditorRoot sdk={h.mdbase} />);
+    await screen.findByDisplayValue("Other words", undefined, { timeout: 10_000 });
+    const rows = () => screen.getAllByRole("option").map((row) => row.textContent ?? "");
+    const planRow = screen.getAllByRole("option").find((row) => row.textContent?.includes("plan"));
+    if (!planRow) throw new Error("No plan row");
+    fireEvent.click(planRow);
+    const body = await screen.findByDisplayValue("Last words", undefined, { timeout: 10_000 });
+
+    h.replica.deleteElsewhere("notes/plan.md");
+    await waitFor(() => expect(rows().some((row) => row.includes("plan"))).toBe(false));
+    const notice = await screen.findByRole("status", { name: "Note deleted elsewhere" });
+    expect(notice).toHaveTextContent("This note was deleted in another app or on another device.");
+    expect(body).toHaveValue("Last words\n");
+    expect(body).toHaveAttribute("readonly");
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByText(/no such record/)).toBeNull();
+    fireEvent.click(within(notice).getByRole("button", { name: "Copy text" }));
+    await waitFor(() => expect(write).toHaveBeenCalledWith("# Plan\n\nLast words\n"));
+  });
+});
+
 describe("SDK-owned Private collection presentation", () => {
   it("keeps the Private editor open and selects Private switcher rows through the SDK", async () => {
     const h = await readyFixture({}, (replica) => replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "Private body\n" }),

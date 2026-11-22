@@ -1750,6 +1750,10 @@ msgstr "이 필드를 {0}(으)로 변환할까요?"
 msgid "Copied {label}."
 msgstr "{label} 복사됨."
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "노트 텍스트를 복사했습니다."
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "링크 복사"
@@ -1763,6 +1767,10 @@ msgstr "경로 복사"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "{name} 경로 복사"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "텍스트 복사"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -2747,6 +2755,10 @@ msgstr "잘못된 JSON입니다."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "추가된 이후 편집되지 않아 새 기본 유형으로 대체됩니다."
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "이 노트는 더 이상 컬렉션에 없습니다. 복사할 수 있도록 마지막 텍스트를 여기에 표시합니다."
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -3547,6 +3559,10 @@ msgstr "노트 본문"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "노트가 다른 곳에서 변경됨"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "다른 곳에서 삭제된 노트"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -5370,6 +5386,10 @@ msgstr "노트 또는 첨부 파일 색인을 새로고침 중입니다. 완료�
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "아직 저장되지 않은 노트는 버려집니다. 저장된 노트 및 속성 변경은 먼저 완료됩니다."
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "노트 텍스트를 복사할 수 없습니다. 대신 편집기에서 선택하세요."
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "전체 노트 원본을 사용할 수 없습니다."
@@ -5712,6 +5732,10 @@ msgstr "이름 변경을 확인하기 전에 노트가 이동했습니다."
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "이름을 바꾸기 전에 노트가 이동했습니다."
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "이 노트는 다른 앱이나 다른 기기에서 삭제되었습니다."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."

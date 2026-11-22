@@ -1750,6 +1750,10 @@ msgstr "¿Convertir este campo en {0}?"
 msgid "Copied {label}."
 msgstr "Copiado: {label}."
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "Se copió el texto de la nota."
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "Copiar enlace"
@@ -1763,6 +1767,10 @@ msgstr "Copiar ruta"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "Copiar la ruta de {name}"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "Copiar texto"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -2747,6 +2755,10 @@ msgstr "JSON no válido."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "No se ha editado desde que se añadió, así que se reemplazará por el nuevo tipo inicial."
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "Ya no está en la colección. Su último texto se muestra aquí para que puedas copiarlo."
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -3547,6 +3559,10 @@ msgstr "Cuerpo de la nota"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "La nota cambió en otro lugar"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "Nota eliminada en otro lugar"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -5370,6 +5386,10 @@ msgstr "El índice de notas o de archivos adjuntos se está actualizando. Espera
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "Se descartará la nota que aún no se ha guardado. Los cambios guardados en notas y propiedades se completarán primero."
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "No se pudo copiar el texto de la nota. Selecciónalo en el editor."
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "El código fuente original completo de la nota no está disponible."
@@ -5712,6 +5732,10 @@ msgstr "Esta nota se movió antes de que pudiera empezar la comprobación del ca
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "Esta nota se movió antes de que pudiera empezar el cambio de nombre."
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "Esta nota se eliminó en otra aplicación o en otro dispositivo."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
