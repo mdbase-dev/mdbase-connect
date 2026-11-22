@@ -6,6 +6,7 @@ import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { gatewayError } from "./gateway";
 import type { CollectionFile, CollectionGateway, LinkTarget, NoteSummary } from "./model";
 import { noteTitle } from "./note";
+import { internalLink } from "./links";
 
 export interface Backlinks {
   /** Listed referring notes, by title. A path not yet listed appears once it is. */
@@ -142,9 +143,4 @@ function rootedMarkdownLink(raw: string): string | undefined {
   const target = link?.[2];
   if (!link || !target || /^(?:\/|\.\.?\/)/.test(target) || !internalLink(target)) return undefined;
   return `${link[1]}/${raw.slice(link[1].length)}`;
-}
-
-/** Links an editor can ask the collection about: not external URLs. */
-export function internalLink(target: string): boolean {
-  return !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(target);
 }

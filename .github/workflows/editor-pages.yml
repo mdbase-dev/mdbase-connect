@@ -107,6 +107,10 @@ jobs:
           MDBASE_EDITOR_BASE_PATH: /
       - run: pnpm --filter mdbase-editor check:bundle
       - run: pnpm --filter mdbase-editor check:csp
+      - name: Build the separate self-hosted Editor (validation only)
+        run: pnpm --filter mdbase-editor build:direct
+        env:
+          MDBASE_EDITOR_DIRECT_ORIGIN: https://editor-direct.example
 
   native-dispatch:
     # Validate dispatch shape before acquiring an environment.

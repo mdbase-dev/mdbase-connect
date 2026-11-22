@@ -1,7 +1,7 @@
 {
   "source": {
-    "include": ["src"],
-    "brands": ["{field}"],
+    "include": ["src", "direct"],
+    "brands": ["{field}", "mdbase editor"],
     "exclude": ["**/*.test.*", "**/test/**", "**/locales/**", "**/*.generated.*", "**/demo-*.ts"]
   },
   "allowIdentical": {

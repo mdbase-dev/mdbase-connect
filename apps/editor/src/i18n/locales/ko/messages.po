@@ -688,6 +688,10 @@ msgstr "<0>더 보기</0>노트 {0}개 추가"
 msgid "1 person record needs attention"
 msgstr "주의가 필요한 사람 레코드 1개"
 
+#: direct/DirectEditor.tsx
+msgid "8-digit pairing code"
+msgstr "8자리 페어링 코드"
+
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
 msgstr "“{name}”의 {label}이(가) 이미 있습니다."
@@ -709,6 +713,10 @@ msgstr "날짜"
 #: src/type-presentation.ts
 msgid "a date and time"
 msgstr "날짜 및 시간"
+
+#: direct/DirectEditor.tsx
+msgid "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+msgstr "다른 연결이 저장되어 있습니다. 저장된 서버에 다시 연결하거나 기존 연결을 삭제한 후 페어링하세요."
 
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
@@ -767,6 +775,10 @@ msgstr "“{field}”의 읽기 기본값이 이미 있습니다."
 #: src/YourPersonPanel.tsx
 msgid "About existing contacts"
 msgstr "기존 연락처 정보"
+
+#: direct/DirectEditor.tsx
+msgid "Access was refused or revoked. Ask for a new pairing code."
+msgstr "접근이 거부되었거나 권한이 취소되었습니다. 새 페어링 코드를 요청하세요."
 
 #: src/QuickOpen.tsx
 msgid "Actions"
@@ -941,7 +953,9 @@ msgstr "유형 1개 추가"
 msgid "Adopt and update"
 msgstr "채택 및 업데이트"
 
+#: direct/DirectEditor.tsx
 #: src/PropertiesPanel.tsx
+#: src/SdkEditorRoot.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
 msgstr "고급"
@@ -963,6 +977,7 @@ msgstr "고급 YAML 규칙"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "이 유형의 레코드를 표시할 때 사용하는 참고용 레이블과 색상입니다."
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
@@ -1105,6 +1120,10 @@ msgctxt "direct connection availability"
 msgid "Available"
 msgstr "사용 가능"
 
+#: direct/RecordWorkspace.tsx
+msgid "Awaiting confirmation"
+msgstr "확인 대기 중"
+
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
 msgid "Back"
@@ -1187,6 +1206,10 @@ msgstr "불리언"
 msgid "Browse ready-made types"
 msgstr "준비된 유형 찾아보기"
 
+#: direct/DirectEditor.tsx
+msgid "Browser storage is unavailable. Pair without remembering this browser."
+msgstr "브라우저 저장소를 사용할 수 없습니다. 이 브라우저를 기억하지 않고 페어링하세요."
+
 #: src/code-editor-completions.ts
 #: src/CodeEditor.tsx
 msgid "Bulleted list"
@@ -1234,6 +1257,10 @@ msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "주변 인터페이스는 그대로 두고 노트 텍스트만 변경합니다."
 
+#: direct/DirectEditor.tsx
+msgid "Change server"
+msgstr "서버 변경"
+
 #. placeholder {0}: label(id)
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
@@ -1265,6 +1292,10 @@ msgstr "노트 확인"
 #: src/ConnectionScreens.tsx
 msgid "check notes"
 msgstr "노트 확인"
+
+#: direct/DirectEditor.tsx
+msgid "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
+msgstr "코드를 준 사람과 서버 주소를 확인하세요. 페어링하면 연결된 동안 이 편집기에서 노트를 읽고 수정할 수 있습니다."
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
@@ -1660,6 +1691,12 @@ msgstr "애플리케이션 계약 연결"
 msgid "Connect server: {server}"
 msgstr "Connect 서버: {server}"
 
+#: direct/DirectEditor.tsx
+#: direct/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Connect to your own server"
+msgstr "내 서버에 연결"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "연결됨"
@@ -1674,10 +1711,18 @@ msgctxt "connection route"
 msgid "Connected through mdbase"
 msgstr "mdbase를 통해 연결됨"
 
+#: direct/DirectEditor.tsx
+msgid "Connecting…"
+msgstr "연결 중…"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
 msgstr "연결"
+
+#: direct/DirectEditor.tsx
+msgid "Connection lost. Check the server and network, then reconnect."
+msgstr "연결이 끊어졌습니다. 서버와 네트워크를 확인한 후 다시 연결하세요."
 
 #: src/type-schema.ts
 msgid "constant value"
@@ -1764,9 +1809,17 @@ msgstr "경로 복사"
 msgid "Copy path for {name}"
 msgstr "{name} 경로 복사"
 
+#: direct/DirectEditor.tsx
+msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
+msgstr "이 탭을 닫기 전에 텍스트를 복사하세요. 다시 연결해도 이 텍스트는 전송되지 않습니다."
+
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
 msgstr "사람 정의를 추가하지 못했습니다. 설정을 다시 검토하세요."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not confirm the save."
+msgstr "저장 여부를 확인할 수 없습니다."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
@@ -1779,6 +1832,18 @@ msgstr "이 사람을 연결하지 못했습니다."
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
 msgstr "사람 목록을 불러오지 못했습니다."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not load the collection."
+msgstr "컬렉션을 불러올 수 없습니다."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not read this note."
+msgstr "이 노트를 읽을 수 없습니다."
+
+#: direct/DirectEditor.tsx
+msgid "Could not remove the saved connection. Try forgetting it again."
+msgstr "저장된 연결을 삭제할 수 없습니다. 다시 삭제해 보세요."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
@@ -2087,6 +2152,10 @@ msgctxt "explicit type keys setting"
 msgid "Disabled"
 msgstr "사용 안 함"
 
+#: direct/DirectEditor.tsx
+msgid "Discard and open notes"
+msgstr "버리고 노트 열기"
+
 #: src/App.tsx
 msgid "Discard changes"
 msgstr "변경사항 취소"
@@ -2114,6 +2183,27 @@ msgstr "유형 취소"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "유형 변경사항을 취소할까요?"
+
+#: direct/DirectEditor.tsx
+#: direct/RecordWorkspace.tsx
+msgid "Discard unsaved changes?"
+msgstr "저장하지 않은 변경 사항을 버릴까요?"
+
+#: direct/DirectEditor.tsx
+msgid "Discard unsaved text"
+msgstr "저장하지 않은 텍스트 버리기"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect"
+msgstr "연결 끊기"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect this tab? You will need a new code to pair again."
+msgstr "이 탭의 연결을 끊을까요? 다시 페어링하려면 새 코드가 필요합니다."
+
+#: direct/DirectEditor.tsx
+msgid "Disconnected."
+msgstr "연결이 끊어졌습니다."
 
 #: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
@@ -2261,6 +2351,10 @@ msgstr "목록을 입력하세요."
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
 msgstr "숫자를 입력하세요."
+
+#: direct/DirectEditor.tsx
+msgid "Enter a server HTTPS address or an invitation for this editor."
+msgstr "서버의 HTTPS 주소 또는 이 편집기용 초대 링크를 입력하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
@@ -2539,6 +2633,14 @@ msgctxt "settings view"
 msgid "Forget from this browser"
 msgstr "이 브라우저에서 잊기"
 
+#: direct/DirectEditor.tsx
+msgid "Forget this browser"
+msgstr "이 브라우저의 연결 정보 삭제"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
+msgstr "이 브라우저의 연결 정보를 삭제하고 연결을 끊을까요? 서버에서 접근 권한을 취소하려면 코드를 준 사람에게 요청하세요."
+
 #: src/TypeBrowser.tsx
 msgid "Format"
 msgstr "형식"
@@ -2663,6 +2765,10 @@ msgstr "아이콘"
 msgid "Identity"
 msgstr "ID"
 
+#: direct/DirectEditor.tsx
+msgid "If the browser asked, allow local network access for this site."
+msgstr "브라우저에서 권한을 요청했다면 이 사이트의 로컬 네트워크 접근을 허용하세요."
+
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "영향은 현재 색인된 노트를 기준으로 합니다. 확인을 마치면 컬렉션이 전체 정의를 검증합니다."
@@ -2742,6 +2848,10 @@ msgstr "잘못된 JSON Schema"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "잘못된 JSON입니다."
+
+#: direct/DirectEditor.tsx
+msgid "Invitation"
+msgstr "초대"
 
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
@@ -3181,6 +3291,10 @@ msgstr "이 삽입 대상에 일치하는 노트가 둘 이상 있습니다."
 msgid "More than one person record claims your account, so the editor will not guess which is you."
 msgstr "둘 이상의 사람 레코드가 계정을 주장하고 있어 편집기가 어느 것이 본인인지 추측하지 않습니다."
 
+#: direct/main.tsx
+msgid "Most people use mdbase editor with their mdbase account."
+msgstr "대부분의 사용자는 mdbase 계정으로 mdbase editor를 사용합니다."
+
 #: src/MoveNoteDialog.tsx
 msgid "Move"
 msgstr "이동"
@@ -3464,6 +3578,10 @@ msgstr "노트 없음"
 msgid "No note or file matches “{0}”."
 msgstr "“{0}”과(와) 일치하는 노트나 파일이 없습니다."
 
+#: direct/RecordWorkspace.tsx
+msgid "No notes in this collection."
+msgstr "이 컬렉션에 노트가 없습니다."
+
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
 msgstr "아직 이곳을 가리키는 노트가 없습니다."
@@ -3540,6 +3658,7 @@ msgstr "노트"
 msgid "Note actions, in the list"
 msgstr "목록의 노트 작업"
 
+#: direct/RecordWorkspace.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Note body"
 msgstr "노트 본문"
@@ -3582,6 +3701,7 @@ msgstr "노트 유형"
 msgid "Note view options"
 msgstr "노트 보기 옵션"
 
+#: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
 msgid "Notes"
 msgstr "노트"
@@ -3761,6 +3881,14 @@ msgstr "열린 탭"
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "컬렉션에서 mdbase 환경에 맞게 설정된 편집기를 여세요."
 
+#: direct/DirectEditor.tsx
+msgid "Open the invitation from {host}?"
+msgstr "{host}의 초대를 열까요?"
+
+#: direct/main.tsx
+msgid "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
+msgstr "쿼리, 프래그먼트 또는 서비스 워커가 없는 전용 HTTPS 주소에서 이 편집기를 여세요."
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "언급을 찾으려면 여세요."
@@ -3799,6 +3927,7 @@ msgstr "컬렉션 여는 중"
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "mdbase connect 여는 중… <0>계속</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
 msgstr "노트 여는 중…"
@@ -3878,6 +4007,18 @@ msgstr "팩"
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
 msgstr "packs[{index}].resource_count는 양의 정수여야 합니다."
+
+#: direct/DirectEditor.tsx
+msgid "Pair and open collection"
+msgstr "페어링하고 컬렉션 열기"
+
+#: direct/DirectEditor.tsx
+msgid "Paired for this tab only. The connection could not be remembered."
+msgstr "이 탭에서만 페어링했습니다. 연결 정보를 저장할 수 없습니다."
+
+#: direct/DirectEditor.tsx
+msgid "Pairing could not be confirmed. Check the server and network before trying again."
+msgstr "페어링 여부를 확인할 수 없습니다. 서버와 네트워크를 확인한 후 다시 시도하세요."
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
@@ -4176,6 +4317,10 @@ msgstr "노트 및 파일 읽는 중"
 msgid "Reading notes and files…"
 msgstr "노트 및 파일 읽는 중…"
 
+#: direct/RecordWorkspace.tsx
+msgid "Reading notes…"
+msgstr "노트 읽는 중…"
+
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
 msgstr "유형 정의 읽는 중…"
@@ -4187,6 +4332,10 @@ msgstr "준비된 유형"
 #: src/ConnectionScreens.tsx
 msgid "Recent collections"
 msgstr "최근 컬렉션"
+
+#: direct/DirectEditor.tsx
+msgid "Reconnect"
+msgstr "다시 연결"
 
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
@@ -4244,6 +4393,10 @@ msgstr "Connect 새로고침"
 #: src/AppErrorBoundary.tsx
 msgid "Reload editor"
 msgstr "편집기 새로고침"
+
+#: direct/DirectEditor.tsx
+msgid "Remember this browser"
+msgstr "이 브라우저 기억하기"
 
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
@@ -4489,6 +4642,7 @@ msgstr "연결되지 않은 언급 복원됨."
 msgid "Resume rename"
 msgstr "이름 변경 재개"
 
+#: direct/RecordWorkspace.tsx
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4533,6 +4687,10 @@ msgstr "검색 다시 시도"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "컬렉션으로 돌아가서 컬렉션을 다시 여세요."
+
+#: direct/main.tsx
+msgid "Return to mdbase editor"
+msgstr "mdbase editor로 돌아가기"
 
 #: src/note-sort.ts
 msgid "Reversed"
@@ -4622,9 +4780,17 @@ msgstr "런타임 경로 처리"
 msgid "Save failed"
 msgstr "저장 실패"
 
+#: direct/RecordWorkspace.tsx
+msgid "Save note"
+msgstr "노트 저장"
+
 #: src/PropertiesPanel.tsx
 msgid "Save source"
 msgstr "원본 저장"
+
+#: direct/RecordWorkspace.tsx
+msgid "Saved"
+msgstr "저장됨"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4654,6 +4820,7 @@ msgstr "저장하면 일치하는 모든 노트에 영향을 줍니다."
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "저장하면 <0>{0}</0> 유형의 모든 노트에 영향을 줍니다"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4747,6 +4914,10 @@ msgstr "피드백 보내기"
 #: src/code-editor-completions.ts
 msgid "Separate sections"
 msgstr "섹션 구분"
+
+#: direct/DirectEditor.tsx
+msgid "Server address or invitation link"
+msgstr "서버 주소 또는 초대 링크"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
@@ -5353,6 +5524,10 @@ msgstr "새 유형 정의가 저장되지 않았습니다."
 msgid "The note change was rejected."
 msgstr "노트 변경이 거부되었습니다."
 
+#: direct/RecordWorkspace.tsx
+msgid "The note changed elsewhere. Copy your text before reopening it."
+msgstr "다른 곳에서 이 노트가 변경되었습니다. 다시 열기 전에 텍스트를 복사하세요."
+
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5373,6 +5548,10 @@ msgstr "아직 저장되지 않은 노트는 버려집니다. 저장된 노트 �
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "전체 노트 원본을 사용할 수 없습니다."
+
+#: direct/DirectEditor.tsx
+msgid "The pairing code was refused. Check the digits or ask for a new code if it expired."
+msgstr "페어링 코드가 거부되었습니다. 숫자를 확인하거나 코드가 만료된 경우 새 코드를 요청하세요."
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
@@ -5418,6 +5597,10 @@ msgstr "선택한 컬렉션이 준비되지 않았습니다."
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
 msgstr "선택한 파일 크기가 올바르지 않습니다."
+
+#: direct/DirectEditor.tsx
+msgid "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
+msgstr "서버에 연결하지 못해 코드가 사용되지 않았습니다. 서버와 네트워크를 확인한 후 코드를 다시 입력하세요."
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
@@ -5558,6 +5741,14 @@ msgstr "이 레코드가 유효하려면 이러한 속성을 저장해야 합니
 #: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "이 애플리케이션에는 해당 변경을 수행할 권한이 없습니다."
+
+#: direct/DirectEditor.tsx
+msgid "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+msgstr "이 브라우저로는 서버에 연결할 수 없습니다. 서버의 전송 방식을 지원하는 브라우저에서 초대를 여세요."
+
+#: direct/DirectEditor.tsx
+msgid "This browser forgot the connection. The server still controls the grant."
+msgstr "이 브라우저에서 연결 정보를 삭제했습니다. 접근 권한은 계속 서버에서 관리합니다."
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: literal(conversion.typeName)
@@ -5712,6 +5903,10 @@ msgstr "이름 변경을 확인하기 전에 노트가 이동했습니다."
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "이름을 바꾸기 전에 노트가 이동했습니다."
+
+#: direct/RecordWorkspace.tsx
+msgid "This note was deleted."
+msgstr "이 노트가 삭제되었습니다."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
@@ -5955,6 +6150,10 @@ msgstr "고정 해제"
 msgid "Unpinned"
 msgstr "고정 해제됨"
 
+#: direct/RecordWorkspace.tsx
+msgid "Unsaved changes"
+msgstr "저장하지 않은 변경 사항"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "저장되지 않은 초안 발견"
@@ -5966,6 +6165,10 @@ msgstr "이 브라우저에서는 저장되지 않은 편집 내용을 백업할
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
 msgstr "이전 세션의 저장되지 않은 편집 내용을 복구할 수 있습니다."
+
+#: direct/DirectEditor.tsx
+msgid "Unsaved text"
+msgstr "저장하지 않은 텍스트"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -6159,6 +6362,10 @@ msgstr "공유된 내용이 너무 길어 노트를 만들 수 없습니다. 대
 msgid "Which notes use this type"
 msgstr "이 유형을 사용하는 노트"
 
+#: direct/DirectEditor.tsx
+msgid "Without this option, reloading the page requires a new code."
+msgstr "이 옵션을 선택하지 않으면 페이지를 새로 고칠 때 새 코드가 필요합니다."
+
 #: src/PropertiesPanel.tsx
 msgid "Words"
 msgstr "단어"
@@ -6225,6 +6432,10 @@ msgstr "계정이 이 컬렉션의 사람과 연결되어 있지 않습니다."
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "{date}의 변경사항이 아직 확인되지 않았습니다. 저장을 완료하려면 다시 확인하세요."
+
+#: direct/DirectEditor.tsx
+msgid "Your collection"
+msgstr "내 컬렉션"
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."

@@ -6,6 +6,7 @@ import babel from "@rolldown/plugin-babel";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { buildIdentity, buildIdentityPlugin } from "./scripts/build-identity.mjs";
+import { editorDirectOrigin } from "./scripts/direct-origin.mjs";
 
 execFileSync(process.execPath, [
   fileURLToPath(new URL("../../packages/app-ui/scripts/compile-catalogues.mjs", import.meta.url)),
@@ -19,10 +20,10 @@ const buildId = buildIdentity(process.env.MDBASE_EDITOR_BUILD_ID ?? process.env.
 
 export default defineConfig(({ mode }) => ({
   // Explicit public fixture configuration; remote builds deliberately exclude .env files.
-  define: mode === "e2e" ? {
+  define: { "import.meta.env.MDBASE_EDITOR_DIRECT_ORIGIN": JSON.stringify(editorDirectOrigin(process.env.MDBASE_EDITOR_DIRECT_ORIGIN) ?? null), ...(mode === "e2e" ? {
     "import.meta.env.VITE_MDBASE_EDITOR_DEMO": JSON.stringify("1"),
     "import.meta.env.VITE_MDBASE_FEEDBACK_URL": JSON.stringify("http://127.0.0.1:8790/v1/feedback")
-  } : {},
+  } : {}) },
   base: basePath,
   plugins: [
     react(),
