@@ -3,6 +3,8 @@
 //! macOS runner). Directories live under `CARGO_TARGET_TMPDIR`, never `/tmp`.
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
+#[path = "native/app_apply_window.rs"]
+mod app_apply_window;
 #[path = "native/apply_window.rs"]
 mod apply_window;
 #[path = "native/body_search.rs"]

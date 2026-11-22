@@ -294,8 +294,9 @@ impl<S: Store> Replica<S> {
     }
 
     /// Open the deferred-durability window of the call's entries, if the store
-    /// has such a mode (the native index; every other store keeps each commit
-    /// durable and this does nothing).
+    /// has such a mode (the desktop's native index and the app's browser
+    /// index; every other store commits each entry on its own and this does
+    /// nothing).
     ///
     /// Inside it an applied entry is atomic and ordered but not yet durable, so
     /// a crash takes back a suffix of the call's entries. That is safe because
