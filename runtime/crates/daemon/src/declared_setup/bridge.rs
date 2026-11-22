@@ -15,12 +15,6 @@ use std::{collections::BTreeMap, sync::OnceLock};
 /// so it takes no part in equality or persistence.
 #[derive(Clone, Default)]
 pub(super) struct Compiled(OnceLock<Result<CollectionSetup, AttestError>>);
-impl PartialEq for Compiled {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-impl Eq for Compiled {}
 impl std::fmt::Debug for Compiled {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Compiled")
@@ -57,6 +51,9 @@ impl DeclaredSetupEvidence {
             .map_err(Clone::clone)
     }
     fn compile_setup(&self) -> Result<CollectionSetup, AttestError> {
+        if self.declaration_dropped() {
+            return Err(invalid());
+        }
         let mut projection = self.projection();
         let packs = projection["provisions"]["type_packs"]
             .as_array_mut()

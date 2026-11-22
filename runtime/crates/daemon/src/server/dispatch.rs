@@ -280,11 +280,23 @@ impl Daemon {
                 self.confirm(&prompt).await?;
                 self.approve_confirmed(&expected).await
             }
-            Method::ACCESS_ACK => {
-                let p: GrantRef = params(req)?;
-                self.access_change(|l| l.acknowledge(&p.grant).cloned())
-                    .await
-            }
+            Method::ACCESS_ACK => match params(req)? {
+                crate::control::AckAccess {
+                    grant: Some(grant),
+                    collection: None,
+                } => self.access_change(|l| l.acknowledge(&grant).cloned()).await,
+                crate::control::AckAccess {
+                    grant: None,
+                    collection: Some(collection),
+                } => {
+                    self.access_change(|l| Ok(l.acknowledge_collection(&collection)))
+                        .await
+                }
+                _ => Err(ControlError::invalid(
+                    "invalid_params",
+                    "access.ack: give either grant or collection",
+                )),
+            },
             Method::ACCOUNT_SIGN_IN => self.sign_in(req).await,
             Method::ACCOUNT_SIGN_OUT => self.sign_out().await,
             Method::ACTIVITY_LIST => {
@@ -410,7 +422,23 @@ pub(super) async fn serve_control(d: Arc<Daemon>, stream: BoxStream) -> std::io:
     // instead could lose the reply to `shutdown`.
     let writer = tokio::spawn(async move {
         while let Some(resp) = rx.recv().await {
-            let bytes = serde_json::to_vec(&resp).unwrap_or_default();
+            let mut bytes = serde_json::to_vec(&resp).unwrap_or_default();
+            // The client cannot read a frame over the limit; answer the request
+            // with an error it can read instead.
+            if bytes.len() > ipc::MAX_CONTROL_FRAME
+                && let Some(id) = resp.id
+            {
+                tracing::warn!(
+                    id,
+                    bytes = bytes.len(),
+                    "control reply over the frame limit"
+                );
+                bytes = serde_json::to_vec(&Response::err(
+                    id,
+                    ControlError::response_too_large(bytes.len()),
+                ))
+                .unwrap_or_default();
+            }
             if ipc::write_frame(&mut wr, &bytes).await.is_err() {
                 break;
             }

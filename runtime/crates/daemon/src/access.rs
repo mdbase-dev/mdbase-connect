@@ -87,6 +87,14 @@ pub fn plain_capabilities(capabilities: &[String]) -> String {
 }
 
 impl CachedGrant {
+    /// Keep only the identity of the declared setup evidence: no setup is
+    /// served from this grant.
+    fn drop_setup_declaration(&mut self) {
+        if let Some(setup) = &mut self.declared_setup {
+            setup.drop_declaration();
+        }
+    }
+
     /// The short fingerprint shown to the user and on the app's consent screen
     /// (`policy.md` §5.1), in the one shared display form
     /// ([`mdbn_replica::crypto::proof::client_fingerprint_display`]).
@@ -355,6 +363,10 @@ impl AccessList {
     /// show the user. The caller saves before serving. `account_approved` is
     /// true only for synced Private grants: account consent replaces the local
     /// opt-in approval setting, including for a fresh grant after revocation.
+    /// Those are also the only grants setup is served from
+    /// (`authority::Source::declared_setup`), so only their unrefused entries
+    /// keep the declaration of their declared setup; every other entry keeps
+    /// just its identity, which still tells changed terms apart.
     ///
     /// Local refusals are **tombstones**. A denied or locally revoked
     /// grant is kept when the control plane stops listing it, and a grant that
@@ -408,6 +420,12 @@ impl AccessList {
         for g in grants.iter().filter(|g| g.collection == collection) {
             match self.find(&g.grant) {
                 Some(i) if self.entries[i].grant == *g => {
+                    // Same terms; a collection that turned synced Private takes
+                    // back the declaration it dropped while local.
+                    let kept = &mut self.entries[i].grant.declared_setup;
+                    if account_approved && kept.as_ref().is_some_and(|s| s.declaration_dropped()) {
+                        kept.clone_from(&g.declared_setup);
+                    }
                     // Upgrade the old computer-approval waiting state. Account
                     // consent is the only user decision for Private grants.
                     if account_approved && self.entries[i].state == AccessState::PendingApproval {
@@ -465,6 +483,11 @@ impl AccessList {
                     });
                     self.entries.push(entry);
                 }
+            }
+        }
+        for e in self.entries.iter_mut() {
+            if e.grant.collection == collection && (!account_approved || e.is_refused()) {
+                e.grant.drop_setup_declaration();
             }
         }
         events
@@ -541,6 +564,7 @@ impl AccessList {
             AccessState::Active | AccessState::PendingApproval => {
                 e.state = AccessState::RevokedLocally;
                 e.acknowledged = true;
+                e.grant.drop_setup_declaration();
                 Ok(e)
             }
             s => Err(AccessError::WrongState(s)),
@@ -568,6 +592,7 @@ impl AccessList {
         }
         e.state = AccessState::Denied;
         e.acknowledged = true;
+        e.grant.drop_setup_declaration();
         Ok(e)
     }
 
@@ -576,6 +601,24 @@ impl AccessList {
         let i = self.find(grant).ok_or(AccessError::NotFound)?;
         self.entries[i].acknowledged = true;
         Ok(&self.entries[i])
+    }
+
+    /// Acknowledge every new-access notification of `collection`, as
+    /// [`AccessList::summaries`]. A grant waiting for approval needs a
+    /// decision instead and stays as it is.
+    pub fn acknowledge_collection(&mut self, collection: &str) -> Vec<AccessEntry> {
+        self.entries
+            .iter_mut()
+            .filter(|e| {
+                e.grant.collection == collection
+                    && e.state == AccessState::Active
+                    && !e.acknowledged
+            })
+            .map(|e| {
+                e.acknowledged = true;
+                summary(e)
+            })
+            .collect()
     }
 
     /// Entries for one collection (or all).
@@ -590,14 +633,7 @@ impl AccessList {
     /// grant's declared-setup evidence. No list reader shows it, and a few app
     /// declarations (hundreds of kB each) overflow one control frame.
     pub fn summaries(&self, collection: Option<&str>) -> Vec<AccessEntry> {
-        self.list(collection)
-            .into_iter()
-            .map(|entry| {
-                let mut entry = entry.clone();
-                entry.grant.declared_setup = None;
-                entry
-            })
-            .collect()
+        self.list(collection).into_iter().map(summary).collect()
     }
 
     /// Drop every entry of an unregistered collection.
@@ -606,6 +642,13 @@ impl AccessList {
         self.leases.remove(collection);
         self.monotonic_leases.remove(collection);
     }
+}
+
+/// An entry without its declared-setup evidence.
+fn summary(entry: &AccessEntry) -> AccessEntry {
+    let mut entry = entry.clone();
+    entry.grant.declared_setup = None;
+    entry
 }
 
 #[cfg(test)]

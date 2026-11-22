@@ -173,6 +173,21 @@ impl ControlError {
     pub fn internal(message: impl Into<String>) -> ControlError {
         ControlError::new("internal", "internal", message)
     }
+
+    /// `too_large` / `response_too_large`: a reply of `len` bytes is over the
+    /// control frame limit, so it was not delivered. The request may still have
+    /// taken effect.
+    pub fn response_too_large(len: usize) -> ControlError {
+        ControlError::new(
+            "too_large",
+            "response_too_large",
+            format!(
+                "the daemon's reply ({len} bytes) is over the {} byte control frame limit, \
+                 so it was not delivered; ask for less, for example for one collection",
+                crate::ipc::MAX_CONTROL_FRAME
+            ),
+        )
+    }
 }
 
 impl std::fmt::Display for ControlError {
@@ -283,7 +298,9 @@ impl Method {
     pub const ACCESS_APPROVE: &'static str = "access.approve";
     /// `{grant}` → `AccessEntry`: decline a pending grant.
     pub const ACCESS_DENY: &'static str = "access.deny";
-    /// `{grant}` → `AccessEntry`: acknowledge the new-access notification.
+    /// [`AckAccess`]: `{grant}` → `AccessEntry`, acknowledge the new-access
+    /// notification; `{collection}` → `[AccessEntry]` (as `access.list`), every
+    /// one of that collection. Grants waiting for approval are left alone.
     pub const ACCESS_ACK: &'static str = "access.ack";
     /// `{server_url?, name?}` → `{verification_uri, expires_in}`: start signing in
     /// (pairing as a connector). The daemon completes it in the background;
@@ -888,6 +905,17 @@ pub struct Settings {
 pub struct GrantRef {
     /// Grant ID.
     pub grant: String,
+}
+
+/// [`Method::ACCESS_ACK`] params: exactly one of `grant` and `collection`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AckAccess {
+    /// One grant ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<String>,
+    /// Every new-access notification of this collection ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
 }
 
 /// `{collection}` params.

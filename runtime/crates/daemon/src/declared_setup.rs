@@ -14,8 +14,13 @@ const SETUP: [&str; 2] = ["assess_collection_setup", "apply_collection_setup"];
 
 /// Immutable evidence retained with one cached grant. Its presence alone never
 /// authorizes execution: the current grant, account, lease and Replica must agree.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+///
+/// Equality is the evidence's identity. The digest stands for the declaration,
+/// so evidence whose declaration was dropped ([`Self::drop_declaration`]) still
+/// equals the complete evidence and still tells changed terms apart.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeclaredSetupEvidence {
+    /// `null` once dropped (never absent, so older daemons still read the file).
     declaration: Value,
     application_id: String,
     digest: String,
@@ -26,7 +31,27 @@ pub struct DeclaredSetupEvidence {
     #[serde(skip)]
     compiled: bridge::Compiled,
 }
+impl PartialEq for DeclaredSetupEvidence {
+    fn eq(&self, other: &Self) -> bool {
+        self.application_id == other.application_id
+            && self.digest == other.digest
+            && self.operations == other.operations
+            && self.authorization_binding_digest == other.authorization_binding_digest
+    }
+}
+impl Eq for DeclaredSetupEvidence {}
+
 impl DeclaredSetupEvidence {
+    /// Drop the declaration (hundreds of kB for some apps) where no setup is
+    /// served from it. [`Self::core_setup`] then fails.
+    pub(crate) fn drop_declaration(&mut self) {
+        self.declaration = Value::Null;
+        self.compiled = Default::default();
+    }
+    /// Whether the declaration was dropped.
+    pub(crate) fn declaration_dropped(&self) -> bool {
+        self.declaration.is_null()
+    }
     /// Complete authenticated declaration, never reconstructed split metadata.
     pub fn declaration(&self) -> &Value {
         &self.declaration
