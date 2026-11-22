@@ -514,6 +514,16 @@ impl Daemon {
     pub(super) async fn remove(&self, id: &str) -> Result<Value, ControlError> {
         let _gate = self.account_gate.lock().await;
         let mut inner = self.inner.lock().await;
+        if let Some(stop) = inner
+            .hosts
+            .iter()
+            .find(|h| h.entry().id == id)
+            .and_then(CollectionHost::pending_stop)
+        {
+            drop(inner);
+            stop.await;
+            inner = self.inner.lock().await;
+        }
         let mut next = inner.registry.clone();
         let entry = next.remove(id).map_err(registry_error)?;
         if let Some(host) = inner.hosts.iter_mut().find(|h| h.entry().id == id) {

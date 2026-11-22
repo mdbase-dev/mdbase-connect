@@ -407,26 +407,49 @@ fn registry_error(e: RegistryError) -> ControlError {
 const RECOVERY_POLL: std::time::Duration = std::time::Duration::from_secs(5);
 
 impl Daemon {
-    /// Reopen collections stopped by a sync incident as their backoff falls due
-    /// (`CollectionHost::recover`).
     async fn watch_sync_recovery(self: Arc<Self>) {
         loop {
             tokio::time::sleep(RECOVERY_POLL).await;
-            let now = std::time::Instant::now();
-            let mut reopened = false;
-            {
-                let mut inner = self.inner.lock().await;
-                let inner = &mut *inner;
-                for h in inner.hosts.iter_mut() {
-                    if h.recover(now).await {
-                        h.publish_grants(&inner.access);
-                        reopened = true;
-                    }
-                }
-            }
-            if reopened {
-                self.bump();
-            }
+            self.recover_sync_hosts(std::time::Instant::now()).await;
+        }
+    }
+
+    async fn recover_sync_hosts(self: &Arc<Self>, now: std::time::Instant) {
+        let due: Vec<_> = self
+            .inner
+            .lock()
+            .await
+            .hosts
+            .iter_mut()
+            .filter_map(|host| host.recover_due(now))
+            .collect();
+        for stop in due {
+            stop.clone().await;
+            let d = self.clone();
+            // Refresh reads local configuration and starts the background opener.
+            // Track the whole publication so shutdown joins it before closing hosts.
+            self.run_blocking(move || {
+                let _gate = d.account_gate.blocking_lock();
+                // Registration changes hold account_gate, so the index stays valid
+                // until publication. A removal or explicit retry may already have won.
+                let candidate = d
+                    .inner
+                    .blocking_lock()
+                    .hosts
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, h)| h.next_after_stop(&stop).map(|next| (index, next)));
+                let Some((index, mut next)) = candidate else {
+                    return;
+                };
+                next.refresh();
+                let mut inner = d.inner.blocking_lock();
+                next.publish_grants(&inner.access);
+                inner.hosts[index] = next;
+                drop(inner);
+                d.bump();
+            })
+            .await;
         }
     }
 
