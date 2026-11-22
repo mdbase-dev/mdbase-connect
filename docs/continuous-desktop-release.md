@@ -125,7 +125,8 @@ Staged rollout is enabled by the repository variable
   published release always has one. An upload failure leaves an unpublished
   attempt, like any other publish failure;
 - `operation=rollout` with `stage` (`held`, `early`, `5`, `25`, `100`),
-  dispatched **on the release tag**, signs and uploads that stage. It runs from
+  dispatched **on the release tag**, signs and uploads that stage through the
+  `desktop-release` environment. It runs from
   the tag so the document carries the release's own signing identity, requires
   the release to be published, takes its own concurrency group per tag, and
   never waits for a build. Uploads authenticate with the run's GitHub OIDC
@@ -165,8 +166,9 @@ blindly. The coordinator refuses any unfinished automatic tag reservation and
 still respects an existing `Continuous desktop status: stopped` notes marker.
 
 Repository variable **`DESKTOP_RELEASE_STOPPED=true`** stops the line for a
-reported crash, error or operational stop. It stops subsequent
-builds/publication, not downloads already offered or updates already installed.
+reported crash, error or operational stop. It stops subsequent builds,
+publication, and rollout widening. Operators can still publish the `held`
+stage. Downloads already offered and updates already installed are unaffected.
 The coordinator cannot read the private ops repository, so an open ops
 `desktop` hold does not stop it by itself. Hold Desktop with
 `bin/release app-line stop desktop desktop-held`, which sets this variable
