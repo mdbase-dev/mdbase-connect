@@ -98,23 +98,7 @@ impl Daemon {
             Method::STATUS | Method::STATUS_SUBSCRIBE => to_value(&self.status().await),
             // `serve_control` stops the daemon once this reply is queued.
             Method::SHUTDOWN => Ok(json!({})),
-            Method::COLLECTION_LIST => {
-                let inner = self.inner.lock().await;
-                let taken = self.takeover_record();
-                let mut collections = Vec::with_capacity(inner.hosts.len());
-                for host in &inner.hosts {
-                    collections.push(with_private_sync_pending(
-                        with_takeover_holds(
-                            with_access_notices(host.observed_status().await, &inner.access),
-                            taken.as_ref(),
-                        ),
-                        &self.auto_private,
-                        &self.profile.state_dir.join("collections"),
-                    ));
-                }
-                bound_file_notices(&mut collections);
-                to_value(&collections)
-            }
+            Method::COLLECTION_LIST => to_value(&self.collection_statuses().await),
             Method::COLLECTION_ADD => self.add(params(req)?).await,
             Method::COLLECTION_REMOVE => {
                 let p: CollectionRef = params(req)?;
