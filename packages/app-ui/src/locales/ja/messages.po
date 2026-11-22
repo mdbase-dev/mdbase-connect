@@ -219,6 +219,7 @@ msgstr "{collection}を開けません"
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
+#: src/QuickCreate.tsx
 msgid "Cancel"
 msgstr "キャンセル"
 

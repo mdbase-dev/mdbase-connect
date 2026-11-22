@@ -201,6 +201,62 @@ and `showAll` values as stable IDs. Group order, browsing limits and search matc
 still use those IDs; translated headings do not change matching or merge groups.
 Re-render with the current locale's callback to update the presentation.
 
+## Link picker
+
+`LinkPicker` from `@mdbase-dev/ui/link-picker` is the field for linking one
+record to another: type to find a record, or make a new one of a given kind
+from what was typed. Include `controls.css`.
+
+```tsx
+<LinkPicker
+  label={t`Author`}
+  query={query}
+  onQueryChange={setQuery}
+  options={matches.map((person) => ({ id: person.path, title: person.name, detail: t`Person` }))}
+  creates={[{ id: "person", label: t`New person` }]}
+  emptyMessage={t`No matching people.`}
+  onPick={(option) => link(option.id)}
+  onCreate={(create, title) => createAndLink(create.id, title)}
+/>
+```
+
+The app matches and ranks `options` for the current `query`; the picker does not
+filter. `creates` are listed after the matches once something is typed, unless a
+match already carries exactly that title. Every string is passed in, so the
+picker adds nothing to the shared catalogue. Focus stays in the text field: the
+first Escape closes the list, the second calls `onClose`, as does leaving the
+field. `linkPickerRows(query, options, creates)` gives the same rows to a surface
+that draws its own list, such as an editor's completion popup.
+
+## Quick create
+
+`QuickCreate` from `@mdbase-dev/ui/quick-create` is a short form for a record
+made in passing, such as one chosen from a link picker's create row when its
+type needs more than a name. Include `controls.css`.
+
+```tsx
+{creating && <QuickCreate
+  title={t`New book`}
+  name={creating.title}
+  nameLabel={t`Title`}
+  onNameChange={(title) => setCreating({ ...creating, title })}
+  anchor={() => field.current?.getBoundingClientRect()}
+  submitLabel={t`Create and link`}
+  blocker={creating.isbn ? undefined : t`Give the ISBN.`}
+  onSubmit={createAndLink}
+  onClose={(refocus) => { setCreating(undefined); if (refocus) field.current?.focus(); }}
+>
+  <IsbnField value={creating.isbn} onChange={(isbn) => setCreating({ ...creating, isbn })} />
+</QuickCreate>}
+```
+
+Render it while the form is wanted. It opens in the top layer beside `anchor`
+(called again on scroll and resize; return nothing once that place has gone),
+puts the keyboard in the first field after the name and keeps Tab inside. The
+app supplies the fields as children and every string except Cancel. Escape and
+Cancel call `onClose(true)`; a press elsewhere calls `onClose(false)`, because
+the focus has already moved. A list open inside the form takes the first Escape.
+
 ## Live preview
 
 `livePreview()` from `@mdbase-dev/ui/live-preview` renders Markdown in a
