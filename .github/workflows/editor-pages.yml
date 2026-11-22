@@ -182,6 +182,7 @@ jobs:
     outputs:
       artifact-id: ${{ steps.artifact.outputs.artifact-id }}
       artifact-digest: ${{ steps.artifact.outputs.artifact-digest }}
+      self-hosted: ${{ steps.self-hosted.outputs.planned }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -192,6 +193,15 @@ jobs:
       - name: Workflow-owned ancestry check before candidate checkout or execution
         working-directory: publisher
         run: node apps/editor/scripts/native/refs.mjs
+      # Production only, for a source carrying the exact self-hosted contract.
+      - name: Workflow-owned self-hosted Editor plan
+        id: self-hosted
+        working-directory: publisher
+        run: |
+          set -euo pipefail
+          planned=$(node apps/editor/scripts/native/self-hosted.mjs planned)
+          case "$planned" in true|false) ;; *) exit 1 ;; esac
+          echo "planned=$planned" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ inputs.source_sha }}
@@ -323,6 +333,14 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: node apps/editor/scripts/native/publisher.mjs project > "$RUNNER_TEMP/editor-receipt/project.json"
+      # Read-only: a missing project or credential scope refuses before any write.
+      - name: Existing self-hosted project identity (never provision)
+        if: needs.native-build.outputs.self-hosted == 'true'
+        timeout-minutes: 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node apps/editor/scripts/native/self-hosted.mjs project > /dev/null
       - name: Capture production recovery point before upload
         timeout-minutes: 4
         env:
@@ -475,6 +493,144 @@ jobs:
         with:
           name: editor-production-recovery-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/editor-recovery/
+          if-no-files-found: warn
+          retention-days: 90
+
+  self-hosted:
+    name: Protected immutable self-hosted Editor upload
+    needs: [native-inputs, native-build, native-deploy, smoke]
+    # After the managed Editor is published and smoked. A failure here fails the
+    # run and restores only the self-hosted project; the managed Editor stays.
+    if: inputs.target == 'production' && needs.native-build.outputs.self-hosted == 'true' && needs.smoke.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: publisher
+    concurrency:
+      group: editor-self-hosted-upload
+      cancel-in-progress: false
+    environment:
+      name: editor-production
+      deployment: false
+    env:
+      TARGET: ${{ inputs.target }}
+      SOURCE_SHA: ${{ inputs.source_sha }}
+      EDITOR_TRUST_ASSET_SHA256: ${{ vars.EDITOR_TRUST_ASSET_SHA256 }}
+      ARTIFACT_ID: ${{ needs.native-build.outputs.artifact-id }}
+      ARTIFACT_DIGEST: ${{ needs.native-build.outputs.artifact-digest }}
+      EDITOR_SOURCE_ROOT: ${{ github.workspace }}/candidate
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - name: One publication per run; dispatch a new run to retry
+        timeout-minutes: 1
+        working-directory: ${{ github.workspace }}
+        run: test "$GITHUB_RUN_ATTEMPT" = 1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: publisher
+          fetch-depth: 0
+          persist-credentials: false
+        timeout-minutes: 3
+      - name: Workflow-owned ancestry check before candidate data is read
+        timeout-minutes: 1
+        run: node apps/editor/scripts/native/refs.mjs
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.source_sha }}
+          path: candidate
+          fetch-depth: 0
+          persist-credentials: false
+        timeout-minutes: 3
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+        timeout-minutes: 2
+      - name: Workflow-owned guard; candidate is data only
+        timeout-minutes: 7
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/self-hosted-receipt" "$RUNNER_TEMP/self-hosted-upload"
+          node apps/editor/scripts/native/publisher.mjs guard > "$RUNNER_TEMP/self-hosted-receipt/plan.json"
+          test "$(node apps/editor/scripts/native/self-hosted.mjs planned)" = true
+      - name: Isolated official tool lock only; no app hooks
+        timeout-minutes: 3
+        run: node apps/editor/scripts/native/tool.mjs "$RUNNER_TEMP/self-hosted-tool-path"
+      - name: Immutable artifact identity and full self-hosted inventory
+        timeout-minutes: 4
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          artifact="$RUNNER_TEMP/self-hosted-upload/artifact"
+          node apps/editor/scripts/native/artifact.mjs "$artifact"
+          cp "$RUNNER_TEMP/self-hosted-upload/artifact-metadata.json" "$RUNNER_TEMP/self-hosted-receipt/"
+          cmp "$RUNNER_TEMP/self-hosted-receipt/plan.json" "$artifact/plan.json"
+          cp "$artifact/self-hosted/inventory.json" "$RUNNER_TEMP/self-hosted-receipt/inventory.json"
+          node apps/editor/scripts/native/self-hosted.mjs inventory "$artifact/self-hosted/publish" > "$RUNNER_TEMP/self-hosted-receipt/revalidated-inventory.json"
+          cmp "$RUNNER_TEMP/self-hosted-receipt/inventory.json" "$RUNNER_TEMP/self-hosted-receipt/revalidated-inventory.json"
+          chmod -R a-w "$artifact"
+      - name: Existing self-hosted project identity (never provision)
+        timeout-minutes: 1
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node apps/editor/scripts/native/self-hosted.mjs project > "$RUNNER_TEMP/self-hosted-receipt/project.json"
+      - name: Capture self-hosted recovery point before upload
+        id: snapshot
+        timeout-minutes: 2
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node apps/editor/scripts/native/self-hosted.mjs snapshot > "$RUNNER_TEMP/self-hosted-receipt/previous.json"
+      - name: Recheck immutable inventory and upload once
+        id: upload
+        timeout-minutes: 7
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          node apps/editor/scripts/native/refs.mjs
+          node apps/editor/scripts/native/self-hosted.mjs assert-inventory "$RUNNER_TEMP/self-hosted-upload/artifact/self-hosted/publish" "$RUNNER_TEMP/self-hosted-receipt/inventory.json"
+          cli=$(cat "$RUNNER_TEMP/self-hosted-tool-path")
+          cd "$RUNNER_TEMP/self-hosted-upload"
+          node "$cli" pages deploy artifact/self-hosted/publish --no-bundle --project-name mdbase-editor-self-hosted --branch main --commit-hash "$SOURCE_SHA" --commit-dirty=false > "$RUNNER_TEMP/self-hosted-upload/wrangler-output.txt" 2>&1
+      - name: Resolve actual full deployment UUID before served checks
+        id: deployment
+        timeout-minutes: 2
+        if: always() && (steps.upload.outcome == 'success' || steps.upload.outcome == 'failure' || steps.upload.outcome == 'cancelled')
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node apps/editor/scripts/native/self-hosted.mjs capture "$RUNNER_TEMP/self-hosted-upload/wrangler-output.txt" > "$RUNNER_TEMP/self-hosted-receipt/deployment.json"
+      - name: All deployment URL AND alias bytes and source-owned headers
+        id: verification
+        # Three minutes on the immutable URL, then the 15-minute alias settle window.
+        timeout-minutes: 20
+        if: always() && steps.deployment.outcome == 'success'
+        run: node apps/editor/scripts/native/self-hosted.mjs verify "$RUNNER_TEMP/self-hosted-receipt" > "$RUNNER_TEMP/self-hosted-receipt/verification.json"
+      - name: Restore the previous self-hosted deployment; keep run failed
+        if: always() && steps.snapshot.outcome == 'success' && steps.upload.outcome != 'skipped' && steps.verification.outcome != 'success'
+        timeout-minutes: 7
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: node apps/editor/scripts/native/self-hosted.mjs recover "$RUNNER_TEMP/self-hosted-receipt"
+      - name: Preserve honest failure or complete self-hosted receipt
+        timeout-minutes: 1
+        if: always()
+        run: node apps/editor/scripts/native/self-hosted.mjs receipt "$RUNNER_TEMP/self-hosted-receipt" > "$RUNNER_TEMP/self-hosted-receipt/receipt.json"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        timeout-minutes: 2
+        if: always()
+        with:
+          name: editor-self-hosted-receipt-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/self-hosted-receipt/
+          include-hidden-files: true
           if-no-files-found: warn
           retention-days: 90
 
