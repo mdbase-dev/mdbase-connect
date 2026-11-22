@@ -665,6 +665,10 @@ msgstr "已有账户？<0>登录</0>"
 msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 msgstr "已允许的访问权限保持不变。如果不再需要，请单独撤销。"
 
+#: src/authorization-view.tsx
+msgid "Also works with {collectionName}"
+msgstr "也可用于 {collectionName}"
+
 #: src/AccountManagement.tsx
 msgid "Always on"
 msgstr "始终开启"
@@ -1513,6 +1517,10 @@ msgctxt "Connect interface"
 msgid "Downloads only"
 msgstr "仅下载"
 
+#: src/authorization-view.tsx
+msgid "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+msgstr "每个应用在访问 {collectionName} 前都会征求你的批准。你的文件仍然是普通的 Markdown。"
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
@@ -2299,6 +2307,8 @@ msgstr "仅 {0}。隐藏文件夹始终排除在外。"
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "只更改此类型定义。现有记录保持不变。访问权限生效前会验证设置。"
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open"
 msgstr "打开"
@@ -2306,6 +2316,8 @@ msgstr "打开"
 #. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "打开 {0}"
@@ -2381,6 +2393,11 @@ msgstr "重新打开邮件中的链接，或在账户设置中更改电子邮件
 #: src/ConnectApp.tsx
 msgid "Open the mdbase Connect desktop app and choose Connect this computer."
 msgstr "打开 mdbase Connect 桌面应用并选择“连接此电脑”。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open this collection in"
+msgstr "在其他应用中打开此集合"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"

@@ -71,6 +71,11 @@ msgctxt "Application permission"
 msgid "Additional operations declared by this application."
 msgstr "Operaciones adicionales declaradas por esta aplicación."
 
+#: home.tsx
+msgctxt "AI clients"
+msgid "AI clients via mdbase plugins & MCP"
+msgstr "Clientes de IA mediante complementos de mdbase y MCP"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Cancel this app's scheduled activity"
@@ -110,6 +115,21 @@ msgstr "Comprobar qué debe configurar esta aplicación"
 #: contract-setup.ts
 msgid "Choose which field supplies {0}."
 msgstr "Elige qué campo proporciona {0}."
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Claude, ChatGPT & Codex"
+msgstr "Claude, ChatGPT y Codex"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Copied"
+msgstr "Copiado"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Copy"
+msgstr "Copiar"
 
 #: access.ts
 msgctxt "Application permission"
@@ -290,6 +310,11 @@ msgstr "Ver vistas guardadas"
 msgctxt "Application permission"
 msgid "See this app's scheduled activity"
 msgstr "Ver la actividad programada de esta aplicación"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Set up"
+msgstr "Configurar"
 
 #: access.ts
 msgctxt "Application permission"

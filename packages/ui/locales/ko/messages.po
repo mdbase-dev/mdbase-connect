@@ -71,6 +71,11 @@ msgctxt "Application permission"
 msgid "Additional operations declared by this application."
 msgstr "이 애플리케이션에서 선언한 추가 작업입니다."
 
+#: home.tsx
+msgctxt "AI clients"
+msgid "AI clients via mdbase plugins & MCP"
+msgstr "mdbase 플러그인 및 MCP를 통한 AI 클라이언트"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Cancel this app's scheduled activity"
@@ -110,6 +115,21 @@ msgstr "이 앱에 필요한 설정 확인"
 #: contract-setup.ts
 msgid "Choose which field supplies {0}."
 msgstr "{0}을(를) 제공할 필드를 선택하세요."
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Claude, ChatGPT & Codex"
+msgstr "Claude, ChatGPT 및 Codex"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Copied"
+msgstr "복사됨"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Copy"
+msgstr "복사"
 
 #: access.ts
 msgctxt "Application permission"
@@ -290,6 +310,11 @@ msgstr "저장된 뷰 보기"
 msgctxt "Application permission"
 msgid "See this app's scheduled activity"
 msgstr "이 앱의 예약된 활동 보기"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Set up"
+msgstr "설정"
 
 #: access.ts
 msgctxt "Application permission"

@@ -1,11 +1,17 @@
 import { t } from "@lingui/core/macro";
 import { i18n } from "@mdbase-dev/ui/i18n";
+import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import type {
   AvailableCollection,
   ContractRequirement,
   PendingAuthorization,
   TypePackProvision
 } from "./api";
+
+/** This portal's managed environment origins, or undefined on a custom server. */
+export function managedOriginsFor(origin: string = location.origin) {
+  return Object.values(managedAppOrigins).find((origins) => origins.connectOrigin === origin);
+}
 
 export function installationAccountLabel(pairing: {
   account_selection_confirmed?: boolean;

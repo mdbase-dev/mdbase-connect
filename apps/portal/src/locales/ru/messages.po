@@ -665,6 +665,10 @@ msgstr "Уже есть учётная запись? <0>Войти</0>"
 msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 msgstr "Ранее разрешённый доступ сохраняется. Если он больше не нужен, отзовите его отдельно."
 
+#: src/authorization-view.tsx
+msgid "Also works with {collectionName}"
+msgstr "Также работает с {collectionName}"
+
 #: src/AccountManagement.tsx
 msgid "Always on"
 msgstr "Всегда включено"
@@ -1513,6 +1517,10 @@ msgctxt "Connect interface"
 msgid "Downloads only"
 msgstr "Только загрузка"
 
+#: src/authorization-view.tsx
+msgid "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+msgstr "Каждое приложение запрашивает ваше одобрение перед доступом к {collectionName}. Ваши файлы остаются обычным Markdown."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
@@ -2299,6 +2307,8 @@ msgstr "Только {0}. Скрытые папки всегда исключе�
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Изменится только определение этого типа. Существующие записи останутся на месте. Настройка будет проверена до предоставления доступа."
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open"
 msgstr "Открыть"
@@ -2306,6 +2316,8 @@ msgstr "Открыть"
 #. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "Открыть {0}"
@@ -2381,6 +2393,11 @@ msgstr "Откройте ссылку из письма ещё раз или и�
 #: src/ConnectApp.tsx
 msgid "Open the mdbase Connect desktop app and choose Connect this computer."
 msgstr "Откройте настольное приложение mdbase Connect и выберите «Подключить этот компьютер»."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open this collection in"
+msgstr "Открыть эту коллекцию в"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"

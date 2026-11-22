@@ -665,6 +665,10 @@ msgstr "Já tem uma conta? <0>Entrar</0>"
 msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 msgstr "O acesso já autorizado mantém-se. Revogue-o separadamente se já não o pretender."
 
+#: src/authorization-view.tsx
+msgid "Also works with {collectionName}"
+msgstr "Também funciona com {collectionName}"
+
 #: src/AccountManagement.tsx
 msgid "Always on"
 msgstr "Sempre ativado"
@@ -1513,6 +1517,10 @@ msgctxt "Connect interface"
 msgid "Downloads only"
 msgstr "Somente downloads"
 
+#: src/authorization-view.tsx
+msgid "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+msgstr "Cada aplicativo solicita sua aprovação antes de acessar {collectionName}. Seus arquivos continuam sendo Markdown comum."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
@@ -2299,6 +2307,8 @@ msgstr "Somente {0}. Pastas ocultas sempre são excluídas."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Somente a definição deste tipo muda. Os registros existentes permanecem no lugar. A configuração é validada antes de o acesso ser ativado."
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open"
 msgstr "Abrir"
@@ -2306,6 +2316,8 @@ msgstr "Abrir"
 #. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "Abrir {0}"
@@ -2381,6 +2393,11 @@ msgstr "Abra novamente o link do e-mail ou altere as preferências de e-mail nas
 #: src/ConnectApp.tsx
 msgid "Open the mdbase Connect desktop app and choose Connect this computer."
 msgstr "Abra o aplicativo mdbase Connect para desktop e escolha Conectar este computador."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open this collection in"
+msgstr "Abrir esta coleção em"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
