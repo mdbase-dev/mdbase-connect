@@ -180,7 +180,10 @@ runs `mdbase-connect --mdbase-update` (`headless-update.ts`):
 The run holds `<userData>/updates/background-update.pid` from before it takes
 the lock until it exits. A launch that finds a live run (its `/proc` command
 line carries `--mdbase-update`, so a reused PID does not count) waits for it,
-then starts the app that is in the folder by then. The service uses
+then starts the app that is in the folder by then. The app's own folders (`.next`,
+`.previous`) are removed through Electron's `original-fs`: Electron's `fs` reads
+`resources/app.asar` as a folder and cannot delete it, which left a stale
+`.next` that failed every later update with ENOTEMPTY. The service uses
 `KillMode=mixed`: stopping it sends SIGTERM to the app's main process only,
 because Electron crashes with SIGTRAP when its Chromium children are signalled
 before it. The run uses Chromium's headless platform, so it needs no display.
@@ -233,10 +236,12 @@ user-only and by atomic rename:
 (a release still rolling out to other installations is not available here).
 `install` is `restart` (the app installs it), `package` (a new package from
 the release page) or `store`; `required` is set when the running version is
-blocked. The `doctor` `update` check is `ok` after a check in the last three
-days that found nothing, and otherwise warns with what to do: no report yet, a
-stale report (pointing at the timer when `background` is set), or the
-available version and how to install it. Unknown fields are ignored and
+blocked. A failed check or install adds `failure` (`at`, `message`) and keeps
+`checked_at` at the last check that worked. The `doctor` `update` check is `ok`
+after a check in the last three days that found nothing, and otherwise warns
+with what to do: no report yet, the failure and its message, a stale report
+(pointing at the timer's journal when `background` is set), or the available
+version and how to install it. Unknown fields are ignored and
 unknown `install` values get a generic action; an incompatible change needs
 `schema_version` 2.
 
