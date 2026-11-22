@@ -1400,6 +1400,11 @@ msgstr "참 또는 거짓을 선택하세요."
 msgid "Circular transclusion stopped here."
 msgstr "순환 삽입을 여기서 중단했습니다."
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Claude, ChatGPT & Codex (MCP & plugins)"
+msgstr "Claude, ChatGPT 및 Codex(MCP 및 플러그인)"
+
 #: src/App.tsx
 msgid "Clear"
 msgstr "지우기"
@@ -1746,9 +1751,19 @@ msgstr "목록 항목을 {0}(으)로 변환할까요?"
 msgid "Convert this field to {0}?"
 msgstr "이 필드를 {0}(으)로 변환할까요?"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copied"
+msgstr "복사됨"
+
 #: src/App.tsx
 msgid "Copied {label}."
 msgstr "{label} 복사됨."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copy"
+msgstr "복사"
 
 #: src/editor-commands.ts
 msgid "Copy link"
@@ -2762,6 +2777,11 @@ msgstr "Journal/**/*.md"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
+msgid "Keep a daily Markdown journal"
+msgstr "매일 마크다운 일지 작성"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
 msgid "Keep Markdown visible within the writing measure."
 msgstr "작성 영역 안에서 Markdown이 계속 보이도록 합니다."
 
@@ -3693,6 +3713,17 @@ msgstr "선택한 모든 노트 유형에 선언된 속성만 설정할 수 있�
 msgid "Open"
 msgstr "열기"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open"
+msgstr "열기"
+
+#. placeholder {0}: app.name
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open {0}"
+msgstr "{0} 열기"
+
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
 msgstr "{filename} 열기"
@@ -3760,6 +3791,11 @@ msgstr "열린 탭"
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "컬렉션에서 mdbase 환경에 맞게 설정된 편집기를 여세요."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open this collection in another mdbase app or connect an AI client."
+msgstr "이 컬렉션을 다른 mdbase 앱에서 열거나 AI 클라이언트를 연결하세요."
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
@@ -3850,6 +3886,11 @@ msgstr "순서"
 msgctxt "shortcut group"
 msgid "Other"
 msgstr "기타"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Other apps"
+msgstr "다른 앱"
 
 #: src/type-schema.ts
 msgid "Other collection rules"
@@ -3983,6 +4024,11 @@ msgstr "고정"
 #: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "고정됨"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Plan tasks, boards and calendars"
+msgstr "작업, 보드 및 캘린더 계획"
 
 #: src/TypeBrowser.tsx
 msgid "Portable <0>{field}</0> placeholders."
@@ -4125,6 +4171,11 @@ msgstr "인용"
 #: src/PropertiesPanel.tsx
 msgid "Raw frontmatter JSON"
 msgstr "원시 프런트매터 JSON"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Read and annotate PDFs, EPUBs and web pages"
+msgstr "PDF, EPUB 및 웹 페이지 읽기 및 주석 달기"
 
 #: src/type-schema.ts
 msgid "read default"
@@ -4768,6 +4819,11 @@ msgstr "이 유형을 저장하기 전에 계약에서 요구하는 동작 옵�
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
 msgstr "Null로 설정"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Set up"
+msgstr "설정"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
@@ -6175,6 +6231,11 @@ msgstr "앱 호환성"
 msgctxt "settings view"
 msgid "Wrap long lines"
 msgstr "긴 줄 자동 줄바꿈"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Write papers and books citing your sources"
+msgstr "출처를 인용해 논문과 책 집필"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"

@@ -1400,6 +1400,11 @@ msgstr "Choisissez vrai ou faux."
 msgid "Circular transclusion stopped here."
 msgstr "Transclusion circulaire interrompue ici."
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Claude, ChatGPT & Codex (MCP & plugins)"
+msgstr "Claude, ChatGPT et Codex (MCP et extensions)"
+
 #: src/App.tsx
 msgid "Clear"
 msgstr "Effacer"
@@ -1746,9 +1751,19 @@ msgstr "Convertir les éléments de la liste en {0} ?"
 msgid "Convert this field to {0}?"
 msgstr "Convertir ce champ en {0} ?"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copied"
+msgstr "Copié"
+
 #: src/App.tsx
 msgid "Copied {label}."
 msgstr "Copié : {label}."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copy"
+msgstr "Copier"
 
 #: src/editor-commands.ts
 msgid "Copy link"
@@ -2762,6 +2777,11 @@ msgstr "Journal/**/*.md"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
+msgid "Keep a daily Markdown journal"
+msgstr "Tenir un journal quotidien en Markdown"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
 msgid "Keep Markdown visible within the writing measure."
 msgstr "Conserver le Markdown visible dans la largeur de rédaction."
 
@@ -3693,6 +3713,17 @@ msgstr "Seules les propriétés déclarées par le type de chaque note sélectio
 msgid "Open"
 msgstr "Ouvert"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open"
+msgstr "Ouvrir"
+
+#. placeholder {0}: app.name
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open {0}"
+msgstr "Ouvrir {0}"
+
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
 msgstr "Ouvrir {filename}"
@@ -3760,6 +3791,11 @@ msgstr "Onglets ouverts"
 #: src/SdkEditorRoot.tsx
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "Depuis Collections, ouvrez l’Éditeur configuré pour votre environnement mdbase."
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open this collection in another mdbase app or connect an AI client."
+msgstr "Ouvrez cette collection dans une autre application mdbase ou connectez un client d’IA."
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
@@ -3850,6 +3886,11 @@ msgstr "Ordre"
 msgctxt "shortcut group"
 msgid "Other"
 msgstr "Autres"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Other apps"
+msgstr "Autres applications"
 
 #: src/type-schema.ts
 msgid "Other collection rules"
@@ -3983,6 +4024,11 @@ msgstr "Épingler"
 #: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "Épinglées"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Plan tasks, boards and calendars"
+msgstr "Planifier des tâches, des tableaux et des calendriers"
 
 #: src/TypeBrowser.tsx
 msgid "Portable <0>{field}</0> placeholders."
@@ -4125,6 +4171,11 @@ msgstr "Citation"
 #: src/PropertiesPanel.tsx
 msgid "Raw frontmatter JSON"
 msgstr "JSON brut des métadonnées YAML"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Read and annotate PDFs, EPUBs and web pages"
+msgstr "Lire et annoter des PDF, des EPUB et des pages web"
 
 #: src/type-schema.ts
 msgid "read default"
@@ -4768,6 +4819,11 @@ msgstr "Définissez les choix de comportement requis par le contrat avant d’en
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
 msgstr "Définir sur null"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Set up"
+msgstr "Configurer"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
@@ -6175,6 +6231,11 @@ msgstr "Compatible avec les apps"
 msgctxt "settings view"
 msgid "Wrap long lines"
 msgstr "Retour à la ligne automatique"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Write papers and books citing your sources"
+msgstr "Rédiger des articles et des livres en citant vos sources"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
