@@ -1,5 +1,5 @@
 import { t, plural } from "@lingui/core/macro";
-import type { MutationProgress } from "@mdbase-dev/connect";
+import type { MutationProgress } from "./connect-types";
 import type { NoteRowStatus } from "./note-list-view";
 import type { NoteActivity, NoteSession } from "./note-session";
 

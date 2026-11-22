@@ -1,4 +1,4 @@
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import type { NoteSummary } from "./model";
 import { basename, folder, noteTitle } from "./note";
 

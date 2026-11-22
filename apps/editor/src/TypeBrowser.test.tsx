@@ -1,6 +1,6 @@
 import { act, render, screen, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "./connect-types";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContractCatalog } from "./contract-catalog";

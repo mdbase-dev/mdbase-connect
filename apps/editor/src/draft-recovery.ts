@@ -1,4 +1,4 @@
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "./connect-types";
 import { useEffect, useState } from "react";
 
 const PREFIX = "mdbase-editor:draft:v1:";

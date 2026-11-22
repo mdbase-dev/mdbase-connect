@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { MdbaseRecordChange } from "./record-session";
 import { NoteSession, NoteSessionStore, noteRecordAdapter, sessionDirty } from "./note-session";
 import type { NoteDocument } from "./model";
 

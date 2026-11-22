@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import { MdbaseConnectError } from "@mdbase-dev/connect";
+import { MdbaseConnectError } from "./connect-types";
 import { i18n } from "@lingui/core";
 import type { CommentAnchor, CommentAnchorCard } from "@mdbase-dev/ui/comment-anchors";
 import {

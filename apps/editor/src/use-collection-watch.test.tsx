@@ -1,6 +1,6 @@
 import { act, cleanup, renderHook } from "./test/locale";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { normalizeCollectionChange, type CollectionChange, type WatchStatus } from "@mdbase-dev/connect";
+import { normalizeCollectionChange, type CollectionChange, type WatchStatus } from "./connect-types";
 import { useCollectionWatch } from "./use-collection-watch";
 
 afterEach(() => { cleanup(); vi.useRealTimers(); });

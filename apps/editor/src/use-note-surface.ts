@@ -1,4 +1,4 @@
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { useBacklinks, useLinkTargets } from "./collection-links";
 import type { FileAssetStore } from "./file-asset-store";
 import type { CollectionFile, CollectionGateway, NoteSummary } from "./model";

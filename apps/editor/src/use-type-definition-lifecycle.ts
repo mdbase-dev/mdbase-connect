@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { CollectionDescription } from "@mdbase-dev/connect";
+import type { CollectionDescription } from "./connect-types";
 import { gatewayError } from "./gateway";
 import type { CollectionGateway, TypeDocument } from "./model";
 

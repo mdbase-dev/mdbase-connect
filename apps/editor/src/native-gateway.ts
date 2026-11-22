@@ -11,17 +11,8 @@ import {
   type TypeSummary,
   type wire
 } from "@mdbase-dev/sdk";
-import type {
-  CollectionDescription,
-  DataContractSelector,
-  JsonObject,
-  MdbaseDiagnostic,
-  MdbaseFileSource,
-  PendingMutationSummary,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { CollectionDescription, DataContractSelector, JsonObject, MdbaseDiagnostic, MdbaseFileSource, PendingMutationSummary, TypePackAssessment, TypePackProvision } from "./connect-types";
+import type { MdbaseRecordChange } from "./record-session";
 import { NativeNoteObservation } from "./native-note-observation";
 import { downloadNativeFile, type NativeFileSelection } from "./native-file-download";
 import { fileAssetKey } from "./file-reference-resolution";

@@ -1,4 +1,4 @@
-import type { CollectionDescription } from "@mdbase-dev/connect";
+import type { CollectionDescription } from "./connect-types";
 import { describe, expect, it, vi } from "vitest";
 import type { CollectionGateway, CreateNoteInput, NoteDocument, NoteSummary } from "./model";
 import type { Draft } from "./note-session";

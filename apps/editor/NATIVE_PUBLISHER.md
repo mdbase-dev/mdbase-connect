@@ -226,6 +226,4 @@ They authenticate public SDK inputs and run the real build/inventory, but never
 upload. The staging rehearsal requires `gh` on the builder; CI's Ubuntu runner
 provides it. These rehearsals do not replace dispatch admission or live Pages
 verification/rollback testing. No live publication is performed by these
-checks. The direct protocol moved from beta.129 (`c280cd194ffd`) to the SDK's
-bundled beta.145 (`e6e66bcd172f`); its SHA256 is
-`e901144b8d93dc96fcf71d9d8f85dddbf647e9908913be21191c484e9224bb98`.
+checks.

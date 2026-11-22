@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import {
   createdBody,
   editableNote,

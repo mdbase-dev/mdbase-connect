@@ -1,6 +1,6 @@
 import { t, plural } from "@lingui/core/macro";
 import { useRef, useState, type RefObject } from "react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { bulkFields, bulkFrontmatter, runNoteBatch, type BatchResult, type BulkPropertyChange } from "./bulk-note-actions";
 import type { CollectionIndexController } from "./collection-index-controller";
 import { StaleCollectionOperationError, type CollectionMutationScope, type CollectionScopeToken } from "./collection-mutation-scope";
