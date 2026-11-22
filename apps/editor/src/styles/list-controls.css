@@ -384,3 +384,100 @@ kbd {
 .mobile-connection .reconnect-action {
   min-height: 44px;
 }
+
+/* A link to a record, or a type a link may point at: a quiet filled chip. */
+.link-chip {
+  min-width: 0;
+  max-width: 100%;
+  height: 26px;
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+  color: var(--ink);
+  font-size: var(--font-size-ui);
+  line-height: 1;
+}
+
+.link-chip-target {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 0 7px;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  color: inherit;
+  text-align: left;
+}
+
+.link-chip:hover,
+.link-chip:focus-within {
+  background: var(--line);
+}
+
+button.link-chip-target:focus-visible {
+  outline-offset: -2px;
+}
+
+.link-chip-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  color: var(--faint);
+  font-size: 14px;
+}
+
+.link-chip-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.link-chip-label {
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Written, but leading nowhere: named as it was typed, without the weight of a real link. */
+.link-chip.is-unresolved {
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
+.link-chip.is-unresolved .link-chip-label {
+  color: var(--muted);
+  font-weight: var(--font-weight-regular);
+}
+
+.chip-remove-button {
+  flex: 0 0 auto;
+  width: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  color: var(--faint);
+}
+
+.chip-remove-button:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.chip-remove-button:focus-visible {
+  outline-offset: -2px;
+}
+
+.chip-remove-button svg {
+  width: 11px;
+  height: 11px;
+}
+
+.chip-remove-button:disabled {
+  display: none;
+}
+
+.link-chip:has(.chip-remove-button:disabled) .link-chip-target {
+  padding-right: 8px;
+  border-radius: var(--radius-sm);
+}

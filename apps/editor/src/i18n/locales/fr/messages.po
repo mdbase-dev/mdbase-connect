@@ -47,6 +47,10 @@ msgstr "« {0} » a été modifiée ailleurs. Vos modifications sont toujours l�
 msgid "“{0}” has no “{1}” section or block."
 msgstr "« {0} » ne contient ni section ni bloc « {1} »."
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "« {raw} » ne mène à aucune note."
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "{0} sélectionné(s)"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "Type cible {0}"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "Modèle de chemin d’unicité {0}"
 
@@ -326,6 +325,11 @@ msgstr "{0} : <0>{1}</0> (reçu de configuration)"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}. Ces règles s’ajoutent aux règles visuelles ci-dessus."
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}. Ces règles décrivent des valeurs que les champs ci-dessus n’affichent pas."
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, one {# sélecteur de champ} other {# sélecteurs de cham
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, one {# champ} other {# champs}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, one {# lien} other {# liens}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "Type du champ {itemLabel}"
 msgid "{itemLabel} suggestions"
 msgstr "Suggestions pour {itemLabel}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label} « {title} »"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "Renseignez « {label} » pour enregistrer cette note."
@@ -536,18 +541,10 @@ msgstr "{name} est obligatoire."
 msgid "{name} is too large to upload."
 msgstr "{name} est trop volumineux pour être téléversé."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "Suggestions d’éléments pour {name}"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "Valeur JSON de {name}"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "Suggestions de notes pour {name}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -561,6 +558,7 @@ msgstr "Définition du type {name}"
 msgid "{name} type YAML"
 msgstr "YAML du type {name}"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "Valeur de {name}"
@@ -625,6 +623,10 @@ msgstr "Actions de la note {title}"
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"
+
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "Les notes de type {typeLabel} demandent plus qu’un nom. Créez-en une avec Nouvelle note, puis liez-la."
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
@@ -718,13 +720,13 @@ msgstr "Un champ nommé « {name} » existe déjà."
 msgid "A folder cannot be moved inside itself."
 msgstr "Un dossier ne peut pas être déplacé dans lui-même."
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "un lien"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "Un lien dans {path} restera rompu."
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "Une règle de lien existe déjà pour « {field} »."
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -786,6 +788,14 @@ msgstr "Ajouter : {0}"
 msgid "Add a custom property…"
 msgstr "Ajouter une propriété personnalisée…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "Ajouter un lien"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "Ajouter un lien à {name}"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "Ajouter une collection privée"
@@ -801,6 +811,10 @@ msgstr "Ajoutez un type prêt à l’emploi pour obtenir la compatibilité avec 
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "Ajouter un type"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "Ajouter un type vers lequel {fieldLabel} renvoie"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -841,10 +855,6 @@ msgid "Add item"
 msgstr "Ajouter un élément"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "Ajouter une règle de lien"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "Ajouter un champ imbriqué"
 
@@ -876,8 +886,8 @@ msgid "Add tag"
 msgstr "Ajouter une étiquette"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "Ajouter un type cible"
+msgid "Add type"
+msgstr "Ajouter un type"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -988,6 +998,10 @@ msgstr "Autoriser l’accès local"
 msgid "Allow person records in this collection?"
 msgstr "Autoriser les documents de personne dans cette collection ?"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "Autoriser plusieurs liens"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -1000,10 +1014,6 @@ msgstr "Autoriser l’éditeur à voir l’identité de votre compte"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "Autoriser les champs non déclarés"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "Types cibles autorisés"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1029,6 +1039,10 @@ msgstr "et"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "Tout"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "N’importe quelle note"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1360,6 +1374,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "Choisissez un type cible qui implémente à la fois Person et Contact afin de conserver la sémantique des contacts existante."
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "Choisir un type"
 
@@ -1911,6 +1926,10 @@ msgstr "Créez une note pour vous-même, à partir du nom de votre compte."
 msgid "Create a note from what was shared?"
 msgstr "Créer une note à partir de ce qui a été partagé ?"
 
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "Créer et lier"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Créez des champs qui correspondent déjà à un contrat installé. Vous pourrez les renommer et les remapper plus tard."
@@ -2041,10 +2060,6 @@ msgstr "Suppression de {title}…"
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
 msgstr "Suppression de la note"
-
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "Décrivez les propriétés qui pointent vers d’autres documents et la manière dont les cibles sont validées."
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2423,6 +2438,14 @@ msgstr "Filtrer les commandes"
 msgid "Filter links by type"
 msgstr "Filtrer les liens par type"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "Rechercher : {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "Rechercher une note"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "Rechercher une note par titre ou chemin"
@@ -2446,6 +2469,14 @@ msgstr "Trouver une propriété"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "Rechercher dans la note"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "Rechercher ou créer : {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "Rechercher ou créer une note"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2838,6 +2869,11 @@ msgstr "Cycle de vie"
 msgid "Link"
 msgstr "Lien"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "Lien"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "Liez un document qui vous représente déjà."
@@ -2850,19 +2886,10 @@ msgstr "Les règles de lien et d’unicité peuvent rendre des documents corresp
 msgid "Link anyway"
 msgstr "Lier malgré tout"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "Champ de lien {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "Lier la mention dans {0}"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "règle de lien"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -2902,9 +2929,13 @@ msgstr "Champ de schéma lié"
 msgid "Linked to {0}"
 msgstr "Lié à {0}"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "Liens"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "Renvoie vers"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3181,6 +3212,10 @@ msgstr "Autres comportements de la collection en YAML"
 msgid "More inferred rules in YAML"
 msgstr "Autres règles déduites en YAML"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "Autres règles de lien dans le YAML"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "Autres actions sur la note"
@@ -3258,6 +3293,7 @@ msgstr "Le déplacement de notes n’est pas disponible avec l’accès actuel d
 msgid "Moving…"
 msgstr "Déplacement…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3310,12 +3346,20 @@ msgstr "champs obligatoires imbriqués"
 msgid "New {name}"
 msgstr "Nouvelle note de type {name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "Créer : {typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "Nouveau dossier"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3455,7 +3499,7 @@ msgstr "Aucun filtre correspondant"
 msgid "No matching icons."
 msgstr "Aucune icône correspondante."
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "Aucune note correspondante."
 
@@ -3483,10 +3527,6 @@ msgstr "Aucune note ne renvoie ici pour le moment."
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "Aucune note ni aucun fichier trouvé."
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "Aucune propriété n’est marquée comme lien."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3599,6 +3639,7 @@ msgid "Note view options"
 msgstr "Options d’affichage des notes"
 
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "Notes"
 
@@ -3648,6 +3689,10 @@ msgstr "Les notes utilisent ce champ pour déclarer leur type. Modifiez-le en YA
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "Les notes sans affectation explicite appartiennent à ce type lorsque chaque groupe de conditions configuré ci-dessous correspond."
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "Rien à lier pour le moment."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3967,10 +4012,6 @@ msgstr "Null conservé"
 msgid "Person definitions needed"
 msgstr "Définitions de personne requises"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "personne ou n’importe laquelle"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Type de personne"
@@ -4216,10 +4257,6 @@ msgstr "Reconnexion à la collection…"
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "Les métadonnées YAML d’un document doivent être un mappage YAML."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "Lien vers un document"
-
 #: src/PropertiesPanel.tsx
 msgid "Record source"
 msgstr "Source du document"
@@ -4296,6 +4333,10 @@ msgstr "Supprimer {field}"
 msgid "Remove {fieldLabel} field"
 msgstr "Supprimer le champ {fieldLabel}"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "Retirer {label} de {name}"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4309,11 +4350,6 @@ msgstr "Supprimer la propriété {name}"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "Retirer de ce navigateur"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "Supprimer la règle de lien pour {0}"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -4953,6 +4989,10 @@ msgstr "Contrat de départ"
 #: src/TypeBrowser.tsx
 msgid "status"
 msgstr "statut"
+
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "Ne plus lier {fieldLabel} à {target}"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
@@ -5921,6 +5961,10 @@ msgstr "Types"
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
 msgstr "Types ({typeCount})"
+
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "Types vers lesquels {fieldLabel} renvoie"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

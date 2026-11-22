@@ -1,6 +1,7 @@
 import { t } from "@lingui/core/macro";
 import {
   autocompletion,
+  closeCompletion,
   startCompletion,
   type Completion,
   type CompletionContext
@@ -8,8 +9,13 @@ import {
 import { EditorSelection, type Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { LinkTargets } from "./collection-links";
+import type { CreateLinkedRecord } from "./LinkPropertyEditor";
 import { linkMatches, wikilinkFor, type LinkSuggestion } from "./links";
 import type { CollectionFile, NoteSummary } from "./model";
+import { typeNameInSentence } from "./note";
+
+/** The completion type of a row that makes the record it links to. */
+export const CREATE_COMPLETION = "create";
 
 export function writerAutocomplete(
   suggestions: () => LinkSuggestion[],
@@ -18,11 +24,13 @@ export function writerAutocomplete(
   recentPaths: () => string[],
   files: () => CollectionFile[],
   notes: () => NoteSummary[],
-  linkTargets: () => LinkTargets | undefined
+  linkTargets: () => LinkTargets | undefined,
+  create: () => CreateLinkedRecord | undefined = () => undefined
 ): Extension {
   return autocompletion({
     activateOnTyping: true,
     interactionDelay: 0,
+    optionClass: (completion) => completion.type === CREATE_COMPLETION ? "cm-completion-create" : "",
     override: [(context) => linkCompletion(
       context,
       suggestions(),
@@ -31,7 +39,8 @@ export function writerAutocomplete(
       recentPaths(),
       files(),
       notes(),
-      linkTargets()
+      linkTargets(),
+      create()
     ) ?? slashCompletion(context)]
   });
 }
@@ -44,7 +53,8 @@ export function linkCompletion(
   recentPaths: string[] = [],
   files: CollectionFile[] = [],
   notes: NoteSummary[] = [],
-  linkTargets?: LinkTargets
+  linkTargets?: LinkTargets,
+  create?: CreateLinkedRecord
 ) {
   const wikilink = context.matchBefore(/!?\[\[[^\]\n]*/);
   const mention = context.matchBefore(/(?:^|[\s([{])@[^@\n]*/);
@@ -70,7 +80,9 @@ export function linkCompletion(
       query,
       currentPath,
       recentPaths,
-      wikilink.text.startsWith("![[")
+      wikilink.text.startsWith("![["),
+      types,
+      create
     );
   }
 
@@ -94,7 +106,8 @@ export function linkCompletion(
     }
   }
   if (!scope.typeQuery || scope.type) {
-    options.push(...objectOptions(suggestions, scope.query, scope.type, true, currentPath, recentPaths));
+    const matches = objectOptions(suggestions, scope.query, scope.type, true, currentPath, recentPaths);
+    options.push(...matches, ...createOptions(scope.query, matches, scope.type ? [scope.type] : types, !scope.type, true, create));
   }
   return { from, to: context.pos, options, filter: false };
 }
@@ -107,17 +120,73 @@ function objectCompletions(
   query: string,
   currentPath?: string,
   recentPaths: string[] = [],
-  embed = false
+  embed = false,
+  types: string[] = [],
+  create?: CreateLinkedRecord
 ) {
+  const matches = objectOptions(suggestions, query, undefined, false, currentPath, recentPaths, embed);
   return {
     from,
     to,
     options: [
-      ...objectOptions(suggestions, query, undefined, false, currentPath, recentPaths, embed),
-      ...fileOptions(files, query, embed)
+      ...matches,
+      ...fileOptions(files, query, embed),
+      // Nothing is made to be transcluded: an embed shows what is already written.
+      ...(embed ? [] : createOptions(query, matches, types, true, false, create))
     ],
     filter: false
   };
+}
+
+/**
+ * Rows that make the record being linked to: one per type it could be, and a
+ * plain note when no type was asked for. They follow the matches, and are
+ * left out when a match already has exactly the typed name.
+ */
+function createOptions(
+  query: string,
+  matches: readonly Completion[],
+  types: readonly string[],
+  plainNote: boolean,
+  mention: boolean,
+  create?: CreateLinkedRecord
+): Completion[] {
+  const title = query.trim().replace(/\s+/gu, " ");
+  // `|`, `#` and brackets are link syntax, not part of a name.
+  if (!create || !title || /[|#[\]]/u.test(title)) return [];
+  if (matches.some((match) => match.label.localeCompare(title, undefined, { sensitivity: "accent" }) === 0)) return [];
+  // A collection with a type called "note" means that type by "New note".
+  const noteType = types.some((type) => type.toLocaleLowerCase() === "note");
+  const kinds: Array<{ type?: string; label: string }> = [
+    ...(plainNote && !noteType ? [{ label: t`New note` }] : []),
+    ...types.map((type) => {
+      const typeLabel = typeNameInSentence(type);
+      return { type, label: t`New ${typeLabel}` };
+    })
+  ];
+  return kinds.map(({ type, label }) => ({
+    label: t`${label} “${title}”`,
+    type: CREATE_COMPLETION,
+    apply: (view, _completion, from, to) => {
+      const typed = view.state.sliceDoc(from, to);
+      closeCompletion(view);
+      create(type, title, {
+        anchor: () => {
+          const caret = view.dom.isConnected ? view.coordsAtPos(Math.min(from, view.state.doc.length)) : null;
+          return caret ? new DOMRect(caret.left, caret.top, 0, caret.bottom - caret.top) : undefined;
+        },
+        link: (made) => {
+          if (!view.dom.isConnected) return;
+          const insert = `${mention ? "[[" : ""}${wikilinkFor(made, made.title)}]]`;
+          // A form may have been filled in since. If the text moved meanwhile, the link goes at the caret instead of over a guess.
+          const range = view.state.sliceDoc(from, to) === typed ? { from, to } : view.state.selection.main;
+          view.dispatch({ changes: { from: range.from, to: range.to, insert }, selection: EditorSelection.cursor(range.from + insert.length), scrollIntoView: true });
+          view.focus();
+        },
+        restoreFocus: () => view.focus()
+      });
+    }
+  }));
 }
 
 function objectOptions(

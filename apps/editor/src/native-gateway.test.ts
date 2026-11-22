@@ -322,13 +322,13 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
       replica.seed({ path: "notes/gamma.md", types: ["note"], frontmatter: {}, body: "# Gamma\n\nMentions alpha without a link." });
     });
     // No hydration: backlinks come from the collection, not from loaded bodies.
-    expect(await f.gateway.backlinks("notes/alpha.md")).toEqual(["notes/beta.md"]);
-    expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
+    expect(await f.gateway.backlinks("notes/alpha.md")).toEqual([{ path: "notes/beta.md", fields: [] }]);
+    expect(await f.gateway.backlinks("notes/beta.md")).toEqual([{ path: "notes/alpha.md", fields: [] }]);
 
     const beta = await f.gateway.read("notes/beta.md");
     await f.gateway.update(beta, { body: "# Beta note\n\nNo outgoing link." });
     expect(await f.gateway.backlinks("notes/alpha.md")).toEqual([]);
-    expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
+    expect(await f.gateway.backlinks("notes/beta.md")).toEqual([{ path: "notes/alpha.md", fields: [] }]);
   });
 
   it("asks the replica's body query and collects every page of paths", async () => {
@@ -385,6 +385,20 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(new Set(asked)).toEqual(new Set(['file.hasTag("inlinemarker")']));
   });
 
+  it("reports the properties a backlink is written in, each once", async () => {
+    const f = await fixture({}, replica => {
+      replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });
+      replica.seed({ path: "notes/a.md", types: ["note"], frontmatter: {}, body: "[[target]]" });
+    });
+    const link = { raw: "[[target]]", embed: false, resolution: { kind: "record" } };
+    vi.spyOn(f.connection.records, "backlinks").mockResolvedValueOnce({
+      backlinks: [{ record: { path: "notes/a.md" }, links: [{ ...link, field: "author" }, { ...link, field: "author" }, link, { ...link, field: "editor" }] }],
+      complete: true,
+      asOf: 1
+    } as never);
+    expect(await f.gateway.backlinks("notes/target.md")).toEqual([{ path: "notes/a.md", fields: ["author", "editor"] }]);
+  });
+
   it("restarts backlink paging when the view changes between pages", async () => {
     const f = await fixture({}, replica => {
       replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });
@@ -392,7 +406,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     });
     const backlinks = vi.spyOn(f.connection.records, "backlinks")
       .mockRejectedValueOnce(new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "cursor_stale", message: "stale" }));
-    expect(await f.gateway.backlinks("notes/target.md")).toEqual(["notes/a.md"]);
+    expect(await f.gateway.backlinks("notes/target.md")).toEqual([{ path: "notes/a.md", fields: [] }]);
     expect(backlinks).toHaveBeenCalledTimes(2);
   });
 

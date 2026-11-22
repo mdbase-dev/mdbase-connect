@@ -139,3 +139,14 @@
 .file-viewer > .mdbase-dialog-body { padding: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
 .file-viewer .mdbase-dialog-header { display: none; }
 
+
+/* Rows that make the record being linked to follow the matches, set apart by a rule. */
+.code-editor .cm-editor .cm-tooltip-autocomplete .cm-completionIcon-create::after {
+  content: "+";
+  color: var(--accent);
+}
+
+.code-editor .cm-editor .cm-tooltip-autocomplete > ul > li:not(.cm-completion-create) + li.cm-completion-create {
+  margin-top: 4px;
+  box-shadow: 0 -1px 0 var(--line);
+}

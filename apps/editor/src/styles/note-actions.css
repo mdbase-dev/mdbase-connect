@@ -195,3 +195,37 @@
 .linked-from .quiet-empty {
   margin: 0;
 }
+
+/* Backlinks by the type of the note they come from: "Books that link here", not one flat list. */
+.linked-from .backlink-group + .backlink-group {
+  margin-top: var(--space-3);
+}
+
+.linked-from .backlink-group-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.linked-from .backlink-group-icon {
+  display: inline-flex;
+  font-size: 13px;
+}
+
+.linked-from .backlink-group-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.linked-from .backlink-group-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: var(--font-weight-regular);
+}
+
+.linked-from .backlink-list.grouped > button {
+  min-height: 34px;
+}

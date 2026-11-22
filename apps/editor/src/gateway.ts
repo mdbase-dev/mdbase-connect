@@ -28,6 +28,7 @@ import { bodySearchWhere, tagSearchWhere } from "./body-search";
 import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
 import type {
   CollectionGateway,
+  Backlink,
   LinkTarget,
   CollectionFile,
   CollectionAuthorizationTarget,
@@ -203,7 +204,7 @@ export class ConnectCollectionGateway implements CollectionGateway {
     return paths;
   }
 
-  async backlinks(): Promise<string[]> {
+  async backlinks(): Promise<Backlink[]> {
     const label = "backlinks";
     throw new Error(t`${label} is not supported.`);
   }

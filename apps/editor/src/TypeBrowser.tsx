@@ -24,10 +24,10 @@ import {
   XIcon as X
 } from "./icons";
 import type { CollectionContractDescriptor, CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";
-import { InlineRemoveButton } from "./InlineRemoveButton";
+import { ChipRemoveButton, InlineRemoveButton } from "./InlineRemoveButton";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { ComboboxInput } from "./SelectionControls";
 import { SaveNotice } from "@mdbase-dev/ui/save-notice";
@@ -42,6 +42,8 @@ import {
 } from "./contract-catalog";
 import type { NoteSummary, TypeDocument } from "./model";
 import { collectionDisplayField } from "./field-reference";
+import { typeDisplayName } from "./note";
+import { linkTargetTypes } from "./record-links";
 import {
   isPhosphorIconName,
   normalizePhosphorIconName,
@@ -70,15 +72,12 @@ import {
 } from "./type-contracts";
 import {
   addTypeField,
-  addTypeLinkRule,
   addTypeReadDefault,
   addTypeUniqueRule,
   readVisualType,
-  removeTypeLinkRule,
   removeTypeReadDefault,
   removeTypeField,
   removeTypeUniqueRule,
-  renameTypeLinkRule,
   renameTypeReadDefault,
   renameTypeField,
   setTypeLinkRule,
@@ -88,12 +87,15 @@ import {
   setTypeFieldConstraint,
   setTypeFieldDescription,
   setTypeFieldKind,
+  setTypeFieldLink,
   setTypeFieldRequired,
   setTypeListItemKind,
   setTypeUniqueRule,
   typeFieldConversionImpact,
+  typeFieldLink,
   typeFieldPathLabel,
   typeImpact,
+  unattachedTypeLinkRules,
   updateTypeFieldsPresent,
   updateTypeCollectionDisplay,
   updateTypeIdentity,
@@ -101,6 +103,7 @@ import {
   updateTypePathGlobs,
   type TypeFieldDefinition,
   type TypeFieldKind,
+  type TypeFieldLink,
   type TypeImpact,
   type TypeLinkFormat,
   type TypeMembershipImpact,
@@ -375,6 +378,8 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
     [explicitTypeKeys.join("\u0000"), notes, source, typeSchema, i18n.locale]
   );
   const pathSuggestions = useMemo(() => membershipPathSuggestions(notes), [notes, i18n.locale]);
+  const linking = useMemo(() => ({ definition, typeNames }), [definition, typeNames]);
+  const unattachedLinks = unattachedTypeLinkRules(definition);
   useEffect(() => setActiveField(undefined), [definition.name]);
 
   return <div className="visual-type-editor">
@@ -453,6 +458,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
           : <button className="mdbase-button" onClick={() => onChange((current) => addTypeField(current))}><Plus aria-hidden="true" /><Trans>Add field</Trans></button>}
       </div>
     </section>
+    <TypeLinkContext value={linking}>
     <div className="visual-type-fields">
       {linkedSchema ? <>
         <div className="linked-schema-notice">
@@ -479,10 +485,15 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
         />)}
         {!definition.fields.length && <p className="quiet-empty"><Trans>No fields are declared yet.</Trans></p>}
       </>}
+      {unattachedLinks.length > 0 && <div className="advanced-match-note">
+        <Info aria-hidden="true" />
+        <div><strong><Trans>More link rules in YAML</Trans></strong><p>{t`${unattachedLinks.map((rule) => rule.field).join(" · ")}. These rules describe values the fields above do not show.`}</p></div>
+        <button onClick={onOpenYaml}><Trans>Open YAML</Trans></button>
+      </div>}
     </div>
+    </TypeLinkContext>
     <CollectionBehaviourEditor
       definition={definition}
-      typeNames={typeNames}
       onChange={onChange}
       onOpenYaml={onOpenYaml}
     />
@@ -1029,9 +1040,8 @@ interface TypeFieldOption {
   node: TypeSchemaNode;
 }
 
-function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml }: {
+function CollectionBehaviourEditor({ definition, onChange, onOpenYaml }: {
   definition: VisualTypeDefinition;
-  typeNames: string[];
   onChange: (change: (source: string) => string) => void;
   onOpenYaml: () => void;
 }) {
@@ -1043,11 +1053,8 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
     label: field.name,
     node: field
   }));
-  const linkFields = fields.filter((option) => option.node.kind === "string");
   const usedDefaults = new Set(collection.readDefaults.map((entry) => entry.field));
-  const usedLinks = new Set(collection.links.map((rule) => rule.field));
   const nextDefault = topLevelFields.find((option) => !usedDefaults.has(option.value));
-  const nextLink = linkFields.find((option) => !usedLinks.has(option.value));
   const firstUnique = fields[0];
   const advancedKeys = [
     ...collection.advancedKeys.map(collectionRuleLabel),
@@ -1121,55 +1128,6 @@ function CollectionBehaviourEditor({ definition, typeNames, onChange, onOpenYaml
           </div>;
         })}
         {!collection.readDefaults.length && <p className="collection-empty-rule"><Trans>Missing properties have no type-specific read defaults.</Trans></p>}
-      </div>
-    </div>
-
-    <div className="collection-behaviour-group">
-      <div className="collection-group-heading">
-        <div><h4><Trans>Links</Trans></h4><p><Trans>Describe which properties point to other records and how targets are validated.</Trans></p></div>
-        <button
-          disabled={!nextLink}
-          onClick={() => nextLink && onChange((source) => addTypeLinkRule(source, nextLink.value))}
-        ><Plus aria-hidden="true" /><Trans>Add link rule</Trans></button>
-      </div>
-      <div className="collection-rule-list">
-        {collection.links.map((rule, index) => <div className="collection-link-rule" key={rule.field}>
-          <div className="collection-link-primary">
-            <CollectionFieldSelect
-              label={t`Link field ${index + 1}`}
-              visibleLabel="Field"
-              value={rule.field}
-              fields={linkFields.filter((candidate) => candidate.value === rule.field || !usedLinks.has(candidate.value))}
-              allowEmpty={false}
-              onChange={(value) => onChange((source) => renameTypeLinkRule(source, rule.field, value))}
-            />
-            <label><span><Trans>Format</Trans></span><Select
-              aria-label={t`${rule.field} link format`}
-              value={rule.format ?? ""}
-              options={linkFormatOptions}
-              onChange={(next) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (next || undefined) as TypeLinkFormat | undefined))}
-            /></label>
-            <label className="collection-toggle"><input
-              className="mdbase-checkbox"
-              type="checkbox"
-              checked={rule.validateExists}
-              onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "validate_exists", event.target.checked || undefined))}
-            /><span><Trans>Require an existing target</Trans></span></label>
-            <InlineRemoveButton className="collection-rule-remove" label={t`Remove link rule for ${rule.field}`} onClick={() => onChange((source) => removeTypeLinkRule(source, rule.field))} />
-          </div>
-          <StringListEditor
-            label={t`Allowed target types`}
-            values={rule.targetTypes}
-            itemLabel={t`${rule.field} target type`}
-            addLabel={t`Add target type`}
-            placeholder={t`person or any`}
-            helper="Leave empty to allow records of any type."
-            suggestions={["any", ...typeNames]}
-            onChange={(values) => onChange((source) => setTypeLinkTargets(source, rule.field, values))}
-          />
-          {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">{t`Additional link settings remain in YAML: ${rule.advancedKeys.join(", ")}.`}</p>}
-        </div>)}
-        {!collection.links.length && <p className="collection-empty-rule"><Trans>No properties are marked as links.</Trans></p>}
       </div>
     </div>
 
@@ -1640,19 +1598,30 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
 }) {
   useLingui();
   const menu = useMenuTrigger();
-  const [pendingKind, setPendingKind] = useState<Exclude<TypeFieldKind, "advanced">>();
-  const conversionImpact = pendingKind ? typeFieldConversionImpact(source, field.path, pendingKind) : [];
+  const linking = useContext(TypeLinkContext);
+  const link = linking ? typeFieldLink(linking.definition, field) : undefined;
+  const shownKind: FieldRowKind = link ? "link" : field.kind;
+  const [pendingKind, setPendingKind] = useState<Exclude<FieldRowKind, "advanced">>();
+  // A list of text becomes a list of links; anything else becomes one link.
+  const listOfText = field.kind === "array" && field.item?.kind === "string";
+  const schemaKind = (kind: Exclude<FieldRowKind, "advanced">): Exclude<TypeFieldKind, "advanced"> =>
+    kind === "link" ? (listOfText ? "array" : "string") : kind;
+  const conversionImpact = pendingKind ? typeFieldConversionImpact(source, field.path, schemaKind(pendingKind)) : [];
   const fieldLabel = typeFieldPathLabel(field.path);
   const expanded = fieldBranchIsActive(activeField, fieldLabel);
-  function chooseKind(kind: TypeFieldKind) {
-    if (kind === "advanced" || kind === field.kind) return;
-    const nextKind = kind as Exclude<TypeFieldKind, "advanced">;
-    if (typeFieldConversionImpact(source, field.path, nextKind).length) {
-      setPendingKind(nextKind);
+  const hasConstraints = Object.values(field.constraints).some((value) => value !== undefined);
+  // A link is text with a link rule: choosing it, or leaving it, changes both together.
+  const convert = (current: string, kind: Exclude<FieldRowKind, "advanced">) => kind === "link"
+    ? setTypeFieldLink(current, field.path, listOfText)
+    : setTypeFieldKind(current, field.path, kind);
+  function chooseKind(kind: FieldRowKind) {
+    if (kind === "advanced" || kind === shownKind) return;
+    if (typeFieldConversionImpact(source, field.path, schemaKind(kind)).length) {
+      setPendingKind(kind);
       onActivate(fieldLabel);
     } else {
-      onChange((current) => setTypeFieldKind(current, field.path, nextKind));
-      if (nextKind === "object" || nextKind === "array") onActivate(fieldLabel);
+      onChange((current) => convert(current, kind));
+      if (kind === "object" || kind === "array" || kind === "link") onActivate(fieldLabel);
     }
   }
   return <div className="visual-field-branch" style={{ "--field-depth": depth } as CSSProperties}>
@@ -1661,7 +1630,7 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
         {expanded ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
       </button>
       <label className={`visual-field-name${typeKey ? " type-key" : ""}`}><span className="sr-only"><Trans>Field name</Trans></span><input aria-label={t`${fieldLabel} field name`} type="text" defaultValue={field.name} readOnly={typeKey} aria-describedby={typeKey ? `type-key-note-${fieldLabel}` : undefined} onBlur={(event) => { if (!typeKey) onChange((current) => renameTypeField(current, field.path, event.target.value)); }} spellCheck="false" autoCapitalize="none" autoCorrect="off" />{typeKey && <small id={`type-key-note-${fieldLabel}`} title={t`Notes use this field to declare their type. Edit it in YAML if you need to change it.`}><Trans>Type key</Trans></small>}</label>
-      <label className="visual-field-kind"><span className="sr-only">{t`${fieldLabel} field type`}</span><Select aria-label={t`${fieldLabel} field type`} value={field.kind} disabled={typeKey} options={kindOptions(field.kind)} onChange={chooseKind} /></label>
+      <label className="visual-field-kind"><span className="sr-only">{t`${fieldLabel} field type`}</span><Select aria-label={t`${fieldLabel} field type`} value={shownKind} disabled={typeKey} options={linking ? rowKindOptions(shownKind) : kindOptions(field.kind)} onChange={chooseKind} /></label>
       <label className="visual-field-required"><input className="mdbase-checkbox" type="checkbox" checked={field.required} onChange={(event) => onChange((current) => setTypeFieldRequired(current, field.path, event.target.checked))} /><span><Trans>Required</Trans></span></label>
       <div className="type-field-actions">{!typeKey && <div className="note-actions"><button {...menu.triggerProps} className="icon-button" aria-label={t`${fieldLabel} field options`}><MoreHorizontal aria-hidden="true" /></button><Menu open={menu.open} id={menu.id} label={t`${fieldLabel} field options`} triggerRef={menu.trigger} onClose={menu.close}><button role="menuitem" className="mdbase-menu-item is-danger" onClick={() => { menu.close(true); onChange((current) => removeTypeField(current, field.path)); }}><Trash2 aria-hidden="true" />{t`Remove ${fieldLabel} field`}</button></Menu></div>}</div>
     </div>
@@ -1672,14 +1641,16 @@ function VisualFieldRow({ field, source, depth, typeKey = false, activeField, on
         <div><strong><Trans>Convert this field to {kindLabel(pendingKind)}?</Trans></strong><p>{conversionImpact.length ? t`This removes ${formatList(conversionImpact)}.` : t`Its current structural rules will be replaced.`}</p></div>
         <button onClick={() => setPendingKind(undefined)}><Trans>Cancel</Trans></button>
         <button className="confirm-field-conversion" onClick={() => {
-          onChange((current) => setTypeFieldKind(current, field.path, pendingKind));
+          onChange((current) => convert(current, pendingKind));
           setPendingKind(undefined);
         }}><Trans>Convert field</Trans></button>
       </div>}
       <label className="field-description"><span><Trans>Description</Trans></span><input aria-label={t`${fieldLabel} description`} value={field.description ?? ""} placeholder={t`What belongs in this field?`} onChange={(event) => onChange((current) => setTypeFieldDescription(current, field.path, event.target.value))} /></label>
-      <FieldConstraints field={field} onChange={onChange} />
+      {link && linking && <LinkFieldSettings field={field} link={link} typeNames={linking.typeNames} onChange={onChange} />}
+      {/* One link is not free text: its text rules show only when the type already sets some. */}
+      {(!link || link.many || hasConstraints) && <FieldConstraints field={field} onChange={onChange} />}
       {field.kind === "object" && <ObjectFields node={field} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
-      {field.kind === "array" && field.item && <ListItemEditor item={field.item} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
+      {field.kind === "array" && field.item && !link && <ListItemEditor item={field.item} source={source} depth={depth + 1} activeField={activeField} onActivate={onActivate} onChange={onChange} />}
     </div>}
   </div>;
 }
@@ -1755,6 +1726,64 @@ const fieldKindOptions: SelectOption<TypeFieldKind>[] = [{ value: "string", get 
 
 function kindOptions(current: TypeFieldKind): SelectOption<TypeFieldKind>[] {
   return current === "advanced" ? [{ value: "advanced", label: t`Advanced` }, ...fieldKindOptions] : fieldKindOptions;
+}
+
+/** What a field row offers: the schema kinds, and a link to other notes, which
+ * is text (or a list of text) with a link rule. */
+type FieldRowKind = TypeFieldKind | "link";
+
+function rowKindOptions(current: FieldRowKind): SelectOption<FieldRowKind>[] {
+  const link: SelectOption<FieldRowKind> = { value: "link", label: kindName("link") };
+  const options: SelectOption<FieldRowKind>[] = current === "link" ? fieldKindOptions : kindOptions(current);
+  const list = options.findIndex((option) => option.value === "array");
+  return [...options.slice(0, list + 1), link, ...options.slice(list + 1)];
+}
+
+const TypeLinkContext = createContext<{ definition: VisualTypeDefinition; typeNames: string[] } | undefined>(undefined);
+
+function LinkFieldSettings({ field, link, typeNames, onChange }: {
+  field: TypeFieldDefinition;
+  link: TypeFieldLink;
+  typeNames: string[];
+  onChange: (change: (source: string) => string) => void;
+}) {
+  useLingui();
+  const fieldLabel = typeFieldPathLabel(field.path);
+  const rule = link.rule;
+  const targets = linkTargetTypes(rule.targetTypes);
+  const remaining = typeNames.filter((name) => !targets.some((target) => target.toLocaleLowerCase() === name.toLocaleLowerCase()));
+  return <div className="link-field-settings">
+    <div className="link-field-targets" role="group" aria-label={t`Types ${fieldLabel} links to`}>
+      <span className="link-field-label"><Trans>Links to</Trans></span>
+      <div className="link-target-list">
+        {targets.map((target) => <span className="link-chip" key={target}>
+          <span className="link-chip-target">{typeDisplayName(target)}</span>
+          <ChipRemoveButton label={t`Stop linking ${fieldLabel} to ${target}`} onClick={() => onChange((source) => setTypeLinkTargets(source, rule.field, targets.filter((name) => name !== target)))} />
+        </span>)}
+        {!targets.length && <span className="link-target-any"><Trans>Any note</Trans></span>}
+        {remaining.length > 0 && <Select
+          className="is-compact is-quiet"
+          aria-label={t`Add a type ${fieldLabel} links to`}
+          value=""
+          placeholder={targets.length ? t`Add type` : t`Choose a type`}
+          options={remaining.map((name) => ({ value: name, label: typeDisplayName(name) }))}
+          onChange={(name) => onChange((source) => setTypeLinkTargets(source, rule.field, [...targets, name]))}
+        />}
+      </div>
+    </div>
+    <div className="link-field-options">
+      <label className="field-toggle"><input className="mdbase-checkbox" type="checkbox" checked={link.many} onChange={(event) => onChange((source) => setTypeFieldLink(source, field.path, event.target.checked))} /><span><Trans>Allow several links</Trans></span></label>
+      <label className="field-toggle"><input className="mdbase-checkbox" type="checkbox" checked={rule.validateExists} onChange={(event) => onChange((source) => setTypeLinkRule(source, rule.field, "validate_exists", event.target.checked || undefined))} /><span><Trans>Require an existing target</Trans></span></label>
+      <label className="link-field-format"><span><Trans>Format</Trans></span><Select
+        className="is-compact"
+        aria-label={t`${rule.field} link format`}
+        value={rule.format ?? ""}
+        options={linkFormatOptions}
+        onChange={(next) => onChange((source) => setTypeLinkRule(source, rule.field, "format", (next || undefined) as TypeLinkFormat | undefined))}
+      /></label>
+    </div>
+    {rule.advancedKeys.length > 0 && <p className="collection-advanced-inline">{t`Additional link settings remain in YAML: ${rule.advancedKeys.join(", ")}.`}</p>}
+  </div>;
 }
 
 const linkFormatOptions = [{ value: "", get label() { return t`Any supported format`; } }, { value: "wikilink", label: "Wikilink" }, { value: "markdown", get label() { return t`Markdown link`; } }, { value: "path", get label() { return t`Path`; } }, { value: "any", get label() { return t`Any`; } }];

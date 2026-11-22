@@ -42,6 +42,7 @@ import {
 import type { ActionMenuItem } from "./ContextMenu";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { MoveNoteDialog } from "./MoveNoteDialog";
+import { QuickCreateRecord } from "./QuickCreateRecord";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
@@ -131,6 +132,8 @@ import {
   type NewNoteContext
 } from "./new-note";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
+import type { LinkCreation, NewLinkTarget, RecordLinking } from "./LinkPropertyEditor";
+import { recordLinkProperties } from "./record-links";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
@@ -331,6 +334,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const privateCollection = connectionSummary?.private === true;
   const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const linkCreations = useRef(new Set<string>());
+  /** The record being filled in beside the link that will point at it. */
+  const [quickCreate, setQuickCreate] = useState<{ note: NewNote; creation: LinkCreation }>();
   /** One record ID per link target until its create is confirmed: following the
    * same link after a lost reply reuses it as the intent, so the note lands once. */
   const linkCreationIds = useRef(new Map<string, string>());
@@ -1105,6 +1110,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     selection: () => activeEditorSelection(paneDocumentId(focusedPane(latestWorkspace.current), noteSessions.current.active?.editorSessionKey)),
     applyBody: (body) => changeActiveDraft((current) => ({ ...current, body }))
   } });
+  // What every link property and link suggestion of this collection works with.
+  const linking: RecordLinking = {
+    suggestions: linkOptions,
+    types: typeDescriptors,
+    recentPaths,
+    onOpen: (path) => navigateToNote(path),
+    ...(canCreateNotes && !mutationsFrozen ? { onCreate: createLinkedRecord } : {})
+  };
   const focusMode = preferences.focusMode && surface === "notes" && Boolean(document || openNew) && !selectedCollectionFile;
 
   function closeSidePanels() { setInspector(undefined); setMentionsOpen(false); }
@@ -1498,6 +1511,58 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     void navigator.clipboard.writeText(value)
       .then(() => setNotice(t`Copied ${label}.`, "success"))
       .catch(() => setNotice(t`Couldn’t copy ${label}.`));
+  }
+
+  /**
+   * Makes a record to link to without leaving the note the link is written in.
+   * One that needs only its name is written and linked at once. One whose type
+   * requires more opens a short form beside the link, and is linked when that
+   * form is submitted.
+   */
+  function createLinkedRecord(typeName: string | undefined, title: string, creation: LinkCreation) {
+    if (mutationScope.current.isFrozen || !canCreateNotes) return;
+    const types = typeDescriptorsRef.current;
+    const note = beginNewNote({ ...(typeName ? { type: typeName } : {}), title }, types);
+    const form = newNoteForm(note.type, types);
+    // A required number or checkbox starts filled in (0, off), which nobody chose: the form shows it.
+    if (!form.required.length && !newNoteBlocker(note, form)) creation.link(writeLinkedRecord(note));
+    else if (!quickCreate) setQuickCreate({ note, creation });
+    else {
+      // One form at a time: a link inside the form is to a record that exists, or one that needs only a name.
+      const typeLabel = typeDisplayName(note.type ?? "");
+      setNotice(t`${typeLabel} notes need more than a name. Create one from New note, then link to it.`);
+    }
+  }
+
+  /** Writes `note` in the background and says where it will be, so the link to it can be written first. */
+  function writeLinkedRecord(note: NewNote): NewLinkTarget {
+    const occupied = new Set(takenPaths);
+    for (const path of linkCreations.current) occupied.add(path.toLocaleLowerCase());
+    const input = newNoteInput(note, newNoteForm(note.type, typeDescriptorsRef.current), occupied);
+    linkCreations.current.add(input.path);
+    const token = mutationScope.current.token();
+    void mutationScope.current.register(token, gateway.create(input)).then((created) => {
+      if (mutationScope.current.isCurrent(token)) indexController.create(summaryFromDocument(created));
+    }).catch((error: unknown) => {
+      if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t create “${input.path}”. ${gatewayError(error)}`);
+    }).finally(() => {
+      if (mutationScope.current.isCurrent(token)) linkCreations.current.delete(input.path);
+    });
+    return { path: input.path, title: input.title };
+  }
+
+  function closeQuickCreate(refocus: boolean) {
+    if (refocus) quickCreate?.creation.restoreFocus();
+    setQuickCreate(undefined);
+  }
+
+  /** The form's record, linked where the form was opened from, unless that place has gone meanwhile. */
+  function submitQuickCreate(note: NewNote) {
+    const creation = quickCreate?.creation;
+    setQuickCreate(undefined);
+    if (!creation?.anchor() || mutationScope.current.isFrozen || !canCreateNotes) return;
+    creation.link(writeLinkedRecord(note));
+    creation.restoreFocus();
   }
 
   function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
@@ -2350,14 +2415,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             titlePlaceholder={isNew ? openNewForm?.titleLabel : undefined} focusTitle={isNew && !editorAutoFocus ? isNew.id : undefined}
             titleProperties={isNew && openNewForm && openNewForm.required.length > 0 ? <section aria-label={t`Required properties`}>
               <StructuredPropertiesEditor value={isNew.properties} contract={{ properties: openNewForm.properties, required: openNewForm.required }}
-                propertyNames={openNewForm.required} recordPaths={allNotes.map((note) => note.path)} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+                propertyNames={openNewForm.required} links={{ ...linking, targets: around.linkTargets, properties: recordLinkProperties(isNew.type ? [isNew.type] : [], typeDescriptors) }} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
                 readOnly={mutationsFrozen}
                 onChange={(properties) => editNewNote(isNew.id, { properties })}
                 onValidityChange={(propertiesValid) => editNewNote(isNew.id, { propertiesValid })} />
             </section> : undefined}
             onTitleCommit={isNew ? () => void writeNewNote(isNew.id) : focused ? nameUntitledNote : undefined}
             remoteApplyToken={session?.replaced} autoFocus={focused && editorAutoFocus}
-            currentPath={shown.path} linkTargets={around.linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
+            currentPath={shown.path} linkTargets={around.linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames} onCreateLinked={linking.onCreate}
             embeddedFiles={around.embeddedFiles} embeddedNotes={around.embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={focused && !isNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={focused && !isNew && attachments.insertion?.editorKey === shown.key ? attachments.insertion : undefined} onTitleVisibilityChange={focused ? setNoteTitleVisible : noop}
@@ -2524,7 +2589,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           note={document}
           body={draft?.body}
           types={description.types}
-          recordPaths={allNotes.map((note) => note.path)}
+          linking={{ ...linking, targets: surfaces[workspace.focused]!.linkTargets, currentPath: document.path }}
           error={propertiesError}
           readOnly={noteReadOnly}
           onClose={() => setInspector(undefined)}
@@ -2658,6 +2723,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       selectSurface("settings");
       requestAnimationFrame(() => globalThis.document.getElementById("keyboard-shortcuts")?.scrollIntoView({ block: "start" }));
     }} />}
+    {quickCreate && <QuickCreateRecord key={quickCreate.note.id} note={quickCreate.note} types={typeDescriptors}
+      linking={{ ...linking, targets: surfaces[workspace.focused]!.linkTargets }} anchor={quickCreate.creation.anchor}
+      onCreate={submitQuickCreate} onClose={closeQuickCreate} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}

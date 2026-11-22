@@ -18,13 +18,16 @@ import { composeRecordSource, parseRecordSource } from "./record-source";
 import { noteWordCount } from "./note";
 import { useDelayedBusy } from "./use-delayed-busy";
 import { propertyValidationErrors, StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
+import type { RecordLinking } from "./LinkPropertyEditor";
+import { recordLinkProperties } from "./record-links";
 
 interface PropertiesPanelProps {
   note: NoteDocument;
   types: CollectionTypeDescriptor[];
   /** The note's text as edited, which may be ahead of `note`. */
   body?: string;
-  recordPaths?: string[];
+  /** How this collection's records are found, opened and made when a property links to one. */
+  linking?: RecordLinking;
   error?: string;
   readOnly?: boolean;
   onClose: () => void;
@@ -36,7 +39,7 @@ export function PropertiesPanel({
   note,
   types,
   body = note.body ?? "",
-  recordPaths = [],
+  linking,
   error,
   readOnly = false,
   onClose,
@@ -51,6 +54,7 @@ export function PropertiesPanel({
   const initial = useMemo(() => structuredClone(note.frontmatter), [note, i18n.locale]);
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
   const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types, i18n.locale]);
+  const links = useMemo(() => linking && { ...linking, properties: recordLinkProperties(note.types, types) }, [linking, note.types, types]);
   const [draft, setDraft] = useState<JsonObject>(initial);
   const [persistedFrontmatter, setPersistedFrontmatter] = useState(initial);
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
@@ -275,7 +279,7 @@ export function PropertiesPanel({
         value={draft}
         contract={contract}
         effectiveValues={note.effectiveFrontmatter}
-        recordPaths={recordPaths}
+        links={links}
         onChange={change}
         onValidityChange={setStructuredFieldsValid}
         emptyMessage={t`Add a property to keep details like tags, dates, or a status with this note.`}

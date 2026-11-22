@@ -2792,3 +2792,56 @@
   margin: 0;
 }
 
+
+/* What a link field points at. The targets read as a sentence: "Links to  Person ×  Add type". */
+.link-field-settings {
+  display: grid;
+  gap: var(--space-2);
+  margin-block: var(--space-3);
+}
+
+.link-field-targets {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.link-field-label {
+  flex: 0 0 auto;
+  color: var(--faint);
+  font-size: var(--font-size-ui);
+  line-height: 26px;
+}
+
+.link-target-list {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.link-target-list .link-chip-target {
+  font-weight: var(--font-weight-medium);
+}
+
+.link-target-any {
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+  line-height: 26px;
+}
+
+.link-field-options {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0 var(--space-6);
+}
+
+.link-field-format {
+  display: flex !important;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--muted);
+  font-size: var(--font-size-ui);
+}
