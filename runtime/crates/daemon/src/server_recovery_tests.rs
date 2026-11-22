@@ -30,6 +30,24 @@ async fn failed_host(
     )
 }
 
+// Drive the supervisor through any earlier registry wait. Once the host owns
+// the stop, the test controls exactly when recovery can resume.
+async fn wait_for_stop(d: &Daemon, recover: impl Future<Output = ()>) {
+    let stopping = async {
+        loop {
+            if d.inner.lock().await.hosts[0].pending_stop().is_some() {
+                return;
+            }
+            tokio::task::yield_now().await;
+        }
+    };
+    tokio::select! {
+        () = recover => panic!("recovery completed before stop release"),
+        result = tokio::time::timeout(Duration::from_secs(2), stopping) =>
+            result.expect("registry must be available during the stop"),
+    }
+}
+
 async fn control(d: &Arc<Daemon>, method: &str) -> Value {
     let req = Request {
         v: PROTOCOL,
@@ -42,7 +60,7 @@ async fn control(d: &Arc<Daemon>, method: &str) -> Value {
         d.handle(&req, &mut ConnAuth::default()),
     )
     .await
-    .expect("control read waited for the held stop")
+    .unwrap_or_else(|_| panic!("{method} waited for the held stop"))
     .unwrap()
 }
 
@@ -56,7 +74,7 @@ async fn sync_recovery_keeps_control_reads_available_and_reopens_the_runtime() {
     d.recover_sync_hosts(now).await;
     let recover = d.recover_sync_hosts(now + Duration::from_secs(10));
     tokio::pin!(recover);
-    assert!(futures_util::poll!(&mut recover).is_pending());
+    wait_for_stop(&d, &mut recover).await;
     let list = control(&d, Method::COLLECTION_LIST).await;
     assert_eq!(list[0]["id"], entry.id);
     assert_eq!(list[0]["state"], "failed");
@@ -88,17 +106,19 @@ async fn sync_recovery_honors_removal_and_same_id_registration() {
         d.recover_sync_hosts(now).await;
         let recover = d.recover_sync_hosts(now + Duration::from_secs(10));
         tokio::pin!(recover);
-        assert!(futures_util::poll!(&mut recover).is_pending());
+        wait_for_stop(&d, &mut recover).await;
 
-        let remove = d.remove(&entry.id);
-        tokio::pin!(remove);
-        assert!(futures_util::poll!(&mut remove).is_pending());
+        let remove = tokio::spawn({
+            let d = d.clone();
+            let id = entry.id.clone();
+            async move { d.remove(&id).await }
+        });
         assert_eq!(
             control(&d, Method::COLLECTION_LIST).await[0]["id"],
             entry.id
         );
         release.send(true).unwrap();
-        remove.await.unwrap();
+        remove.await.unwrap().unwrap();
         assert!(old.readiness().await.is_none());
         if replace {
             entry.paused = true;

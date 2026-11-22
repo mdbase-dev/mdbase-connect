@@ -415,14 +415,14 @@ impl Daemon {
     }
 
     async fn recover_sync_hosts(self: &Arc<Self>, now: std::time::Instant) {
-        let due: Vec<_> = self
-            .inner
-            .lock()
-            .await
-            .hosts
-            .iter_mut()
-            .filter_map(|host| host.recover_due(now))
-            .collect();
+        let due: Vec<_> = {
+            let mut inner = self.inner.lock().await;
+            inner
+                .hosts
+                .iter_mut()
+                .filter_map(|host| host.recover_due(now))
+                .collect()
+        };
         for stop in due {
             stop.clone().await;
             let d = self.clone();
