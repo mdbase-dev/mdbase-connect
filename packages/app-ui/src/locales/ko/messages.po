@@ -116,6 +116,10 @@ msgctxt "table"
 msgid "Add row"
 msgstr "행 추가"
 
+#: src/AppSwitcher.tsx
+msgid "AI clients (MCP)"
+msgstr "AI 클라이언트(MCP)"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Align center"
@@ -277,6 +281,10 @@ msgstr "이미지 선택"
 msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "그곳에서 컬렉션을 선택하거나 만드세요."
+
+#: src/AppSwitcher.tsx
+msgid "Claude, ChatGPT and Codex"
+msgstr "Claude, ChatGPT 및 Codex"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"

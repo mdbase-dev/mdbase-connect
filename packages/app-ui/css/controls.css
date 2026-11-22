@@ -421,6 +421,12 @@ textarea.mdbase-field {
   font-size: var(--font-size-caption);
 }
 
+.mdbase-menu-divider {
+  height: 1px;
+  margin: 5px 2px;
+  background: var(--color-border);
+}
+
 .mdbase-menu-note {
   margin: 6px 2px 0;
   padding: 8px 8px 2px;
@@ -471,6 +477,19 @@ textarea.mdbase-field {
   height: 22px;
   flex: 0 0 auto;
   margin-inline: 3px;
+}
+
+.mdbase-app-menu-mcp-mark {
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.mdbase-menu-item:hover .mdbase-app-menu-mcp-mark,
+.mdbase-menu .mdbase-menu-item:focus-visible .mdbase-app-menu-mcp-mark {
+  stroke: var(--color-text);
 }
 
 /* The app menu's last line: the new-tab note, and a quiet link to the SDK guide. */

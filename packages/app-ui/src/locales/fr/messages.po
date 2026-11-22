@@ -116,6 +116,10 @@ msgctxt "table"
 msgid "Add row"
 msgstr "Ajouter une ligne"
 
+#: src/AppSwitcher.tsx
+msgid "AI clients (MCP)"
+msgstr "Clients d’IA (MCP)"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Align center"
@@ -277,6 +281,10 @@ msgstr "Choisir une image"
 msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "Choisissez ou créez une collection à cet endroit."
+
+#: src/AppSwitcher.tsx
+msgid "Claude, ChatGPT and Codex"
+msgstr "Claude, ChatGPT et Codex"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"

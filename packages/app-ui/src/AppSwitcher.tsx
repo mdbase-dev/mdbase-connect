@@ -2,7 +2,14 @@ import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
 import { useId, useRef, useState, type JSX } from "react";
 
-import { mdbaseAppHref, withAppUrls, type MdbaseApp, type MdbaseAppId } from "./apps.js";
+import {
+  mcpSetupUrl,
+  mdbaseAppHref,
+  officialApps,
+  withAppUrls,
+  type MdbaseAppId,
+  type OfficialApp
+} from "./apps.js";
 import { MdbaseAppMark, Wordmark, type MdbaseMarkMotion } from "./brand.js";
 import { useMdbaseMarkActivity } from "./mark-activity.js";
 import { Menu } from "./Menu.js";
@@ -17,10 +24,12 @@ const sdkDocumentationUrl = "https://mdbase.dev/sdk/";
  * Its mark shows the page's activity (see `mark-activity`): progress, then a held loop,
  * then `motion`. Without a `motion` it plays `keys-first` the first time it appears.
  */
-export function AppSwitcher({ current, urls = {}, motion }: {
+export function AppSwitcher({ current, urls = {}, mcpUrl = mcpSetupUrl, motion }: {
   readonly current: MdbaseAppId;
   /** Lab and local builds, for example `{ writer: import.meta.env.VITE_MDBASE_WRITER_URL }`. */
-  readonly urls?: Partial<Record<MdbaseAppId, string | undefined>>;
+  readonly urls?: Partial<Record<OfficialApp["id"], string | undefined>>;
+  /** Setup guide for AI clients using MCP; pass `null` to omit on custom servers. */
+  readonly mcpUrl?: string | null | undefined;
   readonly motion?: MdbaseMarkMotion | undefined;
 }): JSX.Element {
   useLocaleRevision();
@@ -55,14 +64,15 @@ export function AppSwitcher({ current, urls = {}, motion }: {
       </svg>
     </button>
     <Menu open={open} id={menuId} triggerRef={triggerRef} onClose={close} label={t({ message: "mdbase apps" })}>
-      <AppMenu apps={withAppUrls(urls)} current={current} onClose={close} />
+      <AppMenu apps={withAppUrls(urls, officialApps)} current={current} mcpUrl={mcpUrl} onClose={close} />
     </Menu>
   </>;
 }
 
-function AppMenu({ apps, current, onClose }: {
-  readonly apps: readonly MdbaseApp[];
+function AppMenu({ apps, current, mcpUrl, onClose }: {
+  readonly apps: readonly OfficialApp[];
   readonly current: MdbaseAppId;
+  readonly mcpUrl: string | null;
   readonly onClose: (refocus: boolean) => void;
 }): JSX.Element {
   useLocaleRevision();
@@ -72,6 +82,12 @@ function AppMenu({ apps, current, onClose }: {
     <div className="mdbase-menu-list">
       {apps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} onOpen={() => onClose(false)} />)}
     </div>
+    {mcpUrl && <>
+      {apps.length > 0 && <div className="mdbase-menu-divider" role="separator" />}
+      <div className="mdbase-menu-list">
+        <McpItem url={mcpUrl} onOpen={() => onClose(false)} />
+      </div>
+    </>}
     <div className="mdbase-menu-note mdbase-app-menu-footer">
       <span>{t({ message: "Opens in a new tab" })}</span>
       <a className="mdbase-app-menu-build" role="menuitem" href={sdkDocumentationUrl} target="_blank" rel="noopener" onClick={() => onClose(false)}>
@@ -82,8 +98,42 @@ function AppMenu({ apps, current, onClose }: {
   </>;
 }
 
+function ExternalIcon(): JSX.Element {
+  return <svg className="mdbase-app-menu-external" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M10 5.5H5.5v13h13V14M13.5 5.5h5v5M18.5 5.5 11 13" />
+  </svg>;
+}
+
+function McpItem({ url, onOpen }: {
+  readonly url: string;
+  readonly onOpen: () => void;
+}): JSX.Element {
+  useLocaleRevision();
+  return <a
+    className="mdbase-menu-item"
+    role="menuitem"
+    href={url}
+    target="_blank"
+    rel="noopener"
+    onClick={onOpen}
+  >
+    <svg className="mdbase-app-menu-mark mdbase-app-menu-mcp-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+      <circle cx="6.5" cy="12" r="2.25" />
+      <circle cx="17.5" cy="6.5" r="2.25" />
+      <circle cx="17.5" cy="17.5" r="2.25" />
+      <path d="M8.5 11 15.5 7.5M8.5 13l7 3.5" />
+    </svg>
+    <span className="mdbase-menu-copy">
+      <strong>{t({ message: "AI clients (MCP)" })}</strong>
+      <small>{t({ message: "Claude, ChatGPT and Codex" })}</small>
+    </span>
+    <ExternalIcon />
+    <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
+  </a>;
+}
+
 function AppItem({ app, current, onOpen }: {
-  readonly app: MdbaseApp;
+  readonly app: OfficialApp;
   readonly current: boolean;
   readonly onOpen: () => void;
 }): JSX.Element {
@@ -110,9 +160,7 @@ function AppItem({ app, current, onOpen }: {
     onClick={onOpen}
   >
     {copy}
-    <svg className="mdbase-app-menu-external" viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M10 5.5H5.5v13h13V14M13.5 5.5h5v5M18.5 5.5 11 13" />
-    </svg>
+    <ExternalIcon />
     <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
   </a>;
 }
