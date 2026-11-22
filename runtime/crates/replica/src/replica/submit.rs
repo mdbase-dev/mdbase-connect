@@ -4,7 +4,7 @@ use mdbn_core::plan::{PlanOptions, Stage};
 use mdbn_wire::client::{
     Confirmation, Include, Receipt, ReceiptState, RecordState, RecordView, SubmitParams,
 };
-use mdbn_wire::common::{B16, B32, Uuid};
+use mdbn_wire::common::{B16, B32, Hash, Uuid};
 use mdbn_wire::intent::{Level, Mutation, Op, OpClock, Source};
 
 use super::{Replica, i64_meta};
@@ -167,23 +167,22 @@ impl<S: Store> Replica<S> {
         session: SessionId,
         p: SubmitParams,
     ) -> ApiResult<Vec<Receipt>> {
-        let s = self
-            .sessions
-            .get(&session)
-            .ok_or_else(|| ErrorCode::Unauthenticated.err("no such session"))?
-            .clone();
+        let s = self.session(session)?.clone();
+        if matches!(s.auth, crate::api::SessionAuth::LocalWeb(_)) {
+            self.local_web_validate_ops(&p.ops, false)?;
+        }
         if self.adopt_gates() {
             return Err(ErrorCode::Unavailable.err_with_reason(
                 "adopting",
                 "the folder is being adopted; retry once sync is on",
             ));
         }
-        if s.grant().is_none() {
+        if matches!(s.auth, crate::api::SessionAuth::Host) {
             self.require(session, crate::policy::capability::EDIT)?;
         }
         // Capabilities per operation, against the grant in the confirmed policy
         // (`policy.md` §7.2). The writer re-checks at head and replicas at replay (V6).
-        if s.grant().is_some() {
+        if !matches!(s.auth, crate::api::SessionAuth::Host) {
             let store = &self.store;
             let path_key = |p: &str| mdbn_core::paths::path_key(p);
             let file_path = |id: &Uuid| store.file(id).ok().flatten().map(|f| f.path);
@@ -302,6 +301,7 @@ impl<S: Store> Replica<S> {
                 p.dry_run == Some(true),
                 &include,
                 level,
+                None,
             ) {
                 Ok(receipt) => out.push(receipt),
                 Err(error)
@@ -351,7 +351,7 @@ impl<S: Store> Replica<S> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn submit_one(
+    pub(super) fn submit_one(
         &mut self,
         session: SessionId,
         grant: Option<Uuid>,
@@ -362,7 +362,9 @@ impl<S: Store> Replica<S> {
         dry_run: bool,
         include: &Include,
         level: Level,
+        local_blob: Option<(Hash, Vec<u8>)>,
     ) -> ApiResult<Receipt> {
+        let local_owner = self.session(session)?.auth.local_web_owner();
         if let Some(id) = id {
             self.hosted_owner_check(&id, grant)?;
             if let Some(r) = self.known_receipt_for(&id, grant).map_err(store_err)? {
@@ -398,7 +400,7 @@ impl<S: Store> Replica<S> {
             seed: B32(seed),
             source: Source::Api,
             ops,
-            on_behalf: grant,
+            on_behalf: if local_owner.is_some() { None } else { grant },
             conflict_mode,
             validated_at: Some(level),
             room: None,
@@ -521,12 +523,19 @@ impl<S: Store> Replica<S> {
         let row = PendingRow {
             order,
             mutation: m.into(),
-            effects,
+            effects: if local_owner.is_some() {
+                Vec::new()
+            } else {
+                effects
+            },
             touches: touches.clone(),
             grant,
             uploads: Vec::new(),
             refs: Vec::new(),
         };
+        if local_owner.is_some() {
+            self.session(session)?;
+        }
         self.store
             .commit(Tx {
                 pending_put: vec![row],
@@ -534,6 +543,18 @@ impl<S: Store> Replica<S> {
                 ..Tx::default()
             })
             .map_err(store_err)?;
+        if let Some(owner) = local_owner {
+            if let Some((digest, bytes)) = local_blob {
+                self.local_web_store_body(owner, id, digest, bytes);
+            }
+            self.local_commit();
+            let mut receipt = self
+                .known_receipt_for(&id, grant)
+                .map_err(store_err)?
+                .ok_or_else(|| ErrorCode::Internal.err("missing captured receipt"))?;
+            self.stamp_published(&mut receipt);
+            return Ok(receipt);
+        }
         self.capture_effects(&effects_for_disk);
         self.wait_published(id, &effects_for_disk);
         {

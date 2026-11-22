@@ -8,6 +8,7 @@ import { build } from "esbuild";
 // declaration) carries it; the thin client must not.
 const entries = [
   { name: "thin-client", entry: "src/thin-client.ts", forbidden: ["ajv", "ajv-formats", "yaml"] },
+  { name: "direct", entry: "src/direct.ts", forbidden: ["ajv", "ajv-formats", "yaml"] },
   { name: "sdk", entry: "src/index.ts", forbidden: ["ajv", "ajv-formats"] },
 ];
 
@@ -48,10 +49,17 @@ for (const { name, entry, forbidden: forbiddenPackages } of entries) {
     console.error(`${name} bundle includes ${forbiddenPackages.join("/")}: ${forbidden.slice(0, 5).join(", ")}`);
     failed = true;
   }
-  if (name === "thin-client") {
+  if (name === "thin-client" || name === "direct") {
     const application = all.filter((path) => path.startsWith("src/application/") || path.startsWith("src/app-grant/"));
     if (application.length) {
-      console.error(`thin-client bundle includes the application entry: ${application.slice(0, 5).join(", ")}`);
+      console.error(`${name} bundle includes the application entry: ${application.slice(0, 5).join(", ")}`);
+      failed = true;
+    }
+  }
+  if (name === "direct") {
+    const managed = all.filter((path) => /^src\/transport\/(?:next-relay|relay|noise)\./.test(path) || path === "src/account.ts" || path === "src/notifications.ts");
+    if (managed.length) {
+      console.error(`direct bundle includes managed transport or services: ${managed.join(", ")}`);
       failed = true;
     }
   }

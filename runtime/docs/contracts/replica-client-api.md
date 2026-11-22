@@ -1588,6 +1588,65 @@ in the grant at consent time.
 SHA-256 and a strict `mdb-cbor/1` codec. That is a few tens of KiB of JS. It does not
 need the WASM core.
 
+### 12.4 Operator-paired browser (self-hosted)
+
+This transport is separate from managed IPC and relay sessions. The operator
+chooses a single collection and exact HTTPS UI origins. The browser connects
+to a different, explicitly selected backend. Neither the UI publisher nor a
+relay proxies the frames. The following transport bindings are distinct:
+
+- **Pinned WebTransport.** An invitation identifies one literal private IPv4
+  address, UDP port and SHA-256 hash of the DER leaf certificate. The browser
+  requires this hash in `serverCertificateHashes`; it is not part of the
+  CONNECT URL. End-to-end TLS 1.3 terminates on the host. A session targets one
+  exact path and one allowed browser Origin, and uses one bidirectional stream.
+  Each application message below is wrapped in `u32be(byte_length) ‖ bytes`;
+  text messages are ASCII, and replica records retain the inner frame prefix.
+  No application datagrams, additional streams or redirects are used.
+- **WSS gateway.** A bare HTTPS backend origin selects the existing WebSocket
+  binding. A trusted private TLS terminator forwards only the two endpoints to
+  the loopback listener, preserving `Origin`. One application message is one
+  WebSocket message; there is no outer stream-length prefix.
+
+- `/_mdbase/pair`: the first text message is an eight-digit, single-use code.
+  A successful WSS redemption returns one text message (a 32-byte random
+  browser secret as lowercase hex) and closes. The pinned binding returns
+  the bounded ASCII message `WTP1.<secret>.<first-slot>.<pin0>...<pin31>`.
+  A slot is a canonical nonnegative decimal number counting twelve-day periods
+  since the Unix epoch. Each pin is a distinct SHA-256 DER leaf certificate
+  hash (64 lowercase hex digits), in ascending slot order. The enrollment
+  connection verifies only the original invitation pin; the authenticated
+  calendar authorizes its successor certificates **only at the same endpoint**.
+  The host finishes the response stream. After reading exactly one complete
+  response and its FIN, the browser closes the session. The host allows up to
+  five seconds for this before closing it itself: a session-close capsule must
+  not race the reply's FIN on the browser's receive path.
+  Calendar material is never supplied by an unauthenticated refresh, redirect
+  or a new invitation. An expired calendar requires explicit re-enrollment.
+  The code and resulting authorization are scoped to the collection and UI origin.
+- `/_mdbase/replica`: the first text message is the browser secret. Subsequent
+  messages are binary, each containing exactly one `u32be(length) ‖ frame`
+  record (§12.2), beginning with the ordinary replica `hello`. The existing
+  version and feature negotiation applies. No Connect grant, Noise identity,
+  task-specific method, cookie or URL credential is required.
+- Policy close `1008` means authorization was refused. Ordinary transport
+  loss or an unavailable credential database is not a revocation signal;
+  those likewise close the session without granting access. Never fall back to a different transport,
+  app identity or server. See the [operator guide](../self-hosted.md) for
+  storage, revocation, scope and recovery.
+- The direct SDK reports the local reason `browser_unsupported` with
+  `unavailable` when WebTransport is absent or ignores the certificate-hash
+  option. No stream is opened and no credential is sent. A network or TLS
+  failure leaves the specific cause to the browser. The app can point users
+  to its site’s local-network permission settings while preserving the grant.
+- `pairDirect` reports the local reason `code_not_sent` with `unavailable`
+  when the pairing connection failed before the code left the browser. The
+  code is unused, so the app can ask for the same code again. A pairing
+  `unavailable` without that reason may have been redeemed.
+- The server holds one deadline of ten seconds from accepting a connection to
+  receiving its code or credential. Only a submitted candidate counts against
+  the code's five attempts; a peer that closes or times out first does not.
+
 ## 13. Versioning and the version-skew rule
 
 **API versions.**

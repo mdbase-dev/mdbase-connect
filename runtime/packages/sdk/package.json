@@ -6,6 +6,10 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./direct": {
+      "types": "./dist/direct.d.ts",
+      "import": "./dist/direct.js"
+    },
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"

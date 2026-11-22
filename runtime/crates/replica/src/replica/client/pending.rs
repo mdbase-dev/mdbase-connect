@@ -6,7 +6,7 @@ use crate::replica::submit::store_err;
 use mdbn_wire::cbor;
 use mdbn_wire::common::{B16, Uuid};
 
-const SCAN_ROWS: u32 = 64;
+pub(super) const SCAN_ROWS: u32 = 64;
 const PAGE_BYTES: usize = 4 << 20;
 const POSITIONS: usize = 16;
 const TTL_MS: i64 = 300_000;

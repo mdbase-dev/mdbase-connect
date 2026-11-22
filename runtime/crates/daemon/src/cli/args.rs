@@ -56,6 +56,16 @@ pub(super) enum ConflictCmd {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Pair a web app with a local collection. Guided, foreground, no account.
+    #[cfg(unix)]
+    PairApp {
+        /// Markdown collection to serve (defaults to the current folder).
+        #[arg(default_value = ".")]
+        folder: PathBuf,
+    },
+    /// Serve one local collection with explicit transport and origin settings, or manage browser access.
+    #[cfg(unix)]
+    SelfHost(self_host::Args),
     /// Daemon and collection overview.
     Status,
     /// Manage the background daemon.

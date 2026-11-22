@@ -1754,6 +1754,13 @@ impl<S: Store> Replica<S> {
         let status = self.sync_status();
         for s in subs {
             let mut st = status.clone();
+            if self
+                .sessions
+                .get(&s)
+                .is_some_and(|session| self.scope_web_status(&session.auth, &mut st).is_err())
+            {
+                continue;
+            }
             st.grant = self
                 .session(s)
                 .and_then(|session| self.session_grant(&session.auth))

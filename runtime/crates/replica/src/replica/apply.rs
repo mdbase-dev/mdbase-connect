@@ -125,6 +125,7 @@ struct OwnResolution {
     own: bool,
     own_match: bool,
     relocated_from: Option<u64>,
+    local_web_owner: Option<Uuid>,
 }
 
 /// What the entry changes, for the caller's rebase keys and the after-commit work.
@@ -1762,6 +1763,10 @@ impl<S: Store> Replica<S> {
         // never confirmed with someone else's result. Every applied entry records
         // its log-derived receipt so a cold rebuild restores grant-scoped receipts.
         let hosted = self.is_hosted();
+        let local_web_owner = pending
+            .as_ref()
+            .filter(|_| self.local_only())
+            .and_then(super::local_web::pending_owner);
         let own_match = own
             && (!hosted || pending.as_ref().map(|r| r.grant) == Some(payload.mutation.on_behalf));
         let relocated_from = if own_match {
@@ -1793,13 +1798,16 @@ impl<S: Store> Replica<S> {
                 conflicts: receipt_conflicts.to_vec(),
                 problem: None,
                 resolved_at: self.now(),
-                grant: mediated_grant.or(payload.mutation.on_behalf),
+                grant: local_web_owner
+                    .or(mediated_grant)
+                    .or(payload.mutation.on_behalf),
             });
         }
         Ok(OwnResolution {
             own,
             own_match,
             relocated_from,
+            local_web_owner,
         })
     }
 
@@ -1896,6 +1904,7 @@ impl<S: Store> Replica<S> {
             own,
             own_match,
             relocated_from,
+            local_web_owner,
         } = resolution;
         let ChangeStage {
             legacy_effects,
@@ -1922,9 +1931,29 @@ impl<S: Store> Replica<S> {
             })?;
         let deferred_projection = query_context.is_some() && tx.query_index.is_none();
         if self.local_only() {
-            // Local confirmation has no synced log bytes or retention material.
-            self.store.commit(tx)?;
+            let temporary_blob = if let Some(owner) = local_web_owner {
+                self.stage_local_web_publish(owner, &payload.mutation.id, &mut tx)?
+            } else {
+                None
+            };
+            if let Some(owner) = local_web_owner {
+                if !self.local_web_live(owner) {
+                    return self.commit_local_void(head, payload, "local bearer is no longer live");
+                }
+                self.wait_published(payload.mutation.id, &legacy_effects);
+            }
+            let file_publish = !tx.publish.is_empty();
+            let report = self.store.commit(tx)?;
             self.head = head;
+            if file_publish && !report.drifts.is_empty() {
+                self.mark_local_web_unpublished(payload.mutation.id);
+            }
+            if let Some(digest) = temporary_blob {
+                self.store.commit(Tx {
+                    blobs_del: vec![digest],
+                    ..Tx::default()
+                })?;
+            }
         } else {
             self.commit_retained(head, tx, Verdict::Applied)?;
         }

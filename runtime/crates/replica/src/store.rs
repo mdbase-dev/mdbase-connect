@@ -299,8 +299,8 @@ pub struct LocalReceipt {
     pub problem: Option<Problem>,
     /// When it left `pending` (host clock).
     pub resolved_at: TimeMs,
-    /// The grant that submitted it (`None`: the hosting app). Receipts are served only
-    /// to sessions of the same grant.
+    /// The submitting Connect grant or local web receipt owner (`None`: the hosting
+    /// app). Receipts are served only to sessions of the same owner.
     pub grant: Option<Uuid>,
 }
 
@@ -325,7 +325,8 @@ pub struct PendingRow {
     /// A confirmed change to any of them re-plans this row. Resource paths are
     /// encoded as `"r:" + path`, IDs as `"i:" + uuid`.
     pub touches: Vec<String>,
-    /// The session's grant, if a granted client submitted it (`mutation.on_behalf`).
+    /// The submitting Connect grant or local web receipt owner. A local web owner
+    /// exists only in LocalOnly stores and is never sent as `mutation.on_behalf`.
     pub grant: Option<Uuid>,
     /// Blob parts this mutation needs uploaded before it can be appended.
     pub uploads: Vec<BlobRef>,
