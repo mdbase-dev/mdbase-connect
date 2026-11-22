@@ -13,11 +13,6 @@ test("every system suite has an existing command and known preparation steps", a
   assert.deepEqual(Object.keys(systemSuites), [
     "runtime-daemon",
     "relay",
-    "provider",
-    "provider-pinned",
-    "files",
-    "files-adversarial",
-    "projection-scale",
     "container",
     "linux-packages"
   ]);
@@ -42,7 +37,7 @@ test("full Server CI covers every registered system suite exactly once", async (
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/server-ci.yml"), "utf8");
   const matrixSuites = [...workflow.matchAll(/^\s+suites:\s*([a-z,-]+)\s*$/gm)]
     .flatMap((match) => match[1].split(","));
-  for (const suite of ["container", "provider-pinned"]) {
+  for (const suite of ["container"]) {
     const commands = [...workflow.matchAll(new RegExp(`--suite\\s+${suite}\\b`, "g"))];
     assert.equal(commands.length, 1, `${suite} suite must have one full-CI job`);
   }
@@ -50,7 +45,7 @@ test("full Server CI covers every registered system suite exactly once", async (
   const native = await readFile(resolve(repoRoot, ".github/workflows/runtime-native-tests.yml"), "utf8");
   assert.equal([...native.matchAll(/--suite\s+runtime-daemon\b/g)].length, 1, "runtime-daemon suite must have one native-CI step");
   assert.deepEqual(
-    [...matrixSuites, "container", "provider-pinned", "runtime-daemon"].sort(),
+    [...matrixSuites, "container", "runtime-daemon"].sort(),
     Object.keys(systemSuites).sort()
   );
 });

@@ -13,7 +13,6 @@ import { collectionDisplayName } from "./collection-display-name.js";
 import { registerCollectionModeRoutes } from "./collection-mode-routes.js";
 import { requireInstallationScope } from "./installation-scope.js";
 import { LogServiceError } from "./log-service-client.js";
-import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 
 const id = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
 const notFound = () => new CreateError(404, "not_found");
@@ -29,8 +28,6 @@ async function ownedCollection(client: DatabaseConnection, connector: ConnectorI
     "SELECT owner_user_id FROM next_collections WHERE collection_id=$1", [collection]
   )).rows[0];
   if (discovered?.owner_user_id !== connector.user_id) throw notFound();
-  // Account first; freeze/owner discovery is revalidated before mutation.
-  await requireNextAccountNotMigrationFrozen(client, connector.user_id);
   if (!(await client.query(
     "SELECT 1 FROM users WHERE id=$1 AND account_backend='next' AND suspended_at IS NULL FOR SHARE", [connector.user_id]
   )).rows.length) throw notFound();

@@ -6,7 +6,6 @@ import type {
 import type { FastifyInstance, RouteHandlerMethod } from "fastify";
 import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import {
   activeGrantForToken,
   backgroundGrantNotificationDeclaration,
@@ -36,7 +35,6 @@ interface NotificationRoutesOptions {
   service?: NotificationService;
   publicKey?: string;
   transports?: NotificationTransports;
-  hostedProvider?: HostedProviderClient;
   /** Fail-closed grant resolver shared with the timer service. */
   grantResolver?: TimerGrantResolver;
 }
@@ -434,42 +432,6 @@ export function registerNotificationRoutes(
   };
   app.delete("/v1/notifications/channels/:channelId",removeChannel(false));
   app.delete("/v1/next/collections/:collection/background-grants/:grant/notifications/channels/:channelId",removeChannel(true));
-
-  app.post(
-    "/internal/v1/hosted/notification-signals",
-    async (request, reply) => {
-      if (!options.service) {
-        return notificationsUnavailable(reply);
-      }
-      const bearer = bearerToken(request);
-      if (!options.hostedProvider?.authorizesInternalToken(bearer)) {
-        return reply.code(401).send(apiError(
-          "invalid_internal_token",
-          "Hosted provider credential is invalid."
-        ));
-      }
-      const input = signalSchema.parse(request.body);
-      const authorization = await options.db.query<{
-        notification_criteria: NotificationCriterion[];
-      }>(
-        `SELECT g.notification_criteria
-         FROM grants g
-         WHERE g.id = $1 AND g.hosted_collection_id IS NOT NULL
-           AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL`,
-        [input.grant_id]
-      );
-      const authorized = authorization.rows[0]?.notification_criteria.some(
-        (criterion) => criterion.id === input.criterion_id
-      );
-      if (!authorized) {
-        return reply.code(403).send(apiError(
-          "notification_signal_denied",
-          "The hosted grant does not authorize this notification criterion."
-        ));
-      }
-      return enqueueSignal(options.service, reply, input);
-    }
-  );
 
   app.post(
     "/v1/connectors/notification-signals",

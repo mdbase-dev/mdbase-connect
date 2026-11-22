@@ -9,33 +9,6 @@ export const systemSuites = Object.freeze({
     prepare: ["packages"],
     command: ["node", "scripts/relay-e2e.mjs"]
   },
-  provider: {
-    description: "Durable hosted authority, browser, files, and provider lifecycle",
-    prepare: ["packages", "provider-binary"],
-    command: ["node", "scripts/hosted-provider-e2e.mjs"]
-  },
-  // The control plane at HEAD against the provider image pinned in
-  // deploy/docker/hosted-provider-image, without cargo or provider source.
-  "provider-pinned": {
-    description: "The provider suite against the pinned hosted-provider image",
-    prepare: ["packages", "provider-image"],
-    command: ["node", "scripts/hosted-provider-e2e.mjs", "--pinned-image"]
-  },
-  files: {
-    description: "Hosted file storage integration",
-    prepare: ["packages", "provider-binary"],
-    command: ["node", "scripts/hosted-files-e2e.mjs"]
-  },
-  "files-adversarial": {
-    description: "Adversarial hosted-file regression suite",
-    prepare: [],
-    command: ["node", "scripts/hosted-file-adversarial-e2e.mjs"]
-  },
-  "projection-scale": {
-    description: "Hosted projection 100k and 230k row fixtures",
-    prepare: [],
-    command: ["node", "scripts/hosted-projection-scale-e2e.mjs"]
-  },
   container: {
     description: "Packaged control plane with PostgreSQL and NATS",
     prepare: [],
@@ -50,22 +23,15 @@ export const systemSuites = Object.freeze({
 
 export const preparationSteps = Object.freeze({
   packages: ["pnpm", "build"],
-  "provider-binary": [
-    "cargo", "build", "-p", "mdbase-connect-hosted-provider"
-  ],
-  "provider-image": ["node", "scripts/pinned-hosted-provider.mjs"],
   "runtime-daemon": [
     "cargo", "build", "-p", "mdbn-daemon", "--bin", "mdbase", "--example", "loopback_daemon"
   ]
 });
 
-// Steps that build another Cargo workspace run there; the rest at the root.
 export const preparationDirectories = Object.freeze({
   "runtime-daemon": "runtime"
 });
 
-// What the suites run from target/debug, which rcargo copies back.
 export const pulledBinaries = Object.freeze({
-  "provider-binary": ["mdbase-connect-hosted-provider"],
   "runtime-daemon": ["mdbase", "debug/examples/loopback_daemon"]
 });

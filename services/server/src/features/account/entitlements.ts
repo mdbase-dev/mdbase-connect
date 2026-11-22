@@ -1,12 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { DatabaseConnection, DatabasePool, DatabaseQueryable } from "../../database-types.js";
-import { requireAccountNotMigrationFrozen } from "../next/migration-topology.js";
-import {
-  HostedProviderResponseError,
-  type HostedAccountLimits,
-  type HostedAccountUsage,
-  type HostedProviderClient
-} from "../hosted/hosted-provider.js";
+import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
 
 export const BETA_ENTITLEMENT_PROFILE = "beta_v1";
 /** Held permanently by accounts that signed up during the open beta; no longer granted. */
@@ -41,13 +34,6 @@ export class HostedEntitlementRequiredError extends Error {
     super("This account does not have hosted storage access.");
     this.name = "HostedEntitlementRequiredError";
   }
-}
-
-export interface ReconciledHostedAccount {
-  providerAccountId: string;
-  entitlementRevision: number;
-  entitlement: EffectiveEntitlement;
-  usage: HostedAccountUsage;
 }
 
 interface EntitlementProfileRow {
@@ -269,112 +255,6 @@ function activeTrial(rows: EntitlementProfileRow[]): EffectiveEntitlement["trial
   ) return null;
   const endsAt = Math.max(...trials.map((row) => new Date(row.ends_at!).getTime()));
   return { endsAt: new Date(endsAt), hostedStorageBytesAfter };
-}
-
-export async function reconcileHostedAccount(
-  db: DatabaseQueryable,
-  provider: HostedProviderClient,
-  userId: string
-): Promise<ReconciledHostedAccount> {
-  const entitlement = await effectiveEntitlement(db, userId);
-  if (!entitlement) throw new HostedEntitlementRequiredError();
-  const account = await db.query<{
-    provider_account_id: string;
-    entitlement_revision: string | number;
-  }>(
-    `SELECT provider_account_id, entitlement_revision
-     FROM account_storage_accounts WHERE user_id = $1`,
-    [userId]
-  );
-  const row = account.rows[0];
-  if (!row) throw new HostedEntitlementRequiredError();
-  const entitlementRevision = safeNumber(
-    row.entitlement_revision,
-    "entitlement revision"
-  );
-  const limits: HostedAccountLimits = {
-    hosted_storage_bytes: entitlement.hostedStorageBytes,
-    retained_file_bytes: entitlement.retainedFileBytes,
-    max_document_bytes: entitlement.maxDocumentBytes,
-    max_single_file_bytes: entitlement.maxSingleFileBytes,
-    max_mirror_replicas_per_collection: entitlement.maxMirrorReplicasPerCollection,
-    max_application_replicas_per_collection:
-      entitlement.maxApplicationReplicasPerCollection,
-    max_hosted_collections: entitlement.maxHostedCollections,
-    max_files_per_collection: entitlement.maxFilesPerCollection
-  };
-  const usage = await provider.upsertAccount(
-    row.provider_account_id,
-    entitlementRevision,
-    limits
-  );
-  await db.query(
-    `UPDATE account_storage_accounts SET provider_revision = $2,
-            updated_at = now()
-     WHERE user_id = $1 AND entitlement_revision = $2`,
-    [userId, entitlementRevision]
-  );
-  return {
-    providerAccountId: row.provider_account_id,
-    entitlementRevision,
-    entitlement,
-    usage
-  };
-}
-
-export async function reconcileHostedAccountCollections(
-  db: DatabasePool,
-  provider: HostedProviderClient,
-  userId: string,
-  options: {
-    onMissingCollection?: (collectionId: string, client: DatabaseConnection) => Promise<void>;
-  } = {}
-): Promise<ReconciledHostedAccount & { reconciledCollections: number }> {
-  const client = await db.connect();
-  try {
-  await client.query("BEGIN");
-  // Provider reconciliation can adopt an unassigned collection into an account;
-  // quota/contract-only grant setup uses reconcileHostedAccount instead.
-  await requireAccountNotMigrationFrozen(client, userId);
-  const account = await reconcileHostedAccount(client, provider, userId);
-  const collections = await client.query<{ id: string }>(
-    `SELECT id FROM hosted_collections
-     WHERE user_id = $1
-       AND authority_state IN ('importing', 'active', 'transferring')
-       AND quarantined_at IS NULL
-     ORDER BY id`,
-    [userId]
-  );
-  let reconciledCollections = 0;
-  for (const collection of collections.rows) {
-    // Each RPC has its own provider budget. Check the actual transaction is
-    // alive and restart its idle interval before the next remote effect.
-    await client.query("SELECT 1");
-    try {
-      await provider.reconcileCollectionAccount(
-        account.providerAccountId,
-        collection.id
-      );
-      reconciledCollections += 1;
-    } catch (error) {
-      if (
-        options.onMissingCollection
-        && error instanceof HostedProviderResponseError
-        && error.status === 404
-        && error.code === "hosted_collection_not_found"
-      ) {
-        await options.onMissingCollection(collection.id, client);
-        continue;
-      }
-      throw error;
-    }
-  }
-  await client.query("SELECT 1");
-  const usage = await provider.accountUsage(account.providerAccountId);
-  await client.query("COMMIT");
-  return { ...account, usage, reconciledCollections };
-  } catch (error) { await client.query("ROLLBACK"); throw error; }
-  finally { client.release(); }
 }
 
 export async function grantOperatorEntitlement(

@@ -5,8 +5,11 @@ import {
   type ConnectOutcome,
   type ConnectProblem,
   type ConnectRequestOptions,
-  type JsonObject
+  type JsonObject,
+  type MdbaseRecordChange
 } from "./connect-types";
+
+export type { MdbaseRecordChange };
 
 export type MdbaseRecordSessionState =
   | "saved"
@@ -16,11 +19,6 @@ export type MdbaseRecordSessionState =
   | "recovery"
   | "error"
   | "deleted";
-
-export interface MdbaseRecordChange {
-  body?: string;
-  patch?: JsonObject;
-}
 
 export interface MdbaseRecordSessionAdapter<R> {
   revision(record: R): string;

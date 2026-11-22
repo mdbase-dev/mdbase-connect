@@ -3,16 +3,13 @@ import Fastify from "fastify";
 import type {DatabasePool} from "../../database-types.js";
 import {CreateError} from "../next/bootstrap-common.js";
 import {createServiceCloudCopy, currentCloudCopy, type CloudCopyBootstrapOptions} from "../next/service-cloud-copy.js";
-import {createHostedCollectionForUser} from "../hosted/service.js";
 import {requireSessionContext} from "../../platform/request-authentication.js";
 import {createAccountCollection} from "./collection-creation.js";
 import {registerAccountCollectionCreationRoutes} from "./collection-creation-routes.js";
-vi.mock("../next/migration-topology.js",()=>({requireNextAccountNotMigrationFrozen:vi.fn(async()=>false)}));
 vi.mock("../next/service-cloud-copy.js",async(importOriginal)=>({
   ...await importOriginal<typeof import("../next/service-cloud-copy.js")>(),
   createServiceCloudCopy:vi.fn(),currentCloudCopy:vi.fn()
 }));
-vi.mock("../hosted/service.js",()=>({createHostedCollectionForUser:vi.fn()}));
 vi.mock("../../platform/request-authentication.js",()=>({requireSessionContext:vi.fn(),requireUser:vi.fn()}));
 const account="11111111-1111-4111-a111-111111111111", requestId="22222222-2222-4222-a222-222222222222";
 const input={requestId,displayName:"Original name",timezone:"Australia/Melbourne"};
@@ -65,7 +62,6 @@ describe("account collection immutable intent",()=>{
     }));
     expect(f.collections.size).toBe(1);expect(result.id).toBe(calls[0].collection);
     expect(f.principal).toHaveBeenCalled();
-    expect(createHostedCollectionForUser).not.toHaveBeenCalled();
   });
   it("the Portal route publishes only a matching hosted confirmation, and a published retry does not reseed", async () => {
     const f = fixture();
@@ -113,20 +109,9 @@ describe("account collection immutable intent",()=>{
     await expect(createAccountCollection(g.options,account,input,g.principal)).rejects.toMatchObject({code:"identity_not_current"});
     expect(g.intents.size).toBe(0);
   });
-  it("publishes legacy receipt inside its creation transaction, then skips creation on retry",async()=>{
+  it("refuses legacy accounts after legacy hosted retirement",async()=>{
     const f=fixture("legacy");
-    vi.mocked(createHostedCollectionForUser).mockImplementation(async(_options,_reference,_url,_user,name,_template,_tz,creation)=>{
-      await creation!.current!(f.options.db as never);
-      f.collections.set(creation!.collectionId!,{id:creation!.collectionId!,display_name:name});
-      await creation!.published!(f.options.db as never);
-      return {};
-    });
-    const first=await createAccountCollection(f.options,account,input,f.principal);
-    expect((await createAccountCollection(f.options,account,input,f.principal)).id).toBe(first.id);
-    expect(createHostedCollectionForUser).toHaveBeenCalledTimes(1);
-    expect(f.queries.some(sql=>sql.includes("account_collection_creations")&&sql.endsWith("FOR UPDATE"))).toBe(true);
-    f.collections.clear();await expect(createAccountCollection(f.options,account,input,f.principal)).rejects.toMatchObject({code:"collection_unavailable"});
-    expect(createHostedCollectionForUser).toHaveBeenCalledTimes(1);
+    await expect(createAccountCollection(f.options,account,input,f.principal)).rejects.toMatchObject({code:"account_not_ready"});
   });
   it("rejects caller runtime, keys, source, admission and flipped browser account before creation",async()=>{
     const f=fixture();const app=Fastify();registerAccountCollectionCreationRoutes(app,f.options);

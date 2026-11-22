@@ -20,8 +20,6 @@ import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy
 import { certDigest, chainHash, decodeCbor, encodeCbor, keyId, type Cbor, type Decoded, type PolicyOp } from "./policy-wire.js";
 import { enrolOp, inTransaction, refuse } from "./bootstrap-common.js";
 import { privateApprovalRequestDigest, privateCreateDigest, privateDeviceEnrolDigest, registerPrivateCollectionRoutes } from "./private-collections.js";
-import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
-import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -130,7 +128,7 @@ describePg("private collections", () => {
     registerErrorHandler(app);
     registerPrivateCollectionRoutes(app, { db, next: config, emitter, log: client });
     registerAuthorizationRoutes(app, {db,relay:{registerAuthorizationHandler:()=>{},authorizationOffers:async()=>({paused:false,collections:[]}),pushPolicy:async()=>{}} as unknown as RelayHub,
-      publicUrl:"https://connect.example",nextClientKeys:true,drainProviderRevocations:async()=>{}});
+      publicUrl:"https://connect.example",nextClientKeys:true});
   }, 60_000);
   afterAll(async () => {
     await app.close(); await db?.end();
@@ -198,36 +196,17 @@ describePg("private collections", () => {
     return collection;
   };
 
-  async function completedOwnerMigration(who: Who) {
-    const account=who.connector.user_id,cohort=`private-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
-    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[account],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
-    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
-    await acceptCohortArchive(db,cohort,{schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
-      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
-      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}},"lab");
-    await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,account,"lab");await flipAccountBackend(db,account,[],flipEvidenceDigest([]),{enabled:true},"lab");
-    return cohort;
-  }
-
-  it.each(["fresh","migrated"] as const)("appends the original app request under the retained Native Private genesis root (%s)",async mode=>{
+  it("appends the original app request under the retained Native Private genesis root",async()=>{
     const who=await identity(),account=who.connector.user_id,collection=randomUUID();
-    if(mode==="fresh"){
-      const tx=await db.connect();
-      try{await tx.query("BEGIN");await provisionNewAccountBackend(tx,account,"next");await tx.query("COMMIT");}
-      finally{tx.release();}
-    }else{
-      // Retired local authority remains metadata after Native takeover. Private
-      // enable precedes the account's original accepted-archive/empty flip.
-      await db.query("INSERT INTO collections(id,user_id,connector_id,local_id,display_name,spec_version,authority_state) VALUES($1,$2,$3,$4,'Taken over','0.3.0','retired')",
-        [randomUUID(),account,who.connector.id,collection]);
-    }
+    const tx=await db.connect();
+    try{await tx.query("BEGIN");await provisionNewAccountBackend(tx,account,"next");await tx.query("COMMIT");}
+    finally{tx.release();}
     const creation=await create(who,await createProof(who,collection));
     expect(creation.statusCode,creation.body).toBe(200);
     const originalGenesis=Buffer.from(creation.json().genesis.item,"hex");
     const originalRoot=(await db.query<{root_key_id:Buffer}>("SELECT root_key_id FROM next_collections WHERE collection_id=$1",[collection])).rows[0]!.root_key_id;
     const signer=loadPolicySigner(config,Date.now());
     expect(originalRoot.equals(Buffer.from(signer.cert.root))).toBe(true);
-    if(mode==="migrated")await completedOwnerMigration(who);
     const consent=await(await nativeReadApp(db,app))(account,collection);
     const approved=await consent.approve();expect(approved.statusCode,approved.body).toBe(200);
     // Exercise claim()/root checking independently of the new direct wake:
@@ -247,16 +226,6 @@ describePg("private collections", () => {
       [collection,JSON.stringify([{op:"grant",grant:binding.log_grant_id}])])).rows).toHaveLength(1);
   });
 
-  it("allows completed migrated accounts to create, enrol another device, rename and delete a new Private collection without thaw",async()=>{
-    const who=await identity(),account=who.connector.user_id,cohort=await completedOwnerMigration(who);
-    const collection=await created(who),second=await identity(account);
-    const added=await enrol(second,collection,await enrolProof(second,collection,commit()));expect(added.statusCode,added.body).toBe(200);
-    const renamed=await app.inject({method:"PATCH",url:`/v1/next/collections/${collection}/name`,headers:who.headers,payload:{display_name:"After migration"}});
-    expect(renamed.statusCode,renamed.body).toBe(200);
-    const deleted=await app.inject({method:"DELETE",url:`/v1/next/collections/${collection}`,headers:who.headers,payload:{confirm_name:"After migration"}});
-    expect(deleted.statusCode,deleted.body).toBe(200);
-    expect((await db.query("SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual({frozen_at:expect.any(Date),completed_at:expect.any(Date)});
-  });
   it("reports native storage on /v1/me from the owner's held logs, and unknown when one can't answer",async()=>{
     const who=await identity(),owner=who.connector.user_id,collection=await created(who),left=await created(who);
     await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1",[left]);
@@ -428,21 +397,6 @@ describePg("private collections", () => {
     expect((await db.query("SELECT ops FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [collection])).rows).toEqual(policies);
     expect(JSON.stringify(policies)).not.toContain("private label");
     expect(log.logs.get(collection.replaceAll("-", ""))!.length).toBe(1);
-  });
-
-  it("refuses a private named create while migration is frozen without consuming proof or publishing", async () => {
-    const who = await identity(), collection = randomUUID(), cohort = `private_names_${randomUUID()}`;
-    const proof = await createProof(who, collection);
-    await db.query("INSERT INTO next_migration_cohorts(name,frozen_at) VALUES($1,now())", [cohort]);
-    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [who.connector.user_id,cohort]);
-    const response = await create(who, { ...proof, display_name: "Frozen private label" });
-    expect(response.statusCode, response.body).toBe(409);
-    expect(response.json().error.code).toBe("migration_frozen");
-    expect(await registered(collection)).toBe(false);
-    expect(log.logs.has(collection.replaceAll("-", ""))).toBe(false);
-    expect((await db.query("SELECT used_at FROM next_device_challenges WHERE challenge=$1", [Buffer.from(proof.challenge, "hex")])).rows[0].used_at).toBeNull();
-    await db.query("UPDATE next_migration_cohorts SET frozen_at=NULL WHERE name=$1", [cohort]);
-    expect((await create(who, { ...proof, display_name: "Frozen private label" })).statusCode).toBe(200);
   });
 
   it("answers a retry from the creating device with the same genesis", async () => {

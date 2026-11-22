@@ -51,7 +51,10 @@ export type {
   TypePackProvision
 };
 
-export type { MdbaseRecordChange } from "./record-session";
+export interface MdbaseRecordChange {
+  body?: string;
+  patch?: JsonObject;
+}
 
 export interface ConnectSuccess<Value> {
   ok: true;

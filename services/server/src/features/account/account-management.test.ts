@@ -6,7 +6,6 @@ import { createDatabase } from "../../db.js";
 import { materializePublicSignupEntitlement } from "./entitlements.js";
 import { hashPassword } from "../auth/password.js";
 import { randomToken, tokenHash } from "../../security.js";
-import { HostedProviderClient } from "../hosted/hosted-provider.js";
 
 const resources: Array<() => Promise<void>> = [];
 const origin = "https://connect.example";
@@ -20,150 +19,6 @@ afterEach(async () => {
 });
 
 describe("account management", () => {
-  it("reports hosted-only usage, quotas, sign-in methods, and deletion impact", async () => {
-    const usage = vi.fn(async (collectionId: string) => ({
-      collection_id: collectionId,
-      record_count: 12,
-      content_bytes: 4_096,
-      max_records: 100_000,
-      max_content_bytes: 1_073_741_824,
-      max_document_bytes: 2_097_152,
-      file_count: 0,
-      file_bytes: 0,
-      stored_file_bytes: 0,
-      max_files: 10_000,
-      max_file_bytes: 1_073_741_824,
-      max_stored_file_bytes: 2_147_483_648,
-      max_single_file_bytes: 262_144_000
-    }));
-    const { app, db } = await fixture({
-      hostedCollections: true,
-      hostedProvider: fakeProvider({ collectionUsage: usage })
-    });
-    const account = await seedSession(db);
-    await seedPassword(db, account.userId, account.email, oldPassword);
-    await db.query(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, contracts)
-       VALUES ($1, $2, 'Research', 'mdbase', '[]'::jsonb)`,
-      [randomUUID(), account.userId]
-    );
-    await db.query(
-      `INSERT INTO external_identities
-         (provider, subject, user_id, login, email, email_verified)
-       VALUES ('github', '12345', $1, 'person', NULL, false)`,
-      [account.userId]
-    );
-
-    const response = await app.inject({
-      method: "GET",
-      url: "/v1/account",
-      headers: { cookie: account.cookie }
-    });
-    expect(response.statusCode).toBe(200);
-    expect(response.headers["cache-control"]).toBe("no-store");
-    expect(response.json()).toEqual(expect.objectContaining({
-      backend: "legacy",
-      authentication: expect.objectContaining({
-        current_provider: "session",
-        identities: [expect.objectContaining({
-          provider: "github",
-          login: "person",
-          current: false,
-          removable: true
-        })],
-        password: expect.objectContaining({
-          configured: true,
-          email: account.email,
-          change_available: true
-        })
-      }),
-      storage: {
-        status: "available",
-        total_content_bytes: 4_096,
-        total_file_bytes: 0,
-        total_storage_bytes: 4_096,
-        total_stored_file_bytes: 0,
-        total_records: 12,
-        collections: [expect.objectContaining({
-          display_name: "Research",
-          usage: expect.objectContaining({ max_content_bytes: 1_073_741_824 })
-        })]
-      },
-      deletion: expect.objectContaining({ hosted_collections: 1, owned_collections: 1 })
-    }));
-    expect(usage).toHaveBeenCalledTimes(1);
-  });
-
-  it("reports retained file usage on /v1/me, not the retained file limit", async () => {
-    const provider = new HostedProviderClient({
-      url: "https://provider.example",
-      internalToken: "provider-internal-token"
-    });
-    const providerAccountId = randomUUID();
-    // The provider's wire body: usage at the top level, limits nested. This
-    // guards the server's mapping of that shape; the provider test catches
-    // the original bug.
-    const body = JSON.stringify({
-      account: {
-        account_id: providerAccountId,
-        entitlement_revision: 1,
-        collection_count: 1,
-        live_content_bytes: 4_096,
-        live_file_bytes: 1_024,
-        retained_file_bytes: 3_072,
-        limits: {
-          hosted_storage_bytes: 1_073_741_824,
-          retained_file_bytes: 2_147_483_648,
-          max_document_bytes: 2_097_152,
-          max_single_file_bytes: 262_144_000,
-          max_mirror_replicas_per_collection: 10,
-          max_application_replicas_per_collection: 10,
-          max_hosted_collections: 10,
-          max_files_per_collection: 10_000
-        }
-      }
-    });
-    const fetched = vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
-      expect(String(input)).toBe(
-        `https://provider.example/internal/v1/accounts/${providerAccountId}`
-      );
-      return new Response(body, {
-        status: 200,
-        headers: { "content-type": "application/json" }
-      });
-    });
-    const { app, db } = await fixture({ hostedProvider: provider });
-    const account = await seedSession(db);
-    await db.query(
-      `INSERT INTO account_entitlement_grants
-         (id, user_id, profile_code, source, source_reference)
-       VALUES ($1, $2, 'beta_v1', 'operator', $3)`,
-      [randomUUID(), account.userId, `test-${account.userId}`]
-    );
-    await db.query(
-      `INSERT INTO account_storage_accounts (user_id, provider_account_id)
-       VALUES ($1, $2)`,
-      [account.userId, providerAccountId]
-    );
-
-    const response = await app.inject({
-      method: "GET", url: "/v1/me", headers: { cookie: account.cookie }
-    });
-    expect(response.statusCode).toBe(200);
-    const { subscription } = response.json();
-    expect(subscription.limits.retained_file_bytes).toBe(2_147_483_648);
-    expect(subscription.usage).toEqual({
-      hosted_collections: 1,
-      collection_member_seats: 0,
-      live_content_bytes: 4_096,
-      live_file_bytes: 1_024,
-      live_storage_bytes: 5_120,
-      retained_file_bytes: 3_072
-    });
-    expect(fetched).toHaveBeenCalledTimes(1);
-  });
-
   it("changes a password, preserves only the current session, and accepts only the new password", async () => {
     const { app, db } = await fixture();
     const first = await seedSession(db);
@@ -382,11 +237,8 @@ describe("account management", () => {
   });
 
   it("fails account deletion closed while the operational hold is active", async () => {
-    const deleteCollection = vi.fn(async () => undefined);
     const { app, db } = await fixture({
-      accountDeletionEnabled: false,
-      hostedCollections: true,
-      hostedProvider: fakeProvider({ deleteCollection })
+      accountDeletionEnabled: false
     });
     const account = await seedSession(db);
     await seedPassword(db, account.userId, account.email, oldPassword);
@@ -409,17 +261,13 @@ describe("account management", () => {
     });
     expect(response.statusCode).toBe(503);
     expect(response.json().error.code).toBe("account_deletion_unavailable");
-    expect(deleteCollection).not.toHaveBeenCalled();
     expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
       .toHaveLength(1);
   });
 
-  it("requires fresh external reauthentication, commits local deletion, and then cleans up hosted data", async () => {
-    const deleteCollection = vi.fn(async () => undefined);
+  it("requires fresh external reauthentication and commits local deletion", async () => {
     const { app, db } = await fixture({
-      githubAuth: githubConfig({ id: "12558714", login: "callumalpass" }),
-      hostedCollections: true,
-      hostedProvider: fakeProvider({ deleteCollection })
+      githubAuth: githubConfig({ id: "12558714", login: "callumalpass" })
     });
     const account = await seedSession(db);
     await db.query(
@@ -429,14 +277,12 @@ describe("account management", () => {
       [account.userId]
     );
     const hostedId = randomUUID();
-    const transferredId = randomUUID();
     await db.query(
       `INSERT INTO hosted_collections
          (id, user_id, display_name, template, contracts, authority_state)
        VALUES
-         ($1, $2, 'Only hosted copy', 'mdbase', '[]'::jsonb, 'active'),
-         ($3, $2, 'Transferred copy', 'mdbase', '[]'::jsonb, 'transferred')`,
-      [hostedId, account.userId, transferredId]
+         ($1, $2, 'Only hosted copy', 'mdbase', '[]'::jsonb, 'active')`,
+      [hostedId, account.userId]
     );
 
     const unconfirmed = await app.inject({
@@ -446,7 +292,6 @@ describe("account management", () => {
       payload: { confirmation: "DELETE" }
     });
     expect(unconfirmed.statusCode).toBe(403);
-    expect(deleteCollection).not.toHaveBeenCalled();
 
     const started = await app.inject({
       method: "GET",
@@ -465,8 +310,6 @@ describe("account management", () => {
       payload: { confirmation: "DELETE", reauth_token: token }
     });
     expect(deleted.statusCode, deleted.body).toBe(200);
-    await vi.waitFor(() => expect(deleteCollection).toHaveBeenCalledWith(hostedId));
-    expect(deleteCollection).not.toHaveBeenCalledWith(transferredId);
     expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows).toEqual([]);
     const event = await db.query<{ user_id: string | null; metadata: Record<string, number> }>(
       "SELECT user_id, metadata FROM audit_events WHERE event_type = 'account.deleted'"
@@ -482,150 +325,12 @@ describe("account management", () => {
     expect(responseCookies(deleted).join("\n")).toContain("Max-Age=0");
   });
 
-  it("revokes cross-account hosted replicas before deleting an account", async () => {
-    const deleteCollection = vi.fn(async () => undefined);
-    const revokeReplica = vi.fn(async () => undefined);
-    const revokeNotificationGrant = vi.fn(async () => undefined);
-    const { app, db } = await fixture({
-      hostedCollections: true,
-      hostedProvider: fakeProvider({
-        deleteCollection,
-        revokeReplica,
-        revokeNotificationGrant
-      })
-    });
-    const account = await seedSession(db, { email: "departing@example.com" });
-    await seedPassword(db, account.userId, account.email, oldPassword);
-    const owner = await seedSession(db, { email: "owner@example.com" });
-    const ownedCollectionId = randomUUID();
-    const sharedCollectionId = randomUUID();
-    const sharedReplicaId = randomUUID();
-    const previouslyRevokedReplicaId = randomUUID();
-    const applicationId = randomUUID();
-    const grantId = randomUUID();
-    await db.query(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, contracts)
-       VALUES
-         ($1, $2, 'Departing account notes', 'mdbase', '[]'::jsonb),
-         ($3, $4, 'Shared notes', 'mdbase', '[]'::jsonb)`,
-      [ownedCollectionId, account.userId, sharedCollectionId, owner.userId]
-    );
-    await db.query(
-      `INSERT INTO hosted_replicas
-         (id, collection_id, authorized_user_id, name, purpose, mode,
-          token_hash, revoked_at)
-       VALUES
-         ($1, $2, $3, 'Shared application', 'application', 'read_write', $4, NULL),
-         ($5, $2, $3, 'Old shared mirror', 'mirror', 'read_only', NULL, now())`,
-      [
-        sharedReplicaId,
-        sharedCollectionId,
-        account.userId,
-        tokenHash("shared-replica-token"),
-        previouslyRevokedReplicaId
-      ]
-    );
-    await db.query(
-      `INSERT INTO applications
-         (id, canonical_identity, name, homepage, redirect_uris)
-       VALUES ($1, $2, 'Shared app', 'https://app.example', '[]'::jsonb)`,
-      [applicationId, `test:${applicationId}`]
-    );
-    await db.query(
-      `INSERT INTO grants
-         (id, user_id, application_id, hosted_collection_id,
-          hosted_replica_id, operations)
-       VALUES ($1, $2, $3, $4, $5, '["query"]'::jsonb)`,
-      [grantId, account.userId, applicationId, sharedCollectionId, sharedReplicaId]
-    );
-
-    const response = await app.inject({
-      method: "DELETE",
-      url: "/v1/account",
-      headers: { cookie: account.cookie, origin },
-      payload: { confirmation: "DELETE", current_password: oldPassword }
-    });
-
-    expect(response.statusCode, response.body).toBe(200);
-    await vi.waitFor(() => expect(revokeReplica).toHaveBeenCalledWith(sharedReplicaId));
-    await vi.waitFor(() => expect(revokeNotificationGrant).toHaveBeenCalledWith(
-      sharedCollectionId,
-      grantId
-    ));
-    await vi.waitFor(() => expect(deleteCollection).toHaveBeenCalledWith(ownedCollectionId));
-    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
-      .toEqual([]);
-    expect((await db.query(
-      "SELECT id FROM hosted_collections WHERE id = $1",
-      [sharedCollectionId]
-    )).rows).toEqual([{ id: sharedCollectionId }]);
-    expect((await db.query(
-      `SELECT authorized_user_id, revoked_at, token_hash
-       FROM hosted_replicas WHERE id = $1`,
-      [sharedReplicaId]
-    )).rows[0]).toEqual({
-      authorized_user_id: null,
-      revoked_at: expect.any(Date),
-      token_hash: null
-    });
-    expect((await db.query(
-      "SELECT authorized_user_id FROM hosted_replicas WHERE id = $1",
-      [previouslyRevokedReplicaId]
-    )).rows[0]).toEqual({ authorized_user_id: null });
-    expect(revokeReplica).toHaveBeenCalledTimes(1);
-  });
-
-  it("keeps provider cleanup durable when deletion succeeds while the provider is offline", async () => {
-    const deleteCollection = vi.fn(async () => { throw new Error("provider offline"); });
-    const { app, db } = await fixture({
-      hostedCollections: true,
-      hostedProvider: fakeProvider({ deleteCollection })
-    });
-    const account = await seedSession(db);
-    await seedPassword(db, account.userId, account.email, oldPassword);
-    const collectionId = randomUUID();
-    await db.query(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, contracts)
-       VALUES ($1, $2, 'Important', 'mdbase', '[]'::jsonb)`,
-      [collectionId, account.userId]
-    );
-    const response = await app.inject({
-      method: "DELETE",
-      url: "/v1/account",
-      headers: { cookie: account.cookie, origin },
-      payload: { confirmation: "DELETE", current_password: oldPassword }
-    });
-    expect(response.statusCode, response.body).toBe(200);
-    await vi.waitFor(() => expect(deleteCollection).toHaveBeenCalledWith(collectionId));
-    expect((await db.query("SELECT id FROM users WHERE id = $1", [account.userId])).rows)
-      .toEqual([]);
-    await vi.waitFor(async () => {
-      expect((await db.query(
-        `SELECT collection_id, state, attempts, last_error
-         FROM provider_collection_deletion_jobs WHERE completed_at IS NULL`
-      )).rows).toEqual([{
-        collection_id: collectionId,
-        state: "pending",
-        attempts: 1,
-        last_error: "provider offline"
-      }]);
-    });
-  });
-
-  it("rolls back the cleanup job and account.deleted audit event when local deletion fails", async () => {
+  it("rolls back the audit event when local deletion fails", async () => {
     const { db } = await fixture();
     const account = await seedSession(db);
     const session = await db.query<{ id: string }>(
       "SELECT id FROM sessions WHERE user_id = $1",
       [account.userId]
-    );
-    await db.query(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, contracts)
-       VALUES ($1, $2, 'Important', 'mdbase', '[]'::jsonb)`,
-      [randomUUID(), account.userId]
     );
     const statements: string[] = [];
     const failingPool = {
@@ -647,8 +352,7 @@ describe("account management", () => {
     await expect(deleteAccountLocally(failingPool, {
       userId: account.userId,
       sessionId: session.rows[0].id,
-      authorized: true,
-      queueProviderCleanup: true
+      authorized: true
     })).rejects.toThrow("simulated local delete failure");
 
     expect(statements.at(-1)).toBe("ROLLBACK");
@@ -850,23 +554,6 @@ function githubConfig(identity: { id: string; login: string }) {
     allowedUserIds: new Set([identity.id]),
     exchangeCode: async () => ({ ...identity, name: "Linked Person", email: null, emailVerified: false })
   };
-}
-
-function fakeProvider(overrides: Record<string, unknown> = {}): HostedProviderClient {
-  return {
-    url: "https://provider.example",
-    collectionUsage: async (collectionId: string) => ({
-      collection_id: collectionId,
-      record_count: 0,
-      content_bytes: 0,
-      max_records: 100_000,
-      max_content_bytes: 1_073_741_824,
-      max_document_bytes: 2_097_152
-    }),
-    deleteCollection: async () => undefined,
-    revokeReplica: async () => undefined,
-    ...overrides
-  } as unknown as HostedProviderClient;
 }
 
 async function completeGitHubFlow(

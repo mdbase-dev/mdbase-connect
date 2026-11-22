@@ -3,7 +3,6 @@ import Fastify from "fastify";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
-import { HostedProviderResponseError, type HostedProviderClient } from "../hosted/hosted-provider.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
@@ -77,12 +76,10 @@ describe("cutover refusals old clients can explain", () => {
        VALUES ($1, $2, 0, 1, 1, 'digest')`,
       [collectionId, userId]
     );
-    const rotateReplicaToken = vi.fn();
     const { app } = await buildApp({
       db,
       devAuth: true,
       hostedCollections: true,
-      hostedProvider: { url: "https://sync.example", ready: vi.fn(), rotateReplicaToken } as unknown as HostedProviderClient,
       publicUrl: "http://connect.test",
       clientUpdate: { updateUrl: "https://example.test/get", minimumClientVersion: "2.0.0" }
     });
@@ -117,16 +114,12 @@ describe("cutover refusals old clients can explain", () => {
     });
     expect(refresh.json().error.message.startsWith(reloadGuidance)).toBe(true);
     expect(refresh.json().error.message).not.toMatch(/collection_unavailable|moved_to_next_runtime/);
-    expect(rotateReplicaToken).not.toHaveBeenCalled();
   });
 
-  it("answers the provider's migrating fence with a retry the client can schedule", async () => {
+  it("answers an invite migrating fence with a retry the client can schedule", async () => {
     const app = Fastify();
     resources.push(() => app.close());
     registerErrorHandler(app);
-    app.get("/fenced", async () => {
-      throw new HostedProviderResponseError(409, "collection_migrating", "provider text");
-    });
     app.get("/fenced-invite", async () => {
       throw new RequestValidationError("Invite text.", {
         code: "collection_migrating",
@@ -142,17 +135,6 @@ describe("cutover refusals old clients can explain", () => {
       message: "Invite text.",
       details: { retry_after_seconds: 120 }
     });
-    const response = await app.inject({ method: "GET", url: "/fenced" });
-    expect(response.statusCode).toBe(409);
-    expect(response.headers["retry-after"]).toBe("300");
-    expect(response.json().error).toMatchObject({
-      code: "collection_migrating",
-      message: expect.stringContaining("may not be saved"),
-      details: { retry_after_seconds: 300 }
-    });
-    // A refused legacy write is not retried: never claim the data is safe.
-    expect(response.json().error.message).not.toMatch(/data is safe/i);
-    expect(response.json().error.message).toMatch(/make them again/);
   });
   it("tells an old client its desktop collection moved once mdbase-next took it over", async () => {
     const db = await createDatabase("memory");

@@ -8,7 +8,7 @@ import { sanitizeProjectName } from "./connect-test-environment.mjs";
 test("Compose database readiness excludes the temporary socket-only initialization server", () => {
   const compose = readFileSync(new URL("../../docker-compose.yml", import.meta.url), "utf8");
   const checks = compose.match(/pg_isready[^"\n]*/g) ?? [];
-  assert.equal(checks.length, 2);
+  assert.equal(checks.length, 1);
   for (const check of checks) assert.match(check, /^pg_isready -h 127\.0\.0\.1 /);
 });
 

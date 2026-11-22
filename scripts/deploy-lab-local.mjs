@@ -9,17 +9,12 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = resolve(import.meta.dirname, "..");
-const componentNames = Object.freeze(["connect", "hosted-provider", "mcp", "editor"]);
+const componentNames = Object.freeze(["connect", "mcp", "editor"]);
 const components = Object.freeze([
   Object.freeze({
     name: "connect",
     repository: "ghcr.io/mdbase-dev/mdbase-connect-server",
     dockerfile: "deploy/docker/Dockerfile.server"
-  }),
-  Object.freeze({
-    name: "hosted-provider",
-    repository: "ghcr.io/mdbase-dev/mdbase-connect-hosted-provider",
-    dockerfile: "deploy/docker/Dockerfile.hosted-provider"
   }),
   Object.freeze({
     name: "mcp",
@@ -139,11 +134,11 @@ export function parseDeployArgs(args) {
       continue;
     }
     if (component !== null || index + 1 >= args.length) {
-      throw new Error("Usage: pnpm deploy:lab [--component connect|hosted-provider|mcp|editor] [--confirm LAB]");
+      throw new Error("Usage: pnpm deploy:lab [--component connect|mcp|editor] [--confirm LAB]");
     }
     component = args[index + 1];
     if (!componentNames.includes(component)) {
-      throw new Error("--component must be exactly connect, hosted-provider, mcp, or editor.");
+      throw new Error("--component must be exactly connect, mcp, or editor.");
     }
     index += 1;
   }
@@ -208,7 +203,7 @@ export async function resolveCloudOpsCommand({ root, run, environment }) {
 export async function requireConfirmation(args, prompt = promptForConfirmation) {
   if (args.length === 2 && args[0] === "--confirm" && args[1] === "LAB") return;
   if (args.length !== 0) {
-    throw new Error("Usage: pnpm deploy:lab [--component connect|hosted-provider|mcp|editor] [--confirm LAB]");
+    throw new Error("Usage: pnpm deploy:lab [--component connect|mcp|editor] [--confirm LAB]");
   }
   const answer = await prompt();
   if (answer !== "LAB") throw new Error("LAB deployment confirmation did not exactly match LAB.");

@@ -24,7 +24,6 @@ import {
   supersededLegacyGrant, unmigratedLocalCollection, unmigratedLocalCollections
 } from "./native-grant-target.js";
 import { CutoverProblemError } from "./cutover-problems.js";
-import type { MigrationRouting } from "./migration-routing.js";
 
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
@@ -116,21 +115,8 @@ async function unmigratedHostedGrant(db: DatabaseQueryable, tokenDigest: string,
   return result.rows.length > 0;
 }
 
-export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig; migrationRouting?: MigrationRouting;
-  /** Moves a taken-over collection's eligible legacy grants to it; never throws. */
-  carryOver?: (collection: string) => Promise<number> }): void {
+export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig }): void {
   const hostedOrigin = options.hostedClientUrl ? hostedClientOrigin(options.hostedClientUrl) : undefined;
-  // At most one carry-over attempt per collection a minute: a grant that cannot
-  // move stays superseded, and its app may keep asking.
-  const attempted = new Map<string, number>();
-  const carryOver = async (collection: string): Promise<number> => {
-    if (!options.carryOver) return 0;
-    const now = Date.now();
-    if ((attempted.get(collection) ?? 0) > now - 60_000) return 0;
-    if (attempted.size >= 10_000) attempted.clear();
-    attempted.set(collection, now);
-    return options.carryOver(collection);
-  };
   // Always `wss:`, except for a loopback development server (SDK request).
   const relayUrl = new URL("/v1/next/relay/client", options.publicUrl);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(relayUrl.hostname);
@@ -142,7 +128,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
     const origin = pitrCollection(options.labPitr, id) ? options.labPitr!.hostedUrl : hostedOrigin;
-    const hosted = origin || options.migrationRouting ? await hostedRouteTarget(options.db, tokenHash(token), id, origin, options.migrationRouting) : null;
+    const hosted = origin ? await hostedRouteTarget(options.db, tokenHash(token), id, origin) : null;
     const hash = tokenHash(token);
     const grant = await options.db.query<{ user_id: string; grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean }>(
       `SELECT g.user_id, COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
@@ -172,14 +158,10 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     // A native collection: the grant targets the collection itself and is served
     // by the granting account's enrolled desktop/CLI devices (and, for a cloud
     // copy, by the hosted replica found above).
-    let native = grant.rows[0] ? null : await nativeGrant(options.db, hash, id);
+    const native = grant.rows[0] ? null : await nativeGrant(options.db, hash, id);
     if (!grant.rows[0] && !hosted?.grant && !native) {
-      // Taken over by a native collection: an eligible grant moves to it (normally
-      // already done when Private sync was turned on); otherwise the app must be
-      // set up again for it.
       const superseded = await supersededLegacyGrant(options.db, hash, id);
-      if (superseded && await carryOver(id) > 0) native = await nativeGrant(options.db, hash, id);
-      if (!native && superseded) return unavailableRoute(id, superseded, "sync_required");
+      if (superseded) return unavailableRoute(id, superseded, "sync_required");
     }
     const row = grant.rows[0] ?? (native ? { ...native, policy_required: true } : hosted?.grant);
     if (!row && await unmigratedHostedGrant(options.db, hash, id)) {

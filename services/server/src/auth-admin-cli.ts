@@ -6,14 +6,7 @@ import { openDatabase } from "./db.js";
 import { assertControlPlaneMigrationsCurrent } from "./migrations.js";
 import { ResendEmailTransport } from "./features/email/email.js";
 import { NatsRelayBroker, type RelayBroker } from "./features/relay/relay-broker.js";
-import {
-  HostedProviderClient,
-  HostedProviderResponseError
-} from "./features/hosted/hosted-provider.js";
-import {
-  hostedProviderConfigFromEnv,
-  type RegistrationMode
-} from "./platform/runtime-config.js";
+import type { RegistrationMode } from "./platform/runtime-config.js";
 
 const db = await openDatabase();
 const requestEnvelope = process.argv[2] === "request";
@@ -21,10 +14,6 @@ let relayBroker: RelayBroker | null = null;
 try {
   await assertControlPlaneMigrationsCurrent(db);
   const emailTransport = resendTransport(process.env);
-  const hostedProviderConfig = hostedProviderConfigFromEnv(process.env);
-  const hostedProvider = hostedProviderConfig
-    ? new HostedProviderClient(hostedProviderConfig)
-    : null;
   const relayServers = (process.env.MDBASE_CONNECT_RELAY_NATS_URL ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -64,42 +53,6 @@ try {
                   String(connector.relay_generation)
                 )
               ));
-            }
-          }
-        }
-      : {}),
-    ...(hostedProvider
-      ? {
-          hostedProvider,
-          hostedReplicaRevoker: {
-            async revokeReplica(replicaId: string) {
-              try {
-                await hostedProvider.revokeReplica(replicaId);
-              } catch (error) {
-                if (
-                  error instanceof HostedProviderResponseError
-                  && error.status === 404
-                ) {
-                  return;
-                }
-                throw error;
-              }
-            },
-            async abortAuthorityImport(transferId: string) {
-              try {
-                await hostedProvider.abortAuthorityImport(transferId);
-              } catch (error) {
-                if (
-                  error instanceof HostedProviderResponseError
-                  && [
-                    "authority_import_not_found",
-                    "authority_import_inactive"
-                  ].includes(error.code)
-                ) {
-                  return;
-                }
-                throw error;
-              }
             }
           }
         }

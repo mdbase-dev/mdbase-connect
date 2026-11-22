@@ -113,29 +113,21 @@ jobs:
           parent=$(git rev-parse "$SOURCE_COMMIT^")
           if git diff --quiet "$parent" "$SOURCE_COMMIT" -- \
             .github/previous-release.env \
-            Cargo.toml \
             apps/editor \
             apps/portal \
             config \
-            crates \
-            deploy/docker/Cargo.lock.hosted-provider \
-            deploy/docker/Dockerfile.hosted-provider \
             deploy/docker/Dockerfile.mcp \
             deploy/docker/Dockerfile.server \
-            deploy/docker/mdbase-rs-revision \
             package.json \
             packages/app-ui \
             packages/client \
             packages/protocol \
-            packages/sync \
             packages/ui \
             pnpm-lock.yaml \
             pnpm-workspace.yaml \
             services/mcp \
             services/server \
             scripts/deploy-editor-dev.mjs \
-            scripts/lib/upgrade-release-identity.test.mjs \
-            scripts/lib/upgrade-test-contract.test.mjs \
             && ! node scripts/client-contract-changed.mjs "$parent" "$SOURCE_COMMIT"
           then
             echo "publish=false" >> "$GITHUB_OUTPUT"
@@ -177,25 +169,6 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-
-      - name: Restore hosted-provider Cargo cache mounts
-        if: matrix.component == 'hosted-provider'
-        id: hosted-provider-cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: hosted-provider-cache-mounts
-          key: hosted-provider-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-${{ env.SOURCE_COMMIT }}
-          restore-keys: |
-            hosted-provider-cargo-${{ hashFiles('deploy/docker/Cargo.lock.hosted-provider', 'deploy/docker/mdbase-rs-revision') }}-
-
-      - name: Inject hosted-provider Cargo cache mounts
-        if: matrix.component == 'hosted-provider'
-        uses: reproducible-containers/buildkit-cache-dance@5422eac04292c961a382e0f584ea0f03ad9da723 # v3.4.0
-        with:
-          builder: ${{ steps.buildx.outputs.name }}
-          cache-dir: hosted-provider-cache-mounts
-          dockerfile: deploy/docker/Dockerfile.hosted-provider
-          skip-extraction: ${{ steps.hosted-provider-cache.outputs.cache-hit }}
 
       - id: build
         name: Build and push immutable image

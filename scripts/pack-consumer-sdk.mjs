@@ -8,11 +8,10 @@ const packageDirectories = new Map([
   ["connect", "packages/client"],
   ["devkit", "packages/devkit"],
   ["protocol", "packages/protocol"],
-  ["sync", "packages/sync"],
   ["testing", "packages/testing"],
   ["ui", "packages/app-ui"],
 ]);
-const defaultPackages = ["connect", "devkit", "protocol", "sync", "testing"];
+const defaultPackages = ["connect", "devkit", "protocol", "testing"];
 
 const options = parseArguments(process.argv.slice(2));
 const destination = resolve(options.destination);

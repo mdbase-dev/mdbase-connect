@@ -1,14 +1,12 @@
 import { FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES } from "@mdbase-dev/connect-protocol";
 import type { FastifyInstance } from "fastify";
 import type { DatabasePool } from "../../database-types.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import type { RelayHub } from "../relay/relay.js";
 
 export interface SystemRoutesOptions {
   db: DatabasePool;
   relay: Pick<RelayHub, "ready">;
-  hostedCollections: boolean;
-  hostedProvider?: Pick<HostedProviderClient, "ready">;
+  hostedCollections?: boolean;
   revision?: string;
   environment?: string;
   publicUrl: string;
@@ -45,9 +43,6 @@ export function registerSystemRoutes(
     try {
       await options.db.query("SELECT 1");
       await options.relay.ready();
-      if (options.hostedCollections && options.hostedProvider) {
-        await options.hostedProvider.ready();
-      }
       return { ok: true, service: "mdbase-connect" };
     } catch {
       return reply.code(503).send({

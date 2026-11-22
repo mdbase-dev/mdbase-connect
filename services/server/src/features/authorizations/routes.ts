@@ -1,12 +1,9 @@
 import { isNativeLoopbackOrigin } from "@mdbase-dev/connect-protocol/manifest";
-import { randomUUID } from "node:crypto";
 import { previewCollectionGrant } from "../grants/grant-planner.js";
-import { queueHostedGrantRevocation } from "../hosted/hosted-capability-lifecycle.js";
 import type {
   ApplicationNotifications,
   ApplicationProvisions,
   CollectionContractDescriptor,
-  CollectionTypeDescriptor,
   FileCapability,
   GrantEncryption,
   GrantScope
@@ -19,22 +16,12 @@ import { isCanonicalCollectionGrantScope } from "../grants/application-grant-sco
 import {
   accessView,
   COLLECTION_OPERATIONS,
-  requireCollectionAction,
-  resolveHostedCollectionAccess,
   resolveLocalCollectionAccess
 } from "../collections/collection-access.js";
 import {
   accountCollectionCreation,
-  listHostedCollectionsVisibleToUser,
-  listNativeCollectionsVisibleToUser,
-  resolveHostedCollection
+  listNativeCollectionsVisibleToUser
 } from "../collections/collection-catalog.js";
-import {
-  contractRequirements,
-  effectiveHostedContractDescriptors
-} from "../hosted/hosted.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
-import { hostedReplicaCollectionOperations } from "../hosted/hosted-replica-policy.js";
 import {
   canonicalUserCode,
   randomToken,
@@ -54,13 +41,11 @@ import {
   assertOperationsAllowedByApplication,
   contractsSatisfy,
   requiredContractsForRequirements,
-  requiredTypePackProvisions,
   requiresHostedCollection,
   rotateGrantEncryption
 } from "../grants/policy.js";
 import { declarationIdFromFamilyIdentity } from "../applications/identity.js";
 import { createLocalApprovalService, liveAuthorizationCollections } from "./local-collections.js";
-import { approveHostedAuthorization } from "./hosted-approval-service.js";
 import { unmigratedLocalCollection } from "../next/native-grant-target.js";
 import { approveNativeAuthorization, currentNativeSync, resolveNativeCollectionAccess } from "./native-approval-service.js";
 import { createNativeApprovalDelivery } from "./native-approval-delivery.js";
@@ -331,7 +316,6 @@ export function registerAuthorizationRoutes(
       operations: z.array(operationSchema)
     }).strict().parse(request.body);
     const connection = await options.db.connect();
-    let providerAttempt: string | null = null;
     let committed = false;
     let narrowed;
     try {
@@ -350,19 +334,9 @@ export function registerAuthorizationRoutes(
         provisions: ApplicationProvisions;
         allowed_types: string[] | null;
         file_capability: FileCapability | null;
-        application_origin: string;
-        proof_public_key: string;
-        application_authorization: import("@mdbase-dev/connect-protocol").ApplicationAuthorizationProof;
-        application_family_identity: string;
-        application_manifest_digest: string;
-        application_declaration?: unknown;
       }>(
         `SELECT g.id, g.operations, g.encryption, g.scope, g.file_capability,
-                g.application_origin, g.proof_public_key, g.application_authorization,
                 a.requirements, a.notifications, a.provisions,
-                a.family_identity AS application_family_identity,
-                a.manifest_digest AS application_manifest_digest,
-                a.application_declaration,
                 col.connector_id,
                 g.hosted_replica_id, replica.allowed_types
          FROM grants g
@@ -400,36 +374,7 @@ export function registerAuthorizationRoutes(
         current.provisions
       );
       if (current.hosted_replica_id) {
-        if (!options.hostedProvider) {
-          return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
-        }
-        const write = operations.some((operation) => ["create", "update", "delete", "rename", "create_type", "update_type", "apply_type_pack", "apply_collection_setup", "create_view_source", "update_view_source", "delete_view_source", "put_timer", "cancel_timer", "reconcile_timers"].includes(operation))
-          || current.file_capability?.actions.some((action) => ["add", "replace", "move", "delete"].includes(action)) === true;
-        // Never compensate a failed commit by restoring the previous (broader)
-        // provider policy: revoke instead, including ambiguous provider failures.
-        providerAttempt = current.hosted_replica_id;
-        await options.hostedProvider.updateApplicationReplica(current.hosted_replica_id, {
-          grantId,
-          mode: write ? "read_write" : "read_only",
-          allowedTypes: [],
-          contractScope: [],
-          fullCollection: true,
-          allowedOperations: hostedReplicaCollectionOperations(operations),
-          operationTransportProtocol:
-            current.application_authorization.binding.contracts.operation_transport,
-          operationTransportRecoveryProtocols:
-            current.application_authorization.binding.contracts
-              .operation_transport_recovery ?? [],
-          fileCapability: current.file_capability ?? undefined,
-          allowedOrigin: current.application_origin,
-          proofPublicKey: current.proof_public_key,
-          applicationDeclarationId: declarationIdFromFamilyIdentity(
-            current.application_family_identity
-          ),
-          applicationDeclarationDigest: `sha256:${current.application_manifest_digest}`,
-          applicationDeclaration: current.application_declaration,
-          applicationAuthorization: current.application_authorization
-        });
+        return reply.code(503).send(apiError("hosted_provider_unavailable", "Hosted application access is temporarily unavailable."));
       }
       const updated = await connection.query<{ id: string; operations: string[] }>(
         "UPDATE grants SET operations = $2::jsonb WHERE id = $1 RETURNING id, operations",
@@ -445,17 +390,6 @@ export function registerAuthorizationRoutes(
         if (!committed) await connection.query("ROLLBACK");
       } finally {
         connection.release();
-        if (!committed && providerAttempt) {
-          try {
-            await queueHostedGrantRevocation(options.db, user.id, grantId, "narrowing_failed");
-          } catch (error) {
-            // If persistence itself is unavailable, still attempt to close the
-            // data-authority boundary; never restore the earlier permissions.
-            await options.hostedProvider!.revokeReplica(providerAttempt);
-            throw error;
-          }
-          await options.drainProviderRevocations();
-        }
       }
     }
     if (narrowed.current.connector_id) await relay.pushPolicy(narrowed.current.connector_id);
@@ -719,54 +653,6 @@ export function registerAuthorizationRoutes(
     const local = hostedRequired
       ? { collections: [], unavailable_connectors: [] }
       : await liveAuthorizationCollections(options.db, relay, user.id, requestId);
-    const hosted = options.hostedCollections
-      ? (await listHostedCollectionsVisibleToUser(options.db, user.id))
-          .filter((collection) =>
-            collection.locator.authorityState === "active"
-          )
-      : [];
-    const hostedCollections = await Promise.all(hosted.map(async (collection) => {
-      const access = requireCollectionAction(
-        await resolveHostedCollectionAccess(
-          options.db,
-          user.id,
-          collection.locator.collectionId
-        ),
-        "application.authorize"
-      );
-      const contracts = effectiveHostedContractDescriptors(
-        collection.contracts,
-        collection.template
-      );
-      const provisions = requiredTypePackProvisions(
-        authorization.rows[0].requirements,
-        authorization.rows[0].provisions,
-        contractRequirements(contracts)
-      );
-      const types = options.hostedProvider && provisions?.length
-        ? await hostedTypeCandidates(
-            options.hostedProvider,
-            collection.locator.collectionId
-          )
-        : [];
-      return {
-        id: collection.locator.collectionId,
-        display_name: collection.locator.displayName,
-        template: collection.template,
-        kind: "hosted" as const,
-        connector_name: "Cloud copy",
-        spec_version: "0.3.0",
-        contracts: contractRequirements(contracts),
-        types,
-        access: accessView(access),
-        authorization: previewCollectionGrant({
-          applicationOperationCeiling: authorization.rows[0].requested_operations,
-          applicationFileCeiling: applicationFileCeiling ?? undefined,
-          requirements: authorization.rows[0].requirements,
-          access
-        })
-      };
-    }));
     // Synced native collections, Private or cloud copy. The control plane never
     // reads their types (Private ones are end-to-end encrypted; a cloud copy lives
     // on its hosted replica): the app checks them once connected. Neither needs
@@ -800,7 +686,6 @@ export function registerAuthorizationRoutes(
         }))).flat();
     const availableCollections = [
       ...local.collections,
-      ...hostedCollections,
       ...nativeCollections
     ];
     return {
@@ -813,7 +698,7 @@ export function registerAuthorizationRoutes(
       collection_creation_available: (await accountCollectionCreation(options.db, user.id, options)).available,
       unavailable_connectors: local.unavailable_connectors,
       collections: hostedRequired
-        ? availableCollections.filter((collection) => collection.kind === "hosted" || collection.kind === "cloud_copy")
+        ? availableCollections.filter((collection) => collection.kind === "cloud_copy")
         : availableCollections
     };
   });
@@ -917,37 +802,7 @@ export function registerAuthorizationRoutes(
       });
       if (approved) await nativeDelivery.authorization(requestId);
     } else {
-      const access = await resolveHostedCollectionAccess(
-        options.db,
-        user.id,
-        input.collection_id
-      );
-      const hosted = await resolveHostedCollection(
-        options.db,
-        input.collection_id
-      );
-      if (
-        !access
-        || !hosted
-        || hosted.locator.authorityState !== "active"
-        || !options.hostedProvider
-      ) {
-        return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
-      }
-      requireCollectionAction(access, "application.authorize");
-      if (input.contract_setups.length > 0) {
-        requireCollectionAction(access, "schema.manage");
-      }
-      approved = await approveHostedAuthorization(options.db, options.hostedProvider, {
-        requestId,
-        userId: user.id,
-        collectionId: input.collection_id,
-        operations: input.operations,
-        fileActions: input.file_actions,
-        peoplePermissions: input.people_permissions,
-        contractSetups: input.contract_setups,
-        access
-      });
+      return reply.code(404).send(apiError("collection_not_found", "Collection not found."));
     }
     if (!approved) return reply.code(404).send(apiError("authorization_not_found", "Authorization request expired or was not found."));
     return { ok: true };
@@ -991,17 +846,6 @@ async function denyAuthorization(
     source: input.source
   });
   return true;
-}
-
-async function hostedTypeCandidates(
-  provider: HostedProviderClient,
-  collectionId: string
-): Promise<CollectionTypeDescriptor[]> {
-  try {
-    return await provider.collectionTypeCandidates(collectionId);
-  } catch {
-    return [];
-  }
 }
 
 function refusalOf(payload: string): { code: string; message: string } | null {

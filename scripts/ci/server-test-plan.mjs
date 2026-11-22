@@ -4,12 +4,11 @@ import { pathToFileURL } from "node:url";
 import { systemSuites } from "../../test/system/suites.mjs";
 
 // Pull requests opt into full qualification when they change native Rust,
-// engine, or system-suite inputs, so merge-queue-only failures surface before
+// runtime, or system-suite inputs, so merge-queue-only failures surface before
 // queueing. This only adds PR coverage: merge-queue commits always run full
 // qualification, so an input missing here delays feedback but never skips a
 // release gate.
 const nativePrefixes = [
-  "crates/",
   "runtime/crates/log-",
   "runtime/crates/wire/",
   "runtime/deploy/cloudflare-do/",
@@ -18,39 +17,20 @@ const nativePrefixes = [
   ".cargo/",
   "rust-toolchain",
   "deploy/docker/",
-  "deploy/postgres/",
-  "test/system/",
-  "test/upgrade/"
+  "test/system/"
 ];
 const nativeFiles = new Set([
-  "Cargo.toml",
-  "Cargo.lock",
   "runtime/Cargo.toml",
   "runtime/Cargo.lock",
   "runtime/rust-toolchain.toml",
-  "scripts/check-cargo-features",
-  "scripts/ci/hosted-provider-postgres-tests",
-  "scripts/ci/provider-migration-rollback-gate",
-  ".github/previous-release.env",
-  ".github/retained-v2-predecessor.env",
   ".github/workflows/server-ci.yml",
   ...Object.values(systemSuites).map((suite) => suite.command[1])
 ]);
 
-// The control plane and protocol talk to the hosted-provider image pinned in
-// deploy/docker/hosted-provider-image; a pull request changing them runs the
-// pinned-provider suite even when it selects no other native qualification.
-const providerContractPrefixes = [
-  "services/server/",
-  "packages/protocol/",
-  "scripts/pinned-hosted-provider.mjs"
-];
-
 export function serverTestPlan(paths) {
   return {
     native: paths.some((path) => nativeFiles.has(path)
-      || nativePrefixes.some((prefix) => path.startsWith(prefix))),
-    providerContract: paths.some((path) => providerContractPrefixes.some((prefix) => path.startsWith(prefix)))
+      || nativePrefixes.some((prefix) => path.startsWith(prefix)))
   };
 }
 

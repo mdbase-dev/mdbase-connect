@@ -12,7 +12,6 @@ import { collectionModeDigest } from "./collection-mode-proof.js";
 import { generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
 import { serializeOps } from "./policy-outbox.js";
-import { migrationDeployments } from "./migration-routing.js";
 import { pitrDeployments } from "./lab-pitr-config.js";
 import { chainHash, type PolicyOp } from "./policy-wire.js";
 import { armModeFloor, ModeDevicesNeedUpdate } from "./collection-mode-capability.js";
@@ -57,8 +56,7 @@ async function batch(options: CloudCopyBootstrapOptions, collection: string, out
  * observations (or an idempotent cache retirement), never activation/caught_up. */
 async function services(options: CloudCopyBootstrapOptions, collection: string, records: ServiceDeviceRecord[], operation: "ready" | "retire", epoch: string): Promise<void> {
   if (!options.next.cloudCopyBootstrap) throw new CreateError(503, "not_ready");
-  const deployments = await migrationDeployments(options.db, pitrDeployments(options.next.cloudCopyBootstrap, options.next.logService.labPitr, collection), options.next.migrationRouting, collection);
-  if (!deployments) throw new CreateError(409, "migration_routing_retired");
+  const deployments = pitrDeployments(options.next.cloudCopyBootstrap, options.next.logService.labPitr, collection);
   for (const record of records) {
     const deployment = deployments[record.kind];
     const url = new URL(`internal/v1/collection-mode/${operation}`, `${deployment.url.replace(/\/+$/u, "")}/`);

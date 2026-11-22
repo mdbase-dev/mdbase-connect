@@ -12,12 +12,6 @@ import { invitationStatus } from "../instance-admin/instance-admin-invitations.j
 
 interface UsageReportContext {
   db: DatabasePool;
-  // The part of HostedProviderClient this report reads.
-  hostedProvider?: {
-    protocolUsage(): Promise<{
-      entries: Array<{ account_id: string; last_seen_at: string }>;
-    }>;
-  };
 }
 
 type Timestamp = Date | string;
@@ -107,9 +101,7 @@ export async function usageReport(
     transports,
     authorizations,
     pairings,
-    pairingChallenges,
-    storageAccounts,
-    hostedUsage
+    pairingChallenges
   ] = await Promise.all([
     db.query<{
       id: string;
@@ -279,13 +271,7 @@ export async function usageReport(
        JOIN pairing_requests p ON p.id = i.pairing_id
        WHERE p.expires_at >= $1`,
       [new Date(start - MAX_AUTHORIZATION_LIFETIME_MS)]
-    ),
-    db.query<{ user_id: string; provider_account_id: string }>(
-      "SELECT user_id, provider_account_id FROM account_storage_accounts"
-    ),
-    // Hosted operations never pass through the control plane; the provider
-    // keeps their protocol counts per storage account.
-    context.hostedProvider?.protocolUsage() ?? null
+    )
   ]);
 
   // Test accounts exercise production through the real apps. None of their
@@ -316,7 +302,6 @@ export async function usageReport(
   withoutTestAccounts(transports, (row) => row.user_id);
   withoutTestAccounts(authorizations, (row) => row.user_id);
   withoutTestAccounts(pairings, (row) => row.user_id);
-  withoutTestAccounts(storageAccounts, (row) => row.user_id);
   const companionNonces = new Set(
     pairingChallenges.rows.map((row) => row.challenge.toString("base64url"))
   );
@@ -332,19 +317,9 @@ export async function usageReport(
     ...grants.rows.filter((grant) => grant.activated_at).map((grant) => grant.user_id),
     ...installations.rows.map((row) => row.user_id)
   ]);
-  const userByStorageAccount = new Map(
-    storageAccounts.rows.map((row) => [row.provider_account_id, row.user_id])
-  );
-  const hostedUsers = hostedUsage === null ? null : new Set(
-    hostedUsage.entries
-      .filter((entry) => instant(entry.last_seen_at) >= start)
-      .map((entry) => userByStorageAccount.get(entry.account_id))
-      .filter((userId): userId is string => userId !== undefined)
-  );
   const activeUsers = new Set([
     ...transports.rows.map((row) => row.user_id),
-    ...deviceDays.rows.map((row) => row.user_id),
-    ...hostedUsers ?? []
+    ...deviceDays.rows.map((row) => row.user_id)
   ]);
   for (const { grant_id } of tokenGrants.rows) {
     const grant = grantsById.get(grant_id);
@@ -619,7 +594,7 @@ export async function usageReport(
     transport_users_in_window: {
       direct: surfaceUsers("direct"),
       relay: surfaceUsers("relay"),
-      hosted: hostedUsers?.size ?? null,
+      hosted: null,
       native: {
         desktop: deviceUsers("desktop"),
         cli: deviceUsers("cli"),

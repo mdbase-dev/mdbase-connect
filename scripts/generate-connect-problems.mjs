@@ -6,14 +6,12 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const catalogPath = resolve(root, "packages/protocol/schemas/connect-problems.v1.catalog.json");
 const schemaPath = resolve(root, "packages/protocol/schemas/connect-problem.v1.schema.json");
 const typescriptPath = resolve(root, "packages/protocol/src/connect-problems.generated.ts");
-const rustPath = resolve(root, "crates/connect-protocol/src/connect_problems_generated.rs");
 const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
 const check = process.argv.includes("--check");
 
 validateCatalog(catalog);
 emit(schemaPath, `${JSON.stringify(problemSchema(catalog), null, 2)}\n`);
 emit(typescriptPath, typescriptSource(catalog));
-emit(rustPath, rustSource(catalog));
 const quotaMessage = readFileSync(resolve(root, "runtime/docs/account-collection-quota-message.txt"), "utf8").trim();
 const quotaConstant = `export const ACCOUNT_COLLECTION_QUOTA_MESSAGE = ${JSON.stringify(quotaMessage)};\n`;
 emit(resolve(root, "runtime/packages/sdk/src/collection-quota-copy.generated.ts"), quotaConstant);

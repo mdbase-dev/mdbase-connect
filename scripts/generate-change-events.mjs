@@ -34,8 +34,7 @@ for (const [name, fields] of Object.entries(catalog.payloads)) {
   rs += "}\n\n";
 }
 for (const [path, source] of [
-  ["packages/protocol/src/change-events.generated.ts", ts.trimEnd() + "\n"],
-  ["crates/connect-protocol/src/change_events_generated.rs", rs.trimEnd() + "\n"]
+  ["packages/protocol/src/change-events.generated.ts", ts.trimEnd() + "\n"]
 ]) {
   const absolute = resolve(root, path);
   if (process.argv.includes("--check")) {

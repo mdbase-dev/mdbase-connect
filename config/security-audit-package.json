@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "status": "internal-preparation",
-  "asOf": "2026-08-05",
+  "asOf": "2026-11-22",
   "independentReview": false,
   "scope": {
     "repository": "mdbase-dev/mdbase-connect",
@@ -9,12 +9,11 @@
       "signed application identity, authorization, and connector continuity",
       "relay encryption and replay protection",
       "local connector authorization",
-      "hosted-provider authorization and encryption",
+      "hosted replica and blind log authorization and encryption",
       "managed key wrapping and rotation",
       "release artifact integrity"
     ],
     "excluded": [
-      "mdbase-rs collection semantics except where invoked at an authority boundary",
       "cloud infrastructure implementation, which is maintained in the private mdbase-cloud-ops repository",
       "an independent security assessment or penetration test"
     ]
@@ -25,13 +24,11 @@
       "title": "Application-signed authorization ceiling",
       "authority": "The application installation signs the maximum requested authority; the portal may narrow it but cannot broaden it.",
       "sources": [
-        "crates/connect-protocol/src/application_authorization.rs",
         "packages/protocol/src/application-authorization.ts",
         "services/server/src/application-authorization.ts",
         "services/server/src/features/authorizations/approval-service.ts"
       ],
       "tests": [
-        "crates/connect-protocol/src/tests.rs",
         "services/server/src/application-authorization.test.ts",
         "services/server/src/features/authorizations/live-authorization.test.ts"
       ],
@@ -42,7 +39,7 @@
     {
       "id": "identity-continuity",
       "title": "Stable application and connector identity continuity",
-      "authority": "A stable application installation key signs each fresh grant request; applications pin the connector public key on first successful authorization and reject silent replacement.",
+      "authority": "A stable application installation key signs each fresh grant request; legacy clients pin the connector public key on first successful authorization and reject silent replacement.",
       "sources": [
         "packages/client/src/application-identity.ts",
         "packages/client/src/connect.ts",
@@ -63,7 +60,6 @@
       "title": "Application-to-connector encrypted relay",
       "authority": "The control plane routes authenticated ciphertext; the connector decrypts and then applies its exact local grant.",
       "sources": [
-        "crates/connect-protocol/src/crypto.rs",
         "packages/client/src/crypto.ts",
         "services/server/src/features/relay/relay.ts",
         "runtime/crates/daemon/src/relay.rs",
@@ -73,7 +69,6 @@
       ],
       "tests": [
         "packages/client/src/crypto.test.ts",
-        "crates/connect-protocol/src/tests.rs",
         "runtime/crates/daemon/tests/relay.rs",
         "runtime/crates/daemon/tests/relay_first_open.rs",
         "scripts/relay-e2e.mjs"
@@ -103,7 +98,7 @@
     {
       "id": "control-plane-policy",
       "title": "Control-plane authentication, consent, and routing",
-      "authority": "The portal selects and narrows grants; server routing checks cannot replace the final connector or hosted-provider check.",
+      "authority": "The portal selects and narrows grants; server routing checks cannot replace the final connector or hosted-replica check.",
       "sources": [
         "services/server/src/features/authorizations/routes.ts",
         "services/server/src/features/authorizations/approval-service.ts",
@@ -119,19 +114,17 @@
     },
     {
       "id": "hosted-encryption",
-      "title": "Hosted-provider authorization and content encryption",
-      "authority": "The hosted provider verifies the exact replica capability and proof before decrypting and executing through mdbase-rs.",
+      "title": "Hosted replica and blind log authorization and encryption",
+      "authority": "The hosted replica validates policy and Noise sessions over sealed log items; the blind log service cannot depend on core semantics or read plaintext.",
       "sources": [
-        "crates/connect-hosted-provider/src/provider/capabilities.rs",
-        "crates/connect-hosted-provider/src/provider/crypto_state.rs",
-        "crates/connect-hosted-provider/src/symmetric_crypto.rs",
+        "runtime/crates/hosted-worker/src/lib.rs",
+        "runtime/crates/log-service/src/lib.rs",
+        "runtime/crates/replica/src/crypto/mod.rs",
         "services/server/src/features/authority-transfer/authority-proof.ts"
       ],
       "tests": [
-        "crates/connect-hosted-provider/src/provider/tests.rs",
-        "services/server/src/features/authority-transfer/authority-proof.test.ts",
-        "scripts/hosted-provider-e2e.mjs",
-        "scripts/hosted-files-e2e.mjs"
+        "runtime/crates/hosted-worker/src/tests.rs",
+        "services/server/src/features/authority-transfer/authority-proof.test.ts"
       ],
       "fixtures": [
         "packages/protocol/test/fixtures/file-crypto-v1.json"
@@ -140,16 +133,16 @@
     {
       "id": "managed-key-wrapping",
       "title": "Hosted data-key wrapping",
-      "authority": "AWS KMS wraps only per-collection data keys under an exact environment, purpose, collection, and envelope-version context.",
+      "authority": "AWS KMS wraps hosted service custody keys under exact authenticated context.",
       "sources": [
-        "crates/connect-hosted-provider/src/key_wrapping/mod.rs",
-        "crates/connect-hosted-provider/src/key_wrapping/envelope.rs",
-        "crates/connect-hosted-provider/src/key_wrapping/aws.rs",
-        "crates/connect-hosted-provider/src/key_admin.rs"
+        "runtime/deploy/hosted-worker/src/custody/aws-kms.ts",
+        "runtime/deploy/hosted-worker/src/custody/envelope.ts",
+        "runtime/deploy/hosted-worker/src/custody/hosted-custody.ts"
       ],
       "tests": [
-        "crates/connect-hosted-provider/src/key_wrapping/tests.rs",
-        "crates/connect-hosted-provider/src/key_admin.rs"
+        "runtime/deploy/hosted-worker/src/custody/aws-kms.test.ts",
+        "runtime/deploy/hosted-worker/src/custody/envelope.test.ts",
+        "runtime/deploy/hosted-worker/src/custody/hosted-custody.test.ts"
       ],
       "fixtures": []
     },
@@ -175,19 +168,19 @@
       "id": "authorization-proof-v2",
       "construction": "P-256 ECDSA with SHA-256 and canonical 64-byte IEEE-P1363 low-S signatures over a domain-separated, length-delimited transcript",
       "binding": "protocol, authorization, application, manifest, stable installation signing identity, fresh grant agreement and signing keys, flow, nonce, lifetime, redirect and state, PKCE challenge, requested operations and files, and optional collection",
-      "source": "crates/connect-protocol/src/application_authorization.rs"
+      "source": "packages/protocol/src/application-authorization.ts"
     },
     {
       "id": "relay-encryption-v1",
-      "construction": "P-256 ECDH, separate HKDF-SHA-256 request and response keys, AES-256-GCM, and a monotonic counter encoded into the 96-bit nonce",
-      "binding": "protocol, suite, grant, application, connector, collection, scope epoch, key ID, request ID, direction, operation, and counter",
-      "source": "crates/connect-protocol/src/crypto.rs"
+      "construction": "Noise IK over X25519/ChaCha20-Poly1305 for runtime sessions; P-256 ECDH + HKDF-SHA-256 + AES-256-GCM for legacy clients",
+      "binding": "protocol, suite, grant, application, device, collection, and session prologue",
+      "source": "runtime/crates/noise/src/lib.rs"
     },
     {
-      "id": "hosted-content-v1",
-      "construction": "Random 256-bit per-collection DEK with AES-256-GCM and a random 96-bit nonce; HMAC-SHA-256 keyed path tokens",
-      "binding": "kind-specific associated data binds ciphertext to collection, resource, record, file, sequence, replica, mutation, transfer, or import identity",
-      "source": "crates/connect-hosted-provider/src/provider/crypto_state.rs"
+      "id": "sealed-log-v1",
+      "construction": "Per-epoch collection keys, ChaCha20-Poly1305 in age v1 STREAM framing, HPKE key wrapping, and Ed25519 signatures over canonical mdb-cbor/1",
+      "binding": "domain-separated SHA-256 tags bind collection, seq, prev chain hash, epoch, object kind, and policy root",
+      "source": "runtime/crates/replica/src/crypto/mod.rs"
     },
     {
       "id": "authority-request-proof-v1",
@@ -197,9 +190,9 @@
     },
     {
       "id": "aws-kms-v1",
-      "construction": "AWS KMS symmetric Encrypt/Decrypt of locally generated 256-bit DEKs in a bounded self-describing envelope containing the immutable key ARN",
+      "construction": "AWS KMS symmetric Encrypt/Decrypt of hosted custody keys in a bounded self-describing envelope containing the immutable key ARN",
       "binding": "service, environment, purpose, collection identity where applicable, and envelope version",
-      "source": "crates/connect-hosted-provider/src/key_wrapping/aws.rs"
+      "source": "runtime/deploy/hosted-worker/src/custody/aws-kms.ts"
     }
   ],
   "controlPlaneVisibility": {
@@ -217,14 +210,10 @@
     ]
   },
   "reproduction": [
-    "cargo test --workspace",
     "pnpm typecheck",
     "pnpm test",
     "pnpm e2e",
     "pnpm e2e:relay",
-    "pnpm e2e:provider",
-    "pnpm e2e:files",
-    "pnpm e2e:desktop:container",
     "pnpm test:browser-storage",
     "pnpm package:audit",
     "pnpm check:release-readiness"
@@ -263,7 +252,7 @@
     },
     {
       "id": "standard-hosted-provider-trust",
-      "description": "The standard hosted provider can decrypt collection content; private zero-knowledge hosting is not implemented."
+      "description": "Cloud-copy collections trust the hosted Worker replica with collection keys; Private collections keep keys off mdbase servers."
     },
     {
       "id": "no-key-transparency",

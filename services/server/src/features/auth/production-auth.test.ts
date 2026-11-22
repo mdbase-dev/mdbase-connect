@@ -1,8 +1,6 @@
-import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
-import { tokenHash } from "../../security.js";
 
 const resources: Array<() => Promise<void>> = [];
 
@@ -195,119 +193,6 @@ describe("production GitHub authentication", () => {
       headers: { cookie }
     });
     expect(dashboard.json().hosted_collections_available).toBe(false);
-  });
-
-  it("manages the complete hosted collection and receive-only mirror lifecycle", async () => {
-    const db = await createDatabase("memory");
-    resources.push(() => db.end());
-    const { app } = await buildApp({
-      db,
-      devAuth: true,
-      hostedCollections: true,
-      hostedReferenceAuthority: true,
-      publicUrl: "http://127.0.0.1:8787"
-    });
-    resources.push(() => app.close());
-    const login = await app.inject({
-      method: "POST",
-      url: "/v1/dev/session",
-      payload: { name: "Hosted user", email: "hosted@example.com" }
-    });
-    const cookie = cookiePair(responseCookies(login)[0]);
-    const created = await app.inject({
-      method: "POST",
-      url: "/v1/hosted/collections",
-      headers: { cookie },
-      payload: { display_name: "Writing", timezone: "Australia/Melbourne" }
-    });
-    expect(created.statusCode).toBe(201);
-    const collectionId = created.json().collection.id as string;
-    const enrolled = await app.inject({
-      method: "POST",
-      url: `/v1/hosted/collections/${collectionId}/replicas`,
-      headers: { cookie },
-      payload: {
-        name: "Laptop mirror",
-        mode: "read_only",
-        allowed_types: []
-      }
-    });
-    expect(enrolled.statusCode).toBe(201);
-    expect(enrolled.json().token).toMatch(/^hsr_/);
-    const replicaId = enrolled.json().replica.id as string;
-    const dashboard = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
-    expect(dashboard.json().hosted_collections).toEqual([
-      expect.objectContaining({
-        id: collectionId,
-        display_name: "Writing",
-        template: "mdbase",
-        contracts: [],
-        replicas: [expect.objectContaining({ id: replicaId, mode: "read_only" })]
-      })
-    ]);
-    const renamed = await app.inject({
-      method: "PATCH",
-      url: `/v1/hosted/collections/${collectionId}`,
-      headers: { cookie },
-      payload: { display_name: "Renamed collection" }
-    });
-    expect(renamed.json().collection.display_name).toBe("Renamed collection");
-    const rotated = await app.inject({
-      method: "POST",
-      url: `/v1/hosted/replicas/${replicaId}/token`,
-      headers: { cookie }
-    });
-    expect(rotated.json().token).toMatch(/^hsr_/);
-    expect(rotated.json().token).not.toBe(enrolled.json().token);
-
-    // A folder paired in the browser before pairing was removed renews with
-    // the secret of its consumed pairing row.
-    const pairingId = randomUUID();
-    await db.query(
-      `INSERT INTO mirror_pairing_requests
-         (id, secret_hash, mirror_name, mode, user_id, collection_id,
-          replica_id, approved_at, consumed_at, expires_at)
-       SELECT $1, $2, name, mode, authorized_user_id, collection_id, id, now(), now(), now()
-       FROM hosted_replicas WHERE id = $3`,
-      [pairingId, tokenHash("mirror-refresh-secret"), replicaId]
-    );
-    const renew = (headers: Record<string, string>) => app.inject({
-      method: "POST",
-      url: `/v1/mirror-pairing-requests/${pairingId}/renew`,
-      headers
-    });
-    const unauthenticated = await renew({});
-    expect(unauthenticated.statusCode).toBe(401);
-    expect(unauthenticated.json().error.code).toBe("invalid_mirror_pairing");
-    const renewed = await renew({ authorization: "Bearer mirror-refresh-secret" });
-    expect(renewed.statusCode, renewed.body).toBe(200);
-    expect(renewed.json()).toMatchObject({
-      status: "paired",
-      replica: { id: replicaId, collection_id: collectionId },
-      sync_url: `http://127.0.0.1:8787/v1/authorities/${collectionId}/sync`
-    });
-    expect(renewed.json().token).toMatch(/^hsr_/);
-    expect(renewed.json().token).not.toBe(rotated.json().token);
-    expect(Date.parse(renewed.json().token_expires_at)).toBeGreaterThan(Date.now() + 29 * 24 * 60 * 60 * 1_000);
-    expect((await db.query<{ token_hash: string }>(
-      "SELECT token_hash FROM hosted_replicas WHERE id = $1", [replicaId]
-    )).rows[0]?.token_hash).toBe(tokenHash(renewed.json().token));
-
-    expect((await app.inject({
-      method: "DELETE",
-      url: `/v1/hosted/replicas/${replicaId}`,
-      headers: { cookie }
-    })).statusCode).toBe(200);
-    const afterDisconnect = await renew({ authorization: "Bearer mirror-refresh-secret" });
-    expect(afterDisconnect.statusCode).toBe(404);
-    expect(afterDisconnect.json().error.code).toBe("mirror_pairing_not_found");
-    expect((await app.inject({
-      method: "DELETE",
-      url: `/v1/hosted/collections/${collectionId}`,
-      headers: { cookie }
-    })).statusCode).toBe(200);
-    const empty = await app.inject({ method: "GET", url: "/v1/me", headers: { cookie } });
-    expect(empty.json().hosted_collections).toEqual([]);
   });
 });
 

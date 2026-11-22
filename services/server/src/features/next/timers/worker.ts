@@ -8,9 +8,7 @@ import {
   type TimerGrantResolver
 } from "./grants.js";
 import { cancelRevokedGrantTimers } from "./store.js";
-import { requireTimerMigrationEffects } from "./migration-effects.js";
 import { legacyTaskReminderRetired } from "./tasknotes-retirement.js";
-import { InvitationMigrationPending } from "../migration-sharing.js";
 
 /**
  * Fires due timers and hands each fired generation to consumers through the
@@ -206,7 +204,6 @@ export class TimerWorker {
           await connection.query("BEGIN");
           await connection.query("SET LOCAL lock_timeout = '5s'");
           await connection.query("SET LOCAL statement_timeout = '5s'");
-          await requireTimerMigrationEffects(connection, row.grant_id);
           // Native resolution holds current principal/policy/consent locks before
           // any timer row is written; legacy resolution retains its own semantics.
           const current = await resolver.resolve(connection, row.grant_id);
@@ -280,13 +277,6 @@ export class TimerWorker {
           fired += 1;
         } catch (error) {
           await connection.query("ROLLBACK");
-          if (error instanceof InvitationMigrationPending) {
-            // Leave the timer untouched, but don't let this grant occupy the
-            // batch again during this pass. Completion is rechecked next tick.
-            migrationPending.add(row.grant_id);
-            remaining += 1;
-            continue;
-          }
           throw error;
         } finally {
           connection.release();
@@ -317,7 +307,6 @@ export class TimerWorker {
         await connection.query("BEGIN");
         await connection.query("SET LOCAL lock_timeout = '5s'");
         await connection.query("SET LOCAL statement_timeout = '5s'");
-        await requireTimerMigrationEffects(connection, row.grant_id);
         // Receipt insertion is a write too. Hold native policy first, including
         // when consuming an unusable event without producing a signal.
         await resolver.resolve(connection, row.grant_id);
@@ -346,7 +335,6 @@ export class TimerWorker {
         handled += 1;
       } catch (error) {
         await connection.query("ROLLBACK");
-        if (error instanceof InvitationMigrationPending) continue;
         throw error;
       } finally {
         connection.release();
@@ -467,13 +455,11 @@ export class TimerWorker {
       await connection.query("BEGIN");
       await connection.query("SET LOCAL lock_timeout = '5s'");
       await connection.query("SET LOCAL statement_timeout = '5s'");
-      await requireTimerMigrationEffects(connection, grantId);
       const changed = await mutate(connection);
       await connection.query("COMMIT");
       return changed;
     } catch (error) {
       await connection.query("ROLLBACK");
-      if (error instanceof InvitationMigrationPending) return 0;
       throw error;
     } finally {
       connection.release();

@@ -1,9 +1,7 @@
 import type { DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 
 interface CompatibilityReportContext {
   db: DatabasePool;
-  hostedProvider?: HostedProviderClient;
 }
 
 export function reportWindowDays(
@@ -108,27 +106,7 @@ export async function compatibilityReport(
     hostedCollections.rows[0]?.count ?? 0,
     "hosted collection count"
   );
-  const providerReport = context.hostedProvider
-    ? await context.hostedProvider.protocolUsage()
-    : null;
-  const userByProviderAccount = new Map(
-    storageAccounts.rows.map((row) => [row.provider_account_id, row.user_id])
-  );
   const unmappedHostedAccounts = new Set<string>();
-  for (const entry of providerReport?.entries ?? []) {
-    const lastSeenAt = isoTimestamp(entry.last_seen_at);
-    if (new Date(lastSeenAt) < observationStart) continue;
-    const userId = userByProviderAccount.get(entry.account_id);
-    if (!userId) unmappedHostedAccounts.add(entry.account_id);
-    addProtocolAggregate(aggregates, {
-      surface: "hosted",
-      protocolVersion: entry.protocol_version,
-      samples: safeCount(entry.sample_count, "hosted protocol sample count"),
-      userId,
-      firstSeenAt: isoTimestamp(entry.first_seen_at),
-      lastSeenAt
-    });
-  }
 
   const connectorVersions = new Map<string, {
     connectors: number;
@@ -205,10 +183,9 @@ export async function compatibilityReport(
     : null;
   const observationComplete = observationStartedAt !== null
     && new Date(observationStartedAt) <= observationStart;
-  const providerTelemetryAvailable = providerReport !== null || hostedCollectionCount === 0;
-  const unboundHostedReplicas = providerReport?.unbound_application_replicas ?? null;
-  const hostedV2RecoveryReplicas =
-    providerReport?.v2_recovery_application_replicas ?? null;
+  const providerTelemetryAvailable = hostedCollectionCount === 0;
+  const unboundHostedReplicas = 0;
+  const hostedV2RecoveryReplicas = 0;
   const gates = [
     {
       name: "observation_window_complete",

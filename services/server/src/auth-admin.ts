@@ -6,11 +6,9 @@ import { compatibilityReport } from "./features/instance-admin/auth-admin-compat
 import { diagnoseCollections } from "./features/instance-admin/collection-diagnostics.js";
 import type { RelayBroker } from "./features/relay/relay-broker.js";
 import { usageReport } from "./features/usage/usage-report.js";
-import { drainArchiveErasures } from "./features/instance-admin/archive-erasure-admin.js";
 import {
   backfillFreeEntitlement,
-  inspectAccountEntitlements,
-  reconcileActiveHostedEntitlements
+  inspectAccountEntitlements
 } from "./features/instance-admin/auth-admin-entitlements.js";
 import {
   announcementContent,
@@ -29,11 +27,7 @@ import {
 import { PasswordAccountService } from "./features/auth/password-auth.js";
 import { normalizeEmailAddress } from "./features/auth/email-identity.js";
 import type { RegistrationMode } from "./platform/runtime-config.js";
-import type { HostedProviderClient } from "./features/hosted/hosted-provider.js";
-import {
-  grantOperatorEntitlement,
-  reconcileHostedAccountCollections
-} from "./features/account/entitlements.js";
+import { grantOperatorEntitlement } from "./features/account/entitlements.js";
 import {
   EmailDeliveryError,
   type EmailTransport
@@ -59,7 +53,6 @@ interface AuthAdminContext {
   emailTransport?: EmailTransport;
   hostedReplicaRevoker?: HostedReplicaRevoker;
   connectorSessionFencer?: ConnectorSessionFencer;
-  hostedProvider?: HostedProviderClient;
   relayBroker?: Pick<RelayBroker, "request">;
 }
 export async function runAuthAdminCommand(
@@ -78,11 +71,6 @@ async function runCommand(
   if (area === "request" && action && allowRequestEnvelope) {
     requireNoArguments(rest);
     return runCommand(decodeRequestEnvelope(action), context, false);
-  }
-  if (area === "archive" && action === "drain-deletions") {
-    const flags = parseFlags(rest, new Set(["cohort", "expected-revision", "operation-id", "actor", "reason"]));
-    return drainArchiveErasures(context.db, context.hostedProvider, context.runtimeRevision,
-      { ...mutationFlags(flags), cohort: requiredFlag(flags, "cohort"), expectedRevision: requiredFlag(flags, "expected-revision") });
   }
   if (area === "repairs" && action === "authority-import-sources") {
     const flags = parseFlags(rest, new Set([
@@ -141,9 +129,6 @@ async function runCommand(
   }
   if (area === "entitlements" && action === "grant") {
     return grantEntitlements(rest, context);
-  }
-  if (area === "entitlements" && action === "reconcile") {
-    return reconcileEntitlements(rest, context);
   }
   if (area === "entitlements" && action === "backfill-free") {
     const flags = parseFlags(rest, new Set(["operation-id", "actor", "reason", "limit"]));
@@ -239,7 +224,7 @@ async function showEntitlements(
 ): Promise<unknown> {
   const flags = parseFlags(argv, new Set(["user"]));
   const found = await instanceAdmin(context).showUser(requiredFlag(flags, "user"));
-  return inspectAccountEntitlements(context.db, context.hostedProvider, found.user);
+  return inspectAccountEntitlements(context.db, found.user);
 }
 
 async function grantEntitlements(
@@ -257,23 +242,10 @@ async function grantEntitlements(
     actor: requiredFlag(flags, "actor"),
     reason: requiredFlag(flags, "reason")
   });
-  const backend = await context.db.query<{ account_backend: string }>(
-    "SELECT account_backend FROM users WHERE id = $1",
-    [found.user.id]
-  );
-  // A next account's storage is not held by the legacy provider, which also
-  // refuses plans above its 1 GiB cap, so only legacy accounts reconcile there.
-  const reconciliation = context.hostedProvider && backend.rows[0]?.account_backend === "legacy"
-    ? await reconcileHostedAccountCollections(
-        context.db,
-        context.hostedProvider,
-        found.user.id
-      )
-    : null;
   return {
     user_id: found.user.id,
     ...result,
-    reconciliation
+    reconciliation: null
   };
 }
 
@@ -297,86 +269,6 @@ async function showAnnouncement(argv: string[], context: AuthAdminContext): Prom
     subject: content.subject,
     text: content.paragraphs.join("\n\n")
   };
-}
-
-async function reconcileEntitlements(
-  argv: string[],
-  context: AuthAdminContext
-): Promise<unknown> {
-  if (!context.hostedProvider) {
-    throw new AuthAdminUsageError(
-      "Entitlement reconciliation requires a configured hosted provider."
-    );
-  }
-  const flags = parseFlags(argv, new Set([
-    "user", "all", "active-hosted", "operation-id", "actor", "reason"
-  ]));
-  const operationId = requiredFlag(flags, "operation-id");
-  const actor = requiredFlag(flags, "actor");
-  const reason = requiredFlag(flags, "reason");
-  const all = flags.has("all")
-    && enabledFlag(requiredFlag(flags, "all"), "all");
-  const activeHosted = flags.has("active-hosted")
-    && enabledFlag(requiredFlag(flags, "active-hosted"), "active-hosted");
-  const selectors = Number(all) + Number(activeHosted) + Number(flags.has("user"));
-  if (selectors !== 1) {
-    throw new AuthAdminUsageError(
-      "Entitlement reconciliation requires exactly one of --user, --all enabled, or --active-hosted enabled."
-    );
-  }
-  if (activeHosted) {
-    return reconcileActiveHostedEntitlements(
-      context.db,
-      context.hostedProvider,
-      {
-        operationId,
-        actor,
-        reason
-      }
-    );
-  }
-  const userIds = all
-    ? (await context.db.query<{ id: string }>(
-        "SELECT id FROM users WHERE suspended_at IS NULL ORDER BY id"
-      )).rows.map((row) => row.id)
-    : [
-        (await instanceAdmin(context).showUser(
-          requiredFlag(flags, "user")
-        )).user.id
-      ];
-  const reconciled = [];
-  for (const userId of userIds) {
-    const result = await reconcileHostedAccountCollections(
-      context.db,
-      context.hostedProvider,
-      userId
-    );
-    reconciled.push({
-      user_id: userId,
-      provider_account_id: result.providerAccountId,
-      entitlement_revision: result.entitlementRevision,
-      reconciled_collections: result.reconciledCollections,
-      usage: result.usage
-    });
-    await context.db.query(
-      `INSERT INTO audit_events
-         (id, user_id, event_type, subject_id, metadata)
-       VALUES ($1, $2, 'entitlement.reconciled', $4, $3::jsonb)`,
-      [
-        randomUUID(),
-        userId,
-        JSON.stringify({
-          actor,
-          reason,
-          operation_id: operationId,
-          entitlement_revision: result.entitlementRevision,
-          reconciled_collections: result.reconciledCollections
-        }),
-        userId
-      ]
-    );
-  }
-  return { operation_id: operationId, reconciled };
 }
 
 export class AuthAdminUsageError extends Error {
