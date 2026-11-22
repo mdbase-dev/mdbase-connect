@@ -1,461 +1,136 @@
 # Architecture
 
-> **Scope (October 2026):** This document describes the legacy Connect architecture (including the
-> beta.126 daemon and root hosted provider), retained for supported legacy
-> consumers and recovery. The successor daemon is `mdbn-daemon` under
-> [`runtime/crates/daemon`](../runtime/crates/daemon); its independent graph is
-> described in [`runtime/README.md`](../runtime/README.md). Shared control-plane
-> roles may still apply; do not infer a deployed client cutover from source layout.
+This document describes the current `mdbase-next` / Connect architecture: one
+deterministic Rust core (`runtime/`), a blind signed log service, a portable
+hosted replica running in Cloudflare Workers, the native desktop daemon
+(`mdbn-daemon`), the Connect control plane and transient relay
+(`services/server`), and the native TypeScript SDK (`@mdbase-dev/sdk`).
+
+For detailed wire formats, policy verification, and crate boundaries, see
+[`runtime/README.md`](../runtime/README.md) and
+[`runtime/docs/README.md`](../runtime/docs/README.md).
 
 ## Platform boundary
 
-mdbase defines the portable collection format and record operations. Connect
-provides authorization, routing, discovery, and change delivery for
-applications. Domain packages interpret optional type extensions without
-adding application behavior to the mdbase specification or the relay.
+mdbase defines the portable Markdown collection format and record semantics.
+All collection semantics—parsing, format-preserving YAML patching, types, CEL
+evaluation, links, three-way merge, query planning, and holds—live in
+`runtime/crates/core` (`mdbn-core`) and `runtime/crates/replica`
+(`mdbn-replica`). Applications, servers, and gateways ask the runtime rather
+than duplicating collection semantics.
 
-Five trust zones make up the local-hosted path:
+Five trust zones make up the system:
 
-1. An independently hosted frontend application.
-2. A hosted Connect control plane and transient relay.
-3. A user-owned connector daemon with a browser-only loopback service and
-   outbound network connections.
-4. User-owned mdbase collections on the local filesystem.
-5. Optional application gateways, such as the hosted MCP service, which act as
-   authorized Connect applications and translate an external protocol without
-   weakening the connector's exact grant.
+1. **Applications** (`@mdbase-dev/sdk`, e.g., `apps/editor` and third-party
+   web/native apps), authenticating via OAuth/PKCE or installation pairing and
+   opening Noise IK sessions directly to replicas.
+2. **Control plane & transient relay** (`services/server`), owning accounts,
+   device/connector pairing, application identity, grant policy issuance,
+   signed policy updates, and transient WebSocket relay routing. It never
+   persists record payloads or receives local filesystem paths.
+3. **Blind shared log** (`mdbn-log-service`, hosted in Cloudflare Durable
+   Objects / `mdbn-log-server`), storing signed, encrypted log items,
+   snapshots, and binary blobs without interpreting collection content.
+4. **Replicas**:
+   - **Desktop daemon (`mdbn-daemon`)**: runs on the user's computer, hosts
+     local, Private (E2E), and Cloud copy replicas over `mdbn-store-file` and
+     `mdbn-platform-native`, enforces local access grants, and holds the OS
+     keychain device identity.
+   - **Hosted replica (`mdbn-hosted-worker`)**: runs `mdbn-core` + `mdbn-replica`
+     compiled to WebAssembly inside a per-collection Cloudflare Durable Object
+     with AWS KMS custody wrapping for Cloud copy collections.
+5. **Application gateways** (`services/mcp`), acting as authorized applications
+   that translate external protocols (MCP) without weakening collection grants.
 
-The connector is the authority for local data and policy. The server routes a
-request only when its access token and grant allow the operation. The connector
-checks its local policy copy again before it opens a collection.
+## Collection modes and authority
 
-## Local approval across server instances
+Every collection has a stable UUID and runs in one of three modes:
 
-Fresh portal and desktop approvals execute on the server holding the selected
-connector's relay session. The receiving HTTP server authenticates the caller,
-resolves a routing hint, and sends the explicit consent choices over the existing
-broker, addressed to the connector's current PostgreSQL generation. It holds no
-transaction open while waiting. The owner revalidates the request, offer and
-permissions; neither routing metadata nor a previously advertised capability
-is authorization evidence.
+- **Local only (`local`)**: hosted solely by `mdbn-daemon` on one computer with
+  no cloud log. Remote web apps reach it through the daemon over a
+  Noise-encrypted relay pipe when the computer is online.
+- **Private (`synced_e2e`)**: end-to-end encrypted through the blind shared log.
+  Only the user's approved devices hold collection epoch keys (wrapped via the
+  account key or verified device-to-device SAS approval). mdbase servers never
+  decrypt record content.
+- **Cloud copy (`synced`)**: uses the same blind log with the hosted Worker
+  replica (`mdbn-hosted-worker`) enrolled as a service device, so web and
+  mobile applications can connect directly to the hosted replica even when no
+  user computer is online.
 
-Activation and final publication remain one owner-side workflow. Publication
-locks the account, connector generation and collection, then checks local socket
-liveness immediately before commit. Replacements cannot switch an in-flight
-approval to another generation. The connector remains the final local data
-boundary, enforcing the signed grant and its exact origin. Unavailable sessions
-are not classified as capability mismatches.
-
-The internal broker v1 envelope adds the `authorize` command; no connector
-protocol or database migration is needed. Older server owners reject that
-command, without a compatibility fallback. Deployments introducing it must
-replace/drain all older web instances and let connectors reconnect before
-considering fresh local approval available on every instance. During a mixed
-rollout, requests reaching an old owner can fail closed. Hosted approval and
-existing-grant routing are unchanged.
-
-An approval RPC timeout does not cancel the owner's work or prove rollback.
-The receiving server never replays or compensates it. The existing authorization
-status endpoint reconciles `pending`, `setting_up`, and `approved`; compensation
-for failed activation/publication belongs exclusively to the executing owner.
-No new readiness cache, persisted job state, or distributed lease is introduced.
-
-## Collection identity and application selection
-
-A local collection gets a random durable UUID the first time the connector
-registers it. The connector stores it in the collection's portable
-`mdbase.yaml` extension:
-
-```yaml
-x-mdbase-connect:
-  collection_id: 019...
-```
-
-The identity follows the folder when it is moved or renamed; absolute paths are
-never identities and never leave the connector. If a copied folder presents
-the same ID while the original remains registered, the connector rejects the
-copy and asks the user to establish a distinct identity instead of silently
-aliasing two authorities. The desktop's explicit **Register copy** action, or
-`mdbase connect collection add-copy PATH`, writes a new random ID only after
-the connector has proved that the selected path is a copy of a different,
-still-registered folder. It refuses the registered original, a moved folder,
-and a collection that can be registered normally.
-
-A physical folder has exactly one Connect storage role. A hosted mirror stores
-this non-secret device role in `.mdbase/connect-role.json`, outside the
-receive-only `mdbase.yaml` resource. The local connector refuses to register
-such a folder as a filesystem authority. If a folder was registered before it
-became a hosted mirror, the connector immediately reports it as unavailable and
-denies operations; it does not rely on the next control-plane heartbeat for
-safety.
-
-Mirror processes also take an exclusive device-local lease keyed by the
-folder's canonical path and filesystem identity. A long-running watcher holds
-the lease for its lifetime, so the desktop mirror and an Obsidian mirror plugin
-cannot manage the same physical folder concurrently even when the clients keep
-separate application-state directories. The Node adapter uses one fixed
-OS-user-wide lease namespace; custom mirror adapters must provide equivalent
-cross-application exclusion when they cannot use it.
-
-The control plane provides the final identity-level fence. If a connector
-publishes the ID of an active hosted collection, it is retained only as a
-disabled authority candidate until an approved authority transfer completes.
-This is defense in depth: the folder marker prevents a same-folder/different-ID
-mistake locally, while the server prevents two active authorities for the same
-ID.
-
-The SDK is multi-collection by default. `MdbaseConnect` manages the saved
-authorization set, `MdbaseConnection` is permanently bound to one collection,
-and `MdbaseSession` owns the active selection and authorization lifecycle.
-Browser applications supply `MdbaseBrowserSelection`, which puts the stable
-server collection ID, not the mutable display name, in
-`?collection=<id>`. Session snapshots distinguish unselected, ready, and
-explicitly unavailable bookmarks; switching validates and publishes the new
-connection atomically without reloading the application.
-
-Authorization intent is explicit. A choose request accepts any compatible
-collection, while selected or exact-target requests must return the named
-collection. Collection IDs are non-secret locators and can appear in browser
-history and logs; grants remain the authorization boundary.
-
-## Collaboration boundary
-
-Collection visibility and authority are deliberately separate. A
-`CollectionLocator` identifies one logical collection, its current local or
-hosted authority row, owner, authority epoch, and state. Local locators use the
-portable `local_id`; hosted locators use the hosted collection ID. Routes do
-not infer identity from a mutable name or filesystem location.
-
-All user-to-collection decisions pass through the collection catalog and
-access-policy modules. Hosted access comes from ownership or an active membership
-bound to an immutable policy revision. Local access remains owner-only.
-Collection responses include an access summary and explicit authority metadata.
-
-Application capabilities are computed by a pure grant planner. It checks the
-selected operations and file actions against the application declaration and the
-approving user's exact ceilings. V2 groups remain atomic; denied optional write
-groups allow a viewer to authorize a read-only application. Required writes must
-be rejected. Provisioning separately requires `schema.manage`.
-
-New membership presets use version 2. Viewers may read records and files and
-create read-only mirrors. Editors may edit records, files and schema, rename the
-collection, and authorize applications within their ceiling. Sharing management,
-collection deletion and authority transfer remain owner actions. Existing stored
-presets retain their exact authority until an explicit membership transition.
-
-Every member application grant and mirror binds the member, policy ID and revision.
-Direct mirror enrollment and renewal use the same ceiling checks. A partial policy that the whole-collection mirror protocol cannot represent
-is rejected. Token issuance rechecks current authority inside the collection
-transaction. Removal disables grants, tokens and pairing credentials locally, then
-uses the existing durable provider cleanup worker. Removal may supersede a pending
-role change and is idempotent. Seats stay reserved until cleanup completes, including
-when account deletion has removed the membership rows. Pending invitations require
-the inviter's current management authority when accepted.
-
-`MDBASE_CONNECT_HOSTED_SHARING_ENABLED=1` enables new invitations, invitation codes,
-acceptance and role upgrades. It defaults off. Disabling it preserves existing member
-access and permits listing, revocation, invitation cancellation and downgrades; it
-is an admission switch, not automatic revocation. Both invited and open Beta profiles
-have ten account-wide member seats. New entitlement profiles default to zero seats.
-Hosted-to-local transfer requires removing members and cancelling pending invitations
-first, since local membership authority is not implemented.
-
-The Editor requires collection and file reads; writes and schema management are
-optional. Its controls follow the approved grant. Email invitations match an
-already registered verified account; a recipient who registers later needs a new
-invitation. A private one-use sharing code provides an alternative recipient binding.
-
-The sharing implementation adds six server modules: immutable policies, membership
-bindings, membership cleanup, invitations, sharing routes, and common mirror policy
-checks. They use the existing database transactions, provider cleanup worker and v2
-capability compiler. The reviewed architecture budget includes these boundaries and
-their cross-module declarations/imports; existing file-size limits are unchanged.
+Switching between Private and Cloud copy is an explicit owner-approved
+collection-mode transition documented in
+[collection-mode-api.md](collection-mode-api.md),
+[collection-mode-execution.md](collection-mode-execution.md), and
+[private-cloud-handover.md](private-cloud-handover.md).
 
 ## Components
 
-The selected hosted storage and bounded-query boundary is documented in
-[Hosted queryable execution](./architecture/hosted-queryable-execution.md). It is
-under implementation and is not yet production-enabled.
+- **`runtime/` (`mdbase-next` Rust & WASM workspace)**:
+  - `mdbn-core`, `mdbn-wire`, `mdbn-replica`, `mdbn-store-file`, `mdbn-noise`:
+    deterministic, portable core and replica engine.
+  - `mdbn-daemon`: per-user native daemon and `mdbase` CLI; hosts local and
+    synced folder replicas, local IPC, localhost link, and the Noise relay
+    session.
+  - `mdbn-hosted-worker` + `runtime/deploy/hosted-worker`: Cloudflare Worker +
+    Durable Object hosting Cloud copy replicas over WASM with AWS KMS key
+    custody.
+  - `mdbn-log-service` / `mdbn-log-server` / `runtime/deploy/log-service`:
+    blind shared log service (WASM Durable Object and native server).
+  - `mdbn-wasm`, `mdbase`, `mdbase-node`, `mdbase-wasm`: embeddable Rust,
+    Node.js, and WASM libraries.
+  - `@mdbase-dev/sdk` (`runtime/packages/sdk`): primary TypeScript SDK for web
+    and native applications.
+  - `@mdbase-dev/obsidian-runtime` (`runtime/packages/obsidian-runtime`):
+    Obsidian vault runtime host.
+- **`services/server` (`@mdbase/connect-server`)**: Fastify/PostgreSQL control
+  plane and NATS-backed transient relay. Schema changes follow
+  [control-plane-migrations.md](control-plane-migrations.md).
+- **`apps/portal`**: Account, collection, computer, permission, and recovery
+  web UI (separate HttpOnly account session; never shares credentials with
+  collection apps).
+- **`apps/desktop`**: Electron desktop shell and tray UI controlling
+  `mdbn-daemon` over the local owner-only control socket/pipe.
+- **`apps/editor`**: First-party Markdown collection editor built directly on
+  `@mdbase-dev/sdk` (see [apps/editor/NEW_SDK.md](../apps/editor/NEW_SDK.md)).
+- **`services/mcp`**: Hosted OAuth MCP gateway (`https://mcp.mdbase.dev/mcp`).
+- **`packages/protocol`**: Shared protocol schemas, problem codes, and
+  generated TypeScript inventories.
+- **`packages/client` (`@mdbase-dev/connect`)**: Legacy SDK retained only for
+  `services/mcp`, `packages/devkit`, and `packages/testing` until MCP detaches.
 
-- `mdbase-rs` (deprecated legacy engine, not authoritative) owns collection loading, validation, querying, mutation,
-  revisions, and normalized filesystem events.
-- `connect-runtime` translates manifest criteria and exact grants into
-  provider-neutral runtime contracts without owning collection semantics.
-- `connect-server` owns accounts, pairing, app discovery, grants, token
-  issuance, collection access policy, audit metadata, and transient request
-  routing. Its schema changes use the versioned, pre-deploy process in
-  [Control-plane migrations](./control-plane-migrations.md).
-- `mdbase-editor` owns both the collection editing surface and an account-only
-  Connect workspace. The two routes use separate clients and authorities.
-- `@mdbase/connect-management` is the narrow browser client for account
-  inventory and administration. It cannot perform collection operations.
-- `connect-mcp` owns MCP host OAuth sessions and encrypted upstream Connect
-  credentials. It uses one exact Connect grant per approved collection and
-  never shares a collection grant across MCP connection sets.
-- `@mdbase-dev/connect` provides OAuth with PKCE, typed operation envelopes,
-  collection discovery, end-to-end encrypted relay operations, cursor-based
-  subscriptions, and Web Push installation registration.
-- `@mdbase-dev/connect-sync` defines hosted replication and supplies offline replica
-  stores, an HTTP transport, and a receive-only Markdown mirror.
-- Domain adapters consume collection contracts and remain in their owning
-  application repositories.
+## Application identity, authorization, and sessions
 
-First-class non-record files use a separate logical namespace, grant
-capability, binary transfer data plane, blob store, and replication object
-while retaining ordinary collection-relative paths. The complete design is in
-[Collection files](./files.md).
+Account sign-in is separate from collection authorization:
 
-## Collection API
+- Accounts support email/password, Google Identity Services, and GitHub OAuth
+  (see [account-authentication.md](account-authentication.md)).
+- Applications bundle a manifest identified by SHA-256 digest and request
+  collection-scoped capabilities and optional declared contracts/type packs.
+- Users approve grants in the Connect portal (or on-device when local approval
+  is enabled). Changing a manifest requires a new explicit approval.
+- Grants are delivered to `mdbn-daemon` via signed, sequence-ordered,
+  lease-bounded `policy_snapshot` updates over `/v1/relay` and enforced locally
+  at the daemon before opening or serving any session.
+- Application sessions use Noise IK handshakes directly with the serving
+  replica (either `mdbn-daemon` via local/relay pipe or `mdbn-hosted-worker`
+  for Cloud copy collections). The relay forwards opaque ciphertext frames.
 
-Connect protocol 1 exposes these grantable operations:
+For detailed grant policy, joint consent, and encryption boundaries, see:
 
-- `describe`, `changes`
-- `read`, `query`, `validate`, `list_views`, `execute_view`
-- `create`, `update`, `delete`, `rename`
-- `read_type`, `create_type`, `update_type`, `assess_type_pack`, `apply_type_pack`
-- `list_timers`, `put_timer`, `cancel_timer`, `reconcile_timers`
+- [encryption.md](encryption.md)
+- [next-grant-policy.md](next-grant-policy.md)
+- [next-joint-consent.md](next-joint-consent.md)
+- [collection-sharing-policy.md](collection-sharing-policy.md)
+- [files.md](files.md)
+- [notifications.md](notifications.md)
+- [threat-model.md](threat-model.md)
 
-mdbase operations retain the canonical `{ valid, result, diagnostics }`
-envelope. Reads and successful writes carry opaque revisions. Mutations accept
-`if_revision`, which allows clients to prevent lost updates without knowing
-how a provider constructs its revision token. The public TypeScript SDK unwraps
-valid envelopes into typed `ConnectOutcome` values and converts invalid
-envelopes into recovery-oriented problems while preserving their diagnostics.
+## Versioning and internal quality gates
 
-An application manifest must explicitly declare `requirements.access` as the
-N-1 wire spelling `full_collection`. An active grant authorizes the entire
-selected collection; operation and file capabilities remain independently
-bounded. Exact data-contract requirements determine compatibility,
-provisioning, validation, and adapter semantics, but never record visibility.
-The legacy `contract` spelling is parsed only to diagnose and retire old grants;
-it cannot satisfy application access and requires explicit reauthorization.
-
-An application manifest may pair required contracts with portable type packs.
-A collection is then either ready, provisionable, or incompatible. During
-approval, the authority installs each required pack as one preflighted
-transaction, reopens the collection, and verifies the exact contract and
-implementation digests before creating a grant. A pack contains the contract,
-every implementing type, and any referenced schemas; a failure writes none of
-them. This setup action does not give the application continuing `create_type`
-or `update_type` permission. A full-collection application may separately
-request `apply_type_pack`. It first calls `assess_type_pack`, presents the
-structured resource and lock diff for review, then applies that exact
-assessment digest. The authority rechecks live state inside the write
-transaction, records publisher source paths separately from resolved collection
-targets, and refuses unmanaged or locally modified targets without explicit
-digest-pinned adoption. Local collection paths and record payloads remain
-outside the control plane.
-
-`describe` returns the collection's spec version, supported operations, JSON
-Schemas, collection-relative type paths, complete portable type definitions,
-canonical collection settings, first-class contract descriptors, and the
-current change cursor. It omits absolute paths and
-implementation-specific or extension values from the collection configuration.
-
-## Change delivery
-
-The engine debounces filesystem notifications and compares a fresh collection
-snapshot. Editor-specific write sequences therefore become a single
-final-state event when possible. The connector records normalized event
-metadata in its local SQLite database with a monotonically increasing cursor.
-
-The public `changes` operation is resumable and paginated. Calling it without
-an `after` cursor establishes a subscription at the current point and does not
-replay earlier activity. The browser SDK builds an async change stream by
-polling pages from that cursor. Expired cursors require a state refresh.
-
-The local journal stores paths, event kinds, revisions, matched types, and
-changed-field names. Record snapshots are removed before persistence. The
-hosted relay does not persist change events or operation payloads.
-
-## Runtime notifications
-
-An application manifest may declare notification criteria over canonical
-runtime events. The local connector or hosted collection provider—not the
-control plane—journals each event, evaluates CEL, applies debounce and
-minimum-interval rules, and rechecks the exact current grant immediately before
-dispatch. Durable one-shot timers use the same path and wake after authority
-restart. Application timer keys are derived from the grant and app namespace;
-the runtime workflow also requires the same grant and criterion in the timer
-payload, preventing another grant's timer from matching it.
-
-The authority sends only an idempotent signal ID, grant ID, criterion ID, and
-opaque cursor to the control plane. The control plane adds static manifest
-presentation and retries delivery through a leased outbox. Delivery can target
-registered Web Push installations, registered FCM tokens when the application
-opts into Connect-managed sending, or one signed application webhook. Paths,
-record payloads, runtime event payloads, and collection contents never cross
-this boundary. Applications treat a notification as a wake-up hint and read
-current authorized state after opening. See
-[Runtime-backed notifications](./notifications.md).
-
-Notification criteria are snapshotted into the grant at approval. Manifest
-rediscovery can retain exactly equivalent criteria or remove changed ones, but
-cannot add evaluation logic to an existing grant. Changed criteria therefore
-require explicit reauthorization before the authority receives an updated
-policy.
-
-## Contracts
-
-An `mdbase.contract` is a versioned, digest-addressed JSON Schema artifact.
-Its explicit `contract_type` is `record`, `event`, or `action`. A type opts in
-through `implements`, which maps stable contract fields to concrete fields.
-Several types may implement the same record contract, allowing application
-adapters to project normalized semantic views. That projection is application
-behavior and compatibility evidence, not an authorization filter.
-
-Event sources and action providers are executable application declarations,
-not type implementations. They use the mdbase event/action interoperability
-profile and CloudEvents envelope. Connect ships exact copies of those portable
-schemas from `@mdbase-dev/connect-protocol`; a future durable binding can add
-authority routing, journals, and offline delivery without defining another
-event/action vocabulary. Installing or validating any contract grants no
-authority.
-
-Applications may choose to expose only normalized contract fields in their own
-domain APIs, but that semantic projection does not narrow the collection grant.
-Stronger data separation requires a separate collection.
-
-Application adapters implement their behavior through generic mdbase
-operations. Revision-sensitive changes read the latest revision and submit a
-conditional update. Runtime-backed notification criteria and one-shot timers
-remain generic; domain planning stays in the application.
-
-## Application identity and authorization
-
-Account sign-in is separate from application authorization. An account may
-have external, email, password, and eventually passkey or TOTP credentials.
-Identity linking always requires fresh proof of both sides; matching email text
-never merges accounts. GitHub OAuth binds its callback to a one-time browser
-state and PKCE verifier. Google Identity Services binds its signed ID token to
-a one-time browser nonce. Provider subjects, rather than email addresses or
-mutable usernames, identify external accounts. GitHub access tokens are used
-only to fetch the identity and are not retained; Google access tokens are not
-requested. Registration supports closed, invitation-only, and open policy.
-The deployment setting is the fail-safe default, while an audited,
-revision-controlled database policy supports an immediate kill switch across
-all instances. Local development can use an explicitly enabled unverified
-email session; public origins refuse that mode. See
-[Account authentication](./account-authentication.md).
-
-Applications bundle a v1 manifest and send it inline during registration.
-Connect canonicalizes the manifest and identifies that exact content by its
-SHA-256 digest; the reverse-domain application ID and other
-presentation fields are explicitly not publisher authentication. Authorization
-uses short-lived codes and PKCE; browser and native applications have no client
-secret. The user approves concrete operations and access to one entire named
-collection. Required contracts are reviewed separately as compatibility and
-setup requirements.
-
-Downloaded HTML applications use the v1 portable distribution profile described
-in [portable-apps.md](portable-apps.md). They make no web-origin claim and use a
-single-use OAuth device code plus PKCE and independent per-grant P-256
-agreement and signing keys.
-Their browser origin is the exact opaque value `null`, tokens and non-extractable
-keys are memory-only by default. A local connector requires a matching
-encrypted grant for every operation. A hosted provider instead receives a
-short-lived capability bound to the exact grant, collection, operation set,
-collection authorization, expiry, opaque `null` origin, and application signing public key. Every
-hosted request and refresh carries a replay-protected ECDSA proof over its
-method, target, body, credential, timestamp, and nonce. The SDK exposes the same
-connection API for both routes.
-Collections that do not provide the required contracts are excluded from the
-decision. Local pause and revocation take effect at the connector even when
-cloud policy is stale.
-
-Changing a manifest creates a new application identity and never mutates an
-older grant. The previous installation credential remains bound to its exact
-approved manifest; authorizing the changed manifest requires another explicit
-decision. Applications load their own bundled v1 manifest and register its
-contents inline. The control plane never fetches an application-supplied URL.
-
-Authorization codes issue a one-hour access token and a rotating 30-day refresh
-token. Refresh tokens are single-use, bound to the application and grant, and
-revoked with the grant. Browser clients renew shortly before expiry and retain
-the rotated credential in application-owned storage.
-
-New authorizations use operation transport v3 and grant encryption profile v1
-to encrypt each operation end to end between an authorized application
-installation and the local connector. The relay sees the operation and routing
-metadata but carries opaque request and response payloads. Hosted collections
-use a separate provider encryption boundary. The complete trust, key, metadata,
-and rollout design is in
-[Encryption architecture](./encryption.md).
-
-The Connect portal is the account, collection-management, permission, and
-computer surface, including sign-in, pairing, account recovery, and authorization
-approval. The Electron controller remains primary for local-folder authority
-and mirror operations. The editor edits collections through the native SDK;
-old editor `/connect` bookmarks redirect to the Connect portal.
-
-Account and collection authority stay separate. The editor does not send the
-Connect account cookie or use it for account management. The HttpOnly account
-session belongs to the Connect portal and is not a collection grant. The
-editor's SDK owns sign-in, collection choice, and approval; the editor opens
-only the connection handed over by the shared collection gate in phase `ready`.
-See [Native SDK mode](../apps/editor/NEW_SDK.md) for the editor's entry and
-connection lifecycle.
-
-## Direct local transport
-
-Local-authority grants synchronize the application's exact approved origin to
-the connector. The browser SDK can then send the v1 encrypted operation envelope
-to `http://127.0.0.1:28485/v1/operations`. The fixed endpoint reveals only
-generic protocol readiness. It is separate from the Unix socket or Windows
-pipe used for desktop administration and exposes all grantable collection
-operations through the same connector handler as the relay.
-
-The loopback listener binds only IPv4 and IPv6 loopback, validates the exact
-`Host` and grant origin, returns exact-origin CORS headers, omits ambient
-credentials, requires `application/mdbase-connect+json`, and bounds request
-size, concurrency, execution time, and per-origin rate. The v1 cryptographic binding
-remains the operation authority; CORS is an additional browser boundary.
-
-Chrome's Local Network Access permission is requested from an explicit app
-action. Once granted, routing is automatic and the UI may quietly report
-`Connected directly`. Unsupported, denied, absent, or incompatible local
-access falls back to the encrypted relay without changing application record
-code. Hosted authorities continue to use their provider directly.
-
-Every authenticated request is claimed in the connector's durable replay
-window. The completed encrypted response is stored as a receipt. If a direct
-response is lost, the SDK retries the exact envelope through the relay and the
-connector returns that receipt instead of executing the operation again.
-Authenticated counters may arrive out of order within a bounded 1,024-message
-window so concurrent browser requests remain safe and usable.
-
-## Data authority and hosted replication
-
-Every collection has one write authority:
-
-- a local connector for a filesystem-backed collection;
-- a hosted collection provider for the managed service.
-
-A hosted-authority folder may be mirrored into ordinary Markdown, but that
-folder cannot also be relayed by the local connector. Changing roles is an
-explicit authority transfer: converge and fence the current authority, verify
-the complete mirror, change the folder role, then activate the new authority.
-Rollback restores the hosted-mirror role before hosted writes resume.
-
-The hosted vertical slice implements stable IDs, pinned snapshots, ordered
-scoped changes, conditional replay-safe mutations, offline caches, conflicts,
-cursor reset, revocation, versioned type and contract discovery, runtime-backed
-notification evaluation, and receive-only or writable Markdown mirrors. The
-Rust provider is the production authority over normalized transactional
-storage. The filesystem-neutral mirror core uses a Node adapter for local
-directories; other clients can supply their own filesystem implementation
-without duplicating collection semantics.
-
-The detailed hosted-provider, offline-cache, and filesystem-replication design
-is in [Hosted collections and sync](./sync.md).
-
-## Versioning
-
-The mdbase spec version, Connect protocol version, app manifest version, and
-data-contract versions evolve independently. The unreleased wire contracts
-all begin at v1. Future incompatible formats will use new declared versions and
-ship as coordinated agent, server, and SDK releases.
-
-Internal module ownership, dependency direction, quality budgets, and the
-definition of done are specified in
-[Code quality and internal architecture](./code-quality.md).
+The mdbase spec version, runtime wire contracts, Connect protocol version, and
+app manifest versions evolve independently. Internal module ownership,
+dependency direction, and quality gates are enforced by
+`pnpm check:architecture` (TypeScript/server boundaries) and
+`cargo xtask arch` (Rust crate boundaries and WASM portability). See
+[code-quality.md](code-quality.md) and [maintainability.md](maintainability.md).

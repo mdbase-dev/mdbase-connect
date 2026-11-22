@@ -1,5 +1,35 @@
 # Legacy Connect retirement list
 
+> [!IMPORTANT]
+> **Tier 2 (2a, 2b, 2c) code deleted on branch (2026-11-22):** All legacy root
+> `crates/`, root `Cargo.toml`/`Cargo.lock`, `packages/sync`, `deploy/postgres`,
+> legacy hosted-provider Docker/CI/upgrade/system suites, server legacy hosted /
+> mirror / authority-transfer / migration / takeover routes, `runtime/` crates
+> (`mdbn-legacy`, `mdbn-migrate`, `mdbn-migrate-portable`, `mdbn-takeover`),
+> `hosted-worker` migration/legacy-source code, `mdbn-daemon` takeover code, and
+> legacy-stack docs have been removed in code.
+>
+> **Required production & `mdbase-cloud-ops` cutover before merging to `main`:**
+> 1. Resolve the 2 remaining `legacy` accounts (migrate or retire).
+> 2. Complete the remaining 3-account hosting-move off `mdbase-next-hosted-mig-production`
+>    (`bin/release production hosting-move inventory` -> 0) and delete the
+>    migration Workers (`mdbase-next-hosted-mig-{production,staging,lab}`).
+> 3. Export/archive any still-required legacy rollback evidence offline before
+>    tearing down `mdbase-connect-hosted-db` / legacy R2 buckets.
+> 4. Retire Render `mdbase-connect-hosted-provider` (`sync.mdbase.dev`) and drop
+>    `MDBASE_CONNECT_HOSTED_PROVIDER_*`, `MDBASE_CONNECT_HOSTED_COLLECTIONS`,
+>    `MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY`, and `MDBASE_NEXT_MIGRATION_*`
+>    environment variables from Render `mdbase-connect` services.
+> 5. Remove `hosted-provider` and `mdbase-rs` references from `mdbase-cloud-ops`
+>    (`monitor-production.yml`, `validate_desired_state.rb`,
+>    `continuous_deployment.py` `RUNTIME_PATHS`, `hosted-schema-admin`,
+>    `hosted-database-drain-admin`, `bin/lib/rollback_compat.py`, `ci.yml`,
+>    `check-release-locks`, `verify-release-bundle`).
+>
+> **Remaining follow-up:** `packages/client` (`@mdbase-dev/connect`) is still
+> kept for `services/mcp`, `packages/devkit`, and `packages/testing` (`apps/editor`
+> is now detached and uses `@mdbase-dev/sdk`).
+
 Working list for deleting the legacy Connect stack. It covers the root `crates/`
 workspace on `../mdbase-rs`, the legacy hosted provider at `sync.mdbase.dev`,
 `packages/sync`, and the server, deploy, test and docs code that exists only for
