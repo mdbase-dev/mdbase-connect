@@ -8,7 +8,7 @@ import { queueAccountProviderCleanup } from "../hosted/hosted-capability-lifecyc
 import { recordCollectionDeletionIntent } from "../next/collection-deletion.js";
 import { completeMigrationBatch } from "../next/migration-topology.js";
 import { queueNextPolicy } from "../next/policy-outbox.js";
-import { currentPlusSubscription, plusWillRenew } from "../billing/billing.js";
+import { hasBillableSubscription } from "../billing/billing.js";
 import type {
   ExternalProvider,
   VerifiedExternalIdentity
@@ -92,7 +92,7 @@ export async function deleteAccountLocally(
       );
     }
     if (!authorized) throw new AccountDeletionAuthorizationError();
-    if (plusWillRenew(await currentPlusSubscription(connection, input.userId))) {
+    if (await hasBillableSubscription(connection, input.userId)) {
       throw new AccountDeletionBillingError();
     }
 
