@@ -20,6 +20,8 @@ use super::*;
 mod grant_sessions;
 #[path = "server_recovery_tests.rs"]
 mod recovery_tests;
+#[path = "server_stall_tests.rs"]
+mod stall_tests;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer, Prompt};
 use std::collections::BTreeMap;
@@ -775,10 +777,11 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
             .unwrap();
         let next = snapshot(2);
         let path = d.profile.access_file();
+        let saved_to = path.clone();
         let result = d
-            .commit_control_plane_feed_with(&next, &grants(None), |a| {
+            .commit_control_plane_feed_with(&next, &grants(None), move |a| {
                 if after_rename {
-                    a.save(&path)?;
+                    a.save(&saved_to)?;
                 }
                 Err(crate::access::AccessError::Io(std::io::Error::other(
                     "injected persistence failure",
@@ -790,10 +793,11 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
         assert!(!inner.access.grant_live("c", "g", fsutil::now_ms() as u64));
         assert_eq!(inner.access.feed_cursor.as_ref().unwrap().sequence, 1);
         drop(inner);
-        let mut attempted = false;
+        let attempted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let attempt = attempted.clone();
         assert!(
-            d.commit_control_plane_feed_with(&next, &grants(None), |_| {
-                attempted = true;
+            d.commit_control_plane_feed_with(&next, &grants(None), move |_| {
+                attempt.store(true, std::sync::atomic::Ordering::SeqCst);
                 Err(crate::access::AccessError::Io(std::io::Error::other(
                     "still unwritable",
                 )))
@@ -802,7 +806,7 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
             .is_err()
         );
         assert!(
-            attempted,
+            attempted.load(std::sync::atomic::Ordering::SeqCst),
             "identical redelivery must retry persistence, not acknowledge"
         );
         assert!(
