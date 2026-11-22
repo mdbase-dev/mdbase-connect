@@ -746,6 +746,7 @@ jobs:
   rollout:
     if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'rollout'
     name: Set rollout stage
+    environment: desktop-release
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -753,6 +754,7 @@ jobs:
       id-token: write
     env:
       GH_TOKEN: ${{ github.token }}
+      DESKTOP_RELEASE_STOPPED: ${{ vars.DESKTOP_RELEASE_STOPPED }}
       DESKTOP_ROLLOUT_SERVICE: ${{ vars.DESKTOP_ROLLOUT_SERVICE }}
       STAGE: ${{ inputs.stage }}
     steps:
