@@ -3,6 +3,7 @@ import {IDBFactory} from "fake-indexeddb";
 import {APPLICATION_WORKER_PROTOCOL as schema} from "../src/application/worker-protocol.js";
 import {pipeCloseError} from "../src/transport/relay-pipe.js";
 import {mdbaseError} from "../src/errors.js";
+import {describeError} from "../src/describe-error.js";
 
 // SDK-10: Private collections list beside hosted ones and open from the same
 // selection, against the real entry and runtime with a scripted Worker.
@@ -179,6 +180,7 @@ describe("Private collections",()=>{
       problemDetail:{name:"MdbaseError",code:"unavailable",relay:{closeCode:1006,closeClass:"abnormal"}},
       phase:{kind:"problem",problem:{key:"unavailable",code:"relay_closed",severity:"warning",action:"retry"}}});
     expect(JSON.stringify(snapshot)).not.toContain("PRIVATE_CLOSE_TEXT");
+    expect(describeError(snapshot)).toMatchObject({key:"unavailable",action:"retry",developerMessage:null});
     expect(actions()).not.toContain("select");
     expect(opened).toHaveLength(0);
     gate.error=null;

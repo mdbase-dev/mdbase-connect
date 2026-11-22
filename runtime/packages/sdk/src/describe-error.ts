@@ -283,7 +283,13 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   // Registration could not reach the CP: a connection problem.
   application_registration_unavailable: "unavailable", application_registration_unknown: "unavailable",
   application_connection_unavailable: "unavailable", readiness_unavailable: "unavailable",
-  grant_activation_timeout: "unavailable", relay_closed: "unavailable", pipe_closed: "unavailable",
+  grant_activation_timeout: "unavailable",
+  // Relay pipe closes (pipeCloseError), published as a Private snapshot's problem. A
+  // close without a known reason names no cause: an intermediary can strip the close
+  // status of a real refusal (it arrives as 1005).
+  relay_closed: "unavailable", pipe_closed: "unavailable",
+  authorization_unavailable: "unavailable", grant_lease_expired: "unavailable",
+  grant_inactive: "forbidden", connector_busy: "rate_limited",
   application_connection_people_unavailable: "people_access", people_unavailable: "people_access",
   people_response: "people_access", people_binding: "people_access", people_budget: "people_access", people_incomplete: "people_access",
   application_selection_empty: "application_selection_invalid", application_selection_duplicate: "application_selection_invalid",

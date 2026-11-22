@@ -233,6 +233,8 @@ describe("SDK-10 Private collections", () => {
       problemDetail: { name: "MdbaseError", code: "unavailable", relay: { closeCode: 1006, closeClass: "abnormal" } } });
     expect(JSON.stringify(snapshot)).not.toContain("private-close-text");
     expect(JSON.stringify(snapshot)).not.toContain("HostedError");
+    // A close without a reason names no cause, but is never the generic error.
+    expect(describeError(snapshot)).toMatchObject({ key: "unavailable", action: "retry", developerMessage: null });
     expect(grants.setup).not.toHaveBeenCalled();
     expect(privates.connection(P)).toBeNull();
     privates.close();
@@ -249,6 +251,7 @@ describe("SDK-10 Private collections", () => {
     c.link("reconnecting", pipeCloseError(1011, "private-close-text"));
     expect(withPrivateCollections(paired(), privates.entries(), privates.state())).toMatchObject({ status: "ready", problem: "relay_closed",
       problemDetail: { name: "MdbaseError", code: "unavailable", relay: { closeCode: 1011, closeClass: "internal_error" } } });
+    expect(describeError(withPrivateCollections(paired(), privates.entries(), privates.state()))).toMatchObject({ key: "unavailable", action: "retry" });
     expect(privates.connection(P)).toBe(connection);
     expect(connect).toHaveBeenCalledTimes(1);
     expect(grants.authorize).not.toHaveBeenCalled();
