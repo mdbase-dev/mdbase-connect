@@ -172,6 +172,14 @@ export type LinkTarget =
   /** Not a link the collection can follow (for example, it leaves the collection). */
   | { kind: "invalid" };
 
+/** A note that links to another. */
+export interface Backlink {
+  path: string;
+  /** The properties holding its links, in the note's order; none when every
+   * link is in the note's text. */
+  fields: string[];
+}
+
 export interface CollectionGateway {
   pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[];
   /** Undefined only when the exact recovered operation was a confirmed delete. */
@@ -207,9 +215,9 @@ export interface CollectionGateway {
    * frontmatter `tags` and inline `#tags`: the runtime's `file.hasTag(tag)`.
    * Record views carry no tags, so this is how inline tags are found. */
   searchTag(tag: string, options?: { signal?: AbortSignal }): Promise<string[]>;
-  /** Paths of the notes whose links resolve to `path`, from the collection's
-   * link index (Core resolution; the note's links to itself excluded). */
-  backlinks(path: string, options?: { signal?: AbortSignal }): Promise<string[]>;
+  /** The notes whose links resolve to `path`, from the collection's link
+   * index (Core resolution; the note's links to itself excluded). */
+  backlinks(path: string, options?: { signal?: AbortSignal }): Promise<Backlink[]>;
   /** Resolve links as written in the note at `from`, one result per link, in
    * order, by the collection's own rules (Core resolution; `from` may be unsaved). */
   resolveLinks(from: string, links: readonly string[], options?: { signal?: AbortSignal }): Promise<LinkTarget[]>;

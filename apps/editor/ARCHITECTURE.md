@@ -142,6 +142,34 @@ revision-aware session operation queue. Undo refuses changed text rather than
 replacing newer edits. The list is virtualized so collection
 size does not translate directly into DOM size.
 
+## Links between records
+
+A relation is a field plus its `collection.links` rule (`field` for one link,
+`field[]` for a list). The type editor presents the pair as one field type,
+"Link": `setTypeFieldLink` writes the schema and the rule together, and
+renaming, converting or removing the field carries its rule with it. Rules on
+values the field list does not show are left alone and named as YAML-only.
+
+`record-links.ts` reads those rules for a record's types and writes one link
+value in the rule's format; `LinkPropertyEditor` edits such a property as
+chips and a picker (`@mdbase-dev/ui/link-picker`). Whether a written value
+leads anywhere is still the collection's answer (`LinkTargets`); the editor
+only narrows suggestions to the rule's target types.
+
+Creating a record while linking (`createLinkedRecord`) decides the path
+locally with the new-note model, hands it to the place the link is written
+(`LinkCreation`) at once, and creates the record in the background. A type
+that requires more than a name first opens `QuickCreateRecord`: a popover
+beside that place holding the name and the required properties only, drawn
+by the same properties form as a new note. Nothing is written, and the typed
+text stays, until the form is confirmed. One form is open at a time, so a
+link picker inside it makes name-only records and names the rest in a notice.
+The properties panel and the `[[` / `@` completions share all of this.
+
+Backlinks arrive with the properties that hold each link
+(`Backlink.fields`), and the footer groups them by the linking note's first
+declared type.
+
 ## UI boundaries
 
 `App.tsx` is the application orchestrator: connection/session lifecycle,

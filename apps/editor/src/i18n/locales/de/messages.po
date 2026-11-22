@@ -47,6 +47,10 @@ msgstr "„{0}“ wurde an anderer Stelle geändert. Ihre Änderungen sind noch 
 msgid "“{0}” has no “{1}” section or block."
 msgstr "„{0}“ enthält keinen Abschnitt oder Block „{1}“."
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "„{raw}“ führt zu keiner Notiz."
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "{0} ausgewählt"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "{0} Zieltyp"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "{0} Pfadmuster für Eindeutigkeit"
 
@@ -326,6 +325,11 @@ msgstr "{0}: <0>{1}</0> (Einrichtungsbeleg)"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}. Diese Regeln werden mit den obigen visuellen Regeln kombiniert."
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}. Diese Regeln beschreiben Werte, die die Felder oben nicht zeigen."
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, one {# Feldauswahl} other {# Feldauswahlen}}"
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, one {# Feld} other {# Felder}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, one {# Link} other {# Links}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "Feldtyp für {itemLabel}"
 msgid "{itemLabel} suggestions"
 msgstr "Vorschläge für {itemLabel}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label} „{title}“"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "„{label}“ wird benötigt, um diese Notiz zu speichern."
@@ -536,18 +541,10 @@ msgstr "{name} ist erforderlich."
 msgid "{name} is too large to upload."
 msgstr "{name} ist zu groß zum Hochladen."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "Elementvorschläge für {name}"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "JSON-Wert für {name}"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "Notizvorschläge für {name}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -561,6 +558,7 @@ msgstr "Typdefinition für {name}"
 msgid "{name} type YAML"
 msgstr "Typ-YAML für {name}"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "Wert von {name}"
@@ -625,6 +623,10 @@ msgstr "Notizaktionen für {title}"
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"
+
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "Notizen vom Typ {typeLabel} brauchen mehr als einen Namen. Erstellen Sie eine über „Neue Notiz“ und verlinken Sie sie dann."
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
@@ -718,13 +720,13 @@ msgstr "Ein Feld namens „{name}“ ist bereits vorhanden."
 msgid "A folder cannot be moved inside itself."
 msgstr "Ein Ordner kann nicht in sich selbst verschoben werden."
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "einen Link"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "Ein Link in {path} bleibt defekt."
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "Eine Linkregel für „{field}“ ist bereits vorhanden."
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -786,6 +788,14 @@ msgstr "{0} hinzufügen"
 msgid "Add a custom property…"
 msgstr "Benutzerdefinierte Eigenschaft hinzufügen…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "Link hinzufügen"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "Link zu {name} hinzufügen"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "Private Sammlung hinzufügen"
@@ -801,6 +811,10 @@ msgstr "Fügen Sie einen vorgefertigten Typ für App-Kompatibilität hinzu oder 
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "Typ hinzufügen"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "Typ hinzufügen, auf den {fieldLabel} verlinkt"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -841,10 +855,6 @@ msgid "Add item"
 msgstr "Element hinzufügen"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "Linkregel hinzufügen"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "Verschachteltes Feld hinzufügen"
 
@@ -876,8 +886,8 @@ msgid "Add tag"
 msgstr "Tag hinzufügen"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "Zieltyp hinzufügen"
+msgid "Add type"
+msgstr "Typ hinzufügen"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -988,6 +998,10 @@ msgstr "Lokalen Zugriff zulassen"
 msgid "Allow person records in this collection?"
 msgstr "Personendatensätze in dieser Sammlung zulassen?"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "Mehrere Links zulassen"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -1000,10 +1014,6 @@ msgstr "Dem Editor Einsicht in Ihre Kontoidentität erlauben"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "Nicht deklarierte Felder zulassen"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "Zulässige Zieltypen"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1029,6 +1039,10 @@ msgstr "und"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "Beliebig"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "Beliebige Notiz"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1360,6 +1374,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "Wählen Sie einen Zieltyp, der sowohl Person als auch Contact implementiert, damit die bestehenden Kontaktbeziehungen erhalten bleiben."
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "Typ auswählen"
 
@@ -1911,6 +1926,10 @@ msgstr "Erstellen Sie eine Notiz über sich selbst, beginnend mit Ihrem Kontonam
 msgid "Create a note from what was shared?"
 msgstr "Notiz aus dem Geteilten erstellen?"
 
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "Erstellen und verknüpfen"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Erstellen Sie Felder, die bereits zu einem installierten Vertrag passen. Sie können sie später umbenennen und neu zuordnen."
@@ -2041,10 +2060,6 @@ msgstr "{title} wird gelöscht…"
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
 msgstr "Notiz wird gelöscht"
-
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "Beschreiben Sie, welche Eigenschaften auf andere Datensätze verweisen und wie Zielwerte validiert werden."
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2423,6 +2438,14 @@ msgstr "Befehle filtern"
 msgid "Filter links by type"
 msgstr "Links nach Typ filtern"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "Suchen: {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "Notiz suchen"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "Notiz nach Titel oder Pfad suchen"
@@ -2446,6 +2469,14 @@ msgstr "Eigenschaft suchen"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "In Notiz suchen"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "Suchen oder erstellen: {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "Notiz suchen oder erstellen"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2838,6 +2869,11 @@ msgstr "Lebenszyklus"
 msgid "Link"
 msgstr "Link"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "Link"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "Verknüpfen Sie einen Datensatz, der Sie bereits repräsentiert."
@@ -2850,19 +2886,10 @@ msgstr "Link- und Eindeutigkeitsregeln können übereinstimmende Datensätze gü
 msgid "Link anyway"
 msgstr "Trotzdem verknüpfen"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "Linkfeld {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "Erwähnung in {0} verknüpfen"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "Linkregel"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -2902,9 +2929,13 @@ msgstr "Verknüpftes Schemafeld"
 msgid "Linked to {0}"
 msgstr "Verknüpft mit {0}"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "Links"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "Verlinkt auf"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3181,6 +3212,10 @@ msgstr "Weiteres Sammlungsverhalten in YAML"
 msgid "More inferred rules in YAML"
 msgstr "Weitere abgeleitete Regeln in YAML"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "Weitere Linkregeln in YAML"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "Weitere Notizaktionen"
@@ -3258,6 +3293,7 @@ msgstr "Mit den aktuellen Zugriffsrechten dieser Sammlung können Notizen nicht 
 msgid "Moving…"
 msgstr "Wird verschoben…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3310,12 +3346,20 @@ msgstr "verschachtelte erforderliche Felder"
 msgid "New {name}"
 msgstr "Neue Notiz vom Typ {name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "Neu: {typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "Neuer Ordner"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3455,7 +3499,7 @@ msgstr "Keine passenden Filter"
 msgid "No matching icons."
 msgstr "Keine passenden Symbole."
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "Keine passenden Notizen."
 
@@ -3483,10 +3527,6 @@ msgstr "Noch keine Notizen hierher verlinkt."
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "Keine Notizen oder Dateien gefunden."
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "Keine Eigenschaften als Links markiert."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3599,6 +3639,7 @@ msgid "Note view options"
 msgstr "Notizansichtsoptionen"
 
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "Notizen"
 
@@ -3648,6 +3689,10 @@ msgstr "Notizen verwenden dieses Feld, um ihren Typ zu deklarieren. Bearbeiten S
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "Notizen ohne explizite Zuweisung gehören zu diesem Typ, wenn jede der unten konfigurierten Bedingungsgruppen erfüllt ist."
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "Noch nichts zum Verlinken."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3967,10 +4012,6 @@ msgstr "Gespeichertes null"
 msgid "Person definitions needed"
 msgstr "Personendefinitionen erforderlich"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "Person oder beliebig"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Person-Typ"
@@ -4216,10 +4257,6 @@ msgstr "Verbindung zur Sammlung wird wiederhergestellt…"
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "Frontmatter des Datensatzes muss eine YAML-Zuordnung sein."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "Datensatzlink"
-
 #: src/PropertiesPanel.tsx
 msgid "Record source"
 msgstr "Datensatzquelltext"
@@ -4296,6 +4333,10 @@ msgstr "{field} entfernen"
 msgid "Remove {fieldLabel} field"
 msgstr "Feld {fieldLabel} entfernen"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "{label} aus {name} entfernen"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4309,11 +4350,6 @@ msgstr "Eigenschaft {name} entfernen"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "Aus diesem Browser entfernen"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "Linkregel für {0} entfernen"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -4953,6 +4989,10 @@ msgstr "Ausgangsvertrag"
 #: src/TypeBrowser.tsx
 msgid "status"
 msgstr "Status"
+
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "{fieldLabel} nicht mehr auf {target} verlinken"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
@@ -5921,6 +5961,10 @@ msgstr "Typen"
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
 msgstr "Typen ({typeCount})"
+
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "Typen, auf die {fieldLabel} verlinkt"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

@@ -47,6 +47,10 @@ msgstr "«{0}» изменено в другом месте. Ваши правк
 msgid "“{0}” has no “{1}” section or block."
 msgstr "В «{0}» нет раздела или блока «{1}»."
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "«{raw}» не ведёт ни к одной заметке."
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "Выбрано: {0}"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "Целевой тип для {0}"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "Шаблон пути для правила уникальности {0}"
 
@@ -326,6 +325,11 @@ msgstr "{0}: <0>{1}</0> (подтверждение настройки)"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}. Эти правила действуют вместе с визуальными правилами выше."
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}. Эти правила описывают значения, которые не показаны в полях выше."
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, one {# селектор поля} few {# селекто�
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, one {# поле} few {# поля} many {# полей} other {# поля}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, one {# ссылка} few {# ссылки} many {# ссылок} other {# ссылки}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "Тип поля {itemLabel}"
 msgid "{itemLabel} suggestions"
 msgstr "Предложения для {itemLabel}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label} «{title}»"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "Чтобы сохранить заметку, заполните поле «{label}»."
@@ -536,18 +541,10 @@ msgstr "Требуется {name}."
 msgid "{name} is too large to upload."
 msgstr "{name} слишком велик для загрузки."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "Предложения элементов для {name}"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "Значение JSON для {name}"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "Предложения заметок для {name}"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -561,6 +558,7 @@ msgstr "Определение типа {name}"
 msgid "{name} type YAML"
 msgstr "YAML типа {name}"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "Значение {name}"
@@ -625,6 +623,10 @@ msgstr "Действия с заметкой {title}"
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"
+
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "Заметкам типа {typeLabel} нужно не только название. Создайте её через «Новая заметка», затем добавьте ссылку."
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
@@ -718,13 +720,13 @@ msgstr "Поле «{name}» уже существует."
 msgid "A folder cannot be moved inside itself."
 msgstr "Нельзя переместить папку внутрь неё самой."
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "ссылку"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "Ссылка в {path} останется нерабочей."
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "Правило ссылки для «{field}» уже существует."
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -786,6 +788,14 @@ msgstr "Добавить: {0}"
 msgid "Add a custom property…"
 msgstr "Добавить произвольное свойство…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "Добавить ссылку"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "Добавить ссылку в {name}"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "Добавить закрытую коллекцию"
@@ -801,6 +811,10 @@ msgstr "Добавьте готовый тип для совместимости
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "Добавить тип"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "Добавить тип, на который ссылается {fieldLabel}"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -841,10 +855,6 @@ msgid "Add item"
 msgstr "Добавить элемент"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "Добавить правило ссылки"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "Добавить вложенное поле"
 
@@ -876,8 +886,8 @@ msgid "Add tag"
 msgstr "Добавить тег"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "Добавить целевой тип"
+msgid "Add type"
+msgstr "Добавить тип"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -988,6 +998,10 @@ msgstr "Разрешить локальный доступ"
 msgid "Allow person records in this collection?"
 msgstr "Разрешить записи о пользователях в этой коллекции?"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "Разрешить несколько ссылок"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -1000,10 +1014,6 @@ msgstr "Разрешить редактору видеть данные ваше
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "Разрешить необъявленные поля"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "Разрешённые целевые типы"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1029,6 +1039,10 @@ msgstr "и"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "Любой"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "Любая заметка"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1360,6 +1374,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "Выберите целевой тип, который реализует Person и Contact, чтобы сохранить существующее поведение контактов."
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "Выберите тип"
 
@@ -1911,6 +1926,10 @@ msgstr "Создайте заметку о себе, начав с имени в
 msgid "Create a note from what was shared?"
 msgstr "Создать заметку из того, чем поделились?"
 
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "Создать и связать"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "Создайте поля, уже соответствующие установленному контракту. Позже их можно переименовать и сопоставить заново."
@@ -2041,10 +2060,6 @@ msgstr "Удаление {title}…"
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
 msgstr "Удаление заметки"
-
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "Укажите, какие свойства ссылаются на другие записи и как проверяются целевые записи."
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2423,6 +2438,14 @@ msgstr "Фильтр команд"
 msgid "Filter links by type"
 msgstr "Фильтровать ссылки по типу"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "Найти: {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "Найти заметку"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "Найти заметку по названию или пути"
@@ -2446,6 +2469,14 @@ msgstr "Найти свойство"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "Найти в заметке"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "Найти или создать: {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "Найти или создать заметку"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2838,6 +2869,11 @@ msgstr "Жизненный цикл"
 msgid "Link"
 msgstr "Ссылка"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "Ссылка"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "Свяжите запись, которая уже представляет вас."
@@ -2850,19 +2886,10 @@ msgstr "Правила ссылок и уникальности могут ме�
 msgid "Link anyway"
 msgstr "Всё равно связать"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "Поле ссылки {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "Связать упоминание в {0}"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "правило ссылки"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -2902,9 +2929,13 @@ msgstr "Связанное поле схемы"
 msgid "Linked to {0}"
 msgstr "Связано с {0}"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "Ссылки"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "Ссылается на"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3181,6 +3212,10 @@ msgstr "Дополнительные правила поведения колл�
 msgid "More inferred rules in YAML"
 msgstr "Дополнительные правила определения типа в YAML"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "Другие правила ссылок в YAML"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "Другие действия с заметкой"
@@ -3258,6 +3293,7 @@ msgstr "Перемещение заметок недоступно при тек
 msgid "Moving…"
 msgstr "Перемещение…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3310,12 +3346,20 @@ msgstr "вложенные обязательные поля"
 msgid "New {name}"
 msgstr "Новая заметка типа «{name}»"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "Создать: {typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "Новая папка"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3455,7 +3499,7 @@ msgstr "Подходящих фильтров нет"
 msgid "No matching icons."
 msgstr "Подходящих значков нет."
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "Подходящих заметок нет."
 
@@ -3483,10 +3527,6 @@ msgstr "На эту заметку пока не ссылаются."
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "Заметки и файлы не найдены."
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "Нет свойств, отмеченных как ссылки."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3599,6 +3639,7 @@ msgid "Note view options"
 msgstr "Параметры просмотра заметки"
 
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "Заметки"
 
@@ -3648,6 +3689,10 @@ msgstr "Заметки используют это поле для указан�
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "Заметки без явно указанного типа относятся к нему, если выполняются все заданные ниже группы условий."
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "Пока не на что ссылаться."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3967,10 +4012,6 @@ msgstr "Сохранённое пустое значение"
 msgid "Person definitions needed"
 msgstr "Требуются определения Person"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "Person или любой тип"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Тип Person"
@@ -4216,10 +4257,6 @@ msgstr "Повторное подключение к коллекции…"
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "Метаданные записи должны быть отображением YAML."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "Ссылка на запись"
-
 #: src/PropertiesPanel.tsx
 msgid "Record source"
 msgstr "Исходный текст записи"
@@ -4296,6 +4333,10 @@ msgstr "Убрать {field}"
 msgid "Remove {fieldLabel} field"
 msgstr "Убрать поле {fieldLabel}"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "Убрать {label} из {name}"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4309,11 +4350,6 @@ msgstr "Убрать свойство {name}"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "Убрать из этого браузера"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "Убрать правило ссылки для {0}"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -4953,6 +4989,10 @@ msgstr "Исходный контракт"
 #: src/TypeBrowser.tsx
 msgid "status"
 msgstr "статус"
+
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "Больше не связывать {fieldLabel} с {target}"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
@@ -5921,6 +5961,10 @@ msgstr "Типы"
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
 msgstr "Типы ({typeCount})"
+
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "Типы, на которые ссылается {fieldLabel}"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"

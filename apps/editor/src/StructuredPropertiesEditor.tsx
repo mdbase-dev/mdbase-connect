@@ -11,8 +11,10 @@ import { useEffect, useMemo, useState } from "react";
 import type { JsonObject } from "@mdbase-dev/connect";
 import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
+import { LinkPropertyEditor, type PropertyLinks } from "./LinkPropertyEditor";
+import type { LinkProperty } from "./record-links";
+import { kindName } from "./type-presentation";
 import { schemaInitialValue, SchemaValueEditor } from "./SchemaValueEditor";
-import { ComboboxInput } from "./SelectionControls";
 import { Select } from "@mdbase-dev/ui/select";
 
 type PropertyKind = "text" | "number" | "boolean" | "list" | "object";
@@ -36,7 +38,7 @@ export function StructuredPropertiesEditor({
   contract,
   propertyNames,
   effectiveValues,
-  recordPaths = [],
+  links,
   initializeRequired = false,
   allowAdd = true,
   allowCustom = true,
@@ -50,7 +52,8 @@ export function StructuredPropertiesEditor({
   contract: PropertyContract;
   propertyNames?: string[];
   effectiveValues?: JsonObject;
-  recordPaths?: string[];
+  /** The record's link properties and what they can point at. Without it every property is plain data. */
+  links?: PropertyLinks;
   initializeRequired?: boolean;
   allowAdd?: boolean;
   allowCustom?: boolean;
@@ -135,7 +138,7 @@ export function StructuredPropertiesEditor({
     schema={contract.properties[name]}
     required={required.includes(name)}
     error={fieldErrors[name]}
-    recordPaths={recordPaths}
+    links={links}
     onChange={(next) => updateField(name, next)}
     onValidityChange={(valid) => setEditorValidity((current) => ({ ...current, [name]: valid }))}
     onRemove={initializeRequired && required.includes(name) ? undefined : () => removeField(name)}
@@ -196,13 +199,13 @@ export function StructuredPropertiesEditor({
   </div>;
 }
 
-function PropertyRow({ name, value, schema, required, error, recordPaths, onChange, onValidityChange, onRemove, readOnly }: {
+function PropertyRow({ name, value, schema, required, error, links, onChange, onValidityChange, onRemove, readOnly }: {
   name: string;
   value: PropertyValue;
   schema?: JsonObject;
   required: boolean;
   error?: string;
-  recordPaths: string[];
+  links?: PropertyLinks;
   onChange: (value: PropertyValue) => void;
   onValidityChange: (valid: boolean) => void;
   onRemove?: () => void;
@@ -211,50 +214,40 @@ function PropertyRow({ name, value, schema, required, error, recordPaths, onChan
   useLingui();
   const defined = Boolean(schema);
   const kind = propertyKind(value);
+  const link = linkFor(links, name, value);
   return <div className={`property-row${error ? " invalid" : ""}`}>
     <div className="property-row-label">
       <span><strong>{name}</strong>{required && <small><Trans>Required</Trans></small>}</span>
       {defined
-        ? <span className="property-kind" title={t`Defined by this note's type`}>{schemaKind(schema)}</span>
+        ? <span className="property-kind" title={t`Defined by this note's type`}>{link ? linkKind(link) : schemaKind(schema)}</span>
         : <Select className="is-compact" aria-label={t`${name} property type`} value={kind === "null" ? "" : kind} placeholder={t`Null`} options={propertyKinds} onChange={(next) => onChange(initialValue(next))} />}
     </div>
     {description(schema) && <p className="property-description">{description(schema)}</p>}
-    <PropertyValue name={name} value={value} schema={schema} recordPaths={recordPaths} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />
+    <PropertyValue name={name} value={value} schema={schema} links={links} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />
     {schemaAllowsNull(schema) && value !== null && <button type="button" className="set-null-property" onClick={() => onChange(null)}><Trans>Set to null</Trans></button>}
     {error && <p className="field-error" role="alert">{error}</p>}
     {onRemove && <InlineRemoveButton className="remove-property" label={t`Remove ${name} property`} onClick={onRemove} />}
   </div>;
 }
 
-function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityChange, readOnly }: {
+function PropertyValue({ name, value, schema, links, onChange, onValidityChange, readOnly }: {
   name: string;
   value: PropertyValue;
   schema?: JsonObject;
-  recordPaths: string[];
+  links?: PropertyLinks;
   onChange: (value: PropertyValue) => void;
   onValidityChange: (valid: boolean) => void;
   readOnly: boolean;
 }) {
   useLingui();
   if (value === null) return <div className="null-property"><span><Trans>Persisted null</Trans></span><button type="button" onClick={() => onChange(schemaInitialValue(schema))}><Trans>Set a value</Trans></button></div>;
+  const link = linkFor(links, name, value);
+  if (link && links) return <LinkPropertyEditor name={name} link={link} value={value as string | string[]} links={links} onChange={onChange} />;
   if (isStringList(name, schema, value)) {
-    const itemSchema = isObject(schema?.items) ? schema.items : undefined;
     return <StringListEditor
       name={name}
       value={Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []}
-      suggestions={isLinkSchema(itemSchema) ? recordPaths : []}
       onChange={onChange}
-    />;
-  }
-  if (isLinkSchema(schema) && typeof value === "string") {
-    return <ComboboxInput
-      label={t`${name} value`}
-      listLabel={t`${name} note suggestions`}
-      value={value}
-      options={recordPaths}
-      emptyMessage={t`No matching notes.`}
-      spellCheck={false}
-      onValueChange={onChange}
     />;
   }
   if (schema) {
@@ -272,18 +265,16 @@ function PropertyValue({ name, value, schema, recordPaths, onChange, onValidityC
   return <JsonValueEditor name={name} value={value} onChange={onChange} onValidityChange={onValidityChange} readOnly={readOnly} />;
 }
 
-function StringListEditor({ name, value, suggestions, onChange }: { name: string; value: string[]; suggestions: string[]; onChange: (value: unknown) => void }) {
+function StringListEditor({ name, value, onChange }: { name: string; value: string[]; onChange: (value: unknown) => void }) {
   useLingui();
   return <div className="property-string-list" role="group" aria-label={name}>
     {value.map((item, index) => <div key={index}>
-      <ComboboxInput
-        label={t`${name} value item ${index + 1}`}
-        listLabel={t`${name} item suggestions`}
+      <input
+        aria-label={t`${name} value item ${index + 1}`}
         value={item}
-        options={suggestions}
-        emptyMessage={t`No matching notes.`}
+        autoComplete="off"
         spellCheck={false}
-        onValueChange={(next) => onChange(value.map((current, itemIndex) => itemIndex === index ? next : current))}
+        onChange={(event) => onChange(value.map((current, itemIndex) => itemIndex === index ? event.target.value : current))}
       />
       <InlineRemoveButton
         className="property-list-remove"
@@ -434,7 +425,6 @@ function schemaKind(schema?: JsonObject): string {
   if (Array.isArray(schema.enum)) return t`Choice`;
   if (schema.format === "date") return t`Date`;
   if (schema.format === "date-time") return t`Date & time`;
-  if (isLinkSchema(schema)) return t`Record link`;
   const type = Array.isArray(schema.type) ? schema.type.filter((item) => item !== "null").join(" or ") : schema.type;
   if (type === "array") return t`List`;
   if (type === "boolean") return t`Boolean`;
@@ -448,9 +438,17 @@ function description(schema?: JsonObject): string {
   return typeof schema?.description === "string" ? schema.description : "";
 }
 
-function isLinkSchema(schema?: JsonObject): boolean {
-  const format = typeof schema?.format === "string" ? schema.format.toLocaleLowerCase() : "";
-  return format.includes("link") || format.includes("record") || schema?.["x-mdbase-kind"] === "record-link";
+/** The link rule `name` is edited under, when the value has the shape the rule
+ * writes: one link is text, several are a list of text. Anything else stays
+ * plain data, so a value the rule does not fit can still be seen and repaired. */
+function linkFor(links: PropertyLinks | undefined, name: string, value: unknown): LinkProperty | undefined {
+  const link = links?.properties.get(name);
+  if (!link) return undefined;
+  return (link.many ? Array.isArray(value) && value.every((item) => typeof item === "string") : typeof value === "string") ? link : undefined;
+}
+
+function linkKind(link: LinkProperty): string {
+  return link.many ? t`Links` : kindName("link");
 }
 
 function schemaAllowsNull(schema?: JsonObject): boolean {

@@ -47,6 +47,10 @@ msgstr "“{0}”已在其他地方更改。你的编辑仍然保留。"
 msgid "“{0}” has no “{1}” section or block."
 msgstr "“{0}”中没有“{1}”章节或块。"
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "“{raw}”未指向任何笔记。"
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "已选择 {0} 项"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "{0} 目标类型"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "{0} 唯一性路径模式"
 
@@ -326,6 +325,11 @@ msgstr "{0}：<0>{1}</0>（设置回执）"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}。这些规则与上方的可视化规则结合使用。"
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}。这些规则描述的值未在上方字段中显示。"
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, other {# 个字段选择器}}"
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, other {# 个字段}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, other {# 个链接}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "{itemLabel} 字段类型"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 建议"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label}“{title}”"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "需要填写“{label}”才能保存此笔记。"
@@ -536,18 +541,10 @@ msgstr "{name} 为必填项。"
 msgid "{name} is too large to upload."
 msgstr "{name} 太大，无法上传。"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "{name} 条目建议"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "{name} JSON 值"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "{name} 笔记建议"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -561,6 +558,7 @@ msgstr "{name} 类型定义"
 msgid "{name} type YAML"
 msgstr "{name} 类型 YAML"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "{name} 值"
@@ -625,6 +623,10 @@ msgstr "{title} 笔记操作"
 #: src/TypeBrowser.tsx
 msgid "{title}.md"
 msgstr "{title}.md"
+
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "{typeLabel} 类型的笔记不只需要名称。请先通过“新建笔记”创建，再链接到它。"
 
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
@@ -718,13 +720,13 @@ msgstr "名为“{name}”的字段已存在。"
 msgid "A folder cannot be moved inside itself."
 msgstr "不能将文件夹移动到其自身内部。"
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "链接"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "{path} 中的一个链接仍将失效。"
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "“{field}”的链接规则已存在。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -786,6 +788,14 @@ msgstr "添加 {0}"
 msgid "Add a custom property…"
 msgstr "添加自定义属性…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "添加链接"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "向 {name} 添加链接"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "添加私有集合"
@@ -801,6 +811,10 @@ msgstr "添加现成类型以获得应用兼容性，或先安装契约，再自
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "添加类型"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "添加 {fieldLabel} 可链接到的类型"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -841,10 +855,6 @@ msgid "Add item"
 msgstr "添加条目"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "添加链接规则"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "添加嵌套字段"
 
@@ -876,8 +886,8 @@ msgid "Add tag"
 msgstr "添加标签"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "添加目标类型"
+msgid "Add type"
+msgstr "添加类型"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -988,6 +998,10 @@ msgstr "允许本地访问"
 msgid "Allow person records in this collection?"
 msgstr "允许在此集合中使用人员记录？"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "允许多个链接"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -1000,10 +1014,6 @@ msgstr "允许 Editor 查看你的账户身份"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "允许未声明的字段"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "允许的目标类型"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1029,6 +1039,10 @@ msgstr "和"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "任意"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "任意笔记"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1360,6 +1374,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "请选择同时实现 Person 和 Contact 的目标类型，以保留现有的联系人语义。"
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "选择类型"
 
@@ -1911,6 +1926,10 @@ msgstr "以你的账户名为初始名称，为自己创建一篇笔记。"
 msgid "Create a note from what was shared?"
 msgstr "要用分享的内容创建笔记吗？"
 
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "创建并链接"
+
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
 msgstr "创建与已安装契约匹配的字段。你可以稍后重命名并重新映射这些字段。"
@@ -2041,10 +2060,6 @@ msgstr "正在删除 {title}…"
 #: src/note-mutation-presentation.ts
 msgid "Deleting note"
 msgstr "正在删除笔记"
-
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "描述哪些属性指向其他记录，以及如何验证目标。"
 
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
@@ -2423,6 +2438,14 @@ msgstr "筛选命令"
 msgid "Filter links by type"
 msgstr "按类型筛选链接"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "查找 {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "查找笔记"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "按标题或路径查找笔记"
@@ -2446,6 +2469,14 @@ msgstr "查找属性"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "在笔记中查找"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "查找或创建 {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "查找或创建笔记"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2838,6 +2869,11 @@ msgstr "生命周期"
 msgid "Link"
 msgstr "添加链接"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "链接"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "关联一条已代表你的记录。"
@@ -2850,19 +2886,10 @@ msgstr "链接和唯一性规则可在不更改源文件的情况下，使匹配
 msgid "Link anyway"
 msgstr "仍然关联"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "链接字段 {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "为 {0} 中的提及添加链接"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "链接规则"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -2902,9 +2929,13 @@ msgstr "关联的架构字段"
 msgid "Linked to {0}"
 msgstr "已关联到 {0}"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "链接"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "链接到"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3181,6 +3212,10 @@ msgstr "YAML 中的更多集合行为"
 msgid "More inferred rules in YAML"
 msgstr "YAML 中的更多推断规则"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "更多链接规则见 YAML"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "更多笔记操作"
@@ -3258,6 +3293,7 @@ msgstr "此集合当前的访问权限不支持移动笔记。"
 msgid "Moving…"
 msgstr "正在移动…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3310,12 +3346,20 @@ msgstr "嵌套必填字段"
 msgid "New {name}"
 msgstr "新建{name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "新建：{typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "新建文件夹"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3455,7 +3499,7 @@ msgstr "没有匹配的筛选条件"
 msgid "No matching icons."
 msgstr "没有匹配的图标。"
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "没有匹配的笔记。"
 
@@ -3483,10 +3527,6 @@ msgstr "暂无笔记链接到此处。"
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "未找到笔记或文件。"
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "没有属性被标记为链接。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3599,6 +3639,7 @@ msgid "Note view options"
 msgstr "笔记视图选项"
 
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "笔记"
 
@@ -3648,6 +3689,10 @@ msgstr "笔记使用此字段声明类型。如需更改，请在 YAML 中编辑
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "未显式指定类型的笔记，在下方配置的所有条件组都匹配时属于此类型。"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "暂无可链接的内容。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3967,10 +4012,6 @@ msgstr "已持久化的 null"
 msgid "Person definitions needed"
 msgstr "需要人员定义"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "person 或 any"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Person 类型"
@@ -4216,10 +4257,6 @@ msgstr "正在重新连接集合…"
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "记录的前置元数据必须是 YAML 映射。"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "记录链接"
-
 #: src/PropertiesPanel.tsx
 msgid "Record source"
 msgstr "记录源码"
@@ -4296,6 +4333,10 @@ msgstr "移除 {field}"
 msgid "Remove {fieldLabel} field"
 msgstr "移除 {fieldLabel} 字段"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "从 {name} 中移除 {label}"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4309,11 +4350,6 @@ msgstr "移除 {name} 属性"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "从此浏览器移除"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "移除 {0} 的链接规则"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -4953,6 +4989,10 @@ msgstr "初始契约"
 #: src/TypeBrowser.tsx
 msgid "status"
 msgstr "status"
+
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "不再将 {fieldLabel} 链接到 {target}"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
@@ -5921,6 +5961,10 @@ msgstr "类型"
 #: src/EditorRail.tsx
 msgid "Types ({typeCount})"
 msgstr "类型（{typeCount}）"
+
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "{fieldLabel} 可链接到的类型"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
