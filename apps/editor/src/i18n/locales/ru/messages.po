@@ -1750,6 +1750,10 @@ msgstr "Преобразовать это поле в {0}?"
 msgid "Copied {label}."
 msgstr "Скопировано: {label}."
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "Текст заметки скопирован."
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "Копировать ссылку"
@@ -1763,6 +1767,10 @@ msgstr "Копировать путь"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "Скопировать путь для {name}"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "Копировать текст"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -2747,6 +2755,10 @@ msgstr "Недопустимый JSON."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "С момента добавления запись не редактировалась, поэтому она будет заменена новой начальной записью."
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "Её больше нет в коллекции. Последний текст показан здесь, чтобы его можно было скопировать."
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -3547,6 +3559,10 @@ msgstr "Текст заметки"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "Заметка изменена в другом месте"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "Заметка удалена в другом месте"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -5370,6 +5386,10 @@ msgstr "Индекс заметок или вложений обновляетс
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "Заметка, которая ещё не сохранена, будет удалена. Сначала завершится сохранение заметок и свойств."
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "Не удалось скопировать текст заметки. Выделите его в редакторе."
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "Полный исходный текст оригинала заметки недоступен."
@@ -5712,6 +5732,10 @@ msgstr "Заметку переместили до начала проверки
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "Заметку переместили до начала переименования."
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "Эта заметка была удалена в другом приложении или на другом устройстве."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."

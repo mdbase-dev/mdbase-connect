@@ -1750,6 +1750,10 @@ msgstr "Convert this field to {0}?"
 msgid "Copied {label}."
 msgstr "Copied {label}."
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "Copied the note’s text."
+
 #: src/editor-commands.ts
 msgid "Copy link"
 msgstr "Copy link"
@@ -1763,6 +1767,10 @@ msgstr "Copy path"
 #: src/embed-actions.ts
 msgid "Copy path for {name}"
 msgstr "Copy path for {name}"
+
+#: src/App.tsx
+msgid "Copy text"
+msgstr "Copy text"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
@@ -2747,6 +2755,10 @@ msgstr "Invalid JSON."
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "It has not been edited since it was added, so it is replaced with the new starter."
 
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "It is no longer in the collection. Its last text is shown here so you can copy it."
+
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
 msgid "Italic"
@@ -3547,6 +3559,10 @@ msgstr "Note body"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "Note changed elsewhere"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "Note deleted elsewhere"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -5370,6 +5386,10 @@ msgstr "The note or attachment index is refreshing. Wait for it to finish, then 
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "The note’s text could not be copied. Select it in the editor instead."
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "The original complete note source is unavailable."
@@ -5712,6 +5732,10 @@ msgstr "This note moved before the rename check could begin."
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "This note moved before the rename could begin."
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "This note was deleted in another app or on another device."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."

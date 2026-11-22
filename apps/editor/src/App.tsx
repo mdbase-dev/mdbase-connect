@@ -327,7 +327,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
-  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
+  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft) || Boolean(noteSessions.current.active?.deletedElsewhere);
   const privateCollection = connectionSummary?.private === true;
   const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const linkCreations = useRef(new Set<string>());
@@ -658,6 +658,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     requireSaved(await session.record.refresh());
   }, []);
 
+  const noteDeleted = useCallback((path: string) => {
+    const session = noteSessions.current.get(path);
+    // A delete made here stages its own tombstone; only one made elsewhere is news.
+    if (session && !session.deleted) session.record.markDeleted();
+  }, []);
+
   const refreshChangedNote = useCallback(async (path: string) => {
     const epoch = collectionEpoch.current;
     if (noteSessions.current.has(path)) {
@@ -816,7 +822,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [connectionSummary?.collectionId, gateway, phase]);
 
   useCollectionWatch({ phase, index: indexController, files: fileController, assets: fileAssetStore,
-    refreshCachedNote, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
+    refreshCachedNote, noteDeleted, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
 
   const flushSession = useCallback(
     async (session: NoteSession) => { requireSaved(await session.record.flush()); },
@@ -1193,7 +1199,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   async function flushCollectionWork() {
     await Promise.all([...noteSessions.current.values()]
-      .filter((session) => !session.deleted)
+      .filter((session) => !session.deleted && !session.deletedElsewhere)
       .map((session) => flushSession(session)));
     await mutationScope.current.drain();
   }
@@ -2206,7 +2212,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const shown = focused ? editing : session && !session.deleted
       ? { key: session.editorSessionKey, path: session.document.path, title: session.draft.title, body: session.draft.body } : undefined;
     const loading = focused ? noteLoading : Boolean(backgroundPath && !session && backgroundFailure?.path !== backgroundPath);
-    const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft);
+    const deletedElsewhere = !isNew && Boolean(session?.deletedElsewhere);
+    const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft) || deletedElsewhere;
     const leadingActions = index === 0 ? editorLeadingActions : undefined;
     const tabs = !mobileLayout && (workspace.panes.length > 1 || pane.tabs.length > 1)
       ? <NoteTabs tabs={pane.tabs} active={pane.active} label={(tab) => tabLabel(pane, tab)} onSelect={switchTab} onClose={closeNoteTab} />
@@ -2318,6 +2325,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               } catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
             }}><Trans>Discard recovered edits</Trans></button>
           </section>}
+          {deletedElsewhere && session && <section className="conflict-resolver" role="status" aria-label={t`Note deleted elsewhere`}>
+            <strong><Trans>This note was deleted in another app or on another device.</Trans></strong>
+            <p><Trans>It is no longer in the collection. Its last text is shown here so you can copy it.</Trans></p>
+            <button onClick={() => void navigator.clipboard.writeText(session.record.snapshot.body)
+              .then(() => setNotice(t`Copied the note’s text.`, "success"), () => setNotice(t`The note’s text could not be copied. Select it in the editor instead.`))}><Trans>Copy text</Trans></button>
+          </section>}
           {focused && <AttachmentTransfer controller={attachments} />}
           {focused && !isNew && draft && activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
           {focused && !isNew && renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
@@ -2326,7 +2339,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
           </div>}
           {/* A new note and the saved note it becomes share this editor: same place, same key, so the caret stays where it is. */}
-          <MarkdownNoteEditor footer={<BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
+          <MarkdownNoteEditor footer={deletedElsewhere ? undefined : <BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
             draft={shown} preferences={preferences} documentId={paneDocumentId(pane, shown.key)} readOnly={readOnly}
             provenance={mobileLayout ? <>
               {notePathControl}
