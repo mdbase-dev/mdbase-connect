@@ -507,9 +507,9 @@ describe("ConnectApp", () => {
       return { client, plan, onOverviewRefresh, unmount: view.unmount, rerender: (value: ManagementOverview) => view.rerender(element(value)) };
     }
 
-    function stubNavigation() {
+    function stubNavigation(origin = location.origin) {
       const assign = vi.fn();
-      vi.stubGlobal("location", { href: `${location.origin}/account`, origin: location.origin, search: "", hash: "", assign });
+      vi.stubGlobal("location", { href: `${origin}/account`, origin, search: "", hash: "", assign });
       return assign;
     }
 
@@ -526,6 +526,37 @@ describe("ConnectApp", () => {
       expect(checkout).toHaveBeenCalledWith("year");
       expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test");
       expect(card.getByRole("button", { name: "US$10 a month" })).toBeDisabled();
+    });
+
+    it("opens a billing session on the Portal origin", async () => {
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: plusFor() });
+      const assign = stubNavigation("https://portal.example:8443");
+      const url = `${location.origin}/billing/session?plan=plus`;
+      vi.spyOn(client, "openBillingPortal").mockResolvedValue({ url });
+      await userEvent.setup().click((await plan()).getByRole("button", { name: "Manage billing" }));
+      expect(assign).toHaveBeenCalledWith(url);
+    });
+
+    it.each([
+      ["http://checkout.stripe.com/session"],
+      ["http://localhost/session", "http://localhost"],
+      ["javascript:void(0)"],
+      ["https://account@checkout.stripe.com/session"],
+      ["https://:password@billing.stripe.com/session"],
+      ["https://checkout.stripe.com.evil.example/session"],
+      ["https://example.org/session"],
+      ["https://billing.stripe.com:8443/session"],
+      ["https://portal.example/session"],
+      ["invalid URL"]
+    ])("keeps checkout available when the session URL is invalid (%s)", async (url, origin = "https://portal.example:8443") => {
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: null });
+      const assign = stubNavigation(origin);
+      vi.spyOn(client, "startPlusCheckout").mockResolvedValue({ url });
+      const checkout = (await plan()).getByRole("button", { name: "US$10 a month" });
+      await userEvent.setup().click(checkout);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+      expect(assign).not.toHaveBeenCalled();
+      expect(checkout).toBeEnabled();
     });
 
     it("hides the plan where Plus isn't sold", async () => {

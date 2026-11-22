@@ -3197,6 +3197,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "로그아웃 중…"
 
+#: src/AccountManagement.tsx
 #: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts
