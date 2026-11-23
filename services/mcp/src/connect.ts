@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
 import {
   applicationInstallationId,
@@ -128,6 +129,8 @@ interface ConnectionRow {
   refresh_expires_at: Date | string;
 }
 
+const { version: MCP_PACKAGE_VERSION } = createRequire(import.meta.url)("../package.json") as { version: string };
+
 export class ConnectGateway {
   private readonly applicationOrigin: string;
   private readonly noise: NoiseKeyStore;
@@ -144,7 +147,7 @@ export class ConnectGateway {
   ) {
     this.applicationOrigin = new URL(callbackUrl).origin;
     this.noise = new NoiseKeyStore(db, secrets);
-    this.next = new NextGateway({ keyStore, noise: this.noise, version: "0.1.0-beta.129" });
+    this.next = new NextGateway({ keyStore, noise: this.noise, version: MCP_PACKAGE_VERSION });
   }
 
   async registerApplication(): Promise<{ id: string; manifestDigest: string }> {
@@ -520,10 +523,12 @@ export class ConnectGateway {
         refresh_token: credentials.refreshToken,
         client_id: connection.upstream_client_id
       }).toString();
-      const proof = credentials.authority
+      const proofPublicKey = credentials.authority?.proofPublicKey
+        ?? credentials.nativeCompletion?.grant_signing_public_key;
+      const proof = proofPublicKey
         ? await this.authorityProof(
             connection,
-            credentials.authority.proofPublicKey,
+            proofPublicKey,
             "POST",
             refreshUrl,
             refreshBody,
@@ -793,8 +798,16 @@ function summary(connection: ConnectionRow): ConnectionSummary {
 
 function upstreamError(body: any, fallback: string): GatewayOperationError {
   return new GatewayOperationError(
-    typeof body?.error?.code === "string" ? body.error.code : "upstream_error",
-    typeof body?.error?.message === "string" ? body.error.message : fallback,
+    typeof body?.error?.code === "string"
+      ? body.error.code
+      : typeof body?.error === "string"
+        ? body.error
+        : "upstream_error",
+    typeof body?.error?.message === "string"
+      ? body.error.message
+      : typeof body?.error_description === "string"
+        ? body.error_description
+        : fallback,
     body?.error?.details && typeof body.error.details === "object" && !Array.isArray(body.error.details)
       ? body.error.details as Record<string, unknown>
       : undefined

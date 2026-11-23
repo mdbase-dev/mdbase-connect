@@ -1,5 +1,6 @@
 import { act } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { api, ApiError } from "./api";
 import { Authorization } from "./authorization-view";
 import { render, screen } from "./test/render";
@@ -87,4 +88,65 @@ it("keeps an expired request expired", async () => {
   await act(() => vi.advanceTimersByTimeAsync(100));
   expect(screen.getByText("This request has expired or was already answered.")).toBeInTheDocument();
   expect(replace).not.toHaveBeenCalled();
+});
+
+it("hides legacy desktop continuation for next accounts even when continue_in_desktop is set", async () => {
+  vi.setSystemTime(new Date("2026-11-07T00:00:00Z"));
+  vi.stubGlobal("location", {
+    ...location,
+    href: `https://connect.example/authorize/${requestId}?continue_in_desktop=1`,
+    search: "?continue_in_desktop=1",
+    replace
+  });
+  vi.mocked(api).mockImplementation(async path => path.endsWith("/status") ? { status: "pending" } : {
+    authorization: {
+      id: requestId,
+      application_name: "mdbase",
+      account_backend: "next",
+      expires_at: "2026-11-07T00:10:00Z",
+      requested_operations: capabilityOperations("collection.read"),
+      requirements: {
+        contracts: [],
+        access: "full_collection",
+        capabilities: { contract_version: 2, required: ["collection.read"], optional: [] },
+        files: { required: ["list", "read"], optional: [], scope: { kind: "collection" } }
+      },
+      provisions: { type_packs: [] }
+    },
+    collection_creation_available: true,
+    collections: [],
+    unavailable_connectors: []
+  });
+  render(<Authorization requestId={requestId} />);
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(screen.queryByText("Use a folder on this computer")).not.toBeInTheDocument();
+  expect(screen.queryByRole("link", { name: "Use a local folder" })).not.toBeInTheDocument();
+  expect(screen.queryByText(/Waiting for mdbase Connect/)).not.toBeInTheDocument();
+  expect(screen.getByText("Create a new collection below, or sync an existing folder in mdbase Desktop first.")).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "New collection" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Get mdbase Desktop" })).toHaveAttribute("href", "https://mdbase.dev/downloads/");
+});
+
+it("keeps legacy desktop continuation available for legacy accounts", async () => {
+  vi.setSystemTime(new Date("2026-11-07T00:00:00Z"));
+  vi.mocked(api).mockImplementation(async path => path.endsWith("/status") ? { status: "pending" } : {
+    authorization: {
+      id: requestId,
+      application_name: "mdbase",
+      account_backend: "legacy",
+      expires_at: "2026-11-07T00:10:00Z",
+      requested_operations: ["describe", "query"],
+      requirements: { contracts: [], access: "full_collection" },
+      provisions: { type_packs: [] }
+    },
+    collection_creation_available: false,
+    collections: [],
+    unavailable_connectors: []
+  });
+  render(<Authorization requestId={requestId} />);
+  await act(() => vi.advanceTimersByTimeAsync(0));
+  expect(screen.getByRole("link", { name: "Use a local folder" })).toHaveAttribute(
+    "href",
+    `mdbase-connect://authorize?request_id=${requestId}`
+  );
 });

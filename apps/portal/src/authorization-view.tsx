@@ -238,7 +238,7 @@ export function Authorization({ requestId }: { requestId: string }) {
   return (
     <RequestShell>
         {(status === "pending" || status === "setting_up") && <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private" || collection.kind === "cloud_copy")} />}
-        {status === "pending" && continuingInDesktop ? (
+        {status === "pending" && continuingInDesktop && authorization.account_backend !== "next" ? (
           <DesktopContinuation
             request={authorization}
             onReviewHere={() => continueInDesktop(false)}
@@ -304,21 +304,41 @@ export function RequestOutcome({ status, applicationName, applicationOrigin, col
   const [late, setLate] = useState(false);
   const [seconds, setSeconds] = useState(3);
   const outcome = useRef<HTMLDivElement>(null);
+  const navigated = useRef(false);
+  const timerRef = useRef<number | null>(null);
   useLayoutEffect(() => { outcome.current?.querySelector<HTMLElement>("h1, h2")?.focus(); }, [status]);
   useEffect(() => {
+    navigated.current = false;
     if (!returnUrl || portable || (status !== "approved" && status !== "denied")) return;
     if (status === "denied") {
-      const timer = window.setTimeout(() => location.replace(returnUrl), 0);
-      return () => window.clearTimeout(timer);
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        if (navigated.current) return;
+        navigated.current = true;
+        location.replace(returnUrl);
+      }, 0);
+      return () => {
+        if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      };
     }
     let remaining = 3;
     setSeconds(remaining);
-    const timer = window.setInterval(() => {
+    timerRef.current = window.setInterval(() => {
       remaining -= 1;
       setSeconds(remaining);
-      if (remaining === 0) { window.clearInterval(timer); location.replace(returnUrl); }
+      if (remaining === 0) {
+        if (timerRef.current !== null) window.clearInterval(timerRef.current);
+        timerRef.current = null;
+        if (navigated.current) return;
+        navigated.current = true;
+        location.replace(returnUrl);
+      }
     }, 1_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    };
   }, [returnUrl, portable, status]);
   useEffect(() => {
     setLate(false);
@@ -326,8 +346,20 @@ export function RequestOutcome({ status, applicationName, applicationOrigin, col
     const timer = window.setTimeout(() => setLate(true), delay);
     return () => window.clearTimeout(timer);
   }, [status]);
+  function handleManualReturn(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (navigated.current) {
+      event.preventDefault();
+      return;
+    }
+    navigated.current = true;
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
   const returnLink = late && returnUrl
-    ? <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>
+    ? <a className="mdbase-button outcome-return" href={returnUrl} onClick={handleManualReturn}>{t(i18n)`Return to ${applicationName}`}</a>
     : null;
   if (status === "expired") return <div className="request-outcome" role="status">
     <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p>
@@ -350,7 +382,7 @@ export function RequestOutcome({ status, applicationName, applicationOrigin, col
       : <h1 tabIndex={-1}>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
     {approved && collectionName && <p className="mdbase-visually-hidden"><Trans>Access approved</Trans></p>}
     {approved && !portable && returnUrl && <p>{t(i18n)`Returning to ${applicationName}…`}<span className="request-return-countdown" aria-hidden="true" /><output className="mdbase-visually-hidden" aria-live="polite">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output></p>}
-    {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>}
+    {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl} onClick={handleManualReturn}>{t(i18n)`Return to ${applicationName}`}</a>}
     {(portable || !approved || !returnUrl) && <p>{portable
       ? approved
         ? t(i18n)({ message: "The app will finish connecting with its one-time device code. You can close this window." })
@@ -828,7 +860,9 @@ function SupportedApprovalForm({
             ? t(i18n)({ message: "The collection requested by this app is not available." })
             : request.requirements.collection_kind === "hosted"
               ? t(i18n)({ message: "This app needs a collection hosted by mdbase, and none is ready yet." })
-              : t(i18n)({ message: "No compatible collection is ready." })}</p>}
+              : request.account_backend === "next" && unavailable.length === 0 && unavailableConnectors.length === 0
+                ? t(i18n)({ message: "Create a new collection below, or sync an existing folder in mdbase Desktop first." })
+                : t(i18n)({ message: "No compatible collection is ready." })}</p>}
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
             || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
@@ -851,7 +885,8 @@ function SupportedApprovalForm({
                   ? t(i18n)`${connector.connector_name} has remote access paused.`
                   : t(i18n)`${connector.connector_name} is offline.`).join(" "))} Those local collections cannot be selected until their computer is available.
               </Trans></p>}
-              {request.requirements.collection_kind !== "hosted"
+              {request.account_backend !== "next"
+                && request.requirements.collection_kind !== "hosted"
                 && !request.collection_id
                 && <div className="alternate-collection-row">
                   <div>
@@ -918,6 +953,21 @@ function SupportedApprovalForm({
                   ><Trans>New collection</Trans></button>
                 </div>
               ))}
+              {request.account_backend === "next"
+                && request.requirements.collection_kind !== "hosted"
+                && !request.collection_id
+                && <div className="alternate-collection-row">
+                  <div>
+                    <strong><Trans>Use an existing folder or Obsidian vault</Trans></strong>
+                    <small><Trans>Add and sync your folder in mdbase Desktop, then return to this page. If this request expires while you set up Desktop, connect again from {literal(request.application_name)}.</Trans></small>
+                  </div>
+                  <a
+                    className="mdbase-button is-tertiary"
+                    href="https://mdbase.dev/downloads/"
+                    target="_blank"
+                    rel="noreferrer"
+                  ><Trans>Get mdbase Desktop</Trans></a>
+                </div>}
             </div>
           </details>}
           {error && <div className="mdbase-message is-error compact" role="alert">{error}</div>}

@@ -1,7 +1,7 @@
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
 import userEvent from "@testing-library/user-event";
-import { render, screen, within } from "./test/render";
+import { fireEvent, render, screen, within } from "./test/render";
 import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import { RequestOutcome } from "./authorization-view";
 
@@ -150,4 +150,16 @@ it("omits the MCP row when MCP itself was just approved", () => {
   const section = screen.getByRole("region", { name: "Also works with Field notes" });
   expect(within(section).getAllByRole("link", { name: /^Open / })).toHaveLength(5);
   expect(within(section).queryByText("Claude, ChatGPT & Codex")).not.toBeInTheDocument();
+});
+
+it("cancels automatic return and ignores repeat clicks once the user clicks the return link", () => {
+  vi.useFakeTimers();
+  const replace = vi.fn();
+  vi.stubGlobal("location", { ...location, replace });
+  render(<RequestOutcome status="approved" applicationName="Reader" returnUrl="/reader" />);
+  const link = screen.getByRole("link", { name: "Return to Reader" });
+  expect(fireEvent.click(link)).toBe(true);
+  expect(fireEvent.click(link)).toBe(false);
+  act(() => vi.advanceTimersByTime(5_000));
+  expect(replace).not.toHaveBeenCalled();
 });
