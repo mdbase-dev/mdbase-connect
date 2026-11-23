@@ -1,6 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { internalLink, type LinkTargets } from "./collection-links";
+import type { LinkTargets } from "./collection-links";
+import { internalLink } from "./links";
 import type { MarkdownReference } from "./markdown-references";
 import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { markdownFragment } from "./markdown-fragments";

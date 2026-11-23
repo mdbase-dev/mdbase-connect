@@ -350,6 +350,10 @@ impl<S: Store> Replica<S> {
         r.published = Some(self.publish_waits.state(&r.mutation));
     }
 
+    pub(super) fn mark_local_web_unpublished(&mut self, mutation: B16) {
+        self.publish_waits.record_unpublished(mutation);
+    }
+
     fn on_drift(&mut self, d: Drift) {
         // `changed`/`missing`: the store observes the path and ingest reconciles.
         // `locked`/`read_only`/others: retry on the next tick from the same state.
@@ -2257,12 +2261,16 @@ impl PublishWaits {
         let failed = e.1;
         self.open.remove(&m);
         if failed {
-            self.not_published.push_back(m);
-            if self.not_published.len() > KEEP_NOT_PUBLISHED {
-                self.not_published.pop_front();
-            }
+            self.record_unpublished(m);
         }
         self.done.push(m);
+    }
+
+    fn record_unpublished(&mut self, mutation: B16) {
+        self.not_published.push_back(mutation);
+        if self.not_published.len() > KEEP_NOT_PUBLISHED {
+            self.not_published.pop_front();
+        }
     }
 
     /// Give up on mutations past their deadline: they end as `not_published`, and

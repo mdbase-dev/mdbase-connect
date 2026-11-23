@@ -1,4 +1,5 @@
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
+import { serviceUrl } from "@mdbase-dev/connect-protocol";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { countLabel } from "./count-label";
 import { formatters } from "@mdbase-dev/i18n";
@@ -245,7 +246,13 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     if (!beginOperation(id)) return;
     setError("");
     try {
-      location.assign((await session()).url);
+      const target = serviceUrl((await session()).url);
+      if (target?.protocol !== "https:" || ![
+        location.origin, "https://checkout.stripe.com", "https://billing.stripe.com"
+      ].includes(target.origin)) {
+        throw new Error(t(i18n)`Something went wrong on mdbase. Try again.`);
+      }
+      location.assign(target.href);
     } catch (reason) {
       handleError(reason);
       finishOperation(id);

@@ -383,8 +383,8 @@ async fn telemetry_source_is_checked_before_poll_and_after_actor_await() {
 }
 
 async fn settled(h: &CollectionHost) -> (CollectionState, Option<String>) {
-    if let Some(mut rx) = h.opened.clone() {
-        let _ = rx.wait_for(|d| *d).await;
+    if let Some(opener) = h.runtime.opener() {
+        opener.clone().finish().await;
     }
     h.current()
 }
@@ -876,16 +876,16 @@ async fn an_unready_synced_runtime_still_honours_barriers_and_close() {
         SyncMode::Synced,
         ctx(&dir, Some(&server), Some(trust)),
     );
-    if let Some(mut rx) = h.opened.clone() {
-        let _ = rx.wait_for(|d| *d).await;
+    if let Some(opener) = h.runtime.opener() {
+        opener.clone().finish().await;
     }
     assert!(
         h.runtime().is_some(),
         "the slot is filled on open: {:?} {:?}",
         h.current(),
         h.runtime
-            .as_ref()
-            .and_then(|s| s.get())
+            .opener()
+            .and_then(|o| o.slot.get())
             .map(|r| r.as_ref().err().cloned())
     );
     assert_eq!(
@@ -1392,7 +1392,7 @@ async fn a_collection_stopped_by_an_integrity_incident_reopens_with_a_notice() {
     h.reason = Some(SYNC_INTEGRITY.into());
     let t0 = std::time::Instant::now();
     assert!(
-        !h.recover(t0).await,
+        h.recover_due(t0).is_none(),
         "the first reopen waits for its backoff"
     );
     let notice = h
@@ -1409,7 +1409,12 @@ async fn a_collection_stopped_by_an_integrity_incident_reopens_with_a_notice() {
             .contains(&format!("mdbase collection resume {COLLECTION}"))
     );
     assert!(notice.message.contains("mdbase logs"));
-    assert!(h.recover(t0 + std::time::Duration::from_secs(10)).await);
+    let stop = h
+        .recover_due(t0 + std::time::Duration::from_secs(10))
+        .unwrap();
+    stop.clone().await;
+    h = h.next_after_stop(&stop).unwrap();
+    h.refresh();
     assert_ne!(
         h.current(),
         (CollectionState::Failed, Some(SYNC_INTEGRITY.into())),
@@ -1443,8 +1448,8 @@ async fn deleted_and_revoked_collections_are_never_reopened_automatically() {
         let t0 = std::time::Instant::now();
         for minutes in [0, 1, 10, 60, 600] {
             assert!(
-                !h.recover(t0 + std::time::Duration::from_secs(minutes * 60))
-                    .await,
+                h.recover_due(t0 + std::time::Duration::from_secs(minutes * 60))
+                    .is_none(),
                 "{code} stays terminal"
             );
         }
@@ -1459,5 +1464,19 @@ async fn deleted_and_revoked_collections_are_never_reopened_automatically() {
         assert!(posts.load(std::sync::atomic::Ordering::SeqCst) > opened);
         h.close().await;
         std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+impl CollectionHost {
+    /// Hold the opener-completion part of a real host stop until the test releases it.
+    pub(crate) fn hold_integrity_stop(&mut self) -> tokio::sync::watch::Sender<bool> {
+        self.state = CollectionState::Failed;
+        self.reason = Some(SYNC_INTEGRITY.into());
+        let (release, opened) = tokio::sync::watch::channel(false);
+        let HostedRuntime::Open(opener) = &mut self.runtime else {
+            panic!("expected an opened runtime")
+        };
+        opener.done = opened;
+        release
     }
 }

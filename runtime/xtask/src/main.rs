@@ -20,6 +20,7 @@ cargo xtask <command>
 
   arch          crate dependency direction, portable dependency trees, lint
                 inheritance, determinism source scan
+  policy        check dependencies and evaluate feature bans per configured target
   wasm          build target/wasm/runtime.wasm (wasm-release profile + wasm-opt -Oz)
   wasm-size     report runtime.wasm raw/gzip/brotli sizes (no size gate)
   wasm-app      test/build app-runtime.wasm, report sizes, SQLite ABI smoke
@@ -38,6 +39,13 @@ fn main() -> ExitCode {
     let cmd = std::env::args().nth(1).unwrap_or_default();
     let result = match cmd.as_str() {
         "arch" => arch::run(),
+        "policy" => {
+            let mut check = Command::new("python3");
+            check
+                .current_dir(repo_root())
+                .arg("scripts/check-dependency-policy.py");
+            run(check)
+        }
         "wasm" => wasm_build().map(|_| ()),
         "wasm-size" => wasm_size(),
         "wasm-app" => wasm_app(),
@@ -424,7 +432,7 @@ fn ci() -> Result<()> {
             "warnings",
         ],
         &["xtask", "arch"],
-        &["deny", "--locked", "check"],
+        &["xtask", "policy"],
         &["test", "--workspace", "--locked"],
         &[
             "run",

@@ -16,6 +16,10 @@ pub(super) async fn run_command(
     out: &Output,
 ) -> Result<ExitCode, ClientError> {
     match cmd {
+        #[cfg(unix)]
+        Command::SelfHost(_) | Command::PairApp { .. } => {
+            unreachable!("handled before resolving a managed profile")
+        }
         Command::Daemon(DaemonCmd::Run) | Command::Companion => {
             unreachable!("handled before the runtime starts")
         }

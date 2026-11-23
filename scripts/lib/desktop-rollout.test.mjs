@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import childProcess from "node:child_process";
+import { readFileSync, writeFileSync } from "node:fs";
+import { syncBuiltinESMExports } from "node:module";
 import test from "node:test";
+import { publish } from "../desktop-rollout.mjs";
+import { repository } from "./continuous-client-release.mjs";
 import {
   parseRollout,
   rolloutBytes,
@@ -17,6 +21,48 @@ const workflow = readFileSync(new URL("../../.github/workflows/desktop-release.y
 const job = name => workflow.split(`\n  ${name}:\n`)[1].split(/\n  [a-z-]+:\n/)[0];
 const now = Date.parse("2026-11-17T12:00:00.000Z");
 const at = (stage, ageMs) => rolloutDocument("v0.1.3", stage, new Date(now - ageMs));
+
+test("publishing respects the release stop switch and permits a hold", async t => {
+  const env = {
+    GITHUB_EVENT_NAME: "workflow_dispatch",
+    GITHUB_REPOSITORY: repository,
+    GITHUB_REF_NAME: "v0.1.3",
+    GITHUB_REF: "refs/tags/v0.1.3",
+    DESKTOP_ROLLOUT_SERVICE: "https://rollout.invalid",
+    ACTIONS_ID_TOKEN_REQUEST_URL: "https://oidc.invalid/token",
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: "test"
+  };
+  const cosign = t.mock.method(childProcess, "execFileSync", (command, args) => {
+    assert.equal(command, "cosign");
+    if (args[0] === "sign-blob") writeFileSync(args[args.indexOf("--bundle") + 1], "{}");
+    else assert.equal(args[0], "verify-blob");
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    cosign.mock.restore();
+    syncBuiltinESMExports();
+  });
+  let uploaded;
+  const http = t.mock.method(globalThis, "fetch", (url, options) => {
+    if (url instanceof URL && url.origin === "https://oidc.invalid") return Response.json({ value: "test" });
+    if (options.method === "PUT") {
+      uploaded = JSON.parse(options.body).document;
+      return new Response();
+    }
+    return new Response(url.endsWith(".sigstore.json") ? "{}" : uploaded);
+  });
+
+  const stopped = { ...env, DESKTOP_RELEASE_STOPPED: "true" };
+  for (const stage of ["early", "5", "25", "100"]) {
+    await assert.rejects(publish(stage, stopped), /release line is stopped/);
+  }
+  assert.equal(cosign.mock.callCount(), 0);
+  assert.equal(http.mock.callCount(), 0);
+  await publish("held", stopped);
+  assert.equal(stageOf(JSON.parse(uploaded)), "held");
+  await publish("100", env);
+  assert.equal(stageOf(JSON.parse(uploaded)), "100");
+});
 
 test("rollout documents name a stage, round-trip exactly and match the client schema", () => {
   const document = rolloutDocument("v0.1.3", "early", new Date(now));
@@ -83,7 +129,9 @@ test("rollout runs are tag-bound, separate from release builds and cannot change
   assert.match(rollout, /permissions:\n      contents: read\n      id-token: write\n/);
   assert.match(rollout, /isDraft --jq \.isDraft\)" = false/);
   assert.match(rollout, /run: node scripts\/desktop-rollout\.mjs publish "\$STAGE"/);
-  assert.doesNotMatch(rollout, /needs:|environment:|secrets\.|gh release (?:edit|upload|delete|create)/);
+  assert.match(rollout, /^    environment: desktop-release$/m);
+  assert.match(rollout, /^      DESKTOP_RELEASE_STOPPED: \$\{\{ vars\.DESKTOP_RELEASE_STOPPED \}\}$/m);
+  assert.doesNotMatch(rollout, /needs:|secrets\.|gh release (?:edit|upload|delete|create)/);
   assert.match(workflow, /group: desktop-release-\$\{\{ github\.event_name == 'pull_request' && github\.ref \|\| inputs\.operation == 'rollout' && format\('rollout-\{0\}', github\.ref_name\) \|\| 'live' \}\}/);
   assert.match(workflow, /options: \[held, early, '5', '25', '100'\]\n\s+default: held/);
   assert.match(job("coordinate"), /github\.event_name == 'workflow_dispatch' && inputs\.operation == 'release'/);

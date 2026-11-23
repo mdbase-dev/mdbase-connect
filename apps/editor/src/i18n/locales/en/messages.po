@@ -47,6 +47,10 @@ msgstr "“{0}” changed elsewhere. Your edits are still here."
 msgid "“{0}” has no “{1}” section or block."
 msgstr "“{0}” has no “{1}” section or block."
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "“{raw}” does not lead to a note."
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "{0} selected"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "{0} target type"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "{0} uniqueness path pattern"
 
@@ -326,6 +325,11 @@ msgstr "{0}: <0>{1}</0> (setup receipt)"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}. These rules combine with the visual rules above."
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}. These rules describe values the fields above do not show."
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, one {# field selector} other {# field selectors}}"
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, one {# field} other {# fields}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, one {# link} other {# links}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "{itemLabel} field type"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} suggestions"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label} “{title}”"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "{label} is needed to save this note."
@@ -536,18 +541,10 @@ msgstr "{name} is required."
 msgid "{name} is too large to upload."
 msgstr "{name} is too large to upload."
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "{name} item suggestions"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "{name} JSON value"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "{name} note suggestions"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -561,6 +558,7 @@ msgstr "{name} type definition"
 msgid "{name} type YAML"
 msgstr "{name} type YAML"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "{name} value"
@@ -626,6 +624,10 @@ msgstr "{title} note actions"
 msgid "{title}.md"
 msgstr "{title}.md"
 
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
 msgstr "{typeReference} allows values outside the contract’s accepted set."
@@ -688,6 +690,10 @@ msgstr "<0>More</0>{0} additional notes"
 msgid "1 person record needs attention"
 msgstr "1 person record needs attention"
 
+#: direct/DirectEditor.tsx
+msgid "8-digit pairing code"
+msgstr "8-digit pairing code"
+
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
 msgstr "A {label} for “{name}” already exists."
@@ -710,6 +716,10 @@ msgstr "a date"
 msgid "a date and time"
 msgstr "a date and time"
 
+#: direct/DirectEditor.tsx
+msgid "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+msgstr "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
 msgstr "A field named “{name}” already exists."
@@ -718,13 +728,13 @@ msgstr "A field named “{name}” already exists."
 msgid "A folder cannot be moved inside itself."
 msgstr "A folder cannot be moved inside itself."
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "a link"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "A link in {path} will stay broken."
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "A link rule for “{field}” already exists."
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -768,6 +778,10 @@ msgstr "A read default for “{field}” already exists."
 msgid "About existing contacts"
 msgstr "About existing contacts"
 
+#: direct/DirectEditor.tsx
+msgid "Access was refused or revoked. Ask for a new pairing code."
+msgstr "Access was refused or revoked. Ask for a new pairing code."
+
 #: src/QuickOpen.tsx
 msgid "Actions"
 msgstr "Actions"
@@ -786,6 +800,14 @@ msgstr "Add {0}"
 msgid "Add a custom property…"
 msgstr "Add a custom property…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "Add a link"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "Add a link to {name}"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "Add a Private collection"
@@ -801,6 +823,10 @@ msgstr "Add a ready-made type to get app compatibility, or install a contract be
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "Add a type"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "Add a type {fieldLabel} links to"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -841,10 +867,6 @@ msgid "Add item"
 msgstr "Add item"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "Add link rule"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "Add nested field"
 
@@ -876,8 +898,8 @@ msgid "Add tag"
 msgstr "Add tag"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "Add target type"
+msgid "Add type"
+msgstr "Add type"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -941,7 +963,9 @@ msgstr "Adds 1 type"
 msgid "Adopt and update"
 msgstr "Adopt and update"
 
+#: direct/DirectEditor.tsx
 #: src/PropertiesPanel.tsx
+#: src/SdkEditorRoot.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
 msgstr "Advanced"
@@ -963,6 +987,7 @@ msgstr "Advanced YAML rules"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "Advisory labels and colour used when records of this type are shown."
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
@@ -988,6 +1013,10 @@ msgstr "Allow local access"
 msgid "Allow person records in this collection?"
 msgstr "Allow person records in this collection?"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "Allow several links"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -1000,10 +1029,6 @@ msgstr "Allow the Editor to see your account identity"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "Allow undeclared fields"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "Allowed target types"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1029,6 +1054,10 @@ msgstr "and"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "Any"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "Any note"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1104,6 +1133,10 @@ msgstr "Automatic properties"
 msgctxt "direct connection availability"
 msgid "Available"
 msgstr "Available"
+
+#: direct/RecordWorkspace.tsx
+msgid "Awaiting confirmation"
+msgstr "Awaiting confirmation"
 
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
@@ -1187,6 +1220,10 @@ msgstr "Boolean"
 msgid "Browse ready-made types"
 msgstr "Browse ready-made types"
 
+#: direct/DirectEditor.tsx
+msgid "Browser storage is unavailable. Pair without remembering this browser."
+msgstr "Browser storage is unavailable. Pair without remembering this browser."
+
 #: src/code-editor-completions.ts
 #: src/CodeEditor.tsx
 msgid "Bulleted list"
@@ -1234,6 +1271,10 @@ msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "Change note text without changing the surrounding interface."
 
+#: direct/DirectEditor.tsx
+msgid "Change server"
+msgstr "Change server"
+
 #. placeholder {0}: label(id)
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
@@ -1265,6 +1306,10 @@ msgstr "Check note"
 #: src/ConnectionScreens.tsx
 msgid "check notes"
 msgstr "check notes"
+
+#: direct/DirectEditor.tsx
+msgid "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
+msgstr "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
@@ -1360,6 +1405,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "Choose a target type that implements both Person and Contact so existing contact semantics are retained."
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "Choose a type"
 
@@ -1665,6 +1711,12 @@ msgstr "Connect application contract"
 msgid "Connect server: {server}"
 msgstr "Connect server: {server}"
 
+#: direct/DirectEditor.tsx
+#: direct/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Connect to your own server"
+msgstr "Connect to your own server"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "Connected"
@@ -1679,10 +1731,18 @@ msgctxt "connection route"
 msgid "Connected through mdbase"
 msgstr "Connected through mdbase"
 
+#: direct/DirectEditor.tsx
+msgid "Connecting…"
+msgstr "Connecting…"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
 msgstr "Connection"
+
+#: direct/DirectEditor.tsx
+msgid "Connection lost. Check the server and network, then reconnect."
+msgstr "Connection lost. Check the server and network, then reconnect."
 
 #: src/type-schema.ts
 msgid "constant value"
@@ -1760,6 +1820,10 @@ msgstr "Copied"
 msgid "Copied {label}."
 msgstr "Copied {label}."
 
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "Copied the note’s text."
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Copy"
@@ -1779,9 +1843,21 @@ msgstr "Copy path"
 msgid "Copy path for {name}"
 msgstr "Copy path for {name}"
 
+#: src/App.tsx
+msgid "Copy text"
+msgstr "Copy text"
+
+#: direct/DirectEditor.tsx
+msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
+msgstr "Copy your text before closing this tab. It will not be sent when you reconnect."
+
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
 msgstr "Could not add person definitions. Review setup again."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not confirm the save."
+msgstr "Could not confirm the save."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
@@ -1794,6 +1870,18 @@ msgstr "Could not link this person."
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
 msgstr "Could not load people."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not load the collection."
+msgstr "Could not load the collection."
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not read this note."
+msgstr "Could not read this note."
+
+#: direct/DirectEditor.tsx
+msgid "Could not remove the saved connection. Try forgetting it again."
+msgstr "Could not remove the saved connection. Try forgetting it again."
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
@@ -1917,6 +2005,10 @@ msgstr "Create a note for yourself, starting from your account name."
 #: src/App.tsx
 msgid "Create a note from what was shared?"
 msgstr "Create a note from what was shared?"
+
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "Create and link"
 
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
@@ -2049,10 +2141,6 @@ msgstr "Deleting {title}…"
 msgid "Deleting note"
 msgstr "Deleting note"
 
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "Describe which properties point to other records and how targets are validated."
-
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Description"
@@ -2102,6 +2190,10 @@ msgctxt "explicit type keys setting"
 msgid "Disabled"
 msgstr "Disabled"
 
+#: direct/DirectEditor.tsx
+msgid "Discard and open notes"
+msgstr "Discard and open notes"
+
 #: src/App.tsx
 msgid "Discard changes"
 msgstr "Discard changes"
@@ -2129,6 +2221,27 @@ msgstr "Discard type"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "Discard type changes?"
+
+#: direct/DirectEditor.tsx
+#: direct/RecordWorkspace.tsx
+msgid "Discard unsaved changes?"
+msgstr "Discard unsaved changes?"
+
+#: direct/DirectEditor.tsx
+msgid "Discard unsaved text"
+msgstr "Discard unsaved text"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect"
+msgstr "Disconnect"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect this tab? You will need a new code to pair again."
+msgstr "Disconnect this tab? You will need a new code to pair again."
+
+#: direct/DirectEditor.tsx
+msgid "Disconnected."
+msgstr "Disconnected."
 
 #: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
@@ -2276,6 +2389,10 @@ msgstr "Enter a list."
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
 msgstr "Enter a number."
+
+#: direct/DirectEditor.tsx
+msgid "Enter a server HTTPS address or an invitation for this editor."
+msgstr "Enter a server HTTPS address or an invitation for this editor."
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
@@ -2430,6 +2547,14 @@ msgstr "Filter commands"
 msgid "Filter links by type"
 msgstr "Filter links by type"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "Find a {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "Find a note"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "Find a note by title or path"
@@ -2453,6 +2578,14 @@ msgstr "Find a property"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "Find in note"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "Find or create a {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "Find or create a note"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2553,6 +2686,14 @@ msgstr "Forget from this browser"
 msgctxt "settings view"
 msgid "Forget from this browser"
 msgstr "Forget from this browser"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser"
+msgstr "Forget this browser"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
+msgstr "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
 
 #: src/TypeBrowser.tsx
 msgid "Format"
@@ -2678,6 +2819,10 @@ msgstr "Icon"
 msgid "Identity"
 msgstr "Identity"
 
+#: direct/DirectEditor.tsx
+msgid "If the browser asked, allow local network access for this site."
+msgstr "If the browser asked, allow local network access for this site."
+
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
@@ -2758,9 +2903,17 @@ msgstr "invalid JSON Schema"
 msgid "Invalid JSON."
 msgstr "Invalid JSON."
 
+#: direct/DirectEditor.tsx
+msgid "Invitation"
+msgstr "Invitation"
+
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "It has not been edited since it was added, so it is replaced with the new starter."
+
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "It is no longer in the collection. Its last text is shown here so you can copy it."
 
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
@@ -2846,6 +2999,11 @@ msgstr "Lifecycle"
 msgid "Link"
 msgstr "Link"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "Link"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "Link a record that already represents you."
@@ -2858,19 +3016,10 @@ msgstr "Link and uniqueness rules can make matching records valid or invalid wit
 msgid "Link anyway"
 msgstr "Link anyway"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "Link field {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "Link mention in {0}"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "link rule"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -2910,9 +3059,13 @@ msgstr "Linked schema field"
 msgid "Linked to {0}"
 msgstr "Linked to {0}"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "Links"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "Links to"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3189,6 +3342,10 @@ msgstr "More collection behaviour in YAML"
 msgid "More inferred rules in YAML"
 msgstr "More inferred rules in YAML"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "More link rules in YAML"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "More note actions"
@@ -3200,6 +3357,10 @@ msgstr "More than one note matches this transclusion."
 #: src/NoteCommentsPanel.tsx
 msgid "More than one person record claims your account, so the editor will not guess which is you."
 msgstr "More than one person record claims your account, so the editor will not guess which is you."
+
+#: direct/main.tsx
+msgid "Most people use mdbase editor with their mdbase account."
+msgstr "Most people use mdbase editor with their mdbase account."
 
 #: src/MoveNoteDialog.tsx
 msgid "Move"
@@ -3266,6 +3427,7 @@ msgstr "Moving notes is not available with this collection’s current access."
 msgid "Moving…"
 msgstr "Moving…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3318,12 +3480,20 @@ msgstr "nested required fields"
 msgid "New {name}"
 msgstr "New {name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "New {typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "New folder"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3463,7 +3633,7 @@ msgstr "No matching filters"
 msgid "No matching icons."
 msgstr "No matching icons."
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "No matching notes."
 
@@ -3484,6 +3654,10 @@ msgstr "No note"
 msgid "No note or file matches “{0}”."
 msgstr "No note or file matches “{0}”."
 
+#: direct/RecordWorkspace.tsx
+msgid "No notes in this collection."
+msgstr "No notes in this collection."
+
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
 msgstr "No notes link here yet."
@@ -3491,10 +3665,6 @@ msgstr "No notes link here yet."
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "No notes or files found."
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "No properties are marked as links."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3560,6 +3730,7 @@ msgstr "Note"
 msgid "Note actions, in the list"
 msgstr "Note actions, in the list"
 
+#: direct/RecordWorkspace.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Note body"
 msgstr "Note body"
@@ -3567,6 +3738,10 @@ msgstr "Note body"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "Note changed elsewhere"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "Note deleted elsewhere"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -3602,7 +3777,9 @@ msgstr "Note types"
 msgid "Note view options"
 msgstr "Note view options"
 
+#: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "Notes"
 
@@ -3652,6 +3829,10 @@ msgstr "Notes use this field to declare their type. Edit it in YAML if you need 
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "Notes without an explicit assignment belong to this type when every configured condition group below matches."
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "Nothing to link yet."
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3792,10 +3973,18 @@ msgstr "Open tabs"
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "Open the Editor configured for your mdbase environment from Collections."
 
+#: direct/DirectEditor.tsx
+msgid "Open the invitation from {host}?"
+msgstr "Open the invitation from {host}?"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Open this collection in another mdbase app or connect an AI client."
 msgstr "Open this collection in another mdbase app or connect an AI client."
+
+#: direct/main.tsx
+msgid "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
+msgstr "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
 
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
@@ -3835,6 +4024,7 @@ msgstr "Opening collection"
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "Opening mdbase connect… <0>Continue</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
 msgstr "Opening note…"
@@ -3920,6 +4110,18 @@ msgstr "Pack"
 msgid "packs[{index}].resource_count must be a positive integer."
 msgstr "packs[{index}].resource_count must be a positive integer."
 
+#: direct/DirectEditor.tsx
+msgid "Pair and open collection"
+msgstr "Pair and open collection"
+
+#: direct/DirectEditor.tsx
+msgid "Paired for this tab only. The connection could not be remembered."
+msgstr "Paired for this tab only. The connection could not be remembered."
+
+#: direct/DirectEditor.tsx
+msgid "Pairing could not be confirmed. Check the server and network before trying again."
+msgstr "Pairing could not be confirmed. Check the server and network before trying again."
+
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
 msgstr "Partly installed"
@@ -3991,10 +4193,6 @@ msgstr "Persisted null"
 #: src/YourPersonPanel.tsx
 msgid "Person definitions needed"
 msgstr "Person definitions needed"
-
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "person or any"
 
 #: src/YourPersonPanel.tsx
 msgid "Person type"
@@ -4227,6 +4425,10 @@ msgstr "Reading notes and files"
 msgid "Reading notes and files…"
 msgstr "Reading notes and files…"
 
+#: direct/RecordWorkspace.tsx
+msgid "Reading notes…"
+msgstr "Reading notes…"
+
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
 msgstr "Reading type definition…"
@@ -4239,6 +4441,10 @@ msgstr "Ready-made types"
 msgid "Recent collections"
 msgstr "Recent collections"
 
+#: direct/DirectEditor.tsx
+msgid "Reconnect"
+msgstr "Reconnect"
+
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
 msgstr "Reconnecting"
@@ -4250,10 +4456,6 @@ msgstr "Reconnecting to the collection…"
 #: src/record-source.ts
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "Record frontmatter must be a YAML mapping."
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "Record link"
 
 #: src/PropertiesPanel.tsx
 msgid "Record source"
@@ -4296,6 +4498,10 @@ msgstr "Reload Connect"
 msgid "Reload editor"
 msgstr "Reload editor"
 
+#: direct/DirectEditor.tsx
+msgid "Remember this browser"
+msgstr "Remember this browser"
+
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
@@ -4331,6 +4537,10 @@ msgstr "Remove {field}"
 msgid "Remove {fieldLabel} field"
 msgstr "Remove {fieldLabel} field"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "Remove {label} from {name}"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4344,11 +4554,6 @@ msgstr "Remove {name} property"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "Remove from this browser"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "Remove link rule for {0}"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -4540,6 +4745,7 @@ msgstr "Restored unlinked mention."
 msgid "Resume rename"
 msgstr "Resume rename"
 
+#: direct/RecordWorkspace.tsx
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4584,6 +4790,10 @@ msgstr "Retry search"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "Return to Collections and open the collection again."
+
+#: direct/main.tsx
+msgid "Return to mdbase editor"
+msgstr "Return to mdbase editor"
 
 #: src/note-sort.ts
 msgid "Reversed"
@@ -4673,9 +4883,17 @@ msgstr "Runtime path handling"
 msgid "Save failed"
 msgstr "Save failed"
 
+#: direct/RecordWorkspace.tsx
+msgid "Save note"
+msgstr "Save note"
+
 #: src/PropertiesPanel.tsx
 msgid "Save source"
 msgstr "Save source"
+
+#: direct/RecordWorkspace.tsx
+msgid "Saved"
+msgstr "Saved"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4705,6 +4923,7 @@ msgstr "Saving affects every matching note"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "Saving affects every note of type <0>{0}</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4798,6 +5017,10 @@ msgstr "Send feedback"
 #: src/code-editor-completions.ts
 msgid "Separate sections"
 msgstr "Separate sections"
+
+#: direct/DirectEditor.tsx
+msgid "Server address or invitation link"
+msgstr "Server address or invitation link"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
@@ -4993,6 +5216,10 @@ msgstr "Starting contract"
 #: src/TypeBrowser.tsx
 msgid "status"
 msgstr "status"
+
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "Stop linking {fieldLabel} to {target}"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
@@ -5409,6 +5636,10 @@ msgstr "The new type definition hasn’t been saved."
 msgid "The note change was rejected."
 msgstr "The note change was rejected."
 
+#: direct/RecordWorkspace.tsx
+msgid "The note changed elsewhere. Copy your text before reopening it."
+msgstr "The note changed elsewhere. Copy your text before reopening it."
+
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5426,9 +5657,17 @@ msgstr "The note or attachment index is refreshing. Wait for it to finish, then 
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "The note’s text could not be copied. Select it in the editor instead."
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "The original complete note source is unavailable."
+
+#: direct/DirectEditor.tsx
+msgid "The pairing code was refused. Check the digits or ask for a new code if it expired."
+msgstr "The pairing code was refused. Check the digits or ask for a new code if it expired."
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
@@ -5474,6 +5713,10 @@ msgstr "The selected collection is not ready."
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
 msgstr "The selected file has an invalid size."
+
+#: direct/DirectEditor.tsx
+msgid "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
+msgstr "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
@@ -5614,6 +5857,14 @@ msgstr "These properties must be persisted before this record is valid."
 #: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "This application does not have permission to make that change."
+
+#: direct/DirectEditor.tsx
+msgid "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+msgstr "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+
+#: direct/DirectEditor.tsx
+msgid "This browser forgot the connection. The server still controls the grant."
+msgstr "This browser forgot the connection. The server still controls the grant."
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: literal(conversion.typeName)
@@ -5768,6 +6019,14 @@ msgstr "This note moved before the rename check could begin."
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "This note moved before the rename could begin."
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "This note was deleted in another app or on another device."
+
+#: direct/RecordWorkspace.tsx
+msgid "This note was deleted."
+msgstr "This note was deleted."
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
@@ -5954,6 +6213,10 @@ msgstr "Types"
 msgid "Types ({typeCount})"
 msgstr "Types ({typeCount})"
 
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "Types {fieldLabel} links to"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types folder"
@@ -6011,6 +6274,10 @@ msgstr "Unpin"
 msgid "Unpinned"
 msgstr "Unpinned"
 
+#: direct/RecordWorkspace.tsx
+msgid "Unsaved changes"
+msgstr "Unsaved changes"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "Unsaved draft found"
@@ -6022,6 +6289,10 @@ msgstr "Unsaved edits cannot be backed up in this browser. Keep this tab open un
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
 msgstr "Unsaved edits from an earlier session are available."
+
+#: direct/DirectEditor.tsx
+msgid "Unsaved text"
+msgstr "Unsaved text"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -6215,6 +6486,10 @@ msgstr "What was shared is too long to create a note from. Paste it into a new n
 msgid "Which notes use this type"
 msgstr "Which notes use this type"
 
+#: direct/DirectEditor.tsx
+msgid "Without this option, reloading the page requires a new code."
+msgstr "Without this option, reloading the page requires a new code."
+
 #: src/PropertiesPanel.tsx
 msgid "Words"
 msgstr "Words"
@@ -6286,6 +6561,10 @@ msgstr "Your account is not linked to a person in this collection."
 #: src/pending-note-mutation.ts
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
+
+#: direct/DirectEditor.tsx
+msgid "Your collection"
+msgstr "Your collection"
 
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."

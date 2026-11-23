@@ -1,0 +1,24 @@
+{
+	admin off
+	auto_https disable_redirects
+}
+
+https://{$MDBASE_BACKEND_AUTHORITY} {
+	bind 127.0.0.1
+	tls {$MDBASE_TLS_CERT} {$MDBASE_TLS_KEY}
+
+	@replica {
+		method GET
+		path /_mdbase/pair /_mdbase/replica
+		header Upgrade websocket
+	}
+	handle @replica {
+		reverse_proxy 127.0.0.1:14918 {
+			header_up -Cookie
+			header_up -Authorization
+		}
+	}
+	handle {
+		respond 404
+	}
+}

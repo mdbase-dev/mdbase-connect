@@ -427,7 +427,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     clientUpdate: parseClientUpdateEnv(env),
     newAccountBackend: parseNewAccountBackendEnv(env, nextControlPlane),
     opsMetricsPush: opsMetricsPushSetting(env, environment),
-    billing: parseBillingEnv(env)
+    billing: parseBillingEnv(env, environment)
   });
 }
 
@@ -442,7 +442,7 @@ const BILLING_ENV = {
  * Billing is on only with all four Stripe settings: self-hosted and development
  * deployments sell nothing. Some but not all of them is a configuration mistake.
  */
-export function parseBillingEnv(env: NodeJS.ProcessEnv): BillingConfig | null {
+export function parseBillingEnv(env: NodeJS.ProcessEnv, environment: string): BillingConfig | null {
   const values = Object.fromEntries(Object.entries(BILLING_ENV).map(
     ([key, [name]]) => [key, env[name]?.trim() ?? ""]
   )) as Record<keyof typeof BILLING_ENV, string>;
@@ -453,6 +453,9 @@ export function parseBillingEnv(env: NodeJS.ProcessEnv): BillingConfig | null {
   }
   for (const [key, [name, pattern]] of Object.entries(BILLING_ENV)) {
     if (!pattern.test(values[key as keyof typeof BILLING_ENV])) throw new Error(`${name} is invalid.`);
+  }
+  if (environment === "production" && values.secretKey.includes("_test_")) {
+    throw new Error("MDBASE_CONNECT_STRIPE_SECRET_KEY must be a live-mode Stripe key in production.");
   }
   if (values.month === values.year) {
     throw new Error("The monthly and yearly Plus prices must be different Stripe prices.");

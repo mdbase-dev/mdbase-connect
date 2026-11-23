@@ -11,10 +11,10 @@ use mdbn_wire::common::{Text, Uuid, Value, Version};
 use mdbn_wire::entry::EntryPayload;
 use mdbn_wire::intent::Op;
 
-use super::Replica;
 use super::apply::Outcome;
 use super::apply_checkpoint::Checkpoint;
 use super::submit::rejection_problem;
+use super::{Replica, local_web};
 use crate::api::ErrorCode;
 #[cfg(test)]
 use crate::api::Push;
@@ -91,6 +91,16 @@ impl<S: Store> Replica<S> {
     }
 
     fn local_row_check(&self, row: &PendingRow) -> Result<(), GrantError> {
+        if let Some(owner) = super::local_web::pending_owner(row) {
+            if row.mutation.origin != self.cfg.replica_id || !self.local_web_live(owner) {
+                return Err(GrantError::Denied(local_web::revoked().0));
+            }
+            let mutation = super::attachment_runtime::legacy_mutation(row.mutation.clone())
+                .map_err(|_| GrantError::Denied(local_web::scope().0))?;
+            return self
+                .local_web_validate_ops(&mutation.ops, self.local_web_has_body(owner, &mutation.id))
+                .map_err(|err| GrantError::Denied(err.0));
+        }
         if row.grant != row.mutation.on_behalf || row.mutation.origin != self.cfg.replica_id {
             return Err(GrantError::Denied(Box::new(
                 ErrorCode::InvalidRequest
@@ -185,10 +195,14 @@ impl<S: Store> Replica<S> {
         payload: &mdbn_wire::attachment_runtime_v1::EntryPayload,
         reason: &'static str,
     ) -> Result<Outcome, StoreError> {
+        let owner = self
+            .store
+            .pending_get(&payload.mutation.id)?
+            .and_then(|row| row.grant);
         self.commit_local_rejections(
             vec![(
                 payload.mutation.id,
-                payload.mutation.on_behalf,
+                owner.or(payload.mutation.on_behalf),
                 ErrorCode::InvalidRequest.problem_with_reason("local_void", reason),
             )],
             Some(head),
@@ -249,6 +263,7 @@ impl<S: Store> Replica<S> {
                     self.apply_deferred_changed.extend(changed);
                     return Err(e);
                 }
+                self.local_web_retire_body(&row.mutation.id);
                 changed.extend(row.touches.iter().cloned());
                 if self
                     .apply_blocked

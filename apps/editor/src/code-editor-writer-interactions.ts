@@ -1,7 +1,8 @@
 import type { Extension } from "@codemirror/state";
 import { syntaxTree } from "@codemirror/language";
 import { EditorView } from "@codemirror/view";
-import { internalLink, type LinkTargets } from "./collection-links";
+import type { LinkTargets } from "./collection-links";
+import { internalLink } from "./links";
 import { markdownReferenceAt } from "./markdown-references";
 import type { CollectionFile, LinkTarget } from "./model";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";

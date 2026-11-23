@@ -24,6 +24,7 @@ import type {
   CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
+  Backlink,
   LinkTarget,
   NoteDocument,
   NoteContentRequest,
@@ -206,17 +207,21 @@ export class DemoCollectionGateway implements CollectionGateway {
       .map((note) => note.path);
   }
 
-  async backlinks(path: string): Promise<string[]> {
+  async backlinks(path: string): Promise<Backlink[]> {
     await delay(5);
     const target = path.replace(/\.md$/i, "");
     const stem = target.split("/").pop();
-    return this.notes
-      .filter((note) => note.path !== path && demoLinks(note.body ?? "").some((link) => {
-        const name = link.replace(/\.md$/i, "");
-        return name === target || name === stem;
-      }))
-      .map((note) => note.path)
-      .sort();
+    const here = (link: string) => {
+      const name = link.replace(/\.md$/i, "");
+      return name === target || name === stem;
+    };
+    return this.notes.flatMap((note) => {
+      if (note.path === path) return [];
+      // Like the collection: a property's whole value, or a list item, that is a wikilink.
+      const fields = Object.entries(note.frontmatter).flatMap(([field, value]) =>
+        (Array.isArray(value) ? value : [value]).some((item) => typeof item === "string" && /^\[\[[^\]]+\]\]$/.test(item.trim()) && demoLinks(item).some(here)) ? [field] : []);
+      return fields.length || demoLinks(note.body ?? "").some(here) ? [{ path: note.path, fields }] : [];
+    }).sort((left, right) => left.path.localeCompare(right.path));
   }
 
   async resolveLinks(from: string, links: readonly string[]): Promise<LinkTarget[]> {

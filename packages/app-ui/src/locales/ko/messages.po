@@ -219,6 +219,7 @@ msgstr "{collection}을(를) 열 수 없습니다"
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
+#: src/QuickCreate.tsx
 msgid "Cancel"
 msgstr "취소"
 

@@ -157,15 +157,32 @@ test("contract-sensitive commits get images of their own", async () => {
 
 test("Editor publishes only through main-ref immutable-source dispatch; pushes never deploy", async () => {
   const text = await workflow("editor-pages");
-  // Tests and publication have disjoint triggers; there is one protected uploader.
+  // Tests and publication have disjoint triggers. There are exactly two protected
+  // uploaders: the managed Editor, and the production self-hosted Editor after it.
   assert.doesNotMatch(text, /deploy-cloudflare/);
   assert.doesNotMatch(text, /production_verified_commit/);
   const jobs = text.split("\njobs:\n")[1];
   const deploys = [...jobs.matchAll(/wrangler"? pages deploy|"\$cli" pages deploy/g)];
-  assert.equal(deploys.length, 1);
+  assert.equal(deploys.length, 2);
   const upload = jobs.split("  native-deploy:\n")[1];
   assert.match(upload, /pages deploy artifact\/publish/);
   assert.match(upload, /needs: \[native-inputs, native-build\]/);
+  const managed = upload.split("\n  smoke:\n")[0];
+  assert.equal([...managed.matchAll(/pages deploy/g)].length, 1);
+  assert.match(managed, /pages deploy artifact\/publish --no-bundle --project-name mdbase-editor --branch "\$branch" --commit-hash "\$SOURCE_SHA" --commit-dirty=false/);
+  const selfHosted = jobs.split("  self-hosted:\n")[1].split("\n  deployment-record:\n")[0];
+  assert.equal([...selfHosted.matchAll(/pages deploy/g)].length, 1);
+  assert.match(selfHosted, /needs: \[native-inputs, native-build, native-deploy, smoke\]/);
+  // Production only, after the managed upload and its smoke, and only when planned.
+  assert.match(selfHosted, /if: inputs\.target == 'production' && needs\.native-build\.outputs\.self-hosted == 'true' && needs\.smoke\.result == 'success'/);
+  assert.match(selfHosted, /node "\$cli" pages deploy artifact\/self-hosted\/publish --no-bundle --project-name mdbase-editor-self-hosted --branch main --commit-hash "\$SOURCE_SHA" --commit-dirty=false/);
+  assert.match(selfHosted, /test "\$GITHUB_RUN_ATTEMPT" = 1/);
+  assert.match(selfHosted, /ref: \$\{\{ github\.sha \}\}/);
+  // The plan is false, so the job is skipped, when ops sets skip_self_hosted.
+  const plan = jobs.split("  native-build:\n")[1].split("\n  native-deploy:\n")[0];
+  assert.match(plan, /SKIP_SELF_HOSTED: \$\{\{ inputs\.skip_self_hosted && 'true' \|\| 'false' \}\}/);
+  assert.match(plan, /planned=false\n\s*if \[ "\$SKIP_SELF_HOSTED" != true \]; then planned=\$\(node apps\/editor\/scripts\/native\/self-hosted\.mjs planned\); fi/);
+  assert.match(text, /skip_self_hosted:\n\s+description: [^\n]+\n\s+type: boolean\n\s+default: false/);
   const dispatch = jobs.split("  native-dispatch:\n")[1].split("  native-inputs:\n")[0];
   assert.match(dispatch, /if: github.event_name == 'workflow_dispatch'/);
   assert.match(dispatch, /\[\[ "\$GITHUB_REF" == refs\/heads\/main \]\]/);
