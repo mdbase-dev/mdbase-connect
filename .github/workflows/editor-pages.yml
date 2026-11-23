@@ -6,7 +6,6 @@ on:
   pull_request:
     paths:
       - "apps/editor/**"
-      - "packages/client/**"
       - "packages/management/**"
       - "packages/protocol/**"
       - "packages/app-ui/**"

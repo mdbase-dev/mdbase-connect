@@ -8,7 +8,7 @@ import {
   signApplicationAuthorization,
   type GrantKeyRecord,
   type GrantKeyStore
-} from "@mdbase-dev/connect/crypto";
+} from "./grant-crypto.js";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   APPLICATION_CAPABILITY_DEFINITIONS,

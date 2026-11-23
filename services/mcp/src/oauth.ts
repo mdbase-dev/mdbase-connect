@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { ConnectGateway, INSTALLATION_HANDLE_PREFIX } from "./connect.js";
-import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
+import type { GrantKeyStore } from "./grant-crypto.js";
 import { capabilityOperations, type CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { pkceChallenge, randomToken, safeEqual, tokenHash, type SecretBox } from "./security.js";
 

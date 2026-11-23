@@ -667,9 +667,6 @@ importers:
       '@fastify/rate-limit':
         specifier: ^11.2.0
         version: 11.2.0
-      '@mdbase-dev/connect':
-        specifier: workspace:*
-        version: link:../../packages/client
       '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol

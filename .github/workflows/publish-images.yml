@@ -120,7 +120,6 @@ jobs:
             deploy/docker/Dockerfile.server \
             package.json \
             packages/app-ui \
-            packages/client \
             packages/protocol \
             packages/ui \
             pnpm-lock.yaml \

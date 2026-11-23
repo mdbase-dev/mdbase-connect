@@ -8,7 +8,7 @@ import { projectNextAuthorizationGroups } from "@mdbase-dev/connect-protocol/nex
 import { MAX_PENDING_AUTHORIZATIONS, READ_OPERATIONS, WRITE_OPERATIONS } from "./oauth.js";
 import { ConnectGateway } from "./connect.js";
 import { PostgresGrantKeyStore } from "./key-store.js";
-import { applicationInstallationId } from "@mdbase-dev/connect/crypto";
+import { applicationInstallationId } from "./grant-crypto.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
 import type { McpRuntimeConfig } from "./config.js";

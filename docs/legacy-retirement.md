@@ -26,9 +26,10 @@
 >    `hosted-database-drain-admin`, `bin/lib/rollback_compat.py`, `ci.yml`,
 >    `check-release-locks`, `verify-release-bundle`).
 >
-> **Remaining follow-up:** `packages/client` (`@mdbase-dev/connect`) is still
-> kept for `services/mcp`, `packages/devkit`, and `packages/testing` (`apps/editor`
-> is now detached and uses `@mdbase-dev/sdk`).
+> **Remaining follow-up:** Both `apps/editor` and `services/mcp` are now
+> detached from `@mdbase-dev/connect` (`packages/client`). `packages/client`,
+> `packages/devkit`, and `packages/testing` now have zero workspace app/service
+> consumers and can be retired once external npm consumers are confirmed clear.
 
 Working list for deleting the legacy Connect stack. It covers the root `crates/`
 workspace on `../mdbase-rs`, the legacy hosted provider at `sync.mdbase.dev`,

@@ -5,7 +5,7 @@
 // legacy authority path until it is removed.
 import { connect, controlRouteResolver, isMdbaseError, routeFromControl, uuidv7, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk/thin-client";
 import { describeError } from "@mdbase-dev/sdk/describe";
-import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
+import type { GrantKeyStore } from "./grant-crypto.js";
 import { GatewayOperationError } from "./errors.js";
 import { gatewayConnector } from "./next-connector.js";
 import { clientKeyAttachBody, type NoiseKeyStore } from "./next-keys.js";

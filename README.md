@@ -104,10 +104,9 @@ before connecting. See [apps/editor/NEW_SDK.md](apps/editor/NEW_SDK.md) for an
 end-to-end first-party consumer reference.
 
 > [!NOTE]
-> `@mdbase-dev/connect` (`packages/client`) is the legacy SDK retained in this
-> workspace solely for the MCP gateway (`services/mcp`), devkit, and test
-> helpers while MCP migrates to `@mdbase-dev/sdk`. Do not use it for new
-> applications.
+> `@mdbase-dev/connect` (`packages/client`) is deprecated and has no remaining
+> first-party app or service consumers (`apps/editor` and `services/mcp` are
+> detached). Do not use it for new applications.
 
 ## Security and privacy
 
