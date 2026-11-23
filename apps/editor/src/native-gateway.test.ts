@@ -54,7 +54,8 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const permissions = editorPermissions(snapshot.status === "ready" ? snapshot.connection : null);
     expect(permissions).toMatchObject({ canCreateNotes: true, canEditNotes: true, canRenameNotes: true, canDeleteNotes: true });
     expect(permissions).toMatchObject({ canManageTypes: true, canInstallTypes: true, canAttachFiles: true });
-    expect(snapshot.status === "ready" && snapshot.connection.missingCapabilities).toBeFalsy();
+    // The replica's grant predates record history, the one declared group it lacks.
+    expect(snapshot.status === "ready" && snapshot.connection.missingCapabilities).toEqual(["history.read"]);
     expect(f.gateway.selectConnection(f.replica.collection).collectionId).toBe(f.replica.collection);
     expect(() => f.gateway.selectConnection("another-collection")).toThrow("not ready");
     expect(await f.gateway.checkDirectAccess()).toBeNull();
@@ -397,6 +398,28 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
       asOf: 1
     } as never);
     expect(await f.gateway.backlinks("notes/target.md")).toEqual([{ path: "notes/a.md", fields: ["author", "editor"] }]);
+  });
+
+  it("reads a note's history by the record its current path names", async () => {
+    const f = await fixture({}, seedNotes);
+    const { id } = await f.connection.records.get({ path: "notes/plan.md" });
+    const version = { seq: 7, time: 1_762_000_000_000, author: { account: id, device: id }, kind: "edited" as const,
+      path: "notes/plan.md", revision: "sha256:1", source: "api" as const, deviceKind: "desktop" as const };
+    const list = vi.spyOn(f.connection.records.history, "list").mockResolvedValueOnce({ versions: [version], from: 3, next: 3 });
+    const read = vi.spyOn(f.connection.records.history, "version").mockResolvedValueOnce({ path: "notes/plan.md", document: "# Plan, then\n" });
+
+    expect(await f.gateway.noteHistory.list("notes/plan.md", { before: 9 })).toEqual({ versions: [version], from: 3, next: 3 });
+    expect(list).toHaveBeenCalledWith(id, expect.objectContaining({ before: 9, signal: expect.any(AbortSignal) }));
+    expect(await f.gateway.noteHistory.version("notes/plan.md", 7)).toBe("# Plan, then\n");
+    expect(read).toHaveBeenCalledWith(id, 7, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  it("passes a replica's history refusal through for the panel to explain", async () => {
+    const f = await fixture({}, seedNotes);
+    vi.spyOn(f.connection.records.history, "list").mockRejectedValueOnce(
+      new MdbaseError({ code: "upgrade_required", recovery: "none", reason: "history_unsupported", message: "no history" }));
+    const refused = await f.gateway.noteHistory.list("notes/plan.md").catch((error: unknown) => error);
+    expect(isMdbaseError(refused, "upgrade_required") && refused.reason).toBe("history_unsupported");
   });
 
   it("restarts backlink paging when the view changes between pages", async () => {

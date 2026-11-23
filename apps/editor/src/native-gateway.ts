@@ -44,6 +44,7 @@ import type {
   LinkTarget,
   MutationOperationOptions,
   NoteDocument,
+  NoteHistoryReader,
   NoteObservation,
   RenamePreflight,
   TypeDocument,
@@ -69,6 +70,8 @@ const INSTALLED_BY = "dev.mdbase.editor";
 /** Reviewed plans kept for apply, newest last. */
 const PLAN_MEMORY = 8;
 const RECEIPT_TIMEOUT_MS = 30_000;
+/** The replica holds a history read for up to 5 minutes while it indexes the log on first use. */
+const HISTORY_TIMEOUT_MS = 330_000;
 /** Referring records per backlinks page; record views carry no body. */
 const BACKLINKS_PAGE = 500;
 const SEARCH_PAGE = 500;
@@ -338,6 +341,25 @@ export class NativeEditorGateway implements CollectionGateway {
       }
     }
   }
+
+  /** A note's kept versions. History is read by record, so each read finds the
+   * note's record from its current path first. */
+  readonly noteHistory: NoteHistoryReader = {
+    list: async (path, { before, signal: outer } = {}) => {
+      const signal = this.signal(outer, HISTORY_TIMEOUT_MS);
+      const { id } = await this.client.get({ path }, { signal });
+      const history = await this.client.history.list(id, { ...(before === undefined ? {} : { before }), signal });
+      this.check();
+      return history;
+    },
+    version: async (path, seq, { signal: outer } = {}) => {
+      const signal = this.signal(outer, HISTORY_TIMEOUT_MS);
+      const { id } = await this.client.get({ path }, { signal });
+      const { document } = await this.client.history.version(id, seq, { signal });
+      this.check();
+      return document;
+    }
+  };
 
   async resolveLinks(from: string, links: readonly string[], options: { signal?: AbortSignal } = {}): Promise<LinkTarget[]> {
     const signal = this.signal(options.signal);
@@ -661,10 +683,10 @@ export class NativeEditorGateway implements CollectionGateway {
     if (!this.current()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });
   }
 
-  private signal(extra?: AbortSignal): AbortSignal {
+  private signal(extra?: AbortSignal, timeoutMs = 45_000): AbortSignal {
     this.check();
     extra?.throwIfAborted();
-    return AbortSignal.any([...(extra ? [extra] : []), AbortSignal.timeout(45_000)]);
+    return AbortSignal.any([...(extra ? [extra] : []), AbortSignal.timeout(timeoutMs)]);
   }
 }
 
