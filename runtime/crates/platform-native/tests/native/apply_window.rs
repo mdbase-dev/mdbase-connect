@@ -32,15 +32,15 @@ use w::client::{HelloParams, SubmitParams, SyncMode};
 use w::common::{B16, Version};
 use w::intent::{Create, Op};
 
-const COL: B16 = B16([7; 16]);
-const DEV: B16 = B16([101; 16]);
-const SIGN: [u8; 32] = [0x31; 32];
-const KEM: [u8; 32] = [0x32; 32];
+pub(super) const COL: B16 = B16([7; 16]);
+pub(super) const DEV: B16 = B16([101; 16]);
+pub(super) const SIGN: [u8; 32] = [0x31; 32];
+pub(super) const KEM: [u8; 32] = [0x32; 32];
 /// Items per read: a catch-up of a few dozen entries spans several pages.
-const PAGE: u64 = 16;
+pub(super) const PAGE: u64 = 16;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-struct Commits {
+pub(super) struct Commits {
     /// Write batches committed and synced on their own.
     alone: u64,
     /// Windows closed: one synced commit each.
@@ -53,7 +53,7 @@ impl Commits {
     fn synced(self) -> u64 {
         self.alone + self.windows
     }
-    fn since(self, earlier: Self) -> Self {
+    pub(super) fn since(self, earlier: Self) -> Self {
         Self {
             alone: self.alone - earlier.alone,
             windows: self.windows - earlier.windows,
@@ -62,13 +62,13 @@ impl Commits {
     }
 }
 
-struct Counted {
-    inner: SqliteIndex,
+pub(super) struct Counted {
+    pub(super) inner: SqliteIndex,
     /// Forward windows to the native index; otherwise decline them, as an
     /// index without deferred sync does.
-    windows: bool,
-    open: bool,
-    commits: Rc<Cell<Commits>>,
+    pub(super) windows: bool,
+    pub(super) open: bool,
+    pub(super) commits: Rc<Cell<Commits>>,
 }
 impl Counted {
     fn count(&mut self, batch: &Batch) {
@@ -127,7 +127,7 @@ impl IndexStorage for Counted {
 }
 
 /// The fake log, serving at most [`PAGE`] items a read.
-struct Paged(r::fake::FakeLog);
+pub(super) struct Paged(pub(super) r::fake::FakeLog);
 impl LogClient for Paged {
     fn call(&mut self, mut request: LogRequest) -> LogReply {
         if let LogRequest::Read(read) = &mut request {
@@ -140,7 +140,7 @@ impl LogClient for Paged {
     }
 }
 
-fn open<S: r::store::Store>(store: S, replica: u8) -> Replica<S> {
+pub(super) fn open<S: r::store::Store>(store: S, replica: u8) -> Replica<S> {
     Replica::open(
         ReplicaConfig {
             collection: COL,
@@ -175,7 +175,50 @@ fn open<S: r::store::Store>(store: S, replica: u8) -> Replica<S> {
     .unwrap()
 }
 
-fn settle<S: r::store::Store>(app: &mut Replica<S>, client: &mut dyn LogClient) {
+/// A host session on `app`.
+pub(super) fn host_session<S: r::store::Store>(app: &mut Replica<S>) -> r::api::SessionId {
+    app.hello(
+        SessionAuth::Host,
+        HelloParams {
+            versions: vec![Version { major: 1, minor: 0 }],
+            client_name: "host".into(),
+            client_version: "test".into(),
+            features: None,
+            timezone: Some("UTC".into()),
+        },
+    )
+    .unwrap()
+    .0
+}
+
+/// Create `note-<n>.md`.
+pub(super) fn note(n: u16) -> SubmitParams {
+    let mut id = [9u8; 16];
+    id[..2].copy_from_slice(&n.to_be_bytes());
+    let mut mutation = [8u8; 16];
+    mutation[..2].copy_from_slice(&n.to_be_bytes());
+    SubmitParams {
+        ops: vec![Op::Create(Create {
+            id: B16(id),
+            path: Some(format!("note-{n}.md")),
+            type_name: None,
+            frontmatter: None,
+            body: None,
+            document: Some(w::common::Text::Inline(format!("note {n}\n"))),
+        })],
+        mutation_id: Some(B16(mutation)),
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: None,
+        validation: None,
+    }
+}
+
+pub(super) fn settle<S: r::store::Store>(app: &mut Replica<S>, client: &mut dyn LogClient) {
     for _ in 0..40 {
         r::log::pump(app, client, 200);
         app.tick();
@@ -183,7 +226,7 @@ fn settle<S: r::store::Store>(app: &mut Replica<S>, client: &mut dyn LogClient) 
 }
 
 /// A log holding `entries` created notes, written by another replica.
-fn written_log(dir: &std::path::Path, entries: u16) -> (r::fake::FakeLogService, u64) {
+pub(super) fn written_log(dir: &std::path::Path, entries: u16) -> (r::fake::FakeLogService, u64) {
     let svc = r::fake::FakeLogService::new();
     r::testkit::TestControlPlane::signed(COL).genesis_with_keys(
         &svc,
@@ -199,54 +242,47 @@ fn written_log(dir: &std::path::Path, entries: u16) -> (r::fake::FakeLogService,
     let mut writer = open(store, 1);
     let mut client = svc.client(DEV);
     settle(&mut writer, &mut client);
-    let session = writer
-        .hello(
-            SessionAuth::Host,
-            HelloParams {
-                versions: vec![Version { major: 1, minor: 0 }],
-                client_name: "writer".into(),
-                client_version: "test".into(),
-                features: None,
-                timezone: Some("UTC".into()),
-            },
-        )
-        .unwrap()
-        .0;
+    let session = host_session(&mut writer);
     for n in 0..entries {
-        let mut id = [9u8; 16];
-        id[..2].copy_from_slice(&n.to_be_bytes());
-        let mut mutation = [8u8; 16];
-        mutation[..2].copy_from_slice(&n.to_be_bytes());
-        writer
-            .submit(
-                session,
-                SubmitParams {
-                    ops: vec![Op::Create(Create {
-                        id: B16(id),
-                        path: Some(format!("note-{n}.md")),
-                        type_name: None,
-                        frontmatter: None,
-                        body: None,
-                        document: Some(w::common::Text::Inline(format!("note {n}\n"))),
-                    })],
-                    mutation_id: Some(B16(mutation)),
-                    conflict_mode: None,
-                    timezone: None,
-                    allow_partial: None,
-                    mutation_ids: None,
-                    dry_run: None,
-                    include: None,
-                    wait: None,
-                    validation: None,
-                },
-            )
-            .unwrap();
+        writer.submit(session, note(n)).unwrap();
         settle(&mut writer, &mut client);
     }
     assert_eq!(writer.store().pending_count().unwrap(), 0);
     let head = writer.head().seq;
     assert_eq!(svc.head(&COL).0, head);
     (svc, head)
+}
+
+/// Drive `reader` over the log in pages until it is quiet. Returns the reads
+/// that advanced it.
+pub(super) fn read_pages<S: r::store::Store>(
+    reader: &mut Replica<S>,
+    svc: &r::fake::FakeLogService,
+    index: &Rc<RefCell<Counted>>,
+) -> u64 {
+    let mut client = Paged(svc.client(DEV));
+    let mut reads = 0u64;
+    for _ in 0..40 {
+        for _ in 0..200 {
+            let calls = reader.take_log_calls();
+            if calls.is_empty() {
+                break;
+            }
+            for call in calls {
+                let read = matches!(call.request, LogRequest::Read(_));
+                let before = reader.head().seq;
+                let reply = client.call(call.request);
+                reader.on_log_reply(call.id, reply);
+                reads += u64::from(read && reader.head().seq > before);
+                assert!(
+                    !index.borrow().open,
+                    "no window outlives the call that applied a page"
+                );
+            }
+        }
+        reader.tick();
+    }
+    reads
 }
 
 /// Catch a fresh replica up on a log of `entries` notes. Returns the log's
@@ -274,28 +310,7 @@ fn catch_up(name: &str, entries: u16, windows: bool) -> (u64, u64, Commits) {
     let mut reader = open(store, 2);
     assert_eq!(reader.head().seq, 0);
     let opened = commits.get();
-    let mut client = Paged(svc.client(DEV));
-    let mut reads = 0u64;
-    for _ in 0..40 {
-        for _ in 0..200 {
-            let calls = reader.take_log_calls();
-            if calls.is_empty() {
-                break;
-            }
-            for call in calls {
-                let read = matches!(call.request, LogRequest::Read(_));
-                let before = reader.head().seq;
-                let reply = client.call(call.request);
-                reader.on_log_reply(call.id, reply);
-                reads += u64::from(read && reader.head().seq > before);
-                assert!(
-                    !index.borrow().open,
-                    "no window outlives the call that applied a page"
-                );
-            }
-        }
-        reader.tick();
-    }
+    let reads = read_pages(&mut reader, &svc, &index);
     assert_eq!(reader.head().seq, head);
     assert!(!reader.requires_reopen());
     for n in 0..entries {
@@ -309,20 +324,32 @@ fn catch_up(name: &str, entries: u16, windows: bool) -> (u64, u64, Commits) {
 
 #[test]
 fn a_caught_up_page_of_entries_is_one_synced_commit() {
+    a_page_of_entries_is_one_synced_commit("apply-window", catch_up);
+}
+
+/// `catch_up(name, entries, windows)` on two log sizes, with and without
+/// windows: the relations the module docs state.
+pub(super) fn a_page_of_entries_is_one_synced_commit(
+    tag: &str,
+    catch_up: impl Fn(&str, u16, bool) -> (u64, u64, Commits),
+) {
     const SMALL: u16 = 40;
     const LARGE: u16 = 104;
     let added = u64::from(LARGE - SMALL);
 
-    let (head, reads, before) = catch_up("apply-window-off-small", SMALL, false);
-    let (head_large, reads_large, before_large) = catch_up("apply-window-off-large", LARGE, false);
-    let (head_w, reads_w, after) = catch_up("apply-window-on-small", SMALL, true);
-    let (head_large_w, reads_large_w, after_large) = catch_up("apply-window-on-large", LARGE, true);
+    let (head, reads, before) = catch_up(&format!("{tag}-off-small"), SMALL, false);
+    let (head_large, reads_large, before_large) =
+        catch_up(&format!("{tag}-off-large"), LARGE, false);
+    let (head_w, reads_w, after) = catch_up(&format!("{tag}-on-small"), SMALL, true);
+    let (head_large_w, reads_large_w, after_large) =
+        catch_up(&format!("{tag}-on-large"), LARGE, true);
     eprintln!(
-        "catching up {head} items in {reads} pages: {before:?} without a window, {after:?} with"
+        "{tag}: catching up {head} items in {reads} pages: {before:?} without a window, \
+         {after:?} with"
     );
     eprintln!(
-        "catching up {head_large} items in {reads_large} pages: {before_large:?} without a \
-         window, {after_large:?} with"
+        "{tag}: catching up {head_large} items in {reads_large} pages: {before_large:?} \
+         without a window, {after_large:?} with"
     );
 
     // The same log, read in the same pages, either way.

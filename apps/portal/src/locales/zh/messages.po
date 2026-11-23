@@ -539,6 +539,11 @@ msgstr "添加一个集合以开始使用。"
 msgid "Add a new {0} type"
 msgstr "添加新的 {0} 类型"
 
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "Add and sync your folder in mdbase Desktop, then return to this page. If this request expires while you set up Desktop, connect again from {0}."
+msgstr "在 mdbase Desktop 中添加并同步你的文件夹，然后返回此页面。如果在设置 Desktop 期间此请求过期，请从 {0} 重新连接。"
+
 #: src/ConnectApp.tsx
 #: src/HomePage.tsx
 #: src/portal-commands.ts
@@ -1247,6 +1252,10 @@ msgstr "创建"
 msgid "Create a collection"
 msgstr "创建集合"
 
+#: src/authorization-view.tsx
+msgid "Create a new collection below, or sync an existing folder in mdbase Desktop first."
+msgstr "在下方创建新集合，或先在 mdbase Desktop 中同步现有文件夹。"
+
 #: src/authorization-review.tsx
 msgid "Create a new collection…"
 msgstr "创建新集合…"
@@ -1725,6 +1734,10 @@ msgstr "生成代码"
 msgctxt "Account management"
 msgid "Generating…"
 msgstr "正在生成…"
+
+#: src/authorization-view.tsx
+msgid "Get mdbase Desktop"
+msgstr "获取 mdbase Desktop"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
@@ -3682,6 +3695,10 @@ msgstr "使用本地文件夹"
 #: src/ConnectApp.tsx
 msgid "Use a single-line collection name."
 msgstr "请使用单行的集合名称。"
+
+#: src/authorization-view.tsx
+msgid "Use an existing folder or Obsidian vault"
+msgstr "使用现有文件夹或 Obsidian 仓库"
 
 #: src/ConnectApp.tsx
 msgid "Use an existing person or create a note"

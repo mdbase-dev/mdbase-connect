@@ -1290,7 +1290,8 @@ pub trait Store {
     /// whose completion stamps are written last, and the entries of one
     /// applied page (redone from the log; closed before the page is acted on).
     /// Closing it is a barrier: everything committed before is durable when it
-    /// returns `Ok`. Stores without such a mode keep every commit durable.
+    /// returns `Ok`, as durable as this store makes any commit. Stores without
+    /// such a mode commit each one on its own.
     fn defer_durability(&mut self, _on: bool) -> StoreResult<()> {
         Ok(())
     }

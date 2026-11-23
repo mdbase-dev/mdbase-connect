@@ -301,13 +301,16 @@ pub trait IndexStorage {
     /// errors or a schema change). [`IndexInfo::opened`] becomes `Fresh`.
     fn reset(&mut self) -> Result<(), IndexError>;
 
-    /// Open (`true`) or close (`false`) a deferred-sync window on a
-    /// [`IndexDurability::Durable`] database. Inside one, committed
-    /// transactions stay atomic and prefix-ordered but may wait for the next
-    /// barrier to become physically durable; closing the window is that
-    /// barrier (everything committed before it is durable on `Ok`). Returns
-    /// whether this backend supports such windows; backends without them keep
-    /// every transaction durable (the default, `false`).
+    /// Open (`true`) or close (`false`) a deferred-sync window. Inside one,
+    /// committed transactions stay atomic and prefix-ordered but may wait for
+    /// the next barrier to reach the database file; closing the window is
+    /// that barrier. On a [`IndexDurability::Durable`] database everything
+    /// committed before it is durable on `Ok`; a
+    /// [`IndexDurability::Disposable`] one has written and flushed it, which
+    /// is all it ever does. A backend that dies with a window open keeps a
+    /// prefix of the window's transactions, possibly none. Returns whether
+    /// this backend supports such windows; backends without them commit every
+    /// transaction on its own (the default, `false`).
     fn defer_sync(&mut self, _on: bool) -> Result<bool, IndexError> {
         Ok(false)
     }

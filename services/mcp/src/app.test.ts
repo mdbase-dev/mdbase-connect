@@ -153,7 +153,37 @@ describe("mdbase MCP gateway", () => {
       const token = await exchange();
       expect(token.statusCode).toBe(200);
       expect((await exchange()).statusCode).toBe(400);
-      expect((await callback()).statusCode).toBe(400);
+      const replayed = await callback();
+      expect(replayed.statusCode).toBe(400);
+      expect(replayed.headers["content-type"]).toContain("text/html");
+      expect(replayed.body).toContain("Connection could not be completed");
+      expect(replayed.body).toContain("Return to your MCP application and connect again.");
+      const badTicket = await app.inject({ method: "GET", url: "/connections/new?ticket=expired-ticket" });
+      expect(badTicket.statusCode).toBe(400);
+      expect(badTicket.headers["content-type"]).toContain("text/html");
+      expect(badTicket.body).toContain("Connection link unavailable");
+      const warnTransport = vi.spyOn(app.log, "warn");
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: {
+          authorization: `Bearer ${token.json().access_token}`,
+          accept: "application/json, text/event-stream",
+          "mcp-protocol-version": "2099-01-01"
+        },
+        payload: { jsonrpc: "2.0", id: 1, method: "tools/list" }
+      });
+      expect(rejected.statusCode).toBe(400);
+      expect(warnTransport).toHaveBeenCalledWith({
+        event: "mcp_transport_rejected",
+        status: 400,
+        protocol_version: "2099-01-01",
+        has_session_id: false,
+        accept: "application/json, text/event-stream",
+        content_type: "application/json",
+        jsonrpc_method: "tools/list"
+      }, "MCP transport rejected request");
+      warnTransport.mockRestore();
       const context = await oauth.authenticate(token.json().access_token);
       const [connection] = await gateway.listConnections(context!.connectionSetId);
       expect(connection).toMatchObject({ collection_id: firstCollectionId, authority: "remote" });
@@ -163,6 +193,12 @@ describe("mdbase MCP gateway", () => {
         code: "no_device_registered", message: expect.stringContaining("turn on sync")
       });
       expect(upstream.refreshProofs).toHaveLength(1);
+      expect(upstream.refreshProofs[0]).toEqual({
+        version: "1",
+        timestamp: expect.any(String),
+        nonce: expect.any(String),
+        signature: expect.any(String)
+      });
       expect(upstream.localInputs).toEqual([]);
       expect(upstream.hostedInputs).toEqual([]);
       expect(upstream.operationAuthorizations).toEqual([]);

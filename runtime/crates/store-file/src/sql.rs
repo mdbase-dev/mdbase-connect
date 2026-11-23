@@ -171,7 +171,7 @@ pub struct SqlStore<I: IndexStorage> {
     limits: SqlStoreLimits,
 }
 
-fn idx_err(e: IndexError) -> StoreError {
+pub(crate) fn idx_err(e: IndexError) -> StoreError {
     match e.kind {
         IndexErrorKind::Full => StoreError::Full,
         IndexErrorKind::Corrupt => StoreError::Corrupt(e.to_string()),
