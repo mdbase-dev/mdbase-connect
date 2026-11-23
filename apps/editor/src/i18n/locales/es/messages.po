@@ -1503,10 +1503,6 @@ msgstr "Limpiar la selección"
 msgid "Clear type search"
 msgstr "Borrar la búsqueda de tipos"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "Cerrar {name}"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Cerrar comentarios"
@@ -1531,6 +1527,7 @@ msgstr "Cerrar panel"
 msgid "Close properties"
 msgstr "Cerrar las propiedades"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "Cerrar pestaña"
@@ -2411,6 +2408,10 @@ msgstr "Edición"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "La edición está en pausa hasta que restaures o descartes estas ediciones. Se conservan en este navegador durante un máximo de siete días, o hasta que se guarden o se descarten. Al restaurarlas, no se sobrescribe ninguna versión más reciente sin que la revises."
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "Paneles del editor"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2592,7 +2593,7 @@ msgstr "Campos eliminados"
 msgid "File · {0}"
 msgstr "Archivo · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "Visor de archivos, {filename}"
 
@@ -2700,8 +2701,8 @@ msgid "Focus mode"
 msgstr "Modo de enfoque"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "Ir al otro panel"
+msgid "Focus next pane"
+msgstr "Ir al siguiente panel"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4099,7 +4100,7 @@ msgstr "Abrir original"
 msgid "Open Settings"
 msgstr "Abrir Ajustes"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "Pestañas abiertas"
 
@@ -4823,6 +4824,10 @@ msgstr "Cambiar el tamaño del inspector de la nota"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "Cambiar el tamaño de la barra lateral de notas"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "Cambiar el tamaño de los paneles"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

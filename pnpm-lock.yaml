@@ -201,6 +201,9 @@ importers:
       '@mdbase-dev/i18n':
         specifier: workspace:*
         version: link:../../packages/i18n
+      '@mdbase-dev/panels':
+        specifier: 0.3.1
+        version: 0.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase-dev/sdk':
         specifier: file:vendor/sdk-6597d734-production-0.1.40.tgz
         version: file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz
@@ -2228,6 +2231,17 @@ packages:
   '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz':
     resolution: {integrity: sha512-F0hhr8t6Z4FpbE5QpLEAt//EfTg+VuUrKpg1Iw6+l2fQFptvyaUlQc2VATTP8EGs5cgkBnAqHqOKMkYLpmPhgw==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz}
     version: 0.1.0-beta.152
+
+  '@mdbase-dev/panels@0.3.1':
+    resolution: {integrity: sha512-RLTdFU5o5ZVAHzpja/rpoWhTgtCFPa0WqEyK7Z5B4zn0JsEzV2XBLpBwlWpFpHdhtbiFc4OVHBx8365kqaHE9Q==}
+    peerDependencies:
+      react: ^18.0.0 || ^19.0.0
+      react-dom: ^18.0.0 || ^19.0.0
+    peerDependenciesMeta:
+      react:
+        optional: true
+      react-dom:
+        optional: true
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz':
     resolution: {integrity: sha512-hnFrpFrfPFeAOtTLe97TWPwM3hcLik0DikUnYV+8MIKhfqD6eU0R0HxxWYYKZbQF3Dg+Re7ZvFiHTEgXdFuRhQ==, tarball: file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz}
@@ -8116,6 +8130,11 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.4.0
       yaml: 2.9.1
+
+  '@mdbase-dev/panels@0.3.1(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    optionalDependencies:
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz':
     dependencies:

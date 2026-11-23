@@ -235,22 +235,28 @@ describe("workspace commands", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     await screen.findByRole("textbox", { name: "Note body" });
     await runCommand("Split right");
-    const focused = () => within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note body" });
-    const other = () => within(screen.getByRole("region", { name: "Note editor" })).getByRole("textbox", { name: "Note body" });
+    const focusedPane = () => document.querySelector<HTMLElement>(".editor-pane[data-focused]")!;
+    const otherPanes = () => [...document.querySelectorAll<HTMLElement>(".editor-pane:not([data-focused])")];
+    const focused = () => within(focusedPane()).getByRole("textbox", { name: "Note body" });
+    const other = () => within(otherPanes()[0]!).getByRole("textbox", { name: "Note body" });
     await waitFor(() => expect(other()).toHaveValue((focused() as HTMLTextAreaElement).value));
-    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-right");
+    const corners = () => [...document.querySelectorAll<HTMLElement>(".mp-stack")].map((stack) => [parseFloat(stack.style.left) > 0, parseFloat(stack.style.top) > 0]);
+    expect(corners()).toEqual([[false, false], [true, false]]);
 
     fireEvent.change(focused(), { target: { value: "Written in one pane" } });
     expect(other()).toHaveValue("Written in one pane");
+    // A pane splits again: the new one opens under the pane that had the focus.
     await runCommand("Split down");
-    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-down");
+    expect(corners()).toEqual([[false, false], [true, false], [true, true]]);
+    await runCommand("Close pane");
+    await waitFor(() => expect(corners()).toEqual([[false, false], [true, false]]));
     fireEvent.pointerDown(other());
     fireEvent.change(focused(), { target: { value: "Written in the other" } });
     expect(other()).toHaveValue("Written in the other");
 
     await runCommand("Close pane");
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Note editor" })).not.toBeInTheDocument());
+    await waitFor(() => expect(otherPanes()).toHaveLength(0));
     expect(focused()).toHaveValue("Written in the other");
-    expect(document.querySelector(".editor-split")).not.toHaveClass("is-split");
+    expect(document.querySelectorAll(".mp-stack")).toHaveLength(1);
   });
 });

@@ -7,7 +7,7 @@ import { markdownReferenceAt } from "./markdown-references";
 import type { CollectionFile, LinkTarget } from "./model";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
 
-/** Where a followed note link opens: in a new tab, in the other pane, or (unset) in place. */
+/** Where a followed note link opens: in a new tab, in the next pane, or (unset) in place. */
 export interface LinkOpening { where?: "tab" | "beside" }
 
 export function writerInteractions(

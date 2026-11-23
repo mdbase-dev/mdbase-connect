@@ -1503,10 +1503,6 @@ msgstr "Limpar seleção"
 msgid "Clear type search"
 msgstr "Limpar pesquisa de tipos"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "Fechar {name}"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Fechar comentários"
@@ -1531,6 +1527,7 @@ msgstr "Fechar painel"
 msgid "Close properties"
 msgstr "Fechar propriedades"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "Fechar aba"
@@ -2411,6 +2408,10 @@ msgstr "Editando"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "A edição está pausada até você restaurar ou descartar estas alterações. Elas permanecem neste navegador por até sete dias, ou até serem salvas ou descartadas. Restaurar não sobrescreve uma versão mais recente sem revisão."
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "Painéis do editor"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2592,7 +2593,7 @@ msgstr "Campos removidos"
 msgid "File · {0}"
 msgstr "Arquivo · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "Visualizador de arquivos, {filename}"
 
@@ -2700,8 +2701,8 @@ msgid "Focus mode"
 msgstr "Modo de foco"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "Ir para o outro painel"
+msgid "Focus next pane"
+msgstr "Ir para o próximo painel"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4099,7 +4100,7 @@ msgstr "Abrir original"
 msgid "Open Settings"
 msgstr "Abrir Configurações"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "Abas abertas"
 
@@ -4823,6 +4824,10 @@ msgstr "Redimensionar inspetor de notas"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "Redimensionar barra lateral de notas"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "Redimensionar painéis"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

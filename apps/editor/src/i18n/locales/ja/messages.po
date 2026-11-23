@@ -1503,10 +1503,6 @@ msgstr "選択をクリア"
 msgid "Clear type search"
 msgstr "型の検索を消去"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "{name} を閉じる"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "コメントを閉じる"
@@ -1531,6 +1527,7 @@ msgstr "ペインを閉じる"
 msgid "Close properties"
 msgstr "プロパティを閉じる"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "タブを閉じる"
@@ -2411,6 +2408,10 @@ msgstr "編集中"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "これらの編集を復元または破棄するまで、編集は一時停止します。保存または破棄するまで、最長7日間このブラウザーに保持されます。復元しても、確認なしに新しいバージョンを上書きすることはありません。"
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "エディターのペイン"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2592,7 +2593,7 @@ msgstr "削除されたフィールド"
 msgid "File · {0}"
 msgstr "ファイル · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "ファイルビューアー、{filename}"
 
@@ -2700,8 +2701,8 @@ msgid "Focus mode"
 msgstr "集中モード"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "もう一方のペインに移動"
+msgid "Focus next pane"
+msgstr "次のペインに移動"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4099,7 +4100,7 @@ msgstr "元のファイルを開く"
 msgid "Open Settings"
 msgstr "設定を開く"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "開いているタブ"
 
@@ -4823,6 +4824,10 @@ msgstr "ノートの詳細パネルのサイズを変更"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "ノートのサイドバーのサイズを変更"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "ペインのサイズを変更"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

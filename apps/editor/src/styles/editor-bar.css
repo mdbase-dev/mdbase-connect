@@ -8,92 +8,49 @@
   overflow: hidden;
 }
 
-/* Open tabs, when there is more than one, sit above the editor bar. */
-.editor-pane.has-tabs { grid-template-rows: auto 52px auto auto minmax(0, 1fr); }
-.editor-pane.file-workspace.has-tabs { grid-template-rows: auto 52px minmax(0, 1fr); }
-.editor-pane.has-tabs > .note-skeleton { grid-row: 2 / -1; }
-
-/* One pane fills the editor column as if unwrapped; two split it right or down. */
-.editor-split,
-.editor-slot { display: contents; }
-
-.editor-split.is-split {
+/* The panes are a panel workspace that fills the editor column: each pane is a stack of tabs, and
+   its editor fills the panel of the active one. */
+.editor-panels {
   grid-column: 3;
+  position: relative;
   min-width: 0;
   min-height: 0;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 1px;
-  background: var(--line);
+  background: var(--white);
+
+  --mp-bg: var(--line);
+  --mp-surface: var(--white);
+  --mp-header-bg: color-mix(in srgb, var(--canvas) 94%, var(--ink));
+  --mp-border: var(--line);
+  --mp-text: var(--ink);
+  --mp-muted: var(--muted);
+  --mp-accent: var(--accent);
+  --mp-tab-hover: color-mix(in srgb, var(--canvas) 88%, var(--ink));
+  --mp-radius: var(--radius-sm);
 }
 
-.editor-split.split-down {
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1fr);
-}
+.editor-slot { height: 100%; }
+.editor-panels .editor-pane { height: 100%; }
 
-.editor-split.is-split .editor-pane { grid-column: auto; }
+.editor-panels .mp-header { padding: 4px var(--space-2) 0; }
+.editor-panels .mp-tabs { gap: 2px; }
 
-.note-tabs {
-  min-width: 0;
-  display: flex;
-  gap: 2px;
-  padding: 4px var(--space-2) 0;
-  overflow-x: auto;
-  scrollbar-width: none;
-  background: color-mix(in srgb, var(--canvas) 94%, var(--ink));
-  border-bottom: 1px solid var(--line);
-}
-
-.note-tab {
+.editor-panels .mp-tab {
   min-width: 72px;
-  max-width: 220px;
   flex: 0 1 220px;
-  display: flex;
-  align-items: center;
+  padding: 0 5px 0 10px;
+  justify-content: space-between;
+  border-right: 0;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  color: var(--muted);
-}
-
-.note-tab:hover { background: color-mix(in srgb, var(--canvas) 88%, var(--ink)); color: var(--ink); }
-.note-tab.is-active { background: var(--white); color: var(--ink); }
-/* The pane without the focus keeps its tab, quieter. */
-.editor-pane:not([data-focused]) .note-tab.is-active { color: var(--muted); }
-
-.note-tab [role="tab"] {
-  min-width: 0;
-  flex: 1 1 auto;
-  height: 32px;
-  padding: 0 4px 0 10px;
-  text-align: left;
   font-size: var(--font-size-ui);
 }
 
-.note-tab [role="tab"] span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.note-tab [role="tab"]:focus-visible { outline-offset: -2px; }
-
-.note-tab-close {
-  width: 22px;
-  height: 22px;
-  flex: 0 0 auto;
-  margin-right: 5px;
-  display: inline-grid;
-  place-items: center;
-  border-radius: var(--radius-sm);
-  color: var(--faint);
-  opacity: 0;
-}
-
-.note-tab:hover .note-tab-close,
-.note-tab.is-active .note-tab-close { opacity: 1; }
-.note-tab-close:hover { background: var(--line); color: var(--ink); }
-.note-tab-close svg { width: 13px; height: 13px; }
+.editor-panels .mp-tab:hover { color: var(--ink); }
+/* A pane without the focus keeps its tab, quieter. */
+.editor-panels .mp-tab[data-mp-active] { color: var(--muted); box-shadow: none; }
+.editor-panels .mp-stack[data-mp-focused] .mp-tab[data-mp-active] { color: var(--ink); box-shadow: none; }
+.editor-panels .mp-tab-close { width: 22px; height: 22px; flex: 0 0 auto; border-radius: var(--radius-sm); color: var(--faint); }
+.editor-panels .mp-tab-close:hover { background: var(--line); color: var(--ink); }
+.editor-panels .mp-tab-close svg { width: 13px; height: 13px; }
 
 .editor-bar {
   min-width: 0;

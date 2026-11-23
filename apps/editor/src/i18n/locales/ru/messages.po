@@ -1503,10 +1503,6 @@ msgstr "Снять выделение"
 msgid "Clear type search"
 msgstr "Очистить поиск типов"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "Закрыть «{name}»"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Закрыть комментарии"
@@ -1531,6 +1527,7 @@ msgstr "Закрыть панель"
 msgid "Close properties"
 msgstr "Закрыть свойства"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "Закрыть вкладку"
@@ -2411,6 +2408,10 @@ msgstr "Редактирование"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "Редактирование приостановлено до восстановления или удаления этих правок. Они хранятся в этом браузере до семи дней либо до сохранения или удаления. Восстановление не перезапишет новую версию без проверки."
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "Панели редактора"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2592,7 +2593,7 @@ msgstr "Удалённые поля"
 msgid "File · {0}"
 msgstr "Файл · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "Просмотр файла: {filename}"
 
@@ -2700,8 +2701,8 @@ msgid "Focus mode"
 msgstr "Режим сосредоточения"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "Перейти к другой панели"
+msgid "Focus next pane"
+msgstr "Перейти к следующей панели"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4099,7 +4100,7 @@ msgstr "Открыть оригинал"
 msgid "Open Settings"
 msgstr "Открыть настройки"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "Открытые вкладки"
 
@@ -4823,6 +4824,10 @@ msgstr "Изменить ширину панели сведений о заме�
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "Изменить ширину боковой панели заметок"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "Изменить размер панелей"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

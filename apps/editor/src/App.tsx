@@ -117,7 +117,6 @@ import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, noteVi
 import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
 import { isObject } from "./field-reference";
 import { NoteList } from "./NoteList";
-import { NoteTabs } from "./NoteTabs";
 import {
   beginNewNote,
   changedNewNote,
@@ -167,12 +166,17 @@ import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { useCollectionWatch } from "./use-collection-watch";
 import { useCollectionTransition } from "./use-collection-transition";
 import { useFileInventory } from "./use-file-inventory";
-import { useFileAsset, useFileAssetStore } from "./use-file-assets";
+import { useFileAssetStore } from "./use-file-assets";
 import { useFileWorkspace } from "./use-file-workspace";
-import { useNoteSurface } from "./use-note-surface";
+import { Workspace as PanelWorkspace } from "@mdbase-dev/panels/react";
+import "@mdbase-dev/panels/styles.css";
+import { PaneSurface } from "./PaneSurface";
+import type { FileAssetSnapshot } from "./file-asset-store";
+import { useLinkTargets } from "./collection-links";
+import type { NoteSurface } from "./use-note-surface";
 import { useSessionLifecycle } from "./use-session-lifecycle";
 import {
-  activeTab, adjacentTab, changeActiveHistory, closePane, closeTab, emptyWorkspace, focusedPane, focusPane, historyStep, loadWorkspace, openBeside, openTab,
+  activeTab, adjacentTab, backgroundNotes, changeActiveHistory, closePane, closeTab, emptyWorkspace, focusedPane, focusPane, historyStep, loadWorkspace, nextPane, openBeside, openTab,
   paneTab, renameInWorkspace, returnToNote, saveWorkspace, selectTab, splitPane, tabNote, useWorkspace, visitNote, type NoteTab, type Pane, type SplitDirection,
   type Workspace
 } from "./workspace";
@@ -326,7 +330,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const paletteCommands = useRef<EditorCommand[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
-  const { workspace, latest: latestWorkspace, changeWorkspace } = useWorkspace();
+  const { workspace, latest: latestWorkspace, changeWorkspace, onUserChange, store: panelStore } = useWorkspace();
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   // Labels and palette shortcuts follow this device's shortcuts as Settings changes them.
@@ -399,29 +403,22 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
 
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
-  // Each pane's editor has its own surface. The focused pane shows the editor's note; the other, its own tab's.
-  const backgroundPane = workspace.panes.length > 1 ? workspace.panes[1 - workspace.focused] : undefined;
-  const backgroundPath = backgroundPane && tabNote(paneTab(backgroundPane));
-  const backgroundSession = backgroundPath ? noteSessions.current.get(backgroundPath) : undefined;
+  // Each pane's editor has its own surface (see PaneSurface). The focused pane shows the editor's note;
+  // every other pane, its own tab's.
+  const backgroundPaths = backgroundNotes(workspace);
   const embedOwner = { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current };
-  const paneSurface = (focused: boolean) => focused
-    ? { path: notePath, source: noteBody }
-    : { path: backgroundSession?.document.path, source: backgroundSession?.draft.body ?? "" };
-  const surfaces = [
-    useNoteSurface({ gateway, assets: fileAssetStore, owner: embedOwner, ...paneSurface(workspace.focused === 0), revision: collectionRevision,
-      files: fileInventory.files, notes: allNotes, types: typeDescriptors }),
-    useNoteSurface({ gateway, assets: fileAssetStore, owner: embedOwner, ...paneSurface(workspace.focused === 1), revision: collectionRevision,
-      files: fileInventory.files, notes: allNotes, types: typeDescriptors })
-  ];
+  const focusedLinkTargets = useLinkTargets(gateway, notePath, collectionRevision, fileInventory.files);
   const fileWorkspace = useFileWorkspace(fileAssetStore, fileInventory.files, notePath);
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset } = fileWorkspace;
-  /** The file the pane without the focus shows over its active tab, kept while the other pane has the focus. */
-  const [backgroundFile, setBackgroundFile] = useState<{ tab: string; file: CollectionFile }>();
-  const backgroundFileShown = backgroundPane && backgroundFile?.tab === backgroundPane.active
-    ? fileInventory.files.find((file) => file.fileId === backgroundFile.file.fileId) : undefined;
-  const backgroundFileAsset = useFileAsset(fileAssetStore, backgroundFileShown);
-  const [backgroundFailure, setBackgroundFailure] = useState<{ path: string; message: string }>();
+  /** The file a pane without the focus shows over its active tab, by tab, kept while another pane has the focus. */
+  const [backgroundFiles, setBackgroundFiles] = useState<Readonly<Record<string, CollectionFile>>>({});
+  const backgroundFile = (pane: Pane) => {
+    const held = backgroundFiles[pane.active];
+    return held && fileInventory.files.find((file) => file.fileId === held.fileId);
+  };
+  /** Why a pane without the focus could not read its note, by path. */
+  const [backgroundFailures, setBackgroundFailures] = useState<Readonly<Record<string, string>>>({});
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
     activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
@@ -653,22 +650,26 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     activateSession(createSession(next));
   }, [activateSession, createSession]);
 
-  // The pane without the focus reads its note itself; it becomes the editor's when the pane takes the focus.
-  const backgroundFailed = backgroundFailure?.path === backgroundPath;
+  // A pane without the focus reads its note itself; it becomes the editor's when the pane takes the focus.
+  // A note that is no longer in such a pane when its read arrives is left unread.
+  const backgroundReads = useRef(new Set<string>());
+  const unreadBackground = backgroundPaths.filter((path) => !noteSessions.current.has(path) && !Object.hasOwn(backgroundFailures, path)).join("\n");
   useEffect(() => {
-    const path = backgroundPath;
-    if (phase !== "ready" || !path || backgroundFailed || noteSessions.current.has(path)) return;
+    if (phase !== "ready" || !unreadBackground) return;
     const epoch = collectionEpoch.current;
-    let current = true;
-    gateway.read(path).then((next) => {
-      if (!current || epoch !== collectionEpoch.current) return;
-      if (!noteSessions.current.has(next.path)) createSession(next);
-      setSessionTick((value) => value + 1);
-    }, (error: unknown) => {
-      if (current && epoch === collectionEpoch.current) setBackgroundFailure({ path, message: t`Couldn’t open “${path}”. ${gatewayError(error)}` });
-    });
-    return () => { current = false; };
-  }, [backgroundFailed, backgroundPath, createSession, gateway, phase]);
+    const wanted = () => epoch === collectionEpoch.current;
+    for (const path of unreadBackground.split("\n")) {
+      if (backgroundReads.current.has(path)) continue;
+      backgroundReads.current.add(path);
+      gateway.read(path).then((next) => {
+        if (!wanted() || !backgroundNotes(latestWorkspace.current).includes(path)) return;
+        if (!noteSessions.current.has(next.path)) createSession(next);
+        setSessionTick((value) => value + 1);
+      }, (error: unknown) => {
+        if (wanted()) setBackgroundFailures((current) => ({ ...current, [path]: t`Couldn’t open “${path}”. ${gatewayError(error)}` }));
+      }).finally(() => { backgroundReads.current.delete(path); });
+    }
+  }, [createSession, gateway, latestWorkspace, phase, unreadBackground]);
 
   const refreshCachedNote = useCallback(async (path: string, revision?: string) => {
     const session = noteSessions.current.get(path);
@@ -964,22 +965,31 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   /** Changes the tabs or panes, and shows what the focused pane's active tab holds if that changed. A file
-   * open in a pane stays there while the other pane has the focus. */
+   * open in a pane stays there while another pane has the focus. */
   function changeTabs(change: (current: Workspace) => Workspace) {
     const previous = latestWorkspace.current;
     changeWorkspace(change);
-    const next = latestWorkspace.current;
+    tabsChanged(previous, latestWorkspace.current);
+  }
+
+  /** Shows what the focused pane's active tab holds after the tabs or panes changed, here or in the
+   * panel workspace (a tab clicked, dragged or closed there). */
+  function tabsChanged(previous: Workspace, next: Workspace) {
     const leaving = activeTab(previous), arriving = activeTab(next);
-    if (next.panes.length === 1) setBackgroundFile(undefined);
-    if (leaving.id === arriving.id) return;
     const paneChanged = !focusedPane(previous).tabs.some((tab) => tab.id === arriving.id);
-    const restored = paneChanged && backgroundFile?.tab === arriving.id ? backgroundFile.file : undefined;
-    if (paneChanged && next.panes.length > 1) {
-      setBackgroundFile(selectedCollectionFile && paneTab(next.panes[1 - next.focused]!).id === leaving.id ? { tab: leaving.id, file: selectedCollectionFile } : undefined);
-    }
+    const restored = leaving.id !== arriving.id && paneChanged ? backgroundFiles[arriving.id] : undefined;
+    // Only the active tab of a pane without the focus keeps a file; the pane the focus leaves hands its own over.
+    const behind = new Set(next.panes.filter((_, index) => index !== next.focused).map((pane) => pane.active));
+    setBackgroundFiles((current) => {
+      const held = Object.entries(current).filter(([tab]) => behind.has(tab));
+      const handed = leaving.id !== arriving.id && paneChanged && selectedCollectionFile && behind.has(leaving.id);
+      if (!handed && held.length === Object.keys(current).length) return current;
+      return { ...Object.fromEntries(held), ...(handed ? { [leaving.id]: selectedCollectionFile } : {}) };
+    });
+    if (leaving.id === arriving.id) return;
     const path = tabNote(arriving);
     const cached = path ? noteSessions.current.get(path) : undefined;
-    // A pane that gains the focus shows its own note, never the other pane's while its own loads.
+    // A pane that gains the focus shows its own note, never another pane's while its own loads.
     if (!path || paneChanged && (!cached || cached.deleted)) showNoNote();
     if (path) navigateToNote(path, { historyIndex: arriving.history.index, keepList: paneChanged });
     if (restored) {
@@ -996,6 +1006,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     changeTabs((current) => closeTab(current, tab.id));
   }
 
+  // A tab clicked, dragged or closed in the panel workspace changes it there; the editor follows.
+  const heardTabChange = useRef(tabsChanged);
+  useEffect(() => { heardTabChange.current = tabsChanged; });
+  useEffect(() => onUserChange((previous, next) => heardTabChange.current(previous, next)), [onUserChange]);
+  // Tabs show once there is more than one, or more than one pane. A phone shows the focused pane alone.
+  const tabsShown = !mobileLayout && (workspace.panes.length > 1 || workspace.panes[0]!.tabs.length > 1);
+  const panelLayout = useMemo(() => ({ compactBelow: mobileLayout ? Number.MAX_SAFE_INTEGER : 0, compactHeaderHeight: 0, headerHeight: tabsShown ? 37 : 0 }), [mobileLayout, tabsShown]);
+
   /** Phones show one note at a time, so a note asked for in a new tab opens in place there. */
   function openInNewTab(path: string) {
     if (mobileLayout) {
@@ -1005,7 +1023,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     changeTabs((current) => openTab(current, path));
   }
 
-  /** Opens a note in the other pane, splitting the editor if it has one pane, and focuses it. */
+  /** Opens a note in the next pane, splitting the editor if it has one pane, and focuses it. */
   function openNoteBeside(path: string) {
     if (mobileLayout) {
       navigateToNote(path);
@@ -1022,7 +1040,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   /** Tabs and panes are for notes, on screens wide enough to show them. */
   function tabCommands(): Partial<Record<CommandId, () => void>> {
     if (surface !== "notes" || mobileLayout) return {};
-    const { panes, focused, split } = latestWorkspace.current;
+    const { panes, focused } = latestWorkspace.current;
     const splitTo = (direction: SplitDirection) => () => changeTabs((current) => splitPane(current, direction, tabNote(activeTab(current))));
     return {
       "new-tab": () => { setShortcutsOpen(false); setPaletteMode("tab"); setQuickOpen(true); },
@@ -1031,11 +1049,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         "next-tab": () => switchTab(adjacentTab(latestWorkspace.current, 1)),
         "previous-tab": () => switchTab(adjacentTab(latestWorkspace.current, -1))
       } : {}),
-      ...(panes.length === 1 || split !== "right" ? { "split-right": splitTo("right") } : {}),
-      ...(panes.length === 1 || split !== "down" ? { "split-down": splitTo("down") } : {}),
+      "split-right": splitTo("right"),
+      "split-down": splitTo("down"),
       ...(panes.length > 1 ? {
         "focus-other-pane": () => {
-          focusEditorPane(1 - latestWorkspace.current.focused);
+          focusEditorPane(nextPane(latestWorkspace.current));
           requestAnimationFrame(focusPaneEditor);
         },
         "close-pane": () => changeTabs((current) => closePane(current, current.focused))
@@ -1256,8 +1274,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setSelectedCollectionFile(undefined);
     setPendingFilePath(undefined);
     setOpenFileAsset(undefined);
-    setBackgroundFile(undefined);
-    setBackgroundFailure(undefined);
+    setBackgroundFiles({});
+    setBackgroundFailures({});
     newNoteWrites.current.clear();
     publishNewNotes({ notes: [] });
     closeSidePanels();
@@ -2246,7 +2264,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const focused = pane === workspace.panes[workspace.focused];
     if (tab.id === pane.active && focused && selectedCollectionFile) return collectionFileTitle(selectedCollectionFile);
     if (tab.id === pane.active && focused && openNew) return openNew.title.trim() || t`New note`;
-    if (tab.id === pane.active && !focused && backgroundFileShown) return collectionFileTitle(backgroundFileShown);
+    const behind = tab.id === pane.active && !focused ? backgroundFile(pane) : undefined;
+    if (behind) return collectionFileTitle(behind);
     const path = tabNote(tab);
     if (!path) return t`No note`;
     if (path === document?.path && draft?.title.trim()) return draft.title;
@@ -2277,45 +2296,62 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     detail={noteSessions.current.active?.activityDetail}
     onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
   /></>;
-  /** One editor pane. The focused one shows the editor's note, file or new note; the other, its own tab's note or file. */
+  const panelTitle = (panel: { id: string }) => {
+    const pane = workspace.panes.find((candidate) => candidate.tabs.some((tab) => tab.id === panel.id));
+    return pane ? tabLabel(pane, pane.tabs.find((tab) => tab.id === panel.id)!) : "";
+  };
+  /** The note a pane without the focus shows: its active tab's, once read. */
+  const backgroundSession = (pane: Pane) => {
+    const path = tabNote(paneTab(pane));
+    return path ? noteSessions.current.get(path) : undefined;
+  };
+  /** One editor pane, with the surface and the file its editor reads for itself. */
   const editorPane = (pane: Pane, index: number) => {
     const focused = index === workspace.focused;
-    const session = focused ? noteSessions.current.active : backgroundSession;
-    const around = surfaces[index]!;
+    const session = focused ? undefined : backgroundSession(pane);
+    return <PaneSurface key={pane.id} file={focused ? undefined : backgroundFile(pane)} assets={fileAssetStore} surface={{
+      gateway, assets: fileAssetStore, owner: embedOwner, revision: collectionRevision, files: fileInventory.files, notes: allNotes, types: typeDescriptors,
+      ...(focused ? { path: notePath, source: noteBody } : { path: session?.document.path, source: session?.draft.body ?? "" })
+    }}>{(around, backgroundAsset) => paneBody(pane, index, around, backgroundAsset)}</PaneSurface>;
+  };
+  /** The name of the file in the focused pane, when it shows one. */
+  const filename = selectedCollectionFile && selectedFileAsset ? collectionFileTitle(selectedCollectionFile) : undefined;
+  /** What a pane shows. The focused one shows the editor's note, file or new note; any other, its own tab's note or file. */
+  const paneBody = (pane: Pane, index: number, around: NoteSurface, backgroundAsset: FileAssetSnapshot | undefined) => {
+    const focused = index === workspace.focused;
+    const session = focused ? noteSessions.current.active : backgroundSession(pane);
+    const backgroundPath = focused ? undefined : tabNote(paneTab(pane));
+    const backgroundFileShown = focused ? undefined : backgroundFile(pane);
     const ids = paneIds(index);
     const isNew = focused ? openNew : undefined;
     const { history } = paneTab(pane);
     const historyBackPath = historyStep(history, -1)?.path, historyForwardPath = historyStep(history, 1)?.path;
     const file = focused
       ? selectedCollectionFile && selectedFileAsset && { file: selectedCollectionFile, asset: selectedFileAsset }
-      : backgroundFileShown && backgroundFileAsset && { file: backgroundFileShown, asset: backgroundFileAsset };
+      : backgroundFileShown && backgroundAsset && { file: backgroundFileShown, asset: backgroundAsset };
     const shown = focused ? editing : session && !session.deleted
       ? { key: session.editorSessionKey, path: session.document.path, title: session.draft.title, body: session.draft.body } : undefined;
-    const loading = focused ? noteLoading : Boolean(backgroundPath && !session && backgroundFailure?.path !== backgroundPath);
+    const backgroundFailure = backgroundPath === undefined ? undefined : backgroundFailures[backgroundPath];
+    const loading = focused ? noteLoading : Boolean(backgroundPath && !session && backgroundFailure === undefined);
     const deletedElsewhere = !isNew && Boolean(session?.deletedElsewhere);
     const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft) || deletedElsewhere;
     const leadingActions = index === 0 ? editorLeadingActions : undefined;
-    const tabs = !mobileLayout && (workspace.panes.length > 1 || pane.tabs.length > 1)
-      ? <NoteTabs tabs={pane.tabs} active={pane.active} label={(tab) => tabLabel(pane, tab)} onSelect={switchTab} onClose={closeNoteTab} />
-      : undefined;
     /** An edit reaches the note this pane shows, even one that arrives before the pane has the focus. */
     const editPane = (change: Partial<Pick<Draft, "title" | "body">>) => {
       if (focused) editNote(change);
       else if (session) changeSessionDraft(session, (current) => ({ ...current, ...change }));
     };
     // A click or the keyboard reaching a pane gives it the focus first, so what follows acts in it.
-    return <div key={pane.id} className="editor-slot" onPointerDownCapture={() => focusEditorPane(index)} onFocusCapture={() => focusEditorPane(index)}>
+    return <div className="editor-slot" onPointerDownCapture={() => focusEditorPane(index)} onFocusCapture={() => focusEditorPane(index)}>
       {file ? <Suspense fallback={<PaneSkeleton label={t`Loading file viewer`} leadingActions={leadingActions} variant="canvas" />}><FileWorkspace
         file={file.file}
         asset={file.asset}
-        tabs={tabs}
         background={!focused}
         leadingActions={leadingActions}
         onBack={() => returnToMobilePane("notes")}
         onRetry={() => void fileAssetStore.retry(file.file)}
-      /></Suspense> : <section role={focused ? "main" : "region"} className={`editor-pane${tabs ? " has-tabs" : ""}`} data-focused={focused || undefined} aria-label={t`Note editor`}
+      /></Suspense> : <section className="editor-pane" data-focused={focused || undefined}
         data-save-state={isNew ? "saved" : focused ? saveState : session?.saveState ?? "saved"}>
-        {tabs}
         {loading && !shown ? <NoteSkeleton leadingActions={leadingActions} /> : shown ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => { closeNewNote(); returnToMobilePane("notes"); }}><ArrowLeft aria-hidden="true" /></button>
@@ -2456,9 +2492,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         /> : <EmptyEditor
           leadingActions={leadingActions}
-          notice={backgroundFailure?.path === backgroundPath ? backgroundFailure?.message : undefined}
+          notice={backgroundFailure}
           onCreate={canCreateNotes ? () => openNewNote() : undefined}
-          onRetry={() => setBackgroundFailure(undefined)}
+          onRetry={() => setBackgroundFailures(({ [backgroundPath ?? ""]: _failed, ...others }) => others)}
         />}
       </section>}
     </div>;
@@ -2596,9 +2632,29 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
-      <div className={`editor-split${!mobileLayout && workspace.panes.length > 1 ? ` is-split split-${workspace.split}` : ""}`}>
-        {workspace.panes.map((pane, index) => (!mobileLayout || index === workspace.focused) && editorPane(pane, index))}
-      </div>
+      {/* The panes are the page's main content, named and marked for what the focused one shows. Each pane is the panel of its tab, which names it. */}
+      <main className="editor-panels" aria-label={filename === undefined ? t`Note editor` : t`File viewer, ${filename}`}
+        data-save-state={openNew ? "saved" : saveState}>
+        <PanelWorkspace
+          store={panelStore}
+          layout={panelLayout}
+          renderPanel={(panel, info) => {
+            // A pane draws its active tab; the editor behind another tab is not kept.
+            const index = workspace.panes.findIndex((pane) => pane.id === info.stack);
+            const pane = workspace.panes[index];
+            return info.visible && pane?.active === panel.id ? editorPane(pane, index) : null;
+          }}
+          tabTitle={panelTitle}
+          renderTab={(panel, info) => <>
+            <span className="mp-tab-label">{panelTitle(panel)}</span>
+            {/* Delete on the tab and the Close tab command close it from the keyboard. */}
+            <span className="mp-tab-close" aria-hidden="true" title={t`Close tab`} onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => { event.stopPropagation(); info.close(); }}><X aria-hidden="true" /></span>
+          </>}
+          onRequestClose={(tabs) => { for (const tab of tabs) changeTabs((current) => closeTab(current, tab)); }}
+          labels={{ workspace: t`Editor panes`, tabs: t`Open tabs`, resize: t`Resize panes`, closeTab: t`Close tab` }}
+        />
+      </main>
       {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={inspectorLabel(inspector)} width={inspectorTrack} onClose={() => setInspector(undefined)}>{document ? <Suspense fallback={<InspectorPanelLoading label={inspectorLabel(inspector)} />}>
         {inspector === "comments" ? <NoteCommentsPanel key={document.path} title={draft?.title || t`Untitled`} comments={noteComments}
           onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} />
@@ -2611,7 +2667,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           note={document}
           body={draft?.body}
           types={description.types}
-          linking={{ ...linking, targets: surfaces[workspace.focused]!.linkTargets, currentPath: document.path }}
+          linking={{ ...linking, targets: focusedLinkTargets, currentPath: document.path }}
           error={propertiesError}
           readOnly={noteReadOnly}
           onClose={() => setInspector(undefined)}
@@ -2746,7 +2802,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       requestAnimationFrame(() => globalThis.document.getElementById("keyboard-shortcuts")?.scrollIntoView({ block: "start" }));
     }} />}
     {quickCreate && <QuickCreateRecord key={quickCreate.note.id} note={quickCreate.note} types={typeDescriptors}
-      linking={{ ...linking, targets: surfaces[workspace.focused]!.linkTargets }} anchor={quickCreate.creation.anchor}
+      linking={{ ...linking, targets: focusedLinkTargets }} anchor={quickCreate.creation.anchor}
       onCreate={submitQuickCreate} onClose={closeQuickCreate} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
@@ -2771,7 +2827,7 @@ function paneIds(index: number): { title: string; backlinks: string } {
   return index === 0 ? { title: "note-title", backlinks: "linked-from" } : { title: `note-title-${index + 1}`, backlinks: `linked-from-${index + 1}` };
 }
 
-/** An editor's identity in its pane: the same note open in both panes keeps a place in each. */
+/** An editor's identity in its tab: the same note open in two tabs keeps a place in each, wherever the tabs go. */
 function paneDocumentId(pane: Pane, editorKey: string | undefined): string | undefined {
-  return editorKey && `${pane.id}/${editorKey}`;
+  return editorKey && `${pane.active}/${editorKey}`;
 }

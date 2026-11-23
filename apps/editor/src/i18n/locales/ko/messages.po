@@ -1503,10 +1503,6 @@ msgstr "선택 지우기"
 msgid "Clear type search"
 msgstr "유형 검색 지우기"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "{name} 닫기"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "댓글 닫기"
@@ -1531,6 +1527,7 @@ msgstr "창 닫기"
 msgid "Close properties"
 msgstr "속성 닫기"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "탭 닫기"
@@ -2411,6 +2408,10 @@ msgstr "편집"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "이 편집 내용을 복원하거나 버릴 때까지 편집이 일시 중지됩니다. 이 내용은 저장하거나 버릴 때까지 최대 7일 동안 이 브라우저에 보관됩니다. 복원해도 검토 없이 최신 버전을 덮어쓰지 않습니다."
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "편집기 창"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2592,7 +2593,7 @@ msgstr "필드 제거됨"
 msgid "File · {0}"
 msgstr "파일 · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "파일 뷰어, {filename}"
 
@@ -2700,8 +2701,8 @@ msgid "Focus mode"
 msgstr "집중 모드"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "다른 창으로 이동"
+msgid "Focus next pane"
+msgstr "다음 창으로 이동"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4099,7 +4100,7 @@ msgstr "원본 열기"
 msgid "Open Settings"
 msgstr "설정 열기"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "열린 탭"
 
@@ -4823,6 +4824,10 @@ msgstr "노트 검사기 크기 조정"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "노트 사이드바 크기 조절"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "창 크기 조절"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

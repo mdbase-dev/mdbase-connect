@@ -1503,10 +1503,6 @@ msgstr "清除选择"
 msgid "Clear type search"
 msgstr "清除类型搜索"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "关闭 {name}"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "关闭评论"
@@ -1531,6 +1527,7 @@ msgstr "关闭窗格"
 msgid "Close properties"
 msgstr "关闭属性"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "关闭标签页"
@@ -2411,6 +2408,10 @@ msgstr "编辑"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "编辑已暂停，直到你恢复或放弃这些编辑。这些编辑会在此浏览器中保留最多七天，或直到保存或放弃。恢复时不会未经审阅就覆盖较新的版本。"
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "编辑器窗格"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2592,7 +2593,7 @@ msgstr "已移除字段"
 msgid "File · {0}"
 msgstr "文件 · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "文件查看器，{filename}"
 
@@ -2700,8 +2701,8 @@ msgid "Focus mode"
 msgstr "专注模式"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "切换到另一个窗格"
+msgid "Focus next pane"
+msgstr "切换到下一个窗格"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4099,7 +4100,7 @@ msgstr "打开原文件"
 msgid "Open Settings"
 msgstr "打开设置"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "已打开的标签页"
 
@@ -4823,6 +4824,10 @@ msgstr "调整笔记检查器大小"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "调整笔记侧边栏大小"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "调整窗格大小"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

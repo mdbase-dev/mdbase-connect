@@ -66,6 +66,15 @@ class ResizeObserverStub implements ResizeObserver {
 
 globalThis.ResizeObserver = ResizeObserverStub;
 
+// jsdom lays nothing out. The panel workspace measures itself to place its panes and to show their
+// tab strips, so it alone is given a size.
+for (const [name, size] of [["clientWidth", 1200], ["clientHeight", 800]] as const) {
+  Object.defineProperty(HTMLElement.prototype, name, {
+    configurable: true,
+    get(this: HTMLElement) { return this.classList.contains("mp-workspace") ? size : 0; }
+  });
+}
+
 class IntersectionObserverStub implements IntersectionObserver {
   readonly root = null;
   readonly rootMargin = "0px";
