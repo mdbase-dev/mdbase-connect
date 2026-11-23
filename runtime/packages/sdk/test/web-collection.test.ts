@@ -752,3 +752,205 @@ describe("real protected native collection composition", () => {
     await result.close(); await vi.waitFor(() => expect(stop).toHaveBeenCalledOnce());
   });
 });
+
+describe("cold open push socket during key wait", () => {
+  type PushCallbacks = {push(frame: Uint8Array): void; live(live: boolean): void; ended(reason: "forbidden" | "revoked" | "gone"): void};
+  function makePushChannel(trace: string[]) {
+    let callbacks: PushCallbacks | null = null;
+    const channel = {
+      available: true, live: false, suspended: false,
+      start: vi.fn(() => {trace.push("push-start");}),
+      close: vi.fn(() => {trace.push("push-close"); channel.available = false; channel.live = false;}),
+      resume: vi.fn(() => {trace.push("push-resume"); channel.suspended = false;}),
+      suspend: vi.fn(() => {trace.push("push-suspend"); channel.suspended = true; channel.live = false;}),
+    };
+    const openLogPush = vi.fn((events: PushCallbacks) => {
+      trace.push("push-open");
+      callbacks = events;
+      return channel;
+    });
+    return {channel, openLogPush, events: () => callbacks!};
+  }
+  /** Models replica stall_read.rs (FIRST_MS 1 s, MAX_MS 30 s) + host.pushLog wake. */
+  function attachBackoffRead(f: ReturnType<typeof fixture>) {
+    const FIRST_MS = 1_000, MAX_MS = 30_000;
+    let grantHead = 10, probedHead = 10, headKnown = 10;
+    let interval = FIRST_MS, probedAt = 0, deadline = FIRST_MS;
+    let wakeSleep: (() => void) | null = null;
+    const probes: number[] = [];
+    const pushLog = vi.fn((frame: Uint8Array) => {
+      const pushedHead = frame[0] ?? 0;
+      if (pushedHead > headKnown) headKnown = pushedHead;
+      if (headKnown > probedHead) {
+        probedHead = headKnown;
+        deadline = Math.min(deadline, Math.max(probedAt + FIRST_MS, Date.now()));
+      }
+      wakeSleep?.();
+      return true;
+    });
+    Object.assign(f.host, {pushLog});
+    f.host.waitForVerifiedRead.mockImplementationOnce((async ({signal}: {signal: AbortSignal}) => {
+      f.trace.push("read-start");
+      probedAt = Date.now();
+      deadline = probedAt + FIRST_MS;
+      let delay = 250;
+      while (!signal.aborted) {
+        const now = Date.now();
+        if (headKnown > probedHead) {
+          probedHead = headKnown;
+          deadline = Math.min(deadline, Math.max(probedAt + FIRST_MS, now));
+        }
+        if (now >= deadline) {
+          probes.push(now);
+          interval = Math.min(MAX_MS, interval * 2);
+          deadline = now + interval;
+          probedAt = now;
+          probedHead = headKnown;
+          if (grantHead > 10) { f.trace.push("read"); return; }
+        }
+        await new Promise<void>((resolve, reject) => {
+          if (signal.aborted) { reject(signal.reason); return; }
+          const finish = () => { clearTimeout(t); signal.removeEventListener("abort", abort); if (wakeSleep === wake) wakeSleep = null; };
+          const wake = () => { finish(); resolve(); };
+          const abort = () => { finish(); reject(signal.reason); };
+          const t = setTimeout(() => { finish(); resolve(); }, delay);
+          wakeSleep = wake;
+          signal.addEventListener("abort", abort, {once: true});
+        });
+        delay = Math.min(1_000, delay * 2);
+      }
+      throw signal.reason;
+    }) as () => Promise<void>);
+    return {
+      pushLog, probes,
+      landGrant: (head = 11) => { grantHead = head; },
+    };
+  }
+  it("opens one push socket before cold verified read, never duplicates it, and preserves foreground and ended rules after open", async () => {
+    const f = fixture();
+    const p = makePushChannel(f.trace);
+    const pushLog = vi.fn(() => true);
+    Object.assign(f.host, {openLogPush: p.openLogPush, pushLog});
+    const result = await f.open();
+    expect(f.trace).toEqual(["join", "sql", "log", "push-open", "push-start", "read", "facade", "handoff"]);
+    expect(p.openLogPush).toHaveBeenCalledOnce();
+    expect(p.channel.start).toHaveBeenCalledOnce();
+    p.channel.live = true; p.events().live(true);
+    expect(result.live).toBe(true);
+    // Foreground suspend/resume and post-open ended stay on the exact same socket.
+    result.connection.setForeground(false);
+    expect(p.channel.suspend).toHaveBeenCalledOnce();
+    result.connection.setForeground(true);
+    expect(p.channel.resume).toHaveBeenCalledOnce();
+    p.channel.available = false; p.channel.live = false;
+    p.events().ended("forbidden");
+    expect(result.ended).toBe("forbidden");
+    expect(p.openLogPush).toHaveBeenCalledOnce();
+  });
+  it("grant arriving via push during the key wait completes within ~1 s of the push, not at the 16 s backoff step", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture();
+      const p = makePushChannel(f.trace);
+      Object.assign(f.host, {openLogPush: p.openLogPush});
+      const backoff = attachBackoffRead(f);
+      let opened = false;
+      const opening = f.open().then(result => { opened = true; return result; });
+      await vi.waitFor(() => expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce());
+      // Advance through the 1 s, 2 s, 4 s and 8 s probes (1, 3, 7, 15 s); next backoff step is 31 s.
+      await vi.advanceTimersByTimeAsync(18_300);
+      expect(opened).toBe(false);
+      expect(p.openLogPush).toHaveBeenCalledOnce();
+      expect(backoff.probes.length).toBe(4);
+      // Grant lands at 18.3 s and push announces head 11 (12.7 s before the 31 s backoff step).
+      backoff.landGrant(11);
+      p.channel.live = true; p.events().live(true);
+      p.events().push(Uint8Array.of(11));
+      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.waitFor(() => expect(opened).toBe(true));
+      const result = await opening;
+      expect(backoff.pushLog).toHaveBeenCalledOnce();
+      expect(p.openLogPush).toHaveBeenCalledOnce();
+      expect(result.live).toBe(true);
+      await result.close();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it("when no push arrives, the backoff still completes the cold open", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture();
+      const p = makePushChannel(f.trace);
+      Object.assign(f.host, {openLogPush: p.openLogPush});
+      const backoff = attachBackoffRead(f);
+      let opened = false;
+      const opening = f.open().then(result => { opened = true; return result; });
+      await vi.waitFor(() => expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(18_300);
+      backoff.landGrant(11); // grant lands, but no push ever arrives
+      await vi.advanceTimersByTimeAsync(11_700); // 30 s: still before the 31 s backoff step
+      expect(opened).toBe(false);
+      await vi.advanceTimersByTimeAsync(2_000); // crosses 31 s backoff step
+      await vi.waitFor(() => expect(opened).toBe(true));
+      const result = await opening;
+      expect(p.openLogPush).toHaveBeenCalledOnce();
+      await result.close();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+  it.each(["open_throws", "start_throws", "socket_down", "auth_forbidden", "auth_revoked"] as const)(
+    "push failure (%s) during cold open does not fail or slow the open and falls back to backoff", async mode => {
+      vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+      try {
+        const f = fixture();
+        const p = makePushChannel(f.trace);
+        if (mode === "open_throws") Object.assign(f.host, {openLogPush: vi.fn(() => { throw new Error("ws unavailable"); })});
+        else if (mode === "start_throws") { p.channel.start.mockImplementationOnce(() => { throw new Error("socket connect failed"); }); Object.assign(f.host, {openLogPush: p.openLogPush}); }
+        else Object.assign(f.host, {openLogPush: p.openLogPush});
+        const backoff = attachBackoffRead(f);
+        let opened = false;
+        const opening = f.open().then(result => { opened = true; return result; });
+        await vi.waitFor(() => expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce());
+        await vi.advanceTimersByTimeAsync(1_500);
+        if (mode === "socket_down") { p.channel.live = false; p.events().live(false); }
+        if (mode === "auth_forbidden" || mode === "auth_revoked") {
+          p.channel.available = false; p.channel.live = false;
+          p.events().ended(mode === "auth_revoked" ? "revoked" : "forbidden");
+        }
+        // Grant lands at 6 s -> completes on the 7 s backoff step (unaffected by push failure).
+        await vi.advanceTimersByTimeAsync(4_500);
+        backoff.landGrant(11);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.waitFor(() => expect(opened).toBe(true));
+        const result = await opening;
+        expect(result.failure).toBeNull();
+        expect(result.ended).toBeNull();
+        if (mode !== "socket_down") expect(result.live).toBe(false);
+        await result.close();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally { vi.useRealTimers(); }
+    },
+  );
+  it.each(["failure", "cancel"] as const)("closes the push socket on cold open %s", async mode => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+    try {
+      const f = fixture();
+      const p = makePushChannel(f.trace);
+      Object.assign(f.host, {openLogPush: p.openLogPush});
+      let failRead!: (error: unknown) => void;
+      f.host.waitForVerifiedRead.mockImplementationOnce((({signal}: {signal: AbortSignal}) => new Promise<void>((_resolve, reject) => {
+        failRead = reject;
+        signal.addEventListener("abort", () => reject(signal.reason), {once: true});
+      })) as () => Promise<void>);
+      const opening = f.open();
+      const rejected = expect(opening).rejects.toBeDefined();
+      await vi.waitFor(() => expect(p.channel.start).toHaveBeenCalledOnce());
+      if (mode === "failure") failRead(new Error("read failed"));
+      else f.parent.abort();
+      await rejected;
+      expect(p.channel.close).toHaveBeenCalledOnce();
+      expect(f.handoff()).toBeUndefined();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
+});
