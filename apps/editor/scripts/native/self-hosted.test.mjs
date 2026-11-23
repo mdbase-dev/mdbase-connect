@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { it } from 'node:test';
@@ -45,7 +45,8 @@ it('plans only a main ancestor carrying the exact contract',async()=>{
 });
 
 async function site({headers=policy,entry=`index-x1-${sha.slice(0,12)}.js`,extra={}}={}) {
- const dir=await mkdtemp(join(tmpdir(),'editor-self-hosted-site-'));
+ // macOS temp directories sit behind a symlink; inventories refuse symlinked roots.
+ const dir=await realpath(await mkdtemp(join(tmpdir(),'editor-self-hosted-site-')));
  await mkdir(join(dir,'assets'));
  await writeFile(join(dir,'_headers'),headers);
  await writeFile(join(dir,'index.html'),`<!doctype html><head><script type="module" crossorigin src="/assets/${entry}"></script></head>`);
