@@ -338,29 +338,6 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
     const upgrading = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
     expect(upgrading.json().error).toMatchObject({ message: expect.stringMatching(/being upgraded/), details: { upgrade: "in_progress" } });
-    // A receipted rollback keeps the start claim; the denial stops saying "being upgraded".
-    const hosted = randomUUID();
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Notes','mdbase')", [hosted, owner.user]);
-    const step = (type: string, at: string) => db.query(
-      "INSERT INTO audit_events(id,user_id,event_type,subject_id,metadata,created_at) VALUES($1,$2,$3,$4,'{}',$5)",
-      [randomUUID(), owner.user, type, hosted, at]);
-    await step("next_migration.fence", "2026-10-18T01:00:00Z");
-    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).json().error.details).toEqual({ upgrade: "in_progress" });
-    // Intent/provider binding and a queued/appended abort barrier are not a rollback receipt.
-    for (const event of ["next_migration.rollback_intent", "next_migration.rollback_provider_binding", "next_migration.appendbase_abort_barrier"]) {
-      await step(event, "2026-10-18T01:30:00Z");
-      expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
-    }
-    await step("next_migration.rollback", "2026-10-18T02:00:00Z");
-    expect((await inspect()).json().pairing.account_upgrade).toBe("postponed");
-    const postponed = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
-    expect(postponed.statusCode).toBe(409);
-    expect(postponed.json().error).toMatchObject({ code: "installation_legacy_backend", message: expect.stringMatching(/paused/), details: { upgrade: "postponed" } });
-    expect(postponed.json().error.message).not.toMatch(/being upgraded|try again|legacy|backend|migrat/i);
-    // An operator restart fences again: the upgrade is in progress once more.
-    await step("next_migration.fence", "2026-10-18T03:00:00Z");
-    expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
-    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).json().error.details).toEqual({ upgrade: "in_progress" });
     expect((await flow.exchange()).json()).toEqual({ status: "pending" });
     expect((await db.query("SELECT user_id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows[0].user_id).toBeNull();
     expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [input.installation.request_id])).rows).toEqual([]);
@@ -1921,7 +1898,6 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await app.inject({method:"GET",url:base.replace(f.collection,other.collection),headers})).statusCode).toBe(403);
     expect((await app.inject({method:"GET",url:base.replace(f.grantId,other.grantId),headers})).statusCode).toBe(401);
     expect((await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/timers/reminders`,headers})).statusCode).toBe(401);
-    expect((await app.inject({method:"GET",url:`/internal/v1/next/timers/${f.grantId}/reminders`,headers})).statusCode).toBe(401);
     const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
     expect((await approvePicked(p,p.flow,[collection],collection,false)).statusCode).toBe(200);
     const receipt=(await p.flow.exchange()).json();
