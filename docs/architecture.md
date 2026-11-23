@@ -96,9 +96,6 @@ collection-mode transition documented in
 - **`services/mcp`**: Hosted OAuth MCP gateway (`https://mcp.mdbase.dev/mcp`).
 - **`packages/protocol`**: Shared protocol schemas, problem codes, and
   generated TypeScript inventories.
-- **`packages/client` (`@mdbase-dev/connect`)**: Deprecated legacy SDK with no
-  remaining first-party app or service consumers (`apps/editor` and
-  `services/mcp` are detached).
 
 ## Application identity, authorization, and sessions
 

@@ -39,16 +39,13 @@
     {
       "id": "identity-continuity",
       "title": "Stable application and connector identity continuity",
-      "authority": "A stable application installation key signs each fresh grant request; legacy clients pin the connector public key on first successful authorization and reject silent replacement.",
+      "authority": "A stable application installation key signs each fresh grant request; connectors attest device identity on every session.",
       "sources": [
-        "packages/client/src/application-identity.ts",
-        "packages/client/src/connect.ts",
+        "services/mcp/src/grant-crypto.ts",
         "runtime/crates/daemon/src/attest.rs",
         "runtime/crates/daemon/src/access.rs"
       ],
       "tests": [
-        "packages/client/src/application-identity.test.ts",
-        "packages/client/src/connector-identity-continuity.test.ts",
         "runtime/crates/daemon/tests/relay.rs"
       ],
       "fixtures": [
@@ -60,7 +57,6 @@
       "title": "Application-to-connector encrypted relay",
       "authority": "The control plane routes authenticated ciphertext; the connector decrypts and then applies its exact local grant.",
       "sources": [
-        "packages/client/src/crypto.ts",
         "services/server/src/features/relay/relay.ts",
         "runtime/crates/daemon/src/relay.rs",
         "runtime/crates/daemon/src/pipes.rs",
@@ -68,7 +64,6 @@
         "runtime/crates/daemon/src/authority.rs"
       ],
       "tests": [
-        "packages/client/src/crypto.test.ts",
         "runtime/crates/daemon/tests/relay.rs",
         "runtime/crates/daemon/tests/relay_first_open.rs",
         "scripts/relay-e2e.mjs"
@@ -214,7 +209,6 @@
     "pnpm test",
     "pnpm e2e",
     "pnpm e2e:relay",
-    "pnpm test:browser-storage",
     "pnpm package:audit",
     "pnpm check:release-readiness"
   ],

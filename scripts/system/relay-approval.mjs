@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { APPLICATION_AUTHORIZATION_PROTOCOL_VERSION, authorizationContractRequirements,
   capabilityOperationsForContractVersion } from "../../packages/protocol/dist/index.js";
-import { applicationInstallationId, MemoryGrantKeyStore, signApplicationAuthorization } from "../../packages/client/dist/crypto-entry.js";
+import { applicationInstallationId, MemoryGrantKeyStore, signApplicationAuthorization } from "../lib/relay-crypto.mjs";
 import { registerApplicationManifest } from "../../services/server/dist/manifest.js";
 
 /** Fresh approval, not a preinstalled grant: real PostgreSQL and NATS owners. */

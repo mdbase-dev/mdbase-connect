@@ -1,11 +1,9 @@
 import { execFile } from "node:child_process";
-import { createHash } from "node:crypto";
 import { constants } from "node:fs";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
-import { runInNewContext } from "node:vm";
 import { publicPackages } from "./public-packages.mjs";
 
 const run = promisify(execFile);
@@ -37,52 +35,6 @@ try {
       await access(join(packageRoot, target), constants.X_OK).catch(() => {
         throw new Error(`${manifest.name} executable ${target} cannot run from a workspace install`);
       });
-    }
-    if (manifest.name === "@mdbase-dev/connect") {
-      const browserEntry = "package/dist/browser/mdbase-connect.min.js";
-      const integrityEntry = "package/dist/browser/integrity.json";
-      assert(entries.includes(browserEntry), `${manifest.name} is missing its browser bundle`);
-      assert(entries.includes(integrityEntry), `${manifest.name} is missing browser SRI metadata`);
-      const bundle = (await run("tar", ["-xOf", archive, browserEntry])).stdout;
-      const integrity = JSON.parse((await run("tar", ["-xOf", archive, integrityEntry])).stdout);
-      const expected = `sha384-${createHash("sha384").update(bundle).digest("base64")}`;
-      assert(integrity.integrity === expected, `${manifest.name} browser SRI metadata is stale`);
-      assert(!/(?:^|\\n)\\s*(?:import|export)\\s/m.test(bundle), `${manifest.name} browser bundle has module dependencies`);
-      assert(bundle.includes("MdbaseConnect"), `${manifest.name} browser bundle does not expose its global`);
-      const installedBundle = await readFile(join(packageRoot, manifest.browser));
-      assert(installedBundle.length > 0, `${manifest.name} browser bundle is empty`);
-      const browser = {
-        URL,
-        URLSearchParams,
-        AbortController,
-        TextEncoder,
-        TextDecoder,
-        Response,
-        crypto: globalThis.crypto,
-        fetch: globalThis.fetch,
-        atob: globalThis.atob,
-        btoa: globalThis.btoa,
-        setTimeout,
-        clearTimeout
-      };
-      runInNewContext(bundle, browser);
-      assert(
-        typeof browser.MdbaseConnect?.MdbaseConnect === "function",
-        `${manifest.name} browser global cannot be constructed`
-      );
-      const portable = new browser.MdbaseConnect.MdbaseConnect({
-        serverUrl: "https://connect.example",
-        manifest: {
-          manifest_version: 1,
-          distribution: "portable",
-          id: "dev.example.package-audit",
-          name: "Package audit"
-        }
-      });
-      assert(
-        portable.environment().credentialStorage === "memory",
-        `${manifest.name} browser global does not isolate opaque portable credentials`
-      );
     }
     process.stdout.write(`${manifest.name} package is consumable (${entries.length} files)\n`);
   }

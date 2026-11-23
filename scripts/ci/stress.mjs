@@ -12,7 +12,6 @@ const run = (args, cwd = root, env = process.env) => new Promise((done, reject) 
 });
 let passed = true;
 const suites = [
-  ["packages/client", ["src/base64.test.ts", "src/crypto.test.ts", "src/request-coordinator.test.ts", "src/application-session-startup.test.ts", "src/startup-timing.test.ts", "src/grant-key-leases.test.ts"]],
   ["apps/editor", ["src/CodeEditor.focus.test.tsx", "src/use-session-lifecycle.test.tsx", "src/use-type-definition-lifecycle.test.tsx"]],
   ["services/server", ["src/features/collections/collection-membership-lifecycle.test.ts", "src/features/relay/relay-timeout.test.ts", "src/features/relay/relay-broker.test.ts", "src/features/notifications/notifications.test.ts"]]
 ];

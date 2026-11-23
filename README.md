@@ -103,11 +103,6 @@ subscriptions, file uploads, type and contract setup, and local-first work
 before connecting. See [apps/editor/NEW_SDK.md](apps/editor/NEW_SDK.md) for an
 end-to-end first-party consumer reference.
 
-> [!NOTE]
-> `@mdbase-dev/connect` (`packages/client`) is deprecated and has no remaining
-> first-party app or service consumers (`apps/editor` and `services/mcp` are
-> detached). Do not use it for new applications.
-
 ## Security and privacy
 
 - Each grant binds one application, one collection, and an explicit set of

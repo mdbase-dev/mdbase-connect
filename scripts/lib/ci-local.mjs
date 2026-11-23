@@ -22,7 +22,6 @@ export const localSteps = [
   { tier: "node", command: "pnpm check:generated" },
   { tier: "node", command: "pnpm check:architecture" },
   { tier: "node", command: "pnpm build" },
-  { tier: "browser", command: "pnpm test:browser-storage", fullOnly: true },
   { tier: "browser", command: "pnpm test:accessibility", fullOnly: true },
   { tier: "node", command: "pnpm typecheck" },
   { tier: "node", command: "pnpm test" },

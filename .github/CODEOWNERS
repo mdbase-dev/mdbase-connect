@@ -8,7 +8,6 @@
 /deploy/ @callumalpass
 /docs/encryption.md @callumalpass
 /docs/threat-model.md @callumalpass
-/packages/client/ @callumalpass
 /packages/protocol/ @callumalpass
 /services/server/src/features/auth/ @callumalpass
 /services/server/src/features/grants/ @callumalpass

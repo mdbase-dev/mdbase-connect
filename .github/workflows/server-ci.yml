@@ -164,8 +164,6 @@ jobs:
         run: pnpm exec playwright install chromium
         timeout-minutes: 5
       - if: needs.classify.outputs.run_full == 'true'
-        run: pnpm test:browser-storage
-      - if: needs.classify.outputs.run_full == 'true'
         run: pnpm test:accessibility
       - run: pnpm typecheck
       - run: pnpm test

@@ -476,17 +476,17 @@ test("workspace packing preserves qualified files, changes only metadata, and pi
   const input = join(directory, "input");
   mkdirSync(join(source, "package/dist"), { recursive: true });
   mkdirSync(input);
-  const actual = JSON.parse(readFileSync(new URL("../../packages/client/package.json", import.meta.url), "utf8"));
+  const actual = JSON.parse(readFileSync(new URL("../../packages/app-ui/package.json", import.meta.url), "utf8"));
   const manifest = { name: actual.name, version: actual.version, files: ["dist"], dependencies: { "@mdbase-dev/connect-protocol": actual.version } };
   writeFileSync(join(source, "package/package.json"), JSON.stringify(manifest));
   writeFileSync(join(source, "package/dist/index.js"), "export const qualified = true;\n");
-  execFileSync("tar", ["-czf", join(input, `mdbase-dev-connect-${actual.version}.tgz`), "-C", source, "package"]);
-  const record = { schema: 1, commit, kind: "workspace", packages: [{ name: actual.name, directory: "packages/client", version: "0.1.0-beta.999" }], dependencies: { "@mdbase-dev/connect-protocol": "0.1.0-beta.998" } };
+  execFileSync("tar", ["-czf", join(input, `mdbase-dev-ui-${actual.version}.tgz`), "-C", source, "package"]);
+  const record = { schema: 1, commit, kind: "workspace", packages: [{ name: actual.name, directory: "packages/app-ui", version: "0.1.0-beta.999" }], dependencies: { "@mdbase-dev/connect-protocol": "0.1.0-beta.998" } };
   const plan = join(directory, "plan.json");
   writeFileSync(plan, JSON.stringify(record));
   const output = join(directory, "output");
   packWorkspace(plan, input, output, { GITHUB_SHA: commit });
-  const archive = join(output, "mdbase-dev-connect-0.1.0-beta.999.tgz");
+  const archive = join(output, "mdbase-dev-ui-0.1.0-beta.999.tgz");
   const packed = JSON.parse(execFileSync("tar", ["-xOf", archive, "package/package.json"], { encoding: "utf8" }));
   assert.equal(packed.version, "0.1.0-beta.999");
   assert.equal(packed.dependencies["@mdbase-dev/connect-protocol"], "0.1.0-beta.998");
@@ -778,7 +778,7 @@ function plannerFixture(context) {
   git("init", "-b", "main");
   git("config", "user.email", "test@example.invalid");
   git("config", "user.name", "Publication test");
-  const directories = ["packages/protocol", "packages/client", "packages/devkit", "packages/app-ui", "packages/i18n", "runtime/packages/sdk"];
+  const directories = ["packages/protocol", "packages/app-ui", "packages/i18n", "runtime/packages/sdk"];
   for (const path of ["package.json", ...directories.map(directory => `${directory}/package.json`)]) {
     mkdirSync(join(directory, path, ".."), { recursive: true });
     const manifest = JSON.parse(readFileSync(new URL(`../../${path}`, import.meta.url), "utf8"));

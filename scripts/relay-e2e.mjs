@@ -21,7 +21,7 @@ import {
   applicationInstallationId,
   MemoryGrantKeyStore,
   signApplicationAuthorization
-} from "../packages/client/dist/crypto-entry.js";
+} from "./lib/relay-crypto.mjs";
 import { availableTcpPort, poll } from "./lib/test-runtime.mjs";
 import { freshRelayApproval } from "./system/relay-approval.mjs";
 
