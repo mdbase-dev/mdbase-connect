@@ -244,7 +244,7 @@ describe("nextRelayConnector", () => {
     ).rejects.toMatchObject({ code: "unauthenticated" });
   });
 
-  it("orders targets sticky-first, then online hints, and skips invalid ones", () => {
+  it("orders online targets first (sticky within its tier), then unknown hints, then offline, skipping invalid ones", () => {
     const t = (device: string, online?: boolean, pk = "ab".repeat(32)): NextRouteTarget => ({
       kind: "desktop",
       device,
@@ -256,8 +256,127 @@ describe("nextRelayConnector", () => {
     const [a, b, c] = [uuidv7(), uuidv7(), uuidv7()];
     const route = { collection: "c", grant: "g", targets: [t(a), t(b, true), t(c, false, "zz")] };
     expect(orderTargets(route, null).map((x) => x.device)).toEqual([b, a]);
-    expect(orderTargets(route, a).map((x) => x.device)).toEqual([a]);
+    expect(orderTargets(route, a).map((x) => x.device)).toEqual([b, a]);
     expect(orderTargets(route, c).map((x) => x.device)).toEqual([b, a]);
+    // Both online: sticky stays first; route order is preserved otherwise.
+    const bothOnline = { collection: "c", grant: "g", targets: [t(b, true), t(a, true)] };
+    expect(orderTargets(bothOnline, null).map((x) => x.device)).toEqual([b, a]);
+    expect(orderTargets(bothOnline, a).map((x) => x.device)).toEqual([a, b]);
+    // Sticky offline while another device is online: online device wins.
+    const stickyOffline = { collection: "c", grant: "g", targets: [t(b, true), t(a, false)] };
+    expect(orderTargets(stickyOffline, a).map((x) => x.device)).toEqual([b, a]);
+    // Without online hints, sticky stays first.
+    const noHints = { collection: "c", grant: "g", targets: [t(b), t(a)] };
+    expect(orderTargets(noHints, a).map((x) => x.device)).toEqual([a, b]);
+  });
+
+  it("fails over to a second serving device when the sticky device stops while still listed offline in the route", async () => {
+    const w = world(2);
+    const [a, b] = w.devices as [Device, Device];
+    const target = (d: Device): NextRouteTarget => ({
+      kind: "desktop",
+      device: d.id,
+      noise_pk: toHex(d.key.publicKey),
+      url: "wss://cp.test/v1/next/relay/client",
+      relay_collection: uuidv7(),
+      online: d.online,
+    });
+    const relayCollection = uuidv7();
+    const fullRouteTarget = (d: Device): NextRouteTarget => ({ ...target(d), relay_collection: relayCollection });
+    const attempted: string[] = [];
+    const next: NextBridge = {
+      route: async (c) => {
+        const online = w.devices.filter((d) => d.online);
+        const offline = w.devices.filter((d) => !d.online);
+        return {
+          collection: c,
+          grant: w.grant,
+          targets: [...online, ...offline].map(fullRouteTarget),
+          availability: online.length ? { state: "available" } : { state: "unavailable", reason: "device_offline" },
+        };
+      },
+      openPipe: async (c, t) => {
+        attempted.push(t.device);
+        expect(c).toBe(w.collection);
+        const d = w.devices.find((x) => x.id === t.device)!;
+        if (!d.online) throw pipeCloseError(4404, "connector_offline");
+        w.opened.push(d.id);
+        const p = pipe();
+        d.pipes.push(p);
+        const prologue = clientPrologue(uuidToBytes(relayCollection), uuidToBytes(w.grant), uuidToBytes(d.id));
+        serveNoise(p.daemon, d.replica.connector(), { staticKey: d.key, prologue });
+        return p.app;
+      },
+    };
+    const connector = nextRelayConnector({ next, collection: w.collection, staticKey: generateKeyPair() });
+    const c = await connect({ app, connector, reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
+    try {
+      expect(connector.target).toBe(a.id);
+      // A stops; route still lists both B (online) and A (offline).
+      a.online = false;
+      a.pipes.at(-1)!.end(4404, "connector_offline");
+      await waitFor(() => connector.target === b.id && c.link === "open");
+      expect(attempted).toEqual([a.id, b.id]);
+      expect(w.opened).toEqual([a.id, b.id]);
+    } finally {
+      c.close();
+    }
+  });
+
+  it("fails over to another online device when the sticky device stays online but stops serving", async () => {
+    const w = world(2);
+    const [a, b] = w.devices as [Device, Device];
+    let aServing = true;
+    const attempted: string[] = [];
+    const next: NextBridge = {
+      route: async (c) => {
+        const base = await w.next.route(c);
+        // Server ranks serving B ahead of non-serving A, both with online: true.
+        const ordered = aServing ? base.targets : [...base.targets].reverse();
+        return { ...base, targets: ordered, availability: { state: "available" } };
+      },
+      openPipe: async (c, t, o) => {
+        attempted.push(t.device);
+        if (t.device === a.id && !aServing) throw pipeCloseError(4000, "not_served");
+        return w.next.openPipe(c, t, o);
+      },
+    };
+    const connector = nextRelayConnector({ next, collection: w.collection, staticKey: generateKeyPair() });
+    const c = await connect({ app, connector, reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
+    try {
+      expect(connector.target).toBe(a.id);
+      aServing = false;
+      a.pipes.at(-1)!.end(4000, "not_served");
+      await waitFor(() => connector.target === b.id && c.link === "open");
+      expect(attempted).toEqual([a.id, a.id, b.id]);
+    } finally {
+      c.close();
+    }
+  });
+
+  it("stays sticky on the reached online device across a transient drop even when another online device leads the route", async () => {
+    const w = world(2);
+    const [a, b] = w.devices as [Device, Device];
+    let reverseOrder = false;
+    const next: NextBridge = {
+      ...w.next,
+      route: async (c) => {
+        const base = await w.next.route(c);
+        return { ...base, targets: reverseOrder ? [...base.targets].reverse() : base.targets };
+      },
+    };
+    const connector = nextRelayConnector({ next, collection: w.collection, staticKey: generateKeyPair() });
+    const c = await connect({ app, connector, reconnect: { minDelayMs: 1, maxDelayMs: 5 } });
+    try {
+      expect(connector.target).toBe(a.id);
+      reverseOrder = true;
+      a.pipes.at(-1)!.end(4000, "idle");
+      await waitFor(() => w.opened.length === 2 && c.link === "open");
+      expect(connector.target).toBe(a.id);
+      expect(w.opened).toEqual([a.id, a.id]);
+    } finally {
+      c.close();
+    }
   });
 });
 

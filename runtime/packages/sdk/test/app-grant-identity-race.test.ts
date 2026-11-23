@@ -453,3 +453,106 @@ it("setup's first use preserves the ORIGINAL connector grant instead of reading 
   await expect(setup.assess()).rejects.toMatchObject({code:"cancelled",message:"the stored grant changed during this operation"});
   opened.port.close();
 });
+
+it("app-grant connector fails over to a second serving device when the sticky device goes offline or stops serving", async () => {
+  vi.spyOn(trust, "appReleaseTrust").mockReturnValue({
+    schema: "mdbn-app-trust/release/1", environment: "lab", cpOrigin: CP, logOrigin: "https://log.example.test",
+    assetSha256: "aa".repeat(32), source: { repository: "mdbase-dev/mdbase-connect", commit: "bb".repeat(20), version: "test" },
+    trustedRoots: [new Uint8Array(32).fill(1)], policyPins: Uint8Array.of(1),
+  });
+  const manifest = {
+    manifest_version: 1 as const, id: "dev.example.failover", name: "Example", homepage: ORIGIN, redirect_uris: [`${ORIGIN}/callback`],
+    requirements: { access: "full_collection" as const, contracts: [], capabilities: { contract_version: 2 as const, required: ["collection.read"], optional: [] } },
+  };
+  const declaration: MdbaseApplicationDeclaration = { id: APP, name: "Example", origin: ORIGIN, environment: "lab", manifest };
+  const canonical = parseVersionedAppManifest(manifest, { allowLocal: true }).manifest;
+  const deviceA = "b0000000-0000-4000-8000-000000000001";
+  const deviceB = "b0000000-0000-4000-8000-000000000002";
+  const keys = new Map([[deviceA, generateKeyPair()], [deviceB, generateKeyPair()]]);
+  const state = new Map([[deviceA, { online: true, serving: true, revoked: false }], [deviceB, { online: true, serving: true, revoked: false }]]);
+  const attempted: string[] = [];
+  let callback = "";
+  let listener: ((url: string) => void) | null = null;
+  const fetch: typeof globalThis.fetch = async (input, init) => {
+    const path = String(input).slice(CP.length);
+    const body = init?.body as URLSearchParams;
+    if (path === "/v1/apps/register") return Response.json({ application: { id: APP, name: "Example", manifest_digest: "cc".repeat(32), canonical_identity: `bundle:${manifest.id}:sha256:${"cc".repeat(32)}`, family_identity: `bundle:${manifest.id}`, distribution: "web", application_declaration: canonical } });
+    if (path === "/oauth/authorization_request") {
+      const proof = JSON.parse(body.get("application_authorization")!) as { binding: { authorization_id: string; state: string } };
+      callback = `${ORIGIN}/callback?state=${proof.binding.state}&code=code-0`;
+      return Response.json({ authorization_id: proof.binding.authorization_id, authorization_uri: `${CP}/oauth/authorize?id=fixture` });
+    }
+    if (path === "/oauth/token") return Response.json({ access_token: "access-0", refresh_token: "refresh-0", collection_id: COLLECTION, expires_in: 3600, refresh_expires_in: 3600 });
+    if (path === `/v1/next/collections/${COLLECTION}/route`) {
+      const all = [deviceA, deviceB].map((device) => ({
+        kind: "desktop", device, relay_collection: COLLECTION, noise_pk: toHex(keys.get(device)!.publicKey),
+        online: state.get(device)!.online, url: "wss://relay.example.test/v1/next/relay/client",
+      }));
+      // Match server ordering: serving first, then online, then offline.
+      all.sort((x, y) => Number(state.get(y.device)!.online && state.get(y.device)!.serving) - Number(state.get(x.device)!.online && state.get(x.device)!.serving)
+        || Number(y.online) - Number(x.online));
+      return Response.json({ collection: COLLECTION, grant: GRANTS[0], availability: { state: "available" }, targets: all });
+    }
+    throw new Error(`unexpected request ${path}`);
+  };
+  const webSocket = (): WebSocketLike => {
+    let targetDevice = "";
+    let closed = false;
+    const emit = (data: string | ArrayBuffer) => queueMicrotask(() => { if (!closed) ws.onmessage?.({ data }); });
+    const ws: WebSocketLike = {
+      binaryType: "blob", readyState: 0, onopen: null, onmessage: null, onclose: null, onerror: null,
+      close: () => { if (closed) return; closed = true; queueMicrotask(() => ws.onclose?.({ code: 1000 })); },
+      send: (data) => {
+        if (typeof data === "string") {
+          const auth = JSON.parse(data) as { device: string };
+          targetDevice = auth.device;
+          attempted.push(targetDevice);
+          const s = state.get(targetDevice)!;
+          if (s.revoked) { emit(JSON.stringify({ type: "pipe_close", reason: "grant_inactive" })); return; }
+          if (!s.online) { emit(JSON.stringify({ type: "pipe_close", reason: "connector_offline" })); return; }
+          if (!s.serving) { emit(JSON.stringify({ type: "pipe_close", reason: "not_served" })); return; }
+          emit(JSON.stringify({ type: "pipe_opened" }));
+          return;
+        }
+        const hs = new IkResponder({ staticKey: keys.get(targetDevice)!, prologue: clientPrologue(uuidToBytes(COLLECTION), uuidToBytes(GRANTS[0]!), uuidToBytes(targetDevice)) });
+        hs.readMessage1((data as Uint8Array).slice(4));
+        const reply = hs.writeMessage2(encode(new Map())).message;
+        const frame = new Uint8Array(4 + reply.length);
+        new DataView(frame.buffer).setUint32(0, reply.length);
+        frame.set(reply, 4);
+        emit(frame.buffer);
+      },
+    };
+    queueMicrotask(() => ws.onopen?.({}));
+    return ws;
+  };
+  const grants = new MdbaseAppGrants({ declaration, redirectUri: `${ORIGIN}/callback`, store: memoryAppGrantStore(), fetch, webSocket, callbacks: { subscribe: (l) => { listener = l; return () => { listener = null; }; } } });
+  await grants.authorize({ popup: { closed: false, close: () => {}, navigate: () => { setTimeout(() => listener?.(callback), 0); } } });
+  const connector = grants.connector(COLLECTION);
+
+  // 1. Initial connect lands on device A.
+  const first = await connector.open(new Map(), AbortSignal.timeout(2_000));
+  expect(connector.target).toBe(deviceA);
+  first.port.close();
+
+  // 2. Device A stops: route still lists both B (online) and A (offline). Fail over straight to B.
+  state.set(deviceA, { online: false, serving: false, revoked: false });
+  const second = await connector.open(new Map(), AbortSignal.timeout(2_000));
+  expect(connector.target).toBe(deviceB);
+  expect(attempted).toEqual([deviceA, deviceB]);
+  second.port.close();
+
+  // 3. Device A returns; device B stays online on the relay but stops serving. Fail over to A.
+  state.set(deviceA, { online: true, serving: true, revoked: false });
+  state.set(deviceB, { online: true, serving: false, revoked: false });
+  const third = await connector.open(new Map(), AbortSignal.timeout(2_000));
+  expect(connector.target).toBe(deviceA);
+  expect(attempted).toEqual([deviceA, deviceB, deviceB, deviceA]);
+  third.port.close();
+
+  // 4. Terminal refusal (grant_inactive) stops immediately without trying device B.
+  state.set(deviceA, { online: true, serving: true, revoked: true });
+  state.set(deviceB, { online: true, serving: true, revoked: false });
+  await expect(connector.open(new Map(), AbortSignal.timeout(2_000))).rejects.toMatchObject({ code: "forbidden", reason: "grant_inactive" });
+  expect(attempted).toEqual([deviceA, deviceB, deviceB, deviceA, deviceA]);
+});
