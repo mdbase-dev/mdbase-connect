@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { loadOriginals } from './originals.mjs';
 import { deploymentFor } from './refs.mjs';
-import { prepareInstall } from './install-inputs.mjs';
+import { prepareInstall, productionSdkTargets } from './install-inputs.mjs';
 const [target,sha]=process.argv.slice(2),binding=deploymentFor(target);
 if(!/^[a-f0-9]{40}$/.test(sha??''))throw Error('Provide the full rehearsal source SHA');
 const root=fileURLToPath(new URL('../../../../',import.meta.url));
@@ -15,7 +15,9 @@ const trust=JSON.parse(await readFile('config/release-components.json','utf8')).
 const sdkTrust=await loadOriginals({target,repoRoot:root,hashes:{EDITOR_TRUST_ASSET_SHA256:trust.sha256}});
 const plan={sha,target,origin:binding.origin,pagesBranch:binding.branch,sdkTrust};
 const directory=await mkdtemp(join(tmpdir(),'editor-dry-build-'));
-const originalPackage=await readFile('apps/editor/package.json'),originalLock=await readFile('pnpm-lock.yaml');
+const originalLock=await readFile('pnpm-lock.yaml');
+const manifestPaths=target==='staging'?[...new Set(productionSdkTargets(originalLock.toString('utf8'),sdkTrust.production.path).map(t=>t.manifest))]:[];
+const originalManifests=await Promise.all(manifestPaths.map(async path=>[path,await readFile(path)]));
 try {
  await writeFile(join(directory,'plan.json'),JSON.stringify(plan,null,2));
  await prepareInstall(plan,root);
@@ -25,6 +27,7 @@ try {
   VITE_MDBASE_TURNSTILE_SITE_KEY:target==='production'?'0x4AAAAAAEboz_mLT-taI3H-':'0x4AAAAAAEbkvA4d9vQJq2D1'}});
  console.log('Authenticated '+target+' dry build and full publication inventory passed.');
 }finally {
- await writeFile('apps/editor/package.json',originalPackage);await writeFile('pnpm-lock.yaml',originalLock);
+ for(const [path,bytes] of originalManifests)await writeFile(path,bytes);
+ await writeFile('pnpm-lock.yaml',originalLock);
  await rm('apps/editor/vendor/sdk-staging.tgz',{force:true});await rm(directory,{recursive:true,force:true});
 }
