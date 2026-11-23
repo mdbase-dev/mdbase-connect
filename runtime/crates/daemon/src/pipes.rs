@@ -94,13 +94,15 @@ pub struct PipeCarrier {
     pending: std::collections::VecDeque<Vec<u8>>,
 }
 
-/// What a pipe task sends to the socket writer.
+/// What a pipe task (or the policy task) sends to the socket writer.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PipeOut {
     /// A binary data frame.
     Frame(Vec<u8>),
     /// Close the pipe with a reason.
     Close([u8; 16], String),
+    /// A relay control message (a policy acknowledgement), sent as text.
+    Control(String),
 }
 
 impl PipeCarrier {

@@ -550,6 +550,35 @@ impl AccessList {
                 .is_some_and(|exp| std::time::Instant::now() < *exp)
     }
 
+    /// Whether replacing this list with `next` can refuse a session this list
+    /// admits: an active grant is gone, or its consent changed (terms, key or
+    /// generation), or a collection's lease ends sooner on either clock. Only
+    /// then must open sessions be re-checked before the change is acknowledged.
+    /// A renewal, a new grant or an approval only widens. Refusals are never
+    /// lifted by `next` here: they are tombstones the feed keeps.
+    pub fn narrowed_by(&self, next: &AccessList) -> bool {
+        let consent_lost = self
+            .entries
+            .iter()
+            .filter(|e| e.state == AccessState::Active)
+            .any(|e| {
+                !next.entries.iter().any(|n| {
+                    n.state == AccessState::Active
+                        && n.generation == e.generation
+                        && n.grant == e.grant
+                })
+            });
+        let lease_shorter = self
+            .leases
+            .iter()
+            .any(|(c, exp)| next.leases.get(c).is_none_or(|n| n < exp))
+            || self
+                .monotonic_leases
+                .iter()
+                .any(|(c, exp)| next.monotonic_leases.get(c).is_none_or(|n| n < exp));
+        consent_lost || lease_shorter
+    }
+
     /// Mark a collection as having been end-to-end: approval is
     /// required from now on for it.
     pub fn force_approval(&mut self, collection: &str) {
@@ -705,6 +734,47 @@ mod tests {
             AccessState::Active
         );
         assert!(list.require_grant_approval);
+    }
+
+    #[test]
+    fn only_lost_consent_or_a_shorter_lease_narrows() {
+        let read = g("g1", 1, &["collection.read"]);
+        let mut base = AccessList::default();
+        base.sync_from_control_plane("c", std::slice::from_ref(&read), 1_000, 60_000, false);
+        let next = |grants: &[CachedGrant], expires: u64| {
+            let mut next = base.clone();
+            next.sync_from_control_plane("c", grants, 2_000, expires, false);
+            next
+        };
+        // A renewal and a new grant only widen.
+        assert!(!base.narrowed_by(&next(std::slice::from_ref(&read), 70_000)));
+        let other = g("g2", 2, &["collection.read"]);
+        assert!(!base.narrowed_by(&next(&[read.clone(), other], 70_000)));
+        // Revocation, changed terms or key, and a sooner lease narrow.
+        assert!(base.narrowed_by(&next(&[], 70_000)));
+        let wider = g("g1", 1, &["collection.read", "records.edit"]);
+        assert!(base.narrowed_by(&next(&[wider], 70_000)));
+        assert!(base.narrowed_by(&next(&[g("g1", 3, &["collection.read"])], 70_000)));
+        assert!(base.narrowed_by(&next(std::slice::from_ref(&read), 50_000)));
+        let mut cleared = base.clone();
+        cleared.monotonic_leases.clear();
+        assert!(base.narrowed_by(&cleared));
+        // Pending and refused entries admit nothing, so losing them narrows nothing.
+        let mut pending = AccessList {
+            require_grant_approval: true,
+            ..Default::default()
+        };
+        pending.sync_from_control_plane("c", std::slice::from_ref(&read), 1_000, 60_000, false);
+        let mut renewed = pending.clone();
+        renewed.sync_from_control_plane("c", &[], 2_000, 70_000, false);
+        assert!(!pending.narrowed_by(&renewed));
+        // Approval on this device widens; revoking on it narrows.
+        let mut approved = pending.clone();
+        approved.approve("g1").unwrap();
+        assert!(!pending.narrowed_by(&approved));
+        let mut revoked = approved.clone();
+        revoked.revoke("g1").unwrap();
+        assert!(approved.narrowed_by(&revoked));
     }
 
     #[test]

@@ -28,12 +28,34 @@ const CONNECTOR: &str = "01900000-0000-7000-8000-0000000000c1";
 const COLLECTION: &str = "01900000-0000-7000-8000-0000000000aa";
 const GRANT: &str = "01900000-0000-7000-8000-0000000000bb";
 
-#[derive(Default)]
 struct Host {
     applied: Mutex<Vec<(String, Vec<CachedGrant>, u64)>>,
     live: AtomicBool,
     serving: Mutex<Option<Vec<String>>>,
     opened: Mutex<Vec<(Prologue, Auth)>>,
+    online: AtomicBool,
+    /// While true, `commit_feed` does not return (a collection busy opening).
+    hold_commit: tokio::sync::watch::Sender<bool>,
+    /// While true, grant checks do not return (a parked collection actor).
+    hold_grants: tokio::sync::watch::Sender<bool>,
+}
+
+impl Default for Host {
+    fn default() -> Self {
+        Host {
+            applied: Default::default(),
+            live: Default::default(),
+            serving: Default::default(),
+            opened: Default::default(),
+            online: Default::default(),
+            hold_commit: tokio::sync::watch::channel(false).0,
+            hold_grants: tokio::sync::watch::channel(false).0,
+        }
+    }
+}
+
+async fn released(hold: &tokio::sync::watch::Sender<bool>) {
+    let _ = hold.subscribe().wait_for(|held| !held).await;
 }
 
 impl Handler for Host {
@@ -61,6 +83,7 @@ impl RelayHost for Host {
         grants: &'a std::collections::BTreeMap<String, Vec<CachedGrant>>,
     ) -> BoxFuture<'a, Result<(), String>> {
         Box::pin(async move {
+            released(&self.hold_commit).await;
             let g = grants.get(COLLECTION).cloned().unwrap_or_default();
             self.live.store(!g.is_empty(), Ordering::SeqCst);
             self.applied.lock().unwrap().push((
@@ -72,18 +95,24 @@ impl RelayHost for Host {
         })
     }
     fn grant_live<'a>(&'a self, _c: &'a str, _g: &'a str) -> BoxFuture<'a, bool> {
-        Box::pin(async move { self.live.load(Ordering::SeqCst) })
+        Box::pin(async move {
+            released(&self.hold_grants).await;
+            self.live.load(Ordering::SeqCst)
+        })
     }
     fn grant_refusal<'a>(&'a self, _c: &'a str, _g: &'a str) -> BoxFuture<'a, Option<String>> {
-        Box::pin(
-            async move { (!self.live.load(Ordering::SeqCst)).then(|| "grant_inactive".into()) },
-        )
+        Box::pin(async move {
+            released(&self.hold_grants).await;
+            (!self.live.load(Ordering::SeqCst)).then(|| "grant_inactive".into())
+        })
+    }
+    fn set_online(&self, online: bool) {
+        self.online.store(online, Ordering::SeqCst);
     }
     fn serving_collections(&self) -> BoxFuture<'_, Option<Vec<String>>> {
         let serving = self.serving.lock().unwrap().clone();
         Box::pin(async move { serving })
     }
-    fn set_online(&self, _online: bool) {}
 }
 
 fn sign(sk: &Signer, msg: &[u8]) -> String {
@@ -125,8 +154,12 @@ fn grant_entry(client_pk: &[u8; 32]) -> Value {
 }
 
 fn snapshot(seq: u64, grants: Vec<Value>) -> Value {
+    snapshot_for(seq, grants, 55_000)
+}
+
+fn snapshot_for(seq: u64, grants: Vec<Value>, lease_ms: u64) -> Value {
     let now = mdbn_daemon::fsutil::now_ms() as u64;
-    let (issued, expires) = (now, now + 55_000);
+    let (issued, expires) = (now, now + lease_ms);
     json!({
         "type": "policy_snapshot", "protocol_version": 1, "request_id": format!("r{seq}"),
         "revision": relay::revision(CONNECTOR, seq, issued, expires, &grants),
@@ -163,8 +196,43 @@ async fn read_http(s: &mut tokio::net::TcpStream) -> String {
     }
 }
 
-#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn relay_feed_and_pipe() {
+type Socket = tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>;
+
+/// A relay session against the fake server, bound and with pipes enabled.
+struct Session {
+    ws: Socket,
+    identity: Arc<DeviceIdentity>,
+    stop: tokio::sync::watch::Sender<bool>,
+    daemon: tokio::task::JoinHandle<relay::Ended>,
+}
+
+fn text(m: Message) -> Value {
+    serde_json::from_str(m.to_text().unwrap()).unwrap()
+}
+
+impl Session {
+    async fn next(&mut self) -> Value {
+        text(self.ws.next().await.unwrap().unwrap())
+    }
+
+    /// The next text message, which must arrive within `wait`.
+    async fn within(&mut self, wait: Duration, what: &str) -> Value {
+        tokio::time::timeout(wait, self.next())
+            .await
+            .unwrap_or_else(|_| panic!("the relay did not answer in time: {what}"))
+    }
+
+    async fn send(&mut self, v: Value) {
+        self.ws.send(Message::text(v.to_string())).await.unwrap();
+    }
+
+    async fn stop(self) {
+        self.stop.send(true).unwrap();
+        let _ = tokio::time::timeout(Duration::from_secs(5), self.daemon).await;
+    }
+}
+
+async fn connect(host: Arc<Host>) -> Session {
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let server = format!("http://127.0.0.1:{port}");
@@ -186,12 +254,7 @@ async fn relay_feed_and_pipe() {
         device_registered: true,
         ..Default::default()
     };
-    let host = Arc::new(Host::default());
-    *host.serving.lock().unwrap() = Some(vec![COLLECTION.to_string()]);
-    let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
-    let client_sk = [42u8; 32];
-    let client_pk = mdbn_daemon::noise::public_key(&client_sk);
-
+    let (stop, stop_rx) = tokio::sync::watch::channel(false);
     let h2 = host.clone();
     let id2 = identity.clone();
     let daemon = tokio::spawn(async move { relay::run(h2, cloud, cfg, id2, stop_rx).await });
@@ -228,10 +291,13 @@ async fn relay_feed_and_pipe() {
     )
     .await
     .unwrap();
-    let text = |m: Message| -> Value { serde_json::from_str(m.to_text().unwrap()).unwrap() };
     let hello = text(ws.next().await.unwrap().unwrap());
     assert_eq!(hello["type"], "relay_hello");
-    assert_eq!(hello["serving_collections"], json!([COLLECTION]));
+    let serving = host.serving.lock().unwrap().clone();
+    assert_eq!(
+        hello.get("serving_collections").cloned(),
+        serving.map(|c| json!(c))
+    );
     assert!(
         hello["capabilities"]
             .as_array()
@@ -270,6 +336,25 @@ async fn relay_feed_and_pipe() {
     ))
     .await
     .unwrap();
+
+    Session {
+        ws,
+        identity,
+        stop,
+        daemon,
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn relay_feed_and_pipe() {
+    let host = Arc::new(Host::default());
+    *host.serving.lock().unwrap() = Some(vec![COLLECTION.to_string()]);
+    let mut session = connect(host.clone()).await;
+    let identity = session.identity.clone();
+    let device_pub = identity.public();
+    let ws = &mut session.ws;
+    let client_sk = [42u8; 32];
+    let client_pk = mdbn_daemon::noise::public_key(&client_sk);
 
     // 4. The feed: one attested grant, one with a substituted key (dropped).
     let mut bad = grant_entry(&client_pk);
@@ -407,6 +492,146 @@ async fn relay_feed_and_pipe() {
     .unwrap();
     assert_eq!(update["collections"], json!([]));
 
-    stop_tx.send(true).unwrap();
-    let _ = tokio::time::timeout(Duration::from_secs(5), daemon).await;
+    session.stop().await;
+}
+
+/// Answers that must come promptly even while the host is stuck.
+const PROMPT: Duration = Duration::from_millis(500);
+
+fn pipe_open(pipe: &str, grant: &str) -> Value {
+    json!({"type":"pipe_open","pipe_id":pipe,"collection_id":COLLECTION,"grant_id":grant})
+}
+
+const NIL_GRANT: &str = "00000000-0000-0000-0000-000000000000";
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_stuck_commit_does_not_stop_the_relay_or_age_later_leases() {
+    let host = Arc::new(Host::default());
+    let mut session = connect(host.clone()).await;
+    host.hold_commit.send_replace(true);
+    let client_pk = mdbn_daemon::noise::public_key(&[42u8; 32]);
+    session
+        .send(snapshot(3, vec![grant_entry(&client_pk)]))
+        .await;
+    // Let the policy task take it, so the next one waits rather than replaces it.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    // A second snapshot whose lease would lapse while the first is stuck.
+    session
+        .send(snapshot_for(4, vec![grant_entry(&client_pk)], 1_500))
+        .await;
+    // The socket is still read and answered.
+    session
+        .send(pipe_open("01900000-0000-7000-8000-000000000200", NIL_GRANT))
+        .await;
+    let close = session
+        .within(PROMPT, "pipe_open during a stuck commit")
+        .await;
+    assert_eq!(
+        (close["type"].as_str(), close["reason"].as_str()),
+        (Some("pipe_close"), Some("unauthenticated"))
+    );
+    tokio::time::sleep(Duration::from_millis(2_000)).await;
+    host.hold_commit.send_replace(false);
+    let first = session.within(Duration::from_secs(2), "first ack").await;
+    assert_eq!(
+        (first["request_id"].as_str(), first["ok"].as_bool()),
+        (Some("r3"), Some(true)),
+        "{first}"
+    );
+    // Checked when it arrived, so it is applied rather than refused as expired.
+    let second = session.within(Duration::from_secs(2), "second ack").await;
+    assert_eq!(
+        (second["request_id"].as_str(), second["ok"].as_bool()),
+        (Some("r4"), Some(true)),
+        "{second}"
+    );
+    assert_eq!(host.applied.lock().unwrap().len(), 2);
+
+    // A server Close ends the session at once, even with a commit stuck.
+    host.hold_commit.send_replace(true);
+    session.send(snapshot(5, vec![])).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(host.online.load(Ordering::SeqCst));
+    session.ws.close(None).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while host.online.load(Ordering::SeqCst) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the relay kept a closed session while a commit was stuck");
+    host.hold_commit.send_replace(false);
+    session.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn stuck_grant_checks_do_not_stop_the_relay() {
+    let host = Arc::new(Host::default());
+    let mut session = connect(host.clone()).await;
+    let client_pk = mdbn_daemon::noise::public_key(&[42u8; 32]);
+    session
+        .send(snapshot(3, vec![grant_entry(&client_pk)]))
+        .await;
+    let ack = session.within(Duration::from_secs(2), "feed ack").await;
+    assert_eq!(ack["ok"], true, "{ack}");
+    // An admitted pipe, waiting for its first Noise frame.
+    let kept = "01900000-0000-7000-8000-000000000300";
+    session.send(pipe_open(kept, GRANT)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    host.hold_grants.send_replace(true);
+    // A new pipe's admission gets no answer: refused, retryably, in bounded time.
+    let refused = "01900000-0000-7000-8000-000000000301";
+    session.send(pipe_open(refused, GRANT)).await;
+    // Meanwhile snapshots and other opens are handled at once.
+    session
+        .send(snapshot(4, vec![grant_entry(&client_pk)]))
+        .await;
+    let ack = session
+        .within(PROMPT, "ack while grant checks are stuck")
+        .await;
+    assert_eq!(
+        (ack["request_id"].as_str(), ack["ok"].as_bool()),
+        (Some("r4"), Some(true)),
+        "{ack}"
+    );
+    session
+        .send(pipe_open("01900000-0000-7000-8000-000000000302", NIL_GRANT))
+        .await;
+    let close = session
+        .within(PROMPT, "nil open while grant checks are stuck")
+        .await;
+    assert_eq!(close["reason"], "unauthenticated");
+    let close = session
+        .within(
+            relay::GRANT_CHECK_WAIT + Duration::from_secs(1),
+            "unanswered admission",
+        )
+        .await;
+    assert_eq!(
+        (close["pipe_id"].as_str(), close["reason"].as_str()),
+        (Some(refused), Some("not_served"))
+    );
+    // The open pipe is kept while its sweep gets no answer (within the 10 s
+    // handshake wait that would otherwise close it).
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), session.next())
+            .await
+            .is_err(),
+        "an unanswered sweep closed a pipe"
+    );
+    // Once checks answer, a revoked grant still closes it.
+    host.live.store(false, Ordering::SeqCst);
+    host.hold_grants.send_replace(false);
+    let close = session
+        .within(
+            relay::GRANT_CHECK_WAIT + Duration::from_secs(2),
+            "revoked pipe",
+        )
+        .await;
+    assert_eq!(
+        (close["pipe_id"].as_str(), close["reason"].as_str()),
+        (Some(kept), Some("grant_inactive"))
+    );
+    session.stop().await;
 }

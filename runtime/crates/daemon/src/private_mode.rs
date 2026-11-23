@@ -431,24 +431,35 @@ impl Daemon {
                 }
                 _ => {}
             }
-            let read_owner = runtime
-                .private_switch(PrivateSwitchOp::CloudRead, guard.clone())
-                .await
-                .and_then(Result::ok)
-                .flatten();
+            // Status runs this: a busy collection is skipped, and a later poll
+            // asks again, rather than holding status and the account gate.
+            let wait = crate::collections::ACTOR_WAIT;
+            let Ok(read_owner) = tokio::time::timeout(
+                wait,
+                runtime.private_switch(PrivateSwitchOp::CloudRead, guard.clone()),
+            )
+            .await
+            else {
+                continue;
+            };
+            let read_owner = read_owner.and_then(Result::ok).flatten();
             let receiver_read = read_owner.is_some();
             let signer = if let Some(signer) = read_owner {
                 signer
             } else {
-                let Some(Ok(Some(signer))) = runtime
-                    .private_switch(PrivateSwitchOp::Accepted, guard.clone())
-                    .await
+                let Ok(Some(Ok(Some(signer)))) = tokio::time::timeout(
+                    wait,
+                    runtime.private_switch(PrivateSwitchOp::Accepted, guard.clone()),
+                )
+                .await
                 else {
                     continue;
                 };
                 signer
             };
-            let Some(signers) = runtime.private_switch_signers(guard.clone()).await else {
+            let Ok(Some(signers)) =
+                tokio::time::timeout(wait, runtime.private_switch_signers(guard.clone())).await
+            else {
                 continue;
             };
             let trusted_signers = signers
