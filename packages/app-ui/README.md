@@ -42,11 +42,14 @@ applyThemePreference(loadThemePreference());
   `trackMdbaseMarkProgress()` (or `useMdbaseMarkProgress(fraction)`) when the
   total is known, and `holdMdbaseMarkBusy(loop)` (or `useMdbaseMarkBusy`) while
   it is not.
-- `apps` lists the mdbase apps and builds links that open the current
+- `apps` lists the mdbase apps, exports the MCP setup and endpoint URLs
+  (`mcpSetupUrl`, `mcpEndpointUrl`), and builds links that open the current
   collection in another app. Every deployment passes its own URLs to
-  `withAppUrls` (or `AppSwitcher`'s `urls` prop). Apps without a configured URL
-  are omitted; shared metadata never falls back to production origins. The
-  switcher's menu ends with a "Build your own" link to the SDK guide.
+  `withAppUrls` (or `AppSwitcher`'s `urls` prop, which accepts all official
+  apps). Apps without a configured URL are omitted; shared metadata never falls
+  back to production origins. The switcher includes an AI clients (MCP) link by
+  default (pass `mcpUrl={null}` to omit on custom servers) and ends with a
+  "Build your own" link to the SDK guide.
 
 ## Opening screen
 

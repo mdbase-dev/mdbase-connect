@@ -36,8 +36,10 @@ export const mdbaseApps: readonly MdbaseApp[] = [
 ];
 
 /** Every app mdbase makes: the family above plus apps with their own identity. */
+export type OfficialAppId = MdbaseAppId | "journal" | "tasknotes";
+
 export interface OfficialApp extends Omit<MdbaseApp, "id"> {
-  readonly id: MdbaseAppId | "journal" | "tasknotes";
+  readonly id: OfficialAppId;
 }
 
 export const officialApps: readonly OfficialApp[] = [
@@ -55,6 +57,15 @@ export const officialApps: readonly OfficialApp[] = [
     url: ""
   }
 ];
+
+/**
+ * Setup guide for connecting AI clients (Claude, ChatGPT, Codex) to mdbase via MCP.
+ * Direct Claude and ChatGPT plugin directory URLs can also be exported here once published.
+ */
+export const mcpSetupUrl = "https://mdbase.dev/apps/mcp/";
+
+/** Hosted Model Context Protocol endpoint for mdbase collections. */
+export const mcpEndpointUrl = "https://mcp.mdbase.dev/mcp";
 
 /**
  * Replaces app URLs for a lab or local build, for example from
