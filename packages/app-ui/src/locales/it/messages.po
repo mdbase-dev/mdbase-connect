@@ -65,6 +65,10 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app} non la mostrerà più su questo dispositivo. Nessun elemento della raccolta verrà eliminato e {app} manterrà l'accesso. Per revocarlo, usa Gestisci accesso."
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# empty} other {# empty}}"
+msgstr "{count, plural, one {# vuota} other {# vuote}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -73,6 +77,18 @@ msgstr "{count, plural, one {# annotazione applicata.} other {# annotazioni appl
 #: src/CommentsPanel.tsx
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, one {# commento aperto} other {# commenti aperti}}"
+
+#: src/filter-builder/labels.ts
+msgid "{count, plural, one {# selected} other {# selected}}"
+msgstr "{count, plural, one {# selezionato} other {# selezionati}}"
+
+#: src/filter-builder/labels.ts
+msgid "{name} group"
+msgstr "Gruppo «{name}»"
+
+#: src/DatePicker.tsx
+msgid "A date, “tomorrow”, “fri” or “+3”"
+msgstr "Una data, «domani», «ven» o «+3»"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
@@ -101,6 +117,10 @@ msgctxt "Collection access interface"
 msgid "Add a collection…"
 msgstr "Aggiungi una raccolta…"
 
+#: src/filter-builder/labels.ts
+msgid "Add a filter to this group"
+msgstr "Aggiungi un filtro a questo gruppo"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Add a Private collection"
@@ -111,10 +131,35 @@ msgctxt "table"
 msgid "Add column"
 msgstr "Aggiungi colonna"
 
+#: src/filter-builder/labels.ts
+msgid "Add filter"
+msgstr "Aggiungi filtro"
+
+#: src/filter-builder/labels.ts
+msgid "Add filter to group"
+msgstr "Aggiungi filtro al gruppo"
+
+#: src/properties/labels.ts
+msgid "Add property"
+msgstr "Aggiungi proprietà"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Add row"
 msgstr "Aggiungi riga"
+
+#: src/filter-builder/labels.ts
+msgid "Add value"
+msgstr "Aggiungi valore"
+
+#: src/filter-builder/labels.ts
+msgid "Add value…"
+msgstr "Aggiungi valore…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "after"
+msgstr "dopo il"
 
 #: src/AppSwitcher.tsx
 msgid "AI clients (MCP)"
@@ -135,6 +180,32 @@ msgctxt "table"
 msgid "Align right"
 msgstr "Allinea a destra"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: every filter must match"
+msgid "All"
+msgstr "Tutti"
+
+#: src/filter-builder/labels.ts
+msgid "All views"
+msgstr "Tutte le viste"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: at least one filter must match"
+msgid "Any"
+msgstr "Almeno uno"
+
+#: src/filter-builder/labels.ts
+msgid "Any / All"
+msgstr "Almeno uno / Tutti"
+
+#: src/filter-builder/labels.ts
+msgid "Applies to every view"
+msgstr "Si applica a tutte le viste"
+
+#: src/filter-builder/labels.ts
+msgid "Apply"
+msgstr "Applica"
+
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
 msgstr "Applica modifiche"
@@ -152,6 +223,10 @@ msgstr "Applicazione…"
 msgid "as {signer}"
 msgstr "come {signer}"
 
+#: src/filter-builder/labels.ts
+msgid "at least one"
+msgstr "almeno uno"
+
 #: src/CommentsPanel.tsx
 msgid "At the cursor"
 msgstr "Al cursore"
@@ -160,9 +235,18 @@ msgstr "Al cursore"
 msgid "Attach screenshot"
 msgstr "Allega schermata"
 
+#: src/filter-builder/labels.ts
+msgid "Back"
+msgstr "Indietro"
+
 #: src/Feedback.tsx
 msgid "Back to your work"
 msgstr "Torna al lavoro"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "before"
+msgstr "prima del"
 
 #: src/FeedbackMarkup.tsx
 msgid "Blackout"
@@ -198,6 +282,10 @@ msgstr "Crea la tua app"
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "da {resolver}"
+
+#: src/DatePicker.tsx
+msgid "Calendar"
+msgstr "Calendario"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -236,6 +324,18 @@ msgstr "Annulla"
 msgctxt "Collection storage mode"
 msgid "Cancel switch"
 msgstr "Annulla passaggio"
+
+#: src/filter-builder/labels.ts
+msgid "CEL · Shift+Enter for a new line"
+msgstr "CEL · Maiusc+Invio per una nuova riga"
+
+#: src/filter-builder/labels.ts
+msgid "CEL expression"
+msgstr "Espressione CEL"
+
+#: src/filter-builder/labels.ts
+msgid "Change operator"
+msgstr "Cambia operatore"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -283,9 +383,22 @@ msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "Scegli o crea una raccolta in quella finestra."
 
+#: src/filter-builder/labels.ts
+msgid "Choose value"
+msgstr "Scegli valore"
+
 #: src/AppSwitcher.tsx
 msgid "Claude, ChatGPT and Codex"
 msgstr "Claude, ChatGPT e Codex"
+
+#: src/DatePicker.tsx
+msgid "Clear"
+msgstr "Cancella"
+
+#: src/properties/labels.ts
+msgctxt "Remove a property's value"
+msgid "Clear"
+msgstr "Cancella"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -352,6 +465,10 @@ msgstr "Commenti"
 msgid "Comments could not be loaded: {problem}"
 msgstr "Impossibile caricare i commenti: {problem}"
 
+#: src/filter-builder/labels.ts
+msgid "Compare with {expr}"
+msgstr "Confronta con {expr}"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -366,6 +483,11 @@ msgstr "Connessione alla sincronizzazione…"
 msgctxt "Collection access interface"
 msgid "Connecting your collection…"
 msgstr "Connessione della raccolta…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "contains"
+msgstr "contiene"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -392,6 +514,10 @@ msgstr "Continua su questo dispositivo"
 msgctxt "Collection access interface"
 msgid "Continue without connecting"
 msgstr "Continua senza connessione"
+
+#: src/filter-builder/labels.ts
+msgid "Convert to filter"
+msgstr "Converti in filtro"
 
 #: src/live-preview/blocks.ts
 msgid "Copied"
@@ -422,6 +548,10 @@ msgstr "Copia tabella"
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "Attuale"
+
+#: src/filter-builder/labels.ts
+msgid "Custom expression"
+msgstr "Espressione personalizzata"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -510,6 +640,15 @@ msgstr "Eliminazione…"
 msgid "Dismiss"
 msgstr "Ignora"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "does not contain"
+msgstr "non contiene"
+
+#: src/filter-builder/labels.ts
+msgid "Done"
+msgstr "Fine"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "Trascina per annotare. Tastiera: le frecce spostano il cursore; Spazio avvia o termina l'annotazione. Oscura rimuove i pixel."
@@ -523,13 +662,43 @@ msgctxt "diagram"
 msgid "Edit"
 msgstr "Modifica"
 
+#: src/filter-builder/labels.ts
+msgid "Edit as expression"
+msgstr "Modifica come espressione"
+
 #: src/live-preview/diagram.ts
 msgid "Edit diagram source"
 msgstr "Modifica il codice del diagramma"
 
+#: src/filter-builder/labels.ts
+msgid "Edit expression"
+msgstr "Modifica espressione"
+
+#: src/filter-builder/labels.ts
+msgid "Edit value"
+msgstr "Modifica valore"
+
+#: src/properties/labels.ts
+msgctxt "A property with no value"
+msgid "Empty"
+msgstr "Vuoto"
+
+#: src/filter-builder/labels.ts
+msgid "Empty expression"
+msgstr "Espressione vuota"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "ends with"
+msgstr "termina con"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
+
+#: src/filter-builder/labels.ts
+msgid "every filter"
+msgstr "tutti i filtri"
 
 #: src/CommentsPanel.tsx
 msgid "Everyone"
@@ -545,9 +714,25 @@ msgctxt "callout type"
 msgid "Example"
 msgstr "Esempio"
 
+#: src/filter-builder/labels.ts
+msgid "Exclude"
+msgstr "Escludi"
+
 #: src/live-preview/blocks.ts
 msgid "Expand callout"
 msgstr "Espandi riquadro"
+
+#: src/filter-builder/labels.ts
+msgid "expression"
+msgstr "espressione"
+
+#: src/filter-builder/labels.ts
+msgid "Expression {text}"
+msgstr "Espressione {text}"
+
+#: src/filter-builder/labels.ts
+msgid "False"
+msgstr "Falso"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -562,10 +747,46 @@ msgstr "Impossibile inviare il feedback. Riprova."
 msgid "Feedback type"
 msgstr "Tipo di feedback"
 
+#: src/filter-builder/labels.ts
+msgid "Fields"
+msgstr "Campi"
+
+#: src/filter-builder/labels.ts
+msgid "Filter"
+msgstr "Filtro"
+
+#: src/filter-builder/labels.ts
+msgid "Filter by field"
+msgstr "Filtra per campo"
+
+#: src/filter-builder/labels.ts
+msgid "Filter by…"
+msgstr "Filtra per…"
+
+#: src/filter-builder/labels.ts
+msgid "Filter group"
+msgstr "Gruppo di filtri"
+
+#: src/filter-builder/labels.ts
+msgid "Filter options"
+msgstr "Opzioni del filtro"
+
+#: src/filter-builder/labels.ts
+msgid "Filters"
+msgstr "Filtri"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Find a collection"
 msgstr "Cerca una raccolta"
+
+#: src/properties/labels.ts
+msgid "Find a property, or name a new one…"
+msgstr "Trova una proprietà o dai un nome a una nuova…"
+
+#: src/properties/labels.ts
+msgid "Find a record…"
+msgstr "Trova un record…"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -591,9 +812,21 @@ msgctxt "Collection access interface"
 msgid "Give {app} access to this collection?"
 msgstr "Concedere a {app} l'accesso a questa raccolta?"
 
+#: src/properties/labels.ts
+msgid "Hide empty"
+msgstr "Nascondi vuote"
+
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"
 msgstr "Evidenzia"
+
+#: src/filter-builder/labels.ts
+msgid "How the filters combine"
+msgstr "Come si combinano i filtri"
+
+#: src/filter-builder/labels.ts
+msgid "How these filters combine"
+msgstr "Come si combinano questi filtri"
 
 #: src/feedback-data.ts
 msgid "How would it help you?"
@@ -653,6 +886,36 @@ msgctxt "table"
 msgid "Insert row below"
 msgstr "Inserisci riga sotto"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is"
+msgstr "è"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is any of"
+msgstr "è uno tra"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is empty"
+msgstr "è vuoto"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is none of"
+msgstr "non è nessuno tra"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not"
+msgstr "non è"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not empty"
+msgstr "non è vuoto"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
@@ -671,6 +934,10 @@ msgstr "Conservata sui propri computer, non archiviata da mdbase"
 msgctxt "Color theme"
 msgid "Light"
 msgstr "Chiaro"
+
+#: src/properties/labels.ts
+msgid "Link a record in {property}"
+msgstr "Collega un record in {property}"
 
 #: src/CommentsPanel.tsx
 msgid "Loading comments…"
@@ -711,6 +978,18 @@ msgstr "Annota schermata"
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."
 msgstr "Annotazioni scartate. Schermata esclusa."
+
+#: src/filter-builder/labels.ts
+msgid "Match"
+msgstr "Corrispondenza"
+
+#: src/filter-builder/labels.ts
+msgid "Match all"
+msgstr "Corrisponde a tutti"
+
+#: src/filter-builder/labels.ts
+msgid "Match any"
+msgstr "Corrisponde ad almeno uno"
 
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
@@ -754,6 +1033,14 @@ msgctxt "table"
 msgid "Move row up"
 msgstr "Sposta riga su"
 
+#: src/filter-builder/labels.ts
+msgid "Move to shared"
+msgstr "Sposta nei condivisi"
+
+#: src/filter-builder/labels.ts
+msgid "Move to this view"
+msgstr "Sposta in questa vista"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -767,6 +1054,10 @@ msgstr "Richiede attenzione"
 msgid "New comment"
 msgstr "Nuovo commento"
 
+#: src/properties/labels.ts
+msgid "New property"
+msgstr "Nuova proprietà"
+
 #: src/CommentsPanel.tsx
 msgid "New since last visit ({newCount})"
 msgstr "Novità dall'ultima visita ({newCount})"
@@ -774,6 +1065,15 @@ msgstr "Novità dall'ultima visita ({newCount})"
 #: src/CommentsPanel.tsx
 msgid "New since your last visit"
 msgstr "Novità dall'ultima visita"
+
+#: src/DatePicker.tsx
+msgid "Next month"
+msgstr "Mese successivo"
+
+#: src/properties/labels.ts
+msgctxt "A property that is false"
+msgid "no"
+msgstr "no"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -785,6 +1085,14 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "Nessuna raccolta corrisponde a “{query}”."
 
+#: src/filter-builder/labels.ts
+msgid "no filter"
+msgstr "nessun filtro"
+
+#: src/filter-builder/labels.ts
+msgid "No matching fields"
+msgstr "Nessun campo corrispondente"
+
 #: src/live-preview/inline.ts
 msgid "No note or file matches “{target}”."
 msgstr "Nessuna nota o file corrisponde a \"{target}\"."
@@ -793,9 +1101,26 @@ msgstr "Nessuna nota o file corrisponde a \"{target}\"."
 msgid "No open comments"
 msgstr "Nessun commento aperto"
 
+#: src/properties/labels.ts
+msgid "No properties."
+msgstr "Nessuna proprietà."
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "Nessuna schermata acquisita. È comunque possibile inviare il feedback."
+
+#: src/filter-builder/labels.ts
+msgid "No values to choose from."
+msgstr "Nessun valore tra cui scegliere."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: no filter may match"
+msgid "None"
+msgstr "Nessuno"
+
+#: src/filter-builder/labels.ts
+msgid "Not a number"
+msgstr "Non è un numero"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -811,9 +1136,27 @@ msgstr "Nessun elemento della raccolta verrà modificato."
 msgid "Nothing matches"
 msgstr "Nessuna corrispondenza"
 
+#: src/properties/labels.ts
+msgid "Nothing matches."
+msgstr "Nessuna corrispondenza."
+
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "Ancora niente di risolto."
+
+#: src/filter-builder/labels.ts
+msgid "Number"
+msgstr "Numero"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or after"
+msgstr "a partire dal"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or before"
+msgstr "fino al"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -881,14 +1224,26 @@ msgstr "Apertura…"
 msgid "Opens in a new tab"
 msgstr "Si apre in una nuova scheda"
 
+#: src/filter-builder/labels.ts
+msgid "Operator"
+msgstr "Operatore"
+
 #: src/Feedback.tsx
 msgid "Optional"
 msgstr "Facoltativo"
+
+#: src/filter-builder/labels.ts
+msgid "or press Enter"
+msgstr "oppure premi Invio"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "Proprietario"
+
+#: src/filter-builder/labels.ts
+msgid "Pick one or more"
+msgstr "Scegline uno o più"
 
 #: src/apps.ts
 msgid "Plan tasks and projects"
@@ -903,6 +1258,10 @@ msgstr "Preparazione dell’accesso sicuro…"
 msgctxt "Collection access interface"
 msgid "Preparing your offline copy…"
 msgstr "Preparazione della copia offline…"
+
+#: src/DatePicker.tsx
+msgid "Previous month"
+msgstr "Mese precedente"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -964,6 +1323,7 @@ msgid "Reload to continue."
 msgstr "Ricarica per continuare."
 
 #: src/Feedback.tsx
+#: src/filter-builder/labels.ts
 msgid "Remove"
 msgstr "Rimuovi"
 
@@ -977,10 +1337,26 @@ msgctxt "Collection access interface"
 msgid "Remove {collection} from this list?"
 msgstr "Rimuovere {collection} da questo elenco?"
 
+#: src/properties/labels.ts
+msgid "Remove {name}"
+msgstr "Rimuovi {name}"
+
+#: src/properties/labels.ts
+msgid "Remove {value}"
+msgstr "Rimuovi {value}"
+
+#: src/filter-builder/labels.ts
+msgid "Remove filter"
+msgstr "Rimuovi filtro"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "Rimuovi da questo elenco"
+
+#: src/filter-builder/labels.ts
+msgid "Remove group"
+msgstr "Rimuovi gruppo"
 
 #: src/CommentsPanel.tsx
 msgid "Reopen"
@@ -1082,6 +1458,11 @@ msgstr "Salvato solo su questo dispositivo"
 msgid "Saving"
 msgstr "Salvataggio"
 
+#: src/filter-builder/labels.ts
+msgctxt "Which views a filter applies to"
+msgid "Scope"
+msgstr "Ambito"
+
 #: src/feedback-data.ts
 msgid "Screen capture isn’t available in this browser. You can attach an image instead."
 msgstr "L'acquisizione dello schermo non è disponibile in questo browser. È possibile allegare un'immagine."
@@ -1148,6 +1529,15 @@ msgstr "Configurazione…"
 #: src/feedback-data.ts
 msgid "Share something you like"
 msgstr "Condividi un apprezzamento"
+
+#: src/filter-builder/labels.ts
+msgctxt "A filter every view applies"
+msgid "Shared"
+msgstr "Condiviso"
+
+#: src/filter-builder/labels.ts
+msgid "Shared: {name}"
+msgstr "Condiviso: {name}"
 
 #: src/CommentsPanel.tsx
 msgid "Show"
@@ -1245,6 +1635,11 @@ msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Avvio di {app}…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "starts with"
+msgstr "inizia con"
+
 #: src/screens.tsx
 msgid "Still opening? Check your connection."
 msgstr "Ancora in apertura? Verifica la connessione."
@@ -1322,6 +1717,10 @@ msgstr "Grazie per la segnalazione."
 #: src/live-preview/diagram.ts
 msgid "The diagram could not be shown. Check your connection and reopen the note."
 msgstr "Impossibile mostrare il diagramma. Verifica la connessione e riapri la nota."
+
+#: src/filter-builder/labels.ts
+msgid "The filter on {field} cannot be removed here"
+msgstr "Il filtro su {field} non può essere rimosso qui"
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
@@ -1405,6 +1804,10 @@ msgstr "L'operazione sta richiedendo più tempo del solito."
 msgid "This passage is no longer in the text"
 msgstr "Questo passaggio non è più nel testo"
 
+#: src/filter-builder/labels.ts
+msgid "This view"
+msgstr "Questa vista"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Tip"
@@ -1422,10 +1825,22 @@ msgstr "per spostarsi"
 msgid "to run"
 msgstr "per eseguire"
 
+#: src/DatePicker.tsx
+msgid "Today"
+msgstr "Oggi"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Todo"
 msgstr "Da fare"
+
+#: src/DatePicker.tsx
+msgid "Tomorrow"
+msgstr "Domani"
+
+#: src/filter-builder/labels.ts
+msgid "True"
+msgstr "Vero"
 
 #: src/CommentsPanel.tsx
 #: src/screens.tsx
@@ -1473,10 +1888,31 @@ msgctxt "Collection storage mode"
 msgid "Update or revoke these devices before continuing:"
 msgstr "Aggiorna questi dispositivi o revocane l’accesso prima di continuare:"
 
+#: src/properties/labels.ts
+msgctxt "Before typed text, to take it as the value"
+msgid "Use"
+msgstr "Usa"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
 msgstr "Usa la versione di {app}"
+
+#: src/properties/labels.ts
+msgid "Use letters, digits, - and _, starting with a letter."
+msgstr "Usa lettere, cifre, - e _, iniziando con una lettera."
+
+#: src/filter-builder/labels.ts
+msgid "Value"
+msgstr "Valore"
+
+#: src/filter-builder/labels.ts
+msgid "Values"
+msgstr "Valori"
+
+#: src/filter-builder/labels.ts
+msgid "Values to compare with"
+msgstr "Valori con cui confrontare"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be completed. Try again."
@@ -1560,9 +1996,31 @@ msgctxt "Collection storage mode"
 msgid "Working…"
 msgstr "Operazione in corso…"
 
+#: src/filter-builder/labels.ts
+msgid "Wrap in “any” group"
+msgstr "Racchiudi in un gruppo «almeno uno»"
+
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
 msgstr "Scrivi manoscritti con citazioni delle fonti"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "year is"
+msgstr "l’anno è"
+
+#: src/filter-builder/labels.ts
+msgid "Year, e.g. 2026"
+msgstr "Anno, ad es. 2026"
+
+#: src/properties/labels.ts
+msgctxt "A property that is true"
+msgid "yes"
+msgstr "sì"
+
+#: src/DatePicker.tsx
+msgid "Yesterday"
+msgstr "Ieri"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

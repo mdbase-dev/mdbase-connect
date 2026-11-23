@@ -84,6 +84,26 @@
       "types": "./dist/ConfirmDialog.d.ts",
       "import": "./dist/ConfirmDialog.js"
     },
+    "./anchored-popover": {
+      "types": "./dist/AnchoredPopover.d.ts",
+      "import": "./dist/AnchoredPopover.js"
+    },
+    "./combo": {
+      "types": "./dist/Combo.d.ts",
+      "import": "./dist/Combo.js"
+    },
+    "./date-picker": {
+      "types": "./dist/DatePicker.d.ts",
+      "import": "./dist/DatePicker.js"
+    },
+    "./filter-builder": {
+      "types": "./dist/filter-builder.d.ts",
+      "import": "./dist/filter-builder.js"
+    },
+    "./properties": {
+      "types": "./dist/properties.d.ts",
+      "import": "./dist/properties.js"
+    },
     "./link-picker": {
       "types": "./dist/LinkPicker.d.ts",
       "import": "./dist/LinkPicker.js"
@@ -163,8 +183,10 @@
     "./fonts.css": "./css/fonts.css",
     "./live-preview.css": "./css/live-preview.css",
     "./feedback.css": "./css/feedback.css",
+    "./filter-builder.css": "./css/filter-builder.css",
     "./motion.css": "./css/motion.css",
     "./palette.css": "./css/palette.css",
+    "./properties.css": "./css/properties.css",
     "./screens.css": "./css/screens.css",
     "./tokens.css": "./css/tokens.css"
   },

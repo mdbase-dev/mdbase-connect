@@ -10,26 +10,10 @@ import {
 import { createPortal } from "react-dom";
 
 import { useLocaleRevision } from "./i18n.js";
-import { anchoredPlacement } from "./popover.js";
+import { activeModalDialog, anchoredPlacement } from "./popover.js";
 
 const FOCUSABLE = ':is(button, input, select, textarea, [tabindex="0"]):not(:disabled)';
 const OPEN_LIST = '[aria-expanded="true"], [role="listbox"], [role="menu"]';
-
-/**
- * The topmost open modal `<dialog>`, if one is showing. A modal dialog makes everything outside
- * its subtree inert—even a top-layer popover—so a form opened while one is open mounts inside it.
- */
-function activeModalDialog(): HTMLDialogElement | null {
-  if (typeof document === "undefined") return null;
-  try {
-    const modal = document.querySelectorAll<HTMLDialogElement>("dialog:modal");
-    if (modal.length) return modal[modal.length - 1]!;
-  } catch {
-    // Fall through when :modal is unsupported.
-  }
-  const open = document.querySelectorAll<HTMLDialogElement>('dialog[open][aria-modal="true"]');
-  return open.length ? open[open.length - 1]! : null;
-}
 
 export interface QuickCreateProps {
   /** What is being made ("New book"): the heading and the form's accessible name. */

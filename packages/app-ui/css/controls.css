@@ -420,6 +420,200 @@ textarea.mdbase-field {
   padding: var(--space-2) var(--space-3) var(--space-3);
 }
 
+/* Popovers: a small panel beside the control that opened it (AnchoredPopover). */
+.mdbase-popover {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  --popover-inset: 5px;
+  padding: var(--popover-inset);
+  border: 1px solid var(--color-border-strong);
+  /* Row radius plus the padding, as the menus have. */
+  border-radius: calc(var(--control-radius) + var(--popover-inset));
+  outline: 0;
+  color: var(--color-text);
+  background: var(--color-surface-overlay);
+  box-shadow: var(--elevation-low);
+  font-family: var(--sans);
+  font-size: var(--control-font-size);
+  font-weight: var(--font-weight-regular);
+  text-align: start;
+  white-space: normal;
+}
+
+/* Combo: a text field whose list offers values to take or one to make (Combo). */
+.mdbase-combo {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+}
+
+.mdbase-combo > .mdbase-link-picker {
+  flex: 1;
+}
+
+/* Calendar: a typed day over a month to pick from (Calendar). */
+.mdbase-calendar {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.mdbase-calendar :where(button) {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mdbase-calendar-read {
+  margin: 0;
+  padding: 0 2px;
+  color: var(--color-accent-strong);
+  font-size: var(--font-size-caption);
+}
+
+.mdbase-calendar-read[data-unread] {
+  color: var(--color-text-muted);
+}
+
+.mdbase-calendar-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-inline-start: 6px;
+}
+
+.mdbase-calendar-title {
+  flex: 1;
+  font-weight: var(--font-weight-semibold);
+}
+
+.mdbase-calendar-step {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--control-radius);
+  color: var(--color-text-muted);
+}
+
+.mdbase-calendar-step:hover {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-calendar-grid {
+  display: grid;
+  gap: 1px;
+}
+
+.mdbase-calendar-week {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  justify-items: center;
+}
+
+.mdbase-calendar-week > [role="columnheader"] {
+  height: 24px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.mdbase-calendar-day {
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  transition: background var(--motion-quick) var(--ease-standard);
+}
+
+.mdbase-calendar-day[data-outside] {
+  color: var(--color-placeholder);
+}
+
+.mdbase-calendar-day:hover,
+.mdbase-calendar-day[data-cursor] {
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-calendar-day[aria-current="date"] {
+  box-shadow: inset 0 0 0 1px var(--color-accent);
+  color: var(--color-accent-strong);
+  font-weight: var(--font-weight-semibold);
+}
+
+.mdbase-calendar-day[aria-selected="true"] {
+  box-shadow: none;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  font-weight: var(--font-weight-semibold);
+}
+
+.mdbase-calendar-foot {
+  display: flex;
+  gap: 2px;
+  margin: 2px -3px -3px;
+  padding-top: 5px;
+  border-top: 1px solid var(--color-border);
+}
+
+.mdbase-calendar-quick {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+}
+
+.mdbase-calendar-quick:hover {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-calendar-quick[data-clear] {
+  margin-inline-start: auto;
+  color: var(--color-text-muted);
+}
+
+/* Date field: a day that reads as a date; pressing it opens the calendar (DateField). */
+.mdbase-date-field {
+  max-width: 100%;
+  display: block;
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  color: var(--color-text);
+  background: none;
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  text-align: start;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.mdbase-date-field[data-empty] {
+  color: var(--color-text-faint);
+}
+
+.mdbase-date-popover {
+  width: 252px;
+  --popover-inset: 8px;
+}
+
 /* Menus anchored to a trigger (useMenuPopover). */
 .mdbase-menu {
   position: fixed;
@@ -1288,6 +1482,21 @@ textarea.mdbase-field {
 
   .mdbase-menu-item {
     min-height: 48px;
+  }
+
+  .mdbase-calendar-day {
+    width: 36px;
+    height: 36px;
+  }
+
+  .mdbase-date-popover {
+    width: 270px;
+  }
+
+  .mdbase-calendar-step,
+  .mdbase-calendar-quick {
+    min-width: 36px;
+    height: 36px;
   }
 }
 

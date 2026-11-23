@@ -1,0 +1,394 @@
+/*
+ * A record's properties (./properties): a name and its value on one line, the value edited
+ * where it stands. Its controls are in controls.css, which the host loads beside this file.
+ */
+.mdbase-properties {
+  display: flex;
+  flex-direction: column;
+  color: var(--color-text);
+  font-size: var(--control-font-size);
+}
+
+.mdbase-properties,
+.mdbase-properties *,
+.mdbase-tokens,
+.mdbase-tokens * {
+  box-sizing: border-box;
+}
+
+.mdbase-property {
+  position: relative;
+  min-height: 30px;
+  display: grid;
+  grid-template-columns: clamp(108px, 34%, 200px) minmax(0, 1fr);
+  align-items: start;
+  gap: 4px;
+  padding-inline: 6px 2px;
+  border-radius: var(--control-radius);
+}
+
+.mdbase-property-name {
+  min-width: 0;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+
+.mdbase-property-name > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-property-name > .mdbase-glyph {
+  flex: none;
+  color: var(--color-text-faint);
+}
+
+/* A part of a value that has parts: the property, then the part. */
+.mdbase-property-name i {
+  color: var(--color-text-faint);
+  font-style: normal;
+}
+
+.mdbase-property-name i::before {
+  content: "› ";
+}
+
+/* A property that holds nothing is quieter than one that does. */
+.mdbase-property[data-empty] > .mdbase-property-name {
+  color: var(--color-text-faint);
+}
+
+.mdbase-property-value {
+  min-width: 0;
+  min-height: 30px;
+  display: flex;
+  align-items: center;
+}
+
+.mdbase-property-static {
+  padding: 0 7px;
+  overflow: hidden;
+  color: var(--color-text-soft);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-property-static.is-empty {
+  color: var(--color-text-faint);
+}
+
+/* A field that reads as text until it is pointed at or typed in. */
+.mdbase-property-input,
+.mdbase-property-combo .mdbase-field {
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  outline: 0;
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+  transition:
+    background var(--motion-quick) var(--ease-standard),
+    border-color var(--motion-quick) var(--ease-standard);
+}
+
+textarea.mdbase-property-input {
+  display: block;
+  padding-block: 5px;
+  line-height: 1.45;
+  resize: none;
+}
+
+.mdbase-property-input::placeholder,
+.mdbase-property-combo .mdbase-field::placeholder {
+  color: var(--color-text-faint);
+}
+
+.mdbase-property-input:hover,
+.mdbase-property-combo .mdbase-field:hover:not(:disabled) {
+  border-color: transparent;
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-property-input:focus,
+.mdbase-property-combo .mdbase-field:focus {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+.mdbase-property-input:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -1px;
+}
+
+.mdbase-property-select.mdbase-select {
+  width: 100%;
+  padding: 0 7px;
+}
+
+.mdbase-property-value > .mdbase-switch {
+  margin-inline-start: 7px;
+}
+
+.mdbase-property-date {
+  width: 100%;
+  min-height: 28px;
+  padding: 0 7px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  transition: background var(--motion-quick) var(--ease-standard);
+}
+
+.mdbase-property-date:hover {
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-property-date[aria-expanded="true"] {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+/* Takes the property off the record: shown when the row is pointed at or the button has the focus. */
+.mdbase-property-clear {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-muted);
+  background: var(--color-canvas);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.mdbase-property:hover > .mdbase-property-clear,
+.mdbase-property-clear:focus-visible {
+  opacity: 1;
+}
+
+.mdbase-property-clear:hover {
+  color: var(--color-danger);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-properties-none {
+  margin: 0;
+  padding: 6px;
+  color: var(--color-text-muted);
+}
+
+/* Finding a property to add: a field the width of the list, with its matches under it. */
+.mdbase-property-add {
+  width: auto;
+  margin: 2px 6px 0;
+}
+
+.mdbase-properties-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.mdbase-properties-action {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 6px;
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--color-text-muted);
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-caption);
+  cursor: pointer;
+}
+
+.mdbase-properties-action:hover {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+/* How many properties hold nothing, and the way to see them. */
+.mdbase-properties-action.is-toggle {
+  margin-inline-start: auto;
+  padding: 0 6px 0 8px;
+  color: var(--color-text-faint);
+}
+
+/* Several values in one property: short text, or links to other records. */
+.mdbase-tokens {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 5px;
+}
+
+.mdbase-tokens[data-editable] {
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  cursor: text;
+}
+
+.mdbase-tokens[data-editable]:hover {
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-tokens[data-editable]:focus-within {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+}
+
+.mdbase-token {
+  max-width: 100%;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 3px 0 8px;
+  border-radius: 5px;
+  color: var(--color-text-soft);
+  background: var(--color-surface-subtle);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+}
+
+.mdbase-token[data-link] {
+  padding-inline-start: 0;
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+}
+
+.mdbase-token[data-missing] {
+  color: var(--color-text-muted);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-token button {
+  min-width: 16px;
+  height: 16px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  color: inherit;
+  background: none;
+  font: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+}
+
+.mdbase-token button:hover {
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  opacity: 1;
+}
+
+.mdbase-token > .mdbase-token-open {
+  max-width: 180px;
+  height: 22px;
+  display: block;
+  padding: 0 4px 0 8px;
+  overflow: hidden;
+  line-height: 22px;
+  text-overflow: ellipsis;
+  opacity: 1;
+}
+
+.mdbase-token > button.mdbase-token-open:hover {
+  background: none;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.mdbase-tokens-input {
+  min-width: 48px;
+  height: 22px;
+  flex: 1;
+  padding: 0 2px;
+  border: 0;
+  outline: 0;
+  color: var(--color-text);
+  background: transparent;
+  font: inherit;
+}
+
+.mdbase-tokens-input::placeholder {
+  color: var(--color-text-faint);
+}
+
+.mdbase-token-add {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-muted);
+  background: none;
+  cursor: pointer;
+}
+
+.mdbase-token-add:hover {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-property-link-picker {
+  flex: 1 1 100%;
+}
+
+.mdbase-property-link-picker .mdbase-field {
+  min-height: 26px;
+}
+
+@media (pointer: coarse) {
+  /* Nothing to point at with: the way to take a property off is always there. */
+  .mdbase-property-clear {
+    top: 10px;
+    opacity: 1;
+  }
+
+  .mdbase-property {
+    padding-inline-end: 28px;
+  }
+
+  .mdbase-property,
+  .mdbase-property-value {
+    min-height: 40px;
+  }
+
+  .mdbase-property-name {
+    height: 40px;
+  }
+
+  .mdbase-properties-action {
+    height: 40px;
+  }
+
+  /* Below 16px, iOS zooms the page when a field takes the focus. */
+  .mdbase-property-input,
+  .mdbase-tokens-input,
+  .mdbase-property-combo .mdbase-field {
+    font-size: 16px;
+  }
+}
