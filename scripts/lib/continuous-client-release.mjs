@@ -112,15 +112,19 @@ export async function verifyCompatibility(env = process.env, { settleMs = 0 } = 
   git("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
   git("merge-base", "--is-ancestor", candidate, "origin/main");
   const production = await readProductionRelease(globalThis.fetch, { settleMs });
-  const provider = production.providerSha;
   git("fetch", "--no-tags", "origin", production.sha);
-  git("fetch", "--no-tags", "origin", provider);
   const evidence = proveCompatibility(candidate, production.sha);
-  const providerEvidence = proveCompatibility(candidate, provider);
-  evidence.provider = provider;
-  evidence.providerReason = providerEvidence.reason;
   console.log(JSON.stringify(evidence));
   return evidence;
+}
+
+// A tag run executes the compatibility check committed at its tag. Transition
+// guard: until production contains provider-free compatibility, reserving a tag
+// at an older production commit would dispatch a tag run whose `compatible` step
+// still checks the retired hosted provider and fails. Remove once production
+// contains this change.
+export function productionOnlyCompatibility(commit, runGit = git) {
+  return !runGit("show", `${commit}:scripts/verify-client-publication.mjs`).includes("sync.mdbase.dev");
 }
 
 // Select from live production ancestry, not the workflow's (possibly superseded)
@@ -133,11 +137,9 @@ export async function checkoutProductionCommit(env = process.env, {
   }
   runGit("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
   const production = await readProduction();
-  for (const commit of [production.sha, production.providerSha]) {
-    if (!/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Production requires full commit identities.");
-    runGit("fetch", "--no-tags", "origin", commit);
-  }
-  const common = runGit("merge-base", "--octopus", "origin/main", production.sha, production.providerSha);
+  if (!/^[a-f0-9]{40}$/.test(production?.sha ?? "")) throw new Error("Production requires a full commit identity.");
+  runGit("fetch", "--no-tags", "origin", production.sha);
+  const common = runGit("merge-base", "origin/main", production.sha);
   for (const commit of runGit("rev-list", "--first-parent", common).split("\n").filter(Boolean)) {
     const runs = readApi(`actions/workflows/server-ci.yml/runs?head_sha=${commit}&event=push&branch=main&per_page=100`).workflow_runs;
     if (!runs.some(run => run.head_sha === commit && run.head_branch === "main" && run.event === "push"
@@ -146,10 +148,10 @@ export async function checkoutProductionCommit(env = process.env, {
     // A green badge alone is not full qualification. Invalid/unavailable exact
     // artifacts refuse rather than silently falling back to an older release.
     qualify(commit);
-    console.log(JSON.stringify({ candidate: commit, production: production.sha, provider: production.providerSha }));
+    console.log(JSON.stringify({ candidate: commit, production: production.sha }));
     return commit;
   }
-  throw new Error("No green main commit is contained by both production services.");
+  throw new Error("No green main commit is contained by production.");
 }
 
 export function requireGreenMain(commit, env = process.env) {

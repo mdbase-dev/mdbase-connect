@@ -65,6 +65,11 @@ test("a commit whose tag worker accepts only beta tags waits instead of reservin
   assert.doesNotMatch(current, /package\.json", "utf8"\)\)\.version/, "source manifests are not release versions");
 });
 
+test("a commit whose tag worker predates provider-free compatibility waits instead of reserving a tag", () => {
+  assert.deepEqual(plan({ compatible: false }), { operation: "wait", reason: "selected commit predates provider-free compatibility" });
+  assert.equal(plan({ compatible: false, changed: false }).reason, "desktop tree unchanged");
+});
+
 test("immutable release settings are neither queried nor changed; rollout lives outside the release", () => {
   const source = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(source, /immutable-releases|requireMutableChannel|rolloutPercentage|--clobber/);
