@@ -706,7 +706,7 @@ fn synced_readiness_needs_genesis_keys_and_the_head() {
     use crate::runtime::synced_ready;
     use mdbn_wire::client::{Connection::*, IncidentKind as K};
     let r = |through, head, conn, inc: &[K], caught_up, cached| {
-        synced_ready(&status(through, head, conn, inc), caught_up, cached)
+        synced_ready(&status(through, head, conn, inc), None, caught_up, cached)
     };
     assert_eq!(
         r(0, 0, Online, &[], true, false),
@@ -1047,7 +1047,10 @@ fn readiness_follows_every_observation() {
         ),
     ];
     for (s, caught_up, want) in seq {
-        assert_eq!(readiness_of(synced_ready(&s, caught_up, false)), want);
+        assert_eq!(
+            readiness_of(synced_ready(&s, None, caught_up, false), &s),
+            want
+        );
     }
 }
 
@@ -1377,32 +1380,80 @@ fn integrity_recovery_backs_off_and_resets_once_serving() {
     let s = std::time::Duration::from_secs;
     let mut r = Recovery::default();
     // Opening, paused or another failure: nothing to do.
-    assert_eq!(r.step(false, false, t0), None);
+    assert_eq!(r.step(None, false, t0), None);
     assert_eq!(r, Recovery::default());
     // The first stop is reopened after 10 s, not at once.
-    assert_eq!(r.step(true, false, t0), None);
-    assert_eq!(r.step(true, false, t0 + s(9)), None);
-    assert_eq!(r.step(true, false, t0 + s(10)), Some(1));
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(9)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(10)), Some(1));
     // While that reopen is opening, nothing; a second stop waits a minute.
-    assert_eq!(r.step(false, false, t0 + s(11)), None);
-    assert_eq!(r.step(true, false, t0 + s(20)), None);
-    assert_eq!(r.step(true, false, t0 + s(79)), None);
-    assert_eq!(r.step(true, false, t0 + s(80)), Some(2));
-    assert_eq!(r.step(true, false, t0 + s(80)), None);
-    assert_eq!(r.step(true, false, t0 + s(380)), Some(3));
+    assert_eq!(r.step(None, false, t0 + s(11)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(20)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(79)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(80)), Some(2));
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(80)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(380)), Some(3));
     // From the fourth attempt on: every 30 minutes, never giving up.
     let mut at = t0 + s(380);
     for attempt in 4..=6 {
-        assert_eq!(r.step(true, false, at), None);
+        assert_eq!(r.step(Some(Stop::Integrity), false, at), None);
         at += s(30 * 60);
-        assert_eq!(r.step(true, false, at - s(1)), None);
-        assert_eq!(r.step(true, false, at), Some(attempt));
+        assert_eq!(r.step(Some(Stop::Integrity), false, at - s(1)), None);
+        assert_eq!(r.step(Some(Stop::Integrity), false, at), Some(attempt));
     }
     // Serving again resets the policy: the next stop waits 10 s again.
-    assert_eq!(r.step(false, true, at), None);
+    assert_eq!(r.step(None, true, at), None);
     assert_eq!(r, Recovery::default());
-    assert_eq!(r.step(true, false, at), None);
-    assert_eq!(r.step(true, false, at + s(10)), Some(1));
+    assert_eq!(r.step(Some(Stop::Integrity), false, at), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, at + s(10)), Some(1));
+}
+
+#[test]
+fn a_storage_fence_reopens_at_once_and_stops_when_the_same_fault_repeats() {
+    let t0 = std::time::Instant::now();
+    let s = std::time::Duration::from_secs;
+    let disk = Some(Stop::Fenced(
+        "apply_durability_unknown: store i/o: disk full",
+    ));
+    let mut r = Recovery::default();
+    // The first fence reopens at once, then the integrity backoff follows.
+    assert_eq!(r.step(disk, false, t0), Some(1));
+    assert_eq!(r.step(None, false, t0 + s(1)), None, "opening");
+    assert_eq!(r.step(disk, false, t0 + s(2)), None);
+    assert_eq!(r.step(disk, false, t0 + s(12)), Some(2));
+    assert_eq!(r.step(disk, false, t0 + s(13)), None);
+    assert_eq!(r.step(disk, false, t0 + s(73)), Some(3));
+    assert!(!r.gave_up());
+    // The third reopen fences the same way: no more automatic reopens.
+    assert_eq!(r.step(disk, false, t0 + s(74)), None);
+    assert!(r.gave_up());
+    for later in [s(75), s(3600), s(86_400)] {
+        assert_eq!(r.step(disk, false, t0 + later), None);
+    }
+    // Serving (after `mdbase collection resume`) starts over.
+    assert_eq!(r.step(None, true, t0 + s(90_000)), None);
+    assert_eq!(r, Recovery::default());
+
+    // A different cause is a different fault: its count starts again.
+    let other = Some(Stop::Fenced("account_key_commit_unknown"));
+    let mut r = Recovery::default();
+    assert_eq!(r.step(disk, false, t0), Some(1));
+    assert_eq!(r.step(disk, false, t0), None);
+    assert_eq!(r.step(disk, false, t0 + s(10)), Some(2));
+    assert_eq!(r.step(other, false, t0 + s(11)), None);
+    assert_eq!(r.step(other, false, t0 + s(71)), Some(3));
+    assert_eq!(r.step(disk, false, t0 + s(72)), None);
+    assert!(!r.gave_up(), "{r:?}");
+    // So does an integrity stop between two fences.
+    let mut r = Recovery::default();
+    assert_eq!(r.step(disk, false, t0), Some(1));
+    assert_eq!(r.step(disk, false, t0), None);
+    assert_eq!(r.step(disk, false, t0 + s(10)), Some(2));
+    let integrity = Some(Stop::Integrity);
+    assert_eq!(r.step(integrity, false, t0 + s(11)), None);
+    assert_eq!(r.step(integrity, false, t0 + s(311)), Some(3));
+    assert_eq!(r.step(disk, false, t0 + s(312)), None);
+    assert_eq!(r.fenced.as_ref().map(|(_, n)| *n), Some(1));
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -1448,6 +1499,105 @@ async fn a_collection_stopped_by_an_integrity_incident_reopens_with_a_notice() {
     h.reason = Some(SYNC_INTEGRITY.into());
     h.retry().await;
     assert_eq!(h.recovery, Recovery::default());
+    h.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A synced collection whose replica fences itself with the same storage fault
+/// after every automatic reopen is left failed after [`FENCE_REOPENS`] of them,
+/// with a notice naming the fault; `mdbase collection resume` reopens it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_repeating_storage_fence_stops_reopening_until_resumed() {
+    const CAUSE: &str = "apply_durability_unknown: store i/o: disk I/O error";
+    let dir = scratch("fence-gives-up");
+    let expires = crate::fsutil::now_ms() as i64 + 3_600_000;
+    let server = connect_with(200, format!("{{\"token\":\"t\",\"expires_at\":{expires}}}")).await;
+    // No log listens there: each opened runtime stays unready until it is fenced.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let log = format!("http://127.0.0.1:{port}");
+    save(
+        &dir,
+        &crate::sync::SyncConfig {
+            log_url: log.clone(),
+            ..link("cloud_copy")
+        },
+    );
+    let trust = crate::trust::Trust {
+        log_origin: log,
+        ..trust_for(&server)
+    };
+    let mut h = host(
+        &dir,
+        SyncMode::Synced,
+        ctx(&dir, Some(&server), Some(trust)),
+    );
+    // What the readiness gate records when it stops a fenced runtime.
+    let fence = |h: &CollectionHost| {
+        assert!(h.runtime().is_some(), "{:?}", h.current());
+        *h.ready.lock().unwrap() = Readiness::Fenced(CAUSE.into());
+    };
+    let t0 = std::time::Instant::now();
+    let mut at = t0;
+    for attempt in 1..=FENCE_REOPENS {
+        settled(&h).await;
+        fence(&h);
+        assert_eq!(h.current(), (CollectionState::Opening, None));
+        let notice = h
+            .status()
+            .notices
+            .into_iter()
+            .find(|n| n.code == "sync_reopening")
+            .expect("a fenced collection says it is reopening");
+        assert!(notice.message.contains(&format!("(attempt {attempt})")));
+        // At once the first time, then the integrity backoff.
+        let stop = loop {
+            if let Some(stop) = h.recover_due(at) {
+                break stop;
+            }
+            at += std::time::Duration::from_secs(1);
+        };
+        assert_eq!(h.recovery.attempts, attempt);
+        stop.clone().await;
+        h = h.next_after_stop(&stop).unwrap();
+        h.refresh();
+    }
+    assert_eq!(at - t0, std::time::Duration::from_secs(10 + 60));
+    // The last reopen fences the same way: it stays stopped and says why.
+    settled(&h).await;
+    fence(&h);
+    for later in [0, 60, 3600, 86_400] {
+        assert!(
+            h.recover_due(at + std::time::Duration::from_secs(later))
+                .is_none()
+        );
+    }
+    assert_eq!(
+        h.current(),
+        (CollectionState::Failed, Some(STORAGE_FAULT.into()))
+    );
+    let status = h.status();
+    assert!(status.last_sync_failure.is_none(), "not a sync failure");
+    let notice = status
+        .notices
+        .iter()
+        .find(|n| n.code == STORAGE_FAULT)
+        .expect("a needs-attention notice");
+    assert!(notice.message.contains(CAUSE), "{}", notice.message);
+    assert!(
+        notice
+            .message
+            .contains(&format!("mdbase collection resume {COLLECTION}"))
+    );
+    assert!(!status.notices.iter().any(|n| n.code == "sync_reopening"));
+    // `mdbase collection resume` reopens it and starts the policy over.
+    h.retry().await;
+    assert_eq!(h.recovery, Recovery::default());
+    assert_eq!(settled(&h).await, (CollectionState::Opening, None));
+    assert!(h.runtime().is_some());
     h.close().await;
     std::fs::remove_dir_all(dir).unwrap();
 }

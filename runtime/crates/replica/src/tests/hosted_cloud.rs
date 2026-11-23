@@ -383,7 +383,7 @@ fn verified_observer_cloud_prekey_rejects_wrong_mode_identity_origin_and_fault()
         h.r.verified_hosted_bootstrap(),
         B::Deny(D::PolicyOriginUnproven)
     );
-    h.r.apply_fault = true;
+    h.r.apply_fault = Some(crate::Fence::Store);
     assert_eq!(
         h.r.verified_hosted_bootstrap(),
         B::Deny(D::CacheUnavailable)
@@ -747,7 +747,7 @@ fn hosted_gen0_revocation_inspection_refuses_prekey_and_faulted_state() {
     eligible(&pre);
     assert_eq!(pre.r.sealer.current_epoch(), None);
     assert_eq!(pre.r.hosted_gen0_cp_key_revoked(&expected, key), None);
-    healthy.r.apply_fault = true;
+    healthy.r.apply_fault = Some(crate::Fence::Store);
     assert_eq!(
         healthy.r.verified_hosted_admission(),
         HostedAdmission::Deny(D::CacheUnavailable)

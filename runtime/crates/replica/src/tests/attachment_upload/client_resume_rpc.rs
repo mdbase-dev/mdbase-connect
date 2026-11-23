@@ -498,11 +498,11 @@ fn initial_pointer_commit_abort_or_unknown_never_returns_an_open_identity() {
         let out = frames.take_outgoing();
         assert!(!out.iter().any(|(_, bytes)| matches!(ClientFrame::from_cbor(&cbor::decode(bytes).unwrap()).unwrap(), ClientFrame::Response(r) if r.id == 42 && r.result.is_some())));
         if unknown {
-            assert!(a.r.apply_fault);
+            assert!(a.r.apply_fault.is_some());
             assert!(a.r.client_resume_reference(owner).unwrap().is_some());
             assert!(out.iter().any(|(_, bytes)| matches!(ClientFrame::from_cbor(&cbor::decode(bytes).unwrap()).unwrap(), ClientFrame::Push(p) if p.kind == "closed")));
         } else {
-            assert!(!a.r.apply_fault);
+            assert!(a.r.apply_fault.is_none());
             assert!(a.r.client_resume_reference(owner).unwrap().is_none());
             assert!(out.iter().any(|(_, bytes)| matches!(ClientFrame::from_cbor(&cbor::decode(bytes).unwrap()).unwrap(), ClientFrame::Response(r) if r.id == 42 && r.problem.as_ref().is_some_and(|p| p.reason.as_deref() == Some("file_upload_checkpoint_store_failed")))));
             frames.close(&mut a.r, session);

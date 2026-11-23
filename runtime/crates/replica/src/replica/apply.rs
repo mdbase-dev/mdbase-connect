@@ -138,7 +138,7 @@ struct ChangeStage {
 impl<S: Store> Replica<S> {
     /// Apply items in log order, starting at the first one after the head.
     pub(crate) fn apply_items(&mut self, items: Vec<SeqItem>) {
-        if self.apply_fault || self.hosted_reindex_pending() {
+        if self.apply_fault.is_some() || self.hosted_reindex_pending() {
             return;
         }
         let mut changed: BTreeSet<String> = BTreeSet::new();
@@ -186,6 +186,7 @@ impl<S: Store> Replica<S> {
                             checkpoint,
                             it.seq,
                             matches!(&e, StoreError::CommitAborted(_)),
+                            &e,
                         );
                     }
                     self.incident(
@@ -248,7 +249,7 @@ impl<S: Store> Replica<S> {
                     break;
                 }
             }
-            if self.apply_fault || self.hosted_reindex_pending() {
+            if self.apply_fault.is_some() || self.hosted_reindex_pending() {
                 break;
             }
         }
@@ -269,7 +270,7 @@ impl<S: Store> Replica<S> {
                 Some(Value::Text(format!("store: {e}"))),
             );
         }
-        if self.apply_fault || self.is_apply_recovering() {
+        if self.apply_fault.is_some() || self.is_apply_recovering() {
             self.apply_deferred_changed.extend(changed);
             self.status_dirty = true;
             return;
@@ -510,7 +511,7 @@ impl<S: Store> Replica<S> {
             self.commit_retained(head, tx, Verdict::Void)?;
         }
         self.note_genesis(head);
-        if own && !self.apply_fault {
+        if own && self.apply_fault.is_none() {
             if let Some(row) = pending {
                 changed.extend(row.touches);
             }
@@ -560,8 +561,8 @@ impl<S: Store> Replica<S> {
     }
 
     /// A genesis mismatch is terminal: nothing is served, sealed or appended.
-    pub(super) fn genesis_fault(&mut self) {
-        self.apply_fault = true;
+    pub(super) fn genesis_fault(&mut self, why: String) {
+        self.raise_fence(super::Fence::Genesis, why);
         self.calls.clear();
         self.inflight.clear();
         self.append = super::append::AppendState::Stopped;
@@ -657,7 +658,7 @@ impl<S: Store> Replica<S> {
             self.discard_staged_key_grants();
             return Err(e);
         }
-        if !self.apply_fault
+        if self.apply_fault.is_none()
             && !self.is_apply_recovering()
             && let Some(history) = next_history
         {
@@ -788,12 +789,13 @@ impl<S: Store> Replica<S> {
         // Read-ahead has no settled applied prefix. Its persisted policy/hints
         // cannot recreate an original observation, even after a typed abort.
         self.original_history.invalidate();
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err("apply state is faulted; reopen required".into());
         }
         if let Err(why) = self.check_genesis(p, raw) {
-            self.genesis_fault();
-            return Err(format!("control {why}"));
+            let why = format!("control {why}");
+            self.genesis_fault(why.clone());
+            return Err(why);
         }
         let item = Item::from_bytes(raw).map_err(|e| format!("control item {p}: {e}"))?;
         if item.seq != Some(p) || item.collection != self.cfg.collection || !item.kind.is_control()
@@ -820,7 +822,12 @@ impl<S: Store> Replica<S> {
             meta,
             ..Tx::default()
         }) {
-            self.failed_apply(checkpoint, p, matches!(&e, StoreError::CommitAborted(_)));
+            self.failed_apply(
+                checkpoint,
+                p,
+                matches!(&e, StoreError::CommitAborted(_)),
+                &e,
+            );
             return Err(format!("store: {e}"));
         }
         self.note_genesis(at);
@@ -950,7 +957,7 @@ impl<S: Store> Replica<S> {
     ) -> Result<Outcome, StoreError> {
         // The host's genesis pin, on the raw bytes before anything is decoded.
         if let Err(why) = self.check_genesis(p, &bytes.0) {
-            self.genesis_fault();
+            self.genesis_fault(why.clone());
             return Ok(Outcome::Integrity(why));
         }
         // A prior successful commit's accounting read may have failed. Refresh
@@ -1958,7 +1965,7 @@ impl<S: Store> Replica<S> {
         } else {
             self.commit_retained(head, tx, Verdict::Applied)?;
         }
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             // The head/receipt/own handover committed, but a defensive read
             // failed. No follow-up indexing/hold writes or queued output now.
             return Ok(Outcome::Applied);

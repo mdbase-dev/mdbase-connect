@@ -378,7 +378,7 @@ impl<S: Store> Replica<S> {
     /// Pending record edits are part of the view: `as_of` (the view version)
     /// changes with each, so a continuation never spans two layers.
     fn cursor_stamp(&self, session: SessionId) -> ApiResult<Stamp> {
-        if self.install.is_some() || self.apply_fault || self.layer.catalog().is_some() {
+        if self.install.is_some() || self.apply_fault.is_some() || self.layer.catalog().is_some() {
             return Err(stale());
         }
         let context = self.ready_context()?.map_err(|_| stale())?;
@@ -395,7 +395,7 @@ impl<S: Store> Replica<S> {
     }
     fn resource_stamp(&self, session: SessionId) -> ApiResult<Stamp> {
         self.require_resource_inventory_read(session)?;
-        if self.install.is_some() || self.apply_fault {
+        if self.install.is_some() || self.apply_fault.is_some() {
             return Err(ErrorCode::Unavailable.err_with_reason(
                 "resource_inventory_unavailable",
                 "resource inventory is not ready",

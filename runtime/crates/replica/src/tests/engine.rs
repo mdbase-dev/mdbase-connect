@@ -3037,13 +3037,13 @@ fn account_key_unlocks_a_new_device_without_another_device() {
         "an outstanding rekey, including a void rekey, cannot complete strict"
     );
     a.r.policy.rekey_required = false;
-    a.r.apply_fault = true;
+    a.r.apply_fault = Some(crate::Fence::Store);
     assert!(
         a.r.account_key_strict_witness(crate::testkit::TEST_OWNER, rk.device, 7, revoked_at)
             .is_none(),
         "uncertain durability must not attest application"
     );
-    a.r.apply_fault = false;
+    a.r.apply_fault = None;
     // Only a healthy, current applied state attests.
     let witness_now = |a: &mut Node| {
         a.r.account_key_strict_witness(crate::testkit::TEST_OWNER, rk.device, 7, revoked_at)
@@ -3216,7 +3216,7 @@ fn account_key_unknown_commit_faults_until_reopen() {
         b.r.account_key_unlock_state(),
         Err(AccountKeyRefusal::OutcomeUnknown)
     );
-    assert!(b.r.apply_fault);
+    assert!(b.r.apply_fault.is_some());
     assert_eq!(
         b.r.self_grant_with_account_key(RecoveryKey::from_bytes(*r.expose()).derive(&COL)),
         Err(AccountKeyRefusal::OutcomeUnknown)
@@ -3475,7 +3475,7 @@ fn account_key_unlock_before_the_collection_is_keyed_is_retryable() {
         )),
         "a not-yet-keyed account key must not fail the collection: {incidents:?}"
     );
-    assert!(!b.r.apply_fault);
+    assert!(b.r.apply_fault.is_none());
     // A holds R: the control plane enrols the account-key device (proof of
     // possession; a repeated enrolment is answered from the prior one, Connect
     // #635), A keys it. Keying again is a no-op.
@@ -3608,7 +3608,7 @@ fn account_key_unlock_before_the_policy_applies_is_not_ready() {
         "not ready, never the settled not_private"
     );
     assert!(b.r.testing_epoch_keys().is_empty());
-    assert!(!b.r.apply_fault);
+    assert!(b.r.apply_fault.is_none());
     // The policy applies: the same unlock now succeeds.
     settle(&mut [&mut a, &mut b]);
     assert_eq!(b.r.policy.cstate, Some(mdbn_wire::policy::CState::E2e));
@@ -3675,7 +3675,7 @@ fn account_key_on_a_cloud_copy_collection_is_not_private() {
         a.r.account_key_unlock_state(),
         Err(AccountKeyRefusal::NotPrivate)
     );
-    assert!(!a.r.apply_fault);
+    assert!(a.r.apply_fault.is_none());
 }
 
 /// A manifest with a forged signature, or one whose control chain differs
@@ -4094,7 +4094,10 @@ fn opaque_checkpoint_failures_fault_until_reopen_without_serving_or_sealing() {
         };
         a.r.store().fail_commits(1);
         a.r.apply_items(vec![item.clone()]);
-        assert!(a.r.apply_fault, "opaque state is never assumed restored");
+        assert!(
+            a.r.apply_fault.is_some(),
+            "opaque state is never assumed restored"
+        );
         assert_eq!(
             a.r.status(a.s).unwrap_err().code(),
             Some(ErrorCode::Unavailable)
@@ -4109,7 +4112,7 @@ fn opaque_checkpoint_failures_fault_until_reopen_without_serving_or_sealing() {
         );
         let mut reopened = node(&svc, 1, a.r.into_store());
         settle(&mut [&mut reopened]);
-        assert!(!reopened.r.apply_fault);
+        assert!(reopened.r.apply_fault.is_none());
         assert!(!reopened.r.policy.devices[&B16([109; 16])].active);
     }
 }
@@ -4159,7 +4162,7 @@ fn unknown_control_commit_outcome_or_durability_read_faults_until_reopen() {
         assert!(a.r.take_log_calls().is_empty());
         let mut reopened = node(&svc, 1, a.r.into_store());
         settle(&mut [&mut reopened]);
-        assert!(!reopened.r.apply_fault);
+        assert!(reopened.r.apply_fault.is_none());
         assert!(!reopened.r.policy.devices[&B16([109; 16])].active);
     }
 }
@@ -4177,7 +4180,7 @@ fn control_read_ahead_metadata_failure_restores_policy_before_retry() {
     assert!(a.r.evaluate_control_bytes(seq, &raw).is_err());
     assert!(a.r.policy.devices[&revoked].active);
     assert_eq!(a.r.head(), before);
-    assert!(!a.r.apply_fault, "known abort may retry");
+    assert!(a.r.apply_fault.is_none(), "known abort may retry");
     assert_eq!(
         a.r.status(a.s).unwrap_err().code(),
         Some(ErrorCode::Unavailable)
@@ -5788,6 +5791,11 @@ fn pinned_genesis_cold_mismatch_is_terminal() {
     assert!(has_integrity(&a));
     assert!(a.r.requires_reopen());
     assert_eq!(
+        a.r.fence(),
+        Some(crate::Fence::Genesis),
+        "a log-side fence, not a store fault"
+    );
+    assert_eq!(
         a.r.status(a.s).unwrap_err().code(),
         Some(ErrorCode::Unavailable),
         "the open session is closed"
@@ -5910,6 +5918,7 @@ fn pinned_genesis_guards_the_install_path() {
     assert_eq!(c.r.head().seq, 0);
     assert!(c.r.confirmed_records().unwrap().is_empty());
     assert!(c.r.requires_reopen());
+    assert_eq!(c.r.fence(), Some(crate::Fence::Genesis));
 
     let raw = svc.items(&COL);
     let mut d = node_pinned(

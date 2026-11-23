@@ -197,7 +197,7 @@ impl<S: Store> Replica<S> {
                         && failed.retry_at.is_none_or(|at| self.now() < at)
                 })
             && o.moved_from.is_none()
-            && !self.apply_fault
+            && self.apply_fault.is_none()
         {
             let held = match self.file_id_at(&o.path)? {
                 Some(id) => self.store.hold(&id)?.is_some(),
@@ -363,7 +363,7 @@ impl<S: Store> Replica<S> {
     /// Advance ingest: finish the running upload, then start the next item
     /// that is ready.
     pub(crate) fn attachment_ingest_step(&mut self) {
-        if self.attachment_ingest.busy || self.apply_fault {
+        if self.attachment_ingest.busy || self.apply_fault.is_some() {
             return;
         }
         self.attachment_ingest.busy = true;
@@ -472,7 +472,7 @@ impl<S: Store> Replica<S> {
             Some(id) => self.store.hold(&id)?.is_some(),
             None => false,
         };
-        if !held && !self.apply_fault {
+        if !held && self.apply_fault.is_none() {
             self.store.release_disk_observation(token)?;
         }
         let quota = p.code == ErrorCode::QuotaExceeded.as_str();
@@ -484,7 +484,7 @@ impl<S: Store> Replica<S> {
         self.attachment_ingest.failed.insert(
             path.to_owned(),
             FailedIngest {
-                digest: (!held && !self.apply_fault).then_some(digest),
+                digest: (!held && self.apply_fault.is_none()).then_some(digest),
                 problem: p,
                 retry_at,
             },
@@ -530,7 +530,7 @@ impl<S: Store> Replica<S> {
         self.attachment_ingest.current = None;
         // Unknown capture persistence already quarantined the instance. Never
         // start another item or retire its evidence in the same drive loop.
-        Ok(!self.apply_fault)
+        Ok(self.apply_fault.is_none())
     }
 
     fn cancel_native_ingest(&mut self, kind: CaptureKind, id: Uuid) {
@@ -565,7 +565,7 @@ impl<S: Store> Replica<S> {
         }
         self.cancel_unindexed_markdown_reindex_upload(&id);
         self.attachment_ingest.current = None;
-        Ok(!self.apply_fault)
+        Ok(self.apply_fault.is_none())
     }
 
     fn start_reverse_ingest(&mut self, item: Item) -> Result<(), StoreError> {

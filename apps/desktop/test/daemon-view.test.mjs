@@ -63,8 +63,9 @@ test("collections: automatic Private sync setup and deleted collections do not o
   }
 });
 
-test("collections: only a sync consistency stop offers Resume among failed collections", () => {
+test("collections: only a sync consistency stop or a storage fault offers Resume among failed collections", () => {
   assert.equal(presentCollection({ mode: "synced", state: "failed", reason: "sync_integrity" }).canResume, true);
+  assert.equal(presentCollection({ mode: "synced", state: "failed", reason: "storage_fault" }).canResume, true);
   for (const reason of ["sync_revoked", "collection_deleted", "upgrade_required", "open_failed"]) {
     assert.equal(presentCollection({ mode: "synced", state: "failed", reason }).canResume, false);
   }
@@ -134,6 +135,14 @@ test("deleted collections explain the terminal state and local removal", () => {
   assert.match(view.detail, /Remove/);
   assert.equal(view.canEnableSync, false);
   assert.equal("canDisableSync" in view, false);
+});
+
+test("a collection left stopped by a storage fault shows the daemon's notice", () => {
+  const message = "Sync stopped: this collection's storage on this computer failed the same way after 3 automatic reopens (apply_durability_unknown: store i/o: disk full). Check this computer's disk, free space and keychain, then run `mdbase collection resume c1`.";
+  const view = presentCollection({ mode: "synced_e2e", state: "failed", reason: "storage_fault", notices: [{ code: "storage_fault", message }] });
+  assert.equal(view.status, "Stopped");
+  assert.equal(view.canResume, true);
+  assert.equal(view.detail, `${message} Your files are untouched.`);
 });
 
 test("revoked collection shows manual recovery even with stale connecting telemetry", () => {

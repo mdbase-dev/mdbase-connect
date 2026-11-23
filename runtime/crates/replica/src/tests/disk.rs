@@ -2507,6 +2507,50 @@ fn local_scan_groups_are_bounded_by_text_bytes_as_well_as_count() {
     }
 }
 
+/// A fence's `integrity` incident names what fenced it. Every later store call
+/// fails with `apply_reopen_required`; those echoes do not replace or clear it.
+#[test]
+fn a_fence_keeps_its_cause_as_the_integrity_incident() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    settle(&mut [&mut a]);
+    let integrity = |a: &Node| {
+        a.r.sync_status()
+            .incidents
+            .into_iter()
+            .find(|i| i.kind == mdbn_wire::client::IncidentKind::Integrity)
+            .and_then(|i| match i.details {
+                Some(mdbn_wire::common::Value::Text(text)) => Some(text),
+                _ => None,
+            })
+    };
+    assert_eq!(integrity(&a), None);
+    let target = crate::testkit::TestControlPlane::new(COL).revoke(&svc, B16([109; 16]));
+    a.r.store().inner.fail_unknown_commits(1);
+    a.r.apply_items(vec![mdbn_wire::log_service::SeqItem {
+        seq: target,
+        item: mdbn_wire::common::Bytes(svc.items(&COL)[target as usize - 1].clone()),
+    }]);
+    assert!(a.r.requires_reopen());
+    assert_eq!(a.r.fence(), Some(crate::Fence::Store));
+    let cause = integrity(&a).expect("the fence records its cause");
+    assert!(
+        cause.starts_with("apply_durability_unknown: ") && !cause.contains("apply_reopen_required"),
+        "{cause}"
+    );
+    // Echoes: observe, ingest, materialize and timers all fail closed now.
+    a.disk
+        .borrow_mut()
+        .user_write("later.md", Some("an edit after the fence"));
+    assert!(a.r.observe(None).is_err());
+    let queued = a.disk.borrow().queued.clone();
+    a.r.ingest(queued);
+    assert!(a.r.materialize().is_err());
+    a.r.tick();
+    assert!(a.r.requires_reopen());
+    assert_eq!(integrity(&a).as_deref(), Some(cause.as_str()));
+}
+
 #[test]
 fn local_scan_capture_abort_requires_reopen_and_acks_no_evidence() {
     let svc = FakeLogService::new();

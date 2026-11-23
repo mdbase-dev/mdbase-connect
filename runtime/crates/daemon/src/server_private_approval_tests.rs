@@ -42,7 +42,7 @@ impl SecretStore for TestKeychain {
     }
 }
 
-fn keys(d: &Daemon) -> EnrolledKeys {
+pub(super) fn keys(d: &Daemon) -> EnrolledKeys {
     let identity = d.identity.get().unwrap();
     let public = identity.public();
     let decode = |hex: &str| secrets::hex_decode(hex).unwrap().try_into().unwrap();
@@ -54,7 +54,11 @@ fn keys(d: &Daemon) -> EnrolledKeys {
     }
 }
 
-async fn pair(dir: &TestDir, trust: &Arc<crate::trust::Trust>, owner: B16) -> Arc<Daemon> {
+pub(super) async fn pair(
+    dir: &TestDir,
+    trust: &Arc<crate::trust::Trust>,
+    owner: B16,
+) -> Arc<Daemon> {
     let mut d = daemon(dir);
     let owned = Arc::get_mut(&mut d).unwrap();
     owned.secrets = Arc::new(TestKeychain::default());
@@ -78,7 +82,7 @@ async fn pair(dir: &TestDir, trust: &Arc<crate::trust::Trust>, owner: B16) -> Ar
     d
 }
 
-async fn open(d: &Daemon, collection: B16, pin: B32, origin: Origin) {
+pub(super) async fn open(d: &Daemon, collection: B16, pin: B32, origin: Origin) {
     let trust = d.trust.as_ref().unwrap();
     let id = collection.to_uuid_string();
     let device = keys(d).device.to_uuid_string();
@@ -138,11 +142,11 @@ async fn control(d: &Arc<Daemon>, method: &str, params: Value) -> Result<Value, 
     .await
 }
 
-async fn collection_status(d: &Arc<Daemon>) -> Value {
+pub(super) async fn collection_status(d: &Arc<Daemon>) -> Value {
     control(d, "status", json!({})).await.unwrap()["collections"][0].clone()
 }
 
-async fn serve_connect(
+pub(super) async fn serve_connect(
     listener: TcpListener,
     collection: B16,
     devices: [EnrolledKeys; 2],

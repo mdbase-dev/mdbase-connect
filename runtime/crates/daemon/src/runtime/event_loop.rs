@@ -222,7 +222,17 @@ pub(super) fn run(
                 let _ = reply.send(result);
             }
             Ok(Cmd::Readiness(reply)) => {
-                let _ = reply.send((rep.sync_status(), rep.caught_up(), rep.adopt_status()));
+                let _ = reply.send((
+                    rep.sync_status(),
+                    rep.caught_up(),
+                    rep.adopt_status(),
+                    rep.fence(),
+                ));
+            }
+            #[cfg(test)]
+            Ok(Cmd::TestFailUnknownCommits(n, reply)) => {
+                rep.store_mut().fail_unknown_commits(n);
+                let _ = reply.send(());
             }
             #[cfg(test)]
             Ok(Cmd::TestSeedHold(hold, reply)) => {

@@ -207,6 +207,14 @@ impl Runtime {
         release
     }
 
+    /// Test-only: fail this actor's next `n` store commits with an unknown
+    /// outcome. Returns once armed; `false` if the runtime has stopped.
+    #[cfg(test)]
+    pub(crate) async fn test_fail_unknown_commits(&self, n: u32) -> bool {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::TestFailUnknownCommits(n, tx)).is_ok() && rx.await.is_ok()
+    }
+
     /// SEEDED-HOLD fixture only: None reads the original actor's real ledger;
     /// Some commits one typed hold on that same actor, without a client mutation.
     #[cfg(test)]

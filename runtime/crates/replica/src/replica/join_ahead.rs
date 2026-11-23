@@ -168,7 +168,7 @@ impl<S: Store> Replica<S> {
     }
 
     fn join_ahead_eligible(&self) -> bool {
-        !self.apply_fault
+        self.apply_fault.is_none()
             && !self.local_only()
             && !self.hosted_blocked()
             && self.install.is_none()

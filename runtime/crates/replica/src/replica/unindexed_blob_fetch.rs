@@ -59,7 +59,7 @@ impl<S: Store> Replica<S> {
         self.store.materializes_attachments()
             && !self.is_hosted()
             && !self.local_only()
-            && !self.apply_fault
+            && self.apply_fault.is_none()
             && self.stalled.is_none()
             && self.install.is_none()
             && !self.repairing()

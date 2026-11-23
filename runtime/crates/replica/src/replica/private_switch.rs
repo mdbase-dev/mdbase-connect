@@ -514,6 +514,7 @@ impl<S: Store> Replica<S> {
                 checkpoint,
                 self.head.seq,
                 matches!(error, crate::store::StoreError::CommitAborted(_)),
+                &error,
             );
             return Err(ErrorCode::OutcomeUnknown
                 .err("private switch save is not confirmed; reopen required"));

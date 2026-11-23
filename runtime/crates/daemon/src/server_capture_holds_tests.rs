@@ -71,7 +71,7 @@ async fn complete_seeded_hold_capture_refuses_only_holds_and_resumes_original_lo
     assert_eq!(seeded.local_receipts, before.local_receipts);
     assert_eq!((seeded.pending, seeded.conflicts), (0, 0));
     assert_eq!(seeded.holds, vec![hold.clone()]);
-    let (status, _, _) = f.runtime.readiness().await.unwrap();
+    let (status, _, _, _) = f.runtime.readiness().await.unwrap();
     assert!(
         status.incidents.is_empty(),
         "known holds control cannot mask an ingestion incident"

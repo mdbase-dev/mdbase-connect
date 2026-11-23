@@ -78,12 +78,12 @@ pub use replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
 pub use replica::base::{BaseError, Gen0Base, build_base, check_base};
 pub use replica::{
     AttachmentFetchStatus, AttachmentSource, AttachmentUploadCheckpoint, AttachmentUploadParams,
-    AttachmentUploadStatus, DeviceSecrets, Host, HostedAck, HostedAdmission, HostedAdmissionDenial,
-    HostedAttachmentTransferParams, HostedAttachmentTransferProgress, HostedBootstrapAdmission,
-    HostedCache, HostedKeyOperationDenial, HostedProfile, KeyWaitReason, MAX_REQUEST_NODES,
-    QueryExecutionProfile, QuerySourceLimits, Replica, ReplicaConfig, SnapshotBlocked,
-    SubmitTicket, TimeZones, UtcOnly, VerifiedHostedAdmission, VerifiedHostedBootstrap,
-    VerifiedHostedKeyRecipient, snapshot_refs_fit,
+    AttachmentUploadStatus, DeviceSecrets, Fence, Host, HostedAck, HostedAdmission,
+    HostedAdmissionDenial, HostedAttachmentTransferParams, HostedAttachmentTransferProgress,
+    HostedBootstrapAdmission, HostedCache, HostedKeyOperationDenial, HostedProfile, KeyWaitReason,
+    MAX_REQUEST_NODES, QueryExecutionProfile, QuerySourceLimits, Replica, ReplicaConfig,
+    SnapshotBlocked, SubmitTicket, TimeZones, UtcOnly, VerifiedHostedAdmission,
+    VerifiedHostedBootstrap, VerifiedHostedKeyRecipient, snapshot_refs_fit,
 };
 pub use seal::{Sealer, SealerIdentity};
 pub use store::{KeyringPersistence, Store, StoreError, Tx};

@@ -185,7 +185,7 @@ fn native_move_requires_current_healthy_device_and_valid_both_paths_before_captu
             "stalled" => {
                 a.r.stalled = Some((mdbn_wire::client::IncidentKind::WaitingForKey, head.seq + 1))
             }
-            "fault" => a.r.apply_fault = true,
+            "fault" => a.r.apply_fault = Some(crate::Fence::Store),
             "from" => from = "before.bin".into(),
             "to" => to = "after.bin".into(),
             "oversized_path" => to = format!("{}.md", "p".repeat(2049)),

@@ -83,7 +83,7 @@ pub(super) struct MatchedLogReply {
 
 impl<S: Store> Replica<S> {
     fn check_log_session(&self, session: &AuthenticatedLogSession) -> Result<(), LogSessionError> {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(LogSessionError::ReopenRequired);
         }
         if session.0.collection != self.cfg.collection || session.0.endpoint != self.endpoint {
@@ -108,7 +108,7 @@ impl<S: Store> Replica<S> {
         endpoint: EndpointId,
         collection: Uuid,
     ) -> Result<AuthenticatedLogSession, LogSessionError> {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(LogSessionError::ReopenRequired);
         }
         if endpoint != self.endpoint || collection != self.cfg.collection {
@@ -117,7 +117,7 @@ impl<S: Store> Replica<S> {
         if let Some(old) = self.log_sessions.current.clone() {
             self.retire_authenticated_log(&old);
         }
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(LogSessionError::ReopenRequired);
         }
         let session = AuthenticatedLogSession(Arc::new(SessionIdentity {
@@ -135,7 +135,7 @@ impl<S: Store> Replica<S> {
     /// status and readiness do not move. One fetch at a time; false when there is
     /// no live log session, the replica is faulted, or a fetch is already out.
     pub fn request_head(&mut self) -> bool {
-        if self.apply_fault
+        if self.apply_fault.is_some()
             || self.log_sessions.current.is_none()
             || self
                 .inflight

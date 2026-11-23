@@ -113,10 +113,11 @@ fn terminal_incident(s: &SyncStatus) -> Option<&mdbn_wire::client::Incident> {
 /// Longest incident detail written to the daemon log.
 const LOG_DETAIL_BYTES: usize = 512;
 
-/// The terminal incident's text detail for the local daemon log only: control
+/// The terminal incident's text detail for the local daemon log: control
 /// characters become spaces and it is cut to [`LOG_DETAIL_BYTES`]. It may name a
-/// local path or quote an error, so it never enters the retained [`Failure`],
-/// control status or anything sent off this computer.
+/// local path or quote an error, so it never enters the retained [`Failure`] or
+/// anything sent off this computer. Local control status shows it only in the
+/// `storage_fault` notice, where it names the fault the user has to clear.
 pub(crate) fn log_detail(s: &SyncStatus) -> Option<String> {
     let Some(Value::Text(text)) = &terminal_incident(s)?.details else {
         return None;

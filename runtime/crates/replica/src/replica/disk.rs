@@ -766,9 +766,9 @@ impl<S: Store> Replica<S> {
             let _ = self.close_ingest_window(&mut window);
         }
         if let Err(e) = result {
-            if !self.apply_fault && !self.is_apply_recovering() {
+            if self.apply_fault.is_none() && !self.is_apply_recovering() {
                 let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
-                self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false);
+                self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false, &e);
             }
             self.incident(
                 mdbn_wire::client::IncidentKind::Integrity,
@@ -850,7 +850,7 @@ impl<S: Store> Replica<S> {
             // Even a typed capture abort has no durable pending row to retry.
             // Reopen/rescan the unacknowledged evidence instead of wedging behind
             // an apply-prefix barrier that no pending row can ever advance.
-            self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false);
+            self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false, &e);
             return Err(e);
         }
         self.pump();

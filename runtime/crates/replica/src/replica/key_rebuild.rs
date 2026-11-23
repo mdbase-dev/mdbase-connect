@@ -179,7 +179,7 @@ impl<S: Store> Replica<S> {
             if it.seq <= last.unwrap_or(after) {
                 return self.device_key_rebuild_fail("control items out of order");
             }
-            if self.check_genesis(it.seq, &it.item.0).is_err() {
+            if let Err(why) = self.check_genesis(it.seq, &it.item.0) {
                 if self
                     .device_keys
                     .as_ref()
@@ -189,7 +189,7 @@ impl<S: Store> Replica<S> {
                 }
                 self.device_keys = None;
                 self.device_keys_failed = true;
-                self.genesis_fault();
+                self.genesis_fault(why);
                 return;
             }
             let Ok(item) = Item::from_bytes(&it.item.0) else {
