@@ -1,9 +1,17 @@
 import { spawn } from "node:child_process";
-import { accessSync, constants, createReadStream, statSync } from "node:fs";
-import { access, mkdir, open, rename, rm } from "node:fs/promises";
+import * as nodeFs from "node:fs";
 import { dirname, join } from "node:path";
 import { pipeline } from "node:stream/promises";
 import { createZstdDecompress } from "node:zlib";
+
+// Electron's `fs` reads a valid `.asar` archive as a folder, so removing an app
+// folder (which holds `resources/app.asar`) deletes everything but the archive and
+// then fails with ENOTEMPTY. A stale `.next` or `.previous` then blocked every
+// later update. `original-fs` is Node's `fs` without archive support; plain Node
+// (tests, scripts) has neither the support nor the module.
+const fs: typeof nodeFs = process.versions.electron ? require("original-fs") : nodeFs;
+const { accessSync, constants, createReadStream, statSync } = fs;
+const { access, mkdir, open, rename, rm } = fs.promises;
 
 /**
  * Replacing an app the user unpacked into a folder they own (for example

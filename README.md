@@ -2,33 +2,28 @@
 
 [![What mdbase does, in two minutes](https://mdbase.dev/videos/mdbase-in-two-minutes.jpg)](https://mdbase.dev/videos/mdbase-in-two-minutes.mp4)
 
-> [!IMPORTANT]
-> **Beta:** The managed mdbase connect cloud service is transitioning from
-> invite-only access to public signup. Existing invitation links remain valid.
-
-mdbase connect lets you use the applications you choose with the Markdown data
-you control. An application gets access to one collection only after you
-approve the exact actions it can perform, and you can pause or revoke that
-access at any time.
-
-Your collection can stay in a folder on your computer, sync end-to-end encrypted
-between your own devices (**Private**), or include a hosted replica (**Cloud
-copy**) so web and mobile apps can reach it when your computer is offline.
-Either way, it remains a standard [mdbase](https://mdbase.dev) collection
-rather than being locked into an application-specific database.
+mdbase connect lets the applications and AI agents you choose work with your
+Markdown notes without handing them your whole folder or account. Your notes
+stay ordinary Markdown files with YAML frontmatter, a standard
+[mdbase](https://mdbase.dev) collection, instead of moving into an
+application's database. An application gets access to one collection only
+after you approve the exact operations it can perform, and you can pause or
+revoke that access at any time.
 
 ## What you can do
 
-- Connect web and native applications to local, Private (E2E), or Cloud copy
-  collections using one authorization model.
-- Review concrete permissions such as reading, querying, creating, or updating
-  records before granting access.
+- Connect web, desktop, and mobile applications, Obsidian, and MCP clients such
+  as Claude and ChatGPT to local, Private (E2E), or Cloud copy collections using
+  one authorization model.
+- Review concrete permissions, such as reading, querying, creating, or updating
+  records, before granting access.
+- Sync a collection to a folder on each of your computers and keep using any
+  Markdown tool alongside connected applications.
 - Keep local collection folders private and serve remote requests over
   Noise-encrypted pipes without opening an inbound port on your computer.
-- Sync collections across devices through a blind, signed shared log with
-  deterministic three-way merge and local conflict/hold preservation.
-- Use your collections from MCP clients such as Claude and ChatGPT.
+- Pause an application or revoke its access at any time.
 - Read, query, validate, and write collections from the `mdbase` command line.
+- Build your own application with the `@mdbase-dev/sdk` SDK.
 
 ## How it works
 
@@ -45,7 +40,7 @@ All mdbase collection semantics live in one deterministic Rust runtime
   and blobs without interpreting Markdown records.
 - **Hosted replica (`mdbn-hosted-worker`)**: runs the same portable Rust engine
   compiled to WebAssembly inside a Cloudflare Durable Object for Cloud copy
-  collections, serving web apps directly over Noise pipes.
+  collections, serving web and mobile apps directly over Noise pipes.
 - **Control plane & relay (`services/server`)**: handles accounts, pairing,
   application identity, grant policy, log/route discovery, and transient relay
   transport without persisting collection payloads.
@@ -53,26 +48,30 @@ All mdbase collection semantics live in one deterministic Rust runtime
 ### Collection modes
 
 - **Local only**: lives in a folder on your computer with no cloud log.
-- **Private (end-to-end encrypted)**: syncs across your approved devices
-  through the blind log. Collection keys stay on your devices and off mdbase
-  servers; web apps reach it through an online device over a Noise pipe.
-- **Cloud copy**: syncs through the same log with the hosted Worker replica
-  enrolled so web and mobile apps can read and write even when your desktop is
-  offline.
+- **Private (end-to-end encrypted)**: collection keys stay on your devices and
+  sync through the blind log. Web applications and agents reach it through an
+  online computer over a Noise pipe.
+- **Cloud copy** (the default): syncs through the same log with the hosted
+  Worker replica enrolled so web applications and AI agents can read and write
+  even when your computers are offline.
 
-## Getting started during the beta
+Applications use the same approval model whichever way a collection is served,
+so changing modes does not give an application broader access.
 
-1. Create or sign in to your mdbase connect account.
-2. Install the desktop app (or standalone `mdbase` CLI) for your platform.
-3. Open the desktop app and sign in to pair your computer.
-4. Add an existing Markdown folder (`mdbase collection add`) or create a Cloud
-   copy collection.
-5. In a compatible application, choose **Connect collection** and review the
-   requested permissions before approving.
+## Getting started
 
-The Connect portal manages sign-in, pairing, collections, permissions,
-computers, and account recovery. The desktop app owns local folders, sync
-controls, device approval, and local app-access notices.
+1. Create a free account at
+   [connect.mdbase.dev](https://connect.mdbase.dev/signup).
+2. Create a collection in the [editor](https://editor.mdbase.dev/), or install
+   the [desktop app](https://mdbase.dev/downloads/) to sync a collection with a
+   folder on your computer, including a folder of Markdown you already have.
+3. In a compatible application, choose **Connect collection** and review the
+   requested access before approving it.
+
+The editor's **Connect** workspace is the main web place to manage collections,
+connected applications, computers, and account sessions. The desktop app owns
+folder and sync settings. The Connect portal handles sign-in, pairing,
+recovery, and authorization transactions.
 
 ## Connect an MCP client
 
@@ -115,8 +114,17 @@ end-to-end first-party consumer reference.
 - Private collections keep decryption keys on your devices only; Cloud copy
   collections wrap hosted custody keys with AWS KMS.
 
-See [Architecture](docs/architecture.md), [Encryption](docs/encryption.md),
-[Threat model](docs/threat-model.md), and the unaudited
+The MCP gateway is an authorized application endpoint: it decrypts responses
+in memory so it can return them to the MCP client, but does not persist record
+payloads or operation results.
+
+For the detailed design, see [Architecture](docs/architecture.md), the
+[runtime overview](runtime/README.md), its
+[contracts](runtime/docs/contracts/00-overview.md), and
+[Encryption](docs/encryption.md). Security assumptions, abuse cases, and
+prerelease residual risks are collected in the
+[Threat model](docs/threat-model.md). The source and test map for independent
+review is the explicitly unaudited
 [Security audit preparation package](docs/security-audit-package.md). Report
 suspected vulnerabilities privately via [SECURITY.md](SECURITY.md).
 
@@ -151,6 +159,9 @@ This repository contains the `mdbase-next` Rust/WASM runtime and `@mdbase-dev/sd
 portal (`apps/portal`), the desktop app (`apps/desktop`), the Markdown editor
 (`apps/editor`), the hosted MCP gateway (`services/mcp`), and shared protocols
 (`packages/protocol`).
+
+See [Contributing](CONTRIBUTING.md) for change fragments, the architecture
+check, generated-file rebases, and release versioning.
 
 Development requires Rust (`runtime/rust-toolchain.toml`), Node.js 24 LTS, and
 pnpm 11.15.1:

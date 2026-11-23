@@ -2,6 +2,10 @@ import type { CollectionTypeDescriptor } from "./connect-types";
 import type { NoteSummary } from "./model";
 import { basename, folder, noteTitle } from "./note";
 
+export function internalLink(target: string): boolean {
+  return !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(target);
+}
+
 export interface LinkSuggestion {
   path: string;
   title: string;

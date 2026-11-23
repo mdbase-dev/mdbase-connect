@@ -71,6 +71,11 @@ msgctxt "Application permission"
 msgid "Additional operations declared by this application."
 msgstr "此应用声明的其他操作。"
 
+#: home.tsx
+msgctxt "AI clients"
+msgid "AI clients via mdbase plugins & MCP"
+msgstr "通过 mdbase 插件和 MCP 连接的 AI 客户端"
+
 #: access.ts
 msgctxt "Application permission"
 msgid "Cancel this app's scheduled activity"
@@ -110,6 +115,21 @@ msgstr "检查此应用需要进行哪些设置"
 #: contract-setup.ts
 msgid "Choose which field supplies {0}."
 msgstr "选择提供 {0} 的字段。"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Claude, ChatGPT & Codex"
+msgstr "Claude、ChatGPT 和 Codex"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Copied"
+msgstr "已复制"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Copy"
+msgstr "复制"
 
 #: access.ts
 msgctxt "Application permission"
@@ -290,6 +310,11 @@ msgstr "查看已保存的视图"
 msgctxt "Application permission"
 msgid "See this app's scheduled activity"
 msgstr "查看此应用的计划活动"
+
+#: home.tsx
+msgctxt "AI clients"
+msgid "Set up"
+msgstr "设置"
 
 #: access.ts
 msgctxt "Application permission"

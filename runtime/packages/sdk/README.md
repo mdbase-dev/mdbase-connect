@@ -22,6 +22,26 @@ Pin an exact version, not a range. The npm package trusts the production
 service only. Staging and LAB builds use separate packages; see
 [SDK publication](../../../docs/sdk-publication.md).
 
+## Pair a self-hosted browser client
+
+With `@mdbase-dev/sdk/direct`, pass the operator’s exact server descriptor and
+single-use code to `pairDirect({ server, code })`. Save `{ server, token }` in
+`createDirectGrantStore`, where `token` is the opaque string returned by pairing.
+Pass both values back to `connectDirect({ server, token, app })`. Keep the
+grant out of URLs and logs.
+
+For a pinned WebTransport invitation, the SDK uses the invitation’s single
+certificate hash to redeem the code. That authenticated reply authorizes 32
+consecutive 12-day UTC slots. Reconnects use the local clock to select adjacent
+authorized certificates within that calendar. A clock outside the calendar
+causes an `unavailable` error and preserves the saved grant. After the final
+slot, or to change the server descriptor, pair again with a trusted invitation.
+Pairing and reconnecting to an ordinary HTTPS origin use WSS.
+
+A `pairDirect` failure with `reason === "code_not_sent"` happened before
+the code left the browser, so the same code can be entered again. Any other
+`unavailable` pairing failure may have redeemed the code.
+
 ## Quick start
 
 An app declares itself with its manifest, the `mdbase-app.json` it serves at

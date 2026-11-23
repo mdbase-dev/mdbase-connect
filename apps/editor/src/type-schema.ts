@@ -203,17 +203,56 @@ export function removeTypeReadDefault(source: string, field: string): string {
   return mutate(source, (document) => deleteInAndPrune(document, ["collection", "read_defaults", field]));
 }
 
-export function addTypeLinkRule(source: string, field: string): string {
-  return mutate(source, (document) => {
-    if (document.getIn(["collection", "links", field]) !== undefined) {
-      throw new Error(t`A link rule for “${field}” already exists.`);
-    }
-    document.setIn(["collection", "links", field], {});
-  });
+/** A field that links to records: text, or a list of text, with a link rule. */
+export interface TypeFieldLink {
+  rule: TypeLinkRuleDefinition;
+  /** The field is a list of links (`field[]`), not one link. */
+  many: boolean;
 }
 
-export function renameTypeLinkRule(source: string, from: string, to: string): string {
-  return renameCollectionMapEntry(source, ["collection", "links"], from, to, t`link rule`);
+/** The link a field declares, if it is one. A rule belongs to the text value
+ * it names: the field itself, or the items of a list field. */
+export function typeFieldLink(definition: VisualTypeDefinition, field: TypeSchemaNode): TypeFieldLink | undefined {
+  const label = typeFieldPathLabel(field.path);
+  const rule = (key: string) => definition.collection.links.find((candidate) => candidate.field === key);
+  const one = field.kind === "string" ? rule(label) : undefined;
+  if (one) return { rule: one, many: false };
+  const many = field.kind === "array" && field.item?.kind === "string" ? rule(`${label}[]`) : undefined;
+  return many ? { rule: many, many: true } : undefined;
+}
+
+/** Link rules no field in the visual editor shows: their field is undeclared,
+ * supplied by a linked schema, or not text. They stay in YAML. */
+export function unattachedTypeLinkRules(definition: VisualTypeDefinition): TypeLinkRuleDefinition[] {
+  const attached = new Set<string>();
+  const visit = (node: TypeSchemaNode) => {
+    const link = typeFieldLink(definition, node);
+    if (link) attached.add(link.rule.field);
+    node.fields.forEach(visit);
+    if (node.item) visit(node.item);
+  };
+  definition.fields.forEach(visit);
+  return definition.collection.links.filter((rule) => !attached.has(rule.field));
+}
+
+/** Makes a field a link, or a list of links: its schema becomes text (or a
+ * list of text) and it gains a link rule. A field that already links keeps
+ * its rule's settings when it changes between one link and several. */
+export function setTypeFieldLink(source: string, pathOrName: TypeSchemaPath | string, many: boolean): string {
+  const path = fieldPath(pathOrName);
+  const label = typeFieldPathLabel(path);
+  return mutate(source, (document) => {
+    const existing = document.getIn(["collection", "links", label]) ?? document.getIn(["collection", "links", `${label}[]`]);
+    // Text, or a list of text, already has the shape: its own rules (a pattern, an item count) stay.
+    const node = document.getIn([...SCHEMA_ROOT, ...path]);
+    const schema = record(isMap(node) ? node.toJSON() : node);
+    const fits = many
+      ? fieldKind(schema) === "array" && fieldKind(record(schema.items)) === "string"
+      : fieldKind(schema) === "string";
+    if (!fits) replaceSchemaKind(document, path, many ? "array" : "string");
+    deleteLinkRulesUnder(document, label);
+    document.setIn(["collection", "links", many ? `${label}[]` : label], existing ?? {});
+  });
 }
 
 export function setTypeLinkRule(
@@ -232,10 +271,6 @@ export function setTypeLinkRule(
 export function setTypeLinkTargets(source: string, field: string, targetTypes: string[]): string {
   const values = normalizedStrings(targetTypes);
   return setTypeLinkRule(source, field, "target_type", values.length > 1 ? values : values[0]);
-}
-
-export function removeTypeLinkRule(source: string, field: string): string {
-  return mutate(source, (document) => deleteInAndPrune(document, ["collection", "links", field]));
 }
 
 export function addTypeUniqueRule(source: string, field: string): string {
@@ -318,16 +353,24 @@ export function renameTypeField(source: string, pathOrName: TypeSchemaPath | str
     const required = requiredFields(document, parentPath).map((field) => field === from ? name : field);
     setRequiredFields(document, parentPath, required);
     renameContractFieldReferences(document, schemaValuePath(path), schemaValuePath(nextPath));
+    renameLinkRulesUnder(document, typeFieldPathLabel(path), typeFieldPathLabel(nextPath));
   });
 }
 
 export function setTypeFieldKind(source: string, pathOrName: TypeSchemaPath | string, kind: Exclude<TypeFieldKind, "advanced">): string {
   const path = fieldPath(pathOrName);
-  return mutate(source, (document) => replaceSchemaKind(document, path, kind));
+  return mutate(source, (document) => {
+    replaceSchemaKind(document, path, kind);
+    // The values the rules described are gone with the old structure.
+    deleteLinkRulesUnder(document, typeFieldPathLabel(path));
+  });
 }
 
 export function setTypeListItemKind(source: string, arrayPath: TypeSchemaPath, kind: Exclude<TypeFieldKind, "advanced">): string {
-  return mutate(source, (document) => replaceSchemaKind(document, [...arrayPath, "items"], kind));
+  return mutate(source, (document) => {
+    replaceSchemaKind(document, [...arrayPath, "items"], kind);
+    deleteLinkRulesUnder(document, typeFieldPathLabel([...arrayPath, "items"]));
+  });
 }
 
 export function typeFieldConversionImpact(source: string, pathOrName: TypeSchemaPath | string, kind: Exclude<TypeFieldKind, "advanced">): string[] {
@@ -378,6 +421,7 @@ export function removeTypeField(source: string, pathOrName: TypeSchemaPath | str
   return mutate(source, (document) => {
     document.deleteIn([...SCHEMA_ROOT, ...path]);
     setRequiredFields(document, parentPath, requiredFields(document, parentPath).filter((field) => field !== name));
+    deleteLinkRulesUnder(document, typeFieldPathLabel(path));
   });
 }
 
@@ -961,6 +1005,28 @@ function array(value: unknown): unknown[] {
 
 function normalizedStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
+}
+
+/** Link rule keys for the value at `label` or anything inside it (`label[]`, `label.child`). */
+function linkRuleKeysUnder(document: Document, label: string): string[] {
+  const links = document.getIn(["collection", "links"]);
+  if (!isMap(links)) return [];
+  return links.items.flatMap((pair) => {
+    const key = isScalar(pair.key) ? pair.key.value : pair.key;
+    return typeof key === "string" && (key === label || key.startsWith(`${label}.`) || key.startsWith(`${label}[`)) ? [key] : [];
+  });
+}
+
+function deleteLinkRulesUnder(document: Document, label: string) {
+  for (const key of linkRuleKeysUnder(document, label)) deleteInAndPrune(document, ["collection", "links", key]);
+}
+
+function renameLinkRulesUnder(document: Document, from: string, to: string) {
+  for (const key of linkRuleKeysUnder(document, from)) {
+    const rule = document.getIn(["collection", "links", key]);
+    document.deleteIn(["collection", "links", key]);
+    document.setIn(["collection", "links", `${to}${key.slice(from.length)}`], rule);
+  }
 }
 
 function renameCollectionMapEntry(source: string, parentPath: string[], from: string, to: string, label: string): string {

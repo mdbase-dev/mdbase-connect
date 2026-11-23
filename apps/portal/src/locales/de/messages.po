@@ -665,6 +665,10 @@ msgstr "Sie haben bereits ein Konto? <0>Anmelden</0>"
 msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 msgstr "Bereits erlaubter Zugriff bleibt bestehen. Widerrufe ihn separat, wenn du ihn nicht mehr möchtest."
 
+#: src/authorization-view.tsx
+msgid "Also works with {collectionName}"
+msgstr "Funktioniert auch mit {collectionName}"
+
 #: src/AccountManagement.tsx
 msgid "Always on"
 msgstr "Immer aktiviert"
@@ -1513,6 +1517,10 @@ msgctxt "Connect interface"
 msgid "Downloads only"
 msgstr "Nur Downloads"
 
+#: src/authorization-view.tsx
+msgid "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+msgstr "Jede App fragt vor dem Zugriff auf {collectionName} nach Ihrer Zustimmung. Ihre Dateien bleiben gewöhnliches Markdown."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
@@ -1955,10 +1963,6 @@ msgid "Loading the request…"
 msgstr "Anfrage wird geladen…"
 
 #: src/AccountManagement.tsx
-msgid "Local collection and mirror files remain on your computers."
-msgstr "Lokale Sammlungs- und Spiegeldateien bleiben auf Ihren Computern."
-
-#: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
 msgstr "Lokale Sammlungsdateien bleiben auf Ihren Computern und werden hier nicht erfasst."
 
@@ -2299,6 +2303,8 @@ msgstr "Nur {0}. Versteckte Ordner sind immer ausgeschlossen."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Nur diese Typdefinition wird geändert. Bestehende Datensätze bleiben erhalten. Die Einrichtung wird überprüft, bevor der Zugriff aktiv wird."
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open"
 msgstr "Öffnen"
@@ -2306,6 +2312,8 @@ msgstr "Öffnen"
 #. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "{0} öffnen"
@@ -2381,6 +2389,11 @@ msgstr "Öffnen Sie den Link aus der E-Mail erneut oder ändern Sie Ihre E-Mail-
 #: src/ConnectApp.tsx
 msgid "Open the mdbase Connect desktop app and choose Connect this computer."
 msgstr "Öffnen Sie die Desktop-App mdbase Connect und wählen Sie „Diesen Computer verbinden“."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open this collection in"
+msgstr "Diese Sammlung öffnen in"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -3197,6 +3210,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "Abmeldung läuft…"
 
+#: src/AccountManagement.tsx
 #: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts

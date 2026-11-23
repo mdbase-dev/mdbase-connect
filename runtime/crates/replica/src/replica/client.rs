@@ -23,7 +23,7 @@ use mdbn_wire::common::{Hash, Uuid, Value, Version};
 use mdbn_wire::policy::Role;
 
 use super::submit::store_err;
-use super::{Replica, Session};
+use super::{Replica, Session, local_web};
 use crate::api::{
     ApiResult, CallbackId, ChangesResult, ClientApi, ConflictEntry, Describe, ErrorCode,
     FenceEditor, FenceResult, FileList, HoldResolution, ListFiles, NewTypeFile, PendingDevice,
@@ -51,6 +51,11 @@ pub const ALL_CAPABILITIES: [&str; 9] = [
     "offline.replica",
     "history.read",
 ];
+
+const LOCAL_WEB_CAPABILITIES: [&str; 4] = {
+    use crate::policy::capability::{CREATE, DELETE, EDIT, READ};
+    [READ, CREATE, EDIT, DELETE]
+};
 
 fn not_yet<T>(what: &str) -> ApiResult<T> {
     Err(ErrorCode::Unavailable
@@ -93,6 +98,10 @@ impl<S: Store> Replica<S> {
         self.check_apply_health()?;
         self.sessions
             .get(&s)
+            .filter(|session| match session.auth {
+                SessionAuth::LocalWeb(owner) => self.local_web_live(owner),
+                _ => true,
+            })
             .ok_or_else(|| ErrorCode::Unauthenticated.err("no such session"))
     }
 
@@ -274,6 +283,20 @@ impl<S: Store> Replica<S> {
                     file_folders: None,
                 }
             }
+            SessionAuth::LocalWeb(owner) => {
+                if !self.local_web_live(*owner) {
+                    return Err(local_web::revoked());
+                }
+                GrantInfo {
+                    grant: None,
+                    capabilities: LOCAL_WEB_CAPABILITIES
+                        .iter()
+                        .map(|cap| (*cap).into())
+                        .collect(),
+                    role: Role::Editor,
+                    file_folders: None,
+                }
+            }
             SessionAuth::Grant { grant, client_pk } => {
                 if let Err(why) = self.serves_apps() {
                     return Err(ErrorCode::Unavailable.err_with_reason("untrusted", why));
@@ -309,14 +332,54 @@ impl<S: Store> Replica<S> {
     pub(crate) fn session_status(&self, session: SessionId) -> ApiResult<SyncStatus> {
         let mut status = self.sync_status();
         let auth = &self.session(session)?.auth;
+        self.scope_web_status(auth, &mut status)?;
         status.grant = self.session_grant(auth).ok();
         Ok(status)
+    }
+
+    pub(super) fn scope_web_status(
+        &self,
+        auth: &SessionAuth,
+        status: &mut SyncStatus,
+    ) -> ApiResult<()> {
+        if let SessionAuth::LocalWeb(owner) = auth {
+            status.oldest_pending = None;
+            if status.pending == 0 {
+                return Ok(());
+            }
+            if status.pending > u64::from(pending::SCAN_ROWS) {
+                return Err(ErrorCode::TooLarge.err_with_reason(
+                    "pending_inventory_budget",
+                    "pending status exceeds the local web scan limit",
+                ));
+            }
+            status.pending = 0;
+            let mut after = None;
+            while let Some(row) = self.store.pending(after, 1).map_err(store_err)?.pop() {
+                after = Some(row.order);
+                if local_web::pending_owner(&row) == Some(*owner) {
+                    status.pending += 1;
+                    status
+                        .oldest_pending
+                        .get_or_insert(row.mutation.clock.instant);
+                }
+            }
+        }
+        Ok(())
     }
 
     /// The session, checked for `cap` against its grant in the current confirmed
     /// policy (`policy.md` §7). A synced host also follows its member role.
     pub(crate) fn require(&self, s: SessionId, cap: &str) -> ApiResult<()> {
         let sess = self.session(s)?;
+        if matches!(sess.auth, SessionAuth::LocalWeb(_)) {
+            return if self.local_only() && LOCAL_WEB_CAPABILITIES.contains(&cap) {
+                Ok(())
+            } else {
+                Err(ErrorCode::Forbidden
+                    .err_with_reason("local_web_scope", "capability outside local web scope"))
+            };
+        }
         let SessionAuth::Grant { grant, client_pk } = &sess.auth else {
             if cap != crate::policy::capability::READ && self.host_is_viewer() {
                 return Err(ErrorCode::Forbidden.err_with_reason(
@@ -400,6 +463,7 @@ impl<S: Store> Replica<S> {
         };
         match &session.auth {
             SessionAuth::Host => true,
+            SessionAuth::LocalWeb(_) => true,
             SessionAuth::Grant { grant, client_pk } => {
                 self.serves_apps().is_ok()
                     && self
@@ -459,7 +523,7 @@ impl<S: Store> Replica<S> {
                     }
                     Ok(_) => None,
                 },
-                SessionAuth::Host => None,
+                SessionAuth::Host | SessionAuth::LocalWeb(_) => None,
             })
             .collect();
         for (id, problem) in gone {
@@ -478,7 +542,7 @@ impl<S: Store> Replica<S> {
     pub(super) fn host_only(&self, s: SessionId) -> ApiResult<()> {
         match self.session(s)?.auth {
             SessionAuth::Host => Ok(()),
-            SessionAuth::Grant { .. } => {
+            SessionAuth::Grant { .. } | SessionAuth::LocalWeb(_) => {
                 Err(ErrorCode::Forbidden.err("only the hosting app may do this"))
             }
         }
@@ -667,6 +731,8 @@ impl<S: Store> Replica<S> {
     }
 }
 
+const LOCAL_WEB_FEATURES: &[&str] = &["bases-discovery-unreadable-v1"];
+
 /// `hello` features this build grants when asked (`replica-client-api.md` §2).
 /// `attachment-v1` is bare codec support only (`intent.md` §3.11); the
 /// qualified directions are decided per replica by `attachment_direction`.
@@ -698,6 +764,58 @@ impl<S: Store> Replica<S> {
 }
 
 impl<S: Store> ClientApi for Replica<S> {
+    fn authorize_frame(&self, session: SessionId, method: &str) -> ApiResult<()> {
+        if !self
+            .sessions
+            .get(&session)
+            .is_some_and(|sess| matches!(sess.auth, SessionAuth::LocalWeb(_)))
+        {
+            return Ok(());
+        }
+        self.session(session)?;
+        if matches!(
+            method,
+            "cancel"
+                | "cancel_stream"
+                | "submit"
+                | "await"
+                | "receipt"
+                | "validate"
+                | "describe"
+                | "get"
+                | "query"
+                | "subscribe"
+                | "unsubscribe"
+                | "changes"
+                | "backlinks"
+                | "resolve_links"
+                | "get_resource"
+                | "list_resources"
+                | "get_contract_v1"
+                | "query_contract_v1"
+                | "map_contract_write_v1"
+                | "app_bases_execute_v1"
+                | "app_bases_list_views_v1"
+                | "app_bases_read_view_source_v1"
+                | "get_status"
+                | "subscribe_status"
+                | "list_pending"
+                | "list_files"
+                | "get_file"
+                | "open_upload"
+                | "upload_chunk"
+                | "commit_upload"
+                | "abort_upload"
+                | "read_file"
+                | "ack_chunks"
+        ) {
+            Ok(())
+        } else {
+            Err(ErrorCode::Forbidden
+                .err_with_reason("local_web_scope", "method outside local web scope"))
+        }
+    }
+
     fn app_collection_setup(&mut self, session: SessionId, request: &[u8]) -> ApiResult<Vec<u8>> {
         self.declared_setup_rpc(session, request)
     }
@@ -733,6 +851,9 @@ impl<S: Store> ClientApi for Replica<S> {
             .cloned()
             .ok_or_else(|| ErrorCode::UpgradeRequired.err("no common API version"))?;
         let grant_info = self.session_grant(&auth)?;
+        let local_web = matches!(auth, SessionAuth::LocalWeb(_));
+        let mut status = self.sync_status();
+        self.scope_web_status(&auth, &mut status)?;
         if let Some(tz) = &params.timezone
             && self.host.zones.local_date(0, tz).is_none()
         {
@@ -751,20 +872,23 @@ impl<S: Store> ClientApi for Replica<S> {
                 conflicts_sub: false,
                 pending_cursors: Default::default(),
                 pending_time_floor: i64::MIN,
-                file_stream_failure: params.features.as_ref().is_some_and(|features| {
-                    features
-                        .iter()
-                        .any(|f| f == super::client_files::FILE_STREAM_FAILURE_FEATURE)
-                }),
+                file_stream_failure: !local_web
+                    && params.features.as_ref().is_some_and(|features| {
+                        features
+                            .iter()
+                            .any(|f| f == super::client_files::FILE_STREAM_FAILURE_FEATURE)
+                    }),
             },
         );
         let setup_supported = self
             .sessions
             .get(&id)
-            .and_then(|s| s.grant())
+            .and_then(|s| match s.auth {
+                SessionAuth::Grant { grant, .. } => Some(grant),
+                _ => None,
+            })
             .is_some_and(|grant| self.supports_declared_setup(grant));
         let wanted = params.features.clone().unwrap_or_default();
-        let status = self.sync_status();
         let head_witness = status
             .confirmed_head
             .as_ref()
@@ -785,9 +909,14 @@ impl<S: Store> ClientApi for Replica<S> {
                 features: wanted
                     .into_iter()
                     .filter(|f| {
-                        GRANTABLE_FEATURES.contains(&f.as_str())
-                            || (setup_supported && f == super::collection_setup::SETUP_RPC_FEATURE)
-                            || self.attachment_direction(f.as_str())
+                        if local_web {
+                            LOCAL_WEB_FEATURES.contains(&f.as_str())
+                        } else {
+                            GRANTABLE_FEATURES.contains(&f.as_str())
+                                || (setup_supported
+                                    && f == super::collection_setup::SETUP_RPC_FEATURE)
+                                || self.attachment_direction(f.as_str())
+                        }
                     })
                     .collect(),
                 head_witness,
@@ -796,6 +925,7 @@ impl<S: Store> ClientApi for Replica<S> {
     }
 
     fn close(&mut self, session: SessionId) {
+        self.local_web_close(session);
         self.hosted_drop_session(session);
         self.client_files_close(session);
         self.sessions.remove(&session);
@@ -1200,18 +1330,30 @@ impl<S: Store> ClientApi for Replica<S> {
         session: SessionId,
         params: OpenUploadParams,
     ) -> ApiResult<OpenUploadResult> {
+        if self.session(session)?.auth.local_web_owner().is_some() {
+            return self.local_web_open_upload(session, params);
+        }
         self.client_open_upload(session, params)
     }
 
     fn upload_chunk(&mut self, session: SessionId, params: UploadChunkParams) -> ApiResult<u64> {
+        if self.session(session)?.auth.local_web_owner().is_some() {
+            return self.local_web_upload_chunk(session, params);
+        }
         self.client_upload_chunk(session, params)
     }
 
     fn commit_upload(&mut self, session: SessionId, transfer: Uuid) -> ApiResult<Receipt> {
+        if self.session(session)?.auth.local_web_owner().is_some() {
+            return self.local_web_commit_upload(session, transfer);
+        }
         self.client_commit_upload(session, transfer)
     }
 
     fn abort_upload(&mut self, session: SessionId, transfer: Uuid) -> ApiResult<()> {
+        if self.session(session)?.auth.local_web_owner().is_some() {
+            return self.local_web_abort_upload(session, transfer);
+        }
         self.client_abort_upload(session, transfer)
     }
 
@@ -1222,14 +1364,23 @@ impl<S: Store> ClientApi for Replica<S> {
         range: Option<(u64, u64)>,
         revision: Option<Hash>,
     ) -> ApiResult<(StreamId, FileView)> {
+        if self.session(session)?.auth.local_web_owner().is_some() {
+            return self.local_web_read_file(session, target, range, revision);
+        }
         self.client_read_file(session, target, range, revision)
     }
 
     fn ack_chunks(&mut self, session: SessionId, stream: StreamId, offset: u64) -> ApiResult<()> {
+        if self.session(session)?.auth.local_web_owner().is_some() {
+            return Ok(());
+        }
         self.client_ack_chunks(session, stream, offset)
     }
 
     fn cancel_stream(&mut self, session: SessionId, stream: StreamId) -> ApiResult<()> {
+        if self.session(session)?.auth.local_web_owner().is_some() {
+            return Ok(());
+        }
         self.client_cancel_stream(session, stream)
     }
 

@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { i18n, useLocaleRevision } from "@mdbase-dev/ui/i18n";
-import { AppTile, appsByCollection, homeApps, officialAppsAt, type LaunchableApp } from "@mdbase/connect-ui/home";
+import { AppTile, McpConnectRow, appsByCollection, homeApps, officialAppsAt, type LaunchableApp } from "@mdbase/connect-ui/home";
 import type { ManagementOverview } from "@mdbase/connect-management";
 import type { applicationGroups } from "./ApplicationAccess";
 import { ConnectEmpty as Empty, ConnectPage as Page, ConnectSectionTitle as SectionTitle, RouteLink, type ConnectView } from "./ConnectPrimitives";
@@ -54,6 +54,7 @@ export function HomePage({ data, collections, applications, origins, navigate }:
       <ul className="app-grid">{suggested.map((app) => <OpenTile key={app.key} app={app} />)}</ul>
       <p className="home-note"><Trans>An app asks for access to a collection the first time you use it, and you choose what it can do.</Trans></p>
     </section>}
+    {origins && <div className="home-mcp"><McpConnectRow /></div>}
     <section aria-labelledby="home-collections">
       <SectionTitle id="home-collections" title={t(i18n)({ message: "Collections", context: "Connect interface" })} />
       {collections.length === 0

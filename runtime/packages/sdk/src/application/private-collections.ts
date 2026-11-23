@@ -279,7 +279,7 @@ export class ApplicationPrivateCollections {
       // A computer that is offline or not serving the collection yet is waited for:
       // say why meanwhile, and carry on opening once it serves (no new consent).
       const client = await (this.options.connect ?? defaultConnect(this.options.declaration))(grants, collectionId, signal, why => {
-        if (this.open === open && !signal.aborted && (why.reason === "not_served" || why.reason === "no_device_online"))
+        if (this.open === open && !signal.aborted && (why.reason === "not_served" || why.reason === "device_not_serving" || why.reason === "no_device_online"))
           this.set(open, { status: "blocked", problem: problemOf(why), problemDetail: problemDetailOf(why), readiness: readiness(false, null) });
       });
       if (this.open !== open || signal.aborted || client.collection !== collectionId) { client.close(); if (this.open === open && !signal.aborted) throw mdbaseError("invalid_request", "a different collection opened", "collection_mismatch"); return; }

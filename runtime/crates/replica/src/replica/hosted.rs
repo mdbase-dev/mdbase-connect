@@ -1011,6 +1011,7 @@ impl<S: Store> Replica<HostedCache<S>> {
         };
         match &sess.auth {
             crate::api::SessionAuth::Host => true,
+            crate::api::SessionAuth::LocalWeb(_) => false,
             crate::api::SessionAuth::Grant { grant, client_pk } => {
                 self.grant_for_client(grant, client_pk)
                     .is_ok_and(|g| self.serving_account_matches(&g.account))

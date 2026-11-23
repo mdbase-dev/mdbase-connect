@@ -3,7 +3,7 @@ import { displayLocale } from "./i18n/format";
 import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useOverlay } from "@mdbase-dev/ui/overlay";
 import type { CollectionTypeDescriptor } from "./connect-types";
@@ -17,10 +17,10 @@ import { noteSortSummary, type NoteSort, type NoteSortPreference, type SortField
 import { NoteListViewOptions } from "./NoteListViewOptions";
 import { searchTextRanges, type NoteSearchContext, type NoteSearchResult, type SearchTextRange } from "./note-search";
 import { SearchMatchText } from "./SearchMatchText";
+import { TypeIcon } from "./TypeIcon";
 import { browserListItems, noteAndFileCount, collectionFileFormat, collectionFileTitle, formatFileSize, type CollectionBrowserEntry } from "./collection-browser";
 
 // The glyph font is large; rows reserve the icon's space and draw it once the font module arrives.
-const PhosphorIcon = lazy(() => import("./PhosphorIcon").then((module) => ({ default: module.PhosphorIcon })));
 
 const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: true, Home: true, End: true, PageDown: true, PageUp: true };
 
@@ -333,7 +333,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
             event.preventDefault();
             onOpenInNewTab(note.path);
           }}>
-          <span className="note-title-line">{typeIcons && <span className="note-type-icon" aria-hidden="true">{icon && <Suspense fallback={null}><PhosphorIcon name={icon} /></Suspense>}</span>}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span>{compact && status?.label && <span className="note-transition">{status.label}</span>}</span>
+          <span className="note-title-line">{typeIcons && <span className="note-type-icon" aria-hidden="true"><TypeIcon name={icon} /></span>}<span className="note-title"><SearchMatchText text={title} ranges={searchQuery ? searchTextRanges(title, searchQuery) : []} /></span>{compact && status?.label && <span className="note-transition">{status.label}</span>}</span>
           {!compact && <>
             {secondLine
               ? <span id={secondLine.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} aria-hidden={secondLine.kind === "excerpt" || undefined} className={`note-excerpt${secondLine.kind === "excerpt" ? "" : ` note-search-context ${secondLine.kind}`}`}><SearchMatchText text={secondLine.text} ranges={secondLine.ranges} /></span>

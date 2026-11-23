@@ -50,6 +50,7 @@ import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions, type LinkOpening } from "./code-editor-writer-interactions";
 import type { LinkTargets } from "./collection-links";
+import type { CreateLinkedRecord } from "./LinkPropertyEditor";
 import type { LinkSuggestion } from "./links";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
@@ -85,6 +86,8 @@ interface CodeEditorProps {
   recentPaths?: string[];
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
+  /** Makes a record to link to from the `[[` and `@` suggestions. */
+  onCreateLinked?: CreateLinkedRecord;
   /** Opens a linked note, in a new tab when the click asked for one. */
   onOpenLink?: (path: string, options?: LinkOpening) => void;
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
@@ -167,6 +170,7 @@ export function CodeEditor({
   recentPaths = EMPTY_STRINGS,
   linkSuggestions = EMPTY_SUGGESTIONS,
   linkTypes = EMPTY_STRINGS,
+  onCreateLinked,
   onOpenLink,
   onCreateLink,
   onPreviewLink,
@@ -221,6 +225,7 @@ export function CodeEditor({
   const phraseMode = useRef(new Compartment());
   const linkSuggestionsRef = useRef(linkSuggestions);
   const linkTypesRef = useRef(linkTypes);
+  const createLinkedRef = useRef(onCreateLinked);
   const recentPathsRef = useRef(recentPaths);
   const currentPathRef = useRef(currentPath);
   const linkTargetsRef = useRef(linkTargets);
@@ -273,6 +278,7 @@ export function CodeEditor({
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
+  createLinkedRef.current = onCreateLinked;
   recentPathsRef.current = recentPaths;
   currentPathRef.current = currentPath;
   linkTargetsRef.current = linkTargets;
@@ -317,7 +323,8 @@ export function CodeEditor({
         () => recentPathsRef.current,
         () => filesRef.current,
         () => notesRef.current,
-        () => linkTargetsRef.current
+        () => linkTargetsRef.current,
+        () => createLinkedRef.current
       ) : []),
       writerLint.current.of(variant === "writer" && language === "markdown" ? referenceDiagnostics(
         () => linkTargetsRef.current,
@@ -465,7 +472,8 @@ export function CodeEditor({
         () => recentPathsRef.current,
         () => filesRef.current,
         () => notesRef.current,
-        () => linkTargetsRef.current
+        () => linkTargetsRef.current,
+        () => createLinkedRef.current
       ) : [])
     });
   }, [language, variant]);

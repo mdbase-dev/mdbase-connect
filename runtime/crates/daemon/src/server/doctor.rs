@@ -79,32 +79,7 @@ impl Daemon {
         }
         for h in &inner.hosts {
             let s = h.status();
-            let (status, action) = match s.reason.as_deref() {
-                Some("folder_missing") => (
-                    "fail",
-                    Some(
-                        "Reconnect the folder's drive, or `mdbase collection remove`.".to_string(),
-                    ),
-                ),
-                Some("joining_sync" | "detached_sync") => (
-                    "warn",
-                    Some("Keep the folder editable; join proof is pending. Abandon/rejoin must be explicit.".into()),
-                ),
-                Some("runtime_pending") => ("warn", None),
-                _ => ("ok", None),
-            };
-            checks.push(Check {
-                id: format!("collection:{}", s.id),
-                status: status.into(),
-                detail: format!(
-                    "{} at {}: {:?}{}",
-                    s.name,
-                    s.root.display(),
-                    s.state,
-                    s.reason.map(|r| format!(" ({r})")).unwrap_or_default()
-                ),
-                action,
-            });
+            checks.push(collection_check(&s));
             if let Some(c) = adopt_check(
                 &self.profile.state_dir.join("collections"),
                 h.entry(),
@@ -180,4 +155,124 @@ fn adopt_check(
         detail: format!("{}: turning sync on was interrupted", e.name),
         action: Some(format!("Run `mdbase sync enable {}` to finish.", e.id)),
     })
+}
+
+/// A collection's doctor check, graded by its state: one that is not served
+/// never reads `ok`. The action is the collection's own notice for its reason
+/// when it has one (for `sync_integrity`, when it reopens and how to retry now).
+pub(super) fn collection_check(s: &CollectionStatus) -> Check {
+    let notice = || {
+        s.notices
+            .iter()
+            .find(|n| Some(n.code.as_str()) == s.reason.as_deref())
+            .map(|n| n.message.clone())
+    };
+    let (status, action) = match (s.state, s.reason.as_deref()) {
+        (_, Some("folder_missing")) => (
+            "fail",
+            Some("Reconnect the folder's drive, or `mdbase collection remove`.".to_string()),
+        ),
+        (_, Some("joining_sync" | "detached_sync")) => (
+            "warn",
+            Some("Keep the folder editable; join proof is pending. Abandon/rejoin must be explicit.".into()),
+        ),
+        (_, Some("runtime_pending")) => ("warn", None),
+        (crate::control::CollectionState::Failed, _) => (
+            "fail",
+            Some(notice().unwrap_or_else(|| {
+                "Apps cannot use it. `mdbase logs` has the details; `mdbase collection resume` retries."
+                    .into()
+            })),
+        ),
+        (crate::control::CollectionState::Unavailable, _) => ("warn", notice()),
+        _ => ("ok", None),
+    };
+    Check {
+        id: format!("collection:{}", s.id),
+        status: status.into(),
+        detail: format!(
+            "{} at {}: {:?}{}",
+            s.name,
+            s.root.display(),
+            s.state,
+            s.reason
+                .as_ref()
+                .map(|r| format!(" ({r})"))
+                .unwrap_or_default()
+        ),
+        action,
+    }
+}
+
+#[cfg(test)]
+mod collection_check_tests {
+    use super::collection_check;
+    use crate::control::CollectionStatus;
+
+    /// A status as `mdbase --json status` prints it.
+    fn status(state: &str, reason: Option<&str>, notices: serde_json::Value) -> CollectionStatus {
+        serde_json::from_value(serde_json::json!({
+            "id": "900c5d48-4901-4a3a-9bdb-eb4b02c9930f",
+            "name": "Notes (Reader)",
+            "root": "/home/u/notes-reader",
+            "mode": "synced_e2e",
+            "origin": "migrated_local",
+            "log": "hosted",
+            "state": state,
+            "reason": reason,
+            "notices": notices,
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_failed_collection_fails_with_its_own_notice() {
+        let notice = "Sync stopped after a consistency check failed; mdbase reopens it automatically in about 5 minutes (attempt 3).";
+        let c = collection_check(&status(
+            "failed",
+            Some("sync_integrity"),
+            serde_json::json!([
+                {"code": "app_access_added", "message": "Reader can now use this collection"},
+                {"code": "sync_integrity", "message": notice},
+            ]),
+        ));
+        assert_eq!(c.status, "fail", "{}", c.detail);
+        assert!(c.detail.contains("Failed (sync_integrity)"), "{}", c.detail);
+        assert_eq!(c.action.as_deref(), Some(notice));
+
+        let c = collection_check(&status(
+            "failed",
+            Some("open_failed"),
+            serde_json::json!([]),
+        ));
+        assert_eq!(c.status, "fail");
+        assert!(c.action.unwrap().contains("mdbase logs"));
+    }
+
+    #[test]
+    fn unavailable_warns_and_serving_or_paused_is_ok() {
+        let c = collection_check(&status(
+            "unavailable",
+            Some("old_connector_running"),
+            serde_json::json!([{"code": "old_connector_running", "message": "Quit the old mdbase Connect."}]),
+        ));
+        assert_eq!(c.status, "warn");
+        assert_eq!(c.action.as_deref(), Some("Quit the old mdbase Connect."));
+        for state in ["ready", "syncing", "opening", "paused"] {
+            assert_eq!(
+                collection_check(&status(state, None, serde_json::json!([]))).status,
+                "ok",
+                "{state}"
+            );
+        }
+        assert_eq!(
+            collection_check(&status(
+                "opening",
+                Some("runtime_pending"),
+                serde_json::json!([])
+            ))
+            .status,
+            "warn"
+        );
+    }
 }

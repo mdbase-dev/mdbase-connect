@@ -49,6 +49,8 @@
   --app-editor: light-dark(#005c88, #63b1e2);
   --app-reader: light-dark(#a4467f, #e08cc0);
   --app-writer: light-dark(#d55e00, #f58d4a);
+  --app-journal: light-dark(#00785a, #4cc3a0);
+  --app-tasknotes: light-dark(#356f96, #6db0dc);
   --sans: "IBM Plex Sans", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --mono: "Azeret Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   /* Six steps: captions, UI chrome, section titles, prose, headings, document titles. */

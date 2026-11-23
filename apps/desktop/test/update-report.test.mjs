@@ -33,6 +33,19 @@ test("a finished check reports the newer release and how this installation insta
   assert.equal(updateReport({ ...base, checked_at: undefined, phase: "idle" }, options), null);
 });
 
+test("a failed check is reported with its message, keeping the last check that worked", () => {
+  const now = new Date("2026-11-23T08:01:33.000Z");
+  const message = "Could not verify updates: ENOTEMPTY: directory not empty";
+  assert.deepEqual(updateReport({ ...base, phase: "failed", message }, { background: true, store: false }, now), {
+    schema_version: 1,
+    app_version: "0.1.0-beta.185",
+    checked_at: base.checked_at,
+    background: true,
+    failure: { at: "2026-11-23T08:01:33.000Z", message }
+  });
+  assert.equal(updateReport({ ...base, phase: "idle" }, { background: true, store: false }, now).failure, undefined);
+});
+
 test("the report replaces the previous one privately in the daemon's packaging directory", async () => {
   const state = await mkdtemp(join(tmpdir(), "mdbase-update-report-"));
   const report = updateReport({ ...base, phase: "idle" }, { background: false, store: false });

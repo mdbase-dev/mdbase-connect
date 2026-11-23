@@ -114,6 +114,7 @@ mod latch;
 mod live;
 pub use latch::Latch;
 mod local;
+mod local_web;
 mod mirror_install;
 mod query_cursor;
 mod query_driver;
@@ -426,6 +427,7 @@ impl Session {
     pub(crate) fn grant(&self) -> Option<Uuid> {
         match &self.auth {
             SessionAuth::Host => None,
+            SessionAuth::LocalWeb(owner) => Some(*owner),
             SessionAuth::Grant { grant, .. } => Some(*grant),
         }
     }
@@ -532,6 +534,7 @@ pub struct Replica<S: Store> {
     /// Why a queued grant approval was dropped at its turn (RAM only).
     pub(crate) grant_approval_failures: BTreeMap<Uuid, String>,
     pub(crate) sessions: BTreeMap<SessionId, Session>,
+    local_web: Option<local_web::Authority>,
     pub(crate) next_session: u64,
     pub(crate) submitted_by: BTreeMap<Uuid, SessionId>,
     pub(crate) pushes: Vec<(SessionId, Push)>,
@@ -922,6 +925,7 @@ impl<S: Store> Replica<S> {
             join_ahead: None,
             incidents: BTreeMap::new(),
             sessions: BTreeMap::new(),
+            local_web: None,
             next_session: 1,
             submitted_by: BTreeMap::new(),
             pushes: Vec::new(),
@@ -1304,6 +1308,9 @@ impl<S: Store> Replica<S> {
             for row in rows {
                 rows_seen += 1;
                 max_order = max_order.max(row.order);
+                if self.local_only() && local_web::pending_owner(&row).is_some() {
+                    continue;
+                }
                 let replan = !changed.is_empty() && row.touches.iter().any(|k| changed.contains(k));
                 let effects = if replan {
                     self.stats.replanned += 1;

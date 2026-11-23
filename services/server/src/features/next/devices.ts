@@ -13,6 +13,7 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { exactNextPermissionCapabilities } from "@mdbase-dev/connect-protocol/next-authorization";
 import type { DatabasePool, DatabaseQueryable } from "../../database-types.js";
+import { parseServingCollections } from "../relay/relay-compatibility.js";
 import type { RelayBrokerReply } from "../relay/relay-broker.js";
 import { ConnectorOperationError } from "../relay/relay-errors.js";
 import { NOISE_PIPE_CAPABILITY, type NoisePipes } from "./noise-pipes.js";
@@ -307,18 +308,32 @@ export function deviceBindDigest(connectorId: string, sessionId: string, nonce: 
  * did not offer `next_device_v1`.
  */
 export class NextRelayDevices {
-  private readonly sockets = new WeakMap<WebSocket, { nonce: Buffer; pipes: boolean; deviceId?: string; oldConnectorRunning: boolean; capabilities: readonly string[] }>();
+  private readonly sockets = new WeakMap<WebSocket, {
+    nonce: Buffer;
+    pipes: boolean;
+    deviceId?: string;
+    oldConnectorRunning: boolean;
+    servingCollections?: ReadonlySet<string>;
+    capabilities: readonly string[];
+  }>();
 
   constructor(private readonly db: DatabasePool, private readonly pipes?: NoisePipes) {}
 
   /** Text messages from the daemon that this module handles. */
   handlesMessage(type: unknown): boolean {
-    return type === "device_bind" || type === "pipe_close";
+    return type === "device_bind" || type === "pipe_close" || type === "serving_collections";
   }
 
   async handleMessage(socket: WebSocket, connectorId: string, sessionId: string, message: Record<string, unknown>): Promise<void> {
     if (message.type === "device_bind") return this.bind(socket, connectorId, sessionId, message);
-    if (this.boundDevice(socket)) this.pipes?.handleDeviceClose(socket, message);
+    if (!this.boundDevice(socket)) return;
+    if (message.type === "serving_collections") {
+      const state = this.sockets.get(socket);
+      const parsed = parseServingCollections(message.collections);
+      if (state && parsed !== undefined) state.servingCollections = new Set(parsed);
+      return;
+    }
+    this.pipes?.handleDeviceClose(socket, message);
   }
 
   /** Binary frames from the daemon: true when consumed as a Noise pipe frame. */
@@ -331,11 +346,17 @@ export class NextRelayDevices {
   }
 
   /** Extra `relay_welcome` fields: a fresh nonce when the connector offered the capability. */
-  /** `oldConnectorRunning` is the daemon's `relay_hello` report, held in memory for this socket only. */
-  welcome(socket: WebSocket, capabilities: readonly string[], oldConnectorRunning = false): { device_nonce?: string } {
+  /** `oldConnectorRunning` and `servingCollections` are the daemon's `relay_hello` reports, held in memory for this socket only. */
+  welcome(socket: WebSocket, capabilities: readonly string[], oldConnectorRunning = false, servingCollections?: readonly string[]): { device_nonce?: string } {
     if (!this.negotiated(capabilities)) return {};
     const nonce = randomBytes(32);
-    this.sockets.set(socket, { nonce, pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY), oldConnectorRunning, capabilities: [...capabilities] });
+    this.sockets.set(socket, {
+      nonce,
+      pipes: this.pipes !== undefined && capabilities.includes(NOISE_PIPE_CAPABILITY),
+      oldConnectorRunning,
+      ...(servingCollections !== undefined ? { servingCollections: new Set(servingCollections) } : {}),
+      capabilities: [...capabilities]
+    });
     return { device_nonce: nonce.toString("hex") };
   }
 
@@ -365,15 +386,26 @@ export class NextRelayDevices {
 
   /** Internal owner query; never pushes policy, opens a pipe, or sends a daemon frame. */
   presence(socket: WebSocket, generation: string, message: unknown): RelayBrokerReply {
-    const body = message as { device_id?: unknown } | null;
-    if (!body || typeof body !== "object" || Object.keys(body).length !== 1
-        || typeof body.device_id !== "string"
-        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(body.device_id)) {
+    const body = message as { device_id?: unknown; collection_id?: unknown } | null;
+    const keys = body && typeof body === "object" && !Array.isArray(body) ? Object.keys(body) : [];
+    const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const validKeys = keys.length > 0 && keys.every((key) => key === "device_id" || key === "collection_id");
+    const collectionId = typeof body?.collection_id === "string" ? body.collection_id.toLowerCase() : undefined;
+    if (!body || !validKeys
+        || typeof body.device_id !== "string" || !uuid.test(body.device_id)
+        || (body.collection_id !== undefined && (!collectionId || !uuid.test(collectionId)))) {
       return { version: 1, ok: false, error: { kind: "internal", code: "invalid_broker_command", message: "The relay command was invalid." } };
     }
     const bound = this.pipes?.isBound(socket, generation, body.device_id) ?? false;
-    // A bound daemon whose collections are still held by a legacy connector cannot serve them.
-    return { version: 1, ok: true, value: bound, ...(bound && this.sockets.get(socket)?.oldConnectorRunning ? { detail: { old_connector_running: true } } : {}) };
+    const state = this.sockets.get(socket);
+    // A bound daemon whose collections are still held by a legacy connector, or that
+    // reports it is not serving this collection, cannot serve it right now.
+    const detail: Record<string, unknown> = {};
+    if (bound && state?.oldConnectorRunning) detail.old_connector_running = true;
+    if (bound && collectionId && state?.servingCollections !== undefined && !state.servingCollections.has(collectionId)) {
+      detail.not_serving = true;
+    }
+    return { version: 1, ok: true, value: bound, ...(Object.keys(detail).length > 0 ? { detail } : {}) };
   }
 
   boundDevice(socket: WebSocket): string | undefined {

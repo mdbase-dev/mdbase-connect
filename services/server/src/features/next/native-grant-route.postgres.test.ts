@@ -297,6 +297,12 @@ describePostgres("Private native collection grants", () => {
     } finally {
       await binding.close();
     }
+    const notServing = await online(desktop, { not_serving: true });
+    try {
+      expect((await g.route()).json().availability).toEqual({ state: "unavailable", reason: "device_not_serving" });
+    } finally {
+      await notServing.close();
+    }
   });
 
   it("refuses other accounts' devices, unenrolled devices, revoked devices and non-members", async () => {

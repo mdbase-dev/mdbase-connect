@@ -56,6 +56,16 @@ pub(super) enum ConflictCmd {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Pair a web app with a local collection. Guided, foreground, no account.
+    #[cfg(unix)]
+    PairApp {
+        /// Markdown collection to serve (defaults to the current folder).
+        #[arg(default_value = ".")]
+        folder: PathBuf,
+    },
+    /// Serve one local collection with explicit transport and origin settings, or manage browser access.
+    #[cfg(unix)]
+    SelfHost(self_host::Args),
     /// Daemon and collection overview.
     Status,
     /// Manage the background daemon.
@@ -335,10 +345,15 @@ pub(super) enum AccessCmd {
         /// Grant ID.
         grant: String,
     },
-    /// Mark a new-access notice as seen.
+    /// Mark a new-access notice as seen: one grant's, or with `--collection`
+    /// every one of a collection. Apps waiting for approval stay waiting.
     Ack {
         /// Grant ID.
-        grant: String,
+        #[arg(required_unless_present = "collection", conflicts_with = "collection")]
+        grant: Option<String>,
+        /// Every new-access notice of this collection (ID, ID prefix or name).
+        #[arg(long)]
+        collection: Option<String>,
     },
 }
 

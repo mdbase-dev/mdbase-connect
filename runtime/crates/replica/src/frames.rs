@@ -482,7 +482,7 @@ impl Frames {
             };
             self.forward(api, session, push);
             if let Some(r) = settled {
-                self.settle(&r);
+                self.settle(session, &r);
             }
         }
         self.deferred_pump(api);
@@ -551,9 +551,21 @@ impl Frames {
         std::mem::take(&mut self.closed)
     }
 
-    fn settle(&mut self, r: &Receipt) {
+    /// Number of outstanding receipt waits on a session. Deferred file and
+    /// history calls have separate bounds enforced by their lanes.
+    pub fn receipt_waits(&self, session: SessionId) -> usize {
+        self.held
+            .iter()
+            .filter(|held| held.session == session)
+            .count()
+    }
+
+    fn settle(&mut self, session: SessionId, r: &Receipt) {
         let mut done = Vec::new();
         for (i, h) in self.held.iter_mut().enumerate() {
+            if h.session != session {
+                continue;
+            }
             if let Some(slot) = h.receipts.iter_mut().find(|x| x.mutation == r.mutation) {
                 *slot = r.clone();
             }
@@ -624,6 +636,10 @@ impl Frames {
     }
 
     fn on_request(&mut self, api: &mut dyn ClientApi, session: SessionId, r: ClientRequest) {
+        if let Err(error) = api.authorize_frame(session, &r.method) {
+            self.respond(session, r.id, Err(error));
+            return;
+        }
         let id = r.id;
         match r.method.as_str() {
             "cancel_stream" => {

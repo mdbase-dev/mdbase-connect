@@ -6,6 +6,34 @@ from [`runtime/crates/daemon`](../runtime/crates/daemon). See
 connector (`crates/connect-cli`, `connect-agent`) is no longer built, published
 or tested; see [legacy retirement](legacy-retirement.md).
 
+## Pair a browser with a local collection
+
+On Unix, run `mdbase pair-app [folder]` in a terminal. Choose an initialized
+collection containing `mdbase.yaml`. If another app hosts it, close the
+collection there first. This command serves the folder while the terminal is open.
+
+1. Open the direct-connection edition of your chosen app using its publisher's
+   instructions. From the address bar, copy the HTTPS scheme, hostname and any
+   non-default port. Leave off the path, query and fragment. Choose **add**,
+   paste the origin and check the exact site before confirming. A browser you
+   pair there can read and write this collection.
+2. Press Enter to continue with the displayed sites. Choose **This computer only**
+   for a local browser. For another device, match the host's address on their
+   shared Wi-Fi, Ethernet or VPN. Confirm the folder, sites and address.
+3. Choose **pair** and name the browser. Open the link on the selected network.
+   A private network link also has a QR code. Check the site in the browser
+   before entering the separate eight-digit code. Each site has one code at a
+   time, valid for three minutes and five attempts.
+4. The terminal reports when the host grants access. **List** shows granted
+   browsers and the latest pairing window if one remains. **Revoke** removes
+   the selected browser's access, including open sessions. To reuse a granted
+   label, revoke that browser first. To remove a whole site, restart setup and
+   choose **remove**. Confirming removal immediately revokes every grant and
+   outstanding code for that site, even if you then quit setup.
+
+For browser requirements, certificate expiry and unattended `mdbase self-host`
+commands, see [self-hosted web access](../runtime/docs/self-hosted.md).
+
 ## Collection deletion
 
 To delete a synced collection from the account:

@@ -116,6 +116,10 @@ msgctxt "table"
 msgid "Add row"
 msgstr "添加行"
 
+#: src/AppSwitcher.tsx
+msgid "AI clients (MCP)"
+msgstr "AI 客户端（MCP）"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Align center"
@@ -219,6 +223,7 @@ msgstr "无法打开 {collection}"
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
+#: src/QuickCreate.tsx
 msgid "Cancel"
 msgstr "取消"
 
@@ -277,6 +282,10 @@ msgstr "选择图片"
 msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "在那里选择或创建集合。"
+
+#: src/AppSwitcher.tsx
+msgid "Claude, ChatGPT and Codex"
+msgstr "Claude、ChatGPT 和 Codex"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"

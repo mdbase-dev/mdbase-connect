@@ -13,8 +13,9 @@ import {
   SidebarSimpleIcon as Sidebar,
   WarningCircleIcon as CircleAlert,
 } from "./icons";
-import type { NoteSummary } from "./model";
-import { noteTitle, type NoteHeading } from "./note";
+import { backlinkGroups, type LinkingNote } from "./collection-links";
+import { noteTitle, typeDisplayName, type NoteHeading } from "./note";
+import { TypeIcon } from "./TypeIcon";
 import type { NoteActivity, SaveState } from "./note-session";
 import { SaveNotice, type SaveTone } from "@mdbase-dev/ui/save-notice";
 import type { UnlinkedMention } from "./unlinked-mentions";
@@ -55,7 +56,7 @@ export function SaveIndicator({ state, activity, detail, identity, savedOnDevice
 export function BacklinksPanel({ id = "linked-from", notes, types, loading, error, onRetry, onOpen, mentions = [], mentionsLoading, mentionsError, onFindMentions, onRetryMentions, onLinkMention, linking }: {
   /** Unique on the page: each editor pane has its own. */
   id?: string;
-  notes: NoteSummary[];
+  notes: LinkingNote[];
   types: CollectionTypeDescriptor[];
   loading: boolean;
   error?: string;
@@ -74,16 +75,30 @@ export function BacklinksPanel({ id = "linked-from", notes, types, loading, erro
   const [expanded, setExpanded] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const visibleMentions = showAll ? mentions : mentions.slice(0, 5);
+  const groups = backlinkGroups(notes, types);
+  // A collection without types keeps one plain list; with types, each kind of note has its own.
+  const grouped = groups.some((group) => group.type);
   return <section id={id} tabIndex={-1} className="linked-from" aria-label={t`Linked from`} aria-busy={loading}>
     <h2><Trans>Linked from</Trans></h2>
     {error && <p role="alert">{error} {onRetry && <button onClick={onRetry}><Trans>Retry backlinks</Trans></button>}</p>}
-    <div className="backlink-list">
-      {notes.map((note) => <button key={note.path} onClick={() => onOpen(note.path)}>
-        <Link2 aria-hidden="true" />
-        <span><strong>{noteTitle(note, types)}</strong><small>{note.path}</small></span>
-      </button>)}
-      {!notes.length && <p className="quiet-empty">{error ? t`References could not finish loading.` : loading ? t`Reading collection links…` : t`No notes link here yet.`}</p>}
-    </div>
+    {groups.map((group) => {
+      const label = group.type ? typeDisplayName(group.type) : t`Notes`;
+      return <div className="backlink-group" role="group" aria-label={label} key={group.type ?? ""}>
+        {grouped && <h3 className="backlink-group-heading">
+          <span className="backlink-group-icon" aria-hidden="true"><TypeIcon name={group.icon} fallback={<Link2 />} /></span>
+          <span>{label}</span>
+          <span className="backlink-group-count">{group.notes.length}</span>
+        </h3>}
+        <div className={`backlink-list${grouped ? " grouped" : ""}`}>
+          {group.notes.map(({ note, fields }) => <button key={note.path} onClick={() => onOpen(note.path)}>
+            {!grouped && <Link2 aria-hidden="true" />}
+            {/* A link held in a property says how the note relates: a book's "author". */}
+            <span><strong>{noteTitle(note, types)}</strong><small>{fields.length ? fields.join(" · ") : note.path}</small></span>
+          </button>)}
+        </div>
+      </div>;
+    })}
+    {!notes.length && <div className="backlink-list"><p className="quiet-empty">{error ? t`References could not finish loading.` : loading ? t`Reading collection links…` : t`No notes link here yet.`}</p></div>}
     <details className="unlinked-mentions settings-details" onToggle={(event) => {
       const open = event.currentTarget.open;
       setExpanded(open);

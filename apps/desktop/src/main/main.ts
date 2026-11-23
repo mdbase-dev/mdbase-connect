@@ -33,7 +33,7 @@ import { appUpdateBackend, type ElectronUpdateBackend } from "./electron-update-
 import { ensureBundledDaemon } from "./next-daemon";
 import { UpdateCoordinator } from "./update-coordinator";
 import { updateActions } from "./update-actions";
-import { reportUpdates } from "./update-report";
+import { REPORTED_PHASES, reportUpdates } from "./update-report";
 import { removeOldRuntimeCopies, UpdateStateStore } from "./update-state";
 import { registerUpdateTimer } from "./background-update";
 import { UPDATE_SWITCH } from "./display-platform";
@@ -56,7 +56,7 @@ let updater: UpdateCoordinator;
 let updateBackend: ElectronUpdateBackend;
 /** The background update timer is registered (`background-update.ts`). */
 let backgroundUpdates = false;
-let reportedCheck: string | undefined;
+let reportedStatus: { phase?: string; checkedAt?: string } = {};
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
@@ -770,9 +770,10 @@ app.whenReady().then(async () => {
   updater.subscribe((status) => {
     mainWindow?.webContents.send("connect:update-status", status);
     refreshTrayMenu();
-    // What a finished check found, for `mdbase doctor`.
-    if (profile && status.checked_at !== reportedCheck && ["idle", "deferred", "ready", "external"].includes(status.phase)) {
-      reportedCheck = status.checked_at;
+    // What a finished check found, failures included, for `mdbase doctor`.
+    const reached = status.phase !== reportedStatus.phase || status.checked_at !== reportedStatus.checkedAt;
+    reportedStatus = { phase: status.phase, checkedAt: status.checked_at };
+    if (profile && reached && REPORTED_PHASES.includes(status.phase)) {
       reportUpdates(profile.stateDir, status, backgroundUpdates)
         .catch((error) => console.warn("Could not record the update check for mdbase doctor:", error));
     }

@@ -79,7 +79,8 @@ export async function createAccountCollection(options: AccountCollectionCreation
   if (!options.native) throw new CreateError(503, "not_ready");
   const native = options.native;
   await createServiceCloudCopy(native, {collection: intent.collection_id, owner: account, runtime: "next", displayName: intent.display_name, current,
-    initialContent: () => initializeHostedCloudCopy(native, intent.collection_id, intent.request_id, intent.timezone)});
+    initialContent: () => initializeHostedCloudCopy(native, intent.collection_id, intent.request_id, intent.timezone,
+      () => inTransaction(options.db, async client => {await current(client); await currentCloudCopy(client, intent.collection_id, account);}))});
   return inTransaction(options.db, async client => {
     await current(client); const result = await readPublished(client, intent); await publish(client, intent); return result;
   });

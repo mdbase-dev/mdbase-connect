@@ -76,9 +76,13 @@ async fn cloud_rejoin_replays_after_interrupted_remove_and_join() {
 
     let mut old_grant = grant(1);
     old_grant.collection = HOSTED.into();
-    f.d.apply_control_plane_grants(HOSTED, &[old_grant], u64::MAX)
-        .await
-        .unwrap();
+    {
+        let mut inner = f.d.inner.lock().await;
+        inner
+            .access
+            .sync_from_control_plane(HOSTED, &[old_grant], 0, u64::MAX, false);
+        inner.access.save(&f.d.profile.access_file()).unwrap();
+    }
     let prior_access = std::fs::read(f.d.profile.access_file()).unwrap();
     // Fail registry publication. The registration and its entire store stay paired.
     let tmp =

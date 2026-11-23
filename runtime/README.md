@@ -87,13 +87,13 @@ Rules worth knowing:
 ## Build and test
 
 Prerequisites: rustup (the toolchain in `rust-toolchain.toml` installs itself),
-Node 22, and `cargo install cargo-deny` for the licence/advisory check.
+Node 22, and Python 3.11+ with `cargo install cargo-deny` for the dependency checks.
 
 ```sh
 cargo build                                  # native, all product crates
 cargo test --workspace                       # unit tests + spec ratchet + golden replay
 cargo xtask arch                             # crate boundaries + portability scan
-cargo deny check                             # licenses, advisories, bans
+cargo xtask policy                           # licenses, advisories, sources and per-target bans
 npm ci --prefix tools/wasm                   # once: pinned wasm-opt
 cargo xtask wasm                             # target/wasm/runtime.wasm
 cargo xtask wasm-size                        # budget check

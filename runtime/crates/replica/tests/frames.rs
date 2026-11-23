@@ -267,7 +267,7 @@ impl ClientApi for Mock {
         }
         self.next_session += 1;
         let grant = match auth {
-            SessionAuth::Host => None,
+            SessionAuth::Host | SessionAuth::LocalWeb(_) => None,
             SessionAuth::Grant { grant, .. } => Some(grant),
         };
         Ok((
@@ -652,6 +652,11 @@ fn frames_out(f: &mut Frames) -> Vec<ClientFrame> {
 fn open() -> (Mock, Frames, SessionId) {
     let mut api = Mock::default();
     let mut f = Frames::new();
+    let session = open_session(&mut api, &mut f, SessionAuth::Host);
+    (api, f, session)
+}
+
+fn open_session(api: &mut Mock, f: &mut Frames, auth: SessionAuth) -> SessionId {
     let hello = HelloParams {
         versions: vec![mdbn_wire::common::Version { major: 1, minor: 0 }],
         client_name: "t".into(),
@@ -659,11 +664,7 @@ fn open() -> (Mock, Frames, SessionId) {
         features: None,
         timezone: None,
     };
-    let out = f.hello(
-        &mut api,
-        SessionAuth::Host,
-        &request(0, "hello", hello.to_cbor()),
-    );
+    let out = f.hello(api, auth, &request(0, "hello", hello.to_cbor()));
     let s = out.session.expect("session");
     match ClientFrame::from_cbor(&cbor::decode(&out.response).unwrap()).unwrap() {
         ClientFrame::Response(r) => {
@@ -673,7 +674,7 @@ fn open() -> (Mock, Frames, SessionId) {
         }
         other => panic!("{other:?}"),
     }
-    (api, f, s)
+    s
 }
 
 fn response(fr: &ClientFrame) -> &ClientResponse {
@@ -1224,6 +1225,15 @@ fn wait_confirmed_holds_the_response_until_the_receipt_settles() {
         ),
     );
     assert!(frames_out(&mut f).is_empty(), "held");
+    let other = open_session(&mut api, &mut f, SessionAuth::LocalWeb(uuid(7)));
+    api.pushes.push((other, Push::Receipt(confirmed(uuid(6)))));
+    f.pump(&mut api);
+    assert_eq!(f.receipt_waits(s), 1);
+    assert!(
+        f.take_outgoing()
+            .into_iter()
+            .all(|(recipient, _)| recipient == other)
+    );
     api.receipts.push(confirmed(uuid(6)));
     api.pushes.push((s, Push::Receipt(confirmed(uuid(6)))));
     f.pump(&mut api);

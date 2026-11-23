@@ -23,6 +23,9 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 
+use futures_util::FutureExt;
+use futures_util::future::{BoxFuture, Shared};
+
 use crate::control::{CollectionState, CollectionStatus, LogLocation, Notice};
 use crate::registry::{Entry, SyncMode};
 
@@ -33,10 +36,7 @@ pub struct CollectionHost {
     reason: Option<String>,
     other_devices_online: Option<u32>,
     ctx: Option<HostCtx>,
-    runtime: Option<RuntimeSlot>,
-    /// Becomes `true` once the background opener has finished (filled the slot,
-    /// or stopped and joined a cancelled runtime).
-    opened: Option<tokio::sync::watch::Receiver<bool>>,
+    runtime: HostedRuntime,
     cancel: Arc<AtomicBool>,
     grants: crate::runtime::LocalGrants,
     /// A synced runtime's readiness (local runtimes are ready once open).
@@ -122,23 +122,48 @@ enum Readiness {
 /// Filled once by the background opener: the runtime, or why it did not open.
 type RuntimeSlot = Arc<OnceLock<Result<Arc<crate::runtime::Runtime>, String>>>;
 
-/// One host's part of a revoke barrier (see [`CollectionHost::barrier`]).
-pub struct HostBarrier {
+#[derive(Clone)]
+struct Opener {
     slot: RuntimeSlot,
-    opened: Option<tokio::sync::watch::Receiver<bool>>,
+    /// Set after the opener fills its slot or finishes stopping a cancelled open.
+    done: tokio::sync::watch::Receiver<bool>,
 }
+
+impl Opener {
+    async fn finish(mut self) -> Option<Arc<crate::runtime::Runtime>> {
+        let _ = self.done.wait_for(|done| *done).await;
+        self.slot.get()?.as_ref().ok().cloned()
+    }
+}
+
+#[derive(Default)]
+enum HostedRuntime {
+    #[default]
+    Closed,
+    Open(Opener),
+    /// The supervisor, a concurrent close, or daemon shutdown can finish the same stop.
+    Stopping(HostStop),
+}
+
+impl HostedRuntime {
+    fn opener(&self) -> Option<&Opener> {
+        match self {
+            Self::Open(opener) => Some(opener),
+            _ => None,
+        }
+    }
+}
+
+pub(crate) type HostStop = Shared<BoxFuture<'static, ()>>;
+
+/// One host's part of a revoke barrier (see [`CollectionHost::barrier`]).
+pub struct HostBarrier(BoxFuture<'static, ()>);
 
 impl HostBarrier {
     /// Wait for a background open in progress (it validates pending rows against
     /// the grant source), then for the runtime to re-check its sessions.
-    pub async fn wait(mut self) {
-        if let Some(rx) = self.opened.as_mut() {
-            let _ = rx.wait_for(|done| *done).await;
-        }
-        let rt = self.slot.get().and_then(|r| r.as_ref().ok()).cloned();
-        if let Some(rt) = rt {
-            rt.grants_barrier().await;
-        }
+    pub async fn wait(self) {
+        self.0.await;
     }
 }
 
@@ -198,23 +223,34 @@ impl CollectionHost {
                 .ok()
                 .flatten()
         });
-        let mut host = CollectionHost {
+        let mut host = Self::closed(
+            entry,
+            ctx,
+            Arc::new(std::sync::Mutex::new(last_sync_failure)),
+        );
+        host.refresh();
+        host
+    }
+
+    fn closed(
+        entry: Entry,
+        ctx: Option<HostCtx>,
+        last_sync_failure: crate::sync_failure::Shared,
+    ) -> Self {
+        Self {
             entry,
             state: CollectionState::Opening,
             reason: None,
             other_devices_online: None,
             ctx,
-            runtime: None,
-            opened: None,
+            runtime: HostedRuntime::Closed,
             cancel: Arc::new(AtomicBool::new(false)),
             grants: Default::default(),
             ready: Arc::new(std::sync::Mutex::new(Readiness::Pending)),
             telemetry_authority: None,
-            last_sync_failure: Arc::new(std::sync::Mutex::new(last_sync_failure)),
+            last_sync_failure,
             recovery: Recovery::default(),
-        };
-        host.refresh();
-        host
+        }
     }
 
     /// Publish this collection's lease from the access list, and have the runtime
@@ -235,7 +271,7 @@ impl CollectionHost {
 
     /// The opened runtime, which may not yet be ready to serve.
     pub fn runtime(&self) -> Option<Arc<crate::runtime::Runtime>> {
-        self.runtime.as_ref()?.get()?.as_ref().ok().cloned()
+        self.runtime.opener()?.slot.get()?.as_ref().ok().cloned()
     }
 
     fn start(
@@ -470,18 +506,30 @@ impl CollectionHost {
                 notify();
             })
             .map_err(|e| format!("open thread: {e}"))?;
-        self.runtime = Some(slot);
-        self.opened = Some(done_rx);
+        self.runtime = HostedRuntime::Open(Opener {
+            slot,
+            done: done_rx,
+        });
         Ok(())
     }
 
     /// What a revoke barrier waits for on this host: its opener (if any), then
     /// its runtime's [`crate::runtime::Runtime::grants_barrier`].
     pub fn barrier(&self) -> Option<HostBarrier> {
-        Some(HostBarrier {
-            slot: self.runtime.clone()?,
-            opened: self.opened.clone(),
-        })
+        let wait = match &self.runtime {
+            HostedRuntime::Closed => return None,
+            HostedRuntime::Stopping(stop) => stop.clone().boxed(),
+            HostedRuntime::Open(opener) => {
+                let opener = opener.clone();
+                async move {
+                    if let Some(rt) = opener.finish().await {
+                        rt.grants_barrier().await;
+                    }
+                }
+                .boxed()
+            }
+        };
+        Some(HostBarrier(wait))
     }
 
     /// A source for this collection under the current account epoch, if the
@@ -502,18 +550,21 @@ impl CollectionHost {
     /// Open with `ctx` from now on (a new sign-in or device identity). A host that
     /// is serving keeps the context it opened with until it is closed.
     pub fn set_ctx(&mut self, ctx: Option<HostCtx>) {
-        if self.runtime.is_none() {
+        if matches!(self.runtime, HostedRuntime::Closed) {
             self.ctx = ctx;
         }
     }
 
     /// Re-evaluate state (folder presence, pause).
     pub fn refresh(&mut self) {
+        if matches!(self.runtime, HostedRuntime::Stopping(_)) {
+            return;
+        }
         let (state, reason) = if self.entry.paused {
             (CollectionState::Paused, None)
         } else if !is_dir(&self.entry.root) {
             (CollectionState::Unavailable, Some("folder_missing"))
-        } else if self.runtime.is_some() {
+        } else if self.runtime.opener().is_some() {
             (CollectionState::Opening, None) // see current()
         } else if self.ctx.is_none() {
             (CollectionState::Unavailable, Some("runtime_pending"))
@@ -636,7 +687,7 @@ impl CollectionHost {
 
     /// State and reason now, following a background open.
     fn current(&self) -> (CollectionState, Option<String>) {
-        match (self.state, self.runtime.as_ref().map(|s| s.get())) {
+        match (self.state, self.runtime.opener().map(|o| o.slot.get())) {
             (CollectionState::Opening, Some(Some(Ok(_)))) if self.entry.mode == SyncMode::Local => {
                 (CollectionState::Ready, None)
             }
@@ -703,28 +754,49 @@ impl CollectionHost {
         self.runtime()
     }
 
-    /// One supervision tick: reopen a runtime stopped for [`SYNC_INTEGRITY`] once
-    /// its backoff is due. Returns whether it reopened.
-    pub async fn recover(&mut self, now: std::time::Instant) -> bool {
+    /// Claim a due reopen. Its stop handle also identifies this attempt while
+    /// the supervisor waits without holding the collection registry lock.
+    pub(crate) fn recover_due(&mut self, now: std::time::Instant) -> Option<HostStop> {
+        if matches!(self.runtime, HostedRuntime::Stopping(_)) {
+            return None;
+        }
         let (state, reason) = self.current();
         let stopped = state == CollectionState::Failed && reason.as_deref() == Some(SYNC_INTEGRITY);
-        let Some(attempt) = self.recovery.step(stopped, self.is_serving(), now) else {
-            return false;
-        };
+        let attempt = self.recovery.step(stopped, self.is_serving(), now)?;
         tracing::warn!(collection = %self.entry.id, attempt, "reopening a collection stopped by a sync incident");
-        self.reopen().await;
-        true
+        self.state = state;
+        self.reason = reason;
+        Some(self.begin_stop())
     }
 
-    /// The explicit retry (`collection resume` on a failed collection): open it
-    /// again now, and start any later automatic reopens from the shortest wait.
+    pub(crate) fn pending_stop(&self) -> Option<HostStop> {
+        match &self.runtime {
+            HostedRuntime::Stopping(stop) => Some(stop.clone()),
+            _ => None,
+        }
+    }
+
+    /// Only the registration that still owns this completed stop may reopen.
+    /// Keep its backoff, diagnostic and live grant source across the new open.
+    pub(crate) fn next_after_stop(&self, stop: &HostStop) -> Option<Self> {
+        if !matches!(&self.runtime, HostedRuntime::Stopping(s) if s.ptr_eq(stop)) {
+            return None;
+        }
+        Some(Self {
+            grants: self.grants.clone(),
+            recovery: self.recovery,
+            other_devices_online: self.other_devices_online,
+            ..Self::closed(
+                self.entry.clone(),
+                self.ctx.clone(),
+                self.last_sync_failure.clone(),
+            )
+        })
+    }
+
+    /// The explicit retry starts any later automatic reopens from the shortest wait.
     pub async fn retry(&mut self) {
         self.recovery = Recovery::default();
-        self.reopen().await;
-    }
-
-    /// Stop the runtime, if any, and open the collection again.
-    async fn reopen(&mut self) {
         self.close().await;
         self.refresh();
     }
@@ -751,22 +823,29 @@ impl CollectionHost {
     /// Stop: flush and close the replica. Idempotent. A background open still
     /// in progress is cancelled; its runtime stops when it finishes.
     pub async fn close(&mut self) {
+        self.begin_stop().await;
+        self.runtime = HostedRuntime::Closed;
+        self.state = CollectionState::Paused;
+    }
+
+    fn begin_stop(&mut self) -> HostStop {
         self.cancel.store(true, Ordering::SeqCst);
         self.telemetry_authority = None;
-        if let Some(mut rx) = self.opened.take() {
-            let _ = rx.wait_for(|done| *done).await;
+        if let Some(stop) = self.pending_stop() {
+            return stop;
         }
-        if let Some(slot) = self.runtime.take() {
-            let rt = match Arc::try_unwrap(slot) {
-                Ok(lock) => lock.into_inner().and_then(Result::ok),
-                Err(shared) => shared.get().and_then(|r| r.as_ref().ok()).cloned(),
-            };
-            // Stopped even while sessions hold it: they are closed, not kept serving.
-            if let Some(rt) = rt {
+        let runtime = std::mem::take(&mut self.runtime);
+        let stop = async move {
+            if let HostedRuntime::Open(opener) = runtime
+                && let Some(rt) = opener.finish().await
+            {
                 rt.stop().await;
             }
         }
-        self.state = CollectionState::Paused;
+        .boxed()
+        .shared();
+        self.runtime = HostedRuntime::Stopping(stop.clone());
+        stop
     }
 
     pub(crate) fn clock_skew(&self) -> bool {

@@ -28,7 +28,7 @@ import { CutoverProblemError } from "./cutover-problems.js";
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
   | { state: "available" }
-  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "sync_required" | "access_removed" | "no_device_registered" | "collection_not_yet_migrated" };
+  | { state: "unavailable"; reason: "device_offline" | "device_not_serving" | "desktop_update_required" | "old_connector_running" | "sync_required" | "access_removed" | "no_device_registered" | "collection_not_yet_migrated" };
 
 const routeGrant = (collection: string, row: { grant_id: string; authorization_grant: string }) => ({
   collection, grant: row.grant_id,
@@ -38,29 +38,31 @@ const unavailableRoute = (collection: string, row: { grant_id: string; authoriza
   ({ ...routeGrant(collection, row), targets: [] as RouteTarget[], availability: { state: "unavailable", reason } satisfies RouteAvailability });
 
 type RouteDevice = { device_id: string; kind: RegisteredDeviceKind; noise_pk: Buffer; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean; local_id: string };
-type Candidate = { value: RouteTarget; serving: boolean; oldConnectorRunning: boolean; updateRequired: boolean; lastActive: number; presence: "responded" | "unreachable" | "failed" };
+type Candidate = { value: RouteTarget; serving: boolean; oldConnectorRunning: boolean; notServing: boolean; updateRequired: boolean; lastActive: number; presence: "responded" | "unreachable" | "failed" };
 
 /** Presence of each device from the relay owner, sorted serving first. */
 export async function deviceCandidates(broker: Pick<RelayBroker, "request">, devices: readonly RouteDevice[], url: string): Promise<Candidate[]> {
   const candidates = await Promise.all(devices.map(async (target) => {
     let online = false;
     let oldConnectorRunning = false;
+    let notServing = false;
     let presenceStatus: Candidate["presence"] = "failed";
     try {
       // Ask the actual owner, not this HTTP instance's local socket map or a
       // recent policy ACK. No daemon operation, policy push, or pipe is opened.
       const presence = await broker.request(target.connector_id, String(target.relay_generation),
-        { version: 1, kind: "device_presence", message: { device_id: target.device_id } }, 1_000);
+        { version: 1, kind: "device_presence", message: { device_id: target.device_id, collection_id: target.local_id } }, 1_000);
       online = presence.ok && presence.value === true;
       presenceStatus = presence.ok ? typeof presence.value === "boolean" ? "responded" : "failed"
         : presence.error.kind === "unavailable" ? "unreachable" : "failed";
       oldConnectorRunning = online && presence.ok && presence.detail?.old_connector_running === true;
+      notServing = online && presence.ok && presence.detail?.not_serving === true;
     } catch (error) {
       if (!(error instanceof RelayBrokerUnavailableError)) throw error;
       presenceStatus = error.ownerUnavailable ? "unreachable" : "failed";
     }
     const value: RouteTarget = { kind: target.kind, device: target.device_id, noise_pk: target.noise_pk.toString("hex"), url, online, relay_collection: target.local_id };
-    return { value, serving: online && !oldConnectorRunning, oldConnectorRunning, updateRequired: !online && target.update_required, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY, presence: presenceStatus };
+    return { value, serving: online && !oldConnectorRunning && !notServing, oldConnectorRunning, notServing, updateRequired: !online && target.update_required, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY, presence: presenceStatus };
   }));
   // Serving first, then online, then desktop/CLI daemons before other kinds, then
   // latest activity. UUID is the stable final tie-breaker. Current local authority
@@ -84,6 +86,7 @@ export function deviceAvailability(candidates: readonly Candidate[]): RouteAvail
   }
   if (candidates.some((candidate) => candidate.serving)) return { state: "available" };
   if (candidates.some((candidate) => candidate.oldConnectorRunning)) return { state: "unavailable", reason: "old_connector_running" };
+  if (candidates.some((candidate) => candidate.notServing)) return { state: "unavailable", reason: "device_not_serving" };
   if (candidates.some((candidate) => candidate.updateRequired)) return { state: "unavailable", reason: "desktop_update_required" };
   return { state: "unavailable", reason: "device_offline" };
 }

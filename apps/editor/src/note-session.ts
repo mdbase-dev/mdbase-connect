@@ -65,6 +65,11 @@ export class NoteSession {
     return this.record.snapshot.pendingRequestId;
   }
 
+  /** Deleted by another app or device; the session keeps the last text it had. */
+  get deletedElsewhere(): boolean {
+    return this.record.snapshot.state === "deleted";
+  }
+
   get saveState(): SaveState {
     const { state } = this.record.snapshot;
     return state === "unsaved" ? "waiting" : state === "deleted" ? "saved" : state;

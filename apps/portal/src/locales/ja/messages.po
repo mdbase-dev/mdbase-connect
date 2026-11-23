@@ -665,6 +665,10 @@ msgstr "アカウントをお持ちですか？ <0>ログイン</0>"
 msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 msgstr "許可済みのアクセスはそのまま維持されます。不要になった場合は別途取り消してください。"
 
+#: src/authorization-view.tsx
+msgid "Also works with {collectionName}"
+msgstr "{collectionName} で使えるほかのアプリ"
+
 #: src/AccountManagement.tsx
 msgid "Always on"
 msgstr "常にオン"
@@ -1513,6 +1517,10 @@ msgctxt "Connect interface"
 msgid "Downloads only"
 msgstr "ダウンロードのみ"
 
+#: src/authorization-view.tsx
+msgid "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+msgstr "各アプリは {collectionName} にアクセスする前に承認を求めます。ファイルは通常の Markdown のままです。"
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
@@ -1955,10 +1963,6 @@ msgid "Loading the request…"
 msgstr "リクエストを読み込み中…"
 
 #: src/AccountManagement.tsx
-msgid "Local collection and mirror files remain on your computers."
-msgstr "ローカルコレクションとミラーファイルはコンピューター上に残ります。"
-
-#: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
 msgstr "ローカルコレクションのファイルはコンピューター上に残り、ここでは使用量を計測しません。"
 
@@ -2299,6 +2303,8 @@ msgstr "{0} のみ。隠しフォルダーは常に除外されます。"
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "変更されるのはこの型定義だけです。既存のレコードはそのまま残ります。アクセスが有効になる前に設定が検証されます。"
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open"
 msgstr "開く"
@@ -2306,6 +2312,8 @@ msgstr "開く"
 #. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "{0} を開く"
@@ -2381,6 +2389,11 @@ msgstr "メールのリンクをもう一度開くか、アカウント設定で
 #: src/ConnectApp.tsx
 msgid "Open the mdbase Connect desktop app and choose Connect this computer."
 msgstr "mdbase Connect デスクトップアプリを開き、「このコンピューターを接続」を選んでください。"
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open this collection in"
+msgstr "このコレクションを開くアプリ"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -3197,6 +3210,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "ログアウト中…"
 
+#: src/AccountManagement.tsx
 #: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts

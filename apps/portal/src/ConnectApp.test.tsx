@@ -50,6 +50,96 @@ describe("ConnectApp", () => {
     expect(!!screen.queryByText(/open the menu next to the collection name and choose “Delete collection…”/i)).toBe(relationship === "owner");
   });
 
+  it("offers unapproved official apps and MCP on Collection Overview in managed environments", async () => {
+    vi.stubGlobal("location", {
+      href: "https://connect.mdbase.dev/?collection=hosted",
+      origin: "https://connect.mdbase.dev",
+      pathname: "/",
+      search: "?collection=hosted",
+      hash: "",
+      assign: vi.fn(),
+      reload: vi.fn()
+    });
+    overview.hosted_collections = [hostedCollection()];
+    overview.grants = [
+      {
+        id: "grant-editor", operations: ["read"], scope: { contracts: [], access: "full_collection" },
+        created_at: "2026-01-01T00:00:00Z", revoked_at: null, revocation_status: "active",
+        reauthorization_required_at: null, reauthorization_reason: null,
+        collection_id: "hosted", collection_name: "Hosted research", collection_kind: "hosted",
+        application_id: "editor", application_name: "Editor", distribution: "web",
+        homepage: "https://editor.mdbase.dev/", project_url: null,
+        application_origin: "https://editor.mdbase.dev", icon: null
+      }
+    ];
+    render(<ConnectApp />);
+
+    const openIn = await screen.findByRole("region", { name: "Open this collection in" });
+    expect(within(openIn).getAllByRole("link", { name: /^Open / }).map((link) => link.getAttribute("href"))).toEqual([
+      "https://reader.mdbase.dev/?collection=hosted",
+      "https://writer.mdbase.dev/?collection=hosted",
+      "https://journal.mdbase.dev/?collection=hosted",
+      "https://app.tasknotes.dev/?collection=hosted"
+    ]);
+    expect(within(openIn).getByText("Claude, ChatGPT & Codex")).toBeInTheDocument();
+    expect(within(openIn).getByText("https://mcp.mdbase.dev/mcp")).toBeInTheDocument();
+  });
+
+  it("hides MCP on Collection Overview when MCP is already approved and hides the section for unavailable local collections or custom servers", async () => {
+    const managedLocation = {
+      href: "https://connect.mdbase.dev/?collection=hosted",
+      origin: "https://connect.mdbase.dev",
+      pathname: "/",
+      search: "?collection=hosted",
+      hash: "",
+      assign: vi.fn(),
+      reload: vi.fn()
+    };
+    vi.stubGlobal("location", managedLocation);
+    overview.hosted_collections = [hostedCollection()];
+    overview.grants = [
+      {
+        id: "grant-mcp", operations: ["read"], scope: { contracts: [], access: "full_collection" },
+        created_at: "2026-01-01T00:00:00Z", revoked_at: null, revocation_status: "active",
+        reauthorization_required_at: null, reauthorization_reason: null,
+        collection_id: "hosted", collection_name: "Hosted research", collection_kind: "hosted",
+        application_id: "mcp", application_name: "Claude", distribution: "web",
+        homepage: "https://mcp.mdbase.dev/", project_url: null,
+        application_origin: "https://mcp.mdbase.dev", icon: null
+      }
+    ];
+    const view = render(<ConnectApp />);
+    const openIn = await screen.findByRole("region", { name: "Open this collection in" });
+    expect(within(openIn).queryByText("Claude, ChatGPT & Codex")).not.toBeInTheDocument();
+    expect(within(openIn).getAllByRole("link", { name: /^Open / })).toHaveLength(5);
+    view.unmount();
+
+    // Unavailable local collection hides the section even on a managed environment.
+    vi.stubGlobal("location", {
+      ...managedLocation,
+      href: "https://connect.mdbase.dev/?collection=collection",
+      search: "?collection=collection"
+    });
+    overview.collections[0].enabled = false;
+    const pausedView = render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    expect(screen.queryByRole("region", { name: "Open this collection in" })).not.toBeInTheDocument();
+    pausedView.unmount();
+
+    // Custom server hides the section even when the collection is usable.
+    vi.unstubAllGlobals();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/ui-configuration") return Response.json({ editor_url: "https://editor.example.test/connect" });
+      if (path === "/v1/account/sessions") return Response.json({ sessions: [] });
+      return Response.json(overview);
+    }));
+    history.replaceState(null, "", "/?collection=hosted");
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Hosted research" });
+    expect(screen.queryByRole("region", { name: "Open this collection in" })).not.toBeInTheDocument();
+  });
+
   it.each([{ computerIds: [] }, { computerIds: ["computer"] }])("only describes synced computer copies when a computer is enrolled: $computerIds", async ({ computerIds }) => {
     history.replaceState(null, "", "/storage?collection=native");
     Object.assign(overview, { native_collections: [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: computerIds,
@@ -507,9 +597,9 @@ describe("ConnectApp", () => {
       return { client, plan, onOverviewRefresh, unmount: view.unmount, rerender: (value: ManagementOverview) => view.rerender(element(value)) };
     }
 
-    function stubNavigation() {
+    function stubNavigation(origin = location.origin) {
       const assign = vi.fn();
-      vi.stubGlobal("location", { href: `${location.origin}/account`, origin: location.origin, search: "", hash: "", assign });
+      vi.stubGlobal("location", { href: `${origin}/account`, origin, search: "", hash: "", assign });
       return assign;
     }
 
@@ -526,6 +616,37 @@ describe("ConnectApp", () => {
       expect(checkout).toHaveBeenCalledWith("year");
       expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test");
       expect(card.getByRole("button", { name: "US$10 a month" })).toBeDisabled();
+    });
+
+    it("opens a billing session on the Portal origin", async () => {
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: plusFor() });
+      const assign = stubNavigation("https://portal.example:8443");
+      const url = `${location.origin}/billing/session?plan=plus`;
+      vi.spyOn(client, "openBillingPortal").mockResolvedValue({ url });
+      await userEvent.setup().click((await plan()).getByRole("button", { name: "Manage billing" }));
+      expect(assign).toHaveBeenCalledWith(url);
+    });
+
+    it.each([
+      ["http://checkout.stripe.com/session"],
+      ["http://localhost/session", "http://localhost"],
+      ["javascript:void(0)"],
+      ["https://account@checkout.stripe.com/session"],
+      ["https://:password@billing.stripe.com/session"],
+      ["https://checkout.stripe.com.evil.example/session"],
+      ["https://example.org/session"],
+      ["https://billing.stripe.com:8443/session"],
+      ["https://portal.example/session"],
+      ["invalid URL"]
+    ])("keeps checkout available when the session URL is invalid (%s)", async (url, origin = "https://portal.example:8443") => {
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: null });
+      const assign = stubNavigation(origin);
+      vi.spyOn(client, "startPlusCheckout").mockResolvedValue({ url });
+      const checkout = (await plan()).getByRole("button", { name: "US$10 a month" });
+      await userEvent.setup().click(checkout);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+      expect(assign).not.toHaveBeenCalled();
+      expect(checkout).toBeEnabled();
     });
 
     it("hides the plan where Plus isn't sold", async () => {

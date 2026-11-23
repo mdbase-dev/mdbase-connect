@@ -1,0 +1,24 @@
+{
+  "schema": "mdbase/direct-sdk-archive/1",
+  "artifact": "sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz",
+  "package": "@mdbase-dev/sdk",
+  "version": "0.1.0-beta.152",
+  "bytes": 1572736,
+  "sha256": "9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f",
+  "sri": "sha512-cqXQ7u+W6+SqGHWZk04DPTkrzYD9vfCbVqRz2CG9bBIA9XOiT1y1Nz10lY049mhMMnJWUOIRNzIjKT0bnNOshQ==",
+  "source": {
+    "repository": "mdbase-dev/mdbase-connect",
+    "commit": "fddf598acd2e2967ac373f0810c692ecd2437695",
+    "path": "runtime/packages/sdk",
+    "tree": "6f4b25cc0b786af71255b8cb3aa40288b3e80cfc"
+  },
+  "toolchain": {
+    "node": "v22.22.0",
+    "npm": "10.9.4"
+  },
+  "build": [
+    "npm ci --ignore-scripts",
+    "tsc -p tsconfig.build.json",
+    "npm pack --ignore-scripts"
+  ]
+}

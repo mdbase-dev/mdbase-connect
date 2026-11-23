@@ -1,15 +1,12 @@
 import { randomUUID } from "node:crypto";
 import Fastify from "fastify";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { tokenHash } from "../../security.js";
 import { CutoverProblemError } from "./cutover-problems.js";
-// The published old client's own refresh and error decoding, not a re-creation.
-import { performAuthorizationRefresh } from "../../../../../packages/client/src/authorization-refresh.js";
-import { apiError as legacyClientError } from "../../../../../packages/client/src/runtime-utils.js";
 
 const resources: Array<() => Promise<unknown> | unknown> = [];
 afterEach(async () => {
@@ -32,7 +29,6 @@ describe("cutover refusals old clients can explain", () => {
     expect(body.error.message.startsWith(reloadGuidance)).toBe(true);
     expect(body.error.message).not.toMatch(/collection_unavailable|onboarding_moved|moved_to_next_runtime/);
     expect(response.headers["retry-after"]).toBeUndefined();
-    expect(legacyClientError(body, "request_failed", "fallback", 409).message).toBe(body.error.message);
   });
   it("tells an old client its moved collection needs an app update", async () => {
     const db = await createDatabase("memory");
@@ -199,27 +195,20 @@ describe("cutover refusals old clients can explain", () => {
     expect(operation.statusCode, operation.body).toBe(409);
     expect(operation.json().error.code).toBe("collection_unavailable");
     expect(operation.json().error.message.startsWith(reloadGuidance)).toBe(true);
-    expect(legacyClientError(operation.json(), "request_failed", "fallback", 409)).toMatchObject(moved);
+    expect(operation.json().error).toMatchObject(moved);
 
     // The old client's refresh after that refusal.
-    vi.stubGlobal("fetch", async (url: string, init: RequestInit) => {
-      const response = await app.inject({
-        method: "POST", url: new URL(url).pathname,
-        headers: init.headers as Record<string, string>, payload: init.body as string
-      });
-      return new Response(response.body, { status: response.statusCode, headers: { "content-type": "application/json" } });
+    const refresh = await app.inject({
+      method: "POST",
+      url: "/oauth/token",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      payload: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+        client_id: applicationId
+      }).toString()
     });
-    resources.push(() => vi.unstubAllGlobals());
-    const removeToken = vi.fn();
-    const stored = { refreshToken, refreshExpiresAt: Date.now() + 60_000, clientId: applicationId, keyHandle: "k" };
-    await expect(performAuthorizationRefresh({
-      current: stored as never,
-      serverUrl: "http://connect.test",
-      keyStore: {} as never,
-      currentToken: () => stored as never,
-      directCapable: () => false,
-      removeToken,
-      storeTokenResponse: () => { throw new Error("a moved collection must not be issued a token"); }
-    })).rejects.toMatchObject(moved);
+    expect(refresh.statusCode, refresh.body).toBe(409);
+    expect(refresh.json().error).toMatchObject(moved);
   });
 });

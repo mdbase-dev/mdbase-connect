@@ -47,6 +47,10 @@ msgstr "“{0}”已在其他地方更改。你的编辑仍然保留。"
 msgid "“{0}” has no “{1}” section or block."
 msgstr "“{0}”中没有“{1}”章节或块。"
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "“{raw}”未指向任何笔记。"
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "已选择 {0} 项"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "{0} 目标类型"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "{0} 唯一性路径模式"
 
@@ -326,6 +325,11 @@ msgstr "{0}：<0>{1}</0>（设置回执）"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}。这些规则与上方的可视化规则结合使用。"
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}。这些规则描述的值未在上方字段中显示。"
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, other {# 个字段选择器}}"
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, other {# 个字段}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, other {# 个链接}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "{itemLabel} 字段类型"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel} 建议"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label}“{title}”"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "需要填写“{label}”才能保存此笔记。"
@@ -535,18 +540,10 @@ msgstr "{name} 为必填项。"
 msgid "{name} is too large to upload."
 msgstr "{name} 太大，无法上传。"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "{name} 条目建议"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "{name} JSON 值"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "{name} 笔记建议"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -560,6 +557,7 @@ msgstr "{name} 类型定义"
 msgid "{name} type YAML"
 msgstr "{name} 类型 YAML"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "{name} 值"
@@ -625,6 +623,10 @@ msgstr "{title} 笔记操作"
 msgid "{title}.md"
 msgstr "{title}.md"
 
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "{typeLabel} 类型的笔记不只需要名称。请先通过“新建笔记”创建，再链接到它。"
+
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
 msgstr "{typeReference} 允许使用契约接受范围之外的值。"
@@ -687,6 +689,10 @@ msgstr "<0>更多</0>，另有 {0} 篇笔记"
 msgid "1 person record needs attention"
 msgstr "1 条人员记录需要处理"
 
+#: direct/DirectEditor.tsx
+msgid "8-digit pairing code"
+msgstr "8 位配对码"
+
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
 msgstr "“{name}”的{label}已存在。"
@@ -709,6 +715,10 @@ msgstr "日期"
 msgid "a date and time"
 msgstr "日期和时间"
 
+#: direct/DirectEditor.tsx
+msgid "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+msgstr "已保存其他连接。请重新连接已保存的服务器，或先移除该连接再配对。"
+
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
 msgstr "名为“{name}”的字段已存在。"
@@ -717,13 +727,13 @@ msgstr "名为“{name}”的字段已存在。"
 msgid "A folder cannot be moved inside itself."
 msgstr "不能将文件夹移动到其自身内部。"
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "链接"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "{path} 中的一个链接仍将失效。"
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "“{field}”的链接规则已存在。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -767,6 +777,10 @@ msgstr "“{field}”的读取默认值已存在。"
 msgid "About existing contacts"
 msgstr "关于现有联系人"
 
+#: direct/DirectEditor.tsx
+msgid "Access was refused or revoked. Ask for a new pairing code."
+msgstr "访问被拒绝或授权已被撤销。请索取新的配对码。"
+
 #: src/QuickOpen.tsx
 msgid "Actions"
 msgstr "操作"
@@ -785,6 +799,14 @@ msgstr "添加 {0}"
 msgid "Add a custom property…"
 msgstr "添加自定义属性…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "添加链接"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "向 {name} 添加链接"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "添加私有集合"
@@ -800,6 +822,10 @@ msgstr "添加现成类型以获得应用兼容性，或先安装契约，再自
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "添加类型"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "添加 {fieldLabel} 可链接到的类型"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -840,10 +866,6 @@ msgid "Add item"
 msgstr "添加条目"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "添加链接规则"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "添加嵌套字段"
 
@@ -875,8 +897,8 @@ msgid "Add tag"
 msgstr "添加标签"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "添加目标类型"
+msgid "Add type"
+msgstr "添加类型"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -940,7 +962,9 @@ msgstr "添加 1 个类型"
 msgid "Adopt and update"
 msgstr "纳入管理并更新"
 
+#: direct/DirectEditor.tsx
 #: src/PropertiesPanel.tsx
+#: src/SdkEditorRoot.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
 msgstr "高级"
@@ -962,6 +986,7 @@ msgstr "高级 YAML 规则"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "显示此类型的记录时使用的提示标签和颜色。"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
@@ -987,6 +1012,10 @@ msgstr "允许本地访问"
 msgid "Allow person records in this collection?"
 msgstr "允许在此集合中使用人员记录？"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "允许多个链接"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -999,10 +1028,6 @@ msgstr "允许 Editor 查看你的账户身份"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "允许未声明的字段"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "允许的目标类型"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1028,6 +1053,10 @@ msgstr "和"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "任意"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "任意笔记"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1103,6 +1132,10 @@ msgstr "自动属性"
 msgctxt "direct connection availability"
 msgid "Available"
 msgstr "可用"
+
+#: direct/RecordWorkspace.tsx
+msgid "Awaiting confirmation"
+msgstr "正在等待确认"
 
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
@@ -1186,6 +1219,10 @@ msgstr "布尔值"
 msgid "Browse ready-made types"
 msgstr "浏览现成类型"
 
+#: direct/DirectEditor.tsx
+msgid "Browser storage is unavailable. Pair without remembering this browser."
+msgstr "浏览器存储不可用。请在不记住此浏览器的情况下配对。"
+
 #: src/code-editor-completions.ts
 #: src/CodeEditor.tsx
 msgid "Bulleted list"
@@ -1233,6 +1270,10 @@ msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "调整笔记文字大小，不改变周围的界面。"
 
+#: direct/DirectEditor.tsx
+msgid "Change server"
+msgstr "更换服务器"
+
 #. placeholder {0}: label(id)
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
@@ -1264,6 +1305,10 @@ msgstr "检查笔记"
 #: src/ConnectionScreens.tsx
 msgid "check notes"
 msgstr "检查笔记"
+
+#: direct/DirectEditor.tsx
+msgid "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
+msgstr "请与提供配对码的人核对服务器地址。配对后，此编辑器可以在连接期间读取和编辑笔记。"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
@@ -1355,6 +1400,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "请选择同时实现 Person 和 Contact 的目标类型，以保留现有的联系人语义。"
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "选择类型"
 
@@ -1394,6 +1440,11 @@ msgstr "请选择真或假。"
 #: src/code-editor-note-embeds.ts
 msgid "Circular transclusion stopped here."
 msgstr "循环嵌入已在此停止。"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Claude, ChatGPT & Codex (MCP & plugins)"
+msgstr "Claude、ChatGPT 和 Codex（MCP 与插件）"
 
 #: src/App.tsx
 msgid "Clear"
@@ -1655,6 +1706,12 @@ msgstr "关联应用契约"
 msgid "Connect server: {server}"
 msgstr "Connect 服务器：{server}"
 
+#: direct/DirectEditor.tsx
+#: direct/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Connect to your own server"
+msgstr "连接到自己的服务器"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "已连接"
@@ -1669,10 +1726,18 @@ msgctxt "connection route"
 msgid "Connected through mdbase"
 msgstr "已通过 mdbase 连接"
 
+#: direct/DirectEditor.tsx
+msgid "Connecting…"
+msgstr "正在连接…"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
 msgstr "连接"
+
+#: direct/DirectEditor.tsx
+msgid "Connection lost. Check the server and network, then reconnect."
+msgstr "连接已断开。请检查服务器和网络，然后重新连接。"
 
 #: src/type-schema.ts
 msgid "constant value"
@@ -1741,9 +1806,23 @@ msgstr "将列表项转换为{0}？"
 msgid "Convert this field to {0}?"
 msgstr "将此字段转换为{0}？"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copied"
+msgstr "已复制"
+
 #: src/App.tsx
 msgid "Copied {label}."
 msgstr "已复制{label}。"
+
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "已复制笔记文本。"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copy"
+msgstr "复制"
 
 #: src/editor-commands.ts
 msgid "Copy link"
@@ -1759,9 +1838,21 @@ msgstr "复制路径"
 msgid "Copy path for {name}"
 msgstr "复制 {name} 的路径"
 
+#: src/App.tsx
+msgid "Copy text"
+msgstr "复制文本"
+
+#: direct/DirectEditor.tsx
+msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
+msgstr "请在关闭此标签页前复制文本。重新连接时不会发送这些文本。"
+
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
 msgstr "无法添加人员定义。请重新检查设置。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not confirm the save."
+msgstr "无法确认是否已保存。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
@@ -1774,6 +1865,18 @@ msgstr "无法关联此人员。"
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
 msgstr "无法加载人员。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not load the collection."
+msgstr "无法加载集合。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not read this note."
+msgstr "无法读取这篇笔记。"
+
+#: direct/DirectEditor.tsx
+msgid "Could not remove the saved connection. Try forgetting it again."
+msgstr "无法移除已保存的连接。请再次尝试移除。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
@@ -1897,6 +2000,10 @@ msgstr "以你的账户名为初始名称，为自己创建一篇笔记。"
 #: src/App.tsx
 msgid "Create a note from what was shared?"
 msgstr "要用分享的内容创建笔记吗？"
+
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "创建并链接"
 
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
@@ -2029,10 +2136,6 @@ msgstr "正在删除 {title}…"
 msgid "Deleting note"
 msgstr "正在删除笔记"
 
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "描述哪些属性指向其他记录，以及如何验证目标。"
-
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Description"
@@ -2082,6 +2185,10 @@ msgctxt "explicit type keys setting"
 msgid "Disabled"
 msgstr "已禁用"
 
+#: direct/DirectEditor.tsx
+msgid "Discard and open notes"
+msgstr "放弃更改并打开笔记"
+
 #: src/App.tsx
 msgid "Discard changes"
 msgstr "放弃更改"
@@ -2109,6 +2216,27 @@ msgstr "放弃类型"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "放弃类型更改？"
+
+#: direct/DirectEditor.tsx
+#: direct/RecordWorkspace.tsx
+msgid "Discard unsaved changes?"
+msgstr "放弃未保存的更改？"
+
+#: direct/DirectEditor.tsx
+msgid "Discard unsaved text"
+msgstr "丢弃未保存的文本"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect"
+msgstr "断开连接"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect this tab? You will need a new code to pair again."
+msgstr "断开此标签页的连接？再次配对时需要新的配对码。"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnected."
+msgstr "连接已断开。"
 
 #: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
@@ -2256,6 +2384,10 @@ msgstr "输入列表。"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
 msgstr "输入数字。"
+
+#: direct/DirectEditor.tsx
+msgid "Enter a server HTTPS address or an invitation for this editor."
+msgstr "请输入服务器的 HTTPS 地址或此编辑器的邀请链接。"
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
@@ -2410,6 +2542,14 @@ msgstr "筛选命令"
 msgid "Filter links by type"
 msgstr "按类型筛选链接"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "查找 {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "查找笔记"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "按标题或路径查找笔记"
@@ -2433,6 +2573,14 @@ msgstr "查找属性"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "在笔记中查找"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "查找或创建 {onlyType}"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "查找或创建笔记"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2533,6 +2681,14 @@ msgstr "从此浏览器中移除"
 msgctxt "settings view"
 msgid "Forget from this browser"
 msgstr "从此浏览器中移除"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser"
+msgstr "忘记此浏览器"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
+msgstr "忘记此浏览器并断开连接？如需在服务器端撤销访问权限，请联系提供配对码的人。"
 
 #: src/TypeBrowser.tsx
 msgid "Format"
@@ -2658,6 +2814,10 @@ msgstr "图标"
 msgid "Identity"
 msgstr "标识"
 
+#: direct/DirectEditor.tsx
+msgid "If the browser asked, allow local network access for this site."
+msgstr "如果浏览器曾询问是否允许访问本地网络，请为此网站开启该权限。"
+
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "影响评估基于当前已索引的笔记。你确认时，集合会验证完整定义。"
@@ -2738,9 +2898,17 @@ msgstr "JSON 架构无效"
 msgid "Invalid JSON."
 msgstr "JSON 无效。"
 
+#: direct/DirectEditor.tsx
+msgid "Invitation"
+msgstr "邀请"
+
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "此类型自添加后未被编辑过，因此会被新的初始模板替换。"
+
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "它已不在此集合中。这里显示它最后的文本，方便你复制。"
 
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
@@ -2754,6 +2922,11 @@ msgstr "其当前结构规则将被替换。"
 #: src/TypeBrowser.tsx
 msgid "Journal/**/*.md"
 msgstr "Journal/**/*.md"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Keep a daily Markdown journal"
+msgstr "用 Markdown 记录每日日记"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -2821,6 +2994,11 @@ msgstr "生命周期"
 msgid "Link"
 msgstr "添加链接"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "链接"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "关联一条已代表你的记录。"
@@ -2833,19 +3011,10 @@ msgstr "链接和唯一性规则可在不更改源文件的情况下，使匹配
 msgid "Link anyway"
 msgstr "仍然关联"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "链接字段 {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "为 {0} 中的提及添加链接"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "链接规则"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -2885,9 +3054,13 @@ msgstr "关联的架构字段"
 msgid "Linked to {0}"
 msgstr "已关联到 {0}"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "链接"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "链接到"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3164,6 +3337,10 @@ msgstr "YAML 中的更多集合行为"
 msgid "More inferred rules in YAML"
 msgstr "YAML 中的更多推断规则"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "更多链接规则见 YAML"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "更多笔记操作"
@@ -3175,6 +3352,10 @@ msgstr "多篇笔记与此嵌入引用匹配。"
 #: src/NoteCommentsPanel.tsx
 msgid "More than one person record claims your account, so the editor will not guess which is you."
 msgstr "有多条人员记录声明了你的账户，因此编辑器不会猜测哪一条是你。"
+
+#: direct/main.tsx
+msgid "Most people use mdbase editor with their mdbase account."
+msgstr "大多数用户使用自己的 mdbase 账户登录 mdbase editor。"
 
 #: src/MoveNoteDialog.tsx
 msgid "Move"
@@ -3241,6 +3422,7 @@ msgstr "此集合当前的访问权限不支持移动笔记。"
 msgid "Moving…"
 msgstr "正在移动…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3293,12 +3475,20 @@ msgstr "嵌套必填字段"
 msgid "New {name}"
 msgstr "新建{name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "新建：{typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "新建文件夹"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3438,7 +3628,7 @@ msgstr "没有匹配的筛选条件"
 msgid "No matching icons."
 msgstr "没有匹配的图标。"
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "没有匹配的笔记。"
 
@@ -3459,6 +3649,10 @@ msgstr "无笔记"
 msgid "No note or file matches “{0}”."
 msgstr "没有与“{0}”匹配的笔记或文件。"
 
+#: direct/RecordWorkspace.tsx
+msgid "No notes in this collection."
+msgstr "此集合中没有笔记。"
+
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
 msgstr "暂无笔记链接到此处。"
@@ -3466,10 +3660,6 @@ msgstr "暂无笔记链接到此处。"
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "未找到笔记或文件。"
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "没有属性被标记为链接。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3535,6 +3725,7 @@ msgstr "笔记"
 msgid "Note actions, in the list"
 msgstr "列表中的笔记操作"
 
+#: direct/RecordWorkspace.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Note body"
 msgstr "笔记正文"
@@ -3542,6 +3733,10 @@ msgstr "笔记正文"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "笔记已在其他地方更改"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "笔记已在别处删除"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -3577,7 +3772,9 @@ msgstr "笔记类型"
 msgid "Note view options"
 msgstr "笔记视图选项"
 
+#: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "笔记"
 
@@ -3627,6 +3824,10 @@ msgstr "笔记使用此字段声明类型。如需更改，请在 YAML 中编辑
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "未显式指定类型的笔记，在下方配置的所有条件组都匹配时属于此类型。"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "暂无可链接的内容。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3687,6 +3888,17 @@ msgstr "只能设置所有选中笔记的类型均已声明的属性。"
 #: src/embed-actions.ts
 msgid "Open"
 msgstr "打开"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open"
+msgstr "打开"
+
+#. placeholder {0}: app.name
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open {0}"
+msgstr "打开 {0}"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
@@ -3756,6 +3968,19 @@ msgstr "已打开的标签页"
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "请从集合中打开为您的 mdbase 环境配置的编辑器。"
 
+#: direct/DirectEditor.tsx
+msgid "Open the invitation from {host}?"
+msgstr "打开来自 {host} 的邀请？"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open this collection in another mdbase app or connect an AI client."
+msgstr "在其他 mdbase 应用中打开此集合，或连接 AI 客户端。"
+
+#: direct/main.tsx
+msgid "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
+msgstr "请通过此编辑器专用的 HTTPS 地址打开，不要使用查询参数、片段或 Service Worker。"
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "展开以查找提及。"
@@ -3794,6 +4019,7 @@ msgstr "正在打开集合"
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "正在打开 mdbase connect… <0>继续</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
 msgstr "正在打开笔记…"
@@ -3846,6 +4072,11 @@ msgctxt "shortcut group"
 msgid "Other"
 msgstr "其他"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Other apps"
+msgstr "其他应用"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "其他集合规则"
@@ -3873,6 +4104,18 @@ msgstr "包"
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
 msgstr "packs[{index}].resource_count 必须是正整数。"
+
+#: direct/DirectEditor.tsx
+msgid "Pair and open collection"
+msgstr "配对并打开集合"
+
+#: direct/DirectEditor.tsx
+msgid "Paired for this tab only. The connection could not be remembered."
+msgstr "仅在此标签页中完成了配对。无法保存连接信息。"
+
+#: direct/DirectEditor.tsx
+msgid "Pairing could not be confirmed. Check the server and network before trying again."
+msgstr "无法确认配对是否成功。请检查服务器和网络后再试。"
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
@@ -3946,10 +4189,6 @@ msgstr "已持久化的 null"
 msgid "Person definitions needed"
 msgstr "需要人员定义"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "person 或 any"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Person 类型"
@@ -3978,6 +4217,11 @@ msgstr "固定"
 #: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "已固定"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Plan tasks, boards and calendars"
+msgstr "规划任务、看板和日历"
 
 #: src/TypeBrowser.tsx
 msgid "Portable <0>{field}</0> placeholders."
@@ -4121,6 +4365,11 @@ msgstr "引用"
 msgid "Raw frontmatter JSON"
 msgstr "原始前置元数据 JSON"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Read and annotate PDFs, EPUBs and web pages"
+msgstr "阅读并批注 PDF、EPUB 和网页"
+
 #: src/type-schema.ts
 msgid "read default"
 msgstr "读取默认值"
@@ -4171,6 +4420,10 @@ msgstr "正在读取笔记和文件"
 msgid "Reading notes and files…"
 msgstr "正在读取笔记和文件…"
 
+#: direct/RecordWorkspace.tsx
+msgid "Reading notes…"
+msgstr "正在读取笔记…"
+
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
 msgstr "正在读取类型定义…"
@@ -4183,6 +4436,10 @@ msgstr "现成类型"
 msgid "Recent collections"
 msgstr "最近的集合"
 
+#: direct/DirectEditor.tsx
+msgid "Reconnect"
+msgstr "重新连接"
+
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
 msgstr "正在重新连接"
@@ -4194,10 +4451,6 @@ msgstr "正在重新连接集合…"
 #: src/record-source.ts
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "记录的前置元数据必须是 YAML 映射。"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "记录链接"
 
 #: src/PropertiesPanel.tsx
 msgid "Record source"
@@ -4236,6 +4489,10 @@ msgstr "重新加载 Connect"
 msgid "Reload editor"
 msgstr "重新加载编辑器"
 
+#: direct/DirectEditor.tsx
+msgid "Remember this browser"
+msgstr "记住此浏览器"
+
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
@@ -4271,6 +4528,10 @@ msgstr "移除 {field}"
 msgid "Remove {fieldLabel} field"
 msgstr "移除 {fieldLabel} 字段"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "从 {name} 中移除 {label}"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4284,11 +4545,6 @@ msgstr "移除 {name} 属性"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "从此浏览器移除"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "移除 {0} 的链接规则"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -4480,6 +4736,7 @@ msgstr "已恢复未链接的提及。"
 msgid "Resume rename"
 msgstr "继续重命名"
 
+#: direct/RecordWorkspace.tsx
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4524,6 +4781,10 @@ msgstr "重试搜索"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "请返回集合并重新打开该集合。"
+
+#: direct/main.tsx
+msgid "Return to mdbase editor"
+msgstr "返回 mdbase editor"
 
 #: src/note-sort.ts
 msgid "Reversed"
@@ -4613,9 +4874,17 @@ msgstr "运行时路径处理"
 msgid "Save failed"
 msgstr "保存失败"
 
+#: direct/RecordWorkspace.tsx
+msgid "Save note"
+msgstr "保存笔记"
+
 #: src/PropertiesPanel.tsx
 msgid "Save source"
 msgstr "保存源码"
+
+#: direct/RecordWorkspace.tsx
+msgid "Saved"
+msgstr "已保存"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4645,6 +4914,7 @@ msgstr "保存会影响所有匹配的笔记"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "保存会影响所有类型为 <0>{0}</0> 的笔记"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4739,6 +5009,10 @@ msgstr "发送反馈"
 msgid "Separate sections"
 msgstr "分隔章节"
 
+#: direct/DirectEditor.tsx
+msgid "Server address or invitation link"
+msgstr "服务器地址或邀请链接"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
 msgstr "设置值"
@@ -4759,6 +5033,11 @@ msgstr "保存此类型前，请设置契约要求的行为选项。"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
 msgstr "设为 null"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Set up"
+msgstr "设置"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
@@ -4928,6 +5207,10 @@ msgstr "初始契约"
 #: src/TypeBrowser.tsx
 msgid "status"
 msgstr "status"
+
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "不再将 {fieldLabel} 链接到 {target}"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
@@ -5343,6 +5626,10 @@ msgstr "新的类型定义尚未保存。"
 msgid "The note change was rejected."
 msgstr "笔记更改已被拒绝。"
 
+#: direct/RecordWorkspace.tsx
+msgid "The note changed elsewhere. Copy your text before reopening it."
+msgstr "这篇笔记已在其他地方更改。请先复制文本，再重新打开笔记。"
+
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5360,9 +5647,17 @@ msgstr "笔记或附件索引正在刷新。请等待完成后，重新检查文
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "尚未保存的笔记将被丢弃。笔记和属性更改会先完成保存。"
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "无法复制笔记文本。请改为在编辑器中选中它。"
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "原始的完整笔记源码不可用。"
+
+#: direct/DirectEditor.tsx
+msgid "The pairing code was refused. Check the digits or ask for a new code if it expired."
+msgstr "配对码被拒绝。请核对数字，如果已过期，请索取新的配对码。"
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
@@ -5407,6 +5702,10 @@ msgstr "所选集合尚未就绪。"
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
 msgstr "所选文件的大小无效。"
+
+#: direct/DirectEditor.tsx
+msgid "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
+msgstr "未能连接到服务器，因此配对码尚未使用。请检查服务器和网络，然后重新输入配对码。"
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
@@ -5547,6 +5846,14 @@ msgstr "这些属性必须写入存储后，此记录才有效。"
 #: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "此应用无权进行此更改。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+msgstr "此浏览器无法连接到服务器。请在支持该服务器传输协议的浏览器中打开邀请。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser forgot the connection. The server still controls the grant."
+msgstr "此浏览器已移除连接信息。访问权限仍由服务器管理。"
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: literal(conversion.typeName)
@@ -5696,6 +6003,14 @@ msgstr "重命名检查开始前，此笔记已被移动。"
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "重命名开始前，此笔记已被移动。"
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "此笔记已在其他应用或其他设备上删除。"
+
+#: direct/RecordWorkspace.tsx
+msgid "This note was deleted."
+msgstr "这篇笔记已被删除。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
@@ -5882,6 +6197,10 @@ msgstr "类型"
 msgid "Types ({typeCount})"
 msgstr "类型（{typeCount}）"
 
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "{fieldLabel} 可链接到的类型"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types folder"
@@ -5939,6 +6258,10 @@ msgstr "取消固定"
 msgid "Unpinned"
 msgstr "已取消置顶"
 
+#: direct/RecordWorkspace.tsx
+msgid "Unsaved changes"
+msgstr "未保存的更改"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "发现未保存的草稿"
@@ -5950,6 +6273,10 @@ msgstr "此浏览器无法备份未保存的编辑。保存完成前，请保持
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
 msgstr "有上次会话中未保存的编辑可恢复。"
+
+#: direct/DirectEditor.tsx
+msgid "Unsaved text"
+msgstr "未保存的文本"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -6143,6 +6470,10 @@ msgstr "分享的内容太长，无法创建笔记。请将其粘贴到新笔记
 msgid "Which notes use this type"
 msgstr "哪些笔记使用此类型"
 
+#: direct/DirectEditor.tsx
+msgid "Without this option, reloading the page requires a new code."
+msgstr "如果不选中此项，刷新页面后需要新的配对码。"
+
 #: src/PropertiesPanel.tsx
 msgid "Words"
 msgstr "字数"
@@ -6159,6 +6490,11 @@ msgstr "兼容的应用"
 msgctxt "settings view"
 msgid "Wrap long lines"
 msgstr "长行自动换行"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Write papers and books citing your sources"
+msgstr "引用来源撰写论文和书籍"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
@@ -6210,6 +6546,10 @@ msgstr "你的账户未关联到此集合中的人员。"
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "你在 {date} 所做的更改尚未确认。请再次检查以完成保存。"
 
+#: direct/DirectEditor.tsx
+msgid "Your collection"
+msgstr "你的集合"
+
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
 msgstr "你的集合未被删除。已完成保存的更改是安全的。"
@@ -6241,10 +6581,6 @@ msgstr "你的笔记，"
 #: src/YourPersonPanel.tsx
 msgid "Your person record"
 msgstr "你的人员记录"
-
-#: src/next-editor-records.ts
-msgid "Your previous change is still being saved. Try again in a moment."
-msgstr "你上一次的更改仍在保存中。请稍后重试。"
 
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."

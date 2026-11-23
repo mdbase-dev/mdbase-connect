@@ -12,6 +12,11 @@ const FILTER_THRESHOLD = 7;
 export type CollectionSwitcherProps = CollectionUiOptions & {
   readonly className?: string;
   /**
+   * Shown under Sign in while no account is signed in, such as an app's
+   * advanced way to open a collection without one.
+   */
+  readonly signedOutExtra?: ReactNode;
+  /**
    * Leading content in the trigger: the app's icon, or "mark" for the open
    * collection's initials. In the "icon" variant it replaces the folder glyph.
    */
@@ -49,7 +54,7 @@ export type CollectionSwitcherProps = CollectionUiOptions & {
  * trigger, so an app can open it from its own control and pass that control's
  * element (or the menu button that held it) as `anchorRef`.
  */
-export function CollectionSwitcher({ variant = "full", className, icon, open: openProp, onOpenChange, anchorRef, ...options }: CollectionSwitcherProps): JSX.Element {
+export function CollectionSwitcher({ variant = "full", className, icon, open: openProp, onOpenChange, anchorRef, signedOutExtra, ...options }: CollectionSwitcherProps): JSX.Element {
   const ui = useCollectionUi(options);
   const [ownOpen, setOwnOpen] = useState(false);
   const open = openProp ?? ownOpen;
@@ -74,7 +79,7 @@ export function CollectionSwitcher({ variant = "full", className, icon, open: op
     if (refocus) anchor.current?.focus();
   };
   const toDialog = (next: NonNullable<RowDialog>): void => { setOpen(false); setDialog(next); };
-  const content = <SwitcherContent ui={ui} onDone={() => close(false)} onDialog={toDialog} />;
+  const content = <SwitcherContent ui={ui} onDone={() => close(false)} onDialog={toDialog} signedOutExtra={signedOutExtra} />;
   return <span className={["mdbase-collections", "mdbase-collections-switcher", className].filter(Boolean).join(" ")} data-variant={variant}>
     {variant !== "none" && <button
       ref={trigger}
@@ -106,11 +111,12 @@ export function CollectionSwitcher({ variant = "full", className, icon, open: op
 }
 
 /** The switcher's list and actions, also shown inline by `CollectionPanel`. */
-export function SwitcherContent({ ui, onDone, onDialog }: {
+export function SwitcherContent({ ui, onDone, onDialog, signedOutExtra }: {
   readonly ui: CollectionUi;
   readonly onDone: () => void;
   /** Open a row's dialog (remove from list, delete), for an SDK collection or an app section item. */
   readonly onDialog: (dialog: NonNullable<RowDialog>) => void;
+  readonly signedOutExtra?: ReactNode;
 }): JSX.Element {
   const { view, copy, say, busy, actions } = ui;
   const [query, setQuery] = useState("");
@@ -128,6 +134,7 @@ export function SwitcherContent({ ui, onDone, onDialog }: {
       <ActionButton tone="primary" progress={busy === "sign_in" ? copy.addingCollection : null} inert={busy !== null}
         onClick={() => { actions.signIn(); onDone(); }}>{copy.signIn}</ActionButton>
     </div>
+    {signedOutExtra}
   </>;
   const appSections = sections.map((section) => <SwitcherSection key={section.id} ui={ui} section={section} matches={matches}
     focused={focused} onFocusItem={setFocused} onDone={onDone} onDialog={onDialog} />);

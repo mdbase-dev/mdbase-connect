@@ -665,6 +665,10 @@ msgstr "Already have an account? <0>Sign in</0>"
 msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 msgstr "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 
+#: src/authorization-view.tsx
+msgid "Also works with {collectionName}"
+msgstr "Also works with {collectionName}"
+
 #: src/AccountManagement.tsx
 msgid "Always on"
 msgstr "Always on"
@@ -1513,6 +1517,10 @@ msgctxt "Connect interface"
 msgid "Downloads only"
 msgstr "Downloads only"
 
+#: src/authorization-view.tsx
+msgid "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+msgstr "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
@@ -1955,10 +1963,6 @@ msgid "Loading the request…"
 msgstr "Loading the request…"
 
 #: src/AccountManagement.tsx
-msgid "Local collection and mirror files remain on your computers."
-msgstr "Local collection and mirror files remain on your computers."
-
-#: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
 msgstr "Local collection files stay on your computers and are not measured here."
 
@@ -2299,6 +2303,8 @@ msgstr "Only {0}. Hidden folders are always excluded."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open"
 msgstr "Open"
@@ -2306,6 +2312,8 @@ msgstr "Open"
 #. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "Open {0}"
@@ -2381,6 +2389,11 @@ msgstr "Open the link from the email again, or change email preferences in your 
 #: src/ConnectApp.tsx
 msgid "Open the mdbase Connect desktop app and choose Connect this computer."
 msgstr "Open the mdbase Connect desktop app and choose Connect this computer."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open this collection in"
+msgstr "Open this collection in"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -3197,6 +3210,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "Signing out…"
 
+#: src/AccountManagement.tsx
 #: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts

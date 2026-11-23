@@ -556,6 +556,44 @@ export class HostedCollection extends DurableObject<Env> {
     }
   }
 
+  private async retireModeDevice(collection: string, expectedDevice: string): Promise<boolean> {
+    const storage = this.ctx.storage;
+    const matchesDevice = async () => {
+      this.requirePhysicalCollection(collection);
+      const device = await storage.get<string>("collection-mode-device");
+      return (!device || device === expectedDevice) && (!this.live || this.live.device === expectedDevice);
+    };
+    if (this.opening && !await matchesDevice()) return false;
+    const opening = this.opening;
+    let resumeAt: number | null = null;
+    if (opening) {
+      // Park before joining: a killed opener cannot acknowledge retirement.
+      resumeAt = await storage.getAlarm() ?? Date.now() + REFRESH_MS;
+      await storage.put(OPEN_UNFINISHED_KEY, { version: this.env.CF_VERSION_METADATA?.id ?? "", count: OPEN_PARK_AFTER });
+      await storage.deleteAlarm();
+      await storage.sync();
+      try { await opening; } catch (error) {
+        if (error instanceof OpenParked || this.lastingRefusal(error)) resumeAt = null;
+      }
+    }
+    return this.ctx.blockConcurrencyWhile(async () => {
+      try {
+        if (this.opening) return false;
+        if (await matchesDevice()) {
+          await this.retireForVerdict();
+          return true;
+        }
+        if (resumeAt === null || this.pinParked) return false;
+        // A completed retirement clears both open records and drops the engine.
+        if (this.engine || (await storage.get([OPEN_UNFINISHED_KEY, OPEN_FAILURES_KEY])).size > 0) {
+          if (await storage.getAlarm() === null) await this.alarms.schedule(resumeAt, () => this.alarms.current);
+          await storage.delete(OPEN_UNFINISHED_KEY);
+        }
+        return false;
+      } catch { return false; }
+    });
+  }
+
   /** After a pin-mismatch drop: park as soon as the state applied from the log
    * fails the pins; forget the drop once the rebuild reaches the head. */
   private async checkPinRebuild(engine: Engine): Promise<boolean> {
@@ -948,27 +986,7 @@ export class HostedCollection extends DurableObject<Env> {
         return modeUnavailable();
       }
       if (url.pathname.endsWith("/retire")) {
-        const matchesDevice = async () => {
-          this.requirePhysicalCollection(collection);
-          const device = await this.ctx.storage.get<string>("collection-mode-device");
-          return (!device || device === input.device) && (!this.live || this.live.device === input.device);
-        };
-        if (this.opening && !await matchesDevice()) return modeUnavailable();
-        const opening = this.opening;
-        if (opening) {
-          // Park before joining: a killed opener cannot acknowledge retirement.
-          await this.ctx.storage.put(OPEN_UNFINISHED_KEY, { version: this.env.CF_VERSION_METADATA?.id ?? "", count: OPEN_PARK_AFTER });
-          await this.ctx.storage.deleteAlarm();
-          await this.ctx.storage.sync();
-          try { await opening; } catch { /* Refusal may already retire it. */ }
-        }
-        return this.ctx.blockConcurrencyWhile(async () => {
-          try {
-            if (this.opening || !await matchesDevice()) return modeUnavailable();
-            await this.retireForVerdict();
-            return modeAck(input); // Rebuildable cache retirement, not physical erasure.
-          } catch { return modeUnavailable(); }
-        });
+        return await this.retireModeDevice(collection, input.device) ? modeAck(input) : modeUnavailable();
       }
       let diagnostic: ReadyDiagnostic | undefined;
       const refuse = (reason: string, facts: Record<string, unknown> = {}) => {

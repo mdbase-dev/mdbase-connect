@@ -70,7 +70,7 @@ function browserSdkMethods(): string[] {
       }
     }
   }
-  directory(new URL("../../../packages/client/src/", import.meta.url));
+  directory(new URL("../../../runtime/packages/sdk/src/", import.meta.url));
   return [...methods].sort();
 }
 

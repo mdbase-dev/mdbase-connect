@@ -177,7 +177,16 @@ impl ControlClient {
     async fn read_opt(&mut self) -> Result<Option<Response>, ClientError> {
         let Some(frame) = ipc::read_frame(&mut self.stream, ipc::MAX_CONTROL_FRAME)
             .await
-            .map_err(ClientError::Io)?
+            .map_err(|e| {
+                // The daemon answered (an older one sends replies of any size).
+                match e
+                    .get_ref()
+                    .and_then(|e| e.downcast_ref::<ipc::FrameTooLarge>())
+                {
+                    Some(f) => ClientError::Remote(ControlError::response_too_large(f.len)),
+                    None => ClientError::Io(e),
+                }
+            })?
         else {
             return Ok(None);
         };
@@ -195,4 +204,42 @@ pub async fn ping(endpoint: &Endpoint) -> Result<Readiness, ClientError> {
         .await?;
     serde_json::from_value(v.get("readiness").cloned().unwrap_or(Value::Null))
         .map_err(|e| ClientError::Protocol(format!("readiness: {e}")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// An older daemon sends replies of any size. The CLI reports one over the
+    /// frame limit as too large, not as an unreachable daemon.
+    #[tokio::test]
+    async fn an_oversized_reply_is_too_large_not_unreachable() {
+        use tokio::io::AsyncWriteExt;
+        let (client, mut server) = tokio::io::duplex(1 << 16);
+        let daemon = tokio::spawn(async move {
+            ipc::read_frame(&mut server, ipc::MAX_CONTROL_FRAME)
+                .await
+                .unwrap()
+                .unwrap();
+            server.write_all(&1_417_394u32.to_be_bytes()).await.unwrap();
+            server
+        });
+        let mut c = ControlClient {
+            stream: Box::new(client),
+            next_id: 1,
+        };
+        let error = c
+            .call(crate::control::Method::ACCESS_LIST, serde_json::json!({}))
+            .await
+            .unwrap_err();
+        let ClientError::Remote(error) = error else {
+            panic!("expected a typed error, got {error:?}");
+        };
+        assert_eq!(
+            (error.code.as_str(), error.reason.as_deref()),
+            ("too_large", Some("response_too_large"))
+        );
+        assert!(error.message.contains("1417394 bytes"), "{}", error.message);
+        drop(daemon.await.unwrap());
+    }
 }

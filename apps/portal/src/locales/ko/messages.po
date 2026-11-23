@@ -665,6 +665,10 @@ msgstr "이미 계정이 있나요? <0>로그인</0>"
 msgid "Already-allowed access stays in place. Revoke access separately if you no longer want it."
 msgstr "이미 허용된 접근 권한은 유지됩니다. 더 이상 원하지 않으면 별도로 취소하세요."
 
+#: src/authorization-view.tsx
+msgid "Also works with {collectionName}"
+msgstr "{collectionName}에서도 사용 가능"
+
 #: src/AccountManagement.tsx
 msgid "Always on"
 msgstr "항상 켜짐"
@@ -1513,6 +1517,10 @@ msgctxt "Connect interface"
 msgid "Downloads only"
 msgstr "다운로드 전용"
 
+#: src/authorization-view.tsx
+msgid "Each app asks for your approval before accessing {collectionName}. Your files remain ordinary Markdown."
+msgstr "각 앱은 {collectionName}에 접근하기 전에 승인을 요청합니다. 파일은 일반 Markdown으로 유지됩니다."
+
 #: src/authorization-capabilities.ts
 msgctxt "Application access approval"
 msgid "Edit records"
@@ -1955,10 +1963,6 @@ msgid "Loading the request…"
 msgstr "요청 불러오는 중…"
 
 #: src/AccountManagement.tsx
-msgid "Local collection and mirror files remain on your computers."
-msgstr "로컬 컬렉션 및 미러 파일은 컴퓨터에 남습니다."
-
-#: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
 msgstr "로컬 컬렉션 파일은 컴퓨터에 남으며 여기의 사용량에 포함되지 않습니다."
 
@@ -2299,6 +2303,8 @@ msgstr "{0}만. 숨겨진 폴더는 항상 제외됩니다."
 msgid "Only this type definition changes. Existing records stay in place. Setup is validated before access becomes active."
 msgstr "이 유형 정의만 변경됩니다. 기존 레코드는 그대로 유지됩니다. 액세스가 활성화되기 전에 설정을 검증합니다."
 
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open"
 msgstr "열기"
@@ -2306,6 +2312,8 @@ msgstr "열기"
 #. placeholder {0}: app.name
 #. placeholder {0}: pairing.connector_name
 #: src/authority-workflows.tsx
+#: src/authorization-view.tsx
+#: src/ConnectApp.tsx
 #: src/HomePage.tsx
 msgid "Open {0}"
 msgstr "{0} 열기"
@@ -2381,6 +2389,11 @@ msgstr "이메일의 링크를 다시 열거나 계정 설정에서 이메일 �
 #: src/ConnectApp.tsx
 msgid "Open the mdbase Connect desktop app and choose Connect this computer."
 msgstr "mdbase Connect 데스크톱 앱을 열고 '이 컴퓨터 연결'을 선택하세요."
+
+#: src/ConnectApp.tsx
+msgctxt "Connect interface"
+msgid "Open this collection in"
+msgstr "이 컬렉션을 다음 앱에서 열기"
 
 #: src/auth-view.tsx
 msgid "Open this through Tailscale"
@@ -3197,6 +3210,7 @@ msgctxt "Account management"
 msgid "Signing out…"
 msgstr "로그아웃 중…"
 
+#: src/AccountManagement.tsx
 #: src/api.ts
 #: src/ConnectPrimitives.tsx
 #: src/portal-model.ts

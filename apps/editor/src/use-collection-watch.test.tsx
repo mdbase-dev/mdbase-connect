@@ -17,7 +17,7 @@ function setup() {
     } as any,
     files: { reload: vi.fn(async () => []), remove: vi.fn() } as any,
     assets: { invalidate: vi.fn() } as any,
-    refreshCachedNote: vi.fn(async () => {}), refreshDescription: vi.fn(async () => {}),
+    refreshCachedNote: vi.fn(async () => {}), noteDeleted: vi.fn(), refreshDescription: vi.fn(async () => {}),
     setConnectionState: vi.fn(), setConnectionIssue: vi.fn(), setNotice: vi.fn()
   };
   const hook = renderHook(() => useCollectionWatch(input));
@@ -34,6 +34,14 @@ describe("observation app effects", () => {
     for (let i = 0; i < 200; i++) f.emit("mdbase.record.modified");
     await flush();
     expect(f.input.refreshCachedNote).toHaveBeenCalledExactlyOnceWith("a.md", undefined);
+  });
+  it("tells an open note it was deleted instead of rereading a record that is gone", async () => {
+    const f = setup();
+    f.emit("mdbase.record.modified");
+    f.emit("mdbase.record.deleted");
+    expect(f.input.noteDeleted).toHaveBeenCalledExactlyOnceWith("a.md");
+    await flush();
+    expect(f.input.refreshCachedNote).not.toHaveBeenCalled();
   });
   it("reconciles schema and files when the SDK watch resets", async () => {
     const f = setup();

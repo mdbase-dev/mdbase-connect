@@ -1,6 +1,7 @@
 // One service-device/outbox bootstrap for public NEXT and migration SHADOW
 // callers. The caller supplies current-principal authorization; runtime is an
 // internal composition choice, never a public request field. No readiness claim.
+import { setTimeout as delay } from "node:timers/promises";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { CreateError, enrolOp, inTransaction, lock, refuseCollectionIdOfOther, SERVICE_ACCOUNT } from "./bootstrap-common.js";
@@ -16,6 +17,8 @@ export interface CloudCopyBootstrapOptions {
   log: Pick<LogServiceClient, "controlItemAt" | "head">; fetchImpl?: typeof fetch;
 }
 const KINDS = ["hosted", "escrow"] as const;
+const INITIALIZATION_TIMEOUT_MS = 20_000;
+const INITIALIZATION_RETRY_MS = 2_000;
 
 async function notDeleted(client: DatabaseConnection, collection: string): Promise<void> {
   try { await requireCollectionNotDeleted(client, collection); }
@@ -81,7 +84,7 @@ export async function loadCloudCopyRecords(client: DatabaseConnection, collectio
   return records;
 }
 
-export async function initializeHostedCloudCopy(options: CloudCopyBootstrapOptions, collection: string, requestId: string, timezone: string): Promise<void> {
+export async function initializeHostedCloudCopy(options: CloudCopyBootstrapOptions, collection: string, requestId: string, timezone: string, beforeRetry: () => Promise<void>): Promise<void> {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
   const selected = pitrDeployments(deployments, options.next.logService.labPitr, collection);
@@ -91,20 +94,27 @@ export async function initializeHostedCloudCopy(options: CloudCopyBootstrapOptio
     throw new CreateError(503, "not_ready");
   }
   const region = await collectionRegion(options.db, collection);
-  const input = {collection, request_id: requestId, timezone, ...(region ? {region} : {})};
-  let confirmed = false;
-  try {
-    const response = await (options.fetchImpl ?? fetch)(endpoint, {method: "POST", redirect: "error",
-      headers: {authorization: `Bearer ${token}`, "content-type": "application/json"},
-      body: JSON.stringify(input), signal: AbortSignal.timeout(20_000)});
-    if (response.status === 200) {
-      const receipt = await response.json() as {initialized?: boolean; collection?: string; request_id?: string};
-      confirmed = receipt.initialized === true && receipt.collection === collection && receipt.request_id === requestId;
-    } else {
+  const body = JSON.stringify({collection, request_id: requestId, timezone, ...(region ? {region} : {})});
+  const signal = AbortSignal.timeout(INITIALIZATION_TIMEOUT_MS);
+  for (;;) {
+    try {
+      signal.throwIfAborted();
+      const response = await (options.fetchImpl ?? fetch)(endpoint, {method: "POST", redirect: "error",
+        headers: {authorization: `Bearer ${token}`, "content-type": "application/json"}, body, signal});
+      if (response.status === 200) {
+        const receipt = await response.json() as {initialized?: boolean; collection?: string; request_id?: string};
+        if (receipt.initialized === true && receipt.collection === collection && receipt.request_id === requestId) return;
+        break;
+      }
       await response.body?.cancel();
+      if (response.status !== 503) break;
+      await delay(INITIALIZATION_RETRY_MS, undefined, {signal});
+    } catch {
+      break;
     }
-  } catch { throw new CreateError(503, "not_ready"); }
-  if (!confirmed) throw new CreateError(503, "not_ready");
+    await beforeRetry();
+  }
+  throw new CreateError(503, "not_ready");
 }
 
 export function cloudCopyMetadata(options: CloudCopyBootstrapOptions, collection: string, owner: string,

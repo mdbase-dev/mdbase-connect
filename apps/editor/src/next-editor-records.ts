@@ -27,7 +27,8 @@ export class NextEditorRecords {
   private seenBytes = 0;
   /** Captured writes this adapter couldn't settle (unknown outcome, failed readback). */
   private readonly unknown = new Map<string, NextEditorPendingMutation>();
-  private writing = false;
+  /** Serializes record writes so a background create (e.g. create-and-link) and a concurrent note save wait their turn. */
+  private writeTail: Promise<void> = Promise.resolve();
   /** Per create ID until confirmed: the first request, and every property key requested since. */
   private readonly creates = new Map<string, { first: string; keys: Set<string> }>();
 
@@ -160,11 +161,15 @@ export class NextEditorRecords {
     submit: (options: { mutationId?: string; intent?: string; signal: AbortSignal }) => Promise<Write>, signal?: AbortSignal,
     intent?: string): Promise<NoteDocument | undefined> {
     const current = this.signal(signal);
-    if (this.unknown.size) throw new Error(t`Check your unconfirmed change before making another one. Nothing new was saved.`);
-    if (this.writing) throw new Error(t`Your previous change is still being saved. Try again in a moment.`);
-    const mutation = { mutationId: intent === undefined ? crypto.randomUUID() : "", operation, recordId, createdAt: new Date().toISOString() };
-    this.writing = true;
+    const previous = this.writeTail;
+    let release!: () => void;
+    const next = new Promise<void>(resolve => { release = resolve; });
+    this.writeTail = previous.then(() => next);
     try {
+      await waitForTurn(previous, current);
+      this.check(current);
+      if (this.unknown.size) throw new Error(t`Check your unconfirmed change before making another one. Nothing new was saved.`);
+      const mutation = { mutationId: intent === undefined ? crypto.randomUUID() : "", operation, recordId, createdAt: new Date().toISOString() };
       try {
         const write = await submit(intent === undefined ? { mutationId: mutation.mutationId, signal: current } : { intent, signal: current });
         if (intent !== undefined) mutation.mutationId = write.mutationId;
@@ -182,7 +187,7 @@ export class NextEditorRecords {
         if (!(error instanceof Refused)) this.unknown.set(mutation.mutationId, mutation);
         throw error;
       }
-    } finally { this.writing = false; }
+    } finally { release(); }
   }
 
   private async captured(mutationId: string): Promise<boolean> {
@@ -265,3 +270,15 @@ function completeSource(record: RecordView): asserts record is RecordView & { bo
 /** The log refused the write: a plain failure, nothing to recover. */
 class Refused extends MdbaseError {}
 function unsupported(message: string): MdbaseError { return new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "unsupported", message }); }
+
+function waitForTurn(previous: Promise<void>, signal: AbortSignal): Promise<void> {
+  signal.throwIfAborted();
+  return new Promise<void>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener("abort", onAbort, { once: true });
+    void previous.then(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    });
+  });
+}

@@ -7,7 +7,7 @@ import type { DesktopUpdateStatus } from "./update-coordinator";
  * What the app last learned about updates, for `mdbase doctor`.
  *
  * The app update delivers the daemon, so the daemon cannot know by itself whether
- * a newer release exists. After each successful check the app writes this report
+ * a newer release exists. After each finished check the app writes this report
  * to `<daemon state>/updates/desktop.json`, a directory the daemon leaves to
  * packaging (`runtime/crates/daemon/src/service/mod.rs`), and the daemon's `update`
  * check reads it (`runtime/crates/daemon/src/update/desktop.rs`). Schema 1; the
@@ -27,11 +27,20 @@ export interface DesktopUpdateReport {
     release_url?: string;
     required?: true;
   };
+  /** The latest check or install failed; `checked_at` stays the last check that worked. */
+  failure?: {
+    at: string;
+    message: string;
+  };
 }
+
+/** Phases that end a check; each is reported once when the updater reaches it. */
+export const REPORTED_PHASES: readonly DesktopUpdateStatus["phase"][] = ["idle", "deferred", "ready", "external", "failed"];
 
 export function updateReport(
   status: DesktopUpdateStatus,
-  options: { background: boolean; store: boolean }
+  options: { background: boolean; store: boolean },
+  now: Date = new Date()
 ): DesktopUpdateReport | null {
   if (!status.checked_at) return null;
   const report: DesktopUpdateReport = {
@@ -40,6 +49,7 @@ export function updateReport(
     checked_at: status.checked_at,
     background: options.background
   };
+  if (status.phase === "failed") report.failure = { at: now.toISOString(), message: status.message };
   if ((status.phase === "ready" || status.phase === "external") && status.target_version) {
     report.available = {
       version: status.target_version,

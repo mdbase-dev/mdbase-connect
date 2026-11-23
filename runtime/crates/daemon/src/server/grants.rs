@@ -3,56 +3,14 @@
 use super::*;
 
 impl Daemon {
-    /// Reconcile a collection's cached grants with the control plane's list,
-    /// persist, then announce. Called by the control-plane client.
-    pub async fn apply_control_plane_grants(
+    pub(super) async fn access_change<T: serde::Serialize>(
         &self,
-        collection: &str,
-        grants: &[CachedGrant],
-        lease_expires_ms: u64,
-    ) -> Result<Vec<AccessEvent>, ControlError> {
-        let _gate = self.account_gate.lock().await;
-        let mut inner = self.inner.lock().await;
-        let mut next = inner.access.clone();
-        let events = next.sync_from_control_plane(
-            collection,
-            grants,
-            fsutil::now_ms() as u64,
-            lease_expires_ms,
-            false,
-        );
-        if let Err(e) = next.save(&self.profile.access_file()) {
-            inner.access.leases.clear();
-            inner.access.monotonic_leases.clear();
-            for h in &inner.hosts {
-                h.publish_grants(&inner.access);
-            }
-            self.authority.publish_access(&inner.access);
-            return Err(access_error(e));
-        }
-        inner.access = next;
-        self.authority.publish_access(&inner.access);
-        let barrier = publish_grants(&inner);
-        drop(inner);
-        barrier.wait().await;
-        for e in &events {
-            self.note_access_event(e).await;
-            let _ = self.access_events.send(e.clone());
-        }
-        if !events.is_empty() {
-            self.bump();
-        }
-        Ok(events)
-    }
-
-    pub(super) async fn access_change(
-        &self,
-        f: impl FnOnce(&mut AccessList) -> Result<AccessEntry, crate::access::AccessError>,
+        f: impl FnOnce(&mut AccessList) -> Result<T, crate::access::AccessError>,
     ) -> Result<Value, ControlError> {
         let _gate = self.account_gate.lock().await;
         let mut inner = self.inner.lock().await;
         let mut next = inner.access.clone();
-        let entry = f(&mut next).map_err(access_error)?;
+        let out = f(&mut next).map_err(access_error)?;
         self.save_access(&mut inner, &next)?;
         inner.access = next;
         self.authority.publish_access(&inner.access);
@@ -60,7 +18,7 @@ impl Daemon {
         drop(inner);
         barrier.wait().await;
         self.bump();
-        to_value(&entry)
+        to_value(&out)
     }
 
     // Compare the complete displayed entry (including its durable generation)

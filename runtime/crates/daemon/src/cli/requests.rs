@@ -16,14 +16,19 @@ pub(super) async fn call(
     // dispatch is attempted, a missing/invalid reply cannot prove refusal.
     let result = c.call_within(method, params, call_timeout(method)).await;
     match (result, unknown_outcome(method)) {
-        (
-            Err(ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Timeout),
-            Some(message),
-        ) => Err(ClientError::Remote(ControlError::unavailable(
-            "outcome_unknown",
-            message,
-        ))),
+        (Err(e), Some(message)) if reply_missing(&e) => Err(ClientError::Remote(
+            ControlError::unavailable("outcome_unknown", message),
+        )),
         (other, _) => other,
+    }
+}
+
+/// No readable reply arrived, including one too large to deliver.
+fn reply_missing(e: &ClientError) -> bool {
+    match e {
+        ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Timeout => true,
+        ClientError::Remote(e) => e.reason.as_deref() == Some("response_too_large"),
+        ClientError::NotRunning => false,
     }
 }
 

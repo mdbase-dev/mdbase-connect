@@ -9,6 +9,7 @@ import { mdbaseError, MdbaseError } from "./errors.js";
 
 export const COLLECTION_UNAVAILABLE_REASONS = [
   "device_offline",
+  "device_not_serving",
   "desktop_update_required",
   "old_connector_running",
   "approval_required",

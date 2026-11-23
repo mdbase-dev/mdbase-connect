@@ -47,6 +47,10 @@ msgstr "「{0}」は別の場所で変更されました。あなたの編集は
 msgid "“{0}” has no “{1}” section or block."
 msgstr "「{0}」に「{1}」というセクションまたはブロックはありません。"
 
+#: src/LinkPropertyEditor.tsx
+msgid "“{raw}” does not lead to a note."
+msgstr "「{raw}」はどのノートにもつながっていません。"
+
 #. placeholder {0}: impact.overlapping
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one { · # also matches another type} other { · # also match another type}}"
@@ -298,11 +302,6 @@ msgstr "選択済み {0} 件"
 
 #. placeholder {0}: rule.field
 #: src/TypeBrowser.tsx
-msgid "{0} target type"
-msgstr "対象の型 {0} 件"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
 msgid "{0} uniqueness path pattern"
 msgstr "一意性のパスパターン {0} 件"
 
@@ -326,6 +325,11 @@ msgstr "{0}：<0>{1}</0>（設定の記録）"
 #: src/TypeBrowser.tsx
 msgid "{0}. These rules combine with the visual rules above."
 msgstr "{0}。これらのルールは上記のビジュアルルールと併用されます。"
+
+#. placeholder {0}: unattachedLinks.map((rule) => rule.field).join(" · ")
+#: src/TypeBrowser.tsx
+msgid "{0}. These rules describe values the fields above do not show."
+msgstr "{0}。これらのルールは、上のフィールドに表示されない値を対象としています。"
 
 #. placeholder {0}: advancedKeys.join(" · ")
 #: src/TypeBrowser.tsx
@@ -375,10 +379,6 @@ msgstr "{count, plural, other {フィールドセレクター # 件}}"
 #: src/type-presentation.ts
 msgid "{count, plural, one {# field} other {# fields}}"
 msgstr "{count, plural, other {フィールド # 件}}"
-
-#: src/type-presentation.ts
-msgid "{count, plural, one {# link} other {# links}}"
-msgstr "{count, plural, other {リンク # 件}}"
 
 #: src/TypeBrowser.tsx
 msgid "{count, plural, one {# note is missing required field {field}.} other {# notes are missing required field {field}.}}"
@@ -461,6 +461,11 @@ msgstr "{itemLabel}のフィールド型"
 msgid "{itemLabel} suggestions"
 msgstr "{itemLabel}の候補"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+msgid "{label} “{title}”"
+msgstr "{label}「{title}」"
+
 #: src/new-note.ts
 msgid "{label} is needed to save this note."
 msgstr "このノートを保存するには「{label}」が必要です。"
@@ -535,18 +540,10 @@ msgstr "{name}は必須です。"
 msgid "{name} is too large to upload."
 msgstr "{name}はサイズが大きすぎてアップロードできません。"
 
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} item suggestions"
-msgstr "{name}の項目の候補"
-
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} JSON value"
 msgstr "{name}の JSON 値"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "{name} note suggestions"
-msgstr "{name}のノート候補"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} property type"
@@ -560,6 +557,7 @@ msgstr "{name}の型定義"
 msgid "{name} type YAML"
 msgstr "{name}の型 YAML"
 
+#: src/LinkPropertyEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "{name} value"
 msgstr "{name}の値"
@@ -625,6 +623,10 @@ msgstr "{title}のノート操作"
 msgid "{title}.md"
 msgstr "{title}.md"
 
+#: src/App.tsx
+msgid "{typeLabel} notes need more than a name. Create one from New note, then link to it."
+msgstr "{typeLabel} のノートには名前以外の情報も必要です。「新しいノート」から作成してからリンクしてください。"
+
 #: src/type-contracts.ts
 msgid "{typeReference} allows values outside the contract’s accepted set."
 msgstr "{typeReference}では契約の許容範囲外の値が許可されています。"
@@ -687,6 +689,10 @@ msgstr "<0>その他</0>追加のノート {0} 件"
 msgid "1 person record needs attention"
 msgstr "人物レコード 1 件に確認が必要です"
 
+#: direct/DirectEditor.tsx
+msgid "8-digit pairing code"
+msgstr "8桁のペアリングコード"
+
 #: src/type-schema.ts
 msgid "A {label} for “{name}” already exists."
 msgstr "「{name}」の{label}はすでに存在します。"
@@ -709,6 +715,10 @@ msgstr "日付"
 msgid "a date and time"
 msgstr "日時"
 
+#: direct/DirectEditor.tsx
+msgid "A different connection is saved. Reconnect to the saved server or forget it before pairing."
+msgstr "別の接続が保存されています。保存済みのサーバーに再接続するか、接続情報を削除してからペアリングしてください。"
+
 #: src/type-schema.ts
 msgid "A field named “{name}” already exists."
 msgstr "「{name}」というフィールドはすでに存在します。"
@@ -717,13 +727,13 @@ msgstr "「{name}」というフィールドはすでに存在します。"
 msgid "A folder cannot be moved inside itself."
 msgstr "フォルダーを自分自身の中に移動することはできません。"
 
+#: src/type-presentation.ts
+msgid "a link"
+msgstr "リンク"
+
 #: src/native-gateway.ts
 msgid "A link in {path} will stay broken."
 msgstr "{path}内のリンクは壊れたままになります。"
-
-#: src/type-schema.ts
-msgid "A link rule for “{field}” already exists."
-msgstr "「{field}」のリンクルールはすでに存在します。"
 
 #: src/type-contracts.ts
 #: src/type-presentation.ts
@@ -767,6 +777,10 @@ msgstr "「{field}」の読み取り時の既定値はすでに存在します�
 msgid "About existing contacts"
 msgstr "既存の連絡先について"
 
+#: direct/DirectEditor.tsx
+msgid "Access was refused or revoked. Ask for a new pairing code."
+msgstr "アクセスが拒否されたか、取り消されました。新しいペアリングコードを依頼してください。"
+
 #: src/QuickOpen.tsx
 msgid "Actions"
 msgstr "操作"
@@ -785,6 +799,14 @@ msgstr "{0}を追加"
 msgid "Add a custom property…"
 msgstr "カスタムプロパティを追加…"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link"
+msgstr "リンクを追加"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Add a link to {name}"
+msgstr "{name}にリンクを追加"
+
 #: src/SdkEditorRoot.tsx
 msgid "Add a Private collection"
 msgstr "プライベートコレクションを追加"
@@ -800,6 +822,10 @@ msgstr "アプリとの互換性がある既成の型を追加するか、自分
 #: src/TypeBrowser.tsx
 msgid "Add a type"
 msgstr "型を追加"
+
+#: src/TypeBrowser.tsx
+msgid "Add a type {fieldLabel} links to"
+msgstr "{fieldLabel}のリンク先タイプを追加"
 
 #. placeholder {0}: schema.minItems
 #: src/StructuredPropertiesEditor.tsx
@@ -840,10 +866,6 @@ msgid "Add item"
 msgstr "項目を追加"
 
 #: src/TypeBrowser.tsx
-msgid "Add link rule"
-msgstr "リンクルールを追加"
-
-#: src/TypeBrowser.tsx
 msgid "Add nested field"
 msgstr "入れ子のフィールドを追加"
 
@@ -875,8 +897,8 @@ msgid "Add tag"
 msgstr "タグを追加"
 
 #: src/TypeBrowser.tsx
-msgid "Add target type"
-msgstr "対象の型を追加"
+msgid "Add type"
+msgstr "タイプを追加"
 
 #: src/TypeBrowser.tsx
 msgid "Add unique rule"
@@ -940,7 +962,9 @@ msgstr "型を1件追加"
 msgid "Adopt and update"
 msgstr "採用して更新"
 
+#: direct/DirectEditor.tsx
 #: src/PropertiesPanel.tsx
+#: src/SdkEditorRoot.tsx
 #: src/TypeBrowser.tsx
 msgid "Advanced"
 msgstr "詳細設定"
@@ -962,6 +986,7 @@ msgstr "高度な YAML ルール"
 msgid "Advisory labels and colour used when records of this type are shown."
 msgstr "この型のレコードを表示する際に使う補助的なラベルと色です。"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/editor-commands.ts
 #: src/EditorRail.tsx
@@ -987,6 +1012,10 @@ msgstr "ローカルアクセスを許可"
 msgid "Allow person records in this collection?"
 msgstr "このコレクションで人物レコードを許可しますか？"
 
+#: src/TypeBrowser.tsx
+msgid "Allow several links"
+msgstr "複数のリンクを許可"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
@@ -999,10 +1028,6 @@ msgstr "エディターにアカウントの識別情報の閲覧を許可"
 #: src/TypeBrowser.tsx
 msgid "Allow undeclared fields"
 msgstr "未宣言のフィールドを許可"
-
-#: src/TypeBrowser.tsx
-msgid "Allowed target types"
-msgstr "許可される対象の型"
 
 #: src/TypeBrowser.tsx
 msgid "always present"
@@ -1028,6 +1053,10 @@ msgstr "および"
 #: src/TypeBrowser.tsx
 msgid "Any"
 msgstr "すべて"
+
+#: src/TypeBrowser.tsx
+msgid "Any note"
+msgstr "すべてのノート"
 
 #: src/TypeBrowser.tsx
 msgid "Any supported format"
@@ -1103,6 +1132,10 @@ msgstr "自動プロパティ"
 msgctxt "direct connection availability"
 msgid "Available"
 msgstr "利用可能"
+
+#: direct/RecordWorkspace.tsx
+msgid "Awaiting confirmation"
+msgstr "確認待ち"
 
 #: src/editor-commands.ts
 #: src/StructuredPropertiesEditor.tsx
@@ -1186,6 +1219,10 @@ msgstr "真偽値"
 msgid "Browse ready-made types"
 msgstr "既成の型を探す"
 
+#: direct/DirectEditor.tsx
+msgid "Browser storage is unavailable. Pair without remembering this browser."
+msgstr "ブラウザーのストレージを利用できません。接続を記憶せずにペアリングしてください。"
+
 #: src/code-editor-completions.ts
 #: src/CodeEditor.tsx
 msgid "Bulleted list"
@@ -1233,6 +1270,10 @@ msgctxt "settings view"
 msgid "Change note text without changing the surrounding interface."
 msgstr "周囲の画面を変えずにノート本文を編集します。"
 
+#: direct/DirectEditor.tsx
+msgid "Change server"
+msgstr "サーバーを変更"
+
 #. placeholder {0}: label(id)
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
@@ -1264,6 +1305,10 @@ msgstr "ノートを確認"
 #: src/ConnectionScreens.tsx
 msgid "check notes"
 msgstr "ノートを確認"
+
+#: direct/DirectEditor.tsx
+msgid "Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected."
+msgstr "コードを渡した人とサーバーのアドレスを確認してください。ペアリングすると、このエディターは接続中にノートを読み書きできます。"
 
 #: src/next-editor-records.ts
 msgid "Check your unconfirmed change before making another one. Nothing new was saved."
@@ -1355,6 +1400,7 @@ msgid "Choose a target type that implements both Person and Contact so existing 
 msgstr "既存の連絡先の意味を維持するため、Person と Contact の両方を実装する対象の型を選択してください。"
 
 #: src/App.tsx
+#: src/TypeBrowser.tsx
 msgid "Choose a type"
 msgstr "型を選択"
 
@@ -1394,6 +1440,11 @@ msgstr "true または false を選択してください。"
 #: src/code-editor-note-embeds.ts
 msgid "Circular transclusion stopped here."
 msgstr "循環する埋め込みをここで停止しました。"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Claude, ChatGPT & Codex (MCP & plugins)"
+msgstr "Claude、ChatGPT、Codex（MCP とプラグイン）"
 
 #: src/App.tsx
 msgid "Clear"
@@ -1655,6 +1706,12 @@ msgstr "アプリの契約を接続"
 msgid "Connect server: {server}"
 msgstr "Connect サーバー: {server}"
 
+#: direct/DirectEditor.tsx
+#: direct/main.tsx
+#: src/SdkEditorRoot.tsx
+msgid "Connect to your own server"
+msgstr "自分のサーバーに接続"
+
 #: src/CollectionRail.tsx
 msgid "Connected"
 msgstr "接続済み"
@@ -1669,10 +1726,18 @@ msgctxt "connection route"
 msgid "Connected through mdbase"
 msgstr "mdbase 経由で接続"
 
+#: direct/DirectEditor.tsx
+msgid "Connecting…"
+msgstr "接続中…"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Connection"
 msgstr "接続"
+
+#: direct/DirectEditor.tsx
+msgid "Connection lost. Check the server and network, then reconnect."
+msgstr "接続が切れました。サーバーとネットワークを確認して再接続してください。"
 
 #: src/type-schema.ts
 msgid "constant value"
@@ -1741,9 +1806,23 @@ msgstr "リストの項目を{0}に変換しますか？"
 msgid "Convert this field to {0}?"
 msgstr "このフィールドを{0}に変換しますか？"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copied"
+msgstr "コピーしました"
+
 #: src/App.tsx
 msgid "Copied {label}."
 msgstr "{label}をコピーしました。"
+
+#: src/App.tsx
+msgid "Copied the note’s text."
+msgstr "ノートのテキストをコピーしました。"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Copy"
+msgstr "コピー"
 
 #: src/editor-commands.ts
 msgid "Copy link"
@@ -1759,9 +1838,21 @@ msgstr "パスをコピー"
 msgid "Copy path for {name}"
 msgstr "{name}のパスをコピー"
 
+#: src/App.tsx
+msgid "Copy text"
+msgstr "テキストをコピー"
+
+#: direct/DirectEditor.tsx
+msgid "Copy your text before closing this tab. It will not be sent when you reconnect."
+msgstr "このタブを閉じる前にテキストをコピーしてください。再接続時にこのテキストは送信されません。"
+
 #: src/YourPersonPanel.tsx
 msgid "Could not add person definitions. Review setup again."
 msgstr "人物の定義を追加できませんでした。設定を再確認してください。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not confirm the save."
+msgstr "保存を確認できませんでした。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not convert this contact. Its type may need additional fields or compatible mappings."
@@ -1774,6 +1865,18 @@ msgstr "この人物をリンクできませんでした。"
 #: src/YourPersonPanel.tsx
 msgid "Could not load people."
 msgstr "人物データを読み込めませんでした。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not load the collection."
+msgstr "コレクションを読み込めませんでした。"
+
+#: direct/RecordWorkspace.tsx
+msgid "Could not read this note."
+msgstr "このノートを読み取れませんでした。"
+
+#: direct/DirectEditor.tsx
+msgid "Could not remove the saved connection. Try forgetting it again."
+msgstr "保存済みの接続を削除できませんでした。もう一度削除してください。"
 
 #: src/YourPersonPanel.tsx
 msgid "Could not review person setup."
@@ -1897,6 +2000,10 @@ msgstr "アカウント名を使って自分のノートを作成します。"
 #: src/App.tsx
 msgid "Create a note from what was shared?"
 msgstr "共有された内容からノートを作成しますか？"
+
+#: src/QuickCreateRecord.tsx
+msgid "Create and link"
+msgstr "作成してリンク"
 
 #: src/TypeBrowser.tsx
 msgid "Create fields that already match an installed contract. You can rename and remap them later."
@@ -2029,10 +2136,6 @@ msgstr "{title} を削除中…"
 msgid "Deleting note"
 msgstr "ノートを削除中"
 
-#: src/TypeBrowser.tsx
-msgid "Describe which properties point to other records and how targets are validated."
-msgstr "どのプロパティがほかのレコードを指し、対象をどう検証するかを記述します。"
-
 #: src/type-schema.ts
 #: src/TypeBrowser.tsx
 msgid "Description"
@@ -2082,6 +2185,10 @@ msgctxt "explicit type keys setting"
 msgid "Disabled"
 msgstr "無効"
 
+#: direct/DirectEditor.tsx
+msgid "Discard and open notes"
+msgstr "破棄してノートを開く"
+
 #: src/App.tsx
 msgid "Discard changes"
 msgstr "変更を破棄"
@@ -2109,6 +2216,27 @@ msgstr "型を破棄"
 #: src/App.tsx
 msgid "Discard type changes?"
 msgstr "型の変更を破棄しますか？"
+
+#: direct/DirectEditor.tsx
+#: direct/RecordWorkspace.tsx
+msgid "Discard unsaved changes?"
+msgstr "未保存の変更を破棄しますか？"
+
+#: direct/DirectEditor.tsx
+msgid "Discard unsaved text"
+msgstr "未保存のテキストを破棄"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect"
+msgstr "切断"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnect this tab? You will need a new code to pair again."
+msgstr "このタブを切断しますか？再度ペアリングするには新しいコードが必要です。"
+
+#: direct/DirectEditor.tsx
+msgid "Disconnected."
+msgstr "切断しました。"
 
 #: src/NoteListViewOptions.tsx
 #: src/type-presentation.ts
@@ -2256,6 +2384,10 @@ msgstr "リストを入力してください。"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Enter a number."
 msgstr "数値を入力してください。"
+
+#: direct/DirectEditor.tsx
+msgid "Enter a server HTTPS address or an invitation for this editor."
+msgstr "サーバーのHTTPSアドレスか、このエディター用の招待リンクを入力してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Enter a valid JSON value."
@@ -2410,6 +2542,14 @@ msgstr "コマンドを絞り込む"
 msgid "Filter links by type"
 msgstr "型でリンクを絞り込む"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Find a {onlyType}"
+msgstr "{onlyType} を検索"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find a note"
+msgstr "ノートを検索"
+
 #: src/App.tsx
 msgid "Find a note by title or path"
 msgstr "タイトルまたはパスでノートを検索"
@@ -2433,6 +2573,14 @@ msgstr "プロパティを検索"
 #: src/editor-commands.ts
 msgid "Find in note"
 msgstr "ノート内を検索"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a {onlyType}"
+msgstr "{onlyType} を検索または作成"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Find or create a note"
+msgstr "ノートを検索または作成"
 
 #: src/CollectionRail.tsx
 msgid "Finding folders…"
@@ -2533,6 +2681,14 @@ msgstr "このブラウザーから削除"
 msgctxt "settings view"
 msgid "Forget from this browser"
 msgstr "このブラウザーから削除"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser"
+msgstr "このブラウザーの接続情報を削除"
+
+#: direct/DirectEditor.tsx
+msgid "Forget this browser and disconnect? To revoke access on the server, ask the person who paired you."
+msgstr "このブラウザーの接続情報を削除して切断しますか？サーバー側のアクセス許可を取り消すには、コードを渡した人に依頼してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Format"
@@ -2658,6 +2814,10 @@ msgstr "アイコン"
 msgid "Identity"
 msgstr "識別情報"
 
+#: direct/DirectEditor.tsx
+msgid "If the browser asked, allow local network access for this site."
+msgstr "ブラウザーが許可を求めた場合は、このサイトのローカルネットワークへのアクセスを許可してください。"
+
 #: src/TypeBrowser.tsx
 msgid "Impact is based on the currently indexed notes. The collection validates the complete definition when you confirm."
 msgstr "影響範囲は現在索引に登録されているノートに基づきます。確定時にコレクションが定義全体を検証します。"
@@ -2738,9 +2898,17 @@ msgstr "無効な JSON Schema"
 msgid "Invalid JSON."
 msgstr "JSON が無効です。"
 
+#: direct/DirectEditor.tsx
+msgid "Invitation"
+msgstr "招待"
+
 #: src/YourPersonPanel.tsx
 msgid "It has not been edited since it was added, so it is replaced with the new starter."
 msgstr "追加後に編集されていないため、新しい初期データに置き換えられます。"
+
+#: src/App.tsx
+msgid "It is no longer in the collection. Its last text is shown here so you can copy it."
+msgstr "このノートはコレクションにもうありません。コピーできるよう、最後のテキストをここに表示しています。"
 
 #: src/CodeEditor.tsx
 #: src/editor-commands.ts
@@ -2754,6 +2922,11 @@ msgstr "現在の構造ルールは置き換えられます。"
 #: src/TypeBrowser.tsx
 msgid "Journal/**/*.md"
 msgstr "Journal/**/*.md"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Keep a daily Markdown journal"
+msgstr "Markdown で日々のジャーナルを記録"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -2821,6 +2994,11 @@ msgstr "ライフサイクル"
 msgid "Link"
 msgstr "リンク"
 
+#: src/type-presentation.ts
+msgctxt "property type"
+msgid "Link"
+msgstr "リンク"
+
 #: src/YourPersonPanel.tsx
 msgid "Link a record that already represents you."
 msgstr "自分を表す既存のレコードにリンクします。"
@@ -2833,19 +3011,10 @@ msgstr "リンクと一意性のルールにより、ソースファイルを変
 msgid "Link anyway"
 msgstr "そのままリンク"
 
-#. placeholder {0}: index + 1
-#: src/TypeBrowser.tsx
-msgid "Link field {0}"
-msgstr "リンクフィールド {0}"
-
 #. placeholder {0}: noteTitle(mention.note, types)
 #: src/WorkspaceChrome.tsx
 msgid "Link mention in {0}"
 msgstr "{0}内のメンションをリンク"
-
-#: src/type-schema.ts
-msgid "link rule"
-msgstr "リンクルール"
 
 #: src/type-schema.ts
 msgid "Link rules"
@@ -2885,9 +3054,13 @@ msgstr "リンクされたスキーマフィールド"
 msgid "Linked to {0}"
 msgstr "{0}にリンク済み"
 
-#: src/TypeBrowser.tsx
+#: src/StructuredPropertiesEditor.tsx
 msgid "Links"
 msgstr "リンク"
+
+#: src/TypeBrowser.tsx
+msgid "Links to"
+msgstr "リンク先"
 
 #: src/type-schema.ts
 msgid "links with unsupported values"
@@ -3164,6 +3337,10 @@ msgstr "その他のコレクション動作を YAML で設定"
 msgid "More inferred rules in YAML"
 msgstr "その他の推論ルールを YAML で設定"
 
+#: src/TypeBrowser.tsx
+msgid "More link rules in YAML"
+msgstr "その他のリンクルールは YAML にあります"
+
 #: src/App.tsx
 msgid "More note actions"
 msgstr "その他のノート操作"
@@ -3175,6 +3352,10 @@ msgstr "この埋め込みに一致するノートが複数あります。"
 #: src/NoteCommentsPanel.tsx
 msgid "More than one person record claims your account, so the editor will not guess which is you."
 msgstr "複数の人物レコードがあなたのアカウントを主張しているため、エディターはどれがあなたかを推測しません。"
+
+#: direct/main.tsx
+msgid "Most people use mdbase editor with their mdbase account."
+msgstr "通常はmdbaseアカウントでmdbase editorを利用します。"
 
 #: src/MoveNoteDialog.tsx
 msgid "Move"
@@ -3241,6 +3422,7 @@ msgstr "このコレクションへの現在のアクセス権ではノートを
 msgid "Moving…"
 msgstr "移動中…"
 
+#: src/QuickCreateRecord.tsx
 #: src/StructuredPropertiesEditor.tsx
 #: src/TypeBrowser.tsx
 #: src/YourPersonPanel.tsx
@@ -3293,12 +3475,20 @@ msgstr "入れ子の必須フィールド"
 msgid "New {name}"
 msgstr "新しい{name}"
 
+#: src/code-editor-completions.ts
+#: src/LinkPropertyEditor.tsx
+#: src/QuickCreateRecord.tsx
+msgid "New {typeLabel}"
+msgstr "新規: {typeLabel}"
+
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "新しいフォルダー"
 
 #: src/App.tsx
+#: src/code-editor-completions.ts
 #: src/editor-commands.ts
+#: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
@@ -3438,7 +3628,7 @@ msgstr "一致するフィルターはありません"
 msgid "No matching icons."
 msgstr "一致するアイコンはありません。"
 
-#: src/StructuredPropertiesEditor.tsx
+#: src/LinkPropertyEditor.tsx
 msgid "No matching notes."
 msgstr "一致するノートはありません。"
 
@@ -3459,6 +3649,10 @@ msgstr "ノートなし"
 msgid "No note or file matches “{0}”."
 msgstr "「{0}」に一致するノートまたはファイルはありません。"
 
+#: direct/RecordWorkspace.tsx
+msgid "No notes in this collection."
+msgstr "このコレクションにはノートがありません。"
+
 #: src/WorkspaceChrome.tsx
 msgid "No notes link here yet."
 msgstr "ここへのリンクがあるノートはまだありません。"
@@ -3466,10 +3660,6 @@ msgstr "ここへのリンクがあるノートはまだありません。"
 #: src/NoteList.tsx
 msgid "No notes or files found."
 msgstr "ノートやファイルが見つかりませんでした。"
-
-#: src/TypeBrowser.tsx
-msgid "No properties are marked as links."
-msgstr "リンクとして指定されたプロパティはありません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "No properties yet."
@@ -3535,6 +3725,7 @@ msgstr "ノート"
 msgid "Note actions, in the list"
 msgstr "一覧内のノート操作"
 
+#: direct/RecordWorkspace.tsx
 #: src/MarkdownNoteEditor.tsx
 msgid "Note body"
 msgstr "ノート本文"
@@ -3542,6 +3733,10 @@ msgstr "ノート本文"
 #: src/ConflictResolver.tsx
 msgid "Note changed elsewhere"
 msgstr "ノートが別の場所で変更されました"
+
+#: src/App.tsx
+msgid "Note deleted elsewhere"
+msgstr "別の場所で削除されたノート"
 
 #: src/App.tsx
 msgid "Note editor"
@@ -3577,7 +3772,9 @@ msgstr "ノートの型"
 msgid "Note view options"
 msgstr "ノートの表示オプション"
 
+#: direct/RecordWorkspace.tsx
 #: src/QuickOpen.tsx
+#: src/WorkspaceChrome.tsx
 msgid "Notes"
 msgstr "ノート"
 
@@ -3627,6 +3824,10 @@ msgstr "ノートはこのフィールドを使って型を宣言します。変
 #: src/TypeBrowser.tsx
 msgid "Notes without an explicit assignment belong to this type when every configured condition group below matches."
 msgstr "明示的に割り当てられていないノートのうち、以下の条件グループすべてに一致するものがこの型に属します。"
+
+#: src/LinkPropertyEditor.tsx
+msgid "Nothing to link yet."
+msgstr "リンクできるものはまだありません。"
 
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
@@ -3687,6 +3888,17 @@ msgstr "選択されたすべてのノートの型で宣言されているプロ
 #: src/embed-actions.ts
 msgid "Open"
 msgstr "開く"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open"
+msgstr "開く"
+
+#. placeholder {0}: app.name
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open {0}"
+msgstr "{0}を開く"
 
 #: src/code-editor-file-embeds.ts
 msgid "Open {filename}"
@@ -3756,6 +3968,19 @@ msgstr "開いているタブ"
 msgid "Open the Editor configured for your mdbase environment from Collections."
 msgstr "コレクションから、お使いのmdbase環境用に設定されたエディターを開いてください。"
 
+#: direct/DirectEditor.tsx
+msgid "Open the invitation from {host}?"
+msgstr "{host} からの招待を開きますか？"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Open this collection in another mdbase app or connect an AI client."
+msgstr "このコレクションを別の mdbase アプリで開くか、AI クライアントを接続します。"
+
+#: direct/main.tsx
+msgid "Open this editor at its dedicated HTTPS address, without a query, fragment or service worker."
+msgstr "クエリやフラグメント、サービスワーカーのない専用のHTTPSアドレスでこのエディターを開いてください。"
+
 #: src/WorkspaceChrome.tsx
 msgid "Open to find mentions."
 msgstr "メンションを探すために開きます。"
@@ -3794,6 +4019,7 @@ msgstr "コレクションを開いています"
 msgid "Opening mdbase connect… <0>Continue</0>"
 msgstr "mdbase connect を開いています… <0>続行</0>"
 
+#: direct/RecordWorkspace.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Opening note…"
 msgstr "ノートを開いています…"
@@ -3846,6 +4072,11 @@ msgctxt "shortcut group"
 msgid "Other"
 msgstr "その他"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Other apps"
+msgstr "その他のアプリ"
+
 #: src/type-schema.ts
 msgid "Other collection rules"
 msgstr "その他のコレクションルール"
@@ -3873,6 +4104,18 @@ msgstr "パック"
 #: src/contract-catalog.ts
 msgid "packs[{index}].resource_count must be a positive integer."
 msgstr "packs[{index}].resource_countには正の整数を指定してください。"
+
+#: direct/DirectEditor.tsx
+msgid "Pair and open collection"
+msgstr "ペアリングしてコレクションを開く"
+
+#: direct/DirectEditor.tsx
+msgid "Paired for this tab only. The connection could not be remembered."
+msgstr "このタブのみでペアリングしました。接続情報は保存できませんでした。"
+
+#: direct/DirectEditor.tsx
+msgid "Pairing could not be confirmed. Check the server and network before trying again."
+msgstr "ペアリングを確認できませんでした。再試行する前にサーバーとネットワークを確認してください。"
 
 #: src/TypeBrowser.tsx
 msgid "Partly installed"
@@ -3946,10 +4189,6 @@ msgstr "保存された null 値"
 msgid "Person definitions needed"
 msgstr "人物の定義が必要です"
 
-#: src/TypeBrowser.tsx
-msgid "person or any"
-msgstr "人物またはすべて"
-
 #: src/YourPersonPanel.tsx
 msgid "Person type"
 msgstr "Person 型"
@@ -3978,6 +4217,11 @@ msgstr "ピン留め"
 #: src/use-note-actions.ts
 msgid "Pinned"
 msgstr "ピン留め済み"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Plan tasks, boards and calendars"
+msgstr "タスク、ボード、カレンダーを計画"
 
 #: src/TypeBrowser.tsx
 msgid "Portable <0>{field}</0> placeholders."
@@ -4121,6 +4365,11 @@ msgstr "引用"
 msgid "Raw frontmatter JSON"
 msgstr "フロントマターの生 JSON"
 
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Read and annotate PDFs, EPUBs and web pages"
+msgstr "PDF、EPUB、ウェブページを読んで注釈を付ける"
+
 #: src/type-schema.ts
 msgid "read default"
 msgstr "読み取り時の既定値"
@@ -4171,6 +4420,10 @@ msgstr "ノートとファイルを読み込み中"
 msgid "Reading notes and files…"
 msgstr "ノートとファイルを読み込み中…"
 
+#: direct/RecordWorkspace.tsx
+msgid "Reading notes…"
+msgstr "ノートを読み込み中…"
+
 #: src/TypeBrowser.tsx
 msgid "Reading type definition…"
 msgstr "型定義を読み込み中…"
@@ -4183,6 +4436,10 @@ msgstr "既成の型"
 msgid "Recent collections"
 msgstr "最近使ったコレクション"
 
+#: direct/DirectEditor.tsx
+msgid "Reconnect"
+msgstr "再接続"
+
 #: src/CollectionRail.tsx
 msgid "Reconnecting"
 msgstr "再接続中"
@@ -4194,10 +4451,6 @@ msgstr "コレクションに再接続中…"
 #: src/record-source.ts
 msgid "Record frontmatter must be a YAML mapping."
 msgstr "レコードのフロントマターは YAML マッピングにしてください。"
-
-#: src/StructuredPropertiesEditor.tsx
-msgid "Record link"
-msgstr "レコードへのリンク"
 
 #: src/PropertiesPanel.tsx
 msgid "Record source"
@@ -4236,6 +4489,10 @@ msgstr "Connect を再読み込み"
 msgid "Reload editor"
 msgstr "エディターを再読み込み"
 
+#: direct/DirectEditor.tsx
+msgid "Remember this browser"
+msgstr "このブラウザーに接続を記憶する"
+
 #: src/code-editor-file-embeds.ts
 #: src/TypeBrowser.tsx
 msgid "Remove"
@@ -4271,6 +4528,10 @@ msgstr "{field}を削除"
 msgid "Remove {fieldLabel} field"
 msgstr "{fieldLabel}フィールドを削除"
 
+#: src/LinkPropertyEditor.tsx
+msgid "Remove {label} from {name}"
+msgstr "{name}から{label}を削除"
+
 #. placeholder {0}: index + 1
 #: src/SchemaValueEditor.tsx
 #: src/StructuredPropertiesEditor.tsx
@@ -4284,11 +4545,6 @@ msgstr "{name}プロパティを削除"
 #: src/SdkEditorRoot.tsx
 msgid "Remove from this browser"
 msgstr "このブラウザーから削除"
-
-#. placeholder {0}: rule.field
-#: src/TypeBrowser.tsx
-msgid "Remove link rule for {0}"
-msgstr "{0}のリンクルールを削除"
 
 #. placeholder {0}: entry.field
 #: src/TypeBrowser.tsx
@@ -4480,6 +4736,7 @@ msgstr "リンクされていないメンションを復元しました。"
 msgid "Resume rename"
 msgstr "名前の変更を再開"
 
+#: direct/RecordWorkspace.tsx
 #: src/code-editor-file-embeds.ts
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
@@ -4524,6 +4781,10 @@ msgstr "検索を再試行"
 #: src/SdkEditorRoot.tsx
 msgid "Return to Collections and open the collection again."
 msgstr "コレクションに戻り、もう一度コレクションを開いてください。"
+
+#: direct/main.tsx
+msgid "Return to mdbase editor"
+msgstr "mdbase editorに戻る"
 
 #: src/note-sort.ts
 msgid "Reversed"
@@ -4613,9 +4874,17 @@ msgstr "ランタイムでのパス処理"
 msgid "Save failed"
 msgstr "保存に失敗しました"
 
+#: direct/RecordWorkspace.tsx
+msgid "Save note"
+msgstr "ノートを保存"
+
 #: src/PropertiesPanel.tsx
 msgid "Save source"
 msgstr "ソースを保存"
+
+#: direct/RecordWorkspace.tsx
+msgid "Saved"
+msgstr "保存済み"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -4645,6 +4914,7 @@ msgstr "保存すると一致するすべてのノートに影響します"
 msgid "Saving affects every note of type <0>{0}</0>"
 msgstr "保存すると<0>{0}</0>型のすべてのノートに影響します"
 
+#: direct/RecordWorkspace.tsx
 #: src/App.tsx
 #: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
@@ -4739,6 +5009,10 @@ msgstr "フィードバックを送信"
 msgid "Separate sections"
 msgstr "セクションを区切る"
 
+#: direct/DirectEditor.tsx
+msgid "Server address or invitation link"
+msgstr "サーバーのアドレスまたは招待リンク"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set a value"
 msgstr "値を設定"
@@ -4759,6 +5033,11 @@ msgstr "この型を保存する前に、契約で必須の動作の選択肢を
 #: src/StructuredPropertiesEditor.tsx
 msgid "Set to null"
 msgstr "null に設定"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Set up"
+msgstr "設定"
 
 #: src/YourPersonPanel.tsx
 msgid "Set up person records"
@@ -4928,6 +5207,10 @@ msgstr "最初の契約"
 #: src/TypeBrowser.tsx
 msgid "status"
 msgstr "状態"
+
+#: src/TypeBrowser.tsx
+msgid "Stop linking {fieldLabel} to {target}"
+msgstr "{fieldLabel}から{target}へのリンクをやめる"
 
 #: src/note-mutation-presentation.ts
 msgid "Stopping safely"
@@ -5343,6 +5626,10 @@ msgstr "新しい型定義はまだ保存されていません。"
 msgid "The note change was rejected."
 msgstr "ノートの変更は拒否されました。"
 
+#: direct/RecordWorkspace.tsx
+msgid "The note changed elsewhere. Copy your text before reopening it."
+msgstr "このノートは別の場所で変更されました。開き直す前にテキストをコピーしてください。"
+
 #: src/AttachmentUpload.tsx
 #: src/code-editor-file-embeds.ts
 msgid "The note is no longer editable."
@@ -5360,9 +5647,17 @@ msgstr "ノートまたは添付ファイルの索引を更新中です。完了
 msgid "The note that hasn’t been saved will be discarded. Saved note and property changes will finish first."
 msgstr "まだ保存されていないノートは破棄されます。保存済みのノートとプロパティの変更は先に完了します。"
 
+#: src/App.tsx
+msgid "The note’s text could not be copied. Select it in the editor instead."
+msgstr "ノートのテキストをコピーできませんでした。代わりにエディターで選択してください。"
+
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
 msgstr "元の完全なノートのソースを利用できません。"
+
+#: direct/DirectEditor.tsx
+msgid "The pairing code was refused. Check the digits or ask for a new code if it expired."
+msgstr "ペアリングコードが拒否されました。数字を確認し、有効期限が切れている場合は新しいコードを依頼してください。"
 
 #: src/person-records.ts
 msgid "The person identity field must be an array."
@@ -5407,6 +5702,10 @@ msgstr "選択したコレクションは準備ができていません。"
 #: src/native-file-download.ts
 msgid "The selected file has an invalid size."
 msgstr "選択したファイルのサイズは無効です。"
+
+#: direct/DirectEditor.tsx
+msgid "The server was not reached, so your code was not used. Check the server and network, then enter the code again."
+msgstr "サーバーに接続できなかったため、コードは使用されていません。サーバーとネットワークを確認してから、もう一度コードを入力してください。"
 
 #: src/TypeBrowser.tsx
 msgid "The stable name used by records and connected apps."
@@ -5547,6 +5846,14 @@ msgstr "このレコードを有効にするには、これらのプロパティ
 #: src/use-note-actions.ts
 msgid "This application does not have permission to make that change."
 msgstr "このアプリにはその変更を行う権限がありません。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser cannot connect to this server. Open the invitation in a browser that supports its transport."
+msgstr "このブラウザーではサーバーに接続できません。サーバーの通信方式に対応するブラウザーで招待を開いてください。"
+
+#: direct/DirectEditor.tsx
+msgid "This browser forgot the connection. The server still controls the grant."
+msgstr "このブラウザーの接続情報を削除しました。アクセス許可は引き続きサーバー側で管理されます。"
 
 #. placeholder {0}: conversion.path
 #. placeholder {1}: literal(conversion.typeName)
@@ -5696,6 +6003,14 @@ msgstr "名前変更の確認を始める前に、このノートが移動され
 #: src/use-note-actions.ts
 msgid "This note moved before the rename could begin."
 msgstr "名前変更を始める前に、このノートが移動されました。"
+
+#: src/App.tsx
+msgid "This note was deleted in another app or on another device."
+msgstr "このノートは別のアプリまたは別のデバイスで削除されました。"
+
+#: direct/RecordWorkspace.tsx
+msgid "This note was deleted."
+msgstr "このノートは削除されました。"
 
 #: src/type-contracts.ts
 msgid "This optional contract field is not exposed."
@@ -5882,6 +6197,10 @@ msgstr "型"
 msgid "Types ({typeCount})"
 msgstr "型（{typeCount}件）"
 
+#: src/TypeBrowser.tsx
+msgid "Types {fieldLabel} links to"
+msgstr "{fieldLabel}のリンク先タイプ"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Types folder"
@@ -5939,6 +6258,10 @@ msgstr "ピン留めを解除"
 msgid "Unpinned"
 msgstr "ピン留めを解除しました"
 
+#: direct/RecordWorkspace.tsx
+msgid "Unsaved changes"
+msgstr "未保存の変更"
+
 #: src/App.tsx
 msgid "Unsaved draft found"
 msgstr "未保存の下書きが見つかりました"
@@ -5950,6 +6273,10 @@ msgstr "このブラウザーでは未保存の編集をバックアップでき
 #: src/App.tsx
 msgid "Unsaved edits from an earlier session are available."
 msgstr "以前のセッションで保存されなかった編集があります。"
+
+#: direct/DirectEditor.tsx
+msgid "Unsaved text"
+msgstr "未保存のテキスト"
 
 #: src/App.tsx
 msgid "Unsaved type definition changes will be discarded. Saved note and property changes will finish first."
@@ -6143,6 +6470,10 @@ msgstr "共有された内容が長すぎるため、ノートを作成できま
 msgid "Which notes use this type"
 msgstr "この型を使用するノート"
 
+#: direct/DirectEditor.tsx
+msgid "Without this option, reloading the page requires a new code."
+msgstr "この設定を選ばない場合、ページを再読み込みすると新しいコードが必要になります。"
+
 #: src/PropertiesPanel.tsx
 msgid "Words"
 msgstr "単語"
@@ -6159,6 +6490,11 @@ msgstr "アプリとの互換性"
 msgctxt "settings view"
 msgid "Wrap long lines"
 msgstr "長い行を折り返す"
+
+#: src/settings/SettingsView.tsx
+msgctxt "settings view"
+msgid "Write papers and books citing your sources"
+msgstr "出典を引用しながら論文や書籍を執筆"
 
 #: src/TypeBrowser.tsx
 msgid "YAML"
@@ -6210,6 +6546,10 @@ msgstr "あなたのアカウントはこのコレクションの人物にリン
 msgid "Your change from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "{date}の変更はまだ確認されていません。再確認して保存を完了してください。"
 
+#: direct/DirectEditor.tsx
+msgid "Your collection"
+msgstr "コレクション"
+
 #: src/AppErrorBoundary.tsx
 msgid "Your collection was not deleted. Changes that had already finished saving are safe."
 msgstr "コレクションは削除されていません。すでに保存が完了した変更は保持されています。"
@@ -6241,10 +6581,6 @@ msgstr "あなたのノート、"
 #: src/YourPersonPanel.tsx
 msgid "Your person record"
 msgstr "自分の人物レコード"
-
-#: src/next-editor-records.ts
-msgid "Your previous change is still being saved. Try again in a moment."
-msgstr "前の変更はまだ保存中です。少し待ってから再試行してください。"
 
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."

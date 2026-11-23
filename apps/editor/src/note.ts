@@ -16,6 +16,11 @@ export function typeDisplayName(name: string): string {
   return words ? words[0].toLocaleUpperCase() + words.slice(1) : name;
 }
 
+/** A type name inside a sentence: `reading_item` → "reading item", in the case it was declared in. */
+export function typeNameInSentence(name: string): string {
+  return name.replace(/[_-]+/g, " ").trim() || name;
+}
+
 /** The icon a note's type declares, if any. */
 export function noteTypeIcon(note: NoteSummary, types: CollectionTypeDescriptor[]): string | undefined {
   return recordDisplayField(note.types, types, "icon");

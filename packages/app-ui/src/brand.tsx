@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type JSX } from "react";
 
-import type { MdbaseAppId } from "./apps.js";
+import type { MdbaseAppId, OfficialAppId } from "./apps.js";
 
 export type MdbaseMarkRect = Readonly<{
   x: number;
@@ -212,9 +212,32 @@ export function MdbaseMark({ app, motion, signal, progress, className }: {
 
 /** An app's mark. Kept for callers that only ever draw an app's still mark. */
 export function MdbaseAppMark({ app, className }: {
-  app: MdbaseAppId;
+  app: OfficialAppId;
   className?: string;
 }): JSX.Element {
+  if (app === "journal") {
+    // One row of the Frontmatter mark: a single field and a line of writing.
+    return <svg
+      className={classes("mdbase-mark mdbase-app-mark is-journal", className)}
+      viewBox={MDBASE_MARK_VIEW_BOX}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect className="mdbase-mark-ink" x="22" y="55" width="12" height="10" />
+      <rect className="mdbase-mark-accent" x="42" y="55" width="56" height="10" />
+    </svg>;
+  }
+  if (app === "tasknotes") {
+    return <svg
+      className={classes("mdbase-mark mdbase-app-mark is-tasknotes", className)}
+      viewBox={MDBASE_MARK_VIEW_BOX}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <rect className="mdbase-mark-ink-stroke" x="27" y="27" width="66" height="66" strokeWidth="10" />
+      <path className="mdbase-mark-accent-stroke" d="M42 61 54 73 79 48" strokeWidth="10" strokeLinecap="square" strokeLinejoin="miter" />
+    </svg>;
+  }
   return <MdbaseMark app={app} className={className} />;
 }
 

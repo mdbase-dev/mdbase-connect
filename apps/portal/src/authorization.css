@@ -792,6 +792,34 @@
   margin-top: 1.25rem;
 }
 
+.outcome-discovery {
+  margin-top: 2rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
+.request-outcome .outcome-discovery h2 {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0;
+}
+
+.outcome-discovery .mcp-connect-row {
+  margin-top: 8px;
+}
+
+.outcome-discovery h2 + .mcp-connect-row {
+  margin-top: 0;
+}
+
+.request-outcome .outcome-discovery-note {
+  margin-top: 0.75rem;
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+}
+
 .desktop-continuation-status {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

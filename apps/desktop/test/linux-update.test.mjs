@@ -73,6 +73,61 @@ test("a verified package is staged beside the app and swapped in, keeping the pr
   await assert.rejects(swapStagedApp(app), /ENOENT/);
 });
 
+/** A valid asar archive (Chromium pickle header, then the file bytes). */
+function asar(files) {
+  let offset = 0;
+  const entries = {};
+  for (const [name, data] of Object.entries(files)) {
+    entries[name] = { size: data.length, offset: String(offset) };
+    offset += data.length;
+  }
+  const json = Buffer.from(JSON.stringify({ files: entries }));
+  const padded = Buffer.alloc(Math.ceil(json.length / 4) * 4);
+  json.copy(padded);
+  const header = Buffer.alloc(16);
+  header.writeUInt32LE(4, 0);
+  header.writeUInt32LE(8 + padded.length, 4);
+  header.writeUInt32LE(4 + padded.length, 8);
+  header.writeUInt32LE(json.length, 12);
+  return Buffer.concat([header, padded, ...Object.values(files)]);
+}
+
+// The shipped updater runs in Electron, whose `fs` reads a valid `.asar` as a
+// folder: removing an app folder then fails with ENOTEMPTY. A `.next` left by a
+// release that was staged but never swapped in blocked every later update.
+test("in Electron, an update replaces a stale staged app and a previous app that hold asar archives", { skip: !linux }, async () => {
+  const directory = await mkdtemp(join(tmpdir(), "mdbase-linux-update-"));
+  const app = await installed(directory);
+  const archive = asar({ "package.json": Buffer.from("{}") });
+  for (const leftover of [`${app}.next`, `${app}.previous`, app]) {
+    await mkdir(join(leftover, "resources"), { recursive: true });
+    await writeFile(join(leftover, "resources/app.asar"), archive);
+  }
+  const package_ = await deb(directory);
+  const script = `
+    const fs = require("node:fs");
+    const { stageDebApp, swapStagedApp } = require(${JSON.stringify(require.resolve("../dist/main/linux-update.js"))});
+    const [app, deb] = process.argv.slice(1);
+    (async () => {
+      // The fixture must be what Electron treats as an archive, or this test proves nothing.
+      const seenAsFolder = fs.statSync(app + ".next/resources/app.asar").isDirectory();
+      await stageDebApp(deb, app, new AbortController().signal);
+      await swapStagedApp(app);
+      console.log(JSON.stringify({ runtime: process.versions.electron ?? null, seenAsFolder }));
+    })().catch((error) => { console.error(error); process.exit(1); });
+  `;
+  const output = execFileSync(require("electron"), ["-e", script, app, package_], {
+    env: { ...process.env, ELECTRON_RUN_AS_NODE: "1" },
+    encoding: "utf8"
+  });
+  const result = JSON.parse(output.trim().split("\n").at(-1));
+  assert.equal(typeof result.runtime, "string");
+  assert.equal(result.seenAsFolder, true);
+  assert.equal(await readFile(join(app, "mdbase-connect"), "utf8"), "#!/bin/sh\necho new\n");
+  assert.equal(await readFile(`${app}.previous/mdbase-connect`, "utf8"), "#!/bin/sh\necho old\n");
+  await assert.rejects(stat(`${app}.next`));
+});
+
 test("a package without the app, or not a Debian archive, is refused before anything moves", { skip: !linux }, async () => {
   const directory = await mkdtemp(join(tmpdir(), "mdbase-linux-update-"));
   const app = await installed(directory);
