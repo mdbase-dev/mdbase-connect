@@ -4,12 +4,25 @@ import { LanguageSetting } from "../i18n/LanguageSetting";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "../icons";
 import type { CollectionDescription } from "@mdbase-dev/connect";
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { managedAppOrigins } from "../../../../scripts/lib/managed-app-origins.mjs";
+import { editorEnvironment } from "../environment";
 import type { CollectionGateway, ConnectionSummary } from "../model";
 import type { EditorPreferences } from "../preferences";
 import { applyThemePreference, loadThemePreference, observeTheme, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
 import { Select } from "@mdbase-dev/ui/select";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
+
+const { tasknotesOrigin, readerOrigin, writerOrigin, journalOrigin } = managedAppOrigins[editorEnvironment];
+
+// Direct Claude and ChatGPT plugin directory URLs can be added alongside
+// MCP_SETUP_URL once the published directory listings are live.
+const MCP_ENDPOINT_URL = "https://mcp.mdbase.dev/mcp";
+const MCP_SETUP_URL = "https://mdbase.dev/apps/mcp/";
+
+function collectionAppUrl(origin: string, collectionId: string): string {
+  return `${origin}?collection=${encodeURIComponent(collectionId)}`;
+}
 
 // Lazy: the panel and its person setup are only needed in Settings, and stay out of startup.
 const YourPersonPanel = lazy(() => import("../YourPersonPanel").then((module) => ({ default: module.YourPersonPanel })));
@@ -38,6 +51,12 @@ export function SettingsView({ description, connection, noteCount, preferences, 
   const settings = objectValue(description.configuration?.settings);
   const runtime = objectValue(description.configuration?.runtime);
   const explicitTypeKeys = stringListValue(settings.explicit_type_keys, ["type", "types"]);
+  const hasRealCollection = Boolean(
+    connection
+    && connection.collectionId !== "demo"
+    && description.collectionId
+    && gateway?.syncState?.() !== "unsynced"
+  );
   return <main className="settings-view" aria-label={t({ message: "Editor settings", context: "settings view" })}>
     <header className="settings-mobile-bar"><button className="mobile-back icon-button" aria-label={t({ message: "Back to collection", context: "settings view" })} onClick={onBack}><ArrowLeft aria-hidden="true" /></button><span><Trans context="settings view">Settings</Trans></span></header>
     {leadingActions && <div className="settings-pane-actions">{leadingActions}</div>}
@@ -83,6 +102,8 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         </details>
       </section>
 
+      {hasRealCollection && <OtherAppsSection collectionId={description.collectionId} />}
+
       {gateway?.peopleDirectory && <Suspense fallback={null}><YourPersonPanel key={description.collectionId} gateway={gateway} description={description} canInstall={connection?.operations.includes("apply_type_pack") ?? false} onRefreshDescription={onRefreshDescription} canCreate={connection?.operations.includes("create") ?? false} canEdit={connection?.operations.includes("update") ?? false} /></Suspense>}
 
       <section>
@@ -102,6 +123,96 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       </section>
     </div>
   </main>;
+}
+
+function OtherAppsSection({ collectionId }: { collectionId: string }) {
+  const { t } = useLingui();
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => {
+    if (copyTimer.current !== undefined) clearTimeout(copyTimer.current);
+  }, []);
+
+  async function copyEndpoint() {
+    if (!navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(MCP_ENDPOINT_URL);
+    } catch {
+      return;
+    }
+    setCopied(true);
+    if (copyTimer.current !== undefined) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => {
+      setCopied(false);
+      copyTimer.current = undefined;
+    }, 2000);
+  }
+
+  const apps = [
+    {
+      name: "TaskNotes",
+      description: t({ message: "Plan tasks, boards and calendars", context: "settings view" }),
+      href: collectionAppUrl(tasknotesOrigin, collectionId)
+    },
+    {
+      name: "Reader",
+      description: t({ message: "Read and annotate PDFs, EPUBs and web pages", context: "settings view" }),
+      href: collectionAppUrl(readerOrigin, collectionId)
+    },
+    {
+      name: "Writer",
+      description: t({ message: "Write papers and books citing your sources", context: "settings view" }),
+      href: collectionAppUrl(writerOrigin, collectionId)
+    },
+    {
+      name: "Journal",
+      description: t({ message: "Keep a daily Markdown journal", context: "settings view" }),
+      href: collectionAppUrl(journalOrigin, collectionId)
+    }
+  ];
+
+  return <section>
+    <div className="settings-intro">
+      <h2><Trans context="settings view">Other apps</Trans></h2>
+      <p><Trans context="settings view">Open this collection in another mdbase app or connect an AI client.</Trans></p>
+    </div>
+    {apps.map((app) => (
+      <SettingRow key={app.name} title={app.name} description={app.description}>
+        <a
+          className="settings-secondary-action mdbase-button"
+          href={app.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t({ message: `Open ${app.name}`, context: "settings view" })}
+        >
+          <Trans context="settings view">Open</Trans>
+        </a>
+      </SettingRow>
+    ))}
+    <div className="setting-row settings-mcp-row">
+      <div>
+        <h3><Trans context="settings view">Claude, ChatGPT &amp; Codex (MCP &amp; plugins)</Trans></h3>
+        <p><code className="settings-endpoint">{MCP_ENDPOINT_URL}</code></p>
+      </div>
+      <div className="setting-controls">
+        <button
+          type="button"
+          className="settings-secondary-action mdbase-button"
+          onClick={() => void copyEndpoint()}
+        >
+          {copied ? t({ message: "Copied", context: "settings view" }) : t({ message: "Copy", context: "settings view" })}
+        </button>
+        <a
+          className="settings-secondary-action mdbase-button"
+          href={MCP_SETUP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Trans context="settings view">Set up</Trans>
+        </a>
+      </div>
+    </div>
+  </section>;
 }
 
 function ThemePreferenceSetting() {
