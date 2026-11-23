@@ -283,7 +283,7 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   // Registration could not reach the CP: a connection problem.
   application_registration_unavailable: "unavailable", application_registration_unknown: "unavailable",
   application_connection_unavailable: "unavailable", readiness_unavailable: "unavailable",
-  grant_activation_timeout: "unavailable",
+  grant_activation_timeout: "unavailable", relay_closed: "unavailable", pipe_closed: "unavailable",
   application_connection_people_unavailable: "people_access", people_unavailable: "people_access",
   people_response: "people_access", people_binding: "people_access", people_budget: "people_access", people_incomplete: "people_access",
   application_selection_empty: "application_selection_invalid", application_selection_duplicate: "application_selection_invalid",
@@ -352,7 +352,7 @@ export const INTERNAL_PROBLEM_CODES = [
 
 const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(null) as Record<string, string>, {
   device_offline: "Collection availability device_offline: no device serving this Private collection is connected to the relay.",
-  device_not_serving: "Relay close not_served: the device holds a current grant for this Private collection but is not serving it (paused, opening, recovering or failed). Check the collection's status in mdbase on that computer; connect with waitForDevice keeps retrying.",
+  device_not_serving: "Collection availability device_not_serving / relay close not_served: the device is online but is not serving this Private collection right now (paused, opening, recovering, failed, or removed on that computer). Check the collection's status in mdbase on that computer; connect with waitForDevice keeps retrying.",
   desktop_update_required: "Collection availability desktop_update_required: the serving device's last relay connection was refused as incompatible.",
   old_connector_running: "Collection availability old_connector_running: the serving device reports a legacy connector still holding its collections.",
   device_approval_required: "Collection availability approval_required: no device has signed an approval for this app's grant yet.",

@@ -147,6 +147,28 @@ describe("relay Noise pipe (Connect #596)", () => {
     expect(closed).toHaveBeenCalledWith(expect.objectContaining({ code: "unavailable", reason: "not_served" }));
     expect(() => carrier.send(new Uint8Array())).toThrow(closed.mock.calls[0]![0]);
   });
+
+  it.each([
+    ["authorization_unavailable", "unavailable", "authorization_unavailable"],
+    ["grant_lease_expired", "unavailable", "grant_lease_expired"],
+    ["grant_inactive", "forbidden", "grant_inactive"],
+    ["grant_pending_approval", "forbidden", "grant_pending_approval"],
+    ["grant_revoked_on_device", "forbidden", "grant_revoked_on_device"],
+    ["unknown_grant", "forbidden", "unknown_grant"],
+    ["connector_offline", "unavailable", "no_device_online"],
+    ["connector_busy", "rate_limited", "connector_busy"],
+    ["unauthenticated", "unauthenticated", "relay_unauthenticated"],
+  ] as const)("maps pipe_close %s to %s/%s even when the WebSocket closes with 1005", async (pipeReason, wantCode, wantReason) => {
+    const socket: WebSocketLike = { readyState: 1, binaryType: "", send: vi.fn(), close: vi.fn(), onopen: null, onmessage: null, onclose: null, onerror: null };
+    const opening = relayPipeCarrier("wss://relay.test", { accessToken: "fixture", collection: "collection", grant, device, devicePublicKey: key.publicKey }, () => socket);
+    socket.onmessage!({ data: JSON.stringify({ type: "pipe_opened", pipe_id: "pipe" }) });
+    const carrier = await opening;
+    const closed = vi.fn();
+    carrier.onclose = closed;
+    socket.onmessage!({ data: JSON.stringify({ type: "pipe_close", pipe_id: "pipe", reason: pipeReason }) });
+    socket.onclose!({ code: 1005, reason: "" });
+    expect(closed).toHaveBeenCalledWith(expect.objectContaining({ code: wantCode, reason: wantReason }));
+  });
 });
 
 describe("relay pipe preconditions", () => {

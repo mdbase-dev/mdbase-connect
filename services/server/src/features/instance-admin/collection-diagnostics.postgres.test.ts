@@ -83,7 +83,7 @@ describePostgres("read-only collection diagnostics", () => {
       expect(report.collections).toEqual([expect.objectContaining({ collection_id: fixtureState.collection, availability: { state: "available" },
         devices: [{ device_id: fixtureState.device, connector_id: fixtureState.connector, presence: "responded", online: true, serving: true, old_connector_running: false }] })]);
       expect(report.account_registrations).toEqual([expect.objectContaining({ connector_version: "0.1.0-beta.1", revoked_at: null })]);
-      expect(request).toHaveBeenCalledExactlyOnceWith(fixtureState.connector, "7", { version: 1, kind: "device_presence", message: { device_id: fixtureState.device } }, 1_000);
+      expect(request).toHaveBeenCalledExactlyOnceWith(fixtureState.connector, "7", { version: 1, kind: "device_presence", message: { device_id: fixtureState.device, collection_id: fixtureState.collection } }, 1_000);
       const serialized = JSON.stringify(report);
       for (const key of Object.values(fixtureState.keys)) expect(serialized).not.toContain(key.toString("hex"));
       expect(serialized).not.toMatch(/token_hash|noise_pk|root_key|operations|scope.*contracts|relay_generation/);

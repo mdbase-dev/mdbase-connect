@@ -65,6 +65,13 @@ exports[`describes collection availability and access in plain, specific copy 1`
     "message": "The mdbase desktop app on the computer that has this collection is out of date. Update it there, then try again.",
     "title": "Update mdbase on your computer",
   },
+  "availability:device_not_serving": {
+    "action": "wait",
+    "actionLabel": null,
+    "key": "device_not_serving",
+    "message": "Your computer is online, but mdbase there isn't serving this collection right now. Open the mdbase desktop app on that computer to see why. This app connects as soon as it can.",
+    "title": "Your computer can't open this collection",
+  },
   "availability:device_offline": {
     "action": "wait",
     "actionLabel": null,

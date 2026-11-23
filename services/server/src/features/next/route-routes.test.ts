@@ -8,7 +8,7 @@ import { registerNextRouteRoutes } from "./route-routes.js";
 // registered device per local authority; these are not live admission proofs.
 const device = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
 
-async function route(rows: Array<{ device: number; kind?: string; active?: number | null }>, online: number[] = [], result?: unknown, failure?: Error, publicUrl = "https://connect.example") {
+async function route(rows: Array<{ device: number; kind?: string; active?: number | null }>, online: number[] = [], result?: unknown, failure?: Error, publicUrl = "https://connect.example", details?: Record<number, Record<string, unknown>>) {
   const id = randomUUID();
   const query = vi.fn().mockResolvedValue({ rows: rows.map((r) => ({
     user_id: id, grant_id: id, has_client_key: true, device_id: device(r.device), kind: r.kind ?? "desktop",
@@ -17,7 +17,9 @@ async function route(rows: Array<{ device: number; kind?: string; active?: numbe
   const request = vi.fn(async (_connector: string, _generation: string, command: { message: unknown }) => {
     if (failure) throw failure;
     const named = (command.message as { device_id: string }).device_id;
-    return { version: 1 as const, ok: true as const, value: result ?? online.some((n) => named === device(n)) };
+    const matched = online.find((n) => named === device(n));
+    const detail = matched !== undefined ? details?.[matched] : undefined;
+    return { version: 1 as const, ok: true as const, value: result ?? matched !== undefined, ...(detail ? { detail } : {}) };
   });
   const app = Fastify();
   registerNextRouteRoutes(app, { db: { query }, publicUrl, broker: { request } });
@@ -34,7 +36,24 @@ describe("route target metadata handler (hermetic)", () => {
     const { response, request, id } = await route([{ device: 1, active: 500 }, { device: 2, active: 10 }], [2]);
     expect(response.statusCode).toBe(200);
     expect(response.json().targets.map((t: { device: string; online: boolean }) => [t.device, t.online])).toEqual([[device(2), true], [device(1), false]]);
-    expect(request).toHaveBeenCalledWith(id, "7", { version: 1, kind: "device_presence", message: { device_id: device(2) } }, 1_000);
+    expect(request).toHaveBeenCalledWith(id, "7", { version: 1, kind: "device_presence", message: { device_id: device(2), collection_id: id } }, 1_000);
+  });
+
+  it("reports device_not_serving when online devices do not serve the collection, and prefers one that does", async () => {
+    const unserved = await route([{ device: 1 }], [1], undefined, undefined, "https://connect.example", { 1: { not_serving: true } });
+    expect(unserved.response.statusCode).toBe(200);
+    expect(unserved.response.json().availability).toEqual({ state: "unavailable", reason: "device_not_serving" });
+
+    const mixed = await route(
+      [{ device: 1, active: 500 }, { device: 2, active: 10 }],
+      [1, 2],
+      undefined,
+      undefined,
+      "https://connect.example",
+      { 1: { not_serving: true } }
+    );
+    expect(mixed.response.json().availability).toEqual({ state: "available" });
+    expect(mixed.response.json().targets.map((t: { device: string }) => t.device)).toEqual([device(2), device(1)]);
   });
 
   it("ranks daemon candidates before app devices, after online priority", async () => {

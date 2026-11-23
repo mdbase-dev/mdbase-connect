@@ -51,6 +51,7 @@ impl crate::relay::RelayHost for Daemon {
                         Some(entry) if entry.is_refused() => {
                             crate::access::Refusal::RevokedLocally.reason()
                         }
+                        _ if mode.is_none() => crate::access::Refusal::NotServed.reason(),
                         _ if mode == Some(SyncMode::SyncedE2e)
                             && !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
                         {
@@ -289,5 +290,20 @@ impl crate::relay::RelayHost for Daemon {
         self.takeover
             .old_running
             .load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    fn serving_collections(&self) -> crate::session::BoxFuture<'_, Option<Vec<String>>> {
+        Box::pin(async move {
+            let inner = self.inner.lock().await;
+            let mut ids: Vec<String> = inner
+                .hosts
+                .iter()
+                .filter(|h| h.is_serving())
+                .map(|h| h.entry().id.to_ascii_lowercase())
+                .collect();
+            ids.sort();
+            ids.dedup();
+            Some(ids)
+        })
     }
 }

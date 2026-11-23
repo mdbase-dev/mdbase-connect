@@ -39,6 +39,20 @@ const MAX_PIPE_FRAME = 4 + 65535;
 
 const CLOSE_REASONS = new Set("unauthenticated grant_inactive connector_offline connector_busy device_mismatch device_key_mismatch closed client_closed handshake_timeout idle lifetime frame_too_large invalid_frame not_served relay_closing authorization_unavailable grant_revoked grant_lease_expired grant_pending_approval grant_revoked_on_device unknown_grant".split(" "));
 
+const PIPE_CLOSE_CODES: Readonly<Record<string, number>> = Object.assign(Object.create(null) as Record<string, number>, {
+  unauthenticated: 4401,
+  grant_inactive: 4403,
+  grant_revoked_on_device: 4403,
+  grant_pending_approval: 4403,
+  unknown_grant: 4403,
+  connector_offline: 4404,
+  connector_busy: 4429,
+});
+
+function pipeCloseCode(reason?: string): number {
+  return typeof reason === "string" && Object.hasOwn(PIPE_CLOSE_CODES, reason) ? PIPE_CLOSE_CODES[reason]! : 4000;
+}
+
 export function pipeCloseError(code?: number, reason?: string): MdbaseError {
   // Only fixed protocol reasons survive: arbitrary close text can contain secrets.
   const r = typeof reason === "string" && CLOSE_REASONS.has(reason) ? reason : undefined;
@@ -179,7 +193,7 @@ export function relayPipeCarrier(
           signal?.removeEventListener("abort", onAbort);
           resolve(carrier);
         } else if (msg.type === "pipe_close") {
-          fail(pipeCloseError(4000, msg.reason));
+          fail(pipeCloseError(pipeCloseCode(msg.reason), msg.reason));
           ws.close();
         }
         return;
