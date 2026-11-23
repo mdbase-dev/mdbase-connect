@@ -1008,3 +1008,5 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 }
 .connect-collection-row,
 .connect-application { view-transition-name: match-element; }
+.connect-collection-apps .mcp-connect-row { margin-top: 8px; }
+.connect-collection-apps .connect-section-title + .mcp-connect-row { margin-top: 0; }

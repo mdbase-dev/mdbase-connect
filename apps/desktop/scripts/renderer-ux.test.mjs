@@ -244,6 +244,8 @@ for (const theme of ["light", "dark"]) {
       assert.equal(await page.locator("img.app-mark").count(), 0);
       assert.deepEqual(await page.getByRole("region", { name: "More apps from mdbase" }).locator(".app-tile strong").allTextContents(),
         ["Reader", "Writer", "Journal", "TaskNotes"]);
+      assert.equal(await page.locator(".mcp-connect-row").getByText("Claude, ChatGPT & Codex", { exact: true }).count(), 1);
+      assert.equal(await page.locator(".mcp-connect-row").getByText("https://mcp.mdbase.dev/mcp", { exact: true }).count(), 1);
       assert.equal(await page.getByRole("link", { name: /^Notes .*Editor$/ }).count(), 1);
       await screenshot(page, `parity-home-${theme}`);
       await yours.getByRole("button", { name: "Open Editor" }).click();

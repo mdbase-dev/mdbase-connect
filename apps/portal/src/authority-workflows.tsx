@@ -8,7 +8,7 @@ import {
   ApiError,
   type DevicePairing,
 } from "./api";
-import { finishDeniedPairing, pendingPairingChoice, rememberCollection, installationAccountLabel, installationRefusal, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
+import { finishDeniedPairing, pendingPairingChoice, rememberCollection, installationAccountLabel, installationRefusal, managedOriginsFor, message, NEW_COLLECTION, pairingInspectionPath } from "./portal-model";
 import { CollectionPicker, CollectionIdentity, RequestShell, fileActionLabel, useRequestExpiry } from "./authorization-review";
 import { RequestIdentity, RequestOutcome } from "./authorization-view";
 import { watchPairingCollections, watchPairingPreparation } from "./pairing-progress";
@@ -441,8 +441,10 @@ export function Pairing({ pairingId }: { pairingId: string }) {
               </>
             ) : pairing.approved_at ? (
               <>
-                <RequestOutcome status="approved" applicationName={pairing.connector_name} collectionName={selectedName}
-                  collectionKind={privateChoice ? "private" : "cloud_copy"} returnUrl={handBack.current ? pairing.return_url ?? "" : ""} />
+                <RequestOutcome status="approved" applicationName={pairing.connector_name} applicationOrigin={pairing.app_origin}
+                  collectionId={selectedCollectionId && selectedCollectionId !== NEW_COLLECTION ? selectedCollectionId : pairing.selected_collection_id || pairing.creation?.collection_id || undefined}
+                  collectionName={selectedName} collectionKind={privateChoice ? "private" : "cloud_copy"}
+                  origins={managedOriginsFor()} returnUrl={handBack.current ? pairing.return_url ?? "" : ""} />
                 {!handBack.current && pairing.return_url && <a className="mdbase-button outcome-return" href={pairing.return_url}><Trans>Return to {literal(pairing.connector_name)}</Trans></a>}
                 {pairing.timer_declaration && <p role="status">{pairing.timer_consent
                   ? t(i18n)({ message: "You allowed reminders for the selected collections." })

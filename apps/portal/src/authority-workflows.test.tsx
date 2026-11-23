@@ -82,6 +82,39 @@ describe("approval collection chooser",()=>{
     expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith("/approve"))).toHaveLength(1);
   });
 
+  it("surfaces other mdbase apps and MCP on an approved pairing receipt on managed environments", async () => {
+    vi.stubGlobal("location", {
+      href: "https://connect.mdbase.dev/pair/pairing",
+      origin: "https://connect.mdbase.dev",
+      pathname: "/pair/pairing",
+      search: "",
+      hash: "",
+      replace: vi.fn(),
+      assign: vi.fn()
+    });
+    vi.mocked(api).mockReset().mockResolvedValue({
+      pairing: {
+        ...preparedPairing(),
+        app_origin: "https://reader.mdbase.dev",
+        approved_at: "2026-01-01T00:00:00Z",
+        selected_collection_id: "notes"
+      }
+    });
+    try {
+      render(<Pairing pairingId="pairing" />);
+      const discovery = await screen.findByRole("region", { name: "Also works with Notes" });
+      expect(within(discovery).getAllByRole("link", { name: /^Open / }).map((link) => link.getAttribute("href"))).toEqual([
+        "https://editor.mdbase.dev/?collection=notes",
+        "https://writer.mdbase.dev/?collection=notes",
+        "https://journal.mdbase.dev/?collection=notes",
+        "https://app.tasknotes.dev/?collection=notes"
+      ]);
+      expect(within(discovery).getByText("Claude, ChatGPT & Codex")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("moves Cancel focus to the real approval target while denial is pending", async () => {
     const close = vi.spyOn(window, "close").mockImplementation(() => {});
     let finish!: () => void;

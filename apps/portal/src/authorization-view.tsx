@@ -4,7 +4,8 @@ import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup";
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AppTile, McpConnectRow, collectionDiscoveryApps, type ManagedAppOrigins } from "@mdbase/connect-ui/home";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol";
 import {
   api,
@@ -53,6 +54,7 @@ import {
   formatDeviceCode,
   host,
   initials,
+  managedOriginsFor,
   message,
   neededProvisions,
   provisionNames,
@@ -266,10 +268,13 @@ export function Authorization({ requestId }: { requestId: string }) {
         </> : <RequestOutcome
           status={status}
           applicationName={authorization.application_name}
+          applicationOrigin={authorization.application_origin || authorization.homepage || undefined}
           portable={authorization.distribution === "portable"}
           returnUrl={returnUrl}
+          collectionId={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.id ?? authorization.collection_id ?? undefined}
           collectionName={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.display_name}
           collectionKind={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.kind}
+          origins={managedOriginsFor()}
         />}
     </RequestShell>
   );
@@ -278,17 +283,21 @@ export function Authorization({ requestId }: { requestId: string }) {
 const RETURN_LINK_DELAY_MS = 4_000;
 const SLOW_SETUP_MS = 20_000;
 
-export function RequestOutcome({ status, applicationName, collectionName, collectionKind, portable = false, returnUrl = "", standalone = false }: {
+export function RequestOutcome({ status, applicationName, applicationOrigin, collectionId, collectionName, collectionKind, origins, portable = false, returnUrl = "", standalone = false }: {
   status: Exclude<RequestStatus, "pending">;
   applicationName: string;
+  applicationOrigin?: string;
+  collectionId?: string;
   collectionName?: string;
   collectionKind?: "local" | "hosted" | "private" | "cloud_copy";
+  origins?: ManagedAppOrigins;
   portable?: boolean;
   returnUrl?: string;
   // Without a loaded request there is no application heading above the outcome.
   standalone?: boolean;
 }) {
   useLocaleRevision();
+  const discoveryHeadingId = useId();
   const Heading = standalone ? "h1" : "h2";
   // Show a manual return link or a slow-setup note only if the automatic step
   // has not already taken the user away.
@@ -333,6 +342,9 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
     {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>}
   </div>;
   const approved = status === "approved";
+  const discovery = approved && (!returnUrl || portable) && collectionId && collectionName && origins
+    ? collectionDiscoveryApps(origins, collectionId, [{ name: applicationName, origin: applicationOrigin }])
+    : null;
   return <div className="request-outcome" role="status" ref={outcome}>
     {approved && collectionName ? <GrantMoment applicationName={applicationName} collectionName={collectionName} collectionKind={collectionKind} />
       : <h1 tabIndex={-1}>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
@@ -347,6 +359,26 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
         ? t(i18n)`Continue in ${applicationName} to use this collection.`
         : t(i18n)({ message: "The app will show that access was not granted." })}</p>}
     {!approved && returnLink}
+    {discovery && collectionName && (discovery.apps.length > 0 || discovery.showMcp) && (
+      <section className="outcome-discovery" aria-labelledby={discoveryHeadingId}>
+        <h2 id={discoveryHeadingId}>{t(i18n)`Also works with ${collectionName}`}</h2>
+        {discovery.apps.length > 0 && (
+          <ul className="app-grid">
+            {discovery.apps.map((app) => (
+              <AppTile key={app.key} app={app}>
+                {app.url && (
+                  <a className="mdbase-button" href={app.url} target="_blank" rel="noopener noreferrer" aria-label={t(i18n)`Open ${app.name}`}>
+                    <Trans>Open</Trans>
+                  </a>
+                )}
+              </AppTile>
+            ))}
+          </ul>
+        )}
+        {discovery.showMcp && <McpConnectRow />}
+        <p className="outcome-discovery-note">{t(i18n)`Each app asks for your approval before accessing ${collectionName}. Your files remain ordinary Markdown.`}</p>
+      </section>
+    )}
   </div>;
 }
 /** Plain label for an exact non-web app origin shown on the consent screen. */
