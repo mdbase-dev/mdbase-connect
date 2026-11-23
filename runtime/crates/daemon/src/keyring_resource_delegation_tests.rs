@@ -628,3 +628,79 @@ fn durability_windows_reach_the_inner_store_and_close_before_a_keyring_write() {
     // The caller's own close after that is harmless.
     store.defer_durability(false).unwrap();
 }
+
+#[test]
+fn files_read_only_delegates_to_the_inner_store() {
+    struct ReadOnlyFlag {
+        mem: MemStore,
+        read_only: bool,
+    }
+    impl Store for ReadOnlyFlag {
+        fn own_retained_stats(&self) -> StoreResult<TailStats> {
+            Ok(TailStats::default())
+        }
+        fn own_retained(&self, _after: Seq, _limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
+            Ok(Vec::new())
+        }
+        forward_mem_reads! {
+            fn head() -> StoreResult<Head>;
+            fn record(id: &Uuid) -> StoreResult<Option<RecordRow>>;
+            fn record_at(path_key: &str) -> StoreResult<Option<Uuid>>;
+            fn records(page: Page) -> StoreResult<Vec<RecordRow>>;
+            fn records_in_buckets(range: Range<u32>, page: Page) -> StoreResult<Vec<RecordRow>>;
+            fn record_count() -> StoreResult<u64>;
+            fn file(id: &Uuid) -> StoreResult<Option<FileRow>>;
+            fn file_at(path_key: &str) -> StoreResult<Option<Uuid>>;
+            fn files(page: Page) -> StoreResult<Vec<FileRow>>;
+            fn files_in_buckets(range: Range<u32>, page: Page) -> StoreResult<Vec<FileRow>>;
+            fn resource(path: &str) -> StoreResult<Option<String>>;
+            fn resources() -> StoreResult<Vec<(String, String)>>;
+            fn settings() -> StoreResult<Option<FileInclusion>>;
+            fn tombstone(id: &Uuid) -> StoreResult<Option<TombstoneRow>>;
+            fn tombstones_at(path_key: &str) -> StoreResult<Vec<TombstoneRow>>;
+            fn tombstones(page: Page) -> StoreResult<Vec<TombstoneRow>>;
+            fn alias(path_key: &str) -> StoreResult<Option<Uuid>>;
+            fn aliases() -> StoreResult<Vec<AliasRow>>;
+            fn conflicts(of: Option<&Uuid>) -> StoreResult<Vec<ConflictRow>>;
+            fn conflict_count() -> StoreResult<u64>;
+            fn receipt(mutation: &Uuid) -> StoreResult<Option<ReceiptRow>>;
+            fn receipts(after: Option<Uuid>, limit: u32) -> StoreResult<Vec<ReceiptRow>>;
+            fn referrers(target_keys: &[String]) -> StoreResult<Vec<Uuid>>;
+            fn unique_holders(field: &str, value_key: &str) -> StoreResult<Vec<Uuid>>;
+            fn candidates(q: &Candidate, page: Page) -> StoreResult<Vec<RecordRow>>;
+            fn pending(after_order: Option<u64>, limit: u32) -> StoreResult<Vec<PendingRow>>;
+            fn pending_get(mutation: &Uuid) -> StoreResult<Option<PendingRow>>;
+            fn pending_count() -> StoreResult<u64>;
+            fn local_receipt(mutation: &Uuid) -> StoreResult<Option<LocalReceipt>>;
+            fn holds() -> StoreResult<Vec<Hold>>;
+            fn hold(id: &Uuid) -> StoreResult<Option<Hold>>;
+            fn meta(key: &str) -> StoreResult<Option<Vec<u8>>>;
+            fn transfer(id: &Uuid) -> StoreResult<Option<TransferRow>>;
+            fn transfer_chunk(id: &Uuid, index: u64) -> StoreResult<Option<Vec<u8>>>;
+            fn blob_size(digest: &Hash) -> StoreResult<Option<u64>>;
+            fn blob_read(digest: &Hash, offset: u64, len: u64) -> StoreResult<Vec<u8>>;
+        }
+        fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+            self.mem.commit(tx)
+        }
+        fn has_files(&self) -> bool {
+            true
+        }
+        fn files_read_only(&self) -> bool {
+            self.read_only
+        }
+    }
+
+    for read_only in [false, true] {
+        let store = KeychainKeyring::new(
+            ReadOnlyFlag {
+                mem: MemStore::default(),
+                read_only,
+            },
+            None,
+            &COLLECTION,
+        )
+        .unwrap();
+        assert_eq!(store.files_read_only(), read_only);
+    }
+}

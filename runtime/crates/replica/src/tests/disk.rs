@@ -68,6 +68,7 @@ pub(super) struct Disk {
     source_started: Vec<ObservationId>,
     current_started: Vec<ObservationId>,
     complete_started: u64,
+    read_only: bool,
 }
 
 fn h(s: &str) -> Hash {
@@ -84,6 +85,12 @@ impl Disk {
     }
 
     fn perform(&mut self, p: Publish) -> Option<Drift> {
+        if self.read_only {
+            return Some(Drift {
+                publish: p,
+                reason: "read_only".into(),
+            });
+        }
         let d = self;
         let ok = |d: &Disk, path: &str, e: &Expect| match e {
             Expect::Absent => !d.files.contains_key(path),
@@ -404,6 +411,9 @@ impl Store for DiskStore {
     }
     fn has_files(&self) -> bool {
         true
+    }
+    fn files_read_only(&self) -> bool {
+        self.disk.borrow().read_only
     }
 
     fn durability_deferred(&self) -> bool {
@@ -2064,14 +2074,35 @@ fn reopen(
     log: FakeLog,
     disk: Rc<RefCell<Disk>>,
 ) -> Node {
-    let _ = svc;
+    reopen_mode(
+        svc,
+        n,
+        mdbn_wire::client::SyncMode::Synced,
+        store,
+        log,
+        disk,
+    )
+}
+
+fn reopen_mode(
+    svc: &FakeLogService,
+    n: u8,
+    mode: mdbn_wire::client::SyncMode,
+    store: DiskStore,
+    log: FakeLog,
+    disk: Rc<RefCell<Disk>>,
+) -> Node {
     let clock = Rc::new(Cell::new(1_700_000_100_000));
     let cfg = ReplicaConfig {
         collection: COL,
         replica_id: B16([n; 16]),
         device_id: B16([n + 100; 16]),
-        mode: mdbn_wire::client::SyncMode::Synced,
-        log_endpoint: EndpointId(1),
+        mode,
+        log_endpoint: EndpointId(if mode == mdbn_wire::client::SyncMode::LocalOnly {
+            0
+        } else {
+            1
+        }),
         verify: false,
         runtime_version: "test".into(),
         trusted_roots: vec![crate::testkit::TEST_ROOT],
@@ -2083,7 +2114,7 @@ fn reopen(
         expected_genesis: None,
         policy_pins: None,
     };
-    if svc.head(&COL).0 == 0 {
+    if mode != mdbn_wire::client::SyncMode::LocalOnly && svc.head(&COL).0 == 0 {
         let devs: Vec<B16> = (101..=109u8).map(|d| B16([d; 16])).collect();
         crate::testkit::TestControlPlane::new(COL).bootstrap(
             svc,
@@ -3484,4 +3515,263 @@ fn first_local_ingest_takes_record_ids_from_the_hints() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn read_only_volume_refuses_writes_emits_incident_and_ingests_without_retrying() {
+    use mdbn_wire::client::{HoldReason, IncidentKind, SyncMode};
+    let svc = FakeLogService::new();
+    let base = node_mode(&svc, 1, SyncMode::LocalOnly);
+    let disk = base.disk.clone();
+    disk.borrow_mut().read_only = true;
+    disk.borrow_mut().user_write("existing.md", Some("on disk"));
+    let mut a = reopen_mode(
+        &svc,
+        1,
+        SyncMode::LocalOnly,
+        base.r.into_store(),
+        base.log,
+        disk,
+    );
+
+    assert!(
+        a.r.status(a.s)
+            .unwrap()
+            .incidents
+            .iter()
+            .any(|i| i.kind == IncidentKind::ReadOnly),
+        "opening on a read-only volume reports IncidentKind::ReadOnly"
+    );
+
+    // Reads and external ingest still work without scheduling doomed publish retries.
+    a.r.observe(None).unwrap();
+    a.r.tick();
+    assert_eq!(
+        a.r.get(
+            a.s,
+            crate::api::Target::Path("existing.md".into()),
+            mdbn_wire::client::Include {
+                effective: None,
+                body: None,
+                document: Some(true),
+                diagnostics: None,
+            }
+        )
+        .unwrap()
+        .document
+        .as_deref(),
+        Some("on disk")
+    );
+    let attempts_after_ingest = a.disk.borrow().publish_attempts;
+    a.r.tick();
+    assert_eq!(a.disk.borrow().publish_attempts, attempts_after_ingest);
+    assert!(a.r.retry_publish.is_empty());
+
+    // Client writes fail closed with forbidden/read_only_volume and commit nothing.
+    let err =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Create(Create {
+                    id: B16([77; 16]),
+                    path: Some("blocked.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(Text::Inline("never written".into())),
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(err.problem().code, "forbidden");
+    assert_eq!(err.problem().reason.as_deref(), Some("read_only_volume"));
+    assert_eq!(a.r.sync_status().pending, 0);
+    assert_eq!(a.r.store().record_count().unwrap(), 1);
+    assert!(a.file("blocked.md").is_none());
+
+    // Resolving a hold (even TakeTheirs on a ReadOnly hold) also fails closed.
+    let hold_id = B16([88; 16]);
+    a.r.store_mut()
+        .commit(Tx {
+            holds_put: vec![Hold {
+                id: hold_id,
+                path: "held.md".into(),
+                reason: HoldReason::ReadOnly,
+                since: 1,
+                base: None,
+                mine: mdbn_wire::snapshot::TextOrBlob::Text("local".into()),
+                theirs: None,
+                saves: 1,
+            }],
+            ..Tx::default()
+        })
+        .unwrap();
+    let err =
+        a.r.resolve_hold(a.s, hold_id, HoldResolution::TakeTheirs)
+            .unwrap_err();
+    assert_eq!(err.problem().code, "forbidden");
+    assert_eq!(err.problem().reason.as_deref(), Some("read_only_volume"));
+
+    // Paired local-web sessions also read normally and fail closed on writes.
+    let web_owner = B16([91; 16]);
+    a.r.enable_local_web(move |owner| owner == web_owner)
+        .unwrap();
+    let web =
+        a.r.hello(
+            SessionAuth::LocalWeb(web_owner),
+            HelloParams {
+                versions: vec![Version { major: 1, minor: 0 }],
+                client_name: "web".into(),
+                client_version: "1".into(),
+                features: None,
+                timezone: None,
+            },
+        )
+        .unwrap()
+        .0;
+    assert_eq!(
+        a.r.get(
+            web,
+            crate::api::Target::Path("existing.md".into()),
+            mdbn_wire::client::Include {
+                effective: None,
+                body: None,
+                document: Some(true),
+                diagnostics: None,
+            }
+        )
+        .unwrap()
+        .document
+        .as_deref(),
+        Some("on disk")
+    );
+    let err =
+        a.r.submit(
+            web,
+            SubmitParams {
+                ops: vec![Op::Create(Create {
+                    id: B16([92; 16]),
+                    path: Some("web-blocked.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(Text::Inline("never written".into())),
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(err.problem().code, "forbidden");
+    assert_eq!(err.problem().reason.as_deref(), Some("read_only_volume"));
+    assert_eq!(a.r.sync_status().pending, 0);
+}
+
+#[test]
+fn read_only_drift_settles_not_published_without_retrying() {
+    use mdbn_wire::client::PublishState;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    a.disk.borrow_mut().defer = true;
+    let r = create(&mut a, 1, "a.md", "one");
+    assert_eq!(r.published, Some(PublishState::Publishing));
+    a.disk.borrow_mut().read_only = true;
+    a.disk.borrow_mut().complete();
+    a.r.on_store_progress();
+    assert_eq!(
+        a.r.receipt(a.s, r.mutation).unwrap().published,
+        Some(PublishState::NotPublished)
+    );
+    assert_eq!(a.r.publish_waits_open(), 0);
+    assert!(a.r.retry_publish.is_empty());
+    let attempts = a.disk.borrow().publish_attempts;
+    a.r.tick();
+    assert_eq!(a.disk.borrow().publish_attempts, attempts);
+}
+
+#[test]
+fn synced_read_only_volume_applies_remote_entries_and_refuses_local_writes() {
+    use mdbn_wire::client::IncidentKind;
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1);
+    let b0 = node(&svc, 2);
+    let b_disk = b0.disk.clone();
+    b_disk.borrow_mut().read_only = true;
+    let mut b = reopen(&svc, 2, b0.r.into_store(), b0.log, b_disk);
+
+    create(&mut a, 1, "remote.md", "from a");
+    settle(&mut [&mut a, &mut b]);
+
+    assert!(
+        b.r.status(b.s)
+            .unwrap()
+            .incidents
+            .iter()
+            .any(|i| i.kind == IncidentKind::ReadOnly)
+    );
+    assert_eq!(
+        b.r.get(
+            b.s,
+            crate::api::Target::Path("remote.md".into()),
+            mdbn_wire::client::Include {
+                effective: None,
+                body: None,
+                document: Some(true),
+                diagnostics: None,
+            }
+        )
+        .unwrap()
+        .document
+        .as_deref(),
+        Some("from a")
+    );
+    assert!(b.file("remote.md").is_none());
+    assert!(b.r.retry_publish.is_empty());
+    let attempts = b.disk.borrow().publish_attempts;
+    b.r.tick();
+    assert_eq!(b.disk.borrow().publish_attempts, attempts);
+
+    let err =
+        b.r.submit(
+            b.s,
+            SubmitParams {
+                ops: vec![Op::Create(Create {
+                    id: B16([79; 16]),
+                    path: Some("local-write.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(Text::Inline("blocked".into())),
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap_err();
+    assert_eq!(err.problem().code, "forbidden");
+    assert_eq!(err.problem().reason.as_deref(), Some("read_only_volume"));
+    assert_eq!(b.r.sync_status().pending, 0);
 }

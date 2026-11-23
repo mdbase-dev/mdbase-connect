@@ -363,6 +363,9 @@ impl<S: Store> Store for KeychainKeyring<S> {
     fn has_files(&self) -> bool {
         self.inner.has_files()
     }
+    fn files_read_only(&self) -> bool {
+        self.inner.files_read_only()
+    }
     fn stages(&self) -> bool {
         self.inner.stages()
     }

@@ -538,9 +538,10 @@ fn path_keyset_pages_survive_edits_between_pages() {
             if let Some(after) = &after {
                 q.push((
                     "where".into(),
-                    Value::Text(
-                        format!("file.path > {}", serde_json::to_string(after).unwrap()).into(),
-                    ),
+                    Value::Text(format!(
+                        "file.path > {}",
+                        serde_json::to_string(after).unwrap()
+                    )),
                 ));
             }
             let out = rep
@@ -565,4 +566,140 @@ fn path_keyset_pages_survive_edits_between_pages() {
         eprintln!("{profile:?}: {:?}", rep.replica_ref().query_stats());
         let _ = std::fs::remove_dir_all(root);
     }
+}
+
+#[test]
+fn read_only_volume_reads_ingested_files_and_refuses_writes_including_wait_published() {
+    use mdbn_replica::Store as _;
+    use mdbn_replica::api::SessionAuth;
+    use mdbn_replica::frames::Frames;
+    use mdbn_wire::Wire;
+    use mdbn_wire::cbor;
+    use mdbn_wire::client::{
+        ClientFrame, ClientRequest, ClientResponse, HelloParams, IncidentKind, WaitFor,
+    };
+    use mdbn_wire::common::Version;
+
+    let root = test_dir("read-only-volume");
+    std::fs::write(root.join("mdbase.yaml"), "spec_version: \"0.3.0\"\n").unwrap();
+    std::fs::create_dir_all(root.join("notes")).unwrap();
+    std::fs::write(
+        root.join("notes/existing.md"),
+        "---\ntitle: Existing\n---\nBody.\n",
+    )
+    .unwrap();
+
+    let opts = StoreOptions {
+        force_read_only: true,
+        ..StoreOptions::default()
+    };
+    let _lock = HostLock::try_acquire(
+        &root,
+        &opts.private_dir,
+        Some(Descriptor::new(HostKind::Library, 1)),
+    )
+    .unwrap();
+    let state = opts.state_dir(&root);
+    std::fs::create_dir_all(&state).unwrap();
+    let identity =
+        Identity::load_or_create(&state.join("identity.json"), 1, &mut OsEntropy).unwrap();
+    let store = open_store(&root, &opts, Box::new(SystemClock)).unwrap();
+    assert!(store.files_read_only());
+    let mut rep = LocalReplica::open(store, &identity, ReplicaOptions::default()).unwrap();
+    rep.rescan().unwrap();
+
+    let session = rep.session();
+    assert!(
+        rep.replica()
+            .status(session)
+            .unwrap()
+            .incidents
+            .iter()
+            .any(|i| i.kind == IncidentKind::ReadOnly)
+    );
+    let rec = rep
+        .replica()
+        .get(session, Target::Path("notes/existing.md".into()), include())
+        .unwrap();
+    assert_eq!(rec.body.as_deref(), Some("Body.\n"));
+
+    let submit = SubmitParams {
+        ops: vec![Op::Create(Create {
+            id: B16(mdbn_local_host::host::uuid_v7(
+                1_700_000_000_000,
+                &mut OsEntropy,
+            )),
+            path: Some("notes/blocked.md".into()),
+            type_name: None,
+            frontmatter: Some(DataMap(vec![(
+                "title".into(),
+                Value::Text("Blocked".into()),
+            )])),
+            body: Some(Text::Inline("Should not land.\n".into())),
+            document: None,
+        })],
+        mutation_id: None,
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: Some(WaitFor::Published),
+        validation: None,
+    };
+
+    // Direct API submit refuses immediately without mutating SQLite or disk.
+    let err = rep.replica().submit(session, submit.clone()).unwrap_err();
+    assert_eq!(err.problem().code, "forbidden");
+    assert_eq!(err.problem().reason.as_deref(), Some("read_only_volume"));
+    assert_eq!(rep.replica_ref().store().record_count().unwrap(), 1);
+    assert_eq!(rep.replica_ref().sync_status().pending, 0);
+    assert!(!root.join("notes/blocked.md").exists());
+
+    // The framed WaitFor::Published path (used by CLI) responds immediately instead of timing out.
+    let mut frames = Frames::new();
+    let hello_bytes = ClientFrame::Request(ClientRequest {
+        id: 0,
+        method: "hello".into(),
+        params: HelloParams {
+            versions: vec![Version { major: 1, minor: 0 }],
+            client_name: "test-cli".into(),
+            client_version: "0".into(),
+            features: None,
+            timezone: None,
+        }
+        .to_cbor(),
+    })
+    .to_bytes()
+    .unwrap();
+    let framed_session = frames
+        .hello(rep.replica(), SessionAuth::Host, &hello_bytes)
+        .session
+        .unwrap();
+    let req_bytes = ClientFrame::Request(ClientRequest {
+        id: 1,
+        method: "submit".into(),
+        params: submit.to_cbor(),
+    })
+    .to_bytes()
+    .unwrap();
+    frames.on_frame(rep.replica(), framed_session, &req_bytes);
+    frames.pump(rep.replica());
+    let outgoing = frames.take_outgoing();
+    assert_eq!(outgoing.len(), 1);
+    let ClientFrame::Response(ClientResponse {
+        id: 1,
+        problem: Some(problem),
+        ..
+    }) = ClientFrame::from_cbor(&cbor::decode(&outgoing[0].1).unwrap()).unwrap()
+    else {
+        panic!("expected immediate problem response");
+    };
+    assert_eq!(problem.code, "forbidden");
+    assert_eq!(problem.reason.as_deref(), Some("read_only_volume"));
+    assert_eq!(rep.replica_ref().store().record_count().unwrap(), 1);
+    assert!(!root.join("notes/blocked.md").exists());
+
+    let _ = std::fs::remove_dir_all(&root);
 }

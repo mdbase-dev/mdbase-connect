@@ -375,24 +375,44 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
+    pub(crate) fn read_only_volume_err() -> crate::api::ApiError {
+        ErrorCode::Forbidden.err_with_reason(
+            "read_only_volume",
+            "this volume does not support atomic file replacement, so changes cannot be saved",
+        )
+    }
+
+    fn is_read_only_capability(cap: &str) -> bool {
+        matches!(
+            cap,
+            crate::policy::capability::READ | crate::policy::capability::HISTORY
+        )
+    }
+
     /// The session, checked for `cap` against its grant in the current confirmed
     /// policy (`policy.md` §7). A synced host also follows its member role.
     pub(crate) fn require(&self, s: SessionId, cap: &str) -> ApiResult<()> {
         let sess = self.session(s)?;
+        let write = !Self::is_read_only_capability(cap);
         if matches!(sess.auth, SessionAuth::LocalWeb(_)) {
-            return if self.local_only() && LOCAL_WEB_CAPABILITIES.contains(&cap) {
-                Ok(())
-            } else {
-                Err(ErrorCode::Forbidden
-                    .err_with_reason("local_web_scope", "capability outside local web scope"))
-            };
+            if !(self.local_only() && LOCAL_WEB_CAPABILITIES.contains(&cap)) {
+                return Err(ErrorCode::Forbidden
+                    .err_with_reason("local_web_scope", "capability outside local web scope"));
+            }
+            if write && self.store.files_read_only() {
+                return Err(Self::read_only_volume_err());
+            }
+            return Ok(());
         }
         let SessionAuth::Grant { grant, client_pk } = &sess.auth else {
-            if cap != crate::policy::capability::READ && self.host_is_viewer() {
+            if write && self.host_is_viewer() {
                 return Err(ErrorCode::Forbidden.err_with_reason(
                     "read_only",
                     "You have view access, so changes cannot be saved.",
                 ));
+            }
+            if write && self.store.files_read_only() {
+                return Err(Self::read_only_volume_err());
             }
             return Ok(());
         };
@@ -413,6 +433,9 @@ impl<S: Store> Replica<S> {
                 Value::Text(cap.to_string()),
             )]));
             return Err(p.into());
+        }
+        if write && self.store.files_read_only() {
+            return Err(Self::read_only_volume_err());
         }
         Ok(())
     }
@@ -1212,6 +1235,9 @@ impl<S: Store> ClientApi for Replica<S> {
             _ => crate::policy::capability::EDIT,
         };
         self.require(session, cap)?;
+        if self.store.files_read_only() {
+            return Err(Self::read_only_volume_err());
+        }
         self.resolve_hold_with(session, id, how)
     }
 
