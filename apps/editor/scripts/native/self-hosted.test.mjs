@@ -192,9 +192,12 @@ it('the self-hosted job runs only after a smoked production publication, with wo
  assert.match(upload.run,/refs\.mjs/);
  assert.match(upload.run,/--project-name mdbase-editor-self-hosted --branch main --commit-hash "\$SOURCE_SHA" --commit-dirty=false/);
  assert.match(job.steps.find(s=>s.name==='Restore the previous self-hosted deployment; keep run failed').if,/^always\(\)/);
- // The managed build never receives the direct origin: the link stays off.
+ // The managed build's link comes only from the repository variable, on its build step alone.
  const build=jobs['native-build'];
  assert.doesNotMatch(JSON.stringify(build.env),/DIRECT_ORIGIN/);
+ const managedBuild=build.steps.find(s=>s.run?.includes('native/build.mjs'));
+ assert.equal(managedBuild.env.MDBASE_EDITOR_DIRECT_ORIGIN,'${{ vars.MDBASE_EDITOR_DIRECT_ORIGIN }}');
+ assert.deepEqual(build.steps.filter(s=>JSON.stringify(s).includes('DIRECT_ORIGIN')),[managedBuild]);
  // Ops skips only this target while its own app line is stopped.
  const workflow=parse(await readFile(join(root,'.github/workflows/editor-pages.yml'),'utf8'));
  assert.deepEqual(workflow.on.workflow_dispatch.inputs.skip_self_hosted,{description:'Skip only the self-hosted Editor target (ops sets this while its app line is stopped).',type:'boolean',default:false});
