@@ -59,7 +59,8 @@ await writeFile(target, `${JSON.stringify({
         "records.create",
         "records.edit",
         "records.delete",
-        "definitions.manage"
+        "definitions.manage",
+        "history.read"
       ]
     },
     // Next accounts approve each record capability together with its file
