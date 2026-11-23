@@ -277,4 +277,76 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     vi.spyOn(f.client, "get").mockImplementation(async () => { f.adapter.dispose(); return record; });
     await expect(f.adapter.read(record.path)).rejects.toMatchObject({ name: "AbortError" });
   });
+
+  it("queues a host-note save behind an in-flight linked-note create instead of failing busy", async () => {
+    const f = await fixture(true);
+    const base = await f.adapter.read(f.record.path);
+    const order: string[] = [];
+    const originalCreate = f.client.create.bind(f.client);
+    const originalUpdate = f.client.update.bind(f.client);
+    vi.spyOn(f.client, "create").mockImplementation(async (...args) => { order.push("create"); return originalCreate(...args); });
+    vi.spyOn(f.client, "update").mockImplementation(async (...args) => { order.push("update"); return originalUpdate(...args); });
+
+    const creating = f.adapter.create({ title: "Ada", body: "", path: "people/ada.md", properties: {} });
+    await vi.waitFor(() => expect(order).toEqual(["create"]));
+    const updating = f.adapter.update(base, { body: "See [[people/ada]]\n" });
+    await Promise.resolve();
+    expect(order).toEqual(["create"]);
+
+    f.replica.confirmAll();
+    const created = await creating;
+    await vi.waitFor(() => expect(order).toEqual(["create", "update"]));
+    f.replica.confirmAll();
+    const saved = await updating;
+    expect(created.path).toBe("people/ada.md");
+    expect(saved.body).toBe("See [[people/ada]]\n");
+    expect(f.adapter.pendingMutations()).toEqual([]);
+  });
+
+  it("still refuses a queued write when the write ahead of it leaves an unconfirmed outcome", async () => {
+    const f = await fixture(true);
+    const base = await f.adapter.read(f.record.path);
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    const create = vi.spyOn(f.client, "create");
+    vi.spyOn(f.client, "awaitReceipt").mockImplementationOnce(async mutation => {
+      await gate;
+      return { mutation, state: "unknown" };
+    });
+    const update = vi.spyOn(f.client, "update");
+
+    const creating = f.adapter.create({ title: "Ada", body: "", path: "people/ada.md", properties: {} });
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    const updating = f.adapter.update(base, { body: "See [[people/ada]]\n" });
+    release();
+
+    await expect(creating).rejects.toMatchObject({ code: "outcome_unknown" });
+    await expect(updating).rejects.toThrow("Check your unconfirmed change");
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it("aborts a waiting write without letting a later write overlap the one in flight", async () => {
+    const f = await fixture(true);
+    const base = await f.adapter.read(f.record.path);
+    const create = vi.spyOn(f.client, "create");
+    const update = vi.spyOn(f.client, "update");
+
+    const first = f.adapter.create({ title: "First", body: "", path: "notes/first.md", properties: {} });
+    await vi.waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    const cancelled = new AbortController();
+    const second = f.adapter.create({ title: "Second", body: "", path: "notes/second.md", properties: {} }, cancelled.signal);
+    const third = f.adapter.update(base, { body: "After first\n" });
+
+    cancelled.abort(new DOMException("Cancelled", "AbortError"));
+    await expect(second).rejects.toMatchObject({ name: "AbortError" });
+    await Promise.resolve();
+    expect(update).not.toHaveBeenCalled();
+
+    f.replica.confirmAll();
+    await first;
+    await vi.waitFor(() => expect(update).toHaveBeenCalledTimes(1));
+    f.replica.confirmAll();
+    expect((await third).body).toBe("After first\n");
+    expect(create).toHaveBeenCalledTimes(1);
+  });
 });
