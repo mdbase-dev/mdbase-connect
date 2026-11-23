@@ -527,6 +527,26 @@ describe("blocked screen", () => {
   });
 });
 
+describe("switcher signed-out extra", () => {
+  it("shows the app's signed-out extra under Sign in, and not once signed in", () => {
+    const extra = <a href="https://self-hosted.example">Connect to your own server</a>;
+    const { entry } = fakeMdbase({ kind: "signed_out", notice: null }, { signIn: null, collections: [] });
+    render(<CollectionSwitcher mdbase={entry} app={app} signedOutExtra={extra} />);
+    act(() => document.querySelector<HTMLElement>(".mdbase-collections-trigger")!.click());
+    const dialog = document.querySelector("[role=dialog]")!;
+    const link = [...dialog.querySelectorAll("a")].find((a) => a.textContent === "Connect to your own server");
+    expect(link?.getAttribute("href")).toBe("https://self-hosted.example");
+    expect(button("Sign in").compareDocumentPosition(link!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    render(null);
+
+    const signedIn = fakeMdbase({ kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "editor" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },
+      { status: "ready", selectedCollectionId: B });
+    render(<CollectionSwitcher mdbase={signedIn.entry} app={app} signedOutExtra={extra} />);
+    act(() => switcherTrigger("Beta").click());
+    expect(document.querySelector("[role=dialog]")!.textContent).not.toContain("Connect to your own server");
+  });
+});
+
 describe("switcher keyboard", () => {
   it("opens on the current collection, moves with arrows, switches on Enter-click and closes on Escape", () => {
     const { mdbase, entry } = fakeMdbase({ kind: "ready", collectionId: B, collection: { collectionId: B, displayName: "Beta", role: "editor" }, connection: {} as never, rechecking: false, problem: null, unavailableTypes: [] },

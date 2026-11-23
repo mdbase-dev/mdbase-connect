@@ -333,6 +333,10 @@ import "@mdbase-dev/ui/collections.css";
   switcher: a popover, and a bottom sheet below 640px. `icon` puts the app's
   icon before the name, or `icon="mark"` the open collection's initials. In
   the `icon` variant it replaces the folder glyph.
+- `signedOutExtra` is shown under Sign in in the switcher while no account is
+  signed in. An app that opens straight into work before connecting never
+  shows the gate's signed-out screen, so it puts the signed-out content from
+  `extraActions` here as well.
 - Pass `open` and `onOpenChange` to control the switcher; `onOpenChange` is
   called for every open and close it makes itself, controlled or not.
   `variant="none"` renders no trigger, for an app that opens the switcher from
