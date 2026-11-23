@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-import {readFile, writeFile, mkdir} from 'node:fs/promises';
+import {readFile, writeFile, mkdir, mkdtemp, rm} from 'node:fs/promises';
 import {appendFileSync} from 'node:fs';
-import {resolve, dirname} from 'node:path';
+import {resolve, dirname, join} from 'node:path';
+import {tmpdir} from 'node:os';
 import {chromium} from '@playwright/test';
 import {apps, sizes, result, median, measuredStages} from './results.mjs';
 
@@ -22,7 +23,8 @@ if (!collectOnly && (!ingestToken || /\s/.test(ingestToken))) throw Error('inval
 const output = resolve(config.output);
 await mkdir(dirname(output), {recursive: true, mode: 0o700});
 const report = [];
-const browser = await chromium.launch({headless: true, args: ['--enable-precise-memory-info']});
+const launchArgs = ['--enable-precise-memory-info'];
+const browser = await chromium.launch({headless: true, args: launchArgs});
 const failed = (stage, code, revision = 'unavailable', visited = true) => ({stages: {}, revision, visited, error: {stage, code}});
 
 async function revision(page) {
@@ -155,7 +157,13 @@ try {
       for (let index = 0; index < warmSamples; index++) samples.warm.push(failed('auth', authError, 'unavailable', false));
       checkedAt.cold = checkedAt.warm = new Date().toISOString();
     } else {
-      const context = await browser.newContext({storageState: portalState, viewport: {width: 1440, height: 900}, locale: 'en-US'});
+      // A fresh on-disk profile per cell, as a person's own browser has. Ordinary
+      // Playwright contexts are off-the-record: Chromium serves their app storage
+      // (OPFS) from memory over IPC, about 1 ms per write against 0.02 ms on disk,
+      // which made cold opens several times slower than people see (#1648).
+      const profile = await mkdtemp(join(tmpdir(), 'app-timings-'));
+      const context = await chromium.launchPersistentContext(profile, {headless: true, args: launchArgs, viewport: {width: 1440, height: 900}, locale: 'en-US'});
+      await context.addCookies(portalState.cookies);
       const installationIds = new Set();
       context.on('request', request => {
         if (request.url() === 'https://connect.mdbase.dev/v1/pairing-requests' && request.method() === 'POST') {
@@ -167,7 +175,7 @@ try {
         }
       });
       try {
-        const page = await context.newPage();
+        const page = context.pages()[0] ?? await context.newPage();
         await instrument(page, apps[app].selector);
         const cold = await visit(page, app, config.collections[size], true, config.collection_names[size], coldWindowMs[size]);
         samples.cold.push(cold);
@@ -186,7 +194,7 @@ try {
             await cleanup(context, installationIds);
             await writeFile(config.ledger_file, '', {mode: 0o600});
           }
-        } finally {await context.close();}
+        } finally {await context.close(); await rm(profile, {recursive: true, force: true});}
       }
     }
     for (const mode of ['cold', 'warm']) {
