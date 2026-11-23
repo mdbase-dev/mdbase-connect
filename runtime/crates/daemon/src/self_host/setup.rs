@@ -162,7 +162,11 @@ fn verify_state_parent(parent: &Path) -> Result<()> {
 }
 
 fn auth_dir(base: &Path, collection: &Path) -> Result<PathBuf> {
-    let base = base.canonicalize()?;
+    let base = base.canonicalize().map_err(|e| {
+        format!(
+            "cannot use pairing state folder {base:?}: {e}. Choose an existing private --state-dir."
+        )
+    })?;
     verify_owner_only(&base)?;
     let parent = base.join(".mdbase-pairing");
     if parent.starts_with(collection) {
@@ -451,6 +455,9 @@ mod tests {
         let parent = scope.parent().unwrap();
         assert!(!parent.exists());
         assert!(auth_dir(&home, &home).is_err());
+        let missing = home.join("missing");
+        let error = auth_dir(&missing, &folder).unwrap_err().to_string();
+        assert!(error.contains(&format!("{missing:?}")), "{error}");
         std::os::unix::fs::symlink(&folder, parent).unwrap();
         assert!(auth_dir(&home, &folder).is_err());
         assert_eq!(fs::read_dir(&folder).unwrap().count(), 0);
