@@ -1267,7 +1267,7 @@ fn read_fault_after_the_commit_is_applied_and_fenced() {
     let outcome = drive(&mut n.r, head, &c, &mut changed).unwrap();
     assert!(matches!(outcome, Outcome::Applied), "{outcome:?}");
     assert_eq!(n.r.store.head().unwrap(), head);
-    assert!(n.r.apply_fault);
+    assert!(n.r.apply_fault.is_some());
     assert_eq!(
         moved(&before, &memory(&n.r)),
         [

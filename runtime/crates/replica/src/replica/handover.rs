@@ -35,7 +35,7 @@ impl<S: Store> Replica<S> {
             && !self.key_untrusted
             && !self.keyring_rebuilding()
             && !self.keyring_rebuild_failed()
-            && !self.apply_fault
+            && self.apply_fault.is_none()
             && self.apply_blocked.is_none()
             && !self.is_apply_recovering()
             && self.install.is_none()

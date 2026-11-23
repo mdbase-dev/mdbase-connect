@@ -306,7 +306,7 @@ impl<S: Store> Replica<S> {
     fn approval_context(&self, session: SessionId, target: Uuid) -> ApiResult<Context> {
         self.host_only(session)?;
         if self.approval.poisoned
-            || self.apply_fault
+            || self.apply_fault.is_some()
             || self.is_apply_recovering()
             || self.stalled.is_some()
             || self.install.is_some()
@@ -448,9 +448,9 @@ impl<S: Store> Replica<S> {
         match self.store.meta(&key) {
             Ok(None) => {}
             Ok(Some(_)) => return Err(approval_error(ApprovalError::Exhausted)),
-            Err(_) => {
+            Err(e) => {
                 self.approval.poisoned = true;
-                self.failed_apply(checkpoint, self.head.seq, false);
+                self.failed_apply(checkpoint, self.head.seq, false, &e);
                 return Err(
                     ErrorCode::Unavailable.err("approval storage is unavailable; reopen required")
                 );
@@ -464,12 +464,12 @@ impl<S: Store> Replica<S> {
             Err(crate::store::StoreError::CommitAborted(_)) => {
                 return Err(ErrorCode::Unavailable.err("approval save was durably aborted"));
             }
-            Err(_) => {
+            Err(e) => {
                 self.approval.poisoned = true;
                 // Metadata uncertainty is uncertainty in this SAME Store. Use the
                 // existing global terminal path: close sessions, purge outbound
                 // plaintext/append calls and dispose this replica/sealer on reopen.
-                self.failed_apply(checkpoint, self.head.seq, false);
+                self.failed_apply(checkpoint, self.head.seq, false, &e);
                 return Err(ErrorCode::OutcomeUnknown
                     .err("approval persistence outcome is unknown; reopen storage"));
             }
@@ -794,9 +794,9 @@ impl<S: Store> Replica<S> {
             Err(crate::store::StoreError::CommitAborted(_)) => {
                 return Err(ErrorCode::Unavailable.err("approval rejection was durably aborted"));
             }
-            Err(_) => {
+            Err(e) => {
                 self.approval.poisoned = true;
-                self.failed_apply(checkpoint, self.head.seq, false);
+                self.failed_apply(checkpoint, self.head.seq, false, &e);
                 return Err(ErrorCode::OutcomeUnknown
                     .err("approval rejection outcome is unknown; reopen storage"));
             }
@@ -869,7 +869,7 @@ impl<S: Store> Replica<S> {
     /// the user confirmed. Checked immediately before signing and sending.
     fn private_grant_current(&self, g: &PendingGrant) -> bool {
         if self.approval.poisoned
-            || self.apply_fault
+            || self.apply_fault.is_some()
             || self.is_apply_recovering()
             || self.stalled.is_some()
             || self.install.is_some()
@@ -984,9 +984,9 @@ impl<S: Store> Replica<S> {
                     self.approval.pending_grant = Some(g);
                     return false;
                 }
-                Err(_) => {
+                Err(e) => {
                     self.approval.poisoned = true;
-                    self.failed_apply(checkpoint, self.head.seq, false);
+                    self.failed_apply(checkpoint, self.head.seq, false, &e);
                     return false;
                 }
             }

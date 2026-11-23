@@ -15,6 +15,7 @@ import {
   MagnifyingGlassIcon as Search,
   InfoIcon as Info,
   ChatTextIcon as ChatText,
+  ClockCounterClockwiseIcon as ClockCounterClockwise,
   LinkIcon as Link2,
   PencilSimpleIcon as Pencil,
   TrashIcon as Trash2,
@@ -159,6 +160,7 @@ import { SettingsView } from "./settings/SettingsView";
 import { buildToastItems } from "./Toasts";
 type ToastTone = NonNullable<ToastItem["tone"]>;
 import { NEW_TYPE_SOURCE } from "./type-presentation";
+import { composeRecordSource } from "./record-source";
 import { useCollectionIndex } from "./use-collection-index";
 import { CollectionSaveWarning } from "@mdbase-dev/ui/collections";
 import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
@@ -194,10 +196,18 @@ const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ def
 const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
 const NoteCommentsPanel = lazy(() => import("./NoteCommentsPanel").then((module) => ({ default: module.NoteCommentsPanel })));
 const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
+const NoteHistoryPanel = lazy(() => import("./NoteHistoryPanel").then((module) => ({ default: module.NoteHistoryPanel })));
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 const FileWorkspace = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileWorkspace })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
 const noop = () => undefined;
+
+type InspectorKind = "properties" | "comments" | "history";
+
+function inspectorLabel(kind: InspectorKind | undefined): string {
+  return kind === "comments" ? t`Comments` : kind === "history" ? t`Version history` : t`Note properties`;
+}
+
 interface Confirmation {
   title: string;
   body: ReactNode;
@@ -245,6 +255,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [description, setDescription] = useState<CollectionDescription>();
   const [sessionSnapshot, setSessionSnapshot] = useState<CollectionSessionSnapshot>(() => gateway.sessionSnapshot());
   const connectionSummary = sessionSnapshot.status === "ready" ? sessionSnapshot.connection : null;
+  /** A viewer's grant can never include `history.read` (policy.md §5), so asking for it again can't help. */
+  const noteHistory = connectionSummary?.role === "viewer" ? undefined : gateway.noteHistory;
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
   const subscribeSyncState = useCallback((listener: () => void) => gateway.onSyncState?.(listener) ?? noop, [gateway]);
@@ -297,7 +309,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [mutationsFrozen, setMutationsFrozen] = useState(false);
   const { canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes, canManageTypes, canInstallTypes, canAttachFiles } = editorPermissions(connectionSummary);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
-  const [inspector, setInspector] = useState<"properties" | "comments">();
+  const [inspector, setInspector] = useState<InspectorKind>();
   const [mentionsOpen, setMentionsOpen] = useState(false);
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState("");
@@ -331,7 +343,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
-  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft) || Boolean(noteSessions.current.active?.deletedElsewhere);
+  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft) || Boolean(noteSessions.current.active?.deletedElsewhere)
+    || Boolean(noteSessions.current.active?.restoring);
   const privateCollection = connectionSummary?.private === true;
   const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const linkCreations = useRef(new Set<string>());
@@ -1124,7 +1137,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   function closeSidePanels() { setInspector(undefined); setMentionsOpen(false); }
   function endRename() { setRenamePlan(undefined); clearRenameRequest(); }
   /** Shows an inspector panel beside the note; `toggle` closes the one already showing. */
-  function showInspector(kind: "properties" | "comments", toggle = false) {
+  function showInspector(kind: InspectorKind, toggle = false) {
     if (focusMode) toggleFocus();
     setMentionsOpen(false);
     setInspector((current) => toggle && current === kind ? undefined : kind);
@@ -1158,7 +1171,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [touchSession]);
 
   const { recoveryMessage, togglePin, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
-    onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
+    onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource, restoreVersion,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,
     clearRenameRequest, resetNoteActions } = useNoteActions({
@@ -2189,6 +2202,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       focus: toggleFocus,
       properties: () => showInspector("properties", true),
       comments: noteComments.available ? () => showInspector("comments", true) : undefined,
+      "version-history": noteHistory ? () => showInspector("history", true) : undefined,
       comment: noteComments.canWrite ? noteComments.start : undefined,
       outline: () => setOutlineOpen((value) => !value),
       backlinks: () => { window.document.getElementById(paneIds(workspace.focused).backlinks)?.focus(); },
@@ -2333,6 +2347,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             </div>}
             {!mobileLayout && !isNew && <button className={`icon-button${focused && inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
             {!mobileLayout && !isNew && noteComments.available && <button className={`icon-button comments-toggle${focused && inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{focused && noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
+            {!mobileLayout && !isNew && noteHistory && <button className={`icon-button${focused && inspector === "history" ? " active" : ""}`} aria-label={t`Version history`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "history"} onClick={() => showInspector("history", true)}><ClockCounterClockwise aria-hidden="true" /></button>}
             {focused && focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
             {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => openNewNote()}><FilePlus2 aria-hidden="true" /></button>}
             <div className="note-actions">
@@ -2352,6 +2367,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
               ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => showInspector("properties"))] : []),
               ...(mobileLayout && noteComments.available ? [menuCommand("comments", <ChatText aria-hidden="true" />, () => showInspector("comments"))] : []),
+              ...(mobileLayout && noteHistory ? [menuCommand("version-history", <ClockCounterClockwise aria-hidden="true" />, () => showInspector("history"))] : []),
               { ...attachFileAction, separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
@@ -2583,9 +2599,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       <div className={`editor-split${!mobileLayout && workspace.panes.length > 1 ? ` is-split split-${workspace.split}` : ""}`}>
         {workspace.panes.map((pane, index) => (!mobileLayout || index === workspace.focused) && editorPane(pane, index))}
       </div>
-      {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={inspector === "comments" ? t`Comments` : t`Note properties`} width={inspectorTrack} onClose={() => setInspector(undefined)}>{document ? <Suspense fallback={<InspectorPanelLoading label={inspector === "comments" ? t`Comments` : t`Note properties`} />}>
+      {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={inspectorLabel(inspector)} width={inspectorTrack} onClose={() => setInspector(undefined)}>{document ? <Suspense fallback={<InspectorPanelLoading label={inspectorLabel(inspector)} />}>
         {inspector === "comments" ? <NoteCommentsPanel key={document.path} title={draft?.title || t`Untitled`} comments={noteComments}
-          onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} /> : <PropertiesPanel
+          onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} />
+        : inspector === "history" && noteHistory ? <NoteHistoryPanel key={document.path} history={noteHistory} gateway={gateway}
+          path={document.path} title={draft?.title || t`Untitled`} current={document.document ?? composeRecordSource(document.frontmatter, document.body ?? "")}
+          onRestore={noteReadOnly ? undefined : (source) => restoreVersion(document.path, source)}
+          onAuthorize={() => void connectCollection()} onClose={() => setInspector(undefined)} />
+        : <PropertiesPanel
           key={document.path}
           note={document}
           body={draft?.body}
@@ -2597,7 +2618,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />}
-      </Suspense> : noteLoading ? <InspectorPanelLoading label={t`Note properties`} /> : null}</InspectorFrame>}
+      </Suspense> : noteLoading ? <InspectorPanelLoading label={inspectorLabel(inspector)} /> : null}</InspectorFrame>}
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt

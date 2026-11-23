@@ -114,7 +114,7 @@ async fn freeze_refuses_an_invalid_resource_capture_instead_of_an_empty_base() {
 async fn one_existing_folder_observation_has_no_terminal_incident() {
     let (root, rt) = existing("observe");
     let inventory = rt.inventory().await.unwrap();
-    let (status, _, _) = rt.readiness().await.unwrap();
+    let (status, _, _, _) = rt.readiness().await.unwrap();
     rt.stop().await;
     let kinds: Vec<_> = status.incidents.iter().map(|i| i.kind).collect();
     let deferred = status.incidents.iter().any(|i| matches!(&i.details,

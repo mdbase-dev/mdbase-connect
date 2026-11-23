@@ -259,7 +259,7 @@ impl<S: Store> Replica<S> {
             || self.stalled.is_some()
             || self.repair.is_some()
             || self.install.is_some()
-            || self.apply_fault
+            || self.apply_fault.is_some()
             || self.apply_blocked.is_some()
             || !self.caught_up
         {

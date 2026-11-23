@@ -1756,7 +1756,10 @@ fn pinned_warm_replay_refuses_semantically_equal_wrong_raw_genesis() {
                 !h.r.hosted_serving(),
                 "wrong raw pinned genesis must never serve even when policy equality succeeds"
             );
-            assert!(h.r.apply_fault, "raw genesis mismatch must be terminal");
+            assert!(
+                h.r.apply_fault.is_some(),
+                "raw genesis mismatch must be terminal"
+            );
         } else {
             assert!(
                 h.r.hosted_serving(),
@@ -1974,12 +1977,12 @@ fn verified_observer_never_promotes_plain_or_substituted_state() {
         HostedAdmission::Deny(D::HeadUnproven)
     );
     h.r.head = head;
-    h.r.apply_fault = true;
+    h.r.apply_fault = Some(crate::Fence::Store);
     assert_eq!(
         h.r.verified_hosted_admission(),
         HostedAdmission::Deny(D::CacheUnavailable)
     );
-    h.r.apply_fault = false;
+    h.r.apply_fault = None;
     h.r.on_log_push(crate::log::LogPush::Disconnected);
     assert_eq!(
         h.r.verified_hosted_admission(),
@@ -2226,7 +2229,7 @@ fn verified_observer_real_owner_wrap_wake_and_fault_generation() {
     );
     h.pump();
     assert!(verified(&h).generation() > evidence.generation());
-    h.r.apply_fault = true;
+    h.r.apply_fault = Some(crate::Fence::Store);
     assert_eq!(
         h.r.verified_hosted_admission(),
         HostedAdmission::Deny(D::CacheUnavailable)
@@ -2380,7 +2383,7 @@ fn verified_observer_unknown_committed_key_delivery_never_publishes_attempt() {
         h.r.on_log_reply(call.id, reply);
     }
     h.pump();
-    assert!(h.r.apply_fault);
+    assert!(h.r.apply_fault.is_some());
     assert_eq!(
         h.r.verified_hosted_bootstrap(),
         crate::HostedBootstrapAdmission::Deny(D::CacheUnavailable)

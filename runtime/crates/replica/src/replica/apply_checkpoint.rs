@@ -11,6 +11,20 @@ use crate::api::{ClientApi, ErrorCode, Push};
 use crate::policy::PolicyState;
 use crate::store::{Head, Store, meta_keys};
 
+/// Why an instance is fenced until it is reopened ([`Replica::fence`]). The
+/// first fence wins; its `integrity` incident names the cause.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Fence {
+    /// This instance's own storage: a commit, barrier or read whose outcome is
+    /// unknown, or keyring or account-key state it could not put back. A
+    /// reopen from recovered durable storage re-verifies it and may serve.
+    Store,
+    /// The log's position 1 differs from the host's pinned genesis
+    /// (`ReplicaConfig::expected_genesis`): an integrity problem of the log,
+    /// not of this store. Reopening reads the same log.
+    Genesis,
+}
+
 pub(crate) struct Checkpoint {
     head: Head,
     policy: PolicyState,
@@ -128,9 +142,9 @@ impl<S: Store> Replica<S> {
 
     pub(crate) fn check_apply_store_health(&self) -> Result<(), crate::store::StoreError> {
         crate::mirror_admission::ensure_open(&self.store)?;
-        if self.apply_fault || self.is_apply_recovering() {
+        if self.apply_fault.is_some() || self.is_apply_recovering() {
             return Err(crate::store::StoreError::Io(
-                if self.apply_fault {
+                if self.apply_fault.is_some() {
                     "apply_reopen_required"
                 } else {
                     "apply_recovering"
@@ -141,11 +155,27 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
+    /// Fence this instance until it is reopened. The first fence records its
+    /// cause as the `integrity` incident, then sets the fault, after which
+    /// [`Replica::incident`] keeps that cause; a later fence changes nothing.
+    pub(crate) fn raise_fence(&mut self, fence: Fence, why: String) {
+        if self.apply_fault.is_none() {
+            self.incident(
+                IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(why)),
+            );
+            self.apply_fault = Some(fence);
+        }
+    }
+
+    /// `cause` is the failure that ended the apply; when the checkpoint cannot
+    /// be restored the fence's incident reads `"{reason}: {cause}"`.
     pub(crate) fn failed_apply(
         &mut self,
         checkpoint: Checkpoint,
         position: u64,
         known_abort: bool,
+        cause: &dyn std::fmt::Display,
     ) {
         let restored = checkpoint.restore(self, known_abort);
         self.apply_blocked = Some(self.apply_blocked.unwrap_or(0).max(position));
@@ -158,15 +188,11 @@ impl<S: Store> Replica<S> {
         if let Err(reason) = restored {
             // Unknown persistence or an opaque keyring that could not be restored:
             // no serving, sealing, append retries or control evaluation until open.
-            self.apply_fault = true;
+            self.raise_fence(Fence::Store, format!("{reason}: {cause}"));
             self.store_generation += 1;
             self.calls.clear();
             self.inflight.clear();
             self.append = super::append::AppendState::Stopped;
-            self.incident(
-                IncidentKind::Integrity,
-                Some(mdbn_wire::common::Value::Text(reason.into())),
-            );
         }
         self.quarantine_apply_outputs();
     }
@@ -180,7 +206,7 @@ impl<S: Store> Replica<S> {
     /// Unknown durability cannot certify no effect. Fence the instance without
     /// rewriting, cleaning up, or retrying a potentially landed transaction.
     pub(crate) fn terminal_store_fault(&mut self, reason: &str) {
-        self.apply_fault = true;
+        self.raise_fence(Fence::Store, reason.into());
         self.store_generation += 1;
         self.caught_up = false;
         self.build = None;
@@ -188,10 +214,6 @@ impl<S: Store> Replica<S> {
         self.calls.clear();
         self.inflight.clear();
         self.append = super::append::AppendState::Stopped;
-        self.incident(
-            IncidentKind::Integrity,
-            Some(mdbn_wire::common::Value::Text(reason.into())),
-        );
         self.quarantine_apply_outputs();
     }
 
@@ -200,7 +222,7 @@ impl<S: Store> Replica<S> {
         // queued plaintext is discarded, never flushed blindly after recovery.
         // Clients reconnect/resubscribe against freshly verified authorization.
         self.pushes.retain(|(_, p)| matches!(p, Push::Closed(_)));
-        let reason = if self.apply_fault {
+        let reason = if self.apply_fault.is_some() {
             "apply_reopen_required"
         } else {
             "apply_recovering"

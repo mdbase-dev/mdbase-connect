@@ -307,7 +307,7 @@ impl<S: Store> Replica<S> {
     /// A detection site saw a lost tail. Starts (or restarts) the probe under a new
     /// generation, so replies to an earlier probe or repair are ignored.
     pub(crate) fn on_lost_tail(&mut self, signal: Signal) {
-        if self.apply_fault || self.install.is_some() || self.local_only() {
+        if self.apply_fault.is_some() || self.install.is_some() || self.local_only() {
             return;
         }
         // During the replay this replica is behind the service by design; a real
@@ -336,7 +336,7 @@ impl<S: Store> Replica<S> {
     /// Start (or restart) the probe under a new generation, whatever is in flight:
     /// replies to the earlier probe or repair batch are then stale and ignored.
     fn restart_probe(&mut self, signal: Signal) {
-        if self.apply_fault || self.install.is_some() || self.local_only() {
+        if self.apply_fault.is_some() || self.install.is_some() || self.local_only() {
             return;
         }
         let service_head = match signal {

@@ -65,7 +65,7 @@ impl<S: Store> Replica<S> {
             tx.tail_put.push(row);
         }
         self.commit_with_read_health(Some(head), tx)?;
-        if !self.apply_fault && !self.is_apply_recovering() {
+        if self.apply_fault.is_none() && !self.is_apply_recovering() {
             self.restore_private_choice();
             self.check_key_trust();
         }

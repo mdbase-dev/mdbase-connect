@@ -23,7 +23,8 @@
         "records.create",
         "records.edit",
         "records.delete",
-        "definitions.manage"
+        "definitions.manage",
+        "history.read"
       ]
     },
     "files": {

@@ -610,6 +610,10 @@ msgstr "{references, plural, other {노트 #개의 링크도 업데이트했습�
 msgid "{requiredMapped}/{0} required · {mappedCount}/{1} total"
 msgstr "필수 {requiredMapped}/{0}개 · 전체 {mappedCount}/{1}개"
 
+#: src/NoteHistoryPanel.tsx
+msgid "{saves, plural, one {# save} other {# saves}}"
+msgstr "{saves, plural, other {#회 저장}}"
+
 #. placeholder {0}: job.file.name
 #: src/code-editor-file-embeds.ts
 msgid "{text} upload of {0}"
@@ -700,6 +704,30 @@ msgstr "“{name}”의 {label}이(가) 이미 있습니다."
 #: src/type-contracts.ts
 msgid "a checkbox"
 msgstr "체크박스"
+
+#: src/note-history.ts
+msgid "A collaborator"
+msgstr "공동 작업자"
+
+#: src/note-history.ts
+msgid "A collaborator, from the command line"
+msgstr "공동 작업자, 명령줄에서"
+
+#: src/note-history.ts
+msgid "A collaborator, in {app}"
+msgstr "공동 작업자, {app}에서"
+
+#: src/note-history.ts
+msgid "A collaborator, on desktop"
+msgstr "공동 작업자, 데스크톱에서"
+
+#: src/note-history.ts
+msgid "A collaborator, on mobile"
+msgstr "공동 작업자, 모바일에서"
+
+#: src/note-history.ts
+msgid "A collaborator, on the web"
+msgstr "공동 작업자, 웹에서"
 
 #: src/type-contracts.ts
 msgid "A complex schema needs record-level validation."
@@ -999,6 +1027,10 @@ msgstr "모든 노트"
 msgid "All notes, {0} total"
 msgstr "모든 노트, 총 {0}개"
 
+#: src/NoteHistoryPanel.tsx
+msgid "All versions"
+msgstr "모든 버전"
+
 #: src/TypeBrowser.tsx
 msgid "Allow installs"
 msgstr "설치 허용"
@@ -1020,6 +1052,10 @@ msgstr "여러 링크 허용"
 msgctxt "settings view"
 msgid "Allow the editor to reach mdbase on this computer. Editing continues through mdbase whenever it is unavailable."
 msgstr "이 컴퓨터의 mdbase에 편집기가 접근하도록 허용합니다. mdbase를 사용할 수 없을 때도 편집은 계속됩니다."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Allow the editor to read this collection’s history to see earlier versions of your notes."
+msgstr "노트의 이전 버전을 보려면 편집기가 이 컬렉션의 기록을 읽도록 허용하세요."
 
 #: src/YourPersonPanel.tsx
 msgid "Allow the Editor to see your account identity"
@@ -1479,6 +1515,10 @@ msgstr "댓글 닫기"
 msgid "Close file preview"
 msgstr "파일 미리보기 닫기"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Close history"
+msgstr "기록 닫기"
+
 #: src/App.tsx
 msgid "Close note peek"
 msgstr "노트 미리보기 닫기"
@@ -1937,6 +1977,15 @@ msgstr "{0}을(를) 설치하지 못했습니다."
 msgid "Couldn’t link that mention. {0}"
 msgstr "해당 언급을 링크하지 못했습니다. {0}"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Couldn’t load this note’s history."
+msgstr "이 노트의 기록을 불러오지 못했습니다."
+
+#. placeholder {0}: gatewayError(error)
+#: src/NoteHistoryPanel.tsx
+msgid "Couldn’t load this version. {0}"
+msgstr "이 버전을 불러오지 못했습니다. {0}"
+
 #. placeholder {0}: gatewayError(error)
 #: src/App.tsx
 msgid "Couldn’t open “{path}”. {0}"
@@ -1956,6 +2005,12 @@ msgstr "“{0}”의 다시 작성된 링크를 새로고침하지 못했습니�
 #: src/use-note-actions.ts
 msgid "Couldn’t rename “{0}”. {message}"
 msgstr "“{0}”의 이름을 바꾸지 못했습니다. {message}"
+
+#. placeholder {0}: session.draft.title || session.document.path
+#. placeholder {1}: gatewayError(error)
+#: src/use-note-actions.ts
+msgid "Couldn’t restore “{0}”. {1}"
+msgstr "“{0}”을(를) 복원하지 못했습니다. {1}"
 
 #. placeholder {0}: session.draft.title || session.document.path
 #: src/App.tsx
@@ -2038,6 +2093,10 @@ msgstr "첫 유형 만들기"
 msgid "Create type"
 msgstr "유형 만들기"
 
+#: src/note-history.ts
+msgid "Created"
+msgstr "생성됨"
+
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
 msgid "Created type “{0}”."
@@ -2119,6 +2178,10 @@ msgstr "삭제"
 msgid "delete notes"
 msgstr "노트 삭제"
 
+#: src/note-history.ts
+msgid "Deleted"
+msgstr "삭제됨"
+
 #: src/use-note-actions.ts
 msgid "Deleted {title}"
 msgstr "{title} 삭제됨"
@@ -2174,6 +2237,10 @@ msgstr "세부 정보"
 #: src/TypeBrowser.tsx
 msgid "Developer and infrastructure packs"
 msgstr "개발자 및 인프라 팩"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Differences from the note now"
+msgstr "현재 노트와의 차이"
 
 #: src/settings/SettingsView.tsx
 msgctxt "collection runtime"
@@ -2295,6 +2362,14 @@ msgstr "각 선택 항목에는 이식 가능한 계약과 편집 가능한 로�
 msgid "Each implementation needs an exact contract ID and version."
 msgstr "각 구현에는 정확한 계약 ID와 버전이 필요합니다."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Earlier versions are no longer kept."
+msgstr "이전 버전은 더 이상 보관되지 않습니다."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Earlier versions of notes in this collection can’t be read here. Everything else still works."
+msgstr "이 컬렉션에 있는 노트의 이전 버전은 여기서 읽을 수 없습니다. 다른 기능은 모두 그대로 사용할 수 있습니다."
+
 #: src/note-sort.ts
 msgid "Earliest first"
 msgstr "빠른 순"
@@ -2322,6 +2397,10 @@ msgstr "기본 속성 값을 편집합니다. 다른 앱도 이 값을 사용합
 #: src/TypeBrowser.tsx
 msgid "Edit YAML"
 msgstr "YAML 편집"
+
+#: src/note-history.ts
+msgid "Edited outside mdbase"
+msgstr "mdbase 외부에서 편집됨"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -2721,6 +2800,10 @@ msgstr "{0}에서"
 msgid "From <0>{0}</0> to <1>{1}</1>. This changes paths across the collection, including subfolders."
 msgstr "<0>{0}</0>에서 <1>{1}</1>(으)로. 하위 폴더를 포함해 컬렉션 전체의 경로가 변경됩니다."
 
+#: src/note-history.ts
+msgid "From the command line"
+msgstr "명령줄에서"
+
 #: src/TypeBrowser.tsx
 msgid "Frontmatter contains all"
 msgstr "프런트매터에 모두 포함"
@@ -2792,6 +2875,18 @@ msgstr "유형 사이드바 숨기기"
 #: src/note-sort.ts
 msgid "High to low"
 msgstr "높은 순"
+
+#: src/NoteHistoryPanel.tsx
+msgid "History"
+msgstr "기록"
+
+#: src/NoteHistoryPanel.tsx
+msgid "History goes back to {since}."
+msgstr "기록은 {since}까지 남아 있습니다."
+
+#: src/NoteHistoryPanel.tsx
+msgid "History isn’t available here"
+msgstr "여기서는 기록을 사용할 수 없습니다"
 
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
@@ -3116,6 +3211,10 @@ msgstr "파일 뷰어 불러오는 중"
 msgid "Loading folders…"
 msgstr "폴더 불러오는 중…"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Loading history…"
+msgstr "기록을 불러오는 중…"
+
 #: src/WorkspaceChrome.tsx
 msgid "Loading note"
 msgstr "노트 불러오는 중"
@@ -3136,6 +3235,10 @@ msgstr "미리보기 불러오는 중…"
 #: src/App.tsx
 msgid "Loading properties…"
 msgstr "속성 불러오는 중…"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Loading this version…"
+msgstr "이 버전을 불러오는 중…"
 
 #: src/LoadingScreens.tsx
 #: src/TypeBrowser.tsx
@@ -3404,6 +3507,11 @@ msgstr "다음으로 이동…"
 msgid "Moved {0} of {1} notes. {2}"
 msgstr "노트 {1}개 중 {0}개 이동됨. {2}"
 
+#. placeholder {0}: version.path
+#: src/note-history.ts
+msgid "Moved to {0}"
+msgstr "{0}(으)로 이동됨"
+
 #: src/note-mutation-presentation.ts
 #: src/WorkspaceChrome.tsx
 msgid "Moving"
@@ -3579,6 +3687,10 @@ msgstr "선언된 값이 없습니다."
 #: src/App.tsx
 msgid "No earlier note"
 msgstr "이전 노트 없음"
+
+#: src/NoteHistoryPanel.tsx
+msgid "No earlier versions of this note are kept."
+msgstr "이 노트의 이전 버전은 보관되어 있지 않습니다."
 
 #: src/SchemaValueEditor.tsx
 msgid "No entries yet."
@@ -3829,6 +3941,10 @@ msgstr "명시적으로 할당되지 않은 노트는 아래 설정된 모든 �
 msgid "Nothing to link yet."
 msgstr "아직 링크할 항목이 없습니다."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Now"
+msgstr "현재"
+
 #: src/StructuredPropertiesEditor.tsx
 msgid "Null"
 msgstr "널(null)"
@@ -3877,9 +3993,33 @@ msgstr "이전"
 msgid "Oldest first"
 msgstr "오래된 순"
 
+#: src/note-history.ts
+msgid "On another device"
+msgstr "다른 기기에서"
+
+#: src/note-history.ts
+msgid "On desktop"
+msgstr "데스크톱에서"
+
+#: src/note-history.ts
+msgid "On mobile"
+msgstr "모바일에서"
+
+#: src/note-history.ts
+msgid "On the web"
+msgstr "웹에서"
+
 #: src/TypeBrowser.tsx
 msgid "Only declared fields are allowed"
 msgstr "선언된 필드만 허용됩니다."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Only in this version:"
+msgstr "이 버전에만 있음:"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Only now:"
+msgstr "현재에만 있음:"
 
 #: src/BulkNoteProperties.tsx
 msgid "Only properties declared by every selected note’s type can be set."
@@ -4700,6 +4840,10 @@ msgstr "리소스"
 msgid "resources[{index}].document is too large."
 msgstr "resources[{index}].document가 너무 큽니다."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Restore"
+msgstr "복원"
+
 #: src/settings/ShortcutSettings.tsx
 msgctxt "shortcut settings"
 msgid "Restore default"
@@ -4710,6 +4854,14 @@ msgstr "기본값 복원"
 msgctxt "shortcut settings"
 msgid "Restore the default shortcut for {0}"
 msgstr "{0} 기본 단축키 복원"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Restore this version"
+msgstr "이 버전 복원"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Restore this version?"
+msgstr "이 버전을 복원할까요?"
 
 #: src/App.tsx
 msgid "Restore unsaved edits"
@@ -4731,6 +4883,10 @@ msgstr "선택한 노트 복원됨."
 #: src/use-note-actions.ts
 msgid "Restored unlinked mention."
 msgstr "연결되지 않은 언급 복원됨."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Restoring…"
+msgstr "복원하는 중…"
 
 #: src/Toasts.tsx
 msgid "Resume rename"
@@ -5105,6 +5261,10 @@ msgstr "{path}의 노트 표시, 현재까지 {counts}"
 #: src/App.tsx
 msgid "Show notes sidebar"
 msgstr "노트 사이드바 표시"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Show older versions"
+msgstr "이전 버전 보기"
 
 #: src/editor-commands.ts
 msgid "Show or hide the notes sidebar"
@@ -5532,6 +5692,10 @@ msgstr "대상 폴더 “{to}”이(가) 이미 있습니다. 다른 이름을 �
 msgid "The Editor can link a person record only to an identity you let it read. Approve the Editor again for this collection and allow “See your account identity and display name”."
 msgstr "편집기는 읽도록 허용한 ID에만 사람 레코드를 연결할 수 있습니다. 이 컬렉션에 대해 편집기를 다시 승인하고 “계정 ID 및 표시 이름 보기”를 허용하세요."
 
+#: src/NoteHistoryPanel.tsx
+msgid "The editor can’t read history yet"
+msgstr "편집기가 아직 기록을 읽을 수 없습니다"
+
 #: src/ConnectionScreens.tsx
 msgid "The editor opens mdbase 0.3 collections. For an older collection, use mdbase to upgrade a copy, verify that copy, then choose it here. Your original files can stay untouched while you check the result."
 msgstr "편집기는 mdbase 0.3 컬렉션을 엽니다. 이전 컬렉션은 mdbase를 사용해 복사본을 업그레이드하고 확인한 다음 여기서 선택하세요. 결과를 확인하는 동안 원본 파일은 그대로 둘 수 있습니다."
@@ -5650,6 +5814,10 @@ msgstr "아직 저장되지 않은 노트는 버려집니다. 저장된 노트 �
 #: src/App.tsx
 msgid "The note’s text could not be copied. Select it in the editor instead."
 msgstr "노트 텍스트를 복사할 수 없습니다. 대신 편집기에서 선택하세요."
+
+#: src/NoteHistoryPanel.tsx
+msgid "The note’s text is replaced with this version from {when}. The text it has now stays in history, so you can restore it later."
+msgstr "노트의 텍스트가 {when}의 이 버전으로 바뀝니다. 현재 텍스트는 기록에 남아 있으므로 나중에 복원할 수 있습니다."
 
 #: src/next-editor-records.ts
 msgid "The original complete note source is unavailable."
@@ -6066,6 +6234,26 @@ msgstr "저장한 후 유형이 변경되었습니다. 다시 편집하기 전�
 msgid "This value does not match the required format."
 msgstr "이 값은 필수 형식과 일치하지 않습니다."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This version"
+msgstr "이 버전"
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version deleted the note, so it has no text."
+msgstr "이 버전에서 노트가 삭제되어 텍스트가 없습니다."
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version is no longer kept."
+msgstr "이 버전은 더 이상 보관되지 않습니다."
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version matches the note as it is now."
+msgstr "이 버전은 현재 노트와 같습니다."
+
+#: src/NoteHistoryPanel.tsx
+msgid "This version’s text isn’t available."
+msgstr "이 버전의 텍스트를 사용할 수 없습니다."
+
 #: src/note-sort.ts
 msgid "Title"
 msgstr "제목"
@@ -6079,6 +6267,7 @@ msgid "Title differences"
 msgstr "제목 차이"
 
 #: src/collection-browser.ts
+#: src/note-history.ts
 msgid "Today"
 msgstr "오늘"
 
@@ -6116,6 +6305,7 @@ msgid "True"
 msgstr "참"
 
 #: src/FileViewer.tsx
+#: src/NoteHistoryPanel.tsx
 #: src/TypeBrowser.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Try again"
@@ -6311,6 +6501,7 @@ msgid "Unversioned"
 msgstr "버전 없음"
 
 #: src/ConnectionScreens.tsx
+#: src/NoteHistoryPanel.tsx
 #: src/WorkspaceChrome.tsx
 msgid "Update access"
 msgstr "접근 권한 업데이트"
@@ -6429,6 +6620,12 @@ msgstr "검증 결과가 달라질 수 있음"
 msgid "Version {0}"
 msgstr "버전 {0}"
 
+#: src/App.tsx
+#: src/editor-commands.ts
+#: src/NoteHistoryPanel.tsx
+msgid "Version history"
+msgstr "버전 기록"
+
 #: src/NoteListViewOptions.tsx
 msgid "View options"
 msgstr "보기 옵션"
@@ -6501,6 +6698,7 @@ msgid "YAML"
 msgstr "YAML"
 
 #: src/collection-browser.ts
+#: src/note-history.ts
 msgid "Yesterday"
 msgstr "어제"
 
@@ -6524,6 +6722,30 @@ msgstr "{name}을(를) 업로드할 권한이 없습니다."
 #: src/native-gateway.ts
 msgid "You have view access, so changes can't be saved."
 msgstr "보기 권한만 있어 변경 사항을 저장할 수 없습니다."
+
+#: src/note-history.ts
+msgid "You, from the command line"
+msgstr "나, 명령줄에서"
+
+#: src/note-history.ts
+msgid "You, in {app}"
+msgstr "나, {app}에서"
+
+#: src/note-history.ts
+msgid "You, on another device"
+msgstr "나, 다른 기기에서"
+
+#: src/note-history.ts
+msgid "You, on desktop"
+msgstr "나, 데스크톱에서"
+
+#: src/note-history.ts
+msgid "You, on mobile"
+msgstr "나, 모바일에서"
+
+#: src/note-history.ts
+msgid "You, on the web"
+msgstr "나, 웹에서"
 
 #: src/ConnectionScreens.tsx
 msgid "You’ll continue to mdbase. Sign in if asked, choose a collection, and approve mdbase editor. You’ll return here automatically; your files stay where they are."

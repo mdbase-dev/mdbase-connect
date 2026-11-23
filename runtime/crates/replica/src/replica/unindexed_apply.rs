@@ -249,7 +249,7 @@ impl<S: Store> Replica<S> {
         // Verified fallback replays the service history, including native entries
         // that require full-source authentication before confirmation. Other
         // repair phases still prohibit reads; no capture/output is enabled.
-        if self.apply_fault
+        if self.apply_fault.is_some()
             || self.install.is_some()
             || (self.repairing() && !self.rolling_back())
             || self.hosted_blocked()

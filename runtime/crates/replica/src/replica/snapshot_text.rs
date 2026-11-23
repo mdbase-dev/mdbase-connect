@@ -119,7 +119,10 @@ impl<S: Store> Replica<S> {
         self.install_retry = true;
     }
     pub(crate) fn snapshot_text_step(&mut self) {
-        if self.apply_fault || self.install.is_none() || self.install_text_sources.error.is_some() {
+        if self.apply_fault.is_some()
+            || self.install.is_none()
+            || self.install_text_sources.error.is_some()
+        {
             return;
         }
         if self.install_text_sources.job.is_none() {

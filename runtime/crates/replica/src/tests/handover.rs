@@ -171,7 +171,7 @@ fn handover_authorization_and_faults_fail_closed() {
     assert_eq!(proof.applied_through, 0);
     assert!(proof.chain.is_none());
     n.r.cfg.mode = SyncMode::Synced;
-    n.r.apply_fault = true;
+    n.r.apply_fault = Some(crate::Fence::Store);
     assert!(n.r.sync_status().confirmed_head.is_none());
     assert_eq!(
         n.r.applied_prefix(n.s, 1).unwrap_err().code(),

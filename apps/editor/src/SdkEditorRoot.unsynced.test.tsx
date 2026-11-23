@@ -50,6 +50,24 @@ describe("work before connecting", () => {
     await waitFor(() => expect(h.calls("authorize")).toHaveLength(1));
   }, 30_000);
 
+  it("offers the self-hosted Editor under Sign in in the collections dialog while working before connecting", async () => {
+    vi.stubEnv("MDBASE_EDITOR_DIRECT_ORIGIN", "https://direct.example.org");
+    try {
+      const h = await unsyncedFixture("signed_out");
+      const { container } = render(<SdkEditorRoot sdk={h.mdbase} />);
+      fireEvent.click(await screen.findByRole("button", { name: "Continue without connecting" }));
+      await screen.findByRole("status", { name: SAVED_ONLY }, { timeout: 10_000 });
+      const trigger = container.querySelector<HTMLElement>(".editor-collection-switcher .mdbase-collections-trigger");
+      if (!trigger) throw new Error("No collection switcher");
+      fireEvent.click(trigger);
+      const dialog = await screen.findByRole("dialog", { name: "Collections" });
+      expect(within(dialog).getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+      const link = within(dialog).getByRole("link", { name: "Connect to your own server" });
+      expect(link).toHaveAttribute("href", "https://direct.example.org");
+      expect(link).toHaveAttribute("referrerpolicy", "no-referrer");
+    } finally { vi.unstubAllEnvs(); }
+  }, 30_000);
+
   it("offers to bring the work in once a collection is open, and brings it in", async () => {
     const h = await unsyncedFixture("ready", (replica) => replica.seed({ path: "idea.md", body: "# Before connecting\n\nKept in the browser\n" }));
     act(() => h.markWork());

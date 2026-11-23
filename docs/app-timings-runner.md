@@ -64,6 +64,8 @@ app and size. Cold record windows are 180 seconds at 100, 240 seconds at 1k and
 600 seconds at 10k; warm windows are 45 seconds. Their total is 71.25 minutes,
 leaving margin for ordinary navigation, consent and cleanup under the 80-minute
 guest cap. Widen a window only together with this cap and the scheduled window.
+Each cell's browser profile lives in a temporary directory that the cell deletes;
+a 10k profile reached about 100 MB in the 2026-11-23 qualification.
 
 The scheduled window is about 45 VM hours/month: approximately $3.02 compute at
 $0.06701142/hour, $1 for 10 GB balanced disk, and $0.23 for

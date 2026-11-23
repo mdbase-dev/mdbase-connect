@@ -109,7 +109,7 @@ fn setup_fence_refuses_unhealthy_or_optimistic_state() {
         |r| r.policy.frozen = true,
         |r| r.policy.rekey_required = true,
         |r| r.regressed_at = Some(0),
-        |r| r.apply_fault = true,
+        |r| r.apply_fault = Some(crate::Fence::Store),
         |r| r.sealer.set_epoch(99),
     ];
     for change in cases {

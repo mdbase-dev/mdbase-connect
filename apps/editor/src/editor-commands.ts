@@ -34,6 +34,7 @@ export const commandDefinitions = {
   "clear-selection": { get label() { return t`Clear selection`; } },
   properties: { get label() { return t`Note properties`; } },
   comments: { get label() { return t`Comments`; } },
+  "version-history": { get label() { return t`Version history`; } },
   comment: { get label() { return t`Comment on the selection`; }, shortcut: "mod+alt+M", group: "Text" },
   outline: { get label() { return t`Document outline`; } },
   backlinks: { get label() { return t`Linked from`; } },

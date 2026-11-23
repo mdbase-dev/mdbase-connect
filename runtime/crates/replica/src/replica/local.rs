@@ -220,7 +220,7 @@ impl<S: Store> Replica<S> {
     }
 
     fn local_commit_batch(&mut self) -> Result<(), StoreError> {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Ok(());
         }
         // A typed known abort retries ONLY existing pending work. Public Store
@@ -234,7 +234,7 @@ impl<S: Store> Replica<S> {
                 Ok(rows) => rows,
                 Err(e) => {
                     let checkpoint = Checkpoint::capture(self);
-                    self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false);
+                    self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false, &e);
                     self.apply_deferred_changed.extend(changed);
                     return Err(e);
                 }
@@ -247,8 +247,9 @@ impl<S: Store> Replica<S> {
                 let position = match self.head.seq.checked_add(1) {
                     Some(p) => p,
                     None => {
-                        self.failed_apply(checkpoint, self.head.seq, false);
-                        return Err(StoreError::Corrupt("local position exhausted".into()));
+                        let e = StoreError::Corrupt("local position exhausted".into());
+                        self.failed_apply(checkpoint, self.head.seq, false, &e);
+                        return Err(e);
                     }
                 };
                 let before_changed = changed.clone();
@@ -259,6 +260,7 @@ impl<S: Store> Replica<S> {
                         checkpoint,
                         position,
                         matches!(&e, StoreError::CommitAborted(_)),
+                        &e,
                     );
                     self.apply_deferred_changed.extend(changed);
                     return Err(e);
@@ -287,7 +289,7 @@ impl<S: Store> Replica<S> {
             if let Err(e) = result {
                 // A committed prefix precedes this maintenance failure. Reopen
                 // rather than roll back derived state to a pre-prefix checkpoint.
-                self.failed_apply(checkpoint, self.head.seq, false);
+                self.failed_apply(checkpoint, self.head.seq, false, &e);
                 return Err(e);
             }
         }

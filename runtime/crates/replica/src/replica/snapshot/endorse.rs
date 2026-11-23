@@ -41,7 +41,7 @@ impl<S: Store> Replica<S> {
     /// the manifest's digest. The digest alone covers neither the documents'
     /// text nor the rows' positions, capture times and receipts.
     pub fn check_snapshots(&mut self) {
-        if self.apply_fault
+        if self.apply_fault.is_some()
             || self.is_apply_recovering()
             || !self.snapshot_install_available()
             || self.endorse.is_some()
@@ -74,7 +74,7 @@ impl<S: Store> Replica<S> {
     }
 
     pub(crate) fn on_endorse_manifest(&mut self, reply: crate::log::LogReply) {
-        if self.apply_fault || self.is_apply_recovering() {
+        if self.apply_fault.is_some() || self.is_apply_recovering() {
             self.endorse = None;
             return;
         }
