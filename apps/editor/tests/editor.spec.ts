@@ -1379,6 +1379,60 @@ test("fills in what a new note requires while linking to it", async ({ page }) =
   await expect(page.getByRole("option", { name: /^Zed / })).toBeVisible();
 });
 
+test("fills in a required field when creating a linked record from the modal properties overlay", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Show collections sidebar" }).first().click();
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  // `tags` links to `note`, and `note` requires `source`.
+  await chooseOption(page.getByRole("combobox", { name: "tags field type" }), "link");
+  await page.getByRole("combobox", { name: "Add a type tags links to" }).click();
+  await page.getByRole("option", { name: "Note", exact: true }).click();
+  await page.getByRole("button", { name: "Add field", exact: true }).click();
+  const fieldName = page.locator(".visual-field-name input").last();
+  await fieldName.fill("source");
+  await fieldName.press("Tab");
+  const row = page.locator(".visual-field-row").filter({ has: page.locator('.visual-field-name input[value="source"]') });
+  await row.getByRole("checkbox", { name: "Required" }).check();
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await page.getByRole("button", { name: "Confirm update" }).click();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
+
+  await page.getByRole("button", { name: /^All notes/ }).click();
+  await page.locator(".note-row").filter({ hasText: "Ideas for Sunday 12" }).click();
+  await page.getByRole("button", { name: "Note properties" }).click();
+
+  const inspector = page.getByRole("dialog", { name: "Note properties" });
+  await expect(inspector).toBeVisible();
+  const tags = inspector.getByRole("group", { name: "tags", exact: true });
+  await tags.getByRole("button", { name: "Add a link to tags" }).click();
+  await tags.getByRole("combobox").fill("Octavia");
+  await page.getByRole("option", { name: "New note “Octavia”" }).click();
+
+  // At 1000px the properties panel is a modal <dialog>: the form must not be inert under it.
+  const form = page.getByRole("dialog", { name: "New note" });
+  await expect(form).toBeVisible();
+  const source = form.getByRole("textbox", { name: "source value" });
+  await expect(source).toBeFocused();
+  // Escape closes only the quick-create form, leaving the properties overlay open.
+  await page.keyboard.press("Escape");
+  await expect(form).toBeHidden();
+  await expect(inspector).toBeVisible();
+
+  await tags.getByRole("button", { name: "Add a link to tags" }).click();
+  await tags.getByRole("combobox").fill("Octavia");
+  await page.getByRole("option", { name: "New note “Octavia”" }).click();
+  await expect(form).toBeVisible();
+  await source.click();
+  await expect(form).toBeVisible();
+  await source.fill("A walk");
+  await form.getByRole("button", { name: "Create and link" }).click();
+
+  await expect(form).toBeHidden();
+  await expect(inspector).toBeVisible();
+  await expect(tags.getByRole("button", { name: "Octavia", exact: true })).toBeVisible();
+});
+
 test("edits and reviews portable collection behaviour", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 700 });
   await page.goto("?demo=12");

@@ -1,9 +1,11 @@
 import { render, screen } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { beginNewNote, type NewNote } from "./new-note";
 import { QuickCreateRecord } from "./QuickCreateRecord";
+import { InspectorFrame } from "./WorkspaceChrome";
 
 const book: CollectionTypeDescriptor = {
   name: "book",
@@ -45,5 +47,37 @@ describe("a record made while linking to it", () => {
     await user.click(screen.getByRole("button", { name: "Create and link" }));
     expect(onCreate).toHaveBeenCalledTimes(1);
     expect(onCreate.mock.calls[0]![0]).toMatchObject({ type: "book", title: "Dune Messiah", properties: { isbn: "978-0441172719", year: 1965 } });
+  });
+
+  it("mounts inside an open modal inspector dialog so its fields stay interactive", async () => {
+    const user = userEvent.setup();
+    const onCreate = vi.fn<(note: NewNote) => void>();
+    const onClose = vi.fn<(refocus: boolean) => void>();
+    function Harness() {
+      const [creating, setCreating] = useState(false);
+      return <>
+        <InspectorFrame overlay label="Note properties" width={340} onClose={() => {}}>
+          <button type="button" onClick={() => setCreating(true)}>New book</button>
+        </InspectorFrame>
+        {creating && <QuickCreateRecord note={beginNewNote({ type: "book", title: "Dune" }, [book])} types={[book]}
+          anchor={() => new DOMRect(40, 40, 200, 24)} onCreate={onCreate} onClose={onClose} />}
+      </>;
+    }
+    render(<Harness />);
+
+    await user.click(screen.getByRole("button", { name: "New book" }));
+    const inspector = screen.getByRole("dialog", { name: "Note properties" });
+    const form = screen.getByRole("dialog", { name: "New book" });
+    expect(inspector).toContainElement(form);
+
+    const isbn = screen.getByRole("textbox", { name: "isbn value" });
+    expect(isbn).toHaveFocus();
+    await user.click(isbn);
+    expect(onClose).not.toHaveBeenCalled();
+    await user.type(isbn, "978-0441172719");
+    await user.type(screen.getByRole("spinbutton", { name: "year value" }), "1965");
+    await user.click(screen.getByRole("button", { name: "Create and link" }));
+    expect(onCreate).toHaveBeenCalledTimes(1);
+    expect(onCreate.mock.calls[0]![0]).toMatchObject({ type: "book", title: "Dune", properties: { isbn: "978-0441172719", year: 1965 } });
   });
 });
