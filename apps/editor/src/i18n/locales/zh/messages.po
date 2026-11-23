@@ -6598,10 +6598,6 @@ msgstr "你的笔记，"
 msgid "Your person record"
 msgstr "你的人员记录"
 
-#: src/next-editor-records.ts
-msgid "Your previous change is still being saved. Try again in a moment."
-msgstr "你上一次的更改仍在保存中。请稍后重试。"
-
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "你在 {date} 所做的重命名尚未确认。请再次检查以完成保存。"

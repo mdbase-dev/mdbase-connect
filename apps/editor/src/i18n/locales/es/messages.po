@@ -6598,10 +6598,6 @@ msgstr "Tus notas,"
 msgid "Your person record"
 msgstr "Tu registro de persona"
 
-#: src/next-editor-records.ts
-msgid "Your previous change is still being saved. Try again in a moment."
-msgstr "Tu cambio anterior aún se está guardando. Inténtalo de nuevo en un momento."
-
 #: src/pending-note-mutation.ts
 msgid "Your rename from {date} isn’t confirmed yet. Check again to finish saving it."
 msgstr "Tu cambio de nombre del {date} aún no está confirmado. Vuelve a comprobarlo para terminar de guardarlo."
