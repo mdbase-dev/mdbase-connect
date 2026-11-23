@@ -436,8 +436,8 @@ importers:
         specifier: workspace:*
         version: link:../i18n
       '@mdbase-dev/sdk':
-        specifier: 0.1.0-beta.188
-        version: 0.1.0-beta.188
+        specifier: file:../../apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz
+        version: file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz
       '@rolldown/plugin-babel':
         specifier: ^0.2.4
         version: 0.2.4(@babel/core@7.29.7(supports-color@10.2.2))(@babel/runtime@7.29.7)(rolldown@1.2.14)(vite@8.3.4(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
@@ -711,8 +711,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: 0.1.0-beta.188
-        version: 0.1.0-beta.188
+        specifier: file:../../apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz
+        version: file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz
       '@modelcontextprotocol/sdk':
         specifier: ^1.31.0
         version: 1.32.1(@cfworker/json-schema@4.1.6)(supports-color@10.2.2)(zod@4.6.6)
@@ -2325,12 +2325,6 @@ packages:
   '@mdbase-dev/connect-protocol@file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz':
     resolution: {integrity: sha512-F0hhr8t6Z4FpbE5QpLEAt//EfTg+VuUrKpg1Iw6+l2fQFptvyaUlQc2VATTP8EGs5cgkBnAqHqOKMkYLpmPhgw==, tarball: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz}
     version: 0.1.0-beta.152
-
-  '@mdbase-dev/sdk@0.1.0-beta.188':
-    resolution: {integrity: sha512-EDaInyP8q2Lz0Akz8P+CNj5O6OvinMJWR1bE04fKtWRFDt9mVRBRBYRja5okOtb3gtnKYyMdQFGLlFln7F1RrA==}
-    engines: {node: '>=20'}
-    bundledDependencies:
-      - '@mdbase-dev/connect-protocol'
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz':
     resolution: {integrity: sha512-hnFrpFrfPFeAOtTLe97TWPwM3hcLik0DikUnYV+8MIKhfqD6eU0R0HxxWYYKZbQF3Dg+Re7ZvFiHTEgXdFuRhQ==, tarball: file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz}
@@ -8219,12 +8213,6 @@ snapshots:
     dependencies:
       '@noble/hashes': 2.4.0
       yaml: 2.9.1
-
-  '@mdbase-dev/sdk@0.1.0-beta.188':
-    dependencies:
-      '@noble/ciphers': 2.4.0
-      '@noble/curves': 2.4.0
-      '@noble/hashes': 2.4.0
 
   '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz':
     dependencies:
