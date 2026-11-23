@@ -1508,10 +1508,6 @@ msgstr "Cancella la selezione"
 msgid "Clear type search"
 msgstr "Cancella la ricerca dei tipi"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "Chiudi {name}"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Chiudi commenti"
@@ -1536,6 +1532,7 @@ msgstr "Chiudi riquadro"
 msgid "Close properties"
 msgstr "Chiudi le proprietà"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "Chiudi scheda"
@@ -2416,6 +2413,10 @@ msgstr "Modifica"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "La modifica è sospesa finché queste modifiche non vengono ripristinate o scartate. Rimangono in questo browser per un massimo di sette giorni, o fino al salvataggio o allo scarto. Il ripristino non sovrascrive una versione più recente senza revisione."
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "Riquadri dell’editor"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2597,7 +2598,7 @@ msgstr "Campi rimossi"
 msgid "File · {0}"
 msgstr "File · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "Visualizzatore di file, {filename}"
 
@@ -2705,8 +2706,8 @@ msgid "Focus mode"
 msgstr "Modalità concentrazione"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "Passa all’altro riquadro"
+msgid "Focus next pane"
+msgstr "Passa al riquadro successivo"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4104,7 +4105,7 @@ msgstr "Apri originale"
 msgid "Open Settings"
 msgstr "Apri Impostazioni"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "Schede aperte"
 
@@ -4832,6 +4833,10 @@ msgstr "Ridimensiona l'ispettore delle note"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "Ridimensiona la barra laterale delle note"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "Ridimensiona i riquadri"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

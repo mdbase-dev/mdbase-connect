@@ -127,9 +127,9 @@ export function NoteSkeleton({ leadingActions }: { leadingActions?: ReactNode })
 export function PaneSkeleton({ label, leadingActions, variant = "document" }: { label: string; leadingActions?: ReactNode; variant?: "document" | "canvas" }) {
   useLingui();
   if (variant === "canvas") {
-    return <main className="editor-pane file-workspace" aria-label={label} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status">{label}…</span></div><div className="file-workspace-content" /></main>;
+    return <section role="group" className="editor-pane file-workspace" aria-label={label} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status">{label}…</span></div><div className="file-workspace-content" /></section>;
   }
-  return <main className="editor-pane" aria-label={label}><NoteSkeleton leadingActions={leadingActions} /></main>;
+  return <section role="group" className="editor-pane" aria-label={label}><NoteSkeleton leadingActions={leadingActions} /></section>;
 }
 
 export function OutlinePanel({ headings, onReveal, onClose }: { headings: NoteHeading[]; onReveal: (line: number) => void; onClose: () => void }) {

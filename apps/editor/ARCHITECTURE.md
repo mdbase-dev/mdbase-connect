@@ -178,6 +178,17 @@ outside it:
 
 - `editor-commands.ts` owns canonical command labels and shortcuts; menus,
   shortcut matching/help, and QuickOpen bind the same definitions;
+- `workspace.ts` owns the open tabs and panes. They are held in a panel workspace
+  (`@mdbase-dev/panels`): a tab is a panel whose data is its note history, and a
+  pane is a stack of them. The module reads that arrangement as panes and tabs,
+  and every change the editor makes is a pure function over it. The library's
+  component draws the tab strips and dividers and changes the arrangement itself
+  when a tab is clicked, dragged or closed; App hears those changes and shows the
+  focused pane's note the same way as for its own. Only the focused pane shows
+  the active note session; every other pane reads its tab's session from the
+  store, through hooks of its own in `PaneSurface.tsx`, so the number of panes
+  is not fixed. The whole panes area is the page's `main` landmark, named for
+  what the focused pane shows; a pane is the tab panel of its tab;
 - `CollectionRail.tsx` owns folder expansion persistence;
 - `NoteSearchField.tsx` owns tag/type filter suggestions and chips;
 - `NoteList.tsx` owns list virtualization, keyboard focus, selection gestures,

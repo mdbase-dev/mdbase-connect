@@ -75,6 +75,7 @@ auditConfig:
     - GHSA-fc5q-39xc-vjpf
 
 minimumReleaseAgeExclude:
+  - '@mdbase-dev/panels@0.3.1'
   - '@mdbase-dev/ui@0.1.41'
 
 patchedDependencies:

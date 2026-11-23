@@ -140,6 +140,7 @@
   .note-list-pane,
   .type-list-pane,
   .editor-pane,
+  .editor-panels,
   .type-inspector,
   .settings-view {
     position: absolute;
@@ -147,6 +148,10 @@
     display: none;
     border: 0;
   }
+
+  /* The panes take the screen as one; the pane inside fills its panel. */
+  .surface-notes.pane-editor .editor-panels { display: block; }
+  .editor-panels .editor-pane { position: relative; inset: auto; }
 
   .pane-collections .collection-rail,
   .surface-notes.pane-notes .note-list-pane,

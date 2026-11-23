@@ -61,7 +61,7 @@ export const commandDefinitions = {
   "previous-tab": { get label() { return t`Previous tab`; }, shortcut: "alt+PageUp", group: "Navigate" },
   "split-right": { get label() { return t`Split right`; } },
   "split-down": { get label() { return t`Split down`; } },
-  "focus-other-pane": { get label() { return t`Focus other pane`; }, shortcut: "alt+O", group: "Navigate" },
+  "focus-other-pane": { get label() { return t`Focus next pane`; }, shortcut: "alt+O", group: "Navigate" },
   "close-pane": { get label() { return t`Close pane`; } },
   "next-note": { get label() { return t`Next note`; }, shortcut: "alt+J", group: "Navigate" },
   "previous-note": { get label() { return t`Previous note`; }, shortcut: "alt+K", group: "Navigate" },

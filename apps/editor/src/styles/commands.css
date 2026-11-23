@@ -11,11 +11,14 @@
 .focus-mode .editor-bar { justify-content: flex-end; border-color: transparent; }
 .focus-mode .editor-bar > :not(.note-actions):not(.focus-exit):not(.save-indicator):not(.note-opening-status):not(.note-bar-title) { display: none; }
 .focus-mode .note-bar-title { margin-right: auto; }
-.focus-mode .editor-pane { grid-column: 3; }
+.focus-mode .editor-pane,
+.focus-mode .editor-panels { grid-column: 3; }
+.focus-mode .editor-panels .editor-pane { grid-column: auto; }
 .focus-mode .mobile-note-path { display: none; }
 .typewriter-mode .code-editor-writer .cm-content { padding-top: 40vh; padding-bottom: 50vh; }
 @media (max-width: 760px) {
   .focus-mode .editor-pane { grid-column: 1; display: grid; }
+  .focus-mode .editor-panels { grid-column: 1; display: block; }
   .unlinked-mention > button { min-height: 44px; }
 }
 @media (prefers-reduced-motion: reduce) {

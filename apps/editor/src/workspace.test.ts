@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   activeTab, adjacentTab, changeActiveHistory, closePane, closeTab, emptyNoteHistory, emptyWorkspace, focusedPane, focusPane, forgetInHistory, forgetInWorkspace,
-  historyStep, loadWorkspace, openBeside, openTab, paneTab, renameInHistory, renameInWorkspace, returnToNote, saveWorkspace, selectTab, splitPane, tabNote,
+  historyStep, loadWorkspace, nextPane, openBeside, openTab, paneTab, renameInHistory, renameInWorkspace, returnToNote, saveWorkspace, selectTab, splitPane, tabNote,
   visitNote, type NoteHistory, type Workspace
 } from "./workspace";
 
@@ -74,6 +74,8 @@ const tabsOf = (workspace: Workspace) => focusedPane(workspace).tabs;
 const notes = (workspace: Workspace) => tabsOf(workspace).map(tabNote);
 /** Each pane's tabs' current notes. */
 const panes = (workspace: Workspace) => workspace.panes.map((pane) => pane.tabs.map(tabNote));
+/** How the panes sit: in a `row`, in a `column`, or `undefined` for one pane. */
+const arrangement = (workspace: Workspace) => workspace.layout.root?.type === "split" ? workspace.layout.root.direction : undefined;
 
 describe("tabs", () => {
   it("opens a new tab beside the active one and makes it active", () => {
@@ -144,9 +146,26 @@ describe("panes", () => {
     const workspace = splitPane(tabsOn("a.md", "b.md"), "down", "a.md");
     expect(panes(workspace)).toEqual([["a.md", "b.md"], ["a.md"]]);
     expect(workspace.focused).toBe(1);
-    expect(workspace.split).toBe("down");
-    expect(splitPane(workspace, "right", "c.md")).toEqual({ ...workspace, split: "right" });
+    expect(arrangement(workspace)).toBe("column");
+    expect(arrangement(splitPane(tabsOn("a.md"), "right", "a.md"))).toBe("row");
     expect(panes(splitPane(emptyWorkspace(), "right", undefined))).toEqual([[undefined], [undefined]]);
+  });
+
+  it("splits the focused pane again, as often as asked", () => {
+    let workspace = splitPane(tabsOn("a.md"), "right", "b.md");
+    workspace = splitPane(focusPane(workspace, 0), "right", "c.md");
+    expect(panes(workspace)).toEqual([["a.md"], ["c.md"], ["b.md"]]);
+    expect(workspace.focused).toBe(1);
+    expect(nextPane(workspace)).toBe(2);
+    expect(nextPane(focusPane(workspace, 2))).toBe(0);
+    const beside = openBeside(workspace, "d.md");
+    expect(panes(beside)).toEqual([["a.md"], ["c.md"], ["d.md"]]);
+    expect(beside.focused).toBe(2);
+    const closed = closePane(workspace, 1);
+    expect(panes(closed)).toEqual([["a.md"], ["b.md"]]);
+    expect(closed.focused).toBe(1);
+    expect(closePane(workspace, 0).focused).toBe(0);
+    expect(tabNote(activeTab(closePane(workspace, 0)))).toBe("c.md");
   });
 
   it("keeps navigation, tabs and history in the focused pane", () => {
@@ -225,13 +244,42 @@ describe("saved tabs", () => {
     saveWorkspace("one", workspace);
     const restored = loadWorkspace("one");
     expect(panes(restored)).toEqual([["a.md", "b.md"], ["c.md"]]);
-    expect(restored.split).toBe("down");
+    expect(arrangement(restored)).toBe("column");
     expect(restored.focused).toBe(0);
     saveWorkspace("one", closePane(restored, 0));
     expect(panes(loadWorkspace("one"))).toEqual([["c.md"]]);
   });
 
+  it("gives restored tabs ids that tabs opened later do not repeat", () => {
+    saveWorkspace("one", tabsOn("a.md", "b.md"));
+    const reopened = openTab(openTab(loadWorkspace("one"), "c.md"), "d.md");
+    expect(new Set(tabsOf(reopened).map((tab) => tab.id)).size).toBe(4);
+  });
+
+  it("reopens the tabs and the split saved before the panel workspace", () => {
+    const first = { tabs: [{ paths: ["a.md", "b.md"], index: 0 }, { paths: ["c.md"], index: 0 }], active: 1 };
+    localStorage.setItem("mdbase-editor:tabs:one", JSON.stringify(first));
+    const one = loadWorkspace("one");
+    expect(tabsOf(one).map((tab) => tab.history)).toEqual(first.tabs);
+    expect(tabNote(activeTab(one))).toBe("c.md");
+    localStorage.setItem("mdbase-editor:tabs:two", JSON.stringify({ ...first, split: { tabs: [{ paths: ["d.md"], index: 0 }, { paths: ["e.md"], index: 0 }], active: 0, direction: "down", focused: true } }));
+    const two = loadWorkspace("two");
+    expect(panes(two)).toEqual([["a.md", "c.md"], ["d.md", "e.md"]]);
+    expect(two.panes.map((pane) => tabNote(paneTab(pane)))).toEqual(["c.md", "d.md"]);
+    expect(arrangement(two)).toBe("column");
+    expect(two.focused).toBe(1);
+    saveWorkspace("two", closePane(two, 1));
+    expect(panes(loadWorkspace("two"))).toEqual([["a.md", "c.md"]]);
+  });
+
   it("restores no tabs from a saved value it can't read", () => {
+    for (const saved of ["{", "null", JSON.stringify({ format: "mdbase-panels", version: 2 }),
+      JSON.stringify({ format: "mdbase-panels", version: 1, workspace: { ...emptyWorkspace().layout, panels: {} } }),
+      JSON.stringify({ format: "mdbase-panels", version: 1, workspace: { ...tabsOn("a.md").layout, panels: { [tabsOf(tabsOn("a.md"))[0]!.id]: { id: "x", kind: "note", data: { paths: [], index: 4 } } } } })]) {
+      localStorage.setItem("mdbase-editor:panels:one", saved);
+      expect(tabsOf(loadWorkspace("one")).map((tab) => tab.history), saved).toEqual([emptyNoteHistory]);
+    }
+    localStorage.clear();
     for (const saved of ["{", "null", JSON.stringify({ tabs: [], active: 0 }), JSON.stringify({ tabs: [{ paths: ["a.md"], index: 3 }], active: 0 }),
       JSON.stringify({ tabs: [{ paths: ["a.md"], index: 0 }], active: 0, split: { tabs: [], active: 0, direction: "right", focused: false } }),
       JSON.stringify({ tabs: [{ paths: ["a.md"], index: 0 }], active: 0, split: { tabs: [{ paths: ["b.md"], index: 0 }], active: 0, direction: "left", focused: false } })]) {

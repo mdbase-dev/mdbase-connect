@@ -1508,10 +1508,6 @@ msgstr "Effacer la sélection"
 msgid "Clear type search"
 msgstr "Effacer la recherche de type"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "Fermer {name}"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Fermer les commentaires"
@@ -1536,6 +1532,7 @@ msgstr "Fermer le volet"
 msgid "Close properties"
 msgstr "Fermer les propriétés"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "Fermer l’onglet"
@@ -2416,6 +2413,10 @@ msgstr "Édition"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "L’édition est suspendue jusqu’à ce que vous restauriez ou abandonniez ces modifications. Elles restent dans ce navigateur pendant sept jours au maximum, ou jusqu’à leur enregistrement ou leur abandon. La restauration n’écrase pas une version plus récente sans examen préalable."
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "Volets de l’éditeur"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2597,7 +2598,7 @@ msgstr "Champs supprimés"
 msgid "File · {0}"
 msgstr "Fichier · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "Visionneuse de fichier, {filename}"
 
@@ -2705,8 +2706,8 @@ msgid "Focus mode"
 msgstr "Mode focus"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "Passer à l’autre volet"
+msgid "Focus next pane"
+msgstr "Passer au volet suivant"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4104,7 +4105,7 @@ msgstr "Ouvrir l’original"
 msgid "Open Settings"
 msgstr "Ouvrir les paramètres"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "Onglets ouverts"
 
@@ -4832,6 +4833,10 @@ msgstr "Redimensionner l’inspecteur de note"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "Redimensionner la barre latérale des notes"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "Redimensionner les volets"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

@@ -1508,10 +1508,6 @@ msgstr "Auswahl aufheben"
 msgid "Clear type search"
 msgstr "Typsuche leeren"
 
-#: src/NoteTabs.tsx
-msgid "Close {name}"
-msgstr "{name} schließen"
-
 #: src/NoteCommentsPanel.tsx
 msgid "Close comments"
 msgstr "Kommentare schließen"
@@ -1536,6 +1532,7 @@ msgstr "Bereich schließen"
 msgid "Close properties"
 msgstr "Eigenschaften schließen"
 
+#: src/App.tsx
 #: src/editor-commands.ts
 msgid "Close tab"
 msgstr "Tab schließen"
@@ -2416,6 +2413,10 @@ msgstr "Bearbeitung"
 msgid "Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review."
 msgstr "Die Bearbeitung ist pausiert, bis Sie diese Änderungen wiederherstellen oder verwerfen. Sie bleiben in diesem Browser bis zu sieben Tage oder bis zum Speichern oder Verwerfen erhalten. Beim Wiederherstellen wird eine neuere Version nicht ohne Prüfung überschrieben."
 
+#: src/App.tsx
+msgid "Editor panes"
+msgstr "Editorbereiche"
+
 #: src/settings/SettingsView.tsx
 msgctxt "settings view"
 msgid "Editor settings"
@@ -2597,7 +2598,7 @@ msgstr "Felder entfernt"
 msgid "File · {0}"
 msgstr "Datei · {0}"
 
-#: src/FileViewer.tsx
+#: src/App.tsx
 msgid "File viewer, {filename}"
 msgstr "Dateiansicht, {filename}"
 
@@ -2705,8 +2706,8 @@ msgid "Focus mode"
 msgstr "Fokusmodus"
 
 #: src/editor-commands.ts
-msgid "Focus other pane"
-msgstr "Zum anderen Bereich wechseln"
+msgid "Focus next pane"
+msgstr "Zum nächsten Bereich wechseln"
 
 #: src/TypeBrowser.tsx
 msgid "Folder"
@@ -4104,7 +4105,7 @@ msgstr "Original öffnen"
 msgid "Open Settings"
 msgstr "Einstellungen öffnen"
 
-#: src/NoteTabs.tsx
+#: src/App.tsx
 msgid "Open tabs"
 msgstr "Geöffnete Tabs"
 
@@ -4832,6 +4833,10 @@ msgstr "Notizinformationsbereich in der Größe ändern"
 #: src/App.tsx
 msgid "Resize notes sidebar"
 msgstr "Notizseitenleiste in der Größe ändern"
+
+#: src/App.tsx
+msgid "Resize panes"
+msgstr "Bereichsgröße ändern"
 
 #: src/App.tsx
 msgid "Resize types sidebar"

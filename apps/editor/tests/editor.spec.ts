@@ -735,16 +735,20 @@ test("opens notes in tabs from links, the list and quick open, and reopens them"
 
 test("splits the editor into two panes with their own notes, focus and tabs", async ({ page }) => {
   await page.goto("?demo=12");
-  const focused = page.getByRole("main", { name: "Note editor" });
-  const other = page.getByRole("region", { name: "Note editor" });
+  // The pane with the focus, and the one beside it.
+  const focused = page.locator(".editor-pane[data-focused]");
+  const other = page.locator(".editor-pane:not([data-focused])");
   const body = focused.getByRole("textbox", { name: "Note body" });
   await replaceOpeningNoteBody(body, "[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
 
   await page.locator(".body-editor .cm-lp-link").filter({ hasText: "Garden notes 2" }).click({ modifiers: ["ControlOrMeta", "Alt"] });
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
   await expect(other.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
-  const left = await other.boundingBox(), right = await focused.boundingBox();
-  expect(right!.x).toBeGreaterThan(left!.x + left!.width - 2);
+  // The panes move into place; once settled the new one is to the right of the first.
+  await expect.poll(async () => {
+    const left = await other.boundingBox(), right = await focused.boundingBox();
+    return right!.x - (left!.x + left!.width);
+  }).toBeGreaterThan(-2);
 
   await other.getByRole("textbox", { name: "Note body" }).click();
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
@@ -752,8 +756,9 @@ test("splits the editor into two panes with their own notes, focus and tabs", as
   await page.keyboard.type(" Left pane.");
   await expect(focused).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
   await page.getByRole("option").filter({ hasText: "A quiet interface 3" }).click({ button: "middle" });
-  await expect(focused.getByRole("tablist", { name: "Open tabs" }).getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
-  await expect(other.getByRole("tab")).toHaveText(["Garden notes 2"]);
+  // Each pane's tabs sit above it; the focused pane's are marked.
+  await expect(page.locator(".mp-stack[data-mp-focused]").getByRole("tablist", { name: "Open tabs" }).getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
+  await expect(page.locator(".mp-stack:not([data-mp-focused])").getByRole("tab")).toHaveText(["Garden notes 2"]);
 
   await page.keyboard.press("Alt+O");
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
@@ -768,6 +773,54 @@ test("splits the editor into two panes with their own notes, focus and tabs", as
   await expect(other).toHaveCount(0);
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3");
   await expect(page.getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
+});
+
+test("moves a tab to the other pane by dragging it and resizes the panes at the divider", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("textbox", { name: "Note body" }).waitFor();
+  await page.getByRole("option").filter({ hasText: "Garden notes 2" }).click({ button: "middle" });
+  await page.keyboard.press("Control+k");
+  await page.getByRole("dialog", { name: "Quick open" }).getByRole("combobox").fill(">Split right");
+  await page.keyboard.press("Enter");
+  const panes = page.locator(".mp-stack");
+  await expect(panes).toHaveCount(2);
+  await expect(panes.first().getByRole("tab")).toHaveText(["The shape of useful tools", "Garden notes 2"]);
+  const moved = panes.nth(1).getByRole("tab");
+  await expect(moved).toHaveCount(1);
+  const name = (await moved.textContent())!;
+  // The panes move into place before the tab is where it will be picked up.
+  await expect.poll(async () => {
+    const left = await panes.first().boundingBox(), right = await panes.nth(1).boundingBox();
+    return right!.x - (left!.x + left!.width);
+  }).toBeGreaterThan(-2);
+
+  // Dropping the second pane's only tab among the first pane's tabs leaves one pane.
+  const from = (await moved.boundingBox())!, to = (await panes.first().getByRole("tablist").boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width - 20, to.y + to.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect(panes).toHaveCount(1);
+  await expect(page.getByRole("tab")).toHaveText(["The shape of useful tools", "Garden notes 2", name]);
+  await expect(page.getByRole("tab", { selected: true })).toHaveText(name);
+
+  // The arrow keys on the divider between two panes move it.
+  await page.keyboard.press("Control+k");
+  await page.getByRole("dialog", { name: "Quick open" }).getByRole("combobox").fill(">Split right");
+  await page.keyboard.press("Enter");
+  const divider = page.getByRole("separator", { name: "Resize panes" });
+  await expect(divider).toHaveCount(1);
+  const before = Number(await divider.getAttribute("aria-valuenow"));
+  const width = async () => (await panes.first().boundingBox())!.width;
+  await expect.poll(width).toBeGreaterThan(100);
+  const widthBefore = await width();
+  await divider.focus();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(async () => Number(await divider.getAttribute("aria-valuenow"))).toBeLessThan(before);
+  await expect.poll(width).toBeLessThan(widthBefore);
+  await page.reload();
+  await expect.poll(async () => Number(await page.getByRole("separator", { name: "Resize panes" }).getAttribute("aria-valuenow"))).toBeLessThan(before);
 });
 
 test("previews internal editor links on hover, but not sidebar rows", async ({ page }) => {
