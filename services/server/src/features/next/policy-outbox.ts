@@ -235,6 +235,7 @@ export class PolicyEmitter {
   private readonly verificationQueue = new Map<string, VerificationCursor | undefined>();
   private readonly tipQueue = new Set<string>();
   private readonly wakeWork = new Map<string, Promise<void>>();
+  private readonly wakeAgain = new Set<string>();
   private readonly committedWork = new Map<string, Promise<void>>();
   private closed = false;
 
@@ -272,6 +273,7 @@ export class PolicyEmitter {
 
   async close(): Promise<void> {
     this.closed = true;
+    this.wakeAgain.clear();
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
     // A failed global drain must not orphan admitted wakes or their DB writes.
@@ -302,12 +304,23 @@ export class PolicyEmitter {
   }
 
   private wakeCommittedCollection(collectionId: string): void {
-    if (this.closed || this.wakeWork.has(collectionId) || this.wakeWork.size >= MAX_BACKGROUND_WAKES) return;
+    if (this.closed) return;
+    if (this.wakeWork.has(collectionId)) {
+      // A commit landed after the in-flight wake started (and may have captured an
+      // older batch): run one coalesced follow-up wake once it settles.
+      this.wakeAgain.add(collectionId);
+      return;
+    }
+    if (this.wakeWork.size >= MAX_BACKGROUND_WAKES) return;
     // Only a wake hint, not activation/keying evidence. The original callback
     // retains its 30s transport/body bound and captured-batch ACK/CAS protections.
     const work = Promise.resolve().then(() => this.activateServices(collectionId))
       .catch(error => this.reportFailure(error, collectionId))
-      .finally(() => { if (this.wakeWork.get(collectionId) === work) this.wakeWork.delete(collectionId); });
+      .finally(() => {
+        if (this.wakeWork.get(collectionId) !== work) return;
+        this.wakeWork.delete(collectionId);
+        if (this.wakeAgain.delete(collectionId) && !this.closed) this.wakeCommittedCollection(collectionId);
+      });
     this.wakeWork.set(collectionId, work);
     // The failure was delivered to onError; a throwing diagnostic callback must
     // not create an unhandled rejection or fail an already committed append.
