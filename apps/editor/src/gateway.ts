@@ -44,12 +44,63 @@ export function gatewayError(error: unknown): string {
     if (error.problem.recovery === "reauthorize") {
       return t`This collection needs authorization again. Choose the collection to continue.`;
     }
+    const diagnostics = formatDiagnosticIssues(connectDiagnostics(error.problem.details));
+    if (diagnostics) return diagnostics;
   }
-  if (isMdbaseError(error) && error.recovery === "reauthorize") {
-    return t`This collection needs authorization again. Choose the collection to continue.`;
+  if (isMdbaseError(error)) {
+    if (error.recovery === "reauthorize") {
+      return t`This collection needs authorization again. Choose the collection to continue.`;
+    }
+    const issues = formatDiagnosticIssues(error.issues);
+    if (issues) return issues;
   }
-  if (error instanceof Error) return error.message;
+  if (error instanceof Error && error.message.trim()) return error.message;
   return t`The collection could not be reached.`;
+}
+
+interface DiagnosticIssueLike {
+  readonly severity?: string;
+  readonly message?: string;
+  readonly location?: string;
+  readonly details?: unknown;
+}
+
+function connectDiagnostics(details: unknown): readonly DiagnosticIssueLike[] | undefined {
+  if (!details || typeof details !== "object" || Array.isArray(details)) return undefined;
+  const diagnostics = (details as Record<string, unknown>).diagnostics;
+  return Array.isArray(diagnostics) ? diagnostics as DiagnosticIssueLike[] : undefined;
+}
+
+function issueFieldLabel(issue: DiagnosticIssueLike): string | undefined {
+  const raw = typeof issue.location === "string"
+    ? issue.location
+    : issue.details && typeof issue.details === "object" && !Array.isArray(issue.details)
+      && typeof (issue.details as Record<string, unknown>).location === "string"
+      ? (issue.details as Record<string, unknown>).location as string
+      : undefined;
+  if (!raw) return undefined;
+  const trimmed = raw.startsWith("/") ? raw.slice(1) : raw;
+  if (!trimmed) return undefined;
+  return trimmed
+    .split("/")
+    .map((segment) => segment.replaceAll("~1", "/").replaceAll("~0", "~"))
+    .join(".");
+}
+
+function formatDiagnosticIssues(issues: readonly DiagnosticIssueLike[] | undefined): string | undefined {
+  if (!issues?.length) return undefined;
+  const errors = issues.filter((issue) => issue.severity === "error" && typeof issue.message === "string" && issue.message.trim());
+  const source = errors.length ? errors : issues.filter((issue) => typeof issue.message === "string" && issue.message.trim());
+  if (!source.length) return undefined;
+  const formatted: string[] = [];
+  for (const issue of source) {
+    const message = issue.message!.trim();
+    const field = issueFieldLabel(issue);
+    const entry = field && !message.includes(field) ? `${field}: ${message}` : message;
+    if (!formatted.includes(entry)) formatted.push(entry);
+    if (formatted.length >= 3) break;
+  }
+  return formatted.length ? formatted.join("; ") : undefined;
 }
 
 export type { QueryResult };

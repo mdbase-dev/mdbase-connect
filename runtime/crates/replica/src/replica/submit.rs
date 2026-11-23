@@ -35,12 +35,52 @@ pub(crate) fn rejection_problem(r: &mdbn_core::plan::Rejection) -> mdbn_wire::cl
                         }
                     },
                     message: issue.message.clone(),
-                    details: issue.details.as_ref().map(convert::wvalue),
+                    details: issue_details(issue),
                 })
                 .collect(),
         );
     }
     p
+}
+
+fn issue_details(issue: &mdbn_core::validate::Issue) -> Option<mdbn_wire::common::Value> {
+    let location = issue.location.as_deref().filter(|loc| !loc.is_empty());
+    let type_name = issue.type_name.as_deref().filter(|name| !name.is_empty());
+    if location.is_none() && type_name.is_none() {
+        return issue.details.as_ref().map(convert::wvalue);
+    }
+    match issue.details.as_ref().map(convert::wvalue) {
+        Some(mdbn_wire::common::Value::Map(mut entries)) => {
+            if let Some(loc) = location
+                && !entries.iter().any(|(k, _)| k == "location")
+            {
+                entries.push((
+                    "location".into(),
+                    mdbn_wire::common::Value::Text(loc.into()),
+                ));
+            }
+            if let Some(name) = type_name
+                && !entries.iter().any(|(k, _)| k == "type")
+            {
+                entries.push(("type".into(), mdbn_wire::common::Value::Text(name.into())));
+            }
+            Some(mdbn_wire::common::Value::Map(entries))
+        }
+        None => {
+            let mut entries = Vec::new();
+            if let Some(loc) = location {
+                entries.push((
+                    "location".into(),
+                    mdbn_wire::common::Value::Text(loc.into()),
+                ));
+            }
+            if let Some(name) = type_name {
+                entries.push(("type".into(), mdbn_wire::common::Value::Text(name.into())));
+            }
+            Some(mdbn_wire::common::Value::Map(entries))
+        }
+        other => other,
+    }
 }
 
 #[cfg(test)]

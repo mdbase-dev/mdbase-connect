@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import type { MdbaseRecordChange } from "./record-session";
 import { NoteSession, NoteSessionStore, noteRecordAdapter, sessionDirty } from "./note-session";
 import type { NoteDocument } from "./model";
@@ -19,7 +20,7 @@ function document(path: string, overrides: Partial<NoteDocument> = {}): NoteDocu
 function session(note: NoteDocument, update = vi.fn(async (base: NoteDocument, change: MdbaseRecordChange) => ({
   ...base, revision: "2", body: change.body ?? base.body
 }))) {
-  const gateway = { update, read: vi.fn(), recoverNoteMutation: vi.fn(), pendingNoteMutations: () => [] };
+  const gateway = { update, read: vi.fn(async () => note), recoverNoteMutation: vi.fn(), pendingNoteMutations: () => [] };
   return { session: new NoteSession(note, () => [], noteRecordAdapter(gateway)), update };
 }
 
@@ -76,5 +77,37 @@ describe("note sessions", () => {
     expect(store.get("old.md")).toBeUndefined();
     expect(store.get("new.md")).toBe(note);
     expect(store.active).toBe(note);
+  });
+
+  it("preserves actionable native validation issues in the record session problem", async () => {
+    const update = vi.fn(async () => {
+      throw new MdbaseError({
+        code: "invalid_record",
+        recovery: "fix_request",
+        message: "`tasks/one.md` would not be valid",
+        issues: [
+          {
+            code: "schema_required",
+            severity: "error",
+            message: "required property `dateCreated` is missing",
+            details: { location: "/dateCreated", type: "task" }
+          },
+          {
+            code: "schema_enum",
+            severity: "error",
+            message: "the value is not one of the allowed values",
+            details: { location: "/status", type: "task" }
+          }
+        ]
+      });
+    });
+    const { session: note } = session(document("tasks/one.md", { body: "Body\n", frontmatter: { type: "task" } }), update);
+    note.edit({ ...note.draft, body: "Body\nEdited\n" });
+    const result = await note.record.save();
+    expect(result.ok).toBe(false);
+    expect(note.saveState).toBe("error");
+    expect(note.record.snapshot.problem?.message).toBe(
+      "required property `dateCreated` is missing; status: the value is not one of the allowed values"
+    );
   });
 });
