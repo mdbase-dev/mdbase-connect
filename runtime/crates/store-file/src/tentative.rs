@@ -19,6 +19,20 @@
 //! - **Uncertain operations fence.** After any error from the database (a
 //!   COMMIT may apply before it throws), every later read and commit fails
 //!   until the host reopens the store and the replica reconciles its receipts.
+//! - **A deferred-durability window is one database transaction.** Inside
+//!   one ([`Store::defer_durability`]) commits stay atomic and ordered and
+//!   reach the database file together when the window closes; a store that
+//!   dies with one open reopens at the state before it. The replica opens one
+//!   only around commits it can redo (the entries of an applied page, from
+//!   the log; derived index rows, from the records) and closes it before the
+//!   call that opened it returns, so a client's write is always committed
+//!   outside one. A window that fails to close fences the store like any
+//!   other unknown outcome, and certifies nothing. A store that fences
+//!   inside a window still closes it when the replica does: the host shares
+//!   the connection and must not be left inside the window's transaction,
+//!   and each commit the window holds was complete, as it would be had it
+//!   been committed alone. An index that failed itself refuses the close and
+//!   never commits the window.
 //! - **No key material.** The store declares
 //!   [`KeyringPersistence::RebuildOnOpen`]: the replica never commits its epoch
 //!   keyring here and rebuilds it from the log on each open. A commit carrying
@@ -40,7 +54,7 @@ use mdbn_wire::common::{Hash, Uuid};
 use mdbn_wire::intent::FileInclusion;
 
 use crate::index::{IndexDurability, IndexStorage};
-use crate::sql::{SqlStore, SqlStoreLimits};
+use crate::sql::{SqlStore, SqlStoreLimits, idx_err};
 
 /// The app-local replica's SQL store (see the module docs).
 pub struct TentativeStore<I: IndexStorage> {
@@ -48,6 +62,8 @@ pub struct TentativeStore<I: IndexStorage> {
     durability: IndexDurability,
     /// Why the store is fenced, once an operation's outcome is unknown.
     fenced: RefCell<Option<String>>,
+    /// A deferred-durability window is open on the index.
+    deferred: bool,
 }
 
 impl<I: IndexStorage> std::fmt::Debug for TentativeStore<I> {
@@ -74,6 +90,7 @@ impl<I: IndexStorage> TentativeStore<I> {
             inner,
             durability,
             fenced: RefCell::new(None),
+            deferred: false,
         })
     }
 
@@ -371,6 +388,33 @@ impl<I: IndexStorage> Store for TentativeStore<I> {
         }
         let r = self.inner.commit(tx);
         self.guard(r)
+    }
+
+    fn durability_deferred(&self) -> bool {
+        self.deferred
+    }
+
+    fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
+        if on == self.deferred || on {
+            self.check()?;
+        }
+        if on == self.deferred {
+            return Ok(());
+        }
+        // Closed even on error: the fence outlives the window. A store that
+        // fenced inside the window closes it on the index all the same (see
+        // the module docs).
+        self.deferred = false;
+        let r = self
+            .inner
+            .index()
+            .borrow_mut()
+            .defer_sync(on)
+            .map_err(idx_err);
+        self.check()?;
+        // An index without windows keeps every commit on its own.
+        self.deferred = self.guard(r)? && on;
+        Ok(())
     }
 
     fn stages(&self) -> bool {
