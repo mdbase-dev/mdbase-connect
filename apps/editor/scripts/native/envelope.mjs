@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -8,4 +9,5 @@ await writeFile(join(root,'envelope.json'),JSON.stringify({
   repository:process.env.GITHUB_REPOSITORY,run:process.env.GITHUB_RUN_ID,attempt:process.env.GITHUB_RUN_ATTEMPT,event:process.env.GITHUB_EVENT_NAME,ref:process.env.GITHUB_REF,
   workflowSha:process.env.GITHUB_SHA,source:process.env.SOURCE_SHA,tree:execFileSync('git',['rev-parse','HEAD^{tree}'],{encoding:'utf8'}).trim(),target:process.env.TARGET,
   inventorySha256:await hash('inventory.json'),planSha256:await hash('plan.json'),
+  ...(existsSync(join(root,'self-hosted/inventory.json'))?{selfHostedInventorySha256:await hash('self-hosted/inventory.json')}:{}),
 },null,2));
