@@ -431,7 +431,6 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
           <p><strong><Trans>This permanently deletes:</Trans></strong></p>
           <ul><li><Trans>{countLabel(account.deletion.owned_collections, "collection")} and their stored data</Trans></li><li><Trans>App access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
           <p><Trans>Includes collections that have left sync and retained data from deleted collections.</Trans></p>
-          <p><strong><Trans>Local collection and mirror files remain on your computers.</Trans></strong></p>
         </div>
         {!account.deletion.development_confirmation && !reauthenticationToken && <div className="connect-account-reauthentication">
           <strong><Trans>Confirm your identity</Trans></strong>

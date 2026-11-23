@@ -1206,6 +1206,27 @@ textarea.mdbase-field {
   width: min(440px, calc(100vw - 32px));
 }
 
+/* The dialog sits in the top layer, so it sets its own text size rather than inheriting the page's. */
+.mdbase-confirm-dialog .mdbase-dialog-body {
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+.mdbase-confirm-dialog .mdbase-dialog-body p {
+  margin: 0;
+}
+
+/* A field the confirmation asks for: its label sits just above it. */
+.mdbase-confirm-dialog .mdbase-dialog-body > label {
+  display: grid;
+  gap: 6px;
+  font-weight: var(--font-weight-medium);
+}
+
+.mdbase-confirm-dialog .mdbase-dialog-actions {
+  margin-top: var(--space-2);
+}
+
 /* Save notices: small, quiet, and gone once there is nothing to act on. */
 .mdbase-save-notice {
   display: inline-flex;

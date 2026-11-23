@@ -126,10 +126,6 @@ export async function portalLifecycleE2E({
     await page.getByRole("button", { name: "Delete account…" }).click();
     const accountDeletion = page.getByRole("dialog", { name: "Delete account" });
     await expect(accountDeletion.getByText(/Local files are never removed/)).toBeVisible();
-    await expect(page.getByText(
-      "Local collection and mirror files remain on your computers.",
-      { exact: true }
-    )).toBeVisible();
     await page.getByLabel("Type DELETE to confirm").fill("DELETE");
     await page.getByRole("button", { name: "Delete account permanently" }).click();
     await expect(page).toHaveURL(new URL("/account-deleted", controlUrl).href);

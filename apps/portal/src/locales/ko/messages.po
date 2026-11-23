@@ -1963,10 +1963,6 @@ msgid "Loading the request…"
 msgstr "요청 불러오는 중…"
 
 #: src/AccountManagement.tsx
-msgid "Local collection and mirror files remain on your computers."
-msgstr "로컬 컬렉션 및 미러 파일은 컴퓨터에 남습니다."
-
-#: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
 msgstr "로컬 컬렉션 파일은 컴퓨터에 남으며 여기의 사용량에 포함되지 않습니다."
 
