@@ -393,7 +393,7 @@ msgstr "Claude, ChatGPT und Codex"
 
 #: src/DatePicker.tsx
 msgid "Clear"
-msgstr "Leeren"
+msgstr "Löschen"
 
 #: src/properties/labels.ts
 msgctxt "Remove a property's value"

@@ -237,7 +237,7 @@ msgstr "Adjuntar captura de pantalla"
 
 #: src/filter-builder/labels.ts
 msgid "Back"
-msgstr "Atrás"
+msgstr "Volver"
 
 #: src/Feedback.tsx
 msgid "Back to your work"
@@ -393,7 +393,7 @@ msgstr "Claude, ChatGPT y Codex"
 
 #: src/DatePicker.tsx
 msgid "Clear"
-msgstr "Borrar"
+msgstr "Limpiar"
 
 #: src/properties/labels.ts
 msgctxt "Remove a property's value"

@@ -647,7 +647,7 @@ msgstr "non contiene"
 
 #: src/filter-builder/labels.ts
 msgid "Done"
-msgstr "Fine"
+msgstr "Fatto"
 
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
