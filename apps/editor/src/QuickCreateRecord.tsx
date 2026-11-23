@@ -2,6 +2,7 @@ import { i18n } from "@lingui/core";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
 import { QuickCreate } from "@mdbase-dev/ui/quick-create";
 import { collectionDisplayField } from "./field-reference";
@@ -12,6 +13,24 @@ import { typeNameInSentence } from "./note";
 import { recordLinkProperties } from "./record-links";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
 import { TypeIcon } from "./TypeIcon";
+
+/**
+ * The topmost open modal `<dialog>`, if one is showing. A modal dialog makes everything outside
+ * its subtree inert—even a top-layer popover—so a quick-create form opened from the narrow
+ * properties overlay must mount inside that dialog. Remove once Editor updates past
+ * `@mdbase-dev/ui` 0.1.35, where `QuickCreate` portals itself.
+ */
+function activeModalDialog(): HTMLDialogElement | null {
+  if (typeof document === "undefined") return null;
+  try {
+    const modal = document.querySelectorAll<HTMLDialogElement>("dialog:modal");
+    if (modal.length) return modal[modal.length - 1]!;
+  } catch {
+    // Fall through when :modal is unsupported.
+  }
+  const open = document.querySelectorAll<HTMLDialogElement>('dialog[open][aria-modal="true"]');
+  return open.length ? open[open.length - 1]! : null;
+}
 
 /**
  * The short form for a record made while linking to it, when its type asks
@@ -34,7 +53,7 @@ export function QuickCreateRecord({ note: started, types, linking, anchor, onCre
   const form = useMemo(() => newNoteForm(note.type, types), [note.type, types, i18n.locale]);
   const links = useMemo<PropertyLinks | undefined>(() => linking && { ...linking, properties: recordLinkProperties(note.type ? [note.type] : [], types) }, [linking, note.type, types]);
   const typeLabel = typeNameInSentence(note.type ?? "");
-  return <QuickCreate
+  const popover = <QuickCreate
     className="quick-create"
     title={t`New ${typeLabel}`}
     icon={<TypeIcon name={collectionDisplayField(form.type, "icon")} fallback={<PlusIcon aria-hidden="true" />} />}
@@ -52,4 +71,6 @@ export function QuickCreateRecord({ note: started, types, linking, anchor, onCre
       onChange={(properties) => setNote((current) => changedNewNote(current, { properties }))}
       onValidityChange={(propertiesValid) => setNote((current) => changedNewNote(current, { propertiesValid }))} />
   </QuickCreate>;
+  const host = activeModalDialog();
+  return host ? createPortal(popover, host) : popover;
 }

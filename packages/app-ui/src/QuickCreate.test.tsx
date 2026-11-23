@@ -41,7 +41,7 @@ function mount(props: Partial<Parameters<typeof Form>[0]> = {}) {
   const host = document.body.appendChild(document.createElement("div"));
   const root = createRoot(host);
   act(() => root.render(<Form onSubmit={onSubmit} onClose={onClose} {...props} />));
-  const form = host.querySelector<HTMLElement>('[role="dialog"]')!;
+  const form = document.querySelector<HTMLElement>('[role="dialog"][aria-label="New book"]')!;
   const field = (label: string) => form.querySelector<HTMLInputElement>(`input[aria-label="${label}"]`)!;
   const button = (label: string) => [...form.querySelectorAll("button")].find((candidate) => candidate.textContent === label)!;
   const type = (input: HTMLInputElement, text: string) => act(() => {
@@ -124,6 +124,18 @@ describe("QuickCreate", () => {
     // Between the ends the browser moves the focus itself.
     view.field("ISBN").focus();
     expect(view.key("Tab").defaultPrevented).toBe(false);
+    view.unmount();
+  });
+
+  it("mounts inside an open modal dialog so it is not made inert by it", () => {
+    const dialog = document.body.appendChild(document.createElement("dialog"));
+    dialog.setAttribute("open", "");
+    dialog.setAttribute("aria-modal", "true");
+    const view = mount();
+    expect(dialog.contains(view.form)).toBe(true);
+    expect(document.activeElement).toBe(view.field("ISBN"));
+    act(() => { view.field("ISBN").dispatchEvent(new Event("pointerdown", { bubbles: true })); });
+    expect(view.onClose).not.toHaveBeenCalled();
     view.unmount();
   });
 });
