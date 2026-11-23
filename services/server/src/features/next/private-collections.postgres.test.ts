@@ -685,4 +685,90 @@ describePg("private collections", () => {
     await db.query("INSERT INTO next_collections(collection_id, owner_user_id, runtime, sync, root_key_id) VALUES($1,$2,'next','cloud_copy',$3)", [cloud, owner.connector.user_id, Buffer.from(config.policyCert.root_key_id, "hex")]);
     expect((await renew(owner, cloud, await renewProof(owner, cloud, commit()))).json().error.code).toBe("not_current_private");
   });
+
+  it.each(["cp-intent", "native-registry"] as const)("refuses private create, device enrol and approval requests for a %s deleted collection", async authority => {
+    const owner = await identity();
+    const other = await identity();
+    // 1. Deleted UUID with no next_collections row (e.g. after owner account deletion)
+    // must be refused before inserting next_collections or creating a log.
+    const burned = randomUUID();
+    await db.query(
+      "INSERT INTO next_collection_deletion_facts(collection_id, deletion_id, lifecycle_epoch, authority) VALUES($1, $2, 1, $3)",
+      [burned, randomUUID(), authority]
+    );
+    const createdBurned = await create(other, await createProof(other, burned));
+    expect(createdBurned.statusCode, createdBurned.body).toBe(409);
+    expect(createdBurned.json().error.code).toBe("collection_deleted");
+    expect(await registered(burned)).toBe(false);
+    expect(log.logs.has(burned.replaceAll("-", ""))).toBe(false);
+
+    // 2. Existing private collection whose deletion fact is recorded: create retry,
+    // member device enrol and approval-request all refuse without queueing ops;
+    // a non-member still gets 404 not_found on device enrol.
+    const collection = await created(owner);
+    const second = await identity(owner.connector.user_id);
+    const third = await identity(owner.connector.user_id);
+    expect((await enrol(second, collection, await enrolProof(second, collection, commit()))).statusCode).toBe(200);
+    await db.query(
+      "INSERT INTO next_collection_deletion_facts(collection_id, deletion_id, lifecycle_epoch, authority) VALUES($1, $2, 1, $3)",
+      [collection, randomUUID(), authority]
+    );
+    const retryCreate = await create(owner, await createProof(owner, collection));
+    expect(retryCreate.statusCode, retryCreate.body).toBe(409);
+    expect(retryCreate.json().error.code).toBe("collection_deleted");
+    expect(retryCreate.body).not.toContain('"token"');
+
+    const refusedEnrol = await enrol(third, collection, await enrolProof(third, collection, commit()));
+    expect(refusedEnrol.statusCode, refusedEnrol.body).toBe(409);
+    expect(refusedEnrol.json().error.code).toBe("collection_deleted");
+    expect((await db.query(
+      "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb",
+      [collection, JSON.stringify([{ op: "device-enrol", device: third.device }])]
+    )).rows).toEqual([]);
+
+    const strangerEnrol = await enrol(other, collection, await enrolProof(other, collection, commit()));
+    expect(strangerEnrol.statusCode, strangerEnrol.body).toBe(404);
+    expect(strangerEnrol.json().error.code).toBe("not_found");
+
+    const sas = commit();
+    const refusedRenew = await renew(second, collection, await renewProof(second, collection, sas));
+    expect(refusedRenew.statusCode, refusedRenew.body).toBe(409);
+    expect(refusedRenew.json().error.code).toBe("collection_deleted");
+    expect((await db.query(
+      "SELECT 1 FROM next_policy_outbox WHERE collection_id = $1 AND ops->'ops' @> $2::jsonb",
+      [collection, JSON.stringify([{ op: "approval-request", device: second.device, sasCommit: { $hex: sas } }])]
+    )).rows).toEqual([]);
+  });
+
+  it("refuses private create, device enrol and approval requests when deleted during readback", async () => {
+    const owner = await identity();
+    const deleteFact = (id: string) => () =>
+      db.query(
+        "INSERT INTO next_collection_deletion_facts(collection_id, deletion_id, lifecycle_epoch, authority) VALUES($1, $2, 1, 'native-registry')",
+        [id, randomUUID()]
+      ).then(() => undefined);
+
+    const creating = randomUUID();
+    log.onRead = deleteFact(creating);
+    const createdResp = await create(owner, await createProof(owner, creating));
+    expect(createdResp.statusCode, createdResp.body).toBe(409);
+    expect(createdResp.json().error.code).toBe("collection_deleted");
+    expect(createdResp.body).not.toContain('"token"');
+
+    const collection = await created(owner);
+    const second = await identity(owner.connector.user_id);
+    log.onRead = deleteFact(collection);
+    const enrolResp = await enrol(second, collection, await enrolProof(second, collection, commit()));
+    expect(enrolResp.statusCode, enrolResp.body).toBe(409);
+    expect(enrolResp.json().error.code).toBe("collection_deleted");
+    expect(enrolResp.body).not.toContain('"token"');
+
+    const collection2 = await created(owner);
+    const third = await identity(owner.connector.user_id);
+    expect((await enrol(third, collection2, await enrolProof(third, collection2, commit()))).statusCode).toBe(200);
+    log.onRead = deleteFact(collection2);
+    const renewResp = await renew(third, collection2, await renewProof(third, collection2, commit()));
+    expect(renewResp.statusCode, renewResp.body).toBe(409);
+    expect(renewResp.json().error.code).toBe("collection_deleted");
+  });
 });

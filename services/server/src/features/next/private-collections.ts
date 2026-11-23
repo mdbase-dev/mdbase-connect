@@ -30,6 +30,7 @@ import {
   authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment, inTransaction, joinedDisplayName, lock, NIL,
   refuse, refuseCollectionIdOfOther, refuseRevoked, type Device, type Proof
 } from "./bootstrap-common.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
@@ -76,8 +77,17 @@ type LatestRequest = { commit: string; seq: string | null; item: Buffer | null; 
 const latestRequest = async (client: { query: DatabaseConnection["query"] }, collection: string, device: string) =>
   (await client.query<LatestRequest>(LATEST_APPROVAL_REQUEST, [collection, JSON.stringify([{ op: "approval-request", device }]), device])).rows[0];
 
+async function notDeleted(client: DatabaseConnection, collection: string): Promise<void> {
+  try { await requireCollectionNotDeleted(client, collection); }
+  catch (error) {
+    if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409, "collection_deleted");
+    throw error;
+  }
+}
+
 /** Whether the collection already exists: false when free, true when this owner's private collection, else refused. */
 async function existing(client: DatabaseConnection, collection: string, owner: string): Promise<boolean> {
+  await notDeleted(client, collection);
   const row = (await client.query<{ owner_user_id: string; sync: string; runtime: string; left: boolean }>(
     "SELECT owner_user_id, sync, runtime, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
   )).rows[0];
@@ -88,6 +98,7 @@ async function existing(client: DatabaseConnection, collection: string, owner: s
 
 /** A current private collection on the next runtime (any owner); share-locked until the transaction ends. */
 async function currentPrivate(client: DatabaseConnection, collection: string, owner?: string): Promise<void> {
+  await notDeleted(client, collection);
   const current = await client.query(
     `SELECT 1 FROM next_collections WHERE collection_id = $1 AND sync = 'private' AND runtime = 'next' AND left_sync_at IS NULL
        AND ($2::uuid IS NULL OR owner_user_id = $2) FOR SHARE`,
