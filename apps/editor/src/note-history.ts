@@ -34,27 +34,31 @@ function dayKey(time: number): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
-/** Group versions (newest first) by local day. Consecutive edits by one author,
- * each within ten minutes of the next, collapse into one row; creations, moves
- * and deletions keep rows of their own. */
+/** Group versions (newest first in log order) by local day. Consecutive edits
+ * by one author, each within ten minutes of the next, collapse into one row;
+ * creations, moves and deletions keep rows of their own. Capture times can
+ * disagree with log order (an offline edit syncs late), so a day seen again
+ * gains rows in its existing section, and only adjacent versions in time order
+ * collapse. */
 export function historyTimeline(versions: readonly NoteVersion[]): HistoryDay[] {
-  const days: HistoryDay[] = [];
+  const days = new Map<string, HistoryDay>();
+  let last: HistoryRow | undefined;
   for (const version of versions) {
     const key = dayKey(version.time);
-    let day = days.at(-1);
-    if (day?.key !== key) days.push(day = { key, rows: [] });
+    let day = days.get(key);
+    if (!day) days.set(key, day = { key, rows: [] });
     const row = day.rows.at(-1);
-    const oldest = row && (row.since ?? row.version.time);
-    if (row && version.kind === "edited" && row.version.kind === "edited"
+    const gap = row && (row.since ?? row.version.time) - version.time;
+    if (row && row === last && version.kind === "edited" && row.version.kind === "edited"
       && authorKey(version) === authorKey(row.version)
-      && oldest !== undefined && oldest - version.time <= COLLAPSE_MS) {
+      && gap !== undefined && gap >= 0 && gap <= COLLAPSE_MS) {
       row.since = version.time;
       row.saves += 1;
     } else {
-      day.rows.push({ version, saves: 1 });
+      day.rows.push(last = { version, saves: 1 });
     }
   }
-  return days;
+  return [...days.values()];
 }
 
 /** "Today", "Yesterday", or the date. */

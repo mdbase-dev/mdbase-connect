@@ -112,7 +112,8 @@ export function NoteHistoryPanel({ history, gateway, path, title, current, onRes
             if (restored) { setSelected(undefined); setTimeline(undefined); setAttempt((value) => value + 1); }
             return restored;
           })}
-          onBack={() => setSelected(undefined)} />
+          onBack={() => setSelected(undefined)}
+          onStale={() => { setSelected(undefined); setTimeline(undefined); setAttempt((value) => value + 1); }} />
         : <>
           {problem?.kind === "unsupported" && <div className="history-notice" role="status">
             <p><strong><Trans>History isn’t available here</Trans></strong></p>
@@ -175,7 +176,7 @@ type VersionText =
   /** `gone`: the version's text can't be read again (compacted or unreadable). */
   | { state: "error"; message: string; gone: boolean };
 
-function VersionView({ history, path, row, me, current, onRestore, onBack }: {
+function VersionView({ history, path, row, me, current, onRestore, onBack, onStale }: {
   history: NoteHistoryReader;
   path: string;
   row: HistoryRow;
@@ -183,6 +184,7 @@ function VersionView({ history, path, row, me, current, onRestore, onBack }: {
   current: string;
   onRestore?: (document: string) => Promise<boolean>;
   onBack: () => void;
+  onStale: () => void;
 }) {
   useLingui();
   const { version } = row;
@@ -199,10 +201,14 @@ function VersionView({ history, path, row, me, current, onRestore, onBack }: {
     history.version(path, version.seq, { signal: controller.signal }).then(
       (document) => { if (!controller.signal.aborted) setText({ state: "ready", document }); },
       (error: unknown) => {
-        if (!controller.signal.aborted) setText({ state: "error", message: versionError(error), gone: isMdbaseError(error, "not_found") });
+        if (controller.signal.aborted) return;
+        // The replica reopened since it listed this version: list again from the newest.
+        if (isMdbaseError(error, "invalid_request") && error.reason === "history_cursor_stale") onStale();
+        else setText({ state: "error", message: versionError(error), gone: isMdbaseError(error, "not_found") });
       }
     );
     return () => controller.abort();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onStale is read when the read fails, not a reason to read again
   }, [history, path, version.seq, version.kind, attempt]);
 
   const diff = useMemo(() => text.state === "ready" && text.document !== current ? compareLines(text.document, current) : [], [text, current]);

@@ -45,6 +45,17 @@ describe("historyTimeline", () => {
     expect(days[0]!.rows.map((row) => row.version.kind)).toEqual(["edited", "moved", "edited", "created"]);
   });
 
+  it("keeps one section per day when a late-synced edit's capture time is out of log order", () => {
+    const midnight = new Date(2026, 10, 17).getTime();
+    // 3 was captured yesterday but synced after 2: its log position is newer.
+    const days = historyTimeline([version(4, midnight + 30 * minute), version(3, midnight - 60 * minute),
+      version(2, midnight + 20 * minute), version(1, midnight - 61 * minute)]);
+    expect(days.map((day) => [day.key, day.rows.map((row) => [row.version.seq, row.saves])])).toEqual([
+      ["2026-11-17", [[4, 1], [2, 1]]],
+      ["2026-11-16", [[3, 1], [1, 1]]]
+    ]);
+  });
+
   it("groups by local day and never collapses across midnight", () => {
     const midnight = new Date(2026, 10, 17).getTime();
     const days = historyTimeline([version(2, midnight + 2 * minute), version(1, midnight - 2 * minute)]);

@@ -36,6 +36,8 @@ export class NoteSession {
   recoveryError?: string;
   /** Staged tombstone: set when deletion starts, cleared if it fails. */
   deleted?: boolean;
+  /** An earlier version is being written over the note; the editor takes no typing meanwhile. */
+  restoring?: boolean;
   /** How many times the record session replaced the text itself; an editor showing the note takes each in whole. */
   replaced = 0;
 

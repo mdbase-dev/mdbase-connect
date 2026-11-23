@@ -466,13 +466,21 @@ export function useNoteActions({ gateway, mutationScope, noteSessions, indexCont
     try {
       await flushSession(session);
       if (!mutationScope.current.isCurrent(token)) return false;
-      const updated = await runNoteOperation(session, "saving", () => gateway.updateDocument(
-        session.document.path,
-        source,
-        session.document.revision
-      ));
-      if (!mutationScope.current.isCurrent(token)) return false;
-      session.record.accept(updated);
+      // Typing during the write would stay as a draft over the restored text and
+      // autosave over it, so the note takes none until the restore lands.
+      session.restoring = true;
+      touchSession(session);
+      try {
+        const updated = await runNoteOperation(session, "saving", () => gateway.updateDocument(
+          session.document.path,
+          source,
+          session.document.revision
+        ));
+        if (!mutationScope.current.isCurrent(token)) return false;
+        session.record.accept(updated);
+      } finally {
+        session.restoring = false;
+      }
       session.error = undefined;
       touchSession(session);
       return true;

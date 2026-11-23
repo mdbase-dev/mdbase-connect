@@ -254,6 +254,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [description, setDescription] = useState<CollectionDescription>();
   const [sessionSnapshot, setSessionSnapshot] = useState<CollectionSessionSnapshot>(() => gateway.sessionSnapshot());
   const connectionSummary = sessionSnapshot.status === "ready" ? sessionSnapshot.connection : null;
+  /** A viewer's grant can never include `history.read` (policy.md §5), so asking for it again can't help. */
+  const noteHistory = connectionSummary?.role === "viewer" ? undefined : gateway.noteHistory;
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
   const subscribeSyncState = useCallback((listener: () => void) => gateway.onSyncState?.(listener) ?? noop, [gateway]);
@@ -340,7 +342,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
-  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft) || Boolean(noteSessions.current.active?.deletedElsewhere);
+  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft) || Boolean(noteSessions.current.active?.deletedElsewhere)
+    || Boolean(noteSessions.current.active?.restoring);
   const privateCollection = connectionSummary?.private === true;
   const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const linkCreations = useRef(new Set<string>());
@@ -2198,7 +2201,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       focus: toggleFocus,
       properties: () => showInspector("properties", true),
       comments: noteComments.available ? () => showInspector("comments", true) : undefined,
-      "version-history": gateway.noteHistory ? () => showInspector("history", true) : undefined,
+      "version-history": noteHistory ? () => showInspector("history", true) : undefined,
       comment: noteComments.canWrite ? noteComments.start : undefined,
       outline: () => setOutlineOpen((value) => !value),
       backlinks: () => { window.document.getElementById(paneIds(workspace.focused).backlinks)?.focus(); },
@@ -2343,7 +2346,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             </div>}
             {!mobileLayout && !isNew && <button className={`icon-button${focused && inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
             {!mobileLayout && !isNew && noteComments.available && <button className={`icon-button comments-toggle${focused && inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{focused && noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
-            {!mobileLayout && !isNew && gateway.noteHistory && <button className={`icon-button${focused && inspector === "history" ? " active" : ""}`} aria-label={t`Version history`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "history"} onClick={() => showInspector("history", true)}><ClockCounterClockwise aria-hidden="true" /></button>}
+            {!mobileLayout && !isNew && noteHistory && <button className={`icon-button${focused && inspector === "history" ? " active" : ""}`} aria-label={t`Version history`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "history"} onClick={() => showInspector("history", true)}><ClockCounterClockwise aria-hidden="true" /></button>}
             {focused && focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
             {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => openNewNote()}><FilePlus2 aria-hidden="true" /></button>}
             <div className="note-actions">
@@ -2363,7 +2366,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
               ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => showInspector("properties"))] : []),
               ...(mobileLayout && noteComments.available ? [menuCommand("comments", <ChatText aria-hidden="true" />, () => showInspector("comments"))] : []),
-              ...(mobileLayout && gateway.noteHistory ? [menuCommand("version-history", <ClockCounterClockwise aria-hidden="true" />, () => showInspector("history"))] : []),
+              ...(mobileLayout && noteHistory ? [menuCommand("version-history", <ClockCounterClockwise aria-hidden="true" />, () => showInspector("history"))] : []),
               { ...attachFileAction, separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
@@ -2598,7 +2601,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={inspectorLabel(inspector)} width={inspectorTrack} onClose={() => setInspector(undefined)}>{document ? <Suspense fallback={<InspectorPanelLoading label={inspectorLabel(inspector)} />}>
         {inspector === "comments" ? <NoteCommentsPanel key={document.path} title={draft?.title || t`Untitled`} comments={noteComments}
           onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} />
-        : inspector === "history" && gateway.noteHistory ? <NoteHistoryPanel key={document.path} history={gateway.noteHistory} gateway={gateway}
+        : inspector === "history" && noteHistory ? <NoteHistoryPanel key={document.path} history={noteHistory} gateway={gateway}
           path={document.path} title={draft?.title || t`Untitled`} current={document.document ?? composeRecordSource(document.frontmatter, document.body ?? "")}
           onRestore={noteReadOnly ? undefined : (source) => restoreVersion(document.path, source)}
           onAuthorize={() => void connectCollection()} onClose={() => setInspector(undefined)} />

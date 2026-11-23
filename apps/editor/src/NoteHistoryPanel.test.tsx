@@ -113,6 +113,17 @@ describe("note history", () => {
     expect(screen.queryByRole("button", { name: "Try again" })).not.toBeInTheDocument();
   });
 
+  it("lists again from the newest version when the replica no longer knows a listed one", async () => {
+    const user = userEvent.setup();
+    const history = gateway([{ versions: [version(9, 1)], from: 1 }],
+      { 9: mdbaseError("invalid_request", "index rebuilt", "history_cursor_stale") });
+    panel(history);
+    await user.click(await screen.findByRole("button", { name: /mdbase editor/ }));
+    await waitFor(() => expect(history.list).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("region", { name: "Today" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("explains when the collection serves no history", async () => {
     panel(gateway(mdbaseError("upgrade_required", "no history", "history_unsupported")));
     expect(await screen.findByText("History isn’t available here")).toBeInTheDocument();
