@@ -90,14 +90,19 @@ signed policy use `4000 / authorization_unavailable`. Both are `unavailable`;
 `4403 / grant_inactive` remains terminal. The SDK's existing 30-second first-open
 wait accepts those actual retryable reasons, including Noise hello Problems,
 and resumes without another consent once both arrive.
-A current Private grant (Active, listed, live lease) on a device that is not
-serving the collection right now (paused, opening, recovering or failed) closes
-with `4000 / not_served`, not `authorization_unavailable`: the grant is not what
-is missing. It is retryable; with `waitForDevice` (the default for Private
-collections an application opens) the SDK shows `device_not_serving` and keeps
-retrying, then opens once the device serves the collection, with no new consent.
-The relay sends `not_served` in a `pipe_close` text frame before closing the
-WebSocket, so the client doesn't depend on an intermediary preserving the close reason.
+A device that is not serving a Private collection right now (paused, opening,
+recovering, failed, or no longer registered locally) closes with
+`4000 / not_served`, not `authorization_unavailable` (unless a local refusal
+tombstone applies). It is retryable; with `waitForDevice` (the default for
+Private collections an application opens) the SDK shows `device_not_serving`
+and keeps retrying, then opens once the device serves the collection, with no
+new consent. The relay sends every refusal reason in a `pipe_close` text frame
+before closing the WebSocket, so the client doesn't depend on an intermediary
+preserving the WebSocket close code or reason. Daemons also report their
+currently serving collection IDs in `relay_hello` and via incremental
+`serving_collections` frames (held in memory on the relay socket only) so route
+availability can prefer serving devices and report `device_not_serving` before
+opening a pipe.
 After restart a newer snapshot sequence is required: replaying the persisted
 cursor does not renew a feed lease.
 
@@ -111,6 +116,7 @@ Routing for a Private grant considers only desktop and CLI devices of the granti
 | `unavailable`, `no_device_registered` | No device can serve this collection. |
 | `unavailable`, `approval_required` | Private: no device has approved the grant yet. |
 | `unavailable`, `old_connector_running` | The device is online but an older connector still holds its collections (reported by the daemon in `relay_hello`). |
+| `unavailable`, `device_not_serving` | At least one device is online, but none of the online devices is currently serving this collection (reported by the daemon via `serving_collections`). |
 | `unavailable`, `desktop_update_required` | The device's last relay connection was refused as incompatible. |
 | `unavailable`, `device_offline` | The devices are offline. |
 | `unavailable`, `access_removed` | The account is no longer a member of the collection. |

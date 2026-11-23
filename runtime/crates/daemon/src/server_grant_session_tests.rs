@@ -285,6 +285,37 @@ async fn a_current_private_grant_says_the_collection_is_not_served() {
 }
 
 #[tokio::test]
+async fn an_unregistered_collection_reports_not_served_and_omits_it_from_serving_collections() {
+    use crate::relay::RelayHost;
+    let dir = crate::testutil::TestDir::new("unregistered-not-served");
+    let daemon = private_daemon(&dir).await;
+    let unknown = B16([77; 16]).to_uuid_string();
+    let grant = GRANT.to_uuid_string();
+    assert_eq!(
+        daemon.grant_refusal(&unknown, &grant).await.as_deref(),
+        Some("not_served")
+    );
+    assert_eq!(daemon.serving_collections().await, Some(Vec::new()));
+    // A local refusal tombstone still wins even if the collection was unregistered.
+    feed(&daemon, 1, true).await;
+    daemon
+        .access_change(|access| access.revoke(&grant).cloned())
+        .await
+        .unwrap();
+    {
+        let mut inner = daemon.inner.lock().await;
+        inner.registry.collections.clear();
+    }
+    assert_eq!(
+        daemon
+            .grant_refusal(&COLLECTION.to_uuid_string(), &grant)
+            .await
+            .as_deref(),
+        Some("grant_revoked_on_device")
+    );
+}
+
+#[tokio::test]
 async fn a_feed_row_does_not_lift_a_private_link_key_refusal() {
     let dir = crate::testutil::TestDir::new("reapproved-link");
     let daemon = private_daemon(&dir).await;

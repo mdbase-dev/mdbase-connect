@@ -177,7 +177,7 @@ describe("Private collections",()=>{
     const snapshot=app.getSnapshot();
     expect(snapshot).toMatchObject({status:"blocked",selectedCollectionId:P,problem:"relay_closed",
       problemDetail:{name:"MdbaseError",code:"unavailable",relay:{closeCode:1006,closeClass:"abnormal"}},
-      phase:{kind:"problem",problem:{code:"relay_closed"}}});
+      phase:{kind:"problem",problem:{key:"unavailable",code:"relay_closed",severity:"warning",action:"retry"}}});
     expect(JSON.stringify(snapshot)).not.toContain("PRIVATE_CLOSE_TEXT");
     expect(actions()).not.toContain("select");
     expect(opened).toHaveLength(0);

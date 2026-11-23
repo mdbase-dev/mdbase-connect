@@ -32,6 +32,7 @@ const GRANT: &str = "01900000-0000-7000-8000-0000000000bb";
 struct Host {
     applied: Mutex<Vec<(String, Vec<CachedGrant>, u64)>>,
     live: AtomicBool,
+    serving: Mutex<Option<Vec<String>>>,
     opened: Mutex<Vec<(Prologue, Auth)>>,
 }
 
@@ -77,6 +78,10 @@ impl RelayHost for Host {
         Box::pin(
             async move { (!self.live.load(Ordering::SeqCst)).then(|| "grant_inactive".into()) },
         )
+    }
+    fn serving_collections(&self) -> BoxFuture<'_, Option<Vec<String>>> {
+        let serving = self.serving.lock().unwrap().clone();
+        Box::pin(async move { serving })
     }
     fn set_online(&self, _online: bool) {}
 }
@@ -182,6 +187,7 @@ async fn relay_feed_and_pipe() {
         ..Default::default()
     };
     let host = Arc::new(Host::default());
+    *host.serving.lock().unwrap() = Some(vec![COLLECTION.to_string()]);
     let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
     let client_sk = [42u8; 32];
     let client_pk = mdbn_daemon::noise::public_key(&client_sk);
@@ -225,6 +231,7 @@ async fn relay_feed_and_pipe() {
     let text = |m: Message| -> Value { serde_json::from_str(m.to_text().unwrap()).unwrap() };
     let hello = text(ws.next().await.unwrap().unwrap());
     assert_eq!(hello["type"], "relay_hello");
+    assert_eq!(hello["serving_collections"], json!([COLLECTION]));
     assert!(
         hello["capabilities"]
             .as_array()
@@ -385,6 +392,20 @@ async fn relay_feed_and_pipe() {
         }
     };
     assert_eq!(close["reason"], "grant_inactive");
+
+    // 8. Removing the serving collection sends a serving_collections update.
+    *host.serving.lock().unwrap() = Some(vec![]);
+    let update = tokio::time::timeout(Duration::from_secs(3), async {
+        loop {
+            let v = text(ws.next().await.unwrap().unwrap());
+            if v["type"] == "serving_collections" {
+                break v;
+            }
+        }
+    })
+    .await
+    .unwrap();
+    assert_eq!(update["collections"], json!([]));
 
     stop_tx.send(true).unwrap();
     let _ = tokio::time::timeout(Duration::from_secs(5), daemon).await;

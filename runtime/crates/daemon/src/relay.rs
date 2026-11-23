@@ -62,8 +62,9 @@ pub const CAPABILITIES: &[&str] = &[
 
 /// The `relay_hello` message. `old_connector_running`: an old mdbase Connect daemon
 /// runs on this device, so Connect reports its collections as unavailable for that
-/// reason (sent only when true).
-pub fn hello(old_connector_running: bool) -> Value {
+/// reason (sent only when true). `serving_collections`: canonical lowercase UUIDs
+/// this daemon is currently serving (routing hint only, never authorization).
+pub fn hello(old_connector_running: bool, serving_collections: Option<&[String]>) -> Value {
     let mut hello = json!({
         "type": "relay_hello",
         "protocol_version": 1,
@@ -78,6 +79,9 @@ pub fn hello(old_connector_running: bool) -> Value {
     });
     if old_connector_running {
         hello["old_connector_running"] = Value::Bool(true);
+    }
+    if let Some(collections) = serving_collections {
+        hello["serving_collections"] = json!(collections);
     }
     hello
 }
@@ -316,6 +320,11 @@ pub trait RelayHost: crate::session::Handler {
     fn old_connector_running(&self) -> bool {
         false
     }
+    /// Canonical lowercase collection IDs this daemon is currently serving
+    /// (`None` when the host does not report serving state).
+    fn serving_collections(&self) -> crate::session::BoxFuture<'_, Option<Vec<String>>> {
+        Box::pin(async { None })
+    }
 }
 
 /// Original captured consent/epoch/runtime/lease fence, never authority itself.
@@ -464,8 +473,11 @@ async fn session<H: RelayHost>(
     };
     let (mut tx, mut rx) = ws.split();
     let old_connector_running = host.old_connector_running();
+    let mut last_serving = host.serving_collections().await;
     if tx
-        .send(Message::text(hello(old_connector_running).to_string()))
+        .send(Message::text(
+            hello(old_connector_running, last_serving.as_deref()).to_string(),
+        ))
         .await
         .is_err()
     {
@@ -546,6 +558,15 @@ async fn session<H: RelayHost>(
                             Some("device_bound") => {
                                 pipes_enabled = v.get("noise_pipes").and_then(Value::as_bool).unwrap_or(false);
                                 tracing::info!(noise_pipes = pipes_enabled, "device bound");
+                                if let Some(current) = host.serving_collections().await
+                                    && last_serving.as_ref() != Some(&current)
+                                {
+                                    let msg = json!({ "type": "serving_collections", "collections": &current });
+                                    if tx.send(Message::text(msg.to_string())).await.is_err() {
+                                        break Ended::Retry("send serving_collections".into());
+                                    }
+                                    last_serving = Some(current);
+                                }
                             }
                             Some("device_bind_failed") => {
                                 tracing::warn!(reason = ?v.get("reason"), "device bind failed; pipes unavailable");
@@ -600,6 +621,16 @@ async fn session<H: RelayHost>(
             _ = sweep.tick() => {
                 if host.old_connector_running() != old_connector_running {
                     break Ended::Retry("old connector state changed".into());
+                }
+                if pipes_enabled
+                    && let Some(current) = host.serving_collections().await
+                    && last_serving.as_ref() != Some(&current)
+                {
+                    let msg = json!({ "type": "serving_collections", "collections": &current });
+                    if tx.send(Message::text(msg.to_string())).await.is_err() {
+                        break Ended::Retry("send serving_collections".into());
+                    }
+                    last_serving = Some(current);
                 }
                 close_dead(host, &mut open, &out_tx).await;
                 open.retain(|_, p| !p.task.is_finished());
@@ -856,8 +887,17 @@ mod tests {
 
     #[test]
     fn hello_reports_a_running_old_connector_only_when_true() {
-        assert_eq!(hello(true)["old_connector_running"], Value::Bool(true));
-        assert!(hello(false).get("old_connector_running").is_none());
+        assert_eq!(
+            hello(true, None)["old_connector_running"],
+            Value::Bool(true)
+        );
+        assert!(hello(false, None).get("old_connector_running").is_none());
+        assert!(hello(false, None).get("serving_collections").is_none());
+        let cols = vec!["01900000-0000-7000-8000-000000000001".to_string()];
+        assert_eq!(
+            hello(false, Some(&cols))["serving_collections"],
+            json!(cols)
+        );
     }
 
     #[test]

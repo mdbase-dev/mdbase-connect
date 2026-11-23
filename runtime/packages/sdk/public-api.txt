@@ -3602,7 +3602,7 @@ ByteStream@transport/noise-session.ts
   write: (b: Uint8Array) => void
 
 COLLECTION_UNAVAILABLE_REASONS@collection-availability.ts
-  : readonly ['device_offline', 'desktop_update_required', 'old_connector_running', 'approval_required', 'sync_required', 'no_device_registered', 'access_removed', 'collection_migrating', 'collection_not_yet_migrated', 'collection_deleted']
+  : readonly ['device_offline', 'device_not_serving', 'desktop_update_required', 'old_connector_running', 'approval_required', 'sync_required', 'no_device_registered', 'access_removed', 'collection_migrating', 'collection_not_yet_migrated', 'collection_deleted']
 
 CborError@cbor.ts
   cause?: unknown
@@ -3689,7 +3689,7 @@ CollectionMemberProfile@people.ts
   subject: string
 
 CollectionUnavailableReason@collection-availability.ts
-  = 'device_offline' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_deleted' | 'collection_migrating' | 'collection_not_yet_migrated' | 'approval_required'
+  = 'device_offline' | 'device_not_serving' | 'desktop_update_required' | 'old_connector_running' | 'sync_required' | 'no_device_registered' | 'access_removed' | 'collection_deleted' | 'collection_migrating' | 'collection_not_yet_migrated' | 'approval_required'
 
 ConfirmedHead@wire.ts
   catalogGeneration: string

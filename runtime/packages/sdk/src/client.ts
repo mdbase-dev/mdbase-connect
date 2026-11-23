@@ -161,7 +161,7 @@ export interface ChangesWatch {
 /** Changes asked for at a time while a watch catches up from its cursor. */
 const CHANGES_PAGE = 1000;
 /** With `waitForDevice`: the computer is offline, or online but not serving the collection yet. */
-const DEVICE_WAITS = new Set(["no_device_online", "not_served"]);
+const DEVICE_WAITS = new Set(["no_device_online", "not_served", "device_not_serving"]);
 
 /** A spec 11 query object. Plain objects are converted to data maps. */
 export type Query = {
