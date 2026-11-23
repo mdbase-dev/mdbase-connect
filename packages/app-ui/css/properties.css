@@ -1,7 +1,10 @@
 /*
  * A record's properties (./properties): a name and its value on one line, the value edited
- * where it stands. Its controls are in controls.css, which the host loads beside this file.
+ * where it stands. Its controls are in controls.css, which the host loads beside this file;
+ * the calendar a date opens comes with this one.
  */
+@import "./date-picker.css";
+
 .mdbase-properties {
   display: flex;
   flex-direction: column;
@@ -138,7 +141,8 @@ textarea.mdbase-property-input {
   margin-inline-start: 7px;
 }
 
-.mdbase-property-date {
+/* Named with the date field's own class, so these hold wherever date-picker.css is loaded. */
+.mdbase-property-date.mdbase-date-field {
   width: 100%;
   min-height: 28px;
   padding: 0 7px;
@@ -147,11 +151,11 @@ textarea.mdbase-property-input {
   transition: background var(--motion-quick) var(--ease-standard);
 }
 
-.mdbase-property-date:hover {
+.mdbase-property-date.mdbase-date-field:hover {
   background: var(--color-surface-subtle);
 }
 
-.mdbase-property-date[aria-expanded="true"] {
+.mdbase-property-date.mdbase-date-field[aria-expanded="true"] {
   border-color: var(--color-border-strong);
   background: var(--color-surface);
 }

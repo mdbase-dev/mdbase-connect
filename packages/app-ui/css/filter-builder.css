@@ -1,8 +1,10 @@
 /*
  * The filter bar (./filter-builder). Its menus are .mdbase-menu and its panels .mdbase-popover,
  * both in controls.css, which the host loads beside this file. Panels open in the top layer,
- * outside .mdbase-filter, so the rules below name both.
+ * outside .mdbase-filter, so the rules below name both. A date is picked from the calendar.
  */
+@import "./date-picker.css";
+
 .mdbase-filter {
   min-width: 0;
   max-width: 100%;

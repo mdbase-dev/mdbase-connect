@@ -179,6 +179,7 @@
     "./brand.css": "./css/brand.css",
     "./collections.css": "./css/collections.css",
     "./controls.css": "./css/controls.css",
+    "./date-picker.css": "./css/date-picker.css",
     "./comments.css": "./css/comments.css",
     "./fonts.css": "./css/fonts.css",
     "./live-preview.css": "./css/live-preview.css",

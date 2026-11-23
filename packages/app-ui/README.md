@@ -285,7 +285,8 @@ or menu open inside it takes the first Escape. A menu of actions is `Menu`.
 `@mdbase-dev/ui/date-picker` has `DateField`, a date that reads as a date and
 opens a calendar to change it, and `Calendar`, the month on its own for a panel
 that is already open. Dates go in and out as they are stored (`2026-11-28`).
-Include `controls.css`.
+Include `controls.css` and `date-picker.css`; `filter-builder.css` and
+`properties.css` already bring the second with them.
 
 ```tsx
 <DateField value={due ?? ""} label={t`Due`} placeholder={t`No date`} onChange={setDue} />
