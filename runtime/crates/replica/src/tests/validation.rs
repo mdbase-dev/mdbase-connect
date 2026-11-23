@@ -666,3 +666,188 @@ fn validation_index_is_rederived_on_open_when_stale() {
             .is_some()
     );
 }
+
+fn update_body(a: &mut Node, id: u8, body: &str) -> mdbn_wire::client::Receipt {
+    let current = a.doc(id).expect("existing record");
+    let mut r =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Update(mdbn_wire::intent::Update {
+                    id: B16([id; 16]),
+                    patch: None,
+                    unset: None,
+                    add: None,
+                    remove: None,
+                    body: Some(Text::Inline(body.into())),
+                    body_edits: None,
+                    body_base: None,
+                    body_base_text: None,
+                    base: None,
+                    if_revision: Some(mdbn_wire::hash::sha256(current.as_bytes())),
+                    update_refs: None,
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+    r.remove(0)
+}
+
+#[test]
+fn update_saves_existing_note_with_unknown_explicit_type() {
+    let service = FakeLogService::new();
+    let store = MemStore::new();
+    // No mdbase.yaml and no `_types/` definitions (e.g., types sit under
+    // `_mdbase/types/` or belong to another app): default settings apply
+    // (`types_folder: _types`, `validation: error`, `explicit_type_keys: [type, types]`).
+    let mut a = node(&service, 1, store);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+
+    let initial = "---\ntype: task\ntitle: Buy milk\n---\nOriginal body.\n";
+    let created = create_at(&mut a, 30, initial, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(
+        created.state,
+        ReceiptState::Pending,
+        "{:?}",
+        created.problem
+    );
+    settle(&mut [&mut a]);
+
+    let updated = update_body(&mut a, 30, "Original body.\nAppended line.\n");
+    assert_eq!(
+        updated.state,
+        ReceiptState::Pending,
+        "unknown frontmatter type must not reject saves: {:?}",
+        updated.problem
+    );
+    settle(&mut [&mut a]);
+    assert!(
+        a.doc(30)
+            .as_deref()
+            .is_some_and(|doc| doc.contains("Appended line."))
+    );
+
+    // Explicit validation still reports `unknown_type` as a warning.
+    let validated =
+        a.r.validate(a.s, Validate::Targets(vec![target(30)]))
+            .unwrap();
+    assert!(validated[0].issues.iter().any(|i| {
+        i.code == "unknown_type" && i.severity == mdbn_core::validate::Severity::Warning
+    }));
+
+    // Request-level selected type on create still rejects unknown types.
+    let bad_create =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Create(mdbn_wire::intent::Create {
+                    id: B16([31; 16]),
+                    path: Some("tasks/selected.md".into()),
+                    type_name: Some("task".into()),
+                    frontmatter: None,
+                    body: Some(Text::Inline("Body\n".into())),
+                    document: None,
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(bad_create[0].state, ReceiptState::Rejected);
+    let problem = bad_create[0].problem.as_ref().unwrap();
+    assert_eq!(problem.code, "invalid_request");
+    assert_eq!(problem.reason.as_deref(), Some("unknown_type"));
+}
+
+#[test]
+fn update_defined_type_saves_when_valid_and_reports_issue_locations_when_invalid() {
+    let service = FakeLogService::new();
+    let mut store = MemStore::new();
+    store
+        .commit(Tx {
+            resources_put: vec![(
+                "_types/task.md".into(),
+                "---\nkind: mdbase.type\nname: task\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [title, status, dateCreated]\n    properties:\n      title: {type: string, minLength: 1}\n      status: {enum: [open, done]}\n      dateCreated: {type: string, format: date-time}\n      dateModified: {type: string, format: date-time}\nlifecycle:\n  on_update:\n    set:\n      dateModified: {now: true}\n---\n"
+                    .into(),
+            )],
+            ..Tx::default()
+        })
+        .unwrap();
+    let mut a = node(&service, 1, store);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+
+    // 1. Valid defined-type note saves cleanly.
+    let valid_doc = "---\ntype: task\ntitle: Valid task\nstatus: open\ndateCreated: \"2026-01-01T00:00:00Z\"\n---\nInitial.\n";
+    let seeded = create_at(&mut a, 40, valid_doc, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(seeded.state, ReceiptState::Pending, "{:?}", seeded.problem);
+    settle(&mut [&mut a]);
+
+    let saved = update_body(&mut a, 40, "Initial.\nUpdated.\n");
+    assert_eq!(saved.state, ReceiptState::Pending, "{:?}", saved.problem);
+    settle(&mut [&mut a]);
+    let after = a.doc(40).unwrap();
+    assert!(after.contains("Updated."), "{after}");
+    assert!(after.contains("dateModified:"), "{after}");
+
+    // 2. Mixed defined + unknown type saves when valid against the defined type.
+    let mixed_doc = "---\ntypes: [task, ghost]\ntitle: Mixed\nstatus: open\ndateCreated: \"2026-01-01T00:00:00Z\"\n---\nStart.\n";
+    let seeded = create_at(&mut a, 41, mixed_doc, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(seeded.state, ReceiptState::Pending, "{:?}", seeded.problem);
+    settle(&mut [&mut a]);
+
+    let saved = update_body(&mut a, 41, "Start.\nMore.\n");
+    assert_eq!(saved.state, ReceiptState::Pending, "{:?}", saved.problem);
+    settle(&mut [&mut a]);
+    assert!(a.doc(41).unwrap().contains("More."));
+
+    // 3. Invalid defined-type note is rejected with field locations in problem.issues.
+    let invalid_doc = "---\ntype: task\ntitle: Invalid task\nstatus: bogus\n---\nInitial.\n";
+    let seeded = create_at(&mut a, 42, invalid_doc, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(seeded.state, ReceiptState::Pending, "{:?}", seeded.problem);
+    settle(&mut [&mut a]);
+
+    let refused = update_body(&mut a, 42, "Initial.\nShould not save.\n");
+    assert_eq!(refused.state, ReceiptState::Rejected);
+    let problem = refused.problem.as_ref().expect("rejection problem");
+    assert_eq!(problem.code, "invalid_record");
+    let issues = problem.issues.as_ref().expect("validation issues");
+    assert!(issues.iter().any(|i| i.code == "schema_required"));
+    let enum_issue = issues
+        .iter()
+        .find(|i| i.code == "schema_enum")
+        .expect("schema_enum issue");
+    let details = match enum_issue.details.as_ref() {
+        Some(mdbn_wire::common::Value::Map(entries)) => entries,
+        other => panic!("expected map details with location, got {other:?}"),
+    };
+    assert!(
+        details
+            .iter()
+            .any(|(k, v)| k == "location" && *v == mdbn_wire::common::Value::Text("/status".into())),
+        "expected /status location in details: {details:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|(k, v)| k == "type" && *v == mdbn_wire::common::Value::Text("task".into())),
+        "expected task type in details: {details:?}"
+    );
+}

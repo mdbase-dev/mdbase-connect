@@ -921,10 +921,13 @@ impl Catalog {
                                 out.types.push(t.name.clone());
                             }
                         }
+                        // Unknown explicit types are excluded from matched types and reported as
+                        // non-blocking warnings (like `path_field_in_frontmatter`) so notes whose
+                        // `type:` names a type not defined in this collection can still be saved.
                         None => out.issues.push(
                             Issue::new(
                                 "unknown_type",
-                                Severity::Error,
+                                Severity::Warning,
                                 Tier::SingleRecord,
                                 format!("unknown type `{n}`"),
                             )

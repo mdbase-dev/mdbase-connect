@@ -4,6 +4,7 @@ import { MdbaseRecordSession } from "./record-session";
 import { connectFailure, connectProblem, connectSuccess } from "./connect-types";
 import { type MdbaseRecordSessionAdapter } from "./record-session";
 import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
+import { gatewayError } from "./gateway";
 import { editableNote, persistedBody, titlePatch } from "./note";
 import type { RecoveryDraft } from "./draft-recovery";
 
@@ -134,7 +135,7 @@ async function outcome(operation: () => Promise<NoteDocument>): Promise<ConnectO
     return connectSuccess(await operation());
   } catch (error) {
     if (error instanceof MdbaseConnectError) return connectFailure(error.problem);
-    if (error instanceof Error) return connectFailure(connectProblem("operation_failed", error.message));
+    if (error instanceof Error) return connectFailure(connectProblem("operation_failed", gatewayError(error)));
     throw error;
   }
 }

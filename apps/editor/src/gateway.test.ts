@@ -45,4 +45,53 @@ describe("gateway helpers", () => {
     expect(gatewayError(new MdbaseError({ code: "forbidden", recovery: "reauthorize", message: "revoked" }))).toContain("authorization");
     expect(gatewayError(new Error("boom"))).toBe("boom");
   });
+
+  it("formats validation issue details from native MdbaseError rejections", () => {
+    const error = new MdbaseError({
+      code: "invalid_record",
+      recovery: "fix_request",
+      message: "`tasks/buy-milk.md` would not be valid",
+      issues: [
+        {
+          code: "schema_required",
+          severity: "error",
+          message: "required property `dateCreated` is missing",
+          details: { location: "/dateCreated", type: "task" }
+        },
+        {
+          code: "schema_enum",
+          severity: "error",
+          message: "the value is not one of the allowed values",
+          details: { location: "/status", type: "task" }
+        },
+        {
+          code: "unknown_type",
+          severity: "warning",
+          message: "unknown type `ghost`",
+          details: { location: "/types", type: "ghost" }
+        }
+      ]
+    });
+
+    expect(gatewayError(error)).toBe(
+      "required property `dateCreated` is missing; status: the value is not one of the allowed values"
+    );
+  });
+
+  it("formats validation diagnostics attached to Connect problems", () => {
+    const error = new MdbaseConnectError(connectProblem("operation_invalid", "`tasks/buy-milk.md` would not be valid", {
+      details: {
+        diagnostics: [
+          {
+            code: "schema_type",
+            severity: "error",
+            message: "expected string",
+            location: "/priority"
+          }
+        ]
+      }
+    }));
+
+    expect(gatewayError(error)).toBe("priority: expected string");
+  });
 });

@@ -21,6 +21,7 @@ import {
   TrashIcon as Trash2,
   TagIcon as Tag,
   PushPinIcon as Pin,
+  WarningCircleIcon as CircleAlert,
   XIcon as X,
   BrowsersIcon as Browsers, ColumnsIcon as Columns
 } from "./icons";
@@ -578,7 +579,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       reportError({ code: "save_failed" });
       const message = gatewayError(new MdbaseConnectError(snapshot.problem));
       session.error = message;
-      setNotice(active ? message : t`Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
+      if (active) setNotice(undefined);
+      else setNotice(t`Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
     } else if (snapshot.state === "saved" && previous.state !== "saved") {
       session.error = undefined;
     }
@@ -642,7 +644,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNoteOpenFailure(undefined);
     closeNewNote();
     setEditingPath(false);
-    setNotice(session.error);
+    setNotice(session.saveState === "error" && !session.remoteDocument ? undefined : session.error);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
   }, [closeNewNote, draftRecovery]);
 
@@ -2415,6 +2417,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             </div>
           </header>
           {focused && connectionSummary?.role === "viewer" && <p role="status"><Trans>You have view access, so changes can't be saved.</Trans></p>}
+          {!isNew && session?.saveState === "error" && session.error && !session.remoteDocument && <div className="notice save-error-notice" role="alert">
+            <CircleAlert aria-hidden="true" />
+            <span>{session.error}</span>
+          </div>}
           {focused && !isNew && noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
           {focused && !isNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
             <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>

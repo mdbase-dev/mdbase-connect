@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "./connect-types";
+import { MdbaseError } from "@mdbase-dev/sdk";
 import { connectProblem } from "./connect-types";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
@@ -870,6 +871,71 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "Retry save" }));
     await waitFor(async () => expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain("Unsaved sentence."));
     await waitFor(() => expect(screen.queryByText("Needs attention")).not.toBeInTheDocument());
+  });
+
+  it("shows the specific refusal reason in the editor notice without logging note contents", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    const secretBody = "PRIVATE-BODY-SENTINEL-1838";
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoLog = vi.spyOn(console, "info").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const realUpdate = gateway.update.bind(gateway);
+    let rejectWrites = true;
+    let markRejected!: () => void;
+    const updateRejected = new Promise<void>((resolve) => { markRejected = resolve; });
+    let markSaved!: () => void;
+    const updateSaved = new Promise<void>((resolve) => { markSaved = resolve; });
+    gateway.update = async (base, change) => {
+      if (rejectWrites) {
+        markRejected();
+        throw new MdbaseError({
+          code: "invalid_record",
+          recovery: "fix_request",
+          message: `\`${base.path}\` would not be valid`,
+          issues: [
+            {
+              code: "schema_required",
+              severity: "error",
+              message: "required property `dateCreated` is missing",
+              details: { location: "/dateCreated", type: "task" }
+            }
+          ]
+        });
+      }
+      const saved = await realUpdate(base, change);
+      markSaved();
+      return saved;
+    };
+
+    try {
+      const user = userEvent.setup();
+      render(<App gateway={gateway} />);
+
+      const body = await screen.findByRole("textbox", { name: "Note body" });
+      fireEvent.change(body, { target: { value: `${(body as HTMLTextAreaElement).value}\n${secretBody}` } });
+      await updateRejected;
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("required property `dateCreated` is missing");
+      expect(screen.getByText("Needs attention")).toBeInTheDocument();
+      expect((body as HTMLTextAreaElement).value).toContain(secretBody);
+
+      for (const spy of [errorLog, warnLog, infoLog, logSpy]) {
+        expect(JSON.stringify(spy.mock.calls)).not.toContain(secretBody);
+      }
+
+      rejectWrites = false;
+      await user.click(screen.getByRole("button", { name: "Retry save" }));
+      await updateSaved;
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain(secretBody);
+    } finally {
+      errorLog.mockRestore();
+      warnLog.mockRestore();
+      infoLog.mockRestore();
+      logSpy.mockRestore();
+    }
   });
 
   it("orders property updates behind a note save without blocking navigation", async () => {
