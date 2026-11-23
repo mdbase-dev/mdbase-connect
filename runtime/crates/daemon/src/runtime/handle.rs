@@ -188,6 +188,17 @@ impl Runtime {
         rx.await.ok()
     }
 
+    /// Park the actor thread, as a collection busy with long work would be,
+    /// until the returned sender is dropped.
+    #[cfg(test)]
+    pub(crate) fn test_park(&self) -> std::sync::mpsc::Sender<()> {
+        let (release, parked) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::TestPark(parked))
+            .expect("the runtime is running");
+        release
+    }
+
     /// SEEDED-HOLD fixture only: None reads the original actor's real ledger;
     /// Some commits one typed hold on that same actor, without a client mutation.
     #[cfg(test)]

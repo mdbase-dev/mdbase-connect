@@ -18,6 +18,8 @@ use super::*;
 mod grant_sessions;
 #[path = "server_recovery_tests.rs"]
 mod recovery_tests;
+#[path = "server_stall_tests.rs"]
+mod stall_tests;
 use crate::access::{AccessState, FeedCursor};
 use crate::confirm::{Answer, Confirmer, Prompt};
 use std::collections::BTreeMap;
@@ -313,7 +315,7 @@ async fn feed(d: &Daemon, listed: &[CachedGrant]) {
         .map_or(1, |c| c.sequence + 1);
     let path = d.profile.access_file();
     let listed = BTreeMap::from([("c".into(), listed.to_vec())]);
-    d.commit_control_plane_feed_with(&snapshot(sequence), &listed, |a| a.save(&path))
+    d.commit_control_plane_feed_with(&snapshot(sequence), &listed, move |a| a.save(&path))
         .await
         .unwrap();
 }
@@ -338,7 +340,7 @@ impl Confirmer for Suspended {
 async fn displayed_consent_cannot_approve_replacement_or_aba() {
     for aba in [false, true] {
         let dir = crate::testutil::TestDir::new("consent");
-        let d = daemon(&dir);
+        let d = paired_daemon(&dir).await;
         d.inner.lock().await.access.require_grant_approval = true;
         feed(&d, &[grant(1)]).await;
         let before = d.inner.lock().await.access.entries[0].clone();
@@ -537,7 +539,7 @@ async fn automatic_private_publication_requires_a_live_bound_account() {
 async fn native_activation_cannot_override_changed_terms_or_a_refusal() {
     for deny in [false, true] {
         let dir = crate::testutil::TestDir::new("native-activation");
-        let d = daemon(&dir);
+        let d = paired_daemon(&dir).await;
         d.inner.lock().await.access.require_grant_approval = true;
         feed(&d, &[grant(1)]).await;
         let expected = d.inner.lock().await.access.entries[0].clone();
@@ -771,10 +773,11 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
             .unwrap();
         let next = snapshot(2);
         let path = d.profile.access_file();
+        let saved_to = path.clone();
         let result = d
-            .commit_control_plane_feed_with(&next, &grants(None), |a| {
+            .commit_control_plane_feed_with(&next, &grants(None), move |a| {
                 if after_rename {
-                    a.save(&path)?;
+                    a.save(&saved_to)?;
                 }
                 Err(crate::access::AccessError::Io(std::io::Error::other(
                     "injected persistence failure",
@@ -786,10 +789,11 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
         assert!(!inner.access.grant_live("c", "g", fsutil::now_ms() as u64));
         assert_eq!(inner.access.feed_cursor.as_ref().unwrap().sequence, 1);
         drop(inner);
-        let mut attempted = false;
+        let attempted = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let attempt = attempted.clone();
         assert!(
-            d.commit_control_plane_feed_with(&next, &grants(None), |_| {
-                attempted = true;
+            d.commit_control_plane_feed_with(&next, &grants(None), move |_| {
+                attempt.store(true, std::sync::atomic::Ordering::SeqCst);
                 Err(crate::access::AccessError::Io(std::io::Error::other(
                     "still unwritable",
                 )))
@@ -798,7 +802,7 @@ async fn cursor_and_cache_share_one_commit_and_fail_closed_at_each_boundary() {
             .is_err()
         );
         assert!(
-            attempted,
+            attempted.load(std::sync::atomic::Ordering::SeqCst),
             "identical redelivery must retry persistence, not acknowledge"
         );
         assert!(

@@ -129,6 +129,9 @@ pub(super) enum Cmd {
     Inventory(oneshot::Sender<Option<Inventory>>),
     /// Stop admitting writes, settle, take the inventory and hold counts, stop.
     Freeze(oneshot::Sender<Result<Frozen, Option<crate::sync_failure::Failure>>>),
+    /// Test-only: block the actor until the sender is dropped (a busy collection).
+    #[cfg(test)]
+    TestPark(std::sync::mpsc::Receiver<()>),
     #[cfg(test)]
     TestSeedHold(
         Box<Option<mdbn_wire::client::Hold>>,

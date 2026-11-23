@@ -61,12 +61,12 @@ use grants::*;
 use lifecycle::*;
 use runtime_calls::*;
 use startup::*;
-use status::*;
 
 pub use app_sessions::LINK_ALLOWED;
 pub(crate) use folder::local_bootstrap_folder_is_empty;
 pub use folder::{FolderClaim, classify_folder};
 pub use startup::{run, run_with};
+#[cfg(test)]
 pub(crate) use status::bound_file_notices;
 
 /// How long shutdown waits for collections to close.

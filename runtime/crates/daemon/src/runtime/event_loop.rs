@@ -93,6 +93,12 @@ pub(super) fn run(
             Ok(Cmd::CaptureFixture(op, reply)) => {
                 let _ = reply.send(native_pending_fixture::handle(&mut rep, op));
             }
+            #[cfg(test)]
+            Ok(Cmd::TestPark(release)) => {
+                let _ = release.recv();
+            }
+            // The caller stopped waiting (a bounded status read): open nothing.
+            Ok(Cmd::Hello { reply, .. }) if reply.is_closed() => {}
             Ok(Cmd::Hello {
                 auth,
                 frame,
@@ -103,7 +109,13 @@ pub(super) fn run(
                 if let Some(s) = o.session {
                     outs.insert(s, out);
                 }
-                let _ = reply.send((o.session, o.response));
+                // Nobody holds a session the caller gave up on while it opened.
+                if reply.send((o.session, o.response)).is_err()
+                    && let Some(s) = o.session
+                {
+                    frames.close(&mut rep, s);
+                    outs.remove(&s);
+                }
             }
             Ok(Cmd::Frame(s, bytes)) => frames.on_frame(&mut rep, s, &bytes),
             Ok(Cmd::GrantsChanged(ack)) => {

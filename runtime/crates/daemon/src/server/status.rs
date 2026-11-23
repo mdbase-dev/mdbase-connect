@@ -18,15 +18,18 @@ impl Daemon {
 
     pub(super) async fn status(&self) -> DaemonStatus {
         self.reconcile_private_choices().await;
-        let inner = self.inner.lock().await;
-        let observed =
-            futures_util::future::join_all(inner.hosts.iter().map(|h| h.observed_status())).await;
-        let mut collections: Vec<_> = observed
-            .into_iter()
-            .map(|status| with_access_notices(status, &inner.access))
-            .collect();
-        bound_file_notices(&mut collections);
-        let clock_skew = inner.hosts.iter().any(CollectionHost::clock_skew);
+        let collections = self.collection_statuses().await;
+        let (device, clock_skew) = {
+            let inner = self.inner.lock().await;
+            (
+                inner.device.as_ref().map(|p| DeviceInfo {
+                    device_id: p.device.clone(),
+                    noise_pk: p.noise_pk.clone(),
+                    sign_pk: p.sign_pk.clone(),
+                }),
+                inner.hosts.iter().any(CollectionHost::clock_skew),
+            )
+        };
         DaemonStatus {
             readiness: self.readiness.borrow().clone(),
             pid: std::process::id(),
@@ -34,11 +37,7 @@ impl Daemon {
             state_dir: self.profile.state_dir.clone(),
             started_at_ms: self.started_at_ms,
             secret_backend: self.secrets.backend().to_string(),
-            device: inner.device.as_ref().map(|p| DeviceInfo {
-                device_id: p.device.clone(),
-                noise_pk: p.noise_pk.clone(),
-                sign_pk: p.sign_pk.clone(),
-            }),
+            device,
             account: {
                 let a = self.account.lock().unwrap_or_else(|p| p.into_inner());
                 let cloud = crate::cloud::CloudConfig::load(&self.profile.cloud_file())
@@ -69,6 +68,42 @@ impl Daemon {
         }
     }
 
+    /// Every collection as `status` and `collection.list` report it. Only the
+    /// registration and access notices are read under the registry lock; the
+    /// runtimes are asked after it is released, each for at most
+    /// [`crate::collections::ACTOR_WAIT`].
+    pub(super) async fn collection_statuses(&self) -> Vec<CollectionStatus> {
+        let (observations, access): (Vec<_>, Vec<_>) = {
+            let inner = self.inner.lock().await;
+            inner
+                .hosts
+                .iter()
+                .map(|h| {
+                    (
+                        h.observation(),
+                        access_notices(&inner.access, &h.entry().id),
+                    )
+                })
+                .unzip()
+        };
+        let observed = futures_util::future::join_all(
+            observations
+                .into_iter()
+                .map(crate::collections::Observation::status),
+        )
+        .await;
+        let mut collections: Vec<_> = observed
+            .into_iter()
+            .zip(access)
+            .map(|(mut status, access)| {
+                status.notices.extend(access);
+                status
+            })
+            .collect();
+        bound_file_notices(&mut collections);
+        collections
+    }
+
     /// The collection's status once it has finished opening (or settled in
     /// another state), or as it is after `wait`.
     pub(super) async fn settled_status(
@@ -78,7 +113,7 @@ impl Daemon {
     ) -> Result<CollectionStatus, ControlError> {
         let deadline = tokio::time::Instant::now() + wait;
         loop {
-            {
+            let observation = {
                 let inner = self.inner.lock().await;
                 let host = inner
                     .hosts
@@ -87,40 +122,42 @@ impl Daemon {
                     .ok_or_else(|| {
                         ControlError::not_found(format!("no registered collection {id}"))
                     })?;
-                if host.state() != crate::control::CollectionState::Opening
-                    || tokio::time::Instant::now() >= deadline
-                {
-                    // Reported like `status`: syncing, not ready, while work is unfinished.
-                    return Ok(host.observed_status().await);
-                }
+                (host.state() != crate::control::CollectionState::Opening
+                    || tokio::time::Instant::now() >= deadline)
+                    .then(|| host.observation())
+            };
+            // Reported like `status`: syncing, not ready, while work is unfinished.
+            if let Some(observation) = observation {
+                return Ok(observation.status().await);
             }
             tokio::time::sleep(Duration::from_millis(50)).await;
         }
     }
 }
 
-pub(super) fn with_access_notices(
-    mut s: CollectionStatus,
-    access: &AccessList,
-) -> CollectionStatus {
-    for e in access.list(Some(&s.id)) {
-        let (code, verb) = match e.state {
-            AccessState::Active if !e.acknowledged => ("app_access_added", "can now use"),
-            AccessState::PendingApproval => ("app_access_pending", "asks to use"),
-            _ => continue,
-        };
-        s.notices.push(Notice {
-            path: None,
-            code: code.into(),
-            message: format!(
-                "{} {verb} this collection ({}; key {}). Review with `mdbase access list`.",
-                e.grant.app_name,
-                e.grant.capabilities.join(", "),
-                e.grant.fingerprint()
-            ),
-        });
-    }
-    s
+/// The access-list notices for one collection.
+fn access_notices(access: &AccessList, collection: &str) -> Vec<Notice> {
+    access
+        .list(Some(collection))
+        .into_iter()
+        .filter_map(|e| {
+            let (code, verb) = match e.state {
+                AccessState::Active if !e.acknowledged => ("app_access_added", "can now use"),
+                AccessState::PendingApproval => ("app_access_pending", "asks to use"),
+                _ => return None,
+            };
+            Some(Notice {
+                path: None,
+                code: code.into(),
+                message: format!(
+                    "{} {verb} this collection ({}; key {}). Review with `mdbase access list`.",
+                    e.grant.app_name,
+                    e.grant.capabilities.join(", "),
+                    e.grant.fingerprint()
+                ),
+            })
+        })
+        .collect()
 }
 
 /// Keep per-file diagnostics within a shared budget across all collections.

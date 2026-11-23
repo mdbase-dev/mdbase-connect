@@ -199,7 +199,7 @@ async fn live_telemetry_is_real_actor_data_and_denies_stale_or_stopped_host() {
     });
     let mut host = CollectionHost::open(e, Some(context.clone()));
     assert_eq!(settled(&host).await.0, CollectionState::Ready);
-    let out = host.observed_status().await;
+    let out = host.observation().status().await;
     let counters = out.sync.expect("real opened actor counters, not sync:None");
     let runtime = host.runtime().unwrap();
     let expected = runtime.status().await.unwrap();
@@ -212,58 +212,80 @@ async fn live_telemetry_is_real_actor_data_and_denies_stale_or_stopped_host() {
     assert_eq!(digest.confirmed_through, counters.confirmed_through);
     assert_eq!(counters.head_digest.as_ref().unwrap().len(), 64);
     context.authority.invalidate(2);
-    assert!(host.observed_status().await.sync.is_none());
+    assert!(host.observation().status().await.sync.is_none());
     host.close().await;
-    assert!(host.observed_status().await.sync.is_none());
+    assert!(host.observation().status().await.sync.is_none());
     assert!(runtime.telemetry().await.is_none());
     let _ = std::fs::remove_dir_all(dir);
 }
 
-#[tokio::test]
-async fn telemetry_source_is_checked_before_poll_and_after_actor_await() {
-    let dir = scratch("telemetry-source");
+#[tokio::test(flavor = "multi_thread")]
+async fn observation_source_is_checked_before_poll_and_after_actor_await() {
     for stale_before in [false, true] {
+        let dir = scratch("telemetry-source");
         let context = ctx(&dir, None, None);
         let mut e = entry(&dir, SyncMode::Local);
         e.owner_account = Some(ACCOUNT.into());
         e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
         context.authority.publish_registry(&Registry {
-            collections: vec![e],
+            collections: vec![e.clone()],
             ..Default::default()
         });
-        let source = context
-            .authority
-            .source(mdbn_wire::common::B16(
-                crate::attest::uuid_bytes(COLLECTION).unwrap(),
-            ))
-            .unwrap();
+        let mut host = CollectionHost::open(e, Some(context.clone()));
+        assert_eq!(settled(&host).await.0, CollectionState::Ready);
+        let observation = host.observation();
         if stale_before {
             context.authority.invalidate(2);
         }
-        let polled = std::cell::Cell::new(false);
-        let cancel = AtomicBool::new(false);
-        let sample = crate::control::SyncCounters {
-            confirmed_through: 1,
-            head_known: 1,
-            pending: 0,
-            holds: 0,
-            unresolved: 0,
-            connection: "online".into(),
-            head_digest: None,
-            confirmed_record_digest: None,
-            last_error: None,
-            resyncing: false,
-            unsupported_entries: 0,
-        };
-        let observed = current_telemetry(&source, &cancel, async {
-            polled.set(true);
+        let parked = host.runtime().unwrap().test_park();
+        let started = std::time::Instant::now();
+        let observed = tokio::spawn(observation.status());
+        let parked = if stale_before {
+            Some(parked)
+        } else {
+            // Stale by the time the actor answers: its details are dropped.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             context.authority.invalidate(2);
-            Some(sample)
-        })
-        .await;
-        assert!(observed.is_none());
-        assert_eq!(polled.get(), !stale_before);
+            drop(parked);
+            None
+        };
+        let status = observed.await.unwrap();
+        drop(parked);
+        // A stale source is never polled, so it never waits on the parked actor.
+        assert!(started.elapsed() < ACTOR_WAIT);
+        assert!(status.sync.is_none());
+        assert!(status.approval_code.is_none());
+        assert!(!status.notices.iter().any(|n| n.code == NOT_RESPONDING));
+        host.close().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parked_actor_is_reported_as_not_responding_within_the_wait() {
+    let dir = scratch("telemetry-parked");
+    let context = ctx(&dir, None, None);
+    let mut e = entry(&dir, SyncMode::Local);
+    e.owner_account = Some(ACCOUNT.into());
+    e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
+    context.authority.publish_registry(&Registry {
+        collections: vec![e.clone()],
+        ..Default::default()
+    });
+    let mut host = CollectionHost::open(e, Some(context));
+    assert_eq!(settled(&host).await.0, CollectionState::Ready);
+    let parked = host.runtime().unwrap().test_park();
+    let started = std::time::Instant::now();
+    let status = host.observation().status().await;
+    assert!(started.elapsed() < ACTOR_WAIT * 2);
+    assert!(status.sync.is_none());
+    assert!(status.notices.iter().any(|n| n.code == NOT_RESPONDING));
+    drop(parked);
+    // Once the actor answers again, the details come back without the notice.
+    let status = host.observation().status().await;
+    assert!(status.sync.is_some());
+    assert!(!status.notices.iter().any(|n| n.code == NOT_RESPONDING));
+    host.close().await;
     let _ = std::fs::remove_dir_all(dir);
 }
 
@@ -939,7 +961,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     });
     let mut host = CollectionHost::open(e, Some(context));
     assert_eq!(settled(&host).await.0, CollectionState::Ready);
-    let out = host.observed_status().await;
+    let out = host.observation().status().await;
     let messages = out
         .notices
         .iter()
@@ -998,7 +1020,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     std::fs::write(root.join("latin.md"), "café").unwrap();
     let runtime = host.runtime().unwrap();
     let inventory = runtime.inventory().await.unwrap();
-    let repaired = host.observed_status().await;
+    let repaired = host.observation().status().await;
     assert!(
         !repaired
             .notices
@@ -1357,6 +1379,12 @@ impl CollectionHost {
     pub(crate) fn hold_integrity_stop(&mut self) -> tokio::sync::watch::Sender<bool> {
         self.state = CollectionState::Failed;
         self.reason = Some(SYNC_INTEGRITY.into());
+        self.hold_open()
+    }
+
+    /// Make the background open look unfinished (a large first scan) until the
+    /// test sends `true`: revoke barriers wait for it.
+    pub(crate) fn hold_open(&mut self) -> tokio::sync::watch::Sender<bool> {
         let (release, opened) = tokio::sync::watch::channel(false);
         let HostedRuntime::Open(opener) = &mut self.runtime else {
             panic!("expected an opened runtime")

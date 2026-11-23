@@ -208,9 +208,12 @@ pub struct SyncCtx {
 
 /// A failed background open that never touched user files: Connect refused.
 const INELIGIBLE: &str = "ineligible: ";
-/// How long status waits for a collection's live counters before reporting
-/// it without them, so one busy collection cannot stall status for all.
-const TELEMETRY_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+/// How long the daemon waits for a collection's actor to answer a read it can
+/// do without (status details, whether a grant is already published), so one
+/// busy collection cannot stall the others.
+pub(crate) const ACTOR_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+/// Status notice: the collection's actor did not answer within [`ACTOR_WAIT`].
+pub const NOT_RESPONDING: &str = "collection_not_responding";
 /// A failed background open of a never-opened collection while Connect was unreachable.
 const UNREACHABLE: &str = "unreachable: ";
 
@@ -858,60 +861,26 @@ impl CollectionHost {
                 .is_some_and(|s| s.cloud.clock_skew())
     }
 
-    /// Read-only live status. Hold the exact opened runtime and captured source
-    /// across the actor await; stale/stopped/paused hosts return no counters.
-    /// The reported state follows those counters: `syncing`, not `ready`, while
-    /// any sync work (including a file transfer) is unfinished.
-    pub async fn observed_status(&self) -> CollectionStatus {
-        let mut status = self.status();
-        let Some(source) = self.telemetry_authority.as_ref() else {
-            return status;
-        };
-        let current = || !self.cancel.load(Ordering::SeqCst) && source.authority_epoch().is_some();
-        if !current() {
-            return status;
-        }
-        let Some(runtime) = self.runtime() else {
-            return status;
-        };
-        let telemetry = current_telemetry(source, &self.cancel, runtime.telemetry()).await;
-        let bound = source.clone();
-        let cancel = self.cancel.clone();
-        let read_owner = runtime
-            .private_switch(
-                crate::runtime::PrivateSwitchOp::CloudRead,
-                Arc::new(move || {
-                    !cancel.load(Ordering::SeqCst) && bound.authority_epoch().is_some()
+    /// What `status` reports for this host, taken under the registry lock. The
+    /// runtime's live details are read from the returned [`Observation`] after
+    /// that lock is released, so a busy collection holds up nobody else.
+    pub fn observation(&self) -> Observation {
+        Observation {
+            status: self.status(),
+            live: self
+                .telemetry_authority
+                .clone()
+                .zip(self.runtime())
+                .map(|(source, runtime)| LiveRuntime {
+                    source,
+                    cancel: self.cancel.clone(),
+                    runtime,
                 }),
-            )
-            .await
-            .and_then(Result::ok)
-            .flatten();
-        let approval_code = crate::server::Daemon::requester_code(&runtime).await;
-        if current()
-            && self
-                .runtime()
-                .as_ref()
-                .is_some_and(|r| Arc::ptr_eq(r, &runtime))
-            && let Some((counters, notices)) = telemetry
-        {
-            status.notices.extend(notices);
-            if let Some(owner) = read_owner {
-                status.notices.push(Notice {
-                    path: None,
-                    code: "cloud_copy_turned_on".into(),
-                    message: format!("Cloud copy turned on by {}", owner.to_uuid_string()),
-                });
-            }
-            status.state = status.state.observed(status.mode, Some(&counters));
-            status.sync = Some(counters);
-            status.approval_code = approval_code;
         }
-        status
     }
 
     /// Registration/readiness status without awaiting the actor.
-    /// Control status/list use observed_status for live telemetry.
+    /// Control status/list add live telemetry through [`Self::observation`].
     pub fn status(&self) -> CollectionStatus {
         let e = &self.entry;
         let log = match e.mode {
@@ -1021,24 +990,81 @@ impl CollectionHost {
     }
 }
 
-/// The actor future is lazy: deny BEFORE polling and again AFTER its await.
-async fn current_telemetry<T>(
-    source: &crate::authority::CollectionAuthority,
-    cancel: &AtomicBool,
-    observation: impl std::future::Future<Output = Option<T>>,
-) -> Option<T> {
-    let current = || !cancel.load(Ordering::SeqCst) && source.authority_epoch().is_some();
-    if !current() {
-        return None;
+/// A host's registration status plus, while its runtime serves the paired
+/// account it opened under, that runtime (see [`CollectionHost::observation`]).
+pub struct Observation {
+    status: CollectionStatus,
+    live: Option<LiveRuntime>,
+}
+
+/// The exact opened runtime with the source and stop flag captured with it. A
+/// stop sets `cancel`, so a runtime replaced after the capture reads as stale.
+struct LiveRuntime {
+    source: crate::authority::CollectionAuthority,
+    cancel: Arc<AtomicBool>,
+    runtime: Arc<crate::runtime::Runtime>,
+}
+
+impl Observation {
+    /// The status with the runtime's live counters, notices and approval code.
+    /// The reported state follows those counters: `syncing`, not `ready`, while
+    /// any sync work (including a file transfer) is unfinished. The actor futures
+    /// are lazy: they are denied BEFORE polling and again AFTER their await. Each
+    /// waits at most [`ACTOR_WAIT`]; a collection that does not answer in time is
+    /// reported without those details and with a [`NOT_RESPONDING`] notice.
+    pub async fn status(self) -> CollectionStatus {
+        let Observation { mut status, live } = self;
+        let Some(LiveRuntime {
+            source,
+            cancel,
+            runtime,
+        }) = live
+        else {
+            return status;
+        };
+        let current = || !cancel.load(Ordering::SeqCst) && source.authority_epoch().is_some();
+        if !current() {
+            return status;
+        }
+        let (bound, guard_cancel) = (source.clone(), cancel.clone());
+        let read_guard: crate::runtime::AccountKeyGuard = Arc::new(move || {
+            !guard_cancel.load(Ordering::SeqCst) && bound.authority_epoch().is_some()
+        });
+        let (telemetry, read_owner, approval_code) = tokio::join!(
+            tokio::time::timeout(ACTOR_WAIT, runtime.telemetry()),
+            tokio::time::timeout(
+                ACTOR_WAIT,
+                runtime.private_switch(crate::runtime::PrivateSwitchOp::CloudRead, read_guard),
+            ),
+            tokio::time::timeout(ACTOR_WAIT, crate::server::Daemon::requester_code(&runtime)),
+        );
+        if !current() {
+            return status;
+        }
+        if telemetry.is_err() || read_owner.is_err() || approval_code.is_err() {
+            status.notices.push(Notice {
+                path: None,
+                code: NOT_RESPONDING.into(),
+                message: "This collection did not answer in time, so its sync details \
+                          are missing here. It may be busy; check again shortly."
+                    .into(),
+            });
+        }
+        if let Ok(Some((counters, notices))) = telemetry {
+            status.notices.extend(notices);
+            if let Ok(Some(Ok(Some(owner)))) = read_owner {
+                status.notices.push(Notice {
+                    path: None,
+                    code: "cloud_copy_turned_on".into(),
+                    message: format!("Cloud copy turned on by {}", owner.to_uuid_string()),
+                });
+            }
+            status.state = status.state.observed(status.mode, Some(&counters));
+            status.sync = Some(counters);
+            status.approval_code = approval_code.ok().flatten();
+        }
+        status
     }
-    let observed = tokio::time::timeout(TELEMETRY_WAIT, observation)
-        .await
-        .ok()
-        .flatten();
-    if !current() {
-        return None;
-    }
-    observed
 }
 
 /// A short human wait: seconds under two minutes, else minutes.
