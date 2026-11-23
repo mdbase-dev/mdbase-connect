@@ -35,7 +35,7 @@ import {
 } from "../collection-availability.js";
 import { isMdbaseError, mdbaseError } from "../errors.js";
 import { fieldOf } from "../plain.js";
-import { orderTargets, type NextRouteResponse, type NextRouteTarget } from "../transport/next-relay.js";
+import { attemptTargets, isRetryableTargetError, orderTargets, type NextRouteResponse } from "../transport/next-relay.js";
 import { clientPrologue, type StaticKey } from "../transport/noise.js";
 import { noiseConnector, type WebSocketFactory } from "../transport/noise-session.js";
 import type { Connector } from "../transport/port.js";
@@ -801,8 +801,10 @@ export class MdbaseAppGrants {
   /**
    * A connector for `connect()`: each open uses a fresh route, refuses an
    * unavailable collection with its reason, and opens a Noise IK session through the
-   * relay to a serving device (sticky while it stays listed). The first open pins
-   * its original consent/key identity; new consent requires a new connector.
+   * relay to a serving device (preferring the last reached device while it stays
+   * online and serving, and failing over to another online target otherwise). The
+   * first open pins its original consent/key identity; new consent requires a new
+   * connector.
    */
   connector(collection: string): Connector & { readonly target: string | null } {
     const id = collection.toLowerCase();
@@ -817,23 +819,26 @@ export class MdbaseAppGrants {
         this.routeProbe = undefined;
         const grant = await (original ??= this.heldGrant(id));
         await this.assertCurrent(grant);
-        const connector = noiseConnector({
-          description: `app-grant:${id}`,
-          staticKey: staticKeyOf(grant),
-          target: async (s) => {
-            await this.assertCurrent(grant);
-            const { token, route, availability } = primed && !primed.signal?.aborted && performance.now() < primed.until &&
-              primed.credentials === this.tokens.get(id) && sameGrant(grant, primed.credentials) && primed.credentials.expiresAt > Date.now()
-              ? { token: primed.credentials.access, route: primed.route, availability: { state: "available" } as const }
-              : await this.route(id, s);
-            await this.assertCurrent(grant);
-            if (availability.state === "unavailable") throw collectionUnavailableError(availability.reason);
-            if (!UUID.test(route.grant)) throw mdbaseError("unauthenticated", "the route names no grant", "route_mismatch");
-            const target: NextRouteTarget | undefined = orderTargets(route, sticky)[0];
-            if (!target) throw collectionUnavailableError("device_offline");
-            const remoteStatic = new Uint8Array(32);
-            for (let i = 0; i < 32; i++) remoteStatic[i] = parseInt(target.noise_pk.slice(2 * i, 2 * i + 2), 16);
-            return {
+        if (signal?.aborted) throw mdbaseError("cancelled", "connect aborted");
+        const { token, route, availability } = primed && !primed.signal?.aborted && performance.now() < primed.until &&
+          primed.credentials === this.tokens.get(id) && sameGrant(grant, primed.credentials) && primed.credentials.expiresAt > Date.now()
+          ? { token: primed.credentials.access, route: primed.route, availability: { state: "available" } as const }
+          : await this.route(id, signal);
+        await this.assertCurrent(grant);
+        if (signal?.aborted) throw mdbaseError("cancelled", "connect aborted");
+        if (availability.state === "unavailable") throw collectionUnavailableError(availability.reason);
+        if (!UUID.test(route.grant)) throw mdbaseError("unauthenticated", "the route names no grant", "route_mismatch");
+        const targets = attemptTargets(route, sticky);
+        if (!targets.length) throw collectionUnavailableError("device_offline");
+        let firstError: unknown;
+        for (const target of targets) {
+          await this.assertCurrent(grant);
+          const remoteStatic = new Uint8Array(32);
+          for (let i = 0; i < 32; i++) remoteStatic[i] = parseInt(target.noise_pk.slice(2 * i, 2 * i + 2), 16);
+          const connector = noiseConnector({
+            description: `app-grant:${id}`,
+            staticKey: staticKeyOf(grant),
+            target: async () => ({
               prologue: clientPrologue(uuidToBytes(target.relay_collection!), uuidToBytes(route.grant), uuidToBytes(target.device)),
               remoteStatic,
               device: target.device,
@@ -845,15 +850,24 @@ export class MdbaseAppGrants {
                 try { await this.assertCurrent(grant); return carrier; }
                 catch (e) { carrier.close(); throw e; }
               },
-            };
-          },
-        });
-        const opened = await connector.open(hello, signal);
-        try { await this.assertCurrent(grant); }
-        catch (e) { opened.port.close(); throw e; }
-        bindOriginalAppGrant(opened.port,grant);
-        sticky = opened.device ?? null;
-        return opened;
+            }),
+          });
+          let opened;
+          try {
+            opened = await connector.open(hello, signal);
+          } catch (error) {
+            if (!isRetryableTargetError(error, signal)) throw error;
+            if (sticky === target.device) sticky = null;
+            firstError ??= error;
+            continue;
+          }
+          try { await this.assertCurrent(grant); }
+          catch (e) { opened.port.close(); throw e; }
+          bindOriginalAppGrant(opened.port, grant);
+          sticky = opened.device ?? null;
+          return opened;
+        }
+        throw firstError;
       },
       get target() { return sticky; },
     });
