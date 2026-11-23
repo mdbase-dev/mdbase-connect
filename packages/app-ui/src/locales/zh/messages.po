@@ -65,6 +65,10 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app} 将不再在此设备上显示该集合。集合内容不会被删除，且 {app} 仍保有访问权限。如需撤销访问权限，请使用“管理访问权限”。"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# empty} other {# empty}}"
+msgstr "{count, plural, other {# 项为空}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -73,6 +77,18 @@ msgstr "{count, plural, other {已应用 # 处标记。}}"
 #: src/CommentsPanel.tsx
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, other {# 条未解决的评论}}"
+
+#: src/filter-builder/labels.ts
+msgid "{count, plural, one {# selected} other {# selected}}"
+msgstr "{count, plural, other {已选 # 项}}"
+
+#: src/filter-builder/labels.ts
+msgid "{name} group"
+msgstr "“{name}”组"
+
+#: src/DatePicker.tsx
+msgid "A date, “tomorrow”, “fri” or “+3”"
+msgstr "日期、“明天”、“星期五”或“+3”"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
@@ -101,6 +117,10 @@ msgctxt "Collection access interface"
 msgid "Add a collection…"
 msgstr "添加集合…"
 
+#: src/filter-builder/labels.ts
+msgid "Add a filter to this group"
+msgstr "向此组添加筛选条件"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Add a Private collection"
@@ -111,10 +131,35 @@ msgctxt "table"
 msgid "Add column"
 msgstr "添加列"
 
+#: src/filter-builder/labels.ts
+msgid "Add filter"
+msgstr "添加筛选条件"
+
+#: src/filter-builder/labels.ts
+msgid "Add filter to group"
+msgstr "向组添加筛选条件"
+
+#: src/properties/labels.ts
+msgid "Add property"
+msgstr "添加属性"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Add row"
 msgstr "添加行"
+
+#: src/filter-builder/labels.ts
+msgid "Add value"
+msgstr "添加值"
+
+#: src/filter-builder/labels.ts
+msgid "Add value…"
+msgstr "添加值…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "after"
+msgstr "晚于"
 
 #: src/AppSwitcher.tsx
 msgid "AI clients (MCP)"
@@ -135,6 +180,32 @@ msgctxt "table"
 msgid "Align right"
 msgstr "右对齐"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: every filter must match"
+msgid "All"
+msgstr "全部"
+
+#: src/filter-builder/labels.ts
+msgid "All views"
+msgstr "所有视图"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: at least one filter must match"
+msgid "Any"
+msgstr "任一"
+
+#: src/filter-builder/labels.ts
+msgid "Any / All"
+msgstr "任一 / 全部"
+
+#: src/filter-builder/labels.ts
+msgid "Applies to every view"
+msgstr "应用于所有视图"
+
+#: src/filter-builder/labels.ts
+msgid "Apply"
+msgstr "应用"
+
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
 msgstr "应用更改"
@@ -152,6 +223,10 @@ msgstr "正在应用…"
 msgid "as {signer}"
 msgstr "以 {signer} 的身份"
 
+#: src/filter-builder/labels.ts
+msgid "at least one"
+msgstr "至少一个"
+
 #: src/CommentsPanel.tsx
 msgid "At the cursor"
 msgstr "在光标处"
@@ -160,9 +235,18 @@ msgstr "在光标处"
 msgid "Attach screenshot"
 msgstr "附加屏幕截图"
 
+#: src/filter-builder/labels.ts
+msgid "Back"
+msgstr "返回"
+
 #: src/Feedback.tsx
 msgid "Back to your work"
 msgstr "返回工作"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "before"
+msgstr "早于"
 
 #: src/FeedbackMarkup.tsx
 msgid "Blackout"
@@ -198,6 +282,10 @@ msgstr "构建自己的应用"
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "由 {resolver}"
+
+#: src/DatePicker.tsx
+msgid "Calendar"
+msgstr "日历"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -236,6 +324,18 @@ msgstr "取消"
 msgctxt "Collection storage mode"
 msgid "Cancel switch"
 msgstr "取消切换"
+
+#: src/filter-builder/labels.ts
+msgid "CEL · Shift+Enter for a new line"
+msgstr "CEL · Shift+Enter 换行"
+
+#: src/filter-builder/labels.ts
+msgid "CEL expression"
+msgstr "CEL 表达式"
+
+#: src/filter-builder/labels.ts
+msgid "Change operator"
+msgstr "更改运算符"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -283,9 +383,22 @@ msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "在那里选择或创建集合。"
 
+#: src/filter-builder/labels.ts
+msgid "Choose value"
+msgstr "选择值"
+
 #: src/AppSwitcher.tsx
 msgid "Claude, ChatGPT and Codex"
 msgstr "Claude、ChatGPT 和 Codex"
+
+#: src/DatePicker.tsx
+msgid "Clear"
+msgstr "清除"
+
+#: src/properties/labels.ts
+msgctxt "Remove a property's value"
+msgid "Clear"
+msgstr "清除"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -352,6 +465,10 @@ msgstr "评论"
 msgid "Comments could not be loaded: {problem}"
 msgstr "无法加载评论：{problem}"
 
+#: src/filter-builder/labels.ts
+msgid "Compare with {expr}"
+msgstr "与 {expr} 比较"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -366,6 +483,11 @@ msgstr "正在连接同步服务…"
 msgctxt "Collection access interface"
 msgid "Connecting your collection…"
 msgstr "正在连接你的集合…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "contains"
+msgstr "包含"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -392,6 +514,10 @@ msgstr "在此设备上继续"
 msgctxt "Collection access interface"
 msgid "Continue without connecting"
 msgstr "不连接，继续使用"
+
+#: src/filter-builder/labels.ts
+msgid "Convert to filter"
+msgstr "转换为筛选条件"
 
 #: src/live-preview/blocks.ts
 msgid "Copied"
@@ -422,6 +548,10 @@ msgstr "复制表格"
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "当前"
+
+#: src/filter-builder/labels.ts
+msgid "Custom expression"
+msgstr "自定义表达式"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -510,6 +640,15 @@ msgstr "正在丢弃…"
 msgid "Dismiss"
 msgstr "关闭"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "does not contain"
+msgstr "不包含"
+
+#: src/filter-builder/labels.ts
+msgid "Done"
+msgstr "完成"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "拖动以标记。键盘操作：使用方向键移动；按空格键开始或完成。遮盖会移除像素。"
@@ -523,13 +662,43 @@ msgctxt "diagram"
 msgid "Edit"
 msgstr "编辑"
 
+#: src/filter-builder/labels.ts
+msgid "Edit as expression"
+msgstr "以表达式编辑"
+
 #: src/live-preview/diagram.ts
 msgid "Edit diagram source"
 msgstr "编辑图表源代码"
 
+#: src/filter-builder/labels.ts
+msgid "Edit expression"
+msgstr "编辑表达式"
+
+#: src/filter-builder/labels.ts
+msgid "Edit value"
+msgstr "编辑值"
+
+#: src/properties/labels.ts
+msgctxt "A property with no value"
+msgid "Empty"
+msgstr "空"
+
+#: src/filter-builder/labels.ts
+msgid "Empty expression"
+msgstr "空表达式"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "ends with"
+msgstr "结尾为"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
+
+#: src/filter-builder/labels.ts
+msgid "every filter"
+msgstr "所有筛选条件"
 
 #: src/CommentsPanel.tsx
 msgid "Everyone"
@@ -545,9 +714,25 @@ msgctxt "callout type"
 msgid "Example"
 msgstr "示例"
 
+#: src/filter-builder/labels.ts
+msgid "Exclude"
+msgstr "排除"
+
 #: src/live-preview/blocks.ts
 msgid "Expand callout"
 msgstr "展开提示框"
+
+#: src/filter-builder/labels.ts
+msgid "expression"
+msgstr "表达式"
+
+#: src/filter-builder/labels.ts
+msgid "Expression {text}"
+msgstr "表达式 {text}"
+
+#: src/filter-builder/labels.ts
+msgid "False"
+msgstr "假"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -562,10 +747,46 @@ msgstr "无法发送反馈。请重试。"
 msgid "Feedback type"
 msgstr "反馈类型"
 
+#: src/filter-builder/labels.ts
+msgid "Fields"
+msgstr "字段"
+
+#: src/filter-builder/labels.ts
+msgid "Filter"
+msgstr "筛选"
+
+#: src/filter-builder/labels.ts
+msgid "Filter by field"
+msgstr "按字段筛选"
+
+#: src/filter-builder/labels.ts
+msgid "Filter by…"
+msgstr "筛选依据…"
+
+#: src/filter-builder/labels.ts
+msgid "Filter group"
+msgstr "筛选组"
+
+#: src/filter-builder/labels.ts
+msgid "Filter options"
+msgstr "筛选选项"
+
+#: src/filter-builder/labels.ts
+msgid "Filters"
+msgstr "筛选条件"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Find a collection"
 msgstr "查找集合"
+
+#: src/properties/labels.ts
+msgid "Find a property, or name a new one…"
+msgstr "查找属性，或输入新名称…"
+
+#: src/properties/labels.ts
+msgid "Find a record…"
+msgstr "查找记录…"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -591,9 +812,21 @@ msgctxt "Collection access interface"
 msgid "Give {app} access to this collection?"
 msgstr "允许 {app} 访问此集合？"
 
+#: src/properties/labels.ts
+msgid "Hide empty"
+msgstr "隐藏空项"
+
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"
 msgstr "高亮"
+
+#: src/filter-builder/labels.ts
+msgid "How the filters combine"
+msgstr "筛选条件的组合方式"
+
+#: src/filter-builder/labels.ts
+msgid "How these filters combine"
+msgstr "这些筛选条件的组合方式"
 
 #: src/feedback-data.ts
 msgid "How would it help you?"
@@ -653,6 +886,36 @@ msgctxt "table"
 msgid "Insert row below"
 msgstr "在下方插入行"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is"
+msgstr "是"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is any of"
+msgstr "是其中之一"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is empty"
+msgstr "为空"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is none of"
+msgstr "不是其中任何一个"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not"
+msgstr "不是"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not empty"
+msgstr "不为空"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
@@ -671,6 +934,10 @@ msgstr "保存在你的电脑上，不由 mdbase 存储"
 msgctxt "Color theme"
 msgid "Light"
 msgstr "浅色"
+
+#: src/properties/labels.ts
+msgid "Link a record in {property}"
+msgstr "在 {property} 中链接记录"
 
 #: src/CommentsPanel.tsx
 msgid "Loading comments…"
@@ -711,6 +978,18 @@ msgstr "标记屏幕截图"
 #: src/Feedback.tsx
 msgid "Markup discarded. Screenshot excluded."
 msgstr "已丢弃标记，未包含屏幕截图。"
+
+#: src/filter-builder/labels.ts
+msgid "Match"
+msgstr "匹配"
+
+#: src/filter-builder/labels.ts
+msgid "Match all"
+msgstr "匹配全部"
+
+#: src/filter-builder/labels.ts
+msgid "Match any"
+msgstr "匹配任一"
 
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
@@ -754,6 +1033,14 @@ msgctxt "table"
 msgid "Move row up"
 msgstr "向上移动行"
 
+#: src/filter-builder/labels.ts
+msgid "Move to shared"
+msgstr "移到共享"
+
+#: src/filter-builder/labels.ts
+msgid "Move to this view"
+msgstr "移到此视图"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -767,6 +1054,10 @@ msgstr "需要处理"
 msgid "New comment"
 msgstr "新评论"
 
+#: src/properties/labels.ts
+msgid "New property"
+msgstr "新属性"
+
 #: src/CommentsPanel.tsx
 msgid "New since last visit ({newCount})"
 msgstr "上次访问后新增（{newCount}）"
@@ -774,6 +1065,15 @@ msgstr "上次访问后新增（{newCount}）"
 #: src/CommentsPanel.tsx
 msgid "New since your last visit"
 msgstr "自上次访问后新增"
+
+#: src/DatePicker.tsx
+msgid "Next month"
+msgstr "下个月"
+
+#: src/properties/labels.ts
+msgctxt "A property that is false"
+msgid "no"
+msgstr "否"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -785,6 +1085,14 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "没有匹配“{query}”的集合。"
 
+#: src/filter-builder/labels.ts
+msgid "no filter"
+msgstr "不匹配任何筛选条件"
+
+#: src/filter-builder/labels.ts
+msgid "No matching fields"
+msgstr "没有匹配的字段"
+
 #: src/live-preview/inline.ts
 msgid "No note or file matches “{target}”."
 msgstr "没有与“{target}”匹配的笔记或文件。"
@@ -793,9 +1101,26 @@ msgstr "没有与“{target}”匹配的笔记或文件。"
 msgid "No open comments"
 msgstr "没有未解决的评论"
 
+#: src/properties/labels.ts
+msgid "No properties."
+msgstr "没有属性。"
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "未截取屏幕截图。你仍可以发送反馈。"
+
+#: src/filter-builder/labels.ts
+msgid "No values to choose from."
+msgstr "没有可选的值。"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: no filter may match"
+msgid "None"
+msgstr "无"
+
+#: src/filter-builder/labels.ts
+msgid "Not a number"
+msgstr "不是数字"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -811,9 +1136,27 @@ msgstr "集合中的内容不会发生变化。"
 msgid "Nothing matches"
 msgstr "没有匹配项"
 
+#: src/properties/labels.ts
+msgid "Nothing matches."
+msgstr "没有匹配项。"
+
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "尚无已解决的评论。"
+
+#: src/filter-builder/labels.ts
+msgid "Number"
+msgstr "数字"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or after"
+msgstr "不早于"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or before"
+msgstr "不晚于"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -881,14 +1224,26 @@ msgstr "正在打开…"
 msgid "Opens in a new tab"
 msgstr "在新标签页中打开"
 
+#: src/filter-builder/labels.ts
+msgid "Operator"
+msgstr "运算符"
+
 #: src/Feedback.tsx
 msgid "Optional"
 msgstr "可选"
+
+#: src/filter-builder/labels.ts
+msgid "or press Enter"
+msgstr "或按 Enter"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "所有者"
+
+#: src/filter-builder/labels.ts
+msgid "Pick one or more"
+msgstr "选择一个或多个"
 
 #: src/apps.ts
 msgid "Plan tasks and projects"
@@ -903,6 +1258,10 @@ msgstr "正在准备安全访问…"
 msgctxt "Collection access interface"
 msgid "Preparing your offline copy…"
 msgstr "正在准备离线副本…"
+
+#: src/DatePicker.tsx
+msgid "Previous month"
+msgstr "上个月"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -964,6 +1323,7 @@ msgid "Reload to continue."
 msgstr "请重新加载以继续。"
 
 #: src/Feedback.tsx
+#: src/filter-builder/labels.ts
 msgid "Remove"
 msgstr "移除"
 
@@ -977,10 +1337,26 @@ msgctxt "Collection access interface"
 msgid "Remove {collection} from this list?"
 msgstr "要从此列表中移除 {collection} 吗？"
 
+#: src/properties/labels.ts
+msgid "Remove {name}"
+msgstr "移除 {name}"
+
+#: src/properties/labels.ts
+msgid "Remove {value}"
+msgstr "移除 {value}"
+
+#: src/filter-builder/labels.ts
+msgid "Remove filter"
+msgstr "移除筛选条件"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "从此列表中移除"
+
+#: src/filter-builder/labels.ts
+msgid "Remove group"
+msgstr "移除组"
 
 #: src/CommentsPanel.tsx
 msgid "Reopen"
@@ -1082,6 +1458,11 @@ msgstr "仅保存在此设备上"
 msgid "Saving"
 msgstr "正在保存"
 
+#: src/filter-builder/labels.ts
+msgctxt "Which views a filter applies to"
+msgid "Scope"
+msgstr "范围"
+
 #: src/feedback-data.ts
 msgid "Screen capture isn’t available in this browser. You can attach an image instead."
 msgstr "此浏览器不支持屏幕捕获。你可以改为附加图片。"
@@ -1148,6 +1529,15 @@ msgstr "正在设置…"
 #: src/feedback-data.ts
 msgid "Share something you like"
 msgstr "分享你喜欢的内容"
+
+#: src/filter-builder/labels.ts
+msgctxt "A filter every view applies"
+msgid "Shared"
+msgstr "共享"
+
+#: src/filter-builder/labels.ts
+msgid "Shared: {name}"
+msgstr "共享：{name}"
 
 #: src/CommentsPanel.tsx
 msgid "Show"
@@ -1245,6 +1635,11 @@ msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "正在启动 {app}…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "starts with"
+msgstr "开头为"
+
 #: src/screens.tsx
 msgid "Still opening? Check your connection."
 msgstr "仍在打开？请检查网络连接。"
@@ -1322,6 +1717,10 @@ msgstr "感谢你的反馈。"
 #: src/live-preview/diagram.ts
 msgid "The diagram could not be shown. Check your connection and reopen the note."
 msgstr "无法显示图表。请检查网络连接，然后重新打开笔记。"
+
+#: src/filter-builder/labels.ts
+msgid "The filter on {field} cannot be removed here"
+msgstr "{field} 的筛选条件无法在此移除"
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
@@ -1405,6 +1804,10 @@ msgstr "这比平时花费的时间更长。"
 msgid "This passage is no longer in the text"
 msgstr "这段文字已不在正文中"
 
+#: src/filter-builder/labels.ts
+msgid "This view"
+msgstr "此视图"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Tip"
@@ -1422,10 +1825,22 @@ msgstr "移动"
 msgid "to run"
 msgstr "执行"
 
+#: src/DatePicker.tsx
+msgid "Today"
+msgstr "今天"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Todo"
 msgstr "待办"
+
+#: src/DatePicker.tsx
+msgid "Tomorrow"
+msgstr "明天"
+
+#: src/filter-builder/labels.ts
+msgid "True"
+msgstr "真"
 
 #: src/CommentsPanel.tsx
 #: src/screens.tsx
@@ -1473,10 +1888,31 @@ msgctxt "Collection storage mode"
 msgid "Update or revoke these devices before continuing:"
 msgstr "请先更新以下设备或撤销其访问权限，再继续："
 
+#: src/properties/labels.ts
+msgctxt "Before typed text, to take it as the value"
+msgid "Use"
+msgstr "使用"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
 msgstr "使用 {app} 的版本"
+
+#: src/properties/labels.ts
+msgid "Use letters, digits, - and _, starting with a letter."
+msgstr "请使用字母、数字、- 和 _，并以字母开头。"
+
+#: src/filter-builder/labels.ts
+msgid "Value"
+msgstr "值"
+
+#: src/filter-builder/labels.ts
+msgid "Values"
+msgstr "值"
+
+#: src/filter-builder/labels.ts
+msgid "Values to compare with"
+msgstr "可比较的值"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be completed. Try again."
@@ -1560,9 +1996,31 @@ msgctxt "Collection storage mode"
 msgid "Working…"
 msgstr "正在处理…"
 
+#: src/filter-builder/labels.ts
+msgid "Wrap in “any” group"
+msgstr "放入“任一”组"
+
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
 msgstr "撰写引用来源的手稿"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "year is"
+msgstr "年份是"
+
+#: src/filter-builder/labels.ts
+msgid "Year, e.g. 2026"
+msgstr "年份，例如 2026"
+
+#: src/properties/labels.ts
+msgctxt "A property that is true"
+msgid "yes"
+msgstr "是"
+
+#: src/DatePicker.tsx
+msgid "Yesterday"
+msgstr "昨天"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

@@ -1,0 +1,336 @@
+/*
+ * The filter bar (./filter-builder). Its menus are .mdbase-menu and its panels .mdbase-popover,
+ * both in controls.css, which the host loads beside this file. Panels open in the top layer,
+ * outside .mdbase-filter, so the rules below name both. A date is picked from the calendar.
+ */
+@import "./date-picker.css";
+
+.mdbase-filter {
+  min-width: 0;
+  max-width: 100%;
+  color: var(--color-text);
+  font-size: var(--control-font-size);
+  line-height: 1.3;
+}
+
+/* Zero specificity, so the rules below and the shared controls both win over it. */
+:where(.mdbase-filter, .mdbase-filter-popover),
+:where(.mdbase-filter, .mdbase-filter-popover) *,
+:where(.mdbase-filter, .mdbase-filter-popover) *::before,
+:where(.mdbase-filter, .mdbase-filter-popover) *::after { box-sizing: border-box; }
+:where(.mdbase-filter, .mdbase-filter-popover) :where(button) { margin: 0; padding: 0; border: 0; color: inherit; background: none; font: inherit; cursor: pointer; }
+:where(.mdbase-filter, .mdbase-filter-popover) :where(p) { margin: 0; }
+:where(.mdbase-filter, .mdbase-filter-popover, .mdbase-filter-menu) :where(.mdbase-glyph) { flex: none; }
+
+.mdbase-filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; }
+.mdbase-filter-anchor { display: inline-flex; align-self: stretch; min-width: 0; }
+
+/* The bar's own controls: how the filters combine, and the way to add one. */
+.mdbase-filter-match,
+.mdbase-filter-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  transition:
+    background var(--motion-quick) var(--ease-standard),
+    color var(--motion-quick) var(--ease-standard),
+    border-color var(--motion-quick) var(--ease-standard);
+}
+.mdbase-filter-match { gap: 3px; padding-right: 5px; }
+.mdbase-filter-add:not([data-active]) { border-color: var(--color-border-strong); color: var(--color-text-soft); }
+:is(.mdbase-filter-match, .mdbase-filter-add):hover,
+:is(.mdbase-filter-match, .mdbase-filter-add)[aria-expanded="true"] { background: var(--color-surface-subtle); color: var(--color-text); }
+
+/* Pills: one outlined control split into segments, quiet until pointed at. */
+.mdbase-filter-pill {
+  display: inline-flex;
+  align-items: stretch;
+  height: 26px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
+  color: var(--color-text);
+  transition: border-color var(--motion-quick) var(--ease-standard);
+}
+.mdbase-filter-pill:hover,
+.mdbase-filter-pill:focus-within { border-color: var(--color-border-strong); }
+.mdbase-filter-pill > * + * { border-left: 1px solid var(--color-border); }
+.mdbase-filter-pill[data-draft] { border-style: dashed; border-color: var(--color-border-strong); }
+.mdbase-filter-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0 7px;
+  white-space: nowrap;
+  transition:
+    background var(--motion-quick) var(--ease-standard),
+    color var(--motion-quick) var(--ease-standard);
+}
+button.mdbase-filter-seg:hover,
+button.mdbase-filter-seg[aria-expanded="true"] { background: var(--color-surface-subtle); }
+.mdbase-filter-seg:focus-visible { outline-offset: -2px; }
+.mdbase-filter-seg-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* In a narrow column the value gives way; a field's name keeps its width up to a cap. */
+.mdbase-filter-anchor:has(> :is(.mdbase-filter-seg-field, .mdbase-filter-seg-op)) { flex: none; }
+.mdbase-filter-seg-field .mdbase-filter-seg-text { max-width: 7rem; }
+.mdbase-filter-seg-field > .mdbase-glyph { color: var(--color-text-muted); }
+.mdbase-filter-seg-field[data-locked] { color: var(--color-text-soft); cursor: default; }
+.mdbase-filter-seg-op { color: var(--color-text-muted); }
+button.mdbase-filter-seg-op:hover { color: var(--color-text); }
+.mdbase-filter-seg-value { font-weight: var(--font-weight-medium); }
+.mdbase-filter-seg-value .mdbase-filter-seg-text { max-width: 14rem; }
+.mdbase-filter-seg-value[data-context] { color: var(--color-accent-strong); font-family: var(--mono); font-size: var(--font-size-caption); }
+.mdbase-filter-pill[data-draft] :is(.mdbase-filter-seg-value, .mdbase-filter-seg-code code) { color: var(--color-text-muted); font-weight: var(--font-weight-regular); }
+.mdbase-filter-seg-remove { flex: none; justify-content: center; width: 22px; padding: 0; color: var(--color-text-muted); }
+.mdbase-filter-seg-remove:hover { color: var(--color-text); }
+
+/* A filter every view applies: a small tag ahead of the pill. */
+.mdbase-filter-shared {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0 6px;
+  color: var(--color-text-muted);
+  background: var(--color-surface-subtle);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  user-select: none;
+}
+.mdbase-filter-pill[data-shared] .mdbase-filter-seg-field { color: var(--color-text-soft); }
+.mdbase-filter-group > .mdbase-filter-shared { align-self: center; height: 20px; border-radius: calc(var(--control-radius) - 2px); }
+
+/* An expression pill: the expression as written, in mono. */
+.mdbase-filter-fx { color: var(--color-accent-strong); font: italic 600 11px/1 var(--mono); letter-spacing: -0.02em; }
+.mdbase-filter-seg-code { gap: 0; padding: 0 8px 0 0; }
+.mdbase-filter-seg-code .mdbase-filter-fx { display: flex; flex: none; align-self: stretch; align-items: center; margin-right: 7px; padding: 0 7px; border-right: 1px solid var(--color-border); }
+.mdbase-filter-seg-code code { min-width: 0; max-width: 18rem; overflow: hidden; color: var(--color-text); font: var(--font-size-caption)/normal var(--mono); text-overflow: ellipsis; }
+
+/* A nested group: a shaded run of pills, the shade alternating with depth. */
+.mdbase-filter-group {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: calc(var(--control-radius) + 2px);
+  background: var(--color-surface-subtle);
+}
+.mdbase-filter-group .mdbase-filter-group { background: var(--color-surface); }
+.mdbase-filter-group .mdbase-filter-group .mdbase-filter-group { background: var(--color-surface-subtle); }
+.mdbase-filter-group .mdbase-filter-pill { height: 24px; background: var(--color-surface); }
+.mdbase-filter-group .mdbase-filter-group .mdbase-filter-pill { background: var(--color-surface-subtle); }
+.mdbase-filter-group-chip {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  height: 24px;
+  padding: 0 4px 0 7px;
+  border-radius: var(--control-radius);
+  color: var(--color-accent-strong);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-semibold);
+  transition: background var(--motion-quick) var(--ease-standard);
+}
+.mdbase-filter-group-chip:hover,
+.mdbase-filter-group-chip[aria-expanded="true"] { background: var(--color-accent-soft); }
+.mdbase-filter-group-button,
+.mdbase-filter-icon-button {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: calc(var(--control-radius) - 1px);
+  color: var(--color-text-muted);
+  transition:
+    background var(--motion-quick) var(--ease-standard),
+    color var(--motion-quick) var(--ease-standard);
+}
+.mdbase-filter-icon-button { width: 24px; height: 24px; border-radius: var(--control-radius); }
+:is(.mdbase-filter-group-button, .mdbase-filter-icon-button):hover,
+.mdbase-filter-group-button[aria-expanded="true"] { background: var(--color-selected); color: var(--color-text); }
+
+/* Menus: the shared menu, its rows one line each with a hint or a tick at the end. */
+.mdbase-filter-menu { min-width: 160px; }
+.mdbase-filter-menu .mdbase-menu-item { min-height: 30px; padding-block: 0; white-space: nowrap; }
+.mdbase-filter-menu .mdbase-menu-item[aria-checked="true"] { color: var(--color-text); background: var(--color-selected); }
+.mdbase-filter-menu .mdbase-menu-item > .mdbase-glyph { color: var(--color-text-muted); }
+.mdbase-filter-menu .mdbase-menu-item.is-danger > .mdbase-glyph { color: inherit; }
+.mdbase-filter-menu-label,
+.mdbase-filter-option-label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mdbase-filter-menu-check { display: grid; flex: none; color: var(--color-accent-strong); }
+.mdbase-filter-hint { min-width: 0; color: var(--color-text-muted); font-size: var(--font-size-caption); }
+.mdbase-filter-menu .mdbase-filter-hint { flex: none; }
+
+/* Panels beside a pill or the add control. */
+.mdbase-filter-popover { display: grid; align-content: start; gap: 1px; line-height: 1.3; }
+.mdbase-filter-command { width: 260px; }
+.mdbase-filter-value-popover { width: 250px; }
+.mdbase-filter-expression-popover { width: 320px; }
+
+/* Adding a filter: a search header over the list of fields, then the picked field's value. */
+.mdbase-filter-step { display: grid; gap: 1px; min-width: 0; }
+.mdbase-filter-search,
+.mdbase-filter-step-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  margin: calc(-1 * var(--popover-inset)) calc(-1 * var(--popover-inset)) 4px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+.mdbase-filter-search > .mdbase-glyph { color: var(--color-text-muted); }
+.mdbase-filter-search input { flex: 1; min-width: 0; height: 100%; padding: 0; border: 0; outline: 0; color: var(--color-text); background: none; font: inherit; }
+.mdbase-filter-search input::placeholder { color: var(--color-placeholder); }
+.mdbase-filter-options { display: grid; gap: 1px; max-height: min(300px, 50dvh); overflow: auto; overscroll-behavior: contain; }
+.mdbase-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+  text-align: start;
+  white-space: nowrap;
+  cursor: pointer;
+}
+/* The row Enter takes, as in the menus: pointer and keyboard share one highlight. */
+.mdbase-filter-option[aria-selected="true"] { color: var(--color-text); background: var(--color-accent-soft); }
+.mdbase-filter-option > .mdbase-glyph { color: var(--color-text-muted); }
+.mdbase-filter-option > .mdbase-filter-fx { width: 14px; text-align: center; }
+.mdbase-filter-empty { padding: 6px 8px; }
+.mdbase-filter-scope {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 4px calc(-1 * var(--popover-inset)) calc(-1 * var(--popover-inset));
+  padding: 6px 6px 6px 10px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+}
+.mdbase-filter-scope .mdbase-segmented { --control-height: 24px; font-size: var(--font-size-caption); }
+.mdbase-filter-step-head { gap: 6px; padding: 0 6px 0 4px; }
+.mdbase-filter-step-field { display: inline-flex; flex: 1; align-items: center; gap: 6px; min-width: 0; font-weight: var(--font-weight-medium); white-space: nowrap; }
+.mdbase-filter-step-field > span:last-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.mdbase-filter-step-field > .mdbase-glyph { color: var(--color-text-muted); }
+.mdbase-filter-operator.mdbase-select { flex: none; max-width: 55%; color: var(--color-text-soft); }
+
+/* A value: a checklist, a typed value, a calendar, or an expression. */
+.mdbase-filter-panel { display: grid; gap: 6px; min-width: 0; }
+.mdbase-filter-panel > .mdbase-calendar { padding: 3px; }
+.mdbase-filter-checklist { display: grid; gap: 1px; max-height: min(260px, 44dvh); overflow: auto; overscroll-behavior: contain; }
+.mdbase-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 8px;
+  border-radius: var(--control-radius);
+  color: var(--color-text-soft);
+  cursor: pointer;
+}
+.mdbase-filter-check:hover,
+.mdbase-filter-check:has(input:focus-visible) { color: var(--color-text); background: var(--color-accent-soft); }
+.mdbase-filter-check > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The row carries the focus mark and is the fingertip target. */
+.mdbase-filter-check > .mdbase-checkbox:focus-visible { outline: 0; }
+.mdbase-filter-check > .mdbase-checkbox::before { content: none; }
+
+.mdbase-filter-input-row { position: relative; display: flex; align-items: center; }
+.mdbase-filter-input-row > .mdbase-field { padding-right: 28px; font-variant-numeric: tabular-nums; }
+.mdbase-filter-enter { position: absolute; right: 9px; display: grid; color: var(--color-text-muted); pointer-events: none; }
+textarea.mdbase-filter-code { display: block; min-height: 56px; caret-color: var(--color-accent); font: var(--font-size-caption)/1.5 var(--mono); }
+
+.mdbase-filter-vars { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.mdbase-filter-var {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid transparent;
+  border-radius: var(--control-radius);
+  color: var(--color-accent-strong);
+  background: var(--color-accent-soft);
+  font-size: var(--font-size-caption);
+  white-space: nowrap;
+  transition: border-color var(--motion-quick) var(--ease-standard);
+}
+.mdbase-filter-var code { min-width: 0; overflow: hidden; font: var(--font-weight-medium) var(--font-size-caption)/1 var(--mono); text-overflow: ellipsis; }
+.mdbase-filter-var span { flex: none; margin-left: 3px; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
+.mdbase-filter-var:hover { border-color: color-mix(in srgb, var(--color-accent) 45%, transparent); }
+.mdbase-filter-var[aria-pressed="true"] { border-color: var(--color-accent); }
+
+.mdbase-filter-choices { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; }
+.mdbase-filter-choice {
+  height: 28px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--control-radius);
+  font-weight: var(--font-weight-medium);
+  transition:
+    background var(--motion-quick) var(--ease-standard),
+    border-color var(--motion-quick) var(--ease-standard);
+}
+.mdbase-filter-choice:hover { background: var(--color-surface-subtle); }
+.mdbase-filter-choice[aria-pressed="true"] { border-color: var(--color-accent); color: var(--color-accent-strong); background: var(--color-accent-soft); }
+
+.mdbase-filter-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+  margin: 0 calc(-1 * var(--popover-inset)) calc(-1 * var(--popover-inset));
+  padding: 5px 5px 5px 10px;
+  border-top: 1px solid var(--color-border);
+}
+.mdbase-filter-foot > .mdbase-button { --control-height: 26px; flex: none; }
+.mdbase-filter-foot > .mdbase-filter-convert { flex: 0 1 auto; min-width: 0; margin-left: -5px; padding: 0 6px; color: var(--color-text-muted); }
+.mdbase-filter-convert > .mdbase-glyph { color: var(--color-accent); }
+
+.mdbase-filter-error {
+  width: fit-content;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, transparent);
+  border-radius: var(--control-radius);
+  color: var(--color-danger);
+  background: var(--color-danger-soft);
+  font-size: var(--font-size-caption);
+  overflow-wrap: anywhere;
+}
+
+/* A fingertip target, as the shared controls have. */
+@media (pointer: coarse) {
+  .mdbase-filter-pill, .mdbase-filter-match, .mdbase-filter-add { height: 32px; }
+  .mdbase-filter-group .mdbase-filter-pill, .mdbase-filter-group-chip { height: 30px; }
+  .mdbase-filter-menu .mdbase-menu-item, .mdbase-filter-option, .mdbase-filter-check { min-height: 40px; }
+  .mdbase-filter-foot > .mdbase-button { --control-height: 32px; }
+  /* Below 16px, iOS zooms the page when a field takes the focus. */
+  .mdbase-filter-popover :is(input:not([type="checkbox"]), textarea) { font-size: 16px; }
+}

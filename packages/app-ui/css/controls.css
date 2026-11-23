@@ -420,6 +420,43 @@ textarea.mdbase-field {
   padding: var(--space-2) var(--space-3) var(--space-3);
 }
 
+/* Popovers: a small panel beside the control that opened it (AnchoredPopover). */
+.mdbase-popover {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  --popover-inset: 5px;
+  padding: var(--popover-inset);
+  border: 1px solid var(--color-border-strong);
+  /* Row radius plus the padding, as the menus have. */
+  border-radius: calc(var(--control-radius) + var(--popover-inset));
+  outline: 0;
+  color: var(--color-text);
+  background: var(--color-surface-overlay);
+  box-shadow: var(--elevation-low);
+  font-family: var(--sans);
+  font-size: var(--control-font-size);
+  font-weight: var(--font-weight-regular);
+  text-align: start;
+  white-space: normal;
+}
+
+/* Combo: a text field whose list offers values to take or one to make (Combo). */
+.mdbase-combo {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+}
+
+.mdbase-combo > .mdbase-link-picker {
+  flex: 1;
+}
+
 /* Menus anchored to a trigger (useMenuPopover). */
 .mdbase-menu {
   position: fixed;

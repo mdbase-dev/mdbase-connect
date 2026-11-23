@@ -260,6 +260,125 @@ app supplies the fields as children and every string except Cancel. Escape and
 Cancel call `onClose(true)`; a press elsewhere calls `onClose(false)`, because
 the focus has already moved. A list open inside the form takes the first Escape.
 
+## Anchored popover
+
+`AnchoredPopover` from `@mdbase-dev/ui/anchored-popover` is a small panel beside
+the control that opened it, for a value to choose or type: a calendar, a
+checklist, a short form. Include `controls.css`.
+
+```tsx
+<button ref={anchor} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>{t`Due`}</button>
+{open && <AnchoredPopover anchor={anchor} label={t`Due date`} onClose={() => setOpen(false)}>
+  <Calendar value={due} onPick={pick} />
+</AnchoredPopover>}
+```
+
+Render it while it is wanted. It opens in the top layer, follows its anchor, and
+puts the keyboard in the element marked `data-autofocus`, or failing that in its
+first control. Escape calls `onClose(true)` with the focus back on the anchor; a
+press elsewhere calls `onClose(false)` after the field being typed in has lost
+the focus, so a field that commits when it is left keeps what was typed. A list
+or menu open inside it takes the first Escape. A menu of actions is `Menu`.
+
+## Date picker
+
+`@mdbase-dev/ui/date-picker` has `DateField`, a date that reads as a date and
+opens a calendar to change it, and `Calendar`, the month on its own for a panel
+that is already open. Dates go in and out as they are stored (`2026-11-28`).
+Include `controls.css` and `date-picker.css`; `filter-builder.css` and
+`properties.css` already bring the second with them.
+
+```tsx
+<DateField value={due ?? ""} label={t`Due`} placeholder={t`No date`} onChange={setDue} />
+```
+
+The calendar's field takes a typed day: a stored date, today, tomorrow or
+yesterday in the interface's language, a weekday (the next one), or a number of
+days or weeks from today (`+3`, `-1`, `2w`). The arrow keys move through the
+days and Page Up and Page Down through the months, from the field or the grid.
+The week starts where the reader's locale starts it. `readDay(text)` and
+`formatDay(value)` read and write a day the same way outside the picker. The
+text is in the shared catalogue; pass `labels` to word any of it differently.
+
+## Combo
+
+`Combo` from `@mdbase-dev/ui/combo` is a text field with a list of plain values
+under it: type to narrow the list, choose a row, or take what was typed. It is
+the link picker given values in place of records. Include `controls.css`.
+
+```tsx
+<Combo
+  label={t`Stage`}
+  value={stage}
+  options={stages.map((value) => ({ value }))}
+  newLabel={t`Use`}
+  emptyMessage={t`Nothing matches.`}
+  commitOnBlur
+  onCommit={(value) => setStage(value)}
+/>
+```
+
+Without `newLabel` only the options can be chosen. `accepts` says whether typed
+text may be taken, and `emptyMessage` shows when it may not and nothing
+matches. `onCommit(value, made)` reports whether the value was typed rather than
+chosen. Every string is passed in.
+
+## Filter builder
+
+`FilterBuilder` from `@mdbase-dev/ui/filter-builder` is an inline filter bar
+over a CEL `where` expression. Each filter is a pill: a rule on a field, with
+one value or several, or an expression kept as written. Pills combine in nested
+all, any and none groups. Include `controls.css` and `filter-builder.css`.
+
+```tsx
+<FilterBuilder
+  query={where}
+  fields={filterFieldsFromProperties(propertiesInUse(records, declared))}
+  error={queryError}
+  onChange={setWhere}
+/>
+```
+
+`query` is the expression and `onChange` receives the next one; an expression
+the builder cannot show as rules stays an expression pill and is written back
+unchanged. `fields` are the properties offered (`fieldsFromJsonSchema` makes
+them from a JSON schema). Optional parts: `sharedQuery` and `onSharedChange` add
+a second tier of filters that every view applies; `contextVars` offers the
+host's `this.*` values to compare with; `lockedFields` keeps the filters on
+fields the host owns from being removed; `defaultOpen` opens the list of fields
+at once. `parseWhere`, `compileWhere` and `countActive` read and write the same
+tree outside the component. The text is in the shared catalogue; pass `labels`
+to word any of it differently.
+
+## Properties
+
+`PropertyList` from `@mdbase-dev/ui/properties` shows a record's properties,
+each edited in place with the control its value calls for: a choice, a switch, a
+date, a number, a list of values, links to other records, or text. Include
+`controls.css` and `properties.css`.
+
+```tsx
+<PropertyList
+  values={record.frontmatter}
+  declared={type.fields}
+  inUse={propertiesInUse(others.map((other) => other.frontmatter))}
+  hidden={(name) => name === "title"}
+  records={{ describe, search, open }}
+  onChange={(name, value) => update(record.path, { [name]: value })}
+/>
+```
+
+`declared` is what the record's type says about its properties, in the type's
+order: a name, a kind, and where known the values it may take and whether it is
+a date. `inUse` is what other records hold, offered when a property is added;
+`propertiesInUse` works that out from their values. Properties that hold
+nothing stay out of the way until one is added by name or all are shown.
+`onChange` receives null for a value that was cleared or a property that was
+removed; without it the properties are only shown. `records` looks other
+records up for properties that link to them. `PropertyValue` is one value's
+control on its own, and `filterFieldsFromProperties` turns the same descriptions
+into the filter builder's fields.
+
 ## Live preview
 
 `livePreview()` from `@mdbase-dev/ui/live-preview` renders Markdown in a
