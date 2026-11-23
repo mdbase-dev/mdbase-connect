@@ -237,6 +237,8 @@ jobs:
       - name: ALL installed original members, then unprivileged build once
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          # Unset keeps the managed Editor's "Connect to your own server" link off.
+          MDBASE_EDITOR_DIRECT_ORIGIN: ${{ vars.MDBASE_EDITOR_DIRECT_ORIGIN }}
         run: node apps/editor/scripts/native/build.mjs "$RUNNER_TEMP/editor-build"
       - run: node apps/editor/scripts/native/envelope.mjs "$RUNNER_TEMP/editor-build"
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

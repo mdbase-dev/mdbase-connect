@@ -21,8 +21,9 @@ run(['--filter','mdbase-editor','check:csp']);
 await cp('apps/editor/dist',join(output,'publish'),{recursive:true,errorOnExist:true,force:false});
 await writeFile(join(output,'inventory.json'),serializeInventory(await publicationInventory(join(output,'publish'),plan)));
 // Production only, and only for a source that opts in: the separate self-hosted
-// Editor from the same frozen install. Its origin is baked in at build time and
-// is passed to this build alone; the managed build above never receives it.
+// Editor from the same frozen install. Its origin is baked in at build time. The
+// managed build above receives MDBASE_EDITOR_DIRECT_ORIGIN only when the
+// workflow sets it, to show its "Connect to your own server" link.
 if(plan.target==='production' && planned(plan.sha,process.cwd())) {
  const env=Object.fromEntries(Object.entries(process.env).filter(([name])=>!/^(VITE_|MDBASE_)/.test(name)));
  execFileSync('pnpm',['--filter','mdbase-editor','build:direct'],{stdio:'inherit',env:{...env,
