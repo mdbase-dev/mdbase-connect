@@ -80,14 +80,26 @@
       "types": "./dist/CollectionModeControl.d.ts",
       "import": "./dist/CollectionModeControl.js"
     },
-    "./confirm-dialog": { "types": "./dist/ConfirmDialog.d.ts", "import": "./dist/ConfirmDialog.js" },
+    "./confirm-dialog": {
+      "types": "./dist/ConfirmDialog.d.ts",
+      "import": "./dist/ConfirmDialog.js"
+    },
     "./link-picker": {
       "types": "./dist/LinkPicker.d.ts",
       "import": "./dist/LinkPicker.js"
     },
-    "./menu": { "types": "./dist/Menu.d.ts", "import": "./dist/Menu.js" },
-    "./tooltip": { "types": "./dist/Tooltip.d.ts", "import": "./dist/Tooltip.js" },
-    "./overlay": { "types": "./dist/overlay.d.ts", "import": "./dist/overlay.js" },
+    "./menu": {
+      "types": "./dist/Menu.d.ts",
+      "import": "./dist/Menu.js"
+    },
+    "./tooltip": {
+      "types": "./dist/Tooltip.d.ts",
+      "import": "./dist/Tooltip.js"
+    },
+    "./overlay": {
+      "types": "./dist/overlay.d.ts",
+      "import": "./dist/overlay.js"
+    },
     "./dialog": {
       "types": "./dist/Dialog.d.ts",
       "import": "./dist/Dialog.js"
@@ -207,7 +219,7 @@
     "@lingui/react": "6.9.0",
     "@lingui/vite-plugin": "6.9.0",
     "@mdbase-dev/i18n": "workspace:*",
-    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz",
+    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-74869d08-production-0.1.41.tgz",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.0.0",
