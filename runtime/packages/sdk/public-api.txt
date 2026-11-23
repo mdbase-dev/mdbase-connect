@@ -2975,6 +2975,7 @@ AppProtectedInstallationSignIn@app-host/installation-sign-in.ts
   exchange: () => Promise<AppInstallationSignInView>
   exchangeCollectionConsent: (installation: AppInstallationCustodyAuthority) => Promise<AppInstallationCollectionConsentView>
   exchangeFileAccess: (installation: AppInstallationCustodyAuthority, request: AppInstallationFileAccessRequest) => Promise<AppInstallationFileAccessOutcome>
+  forgetSentRequest: () => Promise<void>
   freshCollectionInstallation: (installation: AppInstallationCustodyAuthority, collection: string) => Promise<string>
   hasWebPushChannel: () => boolean
   isCurrent: () => boolean
@@ -3337,6 +3338,7 @@ AppWebSignInSession@app-host/web-sign-in-session.ts
   approvalWindowClosed: () => void
   authorize: (options?: { readonly collectionHint?: string | null; }) => Promise<AppWebSignInSnapshot>
   canAbandonWrongAccount: () => boolean
+  cancelAuthorization: () => Promise<AppWebSignInSnapshot>
   checkDirectAccess: (options?: AppBrowserDirectAccessOptions) => Promise<AppBrowserDirectAccessSnapshot>
   clearSelection: () => Promise<AppWebSignInSnapshot>
   close: () => Promise<void>
@@ -3442,7 +3444,7 @@ ApplicationFixture@testing/application.ts
   readonly mdbase: Mdbase
 
 ApplicationFixtureAction@testing/application.ts
-  = 'unlock' | 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'refreshCollectionList' | 'select' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
+  = 'unlock' | 'reauthorize' | 'approve' | 'assess' | 'start' | 'authorize' | 'cancelAuthorization' | 'refreshCollectionList' | 'select' | 'chooseAnother' | 'forget' | 'deleteCollection' | 'requestAccess' | 'configure' | 'planSetup' | 'applySetup' | 'signOut' | 'openUnsynced' | 'planUnsyncedTransfer' | 'transferUnsynced' | 'discardUnsynced' | 'close'
 
 ApplicationFixtureCall@testing/application.ts
   readonly action: ApplicationFixtureAction | 'setForeground'
@@ -4382,6 +4384,7 @@ Mdbase@application/front-door.ts
   addCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
+  cancelAuthorization: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   close: () => Promise<void>
   configure: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
@@ -5915,6 +5918,7 @@ TestMdbase@testing/test-app.ts
   addCollection: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   approve: (collectionId?: string | null, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   assess: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseApplicationReadinessSnapshot>
+  cancelAuthorization: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   chooseAnother: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   close: () => Promise<void>
   configure: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>

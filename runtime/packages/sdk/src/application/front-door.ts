@@ -38,6 +38,11 @@ export interface Mdbase {
   /** Call from the user gesture: choose a Cloud copy or Private collection,
    * or create a collection in Connect. No current collection is preselected. */
   addCollection(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
+  /** Stop waiting for Connect (phase `authorizing`): signed out again, back to
+   * work before connecting (the `unsynced` option), or the collection list when
+   * signed in. A reload no longer resumes the wait; the next sign-in continues
+   * the same request. Resolves unchanged in any other phase. */
+  cancelAuthorization(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Re-read the approved collection list now (for example when a switcher opens). */
   refreshCollectionList(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
   /** Call from the user gesture: re-approve the open (or requested) collection,

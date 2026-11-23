@@ -1058,6 +1058,15 @@ export class AppProtectedInstallationSignIn {
   /** A sign-in gesture sent this pending request and Connect accepted it: a
    * restarted session may keep reading it. False once signed in. */
   requestSent(): boolean { this.check(); return !this.state.token && this.state.requestSent === this.state.requestId; }
+  /** The person stopped waiting for this sign-in: a restart no longer resumes
+   * it. The request itself is kept, so the next gesture sends it again. */
+  forgetSentRequest(): Promise<void> {
+    return this.exclusive(async () => {
+      if (this.state.token || this.state.requestSent === undefined) return;
+      const {requestSent: _sent, ...unsent} = this.state;
+      await this.save(unsent);
+    });
+  }
   /** True when this installation registered a Web Push channel (so a browser
    * push subscription exists for the app). Metadata only. */
   hasWebPushChannel(): boolean { this.check(); return this.state.timerChannel?.kind === "web_push"; }

@@ -206,6 +206,28 @@ describe("application entry starting with work before connecting",()=>{
   });
 });
 
+describe("application entry cancelling a sign-in wait",()=>{
+  it.each([true,false])("asks the Worker to stop waiting, then (unsynced: %s) goes back to work before connecting",async unsynced=>{
+    const authorizing={...unselected,status:"authorizing"},signedOut={...unselected,status:"signed_out",approval:{outcome:"closed"}};
+    const app=createMdbase(declaration,{unsynced});
+    FakeWorker.replies=false;const starting=app.start();
+    await vi.waitFor(()=>expect(FakeWorker.all[0]?.requests).toHaveLength(1));
+    // A restart resumed a sign-in sent before it: nothing else is opened meanwhile.
+    const worker=FakeWorker.all[0]!;worker.reply(worker.requests[0]![2] as number,authorizing);await starting;
+    expect(app.getSnapshot().phase?.kind).toBe("authorizing");
+    const cancelling=app.cancelAuthorization();
+    await vi.waitFor(()=>expect(actions(worker)).toEqual(["start","cancelAuthorization"]));
+    worker.reply(worker.requests[1]![2] as number,signedOut);
+    if(unsynced){
+      await vi.waitFor(()=>expect(actions(worker)).toEqual(["start","cancelAuthorization","openUnsynced"]));
+      worker.reply(worker.requests[2]![2] as number,signedOut);
+    }
+    await cancelling;
+    expect(actions(worker)).toEqual(unsynced?["start","cancelAuthorization","openUnsynced"]:["start","cancelAuthorization"]);
+    expect(app.getSnapshot().phase?.kind).toBe("signed_out");
+  });
+});
+
 describe("application entry starting signed in with a remembered collection",()=>{
   it("goes from starting to opening without showing the chooser, and times the open",async()=>{
     const A="11111111-1111-4111-8111-111111111111",C="33333333-3333-4333-8333-333333333333";

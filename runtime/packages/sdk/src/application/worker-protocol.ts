@@ -9,7 +9,7 @@ import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 
 export const APPLICATION_WORKER_PROTOCOL="mdbn-application-worker/1";
 export const APPLICATION_WORKER_MAX_ID=0xffffffff;
-export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"openUnsynced"|"attachUnsynced"|"detachUnsynced"|"retireUnsynced"|"discardUnsynced"|"foreground"|"approvalClosed"|"close"|"unlock";
+export type ApplicationWorkerAction="start"|"authorize"|"renewExpiredPairing"|"select"|"clearSelection"|"forget"|"refreshCollections"|"signOut"|"deleteCollection"|"requestFileAccess"|"pollFileAccess"|"openUnsynced"|"attachUnsynced"|"detachUnsynced"|"retireUnsynced"|"discardUnsynced"|"foreground"|"approvalClosed"|"cancelAuthorization"|"close"|"unlock";
 /** UTF-8 bound of a typed account-key secret on the Worker port. */
 export const APPLICATION_WORKER_MAX_SECRET_BYTES=4096;
 /** `unlock` payload: [collection UUID, secret kind, the secret's UTF-8 bytes].
@@ -44,7 +44,7 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
   if(!Array.isArray(value)||value.length!==5||value[0]!==APPLICATION_WORKER_PROTOCOL||value[1]!==binding||
     !Number.isInteger(value[2])||value[2]<0||value[2]>APPLICATION_WORKER_MAX_ID||(value[2]===0&&value[3]!=="foreground"&&value[3]!=="approvalClosed")||(value[2]!==0&&value[3]==="approvalClosed"))return fail();
   const action=value[3],payload=value[4];
-  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","openUnsynced","attachUnsynced","detachUnsynced","retireUnsynced","discardUnsynced","foreground","approvalClosed","close","unlock"].includes(action))fail();
+  if(!["start","authorize","renewExpiredPairing","select","clearSelection","forget","refreshCollections","signOut","deleteCollection","requestFileAccess","pollFileAccess","openUnsynced","attachUnsynced","detachUnsynced","retireUnsynced","discardUnsynced","foreground","approvalClosed","cancelAuthorization","close","unlock"].includes(action))fail();
   const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
   if(action==="requestFileAccess"){
     if(!Array.isArray(payload)||payload.length!==3||typeof payload[0]!=="string"||!uuid.test(payload[0])||!Array.isArray(payload[1])||!payload[1].length||payload[1].length>6||

@@ -920,3 +920,37 @@ describe("styles", () => {
     expect(missing).toEqual([]);
   });
 });
+
+describe("waiting for the mdbase window", () => {
+  const authorizing = (purpose: "sign_in" | "add") => fakeMdbase({ kind: "authorizing", purpose, collectionId: null } as MdbasePhase,
+    { status: "authorizing", ...(purpose === "sign_in" ? { signIn: null } : {}) } as Partial<MdbaseSnapshot>);
+
+  it("always offers Cancel, which asks the SDK to stop waiting even when this page did not start the sign-in", async () => {
+    const fixture = authorizing("add"), cancelAuthorization = vi.fn((_options?: { readonly signal?: AbortSignal }) => new Promise<MdbaseSnapshot>(() => {}));
+    Object.assign(fixture.mdbase, { cancelAuthorization });
+    await act(async () => root.render(<CollectionGate mdbase={fixture.entry} app={app} autoStart={false}>{() => null}</CollectionGate>));
+    await act(async () => button("Cancel").click());
+    expect(cancelAuthorization).toHaveBeenCalledExactlyOnceWith({ signal: expect.any(AbortSignal) });
+    expect(button("Cancel").getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("offers Continue without connecting when signing in from work before connecting", async () => {
+    const fixture = authorizing("sign_in"), cancelAuthorization = vi.fn((_options?: { readonly signal?: AbortSignal }) => new Promise<MdbaseSnapshot>(() => {}));
+    const pending = () => new Promise<never>(() => {});
+    Object.assign(fixture.mdbase, { cancelAuthorization, unsynced: { open: pending, planTransfer: pending, transfer: pending, discard: pending } });
+    await act(async () => root.render(<CollectionGate mdbase={fixture.entry} app={app} unsynced autoStart={false}>{() => null}</CollectionGate>));
+    expect(() => button("Cancel")).toThrow();
+    await act(async () => button("Continue without connecting").click());
+    expect(cancelAuthorization).toHaveBeenCalledOnce();
+  });
+
+  it("on an SDK without cancelAuthorization, offers Cancel only while its own call runs", async () => {
+    const fixture = authorizing("sign_in");
+    await act(async () => root.render(<CollectionGate mdbase={fixture.entry} app={app} autoStart={false}>{() => null}</CollectionGate>));
+    expect(() => button("Cancel")).toThrow();
+    await act(async () => button("Open the mdbase window again").click());
+    expect(fixture.mdbase.signIn).toHaveBeenCalledOnce();
+    await act(async () => button("Cancel").click());
+    expect((fixture.mdbase.signIn.mock.calls[0] as unknown[])[0]).toMatchObject({ signal: { aborted: true } });
+  });
+});

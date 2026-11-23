@@ -248,7 +248,7 @@ function unavailableApplication(messages:DescribeErrorOptions["messages"]):Mdbas
   const base={status:"blocked" as const,signIn:null,collections:Object.freeze([]),selectedCollectionId:null,problem:problem.code,timing:null,readiness,selection:noSelection};
   const snapshot:MdbaseSnapshot=Object.freeze({...base,phase:applicationPhase(base,messages?{messages}:{}),sync:null,writes:null,links:null});
   const refuse=()=>Promise.reject(unavailable());
-  return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,signIn:refuse,addCollection:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
+  return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,signIn:refuse,addCollection:refuse,cancelAuthorization:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
     assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),forget:refuse,deleteCollection:refuse,unlock:refuse,connection:()=>null,setForeground(){throw unavailable();},close:refuse,signOut:refuse,
     unsynced:Object.freeze({open:refuse,planTransfer:refuse,transfer:refuse,discard:refuse})});
 }
@@ -400,6 +400,13 @@ export class MdbaseEntry {
         return id?this.approve(id,options):selection.reauthorize(options);
       }),
       addCollection:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(null,options)),
+      cancelAuthorization:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(async runtime=>{
+        await runtime.queue(()=>runtime.cancelAuthorization(options));
+        // Work before connecting is where a signed-out app starts: go back to it.
+        const after=runtime.getNativeSnapshot();
+        if(this.unsyncedFirst&&after.status==="signed_out"&&!after.unsynced&&this.choose().getSnapshot().requested.collectionId===null)
+          await runtime.queue(()=>runtime.openUnsynced(options));
+      })),
       refreshCollectionList:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>Promise.all([this.call(runtime=>runtime.queue(()=>runtime.refreshCollections(options))),this.privates?.refresh(this.account()).catch(()=>{})])),
       requestAccess:(request:MdbaseAccessRequest,options:MdbaseAccessRequestOptions)=>this.requestAccess(request,options),
       // The person switching collections: a pushed history entry, so Back

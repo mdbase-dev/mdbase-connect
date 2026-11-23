@@ -93,6 +93,13 @@ describe("SDK collection selection: requested URL collection vs usable collectio
     expect(selection.getSnapshot()).toMatchObject({state:"none",usable:null});
     await selection.approve();expect(session.authorizations()).toBe(2);expect(selection.getSnapshot().state).toBe("approving");selection.close();
   });
+  it("a cancelled sign-in wait stops approving, reports the approval closed, and can be retried",async()=>{
+    const session=signInSession("signed_out"),{selection}=setup(`${origin}/`,session);await settle();
+    await selection.approve();expect(selection.getSnapshot().state).toBe("approving");
+    session.publish({status:"signed_out",problem:null,approval:{outcome:"closed"}});await settle();
+    expect(selection.getSnapshot()).toMatchObject({state:"none",usable:null,lastApproval:{outcome:"closed"}});
+    await selection.approve();expect(session.authorizations()).toBe(2);expect(selection.getSnapshot().state).toBe("approving");selection.close();
+  });
   it("unapproved URL A never falls back to sole B; declined approval is reported; a different portal pick wins and the URL follows",async()=>{
     const session=signInSession({collections:[B]}),{web,selection}=setup(`${origin}/?collection=${A}`,session);await settle();
     expect(selection.getSnapshot()).toMatchObject({state:"approval_required",requested:{collectionId:A,approved:false,displayName:null},usable:null,problem:null});expect(session.opened).toEqual([]);
