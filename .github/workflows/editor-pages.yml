@@ -38,6 +38,10 @@ on:
         options:
           - staging
           - production
+      skip_self_hosted:
+        description: Skip only the self-hosted Editor target (ops sets this while its app line is stopped).
+        type: boolean
+        default: false
 
 permissions:
   actions: read
@@ -197,9 +201,12 @@ jobs:
       - name: Workflow-owned self-hosted Editor plan
         id: self-hosted
         working-directory: publisher
+        env:
+          SKIP_SELF_HOSTED: ${{ inputs.skip_self_hosted && 'true' || 'false' }}
         run: |
           set -euo pipefail
-          planned=$(node apps/editor/scripts/native/self-hosted.mjs planned)
+          planned=false
+          if [ "$SKIP_SELF_HOSTED" != true ]; then planned=$(node apps/editor/scripts/native/self-hosted.mjs planned); fi
           case "$planned" in true|false) ;; *) exit 1 ;; esac
           echo "planned=$planned" >> "$GITHUB_OUTPUT"
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -501,6 +508,8 @@ jobs:
     needs: [native-inputs, native-build, native-deploy, smoke]
     # After the managed Editor is published and smoked. A failure here fails the
     # run and restores only the self-hosted project; the managed Editor stays.
+    # Ops reads this job's evidence: it stops only the editor-self-hosted app
+    # line, never Server CD, and skips this target while that line is stopped.
     if: inputs.target == 'production' && needs.native-build.outputs.self-hosted == 'true' && needs.smoke.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 45

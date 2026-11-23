@@ -194,6 +194,12 @@ it('the self-hosted job runs only after a smoked production publication, with wo
  // The managed build never receives the direct origin: the link stays off.
  const build=jobs['native-build'];
  assert.doesNotMatch(JSON.stringify(build.env),/DIRECT_ORIGIN/);
+ // Ops skips only this target while its own app line is stopped.
+ const workflow=parse(await readFile(join(root,'.github/workflows/editor-pages.yml'),'utf8'));
+ assert.deepEqual(workflow.on.workflow_dispatch.inputs.skip_self_hosted,{description:'Skip only the self-hosted Editor target (ops sets this while its app line is stopped).',type:'boolean',default:false});
+ const plan=build.steps.find(s=>s.id==='self-hosted');
+ assert.equal(plan.env.SKIP_SELF_HOSTED,"${{ inputs.skip_self_hosted && 'true' || 'false' }}");
+ assert.match(plan.run,/planned=false\n\s*if \[ "\$SKIP_SELF_HOSTED" != true \]/);
  const managed=jobs['native-deploy'].steps.findIndex(s=>s.name==='Existing self-hosted project identity (never provision)');
  assert.ok(managed>=0 && managed<jobs['native-deploy'].steps.findIndex(s=>s.id==='upload'),'credential scope refuses before any write');
 });
