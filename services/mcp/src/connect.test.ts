@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { MemoryGrantKeyStore } from "@mdbase-dev/connect/crypto";
+import { MemoryGrantKeyStore } from "./grant-crypto.js";
 import { verifyAuthorityRequestProof } from "../../server/src/features/authority-transfer/authority-proof.js";
 import { ConnectGateway } from "./connect.js";
 import { createDatabase } from "./db.js";

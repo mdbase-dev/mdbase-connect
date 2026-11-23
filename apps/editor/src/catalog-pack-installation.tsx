@@ -1,10 +1,6 @@
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import type {
-  CollectionDescription,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
+import type { CollectionDescription, TypePackAssessment, TypePackProvision } from "./connect-types";
 import type { ReactNode } from "react";
 import {
   loadTypePackProvision,

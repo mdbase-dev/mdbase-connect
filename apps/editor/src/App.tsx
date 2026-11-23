@@ -24,7 +24,8 @@ import {
   XIcon as X,
   BrowsersIcon as Browsers, ColumnsIcon as Columns
 } from "./icons";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor } from "./connect-types";
+import { type MdbaseRecordSessionSnapshot } from "./record-session";
 import {
   useCallback,
   useDeferredValue,

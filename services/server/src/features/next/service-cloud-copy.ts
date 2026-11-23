@@ -3,12 +3,9 @@
 // internal composition choice, never a public request field. No readiness claim.
 import { setTimeout as delay } from "node:timers/promises";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
-import { migrationDeployments } from "./migration-routing.js";
-import { RequestValidationError } from "../../platform/http-errors.js";
 import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { CreateError, enrolOp, inTransaction, lock, refuseCollectionIdOfOther, SERVICE_ACCOUNT } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
-import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 import type { LogPlacement, LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { collectionRegion, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
@@ -58,8 +55,7 @@ export async function currentCloudCopy(client: DatabaseConnection, collection: s
 export async function generateCloudCopyServices(options: CloudCopyBootstrapOptions, collection: string) {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
-  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.migrationRouting, collection);
-  if (!selected) throw new CreateError(409, "migration_routing_retired");
+  const selected = pitrDeployments(deployments, options.next.logService.labPitr, collection);
   return Promise.all(KINDS.map(kind => generateServiceDevice(selected[kind], kind, collection, options.fetchImpl)));
 }
 
@@ -91,8 +87,7 @@ export async function loadCloudCopyRecords(client: DatabaseConnection, collectio
 export async function initializeHostedCloudCopy(options: CloudCopyBootstrapOptions, collection: string, requestId: string, timezone: string, beforeRetry: () => Promise<void>): Promise<void> {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
-  const selected = await migrationDeployments(options.db, pitrDeployments(deployments, options.next.logService.labPitr, collection), options.next.migrationRouting, collection);
-  if (!selected) throw new CreateError(409, "migration_routing_retired");
+  const selected = pitrDeployments(deployments, options.next.logService.labPitr, collection);
   const {url, token} = selected.hosted;
   const endpoint = new URL("internal/v1/collections/initialize", `${url.replace(/\/+$/u, "")}/`);
   if (token.length < 32 || (localBuild() ? !localDeployment("local", url) : endpoint.protocol !== "https:")) {
@@ -159,12 +154,6 @@ export async function createServiceCloudCopy(options: CloudCopyBootstrapOptions,
     if (exists) {
       const exact = await client.query("SELECT 1 FROM next_collections WHERE collection_id=$1 AND runtime=$2 AND root_key_id=$3", [collection, runtime, rootKeyId]);
       if (!exact.rows.length) throw new CreateError(409, "collection_exists");
-    } else if (runtime === "next") {
-      try { await requireNextAccountNotMigrationFrozen(client, owner); }
-      catch (error) {
-        if (error instanceof RequestValidationError) throw new CreateError(error.statusCode, error.code);
-        throw error;
-      }
     }
     return exists;
   };

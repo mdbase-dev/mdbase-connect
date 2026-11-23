@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "./connect-types";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { SchemaValueEditor, schemaInitialValue, schemaValueComplete } from "./SchemaValueEditor";

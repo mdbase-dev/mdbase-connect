@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { isMdbaseError, MdbaseError, revisionOf, type MdbaseClient, type PlainValue, type RecordView, type Write, type wire } from "@mdbase-dev/sdk";
-import type { JsonObject } from "@mdbase-dev/connect";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { JsonObject } from "./connect-types";
+import type { MdbaseRecordChange } from "./record-session";
 import type { CreateNoteInput, NoteDocument } from "./model";
 import { createdBody } from "./note";
 

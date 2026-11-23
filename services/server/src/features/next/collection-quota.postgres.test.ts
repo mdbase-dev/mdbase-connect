@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { buildApp } from "../../app.js";
-import { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { nativeCollectionQuotaUsage, registerNextCollection } from "./policy-outbox.js";
@@ -133,8 +132,7 @@ describePg("native synced collection entitlement admission", () => {
     if (legacyRow) await db.query("INSERT INTO account_storage_accounts (user_id, provider_account_id) VALUES ($1, $2)", [owner, randomUUID()]);
     const fetched = vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("a native account's usage must not ask the legacy provider"));
     await register(owner, deleted); await register(owner, left, "private"); await register(owner, kept);
-    const { app } = await buildApp({ db, devAuth: true, publicUrl: "https://connect.test",
-      hostedProvider: new HostedProviderClient({ url: "https://provider.example", internalToken: "provider-internal-token" }) });
+    const { app } = await buildApp({ db, devAuth: true, publicUrl: "https://connect.test" });
     try {
       const session = await app.inject({ method: "POST", url: "/v1/dev/session", payload: { name: "Quota fixture", email: `${owner}@example.test` } });
       expect(session.statusCode, session.body).toBe(200);

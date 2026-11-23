@@ -1,6 +1,6 @@
 import { i18n } from "@lingui/core";
 import { plural, t } from "@lingui/core/macro";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { displayLocale } from "./i18n/format";
 import type { CollectionFile, NoteSummary } from "./model";
 import { noteTitle } from "./note";

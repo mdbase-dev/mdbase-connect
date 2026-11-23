@@ -16,8 +16,7 @@ local-rehearsal = []
 crate-type = ["cdylib", "rlib"]
 
 # Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica, mdbn-store-file,
-# mdbn-noise (the sole WASM consumer of host cryptography: Noise responder sessions),
-# mdbn-migrate-portable (metadata-only legacy path preflight).
+# mdbn-noise (the sole WASM consumer of host cryptography: Noise responder sessions).
 # Portable. Host capabilities (SQL, clock, entropy, zones) are WASM imports.
 [dependencies]
 mdbn-core.workspace = true
@@ -25,13 +24,10 @@ mdbn-wire.workspace = true
 mdbn-replica.workspace = true
 mdbn-store-file.workspace = true
 mdbn-noise.workspace = true
-mdbn-migrate-portable = { workspace = true, features = ["sql-spill"] }
 zeroize = "1.8"
 
 [dev-dependencies]
 mdbn-replica = { workspace = true, features = ["testing"] }
-# Exercise metadata retention against the existing SQL spill, not a mock Driver.
-mdbn-migrate-portable = { workspace = true, features = ["sql-spill"] }
 rusqlite = { version = "0.37", features = ["bundled"] }
 
 [lints]

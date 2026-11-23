@@ -174,7 +174,6 @@ fn ctx(dir: &Path, server: Option<&str>, trust: Option<crate::trust::Trust>) -> 
         notify: Arc::new(|| {}),
         sync,
         computer_name: None,
-        old_connector_running: Default::default(),
     }
 }
 
@@ -185,120 +184,6 @@ fn host(dir: &Path, mode: SyncMode, ctx: HostCtx) -> CollectionHost {
         ..Default::default()
     });
     CollectionHost::open(e, Some(ctx))
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn mirror_closed_sqlite_startup_reports_counts_without_opening_folder() {
-    use mdbn_platform_native::SqliteIndex;
-    use mdbn_replica::mirror_admission::Fence;
-    use mdbn_store_file::index::IndexDurability;
-    use mdbn_store_file::{SqlStore, SqlStoreLimits};
-    for detached in [false, true] {
-        let dir = scratch(if detached {
-            "mirror-detached"
-        } else {
-            "mirror-joining"
-        });
-        std::fs::write(dir.join("folder/local.md"), b"local user bytes").unwrap();
-        let private = dir.join("collections").join(COLLECTION);
-        let index = std::rc::Rc::new(std::cell::RefCell::new(
-            SqliteIndex::open(private.join("index.sqlite"), IndexDurability::Durable).unwrap(),
-        ));
-        let mut store = SqlStore::open_with_limits(index, SqlStoreLimits::DESKTOP).unwrap();
-        let f = Fence::new([1; 16], 3).unwrap();
-        f.persist(&mut store).unwrap();
-        if detached {
-            f.detached().persist(&mut store).unwrap();
-        }
-        drop(store);
-        struct NoGrants;
-        impl mdbn_replica::policy::GrantSource for NoGrants {
-            fn grant(
-                &self,
-                _: &mdbn_wire::common::Uuid,
-            ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
-                Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
-            }
-        }
-        let direct = crate::runtime::Runtime::open(
-            crate::runtime::RuntimeConfig {
-                collection: [1; 16],
-                replica_id: [2; 16],
-                device_id: [3; 16],
-                root: dir.join("folder"),
-                private_dir: private.clone(),
-                adopt: None,
-                id_hints: vec![],
-                computer_name: None,
-                sync: None,
-            },
-            mdbn_replica::DeviceSecrets {
-                sign_sk: [4; 32],
-                kem_sk: [5; 32],
-            },
-            Box::new(NoGrants),
-            Default::default(),
-        );
-        assert!(matches!(direct, Err(e) if e.0.contains("3 items pending/held")));
-        assert!(
-            !dir.join("folder/.mdbase").exists(),
-            "direct runtime also pre-open closed"
-        );
-        let context = ctx(&dir, None, None);
-        let mut e = entry(&dir, SyncMode::Local);
-        e.owner_account = Some(ACCOUNT.into());
-        e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
-        context.authority.publish_registry(&Registry {
-            collections: vec![e.clone()],
-            ..Default::default()
-        });
-        let mut host = CollectionHost::open(e, Some(context));
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                if host.mirror_diagnostic().is_some() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        let status = host.status();
-        assert_eq!(status.state, CollectionState::Unavailable);
-        assert_eq!(
-            status.reason.as_deref(),
-            Some(if detached {
-                "detached_sync"
-            } else {
-                "joining_sync"
-            })
-        );
-        assert!(
-            status
-                .notices
-                .iter()
-                .any(|n| n.message.contains("3 items pending/held"))
-        );
-        assert!(host.runtime().is_none());
-        assert!(
-            !dir.join("folder/.mdbase").exists(),
-            "no folder host lock/private dirs"
-        );
-        assert_eq!(
-            std::fs::read(dir.join("folder/local.md")).unwrap(),
-            b"local user bytes"
-        );
-        host.close().await;
-        let diagnostic = crate::runtime::preopen_mirror_status(&private)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            diagnostic.phase,
-            if detached { "detached" } else { "joining" }
-        );
-        assert_eq!(diagnostic.pending, 3);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

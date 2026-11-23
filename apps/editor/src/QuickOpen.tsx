@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { shortcutLabel, type Command } from "@mdbase-dev/ui/command-palette";
 import { noteTitle } from "./note";

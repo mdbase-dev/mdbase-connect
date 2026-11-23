@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { i18n } from "@lingui/core";
-import { MdbaseConnectError, type PendingMutationSummary } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type PendingMutationSummary } from "./connect-types";
 import type { CollectionGateway } from "./model";
 import type { NoteSession, NoteSessionStore } from "./note-session";
 import type { CollectionMutationScope } from "./collection-mutation-scope";

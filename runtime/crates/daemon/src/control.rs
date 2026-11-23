@@ -283,13 +283,6 @@ impl Method {
     pub const PRIVATE_STRICT: &'static str = "private.strict";
     /// `[Check]`.
     pub const DOCTOR: &'static str = "doctor";
-    /// `{refresh_rollout?: bool}` → `{record, revived, holds}`: local takeover.
-    /// Polling retries a waiting account with backoff; `refresh_rollout: true`
-    /// requests an immediate check (for app/window focus).
-    /// (`<state>/takeover.json`; `record` is null when there is none).
-    pub const MIGRATE_STATUS: &'static str = "migrate.status";
-    /// [`MigrateStart`] → as `migrate.status`: run (or resume) the takeover now.
-    pub const MIGRATE_START: &'static str = "migrate.start";
     /// `{collection?}` → `[AccessEntry]`: apps that can use local collections.
     pub const ACCESS_LIST: &'static str = "access.list";
     /// `{grant}` → `AccessEntry`: revoke on this device. Always allowed.
@@ -809,13 +802,9 @@ pub struct EnableSync {
     pub collection: String,
     /// `synced` (with the hosted replica) or `synced_e2e` (end-to-end encrypted,
     /// no hosted replica). Absent: `synced`, or `synced_e2e` for a collection
-    /// taken over from today's connector.
+    /// migrated from local-only storage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<SyncMode>,
-    /// Adopt even though files were held when the collection was taken over
-    /// (the user has reviewed both versions kept in the folder).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub accept_takeover_holds: bool,
 }
 
 /// Another computer waiting to open a private collection here
@@ -881,17 +870,7 @@ pub const PRIVILEGED: &[&str] = &[
     Method::COLLECTION_JOIN,
     Method::COLLECTION_DELETE,
     Method::ACCOUNT_SIGN_IN,
-    Method::MIGRATE_START,
 ];
-
-/// [`Method::MIGRATE_START`] params.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MigrateStart {
-    /// Proceed past old hosted mirrors once their upload queues are empty (they stop
-    /// syncing until they join the migrated collection).
-    #[serde(default)]
-    pub stop_mirrors: bool,
-}
 
 /// Device settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

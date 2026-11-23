@@ -1,6 +1,6 @@
 import { render, screen } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { beginNewNote, type NewNote } from "./new-note";

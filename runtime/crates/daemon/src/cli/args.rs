@@ -132,9 +132,6 @@ pub(super) enum Command {
     /// Sign this computer in to your mdbase account (or out).
     #[command(subcommand)]
     Account(AccountCmd),
-    /// Take over the collections today's mdbase Connect serves on this computer.
-    #[command(subcommand)]
-    Migrate(MigrateCmd),
     /// Device settings.
     Settings {
         /// Require approval on this computer before a new app can use a local
@@ -255,14 +252,9 @@ pub(super) enum SyncCmd {
     Enable {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// `private` or `cloud-copy`. Default: `cloud-copy`, or `private` for a
-        /// collection taken over from today's connector.
+        /// `private` or `cloud-copy`. Default: `cloud-copy`.
         #[arg(long, value_enum)]
         mode: Option<SyncKind>,
-        /// Turn sync on although files are still held from the takeover, keeping
-        /// this computer's version of each (review them first with `mdbase holds`).
-        #[arg(long)]
-        accept_takeover_holds: bool,
     },
     /// Switch an already synced collection; explicit source consent is required.
     Mode {
@@ -302,19 +294,6 @@ pub(super) enum SyncCmd {
     Disable {
         /// Collection ID, ID prefix or name.
         collection: String,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub(super) enum MigrateCmd {
-    /// Takeover progress per collection (works with the daemon stopped).
-    Status,
-    /// Explicitly run or resume takeover once Connect allows it for this account.
-    Start {
-        /// Proceed past old hosted mirror folders once their upload queues are
-        /// empty; they stop syncing until they join the migrated collection.
-        #[arg(long)]
-        stop_mirrors: bool,
     },
 }
 
@@ -495,11 +474,5 @@ mod takeover_cli_tests {
             ));
         }
         assert!(Cli::try_parse_from(["mdbase", "conflicts", "dismiss"]).is_err());
-    }
-
-    #[test]
-    fn migrate_start_has_no_rollout_override() {
-        assert!(Cli::try_parse_from(["mdbase", "migrate", "start"]).is_ok());
-        assert!(Cli::try_parse_from(["mdbase", "migrate", "start", "--ignore-rollout"]).is_err());
     }
 }

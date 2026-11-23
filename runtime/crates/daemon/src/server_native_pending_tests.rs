@@ -424,7 +424,6 @@ async fn original_native_capture(lose_capture_ack: bool) {
         .enable_sync(EnableSync {
             collection: f.id.clone(),
             mode: None,
-            accept_takeover_holds: false,
         })
         .await
         .unwrap_err();

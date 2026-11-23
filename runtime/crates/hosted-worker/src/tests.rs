@@ -8,6 +8,7 @@ mod original_app;
 mod projected_queries;
 mod record_meta_repair;
 mod signed_control_plain;
+mod sqlite;
 use signed_control_plain::SignedControlPlain;
 
 use std::cell::Cell;

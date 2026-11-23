@@ -8,7 +8,7 @@ import {
   XIcon as X
 } from "./icons";
 import { useEffect, useMemo, useState } from "react";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "./connect-types";
 import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { InlineRemoveButton } from "./InlineRemoveButton";
 import { LinkPropertyEditor, type PropertyLinks } from "./LinkPropertyEditor";

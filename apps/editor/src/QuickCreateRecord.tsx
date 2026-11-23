@@ -3,7 +3,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { QuickCreate } from "@mdbase-dev/ui/quick-create";
 import { collectionDisplayField } from "./field-reference";
 import { PlusIcon } from "./icons";

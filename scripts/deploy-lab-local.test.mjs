@@ -19,7 +19,6 @@ const opsCommand = `${opsRoot}/bin/deploy-local-lab`;
 const head = "0123456789abcdef0123456789abcdef01234567";
 const digestValues = {
   "deploy/docker/Dockerfile.server": `sha256:${"1".repeat(64)}`,
-  "deploy/docker/Dockerfile.hosted-provider": `sha256:${"2".repeat(64)}`,
   "deploy/docker/Dockerfile.mcp": `sha256:${"3".repeat(64)}`
 };
 const checkout = resolve(import.meta.dirname, "..");
@@ -72,7 +71,7 @@ test("confirmation is either an exact interactive LAB response or exact --confir
 });
 
 test("component selection accepts only one exact supported component and remains separate from confirmation", () => {
-  for (const component of ["connect", "hosted-provider", "mcp", "editor"]) {
+  for (const component of ["connect", "mcp", "editor"]) {
     assert.deepEqual(parseDeployArgs(["--component", component, "--confirm", "LAB"]), {
       component,
       confirmationArgs: ["--confirm", "LAB"]
@@ -182,10 +181,9 @@ test("dirty local checkout builds and pushes three amd64 images and deploys immu
   assert.equal(fixture.calls.findIndex(({ command, args }) => command === opsCommand && args[0] === "preflight")
     < fixture.calls.findIndex(({ command, args }) => command === "docker" && args[1] === "build"), true);
   const builds = fixture.calls.filter(({ command, args }) => command === "docker" && args[0] === "buildx" && args[1] === "build");
-  assert.equal(builds.length, 3);
+  assert.equal(builds.length, 2);
   const expectedRepositories = [
     "ghcr.io/mdbase-dev/mdbase-connect-server",
-    "ghcr.io/mdbase-dev/mdbase-connect-hosted-provider",
     "ghcr.io/mdbase-dev/mdbase-connect-mcp"
   ];
   for (const [index, { args, options }] of builds.entries()) {
@@ -205,8 +203,7 @@ test("dirty local checkout builds and pushes three amd64 images and deploys immu
     "deploy",
     "--confirm", "LAB",
     "--connect", `${expectedRepositories[0]}@${digestValues["deploy/docker/Dockerfile.server"]}`,
-    "--hosted-provider", `${expectedRepositories[1]}@${digestValues["deploy/docker/Dockerfile.hosted-provider"]}`,
-    "--mcp", `${expectedRepositories[2]}@${digestValues["deploy/docker/Dockerfile.mcp"]}`,
+    "--mcp", `${expectedRepositories[1]}@${digestValues["deploy/docker/Dockerfile.mcp"]}`,
     "--source-revision", head,
     "--source-dirty", "true",
     "--editor-checkout", root
@@ -240,11 +237,6 @@ test("component deployments build and delegate only the selected resource", asyn
       component: "connect",
       dockerfile: "deploy/docker/Dockerfile.server",
       deployArgs: ["--connect", `ghcr.io/mdbase-dev/mdbase-connect-server@${digestValues["deploy/docker/Dockerfile.server"]}`]
-    },
-    {
-      component: "hosted-provider",
-      dockerfile: "deploy/docker/Dockerfile.hosted-provider",
-      deployArgs: ["--hosted-provider", `ghcr.io/mdbase-dev/mdbase-connect-hosted-provider@${digestValues["deploy/docker/Dockerfile.hosted-provider"]}`]
     },
     {
       component: "mcp",
@@ -323,7 +315,7 @@ test("clean status is informationally passed as false", async () => {
 test("preflight, authentication, build, and metadata failures stop deployment and clean metadata", async () => {
   for (const scenario of ["preflight", "authentication", "build", "metadata"]) {
     const fixture = harness({
-      buildFailure: scenario === "build" ? "deploy/docker/Dockerfile.hosted-provider" : null,
+      buildFailure: scenario === "build" ? "deploy/docker/Dockerfile.mcp" : null,
       malformedMetadata: scenario === "metadata"
     });
     const run = async (...input) => {

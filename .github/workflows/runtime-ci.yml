@@ -63,7 +63,7 @@ jobs:
       - name: clippy for wasm32, portable crates (-D warnings)
         run: >-
           cargo clippy --locked --target wasm32-unknown-unknown
-          -p mdbn-core -p mdbn-wire -p mdbn-replica -p mdbn-store-file -p mdbn-migrate-portable -p mdbn-wasm
+          -p mdbn-core -p mdbn-wire -p mdbn-replica -p mdbn-store-file -p mdbn-wasm
           -p mdbn-log-service -p mdbase-wasm
           -- -D warnings
       - name: build runtime.wasm (wasm-release + wasm-opt -Oz)
@@ -309,29 +309,12 @@ jobs:
       - name: install (pinned workerd, wrangler, esbuild)
         run: npm ci --no-audit --no-fund
 
-      - name: tests (node + workerd, real Postgres; no skips allowed)
-        env:
-          MDBASE_HOSTED_LEGACY_TEST_PG: postgres://mdbn:mdbn@127.0.0.1:5432/mdbn_test
-          LEGACY_HOLD_PG_TEST_URL: postgres://mdbn:mdbn@127.0.0.1:5432/hold_frontend_test
+      - name: tests (node + workerd; no skips allowed)
         run: |
           set -o pipefail
-          # Separate database: hold composition counts backends and deletes its
-          # own source row while the other Postgres tests run concurrently.
-          node --input-type=module -e '
-            import { Client } from "pg";
-            const client = new Client({ connectionString: process.env.MDBASE_HOSTED_LEGACY_TEST_PG });
-            await client.connect();
-            try { await client.query("CREATE DATABASE hold_frontend_test"); }
-            finally { await client.end(); }
-          '
           npm test 2>&1 | tee "$RUNNER_TEMP/hosted-worker-test.log"
-          # A missing hosted.wasm or Postgres turns tests into skips, not failures.
+          # A missing hosted.wasm turns tests into skips, not failures.
           grep -Eq '^(#|ℹ) skipped 0$' "$RUNNER_TEMP/hosted-worker-test.log" || { echo "::error::hosted worker tests were skipped"; exit 1; }
-
-      - name: native workerd migration qualification
-        run: |
-          HOSTED_WASM="$PWD/hosted.wasm" PITR_APP_FIXTURE="$PWD/.ci/fixture.json" \
-            timeout 600s node --experimental-transform-types test/migration-native-workerd.mjs
 
       - name: upload failed-run evidence
         if: failure()

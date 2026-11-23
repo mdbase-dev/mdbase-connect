@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { randomUUID } from "node:crypto";
 import type { CollectionChangesPage, CollectionOperation } from "@mdbase-dev/connect-protocol";
-import { normalizeCollectionChange } from "@mdbase-dev/connect";
+import { normalizeCollectionChange } from "./change-events.js";
 import { z } from "zod";
 import { ConnectGateway, GatewayOperationError } from "./connect.js";
 import { OAuthService, type McpAuthContext } from "./oauth.js";

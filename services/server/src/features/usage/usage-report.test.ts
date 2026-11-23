@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthAdminUsageError, runAuthAdminCommand } from "../../auth-admin.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { pruneUsageHistory, USAGE_RETENTION_DAYS } from "./usage-report.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -272,47 +271,6 @@ describe("usage report", () => {
     );
     expect(starts[1] - starts[0]).toBe(7 * 24 * 60 * 60 * 1_000);
     expect(starts[2] - starts[1]).toBe(7 * 24 * 60 * 60 * 1_000);
-  });
-
-  it("counts hosted users from provider telemetry mapped through storage accounts", async () => {
-    const db = await database();
-    const hostedUser = await user(db, "hosted@example.com", 3);
-    const staleUser = await user(db, "stale@example.com", 90);
-    const hostedAccount = randomUUID();
-    const staleAccount = randomUUID();
-    for (const [owner, account] of [[hostedUser, hostedAccount], [staleUser, staleAccount]]) {
-      await db.query(
-        `INSERT INTO account_storage_accounts
-           (user_id, provider_account_id, entitlement_revision)
-         VALUES ($1, $2, 1)`,
-        [owner, account]
-      );
-    }
-    const now = new Date();
-    const long = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1_000);
-    const hostedProvider = {
-      async protocolUsage() {
-        return {
-          entries: [
-            { account_id: hostedAccount, protocol_version: 3, sample_count: 4,
-              first_seen_at: now.toISOString(), last_seen_at: now.toISOString() },
-            { account_id: staleAccount, protocol_version: 3, sample_count: 1,
-              first_seen_at: long.toISOString(), last_seen_at: long.toISOString() }
-          ],
-          unbound_application_replicas: 0,
-          v2_recovery_application_replicas: 0
-        };
-      }
-    } as unknown as HostedProviderClient;
-
-    const report = await runAuthAdminCommand(
-      ["usage", "report", "--days", "30"],
-      { db, defaultRegistrationMode: "closed", hostedProvider }
-    ) as Record<string, any>;
-
-    expect(report.transport_users_in_window).toMatchObject({ direct: 0, relay: 0, hosted: 1 });
-    expect(report.activation.all_accounts.active_in_window).toBe(1);
-    expect(JSON.stringify(report)).not.toContain(hostedAccount);
   });
 
   it("counts native collections, grants, devices and installations", async () => {

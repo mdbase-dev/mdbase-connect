@@ -6,11 +6,10 @@ import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { scheduleStarterCollection, type StarterCollectionRouteOptions } from "../onboarding/account-onboarding.js";
+import { scheduleStarterCollection } from "../onboarding/account-onboarding.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { tokenHash } from "../../security.js";
 import { STARTER_COLLECTION_NAME } from "../onboarding/starter-collection.js";
-import { registerOnboardingRoutes } from "../onboarding/routes.js";
 import { LogServiceClient } from "./log-service-client.js";
 import { certToJson, ed25519RawPublicKey, loadPolicySigner, type NextControlPlaneConfig } from "./policy-keys.js";
 import { PolicyEmitter, registerNextCollection } from "./policy-outbox.js";
@@ -110,7 +109,6 @@ describePg("native starter onboarding", () => {
     const emitter = new PolicyEmitter(db, client, loadPolicySigner(config, Date.now()));
     for (const instance of [app, bare]) { await instance.register(cookie); registerErrorHandler(instance); }
     registerNativeStarterRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments, starterContent: port });
-    registerOnboardingRoutes(app, { db, publicUrl: "https://connect.test" } as StarterCollectionRouteOptions);
     registerNativeStarterRoutes(bare, { db, next: config, emitter, log: client, fetchImpl: deployments });
   }, 60_000);
   afterAll(async () => {
@@ -169,23 +167,12 @@ describePg("native starter onboarding", () => {
     expect((await reservation(who)).provisioning_started_at).toBeNull();
   });
 
-  it("creates nothing before the flip or while frozen, and the legacy route refuses a moved account", async () => {
+  it("creates nothing before the flip", async () => {
     const who = await account({ flipped: false }), before = await reservation(who), calls = port.seal.mock.calls.length;
-    let response = await onboard(who);
+    const response = await onboard(who);
     expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe("onboarding_not_ready");
     await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [who.id]);
     expect((await onboard(who)).json().error.code).toBe("onboarding_not_ready");
-    await db.query("INSERT INTO next_migration_account_flips(account_id,collections,evidence_digest) VALUES($1,'{}',$2)", [who.id, "d".repeat(64)]);
-    const cohort = `frozen-${randomUUID().slice(0, 8)}`;
-    await db.query("INSERT INTO next_migration_cohorts(name,released_at,frozen_at) VALUES($1,now(),now())", [cohort]);
-    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort,started_at) VALUES($1,$2,now())", [who.id, cohort]);
-    response = await onboard(who);
-    expect(response.statusCode).toBe(409); expect(response.json().error.code).toBe("migration_frozen");
-
-    const legacy = await app.inject({ method: "POST", url: "/v1/onboarding/starter-collection", headers: who.headers });
-    expect(legacy.statusCode).toBe(409); expect(legacy.json().error).toMatchObject({
-      code: "onboarding_moved", details: { reason: "moved_to_next_runtime", update_url: "https://mdbase.dev/downloads" }
-    });
     expect(await owned(who)).toEqual([]);
     expect(await reservation(who)).toEqual(before);
     expect(port.seal.mock.calls.length).toBe(calls);

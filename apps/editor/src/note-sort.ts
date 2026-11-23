@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor, JsonObject } from "./connect-types";
 import {
   collectionDisplayField,
   declaredFields,

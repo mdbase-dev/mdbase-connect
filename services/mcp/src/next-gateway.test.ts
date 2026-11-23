@@ -1,7 +1,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { keyPairFromSecret, mdbaseError, type KeyPair, type MdbaseClient } from "@mdbase-dev/sdk/thin-client";
-import type { GrantKeyRecord, GrantKeyStore } from "@mdbase-dev/connect/crypto";
+import type { GrantKeyRecord, GrantKeyStore } from "./grant-crypto.js";
 import { LEGACY, NextGateway, type NextConnection } from "./next-gateway.js";
 import { clientKeyAttachMessage, clientNoiseKeyMessage, type NoiseKeyStore } from "./next-keys.js";
 

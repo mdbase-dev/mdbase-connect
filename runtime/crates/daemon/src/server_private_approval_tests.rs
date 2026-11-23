@@ -317,7 +317,7 @@ async fn private_join_with_history(renewed: bool) {
         )
         .await
         .unwrap(),
-        crate::takeover::held::Outcome::Confirmed
+        mdbn_wire::client::ReceiptState::Confirmed
     );
     let head = HeadResult::from_cbor(
         &admin_log_rpc(

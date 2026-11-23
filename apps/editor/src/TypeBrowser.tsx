@@ -23,7 +23,7 @@ import {
   WarningCircleIcon as CircleAlert,
   XIcon as X
 } from "./icons";
-import type { CollectionContractDescriptor, CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { CollectionContractDescriptor, CollectionTypeDescriptor, JsonObject } from "./connect-types";
 import { createContext, useContext, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { CodeEditor } from "./CodeEditor";
 import { SchemaValueEditor, schemaInitialValue } from "./SchemaValueEditor";

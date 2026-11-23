@@ -9,7 +9,6 @@ import { tokenHash } from "../../security.js";
 import { CreateError, currentIdentity, currentMember, currentSession, exactEnrolment, inTransaction, lock, refuse, refuseRevoked, type Connector, type Device } from "./bootstrap-common.js";
 import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
-import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
 import { decodeCbor } from "./policy-wire.js";
 
 const uuid = z.uuid().transform(value => value.toLowerCase()).refine(value => value !== "00000000-0000-0000-0000-000000000000");
@@ -36,7 +35,6 @@ export async function authenticateOwner(request: FastifyRequest, reply: FastifyR
 /** Account/credential locks precede the shared collection lock, as for bootstrap
  * and owner deletion. Every POST/retry/GET reauthorizes; old intent is not access. */
 export async function ownedMode(client: DatabaseConnection, owner: Owner, collection: string): Promise<Mode> {
-  await requireNextAccountNotMigrationFrozen(client, owner.account);
   if (!(await client.query("SELECT 1 FROM users WHERE id=$1 AND account_backend='next' AND suspended_at IS NULL FOR SHARE", [owner.account])).rows.length)
     throw new CreateError(404, "not_found");
   let device: (Device & { id: string }) | undefined;

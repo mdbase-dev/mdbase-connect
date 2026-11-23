@@ -4,7 +4,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { literal } from "./i18n/literal";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "./connect-types";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { beginNewNote, changedNewNote, newNoteBlocker, newNoteForm, newNoteInput, occupiedPaths } from "./new-note";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";

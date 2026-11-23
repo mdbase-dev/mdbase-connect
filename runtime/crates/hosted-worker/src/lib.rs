@@ -17,8 +17,7 @@
 //! clock, entropy, time zones, the log transport) are imports.
 //!
 //! **Allowed dependencies.** Internal: `mdbn-core`, `mdbn-wire`, `mdbn-replica`,
-//! `mdbn-store-file`, `mdbn-noise`, `mdbn-migrate-portable` (metadata-only import
-//! preflight, not part of the SDK's runtime.wasm).
+//! `mdbn-store-file`, `mdbn-noise`.
 
 // The raw ABI is the only unsafe code: pointer handoff with the JS host.
 #[cfg(target_arch = "wasm32")]
@@ -28,19 +27,11 @@ pub mod admission_wire;
 
 // Labels alone cannot mint a lease or confer current native authority.
 pub use mdbn_replica::file_io::RegionOwner;
-#[cfg(any(test, target_arch = "wasm32"))]
-mod cpp_claim_ticket;
 pub mod device_keys;
 pub mod do_index;
 mod effect_currentness;
 pub mod host_trust;
 pub mod log_http;
-#[cfg(any(test, target_arch = "wasm32"))]
-mod migration_action_ledger;
-pub mod migration_checkpoint;
-pub mod migration_rollback_receipt;
-pub mod migration_sample;
-pub mod migration_source;
 pub mod noise_sessions;
 pub mod original_app;
 pub mod runtime;

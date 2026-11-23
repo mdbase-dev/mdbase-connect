@@ -18,10 +18,8 @@
 
 use std::collections::BTreeMap;
 
-mod cpp_claim;
 #[cfg(any(test, target_arch = "wasm32"))]
 pub(crate) mod initialization;
-pub(crate) use cpp_claim::{ConfiguredCppAudience, CppClaimSignRefused};
 
 use mdbn_replica::ClientApi;
 use mdbn_replica::api::{ApiError, ErrorCode, SessionAuth, SessionId, Target};
@@ -285,7 +283,6 @@ impl ObservedOriginalAppCaller {
 pub struct Engine<S: Store> {
     replica: Replica<HostedCache<S>>,
     native_target_instance: std::rc::Rc<()>,
-    cpp_claim_signer: Option<cpp_claim::CppClaimSigner>,
     frames: Frames,
     submits: BTreeMap<SubmitTicket, Waiting>,
     out: Vec<Out>,
@@ -296,10 +293,6 @@ pub struct Engine<S: Store> {
     /// accepted only through it, for the session that sent it.
     log_scopes: BTreeMap<CallId, mdbn_replica::replica::LogReplyScope>,
     collection: Uuid,
-    /// This Engine opened over an empty cache: everything it holds came from
-    /// the log after open (a migration rebuild needs exactly that).
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    opened_empty: bool,
     // Private default-deny foundation only: all-site Engine/adapter/destination
     // enforcement is a separate PR. No issuer or caller proof can open this.
     _effect_currentness: crate::effect_currentness::ReceiverGate,
@@ -353,17 +346,6 @@ impl<S: Store> Engine<S> {
         host: Host,
         profile: HostedProfile,
     ) -> Result<Engine<S>, OpenFailure> {
-        Self::open_with_cpp_signer(config, store, sealer, host, profile, None)
-    }
-
-    fn open_with_cpp_signer(
-        config: OpenConfig,
-        store: S,
-        sealer: Box<dyn mdbn_replica::Sealer>,
-        host: Host,
-        profile: HostedProfile,
-        cpp_claim_signer: Option<cpp_claim::CppClaimSigner>,
-    ) -> Result<Engine<S>, OpenFailure> {
         config.validate_public_trust()?;
         let OpenConfig { cfg, secrets, .. } = config;
         let collection = cfg.collection;
@@ -379,12 +361,9 @@ impl<S: Store> Engine<S> {
         .map_err(|e| OpenFailure(format!("{e:?}")))?;
         let effect_currentness = crate::effect_currentness::ReceiverGate::unknown();
         debug_assert!(!effect_currentness.permits_effect());
-        let opened_empty = replica.head().seq == 0;
         Ok(Engine {
-            opened_empty,
             replica,
             native_target_instance: std::rc::Rc::new(()),
-            cpp_claim_signer,
             frames: Frames::new(),
             submits: BTreeMap::new(),
             out: Vec::new(),
@@ -532,100 +511,6 @@ impl<S: Store> Engine<S> {
             owner,
             originals,
         })
-    }
-
-    /// Test harness for the read-only native supplier and SAME target checks.
-    /// Production source-member ingestion is not connected yet; this helper
-    /// cannot admit migration. CP policy/ceilings/invitations remain separate.
-    #[cfg(test)]
-    pub(crate) fn verify_migration_members(
-        &self,
-        target: &ObservedNativeTarget,
-        expected: &std::collections::BTreeMap<Uuid, mdbn_wire::policy::Role>,
-    ) -> Result<(), NativeTargetRefused> {
-        self.recheck_native_target(target)?;
-        self.replica
-            .verify_hosted_member_roles(expected)
-            .map_err(|_| NativeTargetRefused)?;
-        self.recheck_native_target(target)
-    }
-
-    /// The Replica's private generation-0 custody seam, lent only after a fresh
-    /// SAME-Engine recheck of `target`. The migration ledger's gen0 adapter is
-    /// the only caller; the custody calls recheck the full admission again.
-    // Native non-WASM lib has no ABI consumer.
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    pub(crate) fn migration_gen0_replica(
-        &mut self,
-        target: &ObservedNativeTarget,
-    ) -> Result<&mut Replica<HostedCache<S>>, NativeTargetRefused> {
-        self.recheck_native_target(target)?;
-        Ok(&mut self.replica)
-    }
-
-    /// Whether this Engine opened over an empty cache, so its whole state was
-    /// read from the log since open (`migration_action_ledger::log`).
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    pub(crate) fn migration_opened_empty(&self) -> bool {
-        self.opened_empty
-    }
-
-    /// A fresh observation of the SAME target after the log moved forward (a
-    /// migration base or cutover changes the admitted head): same Engine and
-    /// wake, same identity, root, epoch, key delivery, genesis owner and
-    /// originals, and the earlier applied head still on this replica's chain
-    /// (the retained item after it links to it; no rollback). VOID, never an
-    /// effect permit; anything else refuses.
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    pub(crate) fn refresh_native_target(
-        &self,
-        before: &ObservedNativeTarget,
-    ) -> Result<ObservedNativeTarget, NativeTargetRefused> {
-        if !std::rc::Rc::ptr_eq(&self.native_target_instance, &before.instance) {
-            return Err(NativeTargetRefused);
-        }
-        let now = self.observe_native_target()?;
-        let (a, b) = (now.admission(), before.admission());
-        if a == b {
-            return Ok(now);
-        }
-        if now.genesis_owner() != before.genesis_owner()
-            || now.originals() != before.originals()
-            || a.collection() != b.collection()
-            || a.device() != b.device()
-            || a.identity() != b.identity()
-            || a.noise_pk() != b.noise_pk()
-            || a.root_id() != b.root_id()
-            || a.root_pk() != b.root_pk()
-            || a.wake_instance() != b.wake_instance()
-            || a.epoch() != b.epoch()
-            || a.key_delivery_device() != b.key_delivery_device()
-            || a.key_delivery_seq() != b.key_delivery_seq()
-            || a.authenticated_head().seq < b.authenticated_head().seq
-        {
-            return Err(NativeTargetRefused);
-        }
-        let (old, new) = (b.applied_head(), a.applied_head());
-        if new.seq < old.seq || (new.seq == old.seq && new.chain != old.chain) {
-            return Err(NativeTargetRefused);
-        }
-        if new.seq > old.seq {
-            let row = self
-                .replica
-                .store()
-                .tail(old.seq, 1)
-                .map_err(|_| NativeTargetRefused)?
-                .into_iter()
-                .next()
-                .filter(|r| r.seq == old.seq + 1)
-                .ok_or(NativeTargetRefused)?;
-            let item = mdbn_wire::envelope::Item::from_bytes(&row.item)
-                .map_err(|_| NativeTargetRefused)?;
-            if item.prev != Some(old.chain) {
-                return Err(NativeTargetRefused);
-            }
-        }
-        Ok(now)
     }
 
     /// Fresh SAME-Engine point comparison; VOID, never an effect permit.

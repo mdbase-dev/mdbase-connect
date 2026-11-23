@@ -1,9 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { COLLECTION_OPERATIONS } from "@mdbase-dev/connect-protocol";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
-import { issueApplicationTokens } from "../authorizations/token-service.js";
 import {
   createHostedCollectionMembership,
   membershipPolicyPreset,
@@ -289,75 +287,6 @@ describe("collection membership policy", () => {
         policy.revision
       ]
     )).rejects.toThrow();
-  });
-
-  it("refuses token issuance after the membership policy revision changes", async () => {
-    database = await createDatabase("memory");
-    const ownerId = await insertUser(database, "owner@example.com");
-    const memberId = await insertUser(database, "member@example.com");
-    const collectionId = await insertHostedCollection(database, ownerId);
-    const applicationId = randomUUID();
-    await database.query(
-      `INSERT INTO applications
-         (id, canonical_identity, name, homepage, redirect_uris)
-       VALUES ($1, $2, 'Editor', 'https://editor.example', '[]'::jsonb)`,
-      [applicationId, `https://editor.example/${applicationId}`]
-    );
-    const policy = await createHostedCollectionMembership(database, {
-      collectionId,
-      ownerUserId: ownerId,
-      userId: memberId,
-      role: "editor"
-    });
-    const replicaId = randomUUID();
-    const grantId = randomUUID();
-    await database.query(
-      `INSERT INTO hosted_replicas
-         (id, collection_id, authorized_user_id, name, purpose, mode,
-          membership_id, membership_policy_id, membership_policy_revision)
-       VALUES ($1, $2, $3, 'Editor', 'application', 'read_write',
-               $4, $5, $6)`,
-      [replicaId, collectionId, memberId, policy.membershipId, policy.id, policy.revision]
-    );
-    await database.query(
-      `INSERT INTO grants
-         (id, user_id, application_id, hosted_collection_id,
-          hosted_replica_id, logical_collection_id, operations, scope,
-          membership_id, membership_policy_id, membership_policy_revision)
-       VALUES ($1, $2, $3, $4, $5, $4, '["read","update"]'::jsonb,
-               '{"access":"full_collection","contracts":[]}'::jsonb,
-               $6, $7, $8)`,
-      [grantId, memberId, applicationId, collectionId, replicaId,
-        policy.membershipId, policy.id, policy.revision]
-    );
-    const rotateReplicaToken = vi.fn();
-    const provider = { rotateReplicaToken } as unknown as HostedProviderClient;
-
-    await expect(issueApplicationTokens(database, provider, grantId))
-      .resolves.toMatchObject({ collection_id: collectionId, grant_id: grantId });
-    expect(rotateReplicaToken).toHaveBeenCalledTimes(1);
-
-    const replacementId = randomUUID();
-    const viewer = membershipPolicyPreset("viewer");
-    await database.query(
-      `INSERT INTO collection_membership_policies
-         (id, membership_id, revision, role, preset_version, actions,
-          operations, scope_ceiling, file_ceiling)
-       VALUES ($1, $2, 2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb)`,
-      [replacementId, policy.membershipId, viewer.role, viewer.presetVersion,
-        JSON.stringify(viewer.actions), JSON.stringify(viewer.operations),
-        JSON.stringify(viewer.scopeCeiling), JSON.stringify(viewer.fileCeiling)]
-    );
-    await database.query(
-      `UPDATE collection_memberships
-       SET current_policy_id = $2, current_policy_revision = 2
-       WHERE id = $1`,
-      [policy.membershipId, replacementId]
-    );
-
-    await expect(issueApplicationTokens(database, provider, grantId))
-      .rejects.toThrow("no longer matches");
-    expect(rotateReplicaToken).toHaveBeenCalledTimes(1);
   });
 
   it("enforces viewer/editor roles and one active membership in the database", async () => {

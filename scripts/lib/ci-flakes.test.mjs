@@ -38,7 +38,7 @@ test("Vitest records recovered attempts and persistent failures, not first-pass 
 
 test("real Vitest retries once with hooks, records recovered and persistent failures", { timeout: 30000 }, async () => {
   const { spawnSync } = await import("node:child_process");
-  const cwd = resolve("packages/client");
+  const cwd = resolve("services/mcp");
   const directory = mkdtempSync(join(cwd, "ci-flake-fixture-"));
   const reports = join(directory, "reports");
   try {

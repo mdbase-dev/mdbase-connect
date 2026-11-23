@@ -1,22 +1,11 @@
-import { normalizeCollectionChange } from "@mdbase-dev/connect";
+import { normalizeCollectionChange } from "./connect-types";
 import { mdbaseError } from "@mdbase-dev/sdk";
 import mdbaseReadme from "../../../templates/mdbase/README.md?raw";
 import { observeDemo } from "./demo-observe";
-import type {
-  CollectionChange,
-  CollectionContractDescriptor,
-  CollectionDescription,
-  CollectionFileDescriptor,
-  CollectionTypeDescriptor,
-  CollectionTypeDocument,
-  JsonObject,
-  MdbaseDiagnostic,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
+import type { CollectionChange, CollectionContractDescriptor, CollectionDescription, CollectionFileDescriptor, CollectionTypeDescriptor, CollectionTypeDocument, JsonObject, MdbaseDiagnostic, TypePackAssessment, TypePackProvision } from "./connect-types";
 import { parse } from "yaml";
 import { createdBody } from "./note";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { MdbaseRecordChange } from "./record-session";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
@@ -44,7 +33,7 @@ import type {
 } from "./model";
 
 export class DemoCollectionGateway implements CollectionGateway {
-  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[] { return []; }
+  pendingNoteMutations(): readonly import("./connect-types").PendingMutationSummary[] { return []; }
   async recoverNoteMutation(_requestId: string): Promise<NoteDocument> {
     throw new Error("No interrupted note operation is available.");
   }
@@ -158,7 +147,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     for (const listener of this.sessionListeners) listener(snapshot);
   }
 
-  observe(options: import("@mdbase-dev/connect").ObserveOptions = {}) {
+  observe(options: import("./connect-types").ObserveOptions = {}) {
     return observeDemo(this, options);
   }
 
@@ -278,7 +267,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     return blob;
   }
 
-  async uploadFile(path: string, source: import("@mdbase-dev/connect").MdbaseFileSource, { signal, onProgress }: FileUploadRequest = {}): Promise<CollectionFile> {
+  async uploadFile(path: string, source: import("./connect-types").MdbaseFileSource, { signal, onProgress }: FileUploadRequest = {}): Promise<CollectionFile> {
     signal?.throwIfAborted();
     if (this.files.some((file) => file.path.toLowerCase() === path.toLowerCase())) throw new Error("A file already uses that path.");
     const blob = source instanceof Blob
@@ -647,7 +636,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     };
   }
 
-  async watch(onChange: (change?: import("@mdbase-dev/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase-dev/connect").WatchStatus) => void): Promise<void> {
+  async watch(onChange: (change?: import("./connect-types").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("./connect-types").WatchStatus) => void): Promise<void> {
     onStatus?.({ state: "connecting" });
     onStatus?.({ state: "connected", cursor: this.sequence, recovered: false });
     this.listeners.add(onChange);

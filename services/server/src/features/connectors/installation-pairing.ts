@@ -24,7 +24,6 @@ import { installationTimerDeclaration, readInstallationTimerDeclaration, type In
 import { InstallationPairingError } from "./installation-pairing-error.js";
 export { InstallationPairingError } from "./installation-pairing-error.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
-import { accountUpgradeRolledBack } from "../next/migration-rollback-state.js";
 import { unmigratedLocalCollection } from "../next/native-grant-target.js";
 import { attachNativeAuthorization, approveInstallationNativeChoice, closeUnusedNativeAuthorization, privateInstallationChoices } from "./installation-native-authorization.js";
 function fail(code: string, status = 409): never {
@@ -209,9 +208,8 @@ async function active(c: Pick<Connection, "query">, user: string, lock = false, 
       "SELECT started_at IS NOT NULL AS started FROM next_migration_cohort_members WHERE account_id=$1 AND terminal_excluded_at IS NULL",
       [user],
     )).rows[0];
-    // Rollback keeps the start claim, but must not tell the person to keep waiting.
     const upgrade = member?.started
-      ? await accountUpgradeRolledBack(c, user) ? "postponed" : "in_progress"
+      ? "in_progress"
       : member ? "scheduled" : "not_scheduled";
     if (!allowLegacy) throw new InstallationPairingError(409, "installation_legacy_backend", {
       in_progress: "Your mdbase account is being upgraded. Try again in a few minutes.",

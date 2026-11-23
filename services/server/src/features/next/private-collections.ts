@@ -37,8 +37,6 @@ import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./p
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
-import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
-import { carryOverLegacyGrants } from "./legacy-grant-carry-over.js";
 
 /** `H("mdbase/v1/private-create", cbor[challenge, connector, device, collection])`, signed by the owner's device. */
 export function privateCreateDigest(input: { challenge: Uint8Array; connector: string; device: string; collection: string }): Uint8Array {
@@ -165,7 +163,6 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       // 1. Proof, current identity and ownership, then genesis, in one transaction.
       // Nothing here calls the network. Account first, matching the rename/freeze lock order.
       device = await inTransaction(options.db, async (client) => {
-        await requireNextAccountNotMigrationFrozen(client, connector.user_id);
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
         await currentIdentity(client, connector, body.device_id, owner);
@@ -220,10 +217,6 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
           device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };
       });
-      // 4. A desktop collection taken over from mdbase Connect keeps its apps:
-      // their grants move to this collection. Best effort; a later route lookup
-      // by such an app retries, and the create outcome never depends on it.
-      await carryOverLegacyGrants(options, collection, request.log);
       return created;
     } catch (error) {
       if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The private collection is not current for this device.");

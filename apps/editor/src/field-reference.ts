@@ -1,4 +1,4 @@
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor, JsonObject } from "./connect-types";
 
 type DisplayField = "name_field" | "description_field" | "color_field" | "icon";
 

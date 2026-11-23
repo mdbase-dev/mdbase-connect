@@ -1,7 +1,7 @@
 import userEvent from "@testing-library/user-event";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { afterEach, expect, it, vi } from "vitest";
-import { MdbaseConnectError, type CollectionDescription } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription } from "./connect-types";
 import type { CollectionGateway, NoteSummary } from "./model";
 import { YourPersonPanel } from "./YourPersonPanel";
 import { peopleGateway } from "./test/people-gateway";

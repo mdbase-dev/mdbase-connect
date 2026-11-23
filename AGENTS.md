@@ -31,9 +31,8 @@ explicit failure over silent recovery, and simplification over expansion.
   `runtime/AGENTS.md`), which implements the mdbase specification. Apps and
   services ask it; they do not duplicate its semantics.
 - `mdbase-rs` is the deprecated legacy engine and is **not authoritative**. Do
-  not cite its code, docs or conformance corpora as mdbase behaviour. Only the
-  legacy Connect stack in root `crates/` still uses `../mdbase-rs` as a path
-  dependency, until that stack is retired.
+  not cite its code, docs or conformance corpora as mdbase behaviour. The legacy
+  root `crates/` stack has been retired.
 - Treat the local connector as the final authorization boundary. Every remote
   filesystem operation must be checked against its locally cached exact grant.
 - Never send local collection paths to the control plane or persist record

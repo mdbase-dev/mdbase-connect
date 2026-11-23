@@ -1,6 +1,6 @@
 import { act, renderHook } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
-import type { CollectionDescription } from "@mdbase-dev/connect";
+import type { CollectionDescription } from "./connect-types";
 import type { CollectionGateway, TypeDocument } from "./model";
 import { useTypeDefinitionLifecycle } from "./use-type-definition-lifecycle";
 

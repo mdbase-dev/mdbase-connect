@@ -116,13 +116,8 @@ impl Daemon {
             }
             Method::COLLECTION_PAUSE | Method::COLLECTION_RESUME => {
                 let p: CollectionRef = params(req)?;
-                let out = self
-                    .set_paused(&p.collection, req.method == Method::COLLECTION_PAUSE)
-                    .await;
-                if out.is_ok() && req.method == Method::COLLECTION_RESUME {
-                    self.spawn_auto_private();
-                }
-                out
+                self.set_paused(&p.collection, req.method == Method::COLLECTION_PAUSE)
+                    .await
             }
             Method::COLLECTION_HOLDS => {
                 let p: CollectionRef = params(req)?;
@@ -176,20 +171,6 @@ impl Daemon {
             Method::PRIVATE_PASSWORD => self.private_password(params(req)?).await,
             Method::PRIVATE_STRICT => self.private_strict().await,
             Method::DOCTOR => to_value(&self.doctor().await),
-            Method::MIGRATE_STATUS => {
-                let refresh =
-                    req.params.get("refresh_rollout").and_then(Value::as_bool) == Some(true);
-                self.spawn(self.clone().retry_takeover(refresh));
-                self.takeover_status().await
-            }
-            Method::MIGRATE_START => {
-                let p: crate::control::MigrateStart = params(req)?;
-                let out = self.clone().takeover_run(p.stop_mirrors, false).await;
-                if out.is_ok() {
-                    self.spawn(self.clone().auto_private());
-                }
-                out
-            }
             Method::ACCESS_LIST => {
                 let c: Option<String> = req
                     .params

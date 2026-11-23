@@ -16,7 +16,6 @@
     "@fastify/formbody": "^9.0.0",
     "@fastify/helmet": "^13.1.1",
     "@fastify/rate-limit": "^11.2.0",
-    "@mdbase-dev/connect": "workspace:*",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-6597d734-production-0.1.40.tgz",
     "@modelcontextprotocol/sdk": "^1.31.0",

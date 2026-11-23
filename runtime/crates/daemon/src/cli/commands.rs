@@ -332,39 +332,8 @@ pub(super) async fn run_command(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Sync(SyncCmd::Enable {
-            collection,
-            mode,
-            accept_takeover_holds,
-        }) => {
-            if accept_takeover_holds {
-                // Say exactly what is being accepted without review.
-                let id = resolve(profile, &collection).await?;
-                let holds = call(
-                    profile,
-                    Method::COLLECTION_HOLDS,
-                    json!({ "collection": id }),
-                )
-                .await
-                .ok()
-                .and_then(|v| serde_json::from_value::<Vec<HoldSummary>>(v).ok())
-                .unwrap_or_default();
-                let taken: Vec<&HoldSummary> = holds
-                    .iter()
-                    .filter(|h| h.id.starts_with(crate::takeover::held::ID_PREFIX))
-                    .collect();
-                if !taken.is_empty() {
-                    eprintln!(
-                        "Accepting this computer's version of {} file(s) held at the takeover; \
-                         the old connector's versions stay in mdbase's state directory:",
-                        taken.len()
-                    );
-                    for h in taken {
-                        eprintln!("  {}", h.path);
-                    }
-                }
-            }
-            let mut params = json!({ "accept_takeover_holds": accept_takeover_holds });
+        Command::Sync(SyncCmd::Enable { collection, mode }) => {
+            let mut params = json!({});
             if let Some(mode) = mode {
                 params["mode"] = json!(match mode {
                     SyncKind::Private => SyncMode::SyncedE2e,
@@ -738,37 +707,6 @@ pub(super) async fn run_command(
             Ok(ExitCode::SUCCESS)
         }
         Command::Service(cmd) => Ok(crate::service::run(cmd, profile, out.json).await),
-        Command::Migrate(MigrateCmd::Status) => {
-            let v = match call(profile, Method::MIGRATE_STATUS, json!({})).await {
-                Ok(v) => v,
-                Err(ClientError::NotRunning) => {
-                    let path =
-                        crate::takeover::Paths::new(&profile.state_dir, profile.store_ids_file())
-                            .record;
-                    let record = crate::takeover::record::Record::load(&path).map_err(|e| {
-                        ClientError::Remote(ControlError::internal(format!("takeover record: {e}")))
-                    })?;
-                    let waiting = record.is_none()
-                        && crate::takeover::old_state_dir(profile)
-                            .is_some_and(|p| p.join("connector.sqlite").is_file());
-                    json!({ "record": record, "daemon": "not_running", "waiting_for_migration_batch": waiting,
-                        "held_interrupted_writes": record.as_ref().map(|r| r.held_interrupted_writes()).unwrap_or(0) })
-                }
-                Err(e) => return Err(e),
-            };
-            migrate_print(out, &v);
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Migrate(MigrateCmd::Start { stop_mirrors }) => {
-            let v = call(
-                profile,
-                Method::MIGRATE_START,
-                json!({ "stop_mirrors": stop_mirrors }),
-            )
-            .await?;
-            migrate_print(out, &v);
-            Ok(ExitCode::SUCCESS)
-        }
         Command::Paths => {
             let v = serde_json::to_value(profile).unwrap_or_default();
             if out.json {

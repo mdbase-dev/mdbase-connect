@@ -36,11 +36,8 @@ mod collections;
 mod config;
 mod connector;
 mod mode;
-mod rollout;
 mod transport;
 
-#[cfg(test)]
-use rollout::*;
 use transport::*;
 
 pub use account_key::{AccountKeyRecord, RecoveryDevices};
@@ -50,7 +47,6 @@ pub use connector::{
     AccountApplication, AccountApplicationCollection, AppDistribution, Paired, Pairing,
     device_bind_sig, pairing_exchange, pairing_start,
 };
-pub use rollout::{AccountBackend, Rollout};
 pub use transport::{canonical_server_url, tls_config};
 
 /// Keychain entry of the connector token.
@@ -120,14 +116,3 @@ impl std::fmt::Debug for Cloud {
             .finish_non_exhaustive()
     }
 }
-
-#[path = "cloud_migration_record.rs"]
-pub mod migration_record;
-
-#[cfg(test)]
-#[path = "cloud_rollout_tests.rs"]
-mod rollout_tests;
-
-#[cfg(test)]
-#[path = "cloud_retirement_tests.rs"]
-mod retirement_tests;

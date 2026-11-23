@@ -1,7 +1,6 @@
 // Regressions for membership authorization and lifecycle boundaries.
 import { randomUUID } from "node:crypto";
-import { afterEach, expect, it, vi } from "vitest";
-import { deleteAccountLocally } from "../account/account-management.js";
+import { afterEach, expect, it } from "vitest";
 import { buildApp } from "../../app.js";
 import { createDatabase } from "../../db.js";
 import { createHostedCollectionMembership } from "./collection-policy.js";
@@ -14,7 +13,6 @@ import {
   createHostedCollectionInvitation,
   acceptHostedCollectionInvitation
 } from "./collection-invitations.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 const cleanup: Array<() => Promise<void>> = [];
 afterEach(async () => {
   while (cleanup.length) await cleanup.pop()!();
@@ -22,22 +20,11 @@ afterEach(async () => {
 async function fixture(role: "viewer" | "editor" = "viewer", hostedSharing = true) {
   const db = await createDatabase("memory");
   cleanup.push(() => db.end());
-  const provider = {
-    url: "https://provider.example",
-    ready: vi.fn(),
-    upsertAccount: vi.fn().mockResolvedValue({}),
-    createCollection: vi.fn(),
-    registerReplica: vi.fn(),
-    revokeReplica: vi.fn(),
-    rotateReplicaToken: vi.fn(),
-    revokeNotificationGrant: vi.fn()
-  };
   const { app } = await buildApp({
     db,
     devAuth: true,
     hostedCollections: true,
     hostedSharing,
-    hostedProvider: provider as unknown as HostedProviderClient,
     publicUrl: "http://connect.test"
   });
   cleanup.push(() => app.close());
@@ -55,33 +42,20 @@ async function fixture(role: "viewer" | "editor" = "viewer", hostedSharing = tru
   }
   const owner = await user("owner@example.com");
   const member = await user("member@example.com");
-  const created = await app.inject({
-    method: "POST",
-    url: "/v1/hosted/collections",
-    headers: { cookie: owner.cookie },
-    payload: { display_name: "Review sharing", template: "mdbase", timezone: "Australia/Melbourne" }
-  });
-  expect(created.statusCode, created.body).toBe(201);
-  const collectionId = created.json().collection.id as string;
+  const collectionId = randomUUID();
+  await db.query(
+    `INSERT INTO hosted_collections (id, user_id, display_name, template, contracts, authority_state)
+     VALUES ($1, $2, 'Review sharing', 'mdbase', '[]'::jsonb, 'active')`,
+    [collectionId, owner.id]
+  );
   const policy = await createHostedCollectionMembership(db, {
     collectionId,
     ownerUserId: owner.id,
     userId: member.id,
     role
   });
-  return { db, app, provider, owner, member, collectionId, policy, user };
+  return { db, app, owner, member, collectionId, policy, user };
 }
-it("denies a viewer writable mirror authority", async () => {
-  const f = await fixture();
-  const response = await f.app.inject({
-    method: "POST",
-    url: `/v1/hosted/collections/${f.collectionId}/replicas`,
-    headers: { cookie: f.member.cookie },
-    payload: { name: "Viewer writable mirror", mode: "read_write" }
-  });
-  expect(response.statusCode, response.body).toBe(403);
-  expect(f.provider.registerReplica).not.toHaveBeenCalled();
-});
 async function boundReplica(f: Awaited<ReturnType<typeof fixture>>) {
   const id = randomUUID();
   await f.db.query(
@@ -90,27 +64,6 @@ async function boundReplica(f: Awaited<ReturnType<typeof fixture>>) {
   );
   return id;
 }
-it("deletes member accounts without losing provider cleanup", async () => {
-  const f = await fixture("editor");
-  const replicaId = await boundReplica(f);
-  await expect(
-    deleteAccountLocally(f.db, {
-      userId: f.member.id,
-      sessionId: randomUUID(),
-      authorized: true,
-      queueProviderCleanup: true
-    })
-  ).resolves.toMatchObject({ crossAccountReplicasRevoked: 1 });
-  expect((await f.db.query("SELECT id FROM users WHERE id = $1", [f.member.id])).rows).toEqual([]);
-  expect(
-    (
-      await f.db.query(
-        "SELECT replica_id FROM provider_revocation_jobs WHERE replica_id = $1 AND completed_at IS NULL",
-        [replicaId]
-      )
-    ).rows
-  ).toHaveLength(1);
-});
 it("lets removal supersede a pending downgrade idempotently", async () => {
   const f = await fixture("editor");
   await boundReplica(f);
@@ -164,53 +117,6 @@ it("rejects invitations from a removed legacy editor", async () => {
   ).rejects.toMatchObject({ code: "invalid_collection_invitation" });
 });
 
-it("binds a viewer's read-only mirror and denies renewal after removal", async () => {
-  const f = await fixture();
-  const created = await f.app.inject({
-    method: "POST",
-    url: `/v1/hosted/collections/${f.collectionId}/replicas`,
-    headers: { cookie: f.member.cookie },
-    payload: { name: "Viewer mirror", mode: "read_only" }
-  });
-  expect(created.statusCode, created.body).toBe(201);
-  const replicaId = created.json().replica.id;
-  expect(
-    (
-      await f.db.query(
-        "SELECT membership_id, membership_policy_id, membership_policy_revision FROM hosted_replicas WHERE id=$1",
-        [replicaId]
-      )
-    ).rows[0]
-  ).toEqual({
-    membership_id: f.policy.membershipId,
-    membership_policy_id: f.policy.id,
-    membership_policy_revision: 1
-  });
-  const rotate = () =>
-    f.app.inject({
-      method: "POST",
-      url: `/v1/hosted/replicas/${replicaId}/token`,
-      headers: { cookie: f.member.cookie }
-    });
-  expect((await rotate()).statusCode).toBe(200);
-  expect(f.provider.rotateReplicaToken).toHaveBeenCalledTimes(1);
-  await revokeHostedCollectionMembership(f.db, {
-    collectionId: f.collectionId,
-    actorUserId: f.owner.id,
-    membershipId: f.policy.membershipId
-  });
-  expect((await rotate()).statusCode).toBe(404);
-  expect(f.provider.rotateReplicaToken).toHaveBeenCalledTimes(1);
-  expect(
-    (
-      await f.db.query(
-        "SELECT replica_id FROM provider_revocation_jobs WHERE replica_id=$1 AND completed_at IS NULL",
-        [replicaId]
-      )
-    ).rows
-  ).toHaveLength(1);
-});
-
 it("keeps cleanup and existing read access available with new sharing disabled", async () => {
   const f = await fixture("viewer", false);
   const overview = await f.app.inject({ url: "/v1/me", headers: { cookie: f.owner.cookie } });
@@ -243,47 +149,3 @@ it("keeps cleanup and existing read access available with new sharing disabled",
   const after = await f.app.inject({ url: "/v1/me", headers: { cookie: f.owner.cookie } });
   expect(after.json().hosted_collections[0].access.can_manage_members).toBe(false);
 });
-
-it.each([false, true])(
-  "retains the seat after member deletion with prior cleanup=%s",
-  async (pending) => {
-    const f = await fixture("editor");
-    await f.db.query("UPDATE entitlement_profiles SET max_collection_member_seats=1");
-    await f.db.query(
-      `INSERT INTO account_collection_member_seats(id,owner_user_id,membership_id,collection_id,member_user_id)
-    VALUES($1,$2,$3,$4,$5)`,
-      [randomUUID(), f.owner.id, f.policy.membershipId, f.collectionId, f.member.id]
-    );
-    const replicaId = await boundReplica(f);
-    if (pending)
-      await changeHostedCollectionMembershipRole(f.db, {
-        collectionId: f.collectionId,
-        actorUserId: f.owner.id,
-        membershipId: f.policy.membershipId,
-        role: "viewer"
-      });
-    await deleteAccountLocally(f.db, {
-      userId: f.member.id,
-      sessionId: randomUUID(),
-      authorized: true,
-      queueProviderCleanup: true
-    });
-    const target = await f.user("next-member@example.com");
-    const code = await createCollectionInvitationCode(f.db, target.id);
-    const invitation = await createHostedCollectionInvitation(f.db, {
-      collectionId: f.collectionId,
-      actorUserId: f.owner.id,
-      role: "viewer",
-      target: { inviteeCode: code.code }
-    });
-    await expect(
-      acceptHostedCollectionInvitation(f.db, { userId: target.id, token: invitation.token })
-    ).rejects.toMatchObject({ code: "collection_member_seat_unavailable" });
-    await f.db.query("UPDATE provider_revocation_jobs SET completed_at=now() WHERE replica_id=$1", [
-      replicaId
-    ]);
-    await expect(
-      acceptHostedCollectionInvitation(f.db, { userId: target.id, token: invitation.token })
-    ).resolves.toMatchObject({ role: "viewer" });
-  }
-);

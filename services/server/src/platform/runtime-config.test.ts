@@ -1,7 +1,6 @@
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  hostedProviderConfigFromEnv,
   runtimeConfigFromEnv,
   validateRuntimeConfig
 } from "./runtime-config.js";
@@ -33,9 +32,6 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     accountDeletionEnabled: true,
     hostedCollections: false,
     hostedSharing: false,
-    hostedProvider: null,
-    hostedReferenceAuthority: false,
-    allowInsecureHostedProvider: false,
     trustProxy: false,
     relayBroker: null,
     vapid: null,
@@ -420,98 +416,6 @@ describe("public runtime configuration", () => {
       identityIssuer: "https://connect.example",
       tailscaleAuth: true
     }))).toThrow(/must be an origin/);
-  });
-
-  it("requires a canonical TLS provider and a strong internal credential for hosted mode", () => {
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true
-    }))).toThrow(/storage provider/);
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true,
-      hostedProvider: { url: "http://provider.example", internalToken: "x".repeat(40) }
-    }))).toThrow(/HTTPS/);
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true,
-      hostedProvider: { url: "https://provider.example/path", internalToken: "x".repeat(40) }
-    }))).toThrow(/must be an origin/);
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true,
-      hostedProvider: { url: "https://provider.example", internalToken: "short" }
-    }))).toThrow(/32 characters/);
-
-    const value = legacyConfigFromEnv({
-      PUBLIC_URL: "http://localhost:8787",
-      MDBASE_CONNECT_DEV_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://127.0.0.1:8790",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
-    });
-    expect(value.hostedProvider?.url).toBe("http://127.0.0.1:8790");
-
-    const dockerDevelopment = legacyConfigFromEnv({
-      PUBLIC_URL: "http://localhost:8787",
-      MDBASE_CONNECT_DEV_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://host.docker.internal:8790",
-      MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL: "http://127.0.0.1:8790",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
-      MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
-    });
-    expect(dockerDevelopment.hostedProvider).toMatchObject({
-      url: "http://host.docker.internal:8790",
-      publicUrl: "http://127.0.0.1:8790"
-    });
-    expect(() => legacyConfigFromEnv({
-      PUBLIC_URL: "https://connect.example",
-      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
-      MDBASE_CONNECT_TAILSCALE_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://provider.example",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
-      MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
-    })).toThrow(/development authentication/);
-  });
-
-  it("allows the reference hosted authority only in loopback development", () => {
-    const value = legacyConfigFromEnv({
-      PUBLIC_URL: "http://localhost:8787",
-      MDBASE_CONNECT_DEV_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
-    });
-    expect(value.hostedReferenceAuthority).toBe(true);
-    expect(() => legacyConfigFromEnv({
-      PUBLIC_URL: "https://connect.example",
-      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
-      MDBASE_CONNECT_TAILSCALE_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
-    })).toThrow(/loopback development/);
-  });
-
-  it("loads provider configuration independently for one-shot administration", () => {
-    expect(hostedProviderConfigFromEnv({
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example/",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
-    })).toEqual({
-      url: "https://provider.example",
-      internalToken: "x".repeat(40)
-    });
-    expect(() => hostedProviderConfigFromEnv({
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example"
-    })).toThrow(/32 characters/);
   });
 
   it("validates an optional private NATS relay transport", () => {

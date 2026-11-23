@@ -15,7 +15,6 @@ test("fresh issuance advertisements are generated from strict artifact policy in
       copyFileSync(resolve(root, path), resolve(temp, path));
     }
     mkdirSync(resolve(temp, "packages/protocol/src"), { recursive: true });
-    mkdirSync(resolve(temp, "crates/connect-protocol/src"), { recursive: true });
     const policyPath = resolve(temp, "config/application-issuance-policy.json");
     const policy = JSON.parse(readFileSync(policyPath, "utf8"));
     for (const [phase, versions, valid] of [["compatibility-prelude", [1], true], ["v2-enablement", [1, 2], true],
@@ -24,11 +23,9 @@ test("fresh issuance advertisements are generated from strict artifact policy in
       const result = spawnSync(process.execPath, [resolve(temp, "scripts/generate-application-capabilities.mjs")]);
       assert.equal(result.status === 0, valid, `${phase}/${versions}: ${result.stderr}`);
       if (!valid) continue;
-      for (const file of ["packages/protocol/src/capabilities.ts", "crates/connect-protocol/src/application_capabilities_generated.rs"]) {
-        const source = readFileSync(resolve(temp, file), "utf8");
-        const list = source.split("FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES")[1].split(";")[0];
-        assert.equal(list.includes('"application-authorization-v2-issuance"'), versions.includes(2));
-      }
+      const source = readFileSync(resolve(temp, "packages/protocol/src/capabilities.ts"), "utf8");
+      const list = source.split("FRESH_APPLICATION_AUTHORIZATION_CAPABILITIES")[1].split(";")[0];
+      assert.equal(list.includes('"application-authorization-v2-issuance"'), versions.includes(2));
     }
   } finally { rmSync(temp, { recursive: true, force: true }); }
 });

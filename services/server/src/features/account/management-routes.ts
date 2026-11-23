@@ -12,10 +12,6 @@ import {
   redeemUnsubscribeToken,
   updateEmailPreferences
 } from "../email/scheduled-email.js";
-import type {
-  HostedCollectionUsage,
-  HostedProviderClient
-} from "../hosted/hosted-provider.js";
 import {
   PasswordAccountService,
   PasswordAuthenticationUnavailableError
@@ -43,8 +39,6 @@ interface AccountManagementRoutesOptions {
   accountDeletionEnabled?: boolean;
   githubAvailable?: boolean;
   googleAvailable?: boolean;
-  hostedProvider?: HostedProviderClient;
-  triggerProviderCleanup?: () => void;
 }
 
 interface ExternalIdentityRow {
@@ -130,11 +124,7 @@ export function registerAccountManagementRoutes(
         options.authenticationPolicy.current(),
         readEmailPreferences(options.db, user.id)
       ]);
-    const storage = await storageSnapshot(
-      hostedCollections.rows,
-      options.hostedProvider,
-      request.log
-    );
+    const storage = storageSnapshot(hostedCollections.rows);
     const authenticationProvider = user.authentication_provider ?? (
       options.tailscaleAuth ? "tailscale" : "session"
     );
@@ -313,20 +303,14 @@ export function registerAccountManagementRoutes(
       userId: authenticated.user.id,
       sessionId: authenticated.sessionId,
       authorized,
-      reauthToken: input.reauth_token,
-      queueProviderCleanup: options.hostedProvider !== undefined
+      reauthToken: input.reauth_token
     });
-    options.triggerProviderCleanup?.();
     clearSessionCookies(reply);
     return { ok: true };
   });
 }
 
-async function storageSnapshot(
-  collections: HostedCollectionRow[],
-  provider: HostedProviderClient | undefined,
-  log: { warn(value: unknown, message: string): void }
-) {
+function storageSnapshot(collections: HostedCollectionRow[]) {
   if (collections.length === 0) {
     return {
       status: "available" as const,
@@ -338,61 +322,16 @@ async function storageSnapshot(
       collections: []
     };
   }
-  if (!provider) {
-    return {
-      status: "unavailable" as const,
-      total_content_bytes: null,
-      total_file_bytes: null,
-      total_storage_bytes: null,
-      total_stored_file_bytes: null,
-      total_records: null,
-      collections: collections.map((collection) => ({
-        ...collection,
-        usage: null
-      }))
-    };
-  }
-  const usage = await Promise.all(collections.map(async (collection) => {
-    try {
-      return await provider.collectionUsage(collection.id);
-    } catch (error) {
-      log.warn(
-        { error, collection_id: collection.id },
-        "Hosted storage usage is unavailable"
-      );
-      return null;
-    }
-  }));
-  const available = usage.filter(
-    (value): value is HostedCollectionUsage => value !== null
-  );
   return {
-    status: available.length === collections.length
-      ? "available" as const
-      : available.length > 0
-        ? "partial" as const
-        : "unavailable" as const,
-    total_content_bytes: available.length > 0
-      ? available.reduce((total, value) => total + value.content_bytes, 0)
-      : null,
-    total_file_bytes: available.length > 0
-      ? available.reduce((total, value) => total + value.file_bytes, 0)
-      : null,
-    total_storage_bytes: available.length > 0
-      ? available.reduce(
-          (total, value) => total + value.content_bytes + value.file_bytes,
-          0
-        )
-      : null,
-    total_stored_file_bytes: available.length > 0
-      ? available.reduce((total, value) => total + value.stored_file_bytes, 0)
-      : null,
-    total_records: available.length > 0
-      ? available.reduce((total, value) => total + value.record_count, 0)
-      : null,
-    collections: collections.map((collection, index) => ({
+    status: "unavailable" as const,
+    total_content_bytes: null,
+    total_file_bytes: null,
+    total_storage_bytes: null,
+    total_stored_file_bytes: null,
+    total_records: null,
+    collections: collections.map((collection) => ({
       ...collection,
-      usage: usage[index]
+      usage: null
     }))
   };
 }

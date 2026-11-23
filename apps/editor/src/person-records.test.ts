@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { CollectionDescription, PeopleDirectory, PersonRecord } from "@mdbase-dev/connect";
+import type { CollectionDescription, PeopleDirectory, PersonRecord } from "./connect-types";
 import { claimedByAnotherAccount, contactCandidates, contactPersonPatch, identityPatch, newPersonProperties, writablePersonImplementation } from "./person-records";
 
 const implementation = { typeName: "contact", typeVersion: 1, digest: "digest", fields: { name: "/profile/name", identities: "/profile/accounts" } };
 const description = { contracts: [{ id: "mdbase.person", version: "2.0.0", implementations: [implementation] }] } as unknown as CollectionDescription;
 const identity = { issuer: "https://connect.example", subject: "Account_A" };
-const person = (path: string, identities = [identity], typeNames = ["contact"]): PersonRecord => ({ path, name: "Callum", identities, typeNames });
+const person = (path: string, identities = [identity], typeNames = ["contact"]): PersonRecord => ({ id: path, path, name: "Callum", identities, typeNames });
 const directory = (people: PersonRecord[] = [], invalid: PeopleDirectory["invalid"] = []): PeopleDirectory =>
   ({ account: { ...identity, name: "Callum" }, me: { status: "unlinked" }, people, invalid });
 

@@ -1,5 +1,4 @@
 import type { FastifyInstance } from "fastify";
-import { SyncError } from "@mdbase-dev/connect-sync";
 import { CreateError } from "../features/next/bootstrap-common.js";
 import { ZodError } from "zod";
 import {
@@ -13,10 +12,6 @@ import { InvalidExternalSignupError, ExternalSignupEmailRequiredError } from "..
 import { HostedEntitlementRequiredError } from "../features/account/entitlements.js";
 import { GitHubIdentityError } from "../features/auth/github-auth.js";
 import { GoogleIdentityError } from "../features/auth/google-auth.js";
-import {
-  HostedProviderResponseError,
-  HostedProviderUnavailableError
-} from "../features/hosted/hosted-provider.js";
 import { ApplicationManifestError } from "../manifest.js";
 import {
   ApplicationAuthorizationError,
@@ -72,15 +67,8 @@ export function registerErrorHandler(
         retry_after_ms: error.retryAfterMs
       }));
     }
-    // The provider's fence answer on a migrating collection reaches old clients
-    // through token and approval calls; give it the same plain-language refusal.
-    const cutover = error instanceof CutoverProblemError
-      ? error
-      : error instanceof HostedProviderResponseError && error.code === "collection_migrating"
-        ? new CutoverProblemError("migrating")
-        : undefined;
-    if (cutover) {
-      const problem = cutoverProblem(cutover, clientUpdate);
+    if (error instanceof CutoverProblemError) {
+      const problem = cutoverProblem(error, clientUpdate);
       if (problem.retryAfterSeconds) reply.header("retry-after", String(problem.retryAfterSeconds));
       return reply.code(problem.status).send(apiError(problem.code, problem.message, problem.details));
     }
@@ -155,35 +143,6 @@ export function registerErrorHandler(
         );
       }
       return reply.code(409).send(apiError(error.code, error.message, error.details));
-    }
-    if (error instanceof SyncError) {
-      const denied =
-        error.code === "replica_revoked"
-        || error.code === "scope_denied"
-        || error.code === "read_only_replica";
-      return reply.code(denied ? 403 : 400).send(apiError(error.code, error.message));
-    }
-    if (error instanceof HostedProviderResponseError) {
-      if ([400, 404, 409, 422, 429].includes(error.status)) {
-        return reply.code(error.status).send(apiError(error.code, error.message));
-      }
-      request.log.error(
-        {
-          metric: "boundary_response_failure",
-          response_class: error.code,
-          provider_status: error.status,
-          provider_code: error.code
-        },
-        "Hosted provider rejected control request"
-      );
-      return reply.code(502).send(apiError(
-        "hosted_provider_error",
-        "The hosted storage provider could not complete the request."
-      ));
-    }
-    if (error instanceof HostedProviderUnavailableError) {
-      request.log.error({ error: error.cause }, "Hosted provider is unavailable");
-      return reply.code(503).send(apiError("hosted_provider_unavailable", error.message));
     }
     if (error instanceof HostedEntitlementRequiredError) {
       return reply.code(403).send(apiError(

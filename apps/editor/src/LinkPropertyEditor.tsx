@@ -1,7 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { LinkPicker, type LinkPickerCreate, type LinkPickerOption } from "@mdbase-dev/ui/link-picker";
 import type { LinkTargets } from "./collection-links";
 import { collectionDisplayField } from "./field-reference";

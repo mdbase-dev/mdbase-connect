@@ -27,7 +27,7 @@ use futures_util::FutureExt;
 use futures_util::future::{BoxFuture, Shared};
 
 use crate::control::{CollectionState, CollectionStatus, LogLocation, Notice};
-use crate::registry::{Entry, Origin, SyncMode};
+use crate::registry::{Entry, SyncMode};
 
 /// One hosted collection.
 pub struct CollectionHost {
@@ -43,8 +43,6 @@ pub struct CollectionHost {
     ready: Arc<std::sync::Mutex<Readiness>>,
     /// Exact paired incarnation captured when this runtime was opened.
     telemetry_authority: Option<crate::authority::CollectionAuthority>,
-    /// Pre-open diagnostic only; never serving/permission/proof authority.
-    mirror_closed: Arc<std::sync::Mutex<Option<crate::takeover::mirror_driver::Diagnostic>>>,
     /// Last allowlisted terminal incident; retained after the actor stops.
     last_sync_failure: crate::sync_failure::Shared,
     /// Automatic reopening after a `sync_integrity` stop or a storage fence.
@@ -261,11 +259,6 @@ pub struct HostCtx {
     pub sync: Option<SyncCtx>,
     /// This computer's name in the account (signed in only).
     pub computer_name: Option<String>,
-    /// An old mdbase Connect daemon is running on this device (it holds its
-    /// `daemon.lock`). Old daemons before the takeover marker check write to the
-    /// folders they served, and they take no folder host lock, so a taken-over
-    /// collection is not opened while one runs.
-    pub old_connector_running: Arc<AtomicBool>,
 }
 
 /// What a synced collection's runtime needs beyond the device identity.
@@ -280,9 +273,6 @@ pub struct SyncCtx {
     /// The installed environment trust pins, if any.
     pub trust: Option<Arc<crate::trust::Trust>>,
 }
-
-/// Status reason: a taken-over collection is closed while an old connector runs.
-pub const OLD_CONNECTOR_RUNNING: &str = "old_connector_running";
 
 /// A failed background open that never touched user files: Connect refused.
 const INELIGIBLE: &str = "ineligible: ";
@@ -329,7 +319,6 @@ impl CollectionHost {
             grants: Default::default(),
             ready: Arc::new(std::sync::Mutex::new(Readiness::Pending)),
             telemetry_authority: None,
-            mirror_closed: Arc::new(std::sync::Mutex::new(None)),
             last_sync_failure,
             recovery: Recovery::default(),
         }
@@ -386,14 +375,6 @@ impl CollectionHost {
                 .map(|j| j.plan()),
         };
         let journal = adopt.is_some().then_some(journal);
-        let id_hints = match (&self.entry.origin, ctx.collections_dir.parent()) {
-            (crate::registry::Origin::MigratedLocal, Some(state))
-                if sync.is_none() || adopt.is_some() =>
-            {
-                crate::adopt::legacy_hints(state, &self.entry.id)
-            }
-            _ => Vec::new(),
-        };
         let cfg = crate::runtime::RuntimeConfig {
             collection: u(&self.entry.id)?,
             replica_id: u(&self.entry.replica_id)?,
@@ -402,7 +383,7 @@ impl CollectionHost {
             private_dir: ctx.collections_dir.join(&self.entry.id),
             sync,
             adopt,
-            id_hints,
+            id_hints: Vec::new(),
             computer_name: ctx.computer_name.clone(),
         };
         let secrets = mdbn_replica::DeviceSecrets {
@@ -421,27 +402,15 @@ impl CollectionHost {
         let ready = Arc::new(std::sync::Mutex::new(Readiness::Pending));
         self.ready = ready.clone();
         let (fill, notify, id) = (slot.clone(), ctx.notify.clone(), self.entry.id.clone());
-        let mirror_closed = self.mirror_closed.clone();
         let (last_sync_failure, failure_dir) =
             (self.last_sync_failure.clone(), cfg.private_dir.clone());
-        if let Ok(mut closed) = mirror_closed.lock() {
-            *closed = None;
-        }
         std::thread::Builder::new()
             .name(format!("open-{}", &id[..8.min(id.len())]))
             .spawn(move || {
                 let started = std::time::Instant::now();
                 let mut offline = false;
                 // Synced: Connect confirms eligibility before any user-file IO.
-                let preopen = crate::runtime::preopen_mirror_status(&cfg.private_dir);
-                if let Ok(Some(diagnostic)) = &preopen
-                    && let Ok(mut closed) = mirror_closed.lock() {
-                    *closed = Some(diagnostic.clone());
-                }
-                let eligible = match preopen {
-                    Ok(Some(_)) => Err("mirror_join_closed".into()),
-                    Err(_) => Err("mirror_fence_unavailable".into()),
-                    Ok(None) => match (&tokens, &handle) {
+                let eligible = match (&tokens, &handle) {
                     (Some(tokens), Some(handle)) => match handle.block_on(tokens.eligibility()) {
                         Ok(()) => Ok(()),
                         Err(crate::sync::Eligibility::Refused(why)) => Err(format!("{INELIGIBLE}{why}")),
@@ -465,7 +434,6 @@ impl CollectionHost {
                         }
                     },
                     _ => Ok(()),
-                    },
                 };
                 let synced = pinned.is_some();
                 let r = match eligible {
@@ -679,8 +647,6 @@ impl CollectionHost {
             (CollectionState::Opening, None) // see current()
         } else if self.ctx.is_none() {
             (CollectionState::Unavailable, Some("runtime_pending"))
-        } else if self.blocked_by_old_connector() {
-            (CollectionState::Unavailable, Some(OLD_CONNECTOR_RUNNING))
         } else if self.entry.mode != SyncMode::Local {
             match self.start_synced() {
                 Ok(()) => (CollectionState::Opening, None),
@@ -704,15 +670,6 @@ impl CollectionHost {
         };
         self.state = state;
         self.reason = reason.map(str::to_string);
-    }
-
-    /// Whether a running old connector keeps this taken-over collection closed.
-    pub fn blocked_by_old_connector(&self) -> bool {
-        self.entry.origin == Origin::MigratedLocal
-            && self
-                .ctx
-                .as_ref()
-                .is_some_and(|c| c.old_connector_running.load(Ordering::SeqCst))
     }
 
     /// Link and start a synced collection, or say why not (a status reason).
@@ -809,22 +766,6 @@ impl CollectionHost {
 
     /// State and reason now, following a background open.
     fn current(&self) -> (CollectionState, Option<String>) {
-        if self.state == CollectionState::Opening
-            && let Ok(closed) = self.mirror_closed.lock()
-            && let Some(diagnostic) = closed.as_ref()
-        {
-            return (
-                CollectionState::Unavailable,
-                Some(
-                    if diagnostic.phase == "detached" {
-                        "detached_sync"
-                    } else {
-                        "joining_sync"
-                    }
-                    .into(),
-                ),
-            );
-        }
         match (self.state, self.runtime.opener().map(|o| o.slot.get())) {
             (CollectionState::Opening, Some(Some(Ok(_)))) if self.entry.mode == SyncMode::Local => {
                 (CollectionState::Ready, None)
@@ -1053,11 +994,6 @@ impl CollectionHost {
         }
     }
 
-    /// Content-free pre-open diagnostic; not readiness or permission authority.
-    pub(crate) fn mirror_diagnostic(&self) -> Option<crate::takeover::mirror_driver::Diagnostic> {
-        self.mirror_closed.lock().ok().and_then(|d| d.clone())
-    }
-
     /// Registration/readiness status without awaiting the actor.
     /// Control status/list add live telemetry through [`Self::observation`].
     pub fn status(&self) -> CollectionStatus {
@@ -1123,32 +1059,12 @@ impl CollectionHost {
                 message: format!("Reopening after sync stopped (attempt {attempt})."),
             });
         }
-        if let Ok(closed) = self.mirror_closed.lock()
-            && let Some(diagnostic) = closed.as_ref()
-        {
-            notices.push(Notice {
-                path: None,
-                code: diagnostic.reason.into(),
-                message: diagnostic.message(),
-            });
-        }
         if e.mode == SyncMode::SyncedE2e && self.other_devices_online == Some(0) {
             notices.push(Notice {
                 path: None,
                 code: "no_other_device_online".into(),
                 message: "No other device with this collection is online. Web apps can \
                           load it only while one of your devices is online."
-                    .into(),
-            });
-        }
-        if self.reason.as_deref() == Some(OLD_CONNECTOR_RUNNING) {
-            notices.push(Notice {
-                path: None,
-                code: OLD_CONNECTOR_RUNNING.into(),
-                message: "The old mdbase Connect is running on this computer and could still \
-                          change this folder, so mdbase has stopped using it. Quit mdbase \
-                          Connect (including its menu-bar or tray icon) or update it; mdbase \
-                          resumes on its own."
                     .into(),
             });
         }

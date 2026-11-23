@@ -127,70 +127,6 @@ impl Journal {
     }
 }
 
-/// The inventory with record IDs from the takeover's imported ID map preferred
-/// over the local-only store's (the ID follows the path). A legacy ID already
-/// used by another path keeps the store's ID.
-pub fn prefer_legacy_ids(
-    records: Vec<([u8; 16], String)>,
-    hints: &[([u8; 16], String)],
-) -> Vec<([u8; 16], String)> {
-    use std::collections::{BTreeMap, BTreeSet};
-    let by_path: BTreeMap<String, [u8; 16]> = hints
-        .iter()
-        .map(|(id, p)| (mdbn_core::paths::path_key(p), *id))
-        .collect();
-    let wanted: Vec<([u8; 16], String, Option<[u8; 16]>)> = records
-        .into_iter()
-        .map(|(id, p)| {
-            let legacy = by_path
-                .get(&mdbn_core::paths::path_key(&p))
-                .copied()
-                .filter(|l| *l != id);
-            (id, p, legacy)
-        })
-        .collect();
-    // Unhinted IDs are kept first; a legacy ID colliding with a kept ID loses and
-    // the record keeps the store's ID.
-    let mut taken: BTreeSet<[u8; 16]> = wanted
-        .iter()
-        .filter(|w| w.2.is_none())
-        .map(|w| w.0)
-        .collect();
-    wanted
-        .into_iter()
-        .map(|(id, p, legacy)| match legacy {
-            Some(l) if taken.insert(l) => (l, p),
-            _ => (id, p),
-        })
-        .collect()
-}
-
-/// The takeover's imported ID map for a migrated collection (empty when there is
-/// none or it cannot be read).
-pub fn legacy_hints(state_dir: &Path, id: &str) -> Vec<([u8; 16], String)> {
-    match crate::takeover::adapter::Evidence::load(&state_dir.join("legacy"), id) {
-        Ok(Some(e)) => e
-            .record_ids
-            .iter()
-            .filter_map(|r| Some((crate::attest::uuid_bytes(&r.record_id)?, r.path.clone())))
-            .collect(),
-        Ok(None) => Vec::new(),
-        Err(e) => {
-            tracing::warn!(collection = %id, error = %e, "takeover record IDs unreadable");
-            Vec::new()
-        }
-    }
-}
-
-/// Files held when the takeover imported this collection (both versions kept).
-pub fn takeover_holds(state_dir: &Path, id: &str) -> io::Result<u64> {
-    Ok(
-        crate::takeover::record::Record::load(&state_dir.join("takeover.json"))?
-            .and_then(|r| r.collections.get(id).map(|c| c.holds))
-            .unwrap_or(0),
-    )
-}
-
 /// The live folder, read for generation 0 through the collection's own file
 /// platform: on the desktop that is the native platform, which resolves every
 /// path from the held collection root and opens each component without
@@ -261,28 +197,6 @@ fn unhex(s: &str) -> Option<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn legacy_ids_win_by_path_unless_taken() {
-        let (a, b, l1, l2) = ([1; 16], [2; 16], [9; 16], [2; 16]);
-        let got = prefer_legacy_ids(
-            vec![
-                (a, "x.md".into()),
-                (b, "y.md".into()),
-                ([3; 16], "z.md".into()),
-            ],
-            // x.md takes its legacy ID; z.md's legacy ID is y.md's kept ID.
-            &[(l1, "x.md".into()), (l2, "z.md".into())],
-        );
-        assert_eq!(
-            got,
-            vec![
-                (l1, "x.md".into()),
-                (b, "y.md".into()),
-                ([3; 16], "z.md".into())
-            ]
-        );
-    }
 
     #[test]
     fn folder_source_reads_through_the_confined_platform_with_a_bounded_read() {

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   acceptHostedCollectionInvitation,
   CollectionInvitationError,
@@ -10,12 +10,9 @@ import {
   revokeHostedCollectionInvitation
 } from "./collection-invitations.js";
 import { createHostedCollectionMembership } from "./collection-policy.js";
-import { revokeHostedCollectionMembership } from "./collection-membership-lifecycle.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { effectiveEntitlement } from "../account/entitlements.js";
 import { tokenHash } from "../../security.js";
-import { ProviderRevocationWorker } from "../hosted/hosted-capability-lifecycle.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 
 let database: DatabasePool | undefined;
 afterEach(async () => database?.end());
@@ -177,60 +174,6 @@ describe("hosted collection invitations", () => {
       [second.id]
     );
     expect(pending.rows[0]?.state).toBe("pending");
-  });
-
-  it("retains a seat until provider-backed membership revocation completes", async () => {
-    database = await createDatabase("memory");
-    const ownerId = await insertAccount(database, "owner@example.com", true);
-    const memberId = await insertAccount(database, "member@example.com");
-    const collectionId = await insertHostedCollection(database, ownerId);
-    const invitation = await createHostedCollectionInvitation(database, {
-      collectionId,
-      actorUserId: ownerId,
-      role: "viewer",
-      target: { email: "member@example.com" }
-    });
-    const accepted = await acceptHostedCollectionInvitation(database, {
-      userId: memberId,
-      token: invitation.token
-    });
-    const policy = await database.query<{ current_policy_id: string }>(
-      `SELECT current_policy_id FROM collection_memberships WHERE id = $1`,
-      [accepted.membershipId]
-    );
-    const replicaId = randomUUID();
-    await database.query(
-      `INSERT INTO hosted_replicas
-         (id, collection_id, authorized_user_id, name, purpose, mode,
-          membership_id, membership_policy_id, membership_policy_revision)
-       VALUES ($1, $2, $3, 'Mirror', 'mirror', 'read_only', $4, $5, 1)`,
-      [replicaId, collectionId, memberId, accepted.membershipId,
-        policy.rows[0]!.current_policy_id]
-    );
-
-    await expect(revokeHostedCollectionMembership(database, {
-      collectionId,
-      actorUserId: ownerId,
-      membershipId: accepted.membershipId
-    })).resolves.toMatchObject({ state: "revoking" });
-    const pending = await database.query<{ released_at: Date | string | null }>(
-      `SELECT released_at FROM account_collection_member_seats
-       WHERE membership_id = $1`,
-      [accepted.membershipId]
-    );
-    expect(pending.rows[0]?.released_at).toBeNull();
-
-    const worker = new ProviderRevocationWorker(database, {
-      revokeReplica: vi.fn(),
-      revokeNotificationGrant: vi.fn()
-    } as unknown as HostedProviderClient);
-    await expect(worker.drain()).resolves.toBe(1);
-    const released = await database.query<{ released_at: Date | string | null }>(
-      `SELECT released_at FROM account_collection_member_seats
-       WHERE membership_id = $1`,
-      [accepted.membershipId]
-    );
-    expect(released.rows[0]?.released_at).not.toBeNull();
   });
 
   it("binds a one-use invitee-generated code without exposing account ids", async () => {

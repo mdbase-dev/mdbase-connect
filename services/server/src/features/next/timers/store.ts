@@ -1,9 +1,7 @@
 import { createHash } from "node:crypto";
 import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
-import { InvitationMigrationPending } from "../migration-sharing.js";
 import { dataPermitted, type TimerGrant } from "./grants.js";
 import { importInstant, validateTimerImport } from "./import-original.js";
-import { requireTimerMigrationEffects } from "./migration-effects.js";
 import { taskReminderMembership, requireTaskReminderWrite, retireLegacyTaskReminders } from "./tasknotes-retirement.js";
 import {
   ACTIVE_STATUSES,
@@ -112,7 +110,6 @@ export async function putTimer(
   criterionId: string,
   desired: DesiredTimer
 ): Promise<TimerView> {
-  await requireTimerMigrationEffects(db, grant.grantId);
   assertData(grant, desired.data);
   await requireTaskReminderWrite(db, grant, namespace, criterionId);
   await advanceTimerIntent(db, grant.grantId, namespace);
@@ -180,7 +177,6 @@ export async function cancelTimer(
   timerId: string,
   generation?: number
 ): Promise<boolean> {
-  await requireTimerMigrationEffects(db, grant.grantId);
   await advanceTimerIntent(db, grant.grantId, namespace);
   const existing = await selectTimer(db, grant.grantId, namespace, timerId);
   if (!existing || !(ACTIVE_STATUSES as readonly string[]).includes(existing.status)) return false;
@@ -209,7 +205,6 @@ export async function reconcileTimers(
 ): Promise<{ namespace: string; timers: TimerView[]; cancelled_ids: string[] }> {
   const checkDeadline = () => { if (Date.now() >= deadline) throw new TimerError(503, "busy", "Timer metadata deadline exceeded."); };
   checkDeadline();
-  await requireTimerMigrationEffects(db, grant.grantId);
   const ids = new Set<string>();
   for (const timer of desired) {
     if (ids.has(timer.id)) {
@@ -299,7 +294,6 @@ export async function cancelRevokedGrantTimers(db: DatabasePool): Promise<number
         await connection.query("BEGIN");
         await connection.query("SET LOCAL lock_timeout = '5s'");
         await connection.query("SET LOCAL statement_timeout = '5s'");
-        await requireTimerMigrationEffects(connection, grant_id);
         const result = await connection.query(
           `UPDATE next_timers SET status='cancelled',updated_at=now()
            WHERE grant_id=$1 AND status IN ('scheduled','firing') AND ${revoked}
@@ -309,7 +303,7 @@ export async function cancelRevokedGrantTimers(db: DatabasePool): Promise<number
         cancelled += result.rows.length;
       } catch (error) {
         await connection.query("ROLLBACK");
-        if (!(error instanceof InvitationMigrationPending)) throw error;
+        throw error;
       } finally {
         connection.release();
       }

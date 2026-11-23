@@ -35,8 +35,6 @@ if (args.has("--github-matrix")) {
   const bundle = buildReleaseBundle(contract, records, {
     commit: args.get("--commit"),
     version: packageManifest.version,
-    mdbaseRsRevision: (await readFile(
-      path.join(root, "deploy/docker/mdbase-rs-revision"), "utf8")).trim(),
     qualificationRunId: Number(args.get("--qualification-run-id")),
     qualificationRunAttempt: Number(args.get("--qualification-run-attempt")),
     publicationRunId: Number(args.get("--publication-run-id")),

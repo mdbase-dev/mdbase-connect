@@ -12,37 +12,51 @@ revoke that access at any time.
 
 ## What you can do
 
-- Connect web, desktop and mobile applications, Obsidian, and MCP clients such
-  as Claude and ChatGPT to a collection.
-- Review concrete permissions, such as reading, querying, creating or updating
+- Connect web, desktop, and mobile applications, Obsidian, and MCP clients such
+  as Claude and ChatGPT to local, Private (E2E), or Cloud copy collections using
+  one authorization model.
+- Review concrete permissions, such as reading, querying, creating, or updating
   records, before granting access.
 - Sync a collection to a folder on each of your computers and keep using any
   Markdown tool alongside connected applications.
+- Keep local collection folders private and serve remote requests over
+  Noise-encrypted pipes without opening an inbound port on your computer.
 - Pause an application or revoke its access at any time.
-- Read, query and write your collections from the `mdbase` command line.
-- Build your own application with the `@mdbase-dev/connect` SDK.
+- Read, query, validate, and write collections from the `mdbase` command line.
+- Build your own application with the `@mdbase-dev/sdk` SDK.
 
 ## How it works
 
-Every collection keeps an ordered log of changes and syncs through the mdbase
-service. The log is sealed: the sync service orders and stores encrypted
-changes but holds no collection keys. You choose how the collection is served
-when your computers are off:
+### Runtime and replicas (`runtime/`)
 
-- **Cloud copy** (the default): mdbase also keeps a copy of the collection, so
-  web applications and AI agents can use it while your computers are off.
-- **Private**: collection keys stay on your devices and sync is end-to-end
-  encrypted. Web applications and agents reach the collection through one of
-  your computers, which needs to be online.
+All mdbase collection semantics live in one deterministic Rust runtime
+(`runtime/`, see [runtime/README.md](runtime/README.md)):
 
-On a computer, the desktop app syncs the collection to a folder you pick and
-runs a small background connector. Applications on the same computer can
-connect to it directly. For a Private collection, applications elsewhere reach
-it through an end-to-end encrypted relay. The folder's path is never sent to the service, and you do not need to open an
-inbound port.
+- **Desktop daemon & CLI (`mdbn-daemon`)**: runs on your computer, hosts one
+  replica per registered folder over the native filesystem and SQLite index,
+  serves local apps over IPC, and holds the Noise relay connection for remote
+  clients. Your local folder paths never leave your computer.
+- **Blind shared log (`mdbn-log-service`)**: stores encrypted, signed log items
+  and blobs without interpreting Markdown records.
+- **Hosted replica (`mdbn-hosted-worker`)**: runs the same portable Rust engine
+  compiled to WebAssembly inside a Cloudflare Durable Object for Cloud copy
+  collections, serving web and mobile apps directly over Noise pipes.
+- **Control plane & relay (`services/server`)**: handles accounts, pairing,
+  application identity, grant policy, log/route discovery, and transient relay
+  transport without persisting collection payloads.
+
+### Collection modes
+
+- **Local only**: lives in a folder on your computer with no cloud log.
+- **Private (end-to-end encrypted)**: collection keys stay on your devices and
+  sync through the blind log. Web applications and agents reach it through an
+  online computer over a Noise pipe.
+- **Cloud copy** (the default): syncs through the same log with the hosted
+  Worker replica enrolled so web applications and AI agents can read and write
+  even when your computers are offline.
 
 Applications use the same approval model whichever way a collection is served,
-so changing it does not give an application broader access.
+so changing modes does not give an application broader access.
 
 ## Getting started
 
@@ -56,8 +70,8 @@ so changing it does not give an application broader access.
 
 The editor's **Connect** workspace is the main web place to manage collections,
 connected applications, computers, and account sessions. The desktop app owns
-folder and sync settings. The Connect portal is intentionally limited to
-sign-in, pairing, recovery, and authorization transactions.
+folder and sync settings. The Connect portal handles sign-in, pairing,
+recovery, and authorization transactions.
 
 ## Connect an MCP client
 
@@ -67,143 +81,117 @@ The managed MCP endpoint is:
 https://mcp.mdbase.dev/mcp
 ```
 
-Add it as a remote or custom MCP connector in an OAuth-capable client. The
-first connection asks you to choose a collection and approve its access.
-Additional collections receive independent grants, so connecting one does not
-expose the others.
-
-See the [MCP gateway guide](docs/mcp-gateway.md) for supported tools and the
-gateway's trust boundary.
-
-The mdbase plugin package bundles this endpoint with collection skills for
-ChatGPT, Codex and Claude. For local testing and directory submission, see
-[ChatGPT and Codex plugin](docs/chatgpt-plugin.md) and
-[Claude plugin](docs/claude-plugin.md).
-
-## Release notes
-
-See the [changelog](CHANGELOG.md) for breaking SDK/contract changes, durable
-mutation guarantees, upgrade requirements, recovery guidance, and platform
-preview limitations.
+Add it as a remote or custom MCP connector in an OAuth-capable client. Each
+collection receives an independent grant. See the
+[MCP gateway guide](docs/mcp-gateway.md) for supported tools and trust
+boundaries, and [ChatGPT and Codex plugin](docs/chatgpt-plugin.md) or
+[Claude plugin](docs/claude-plugin.md) for plugin packages.
 
 ## Build an application
 
-The `@mdbase-dev/connect` SDK gives browser and native applications an authorized,
-collection-scoped client:
+New web and TypeScript applications should use **`@mdbase-dev/sdk`**
+(`runtime/packages/sdk`), the native SDK for the `mdbase-next` runtime:
 
 ```bash
-pnpm add @mdbase-dev/connect
+pnpm add @mdbase-dev/sdk
 ```
 
-Start with the [five-minute quickstart](https://mdbase.dev/sdk/quickstart/) or
-read the complete [Connect SDK guide](https://mdbase.dev/sdk/). The SDK supports
-authorization with PKCE, direct and relayed operations, hosted replication,
-change delivery, notifications, and portable downloaded applications.
-
-Applications declare their data contracts and requested capabilities. If a
-collection needs a declared contract, mdbase connect shows that change during
-approval and installs it as one verified transaction. This does not give the
-application general permission to manage types or schemas.
+`@mdbase-dev/sdk` handles collection sign-in and selection, Noise-encrypted
+sessions to desktop and hosted replicas, typed record CRUD, CEL queries, live
+subscriptions, file uploads, type and contract setup, and local-first work
+before connecting. See [apps/editor/NEW_SDK.md](apps/editor/NEW_SDK.md) for an
+end-to-end first-party consumer reference.
 
 ## Security and privacy
 
-mdbase connect is designed so that granting useful access does not mean handing
-an application an entire folder or account:
-
-- Each grant is tied to one application, one collection, and an explicit set of
-  operations.
-- Access is checked against that exact grant wherever the collection is
-  served: by the connector on your computer, or by the cloud copy.
-- Folder paths on your computers never leave them.
-- Browser-to-connector relay payloads are end-to-end encrypted. The managed
-  relay can see routing metadata, operation timing, and payload sizes, but not
-  record contents or operation results.
-- The sync log is sealed: the service orders and stores encrypted changes but
-  holds no collection keys. A cloud copy is readable by mdbase so it can serve
-  applications; a Private collection is not.
-- Pausing is enforced immediately, and revocation immediately disables
-  Connect-issued credentials.
+- Each grant binds one application, one collection, and an explicit set of
+  operations and file scopes.
+- The local daemon enforces grants on the computer that owns a local
+  collection; local paths never leave the device.
+- Application sessions to desktop and hosted replicas are Noise IK encrypted
+  end-to-end; the relay sees routing metadata and ciphertext sizes, not record
+  contents.
+- Private collections keep decryption keys on your devices only; Cloud copy
+  collections wrap hosted custody keys with AWS KMS.
 
 The MCP gateway is an authorized application endpoint: it decrypts responses
 in memory so it can return them to the MCP client, but does not persist record
 payloads or operation results.
 
-For the detailed design, see the [runtime overview](runtime/README.md), its
+For the detailed design, see [Architecture](docs/architecture.md), the
+[runtime overview](runtime/README.md), its
 [contracts](runtime/docs/contracts/00-overview.md), and
-[Encryption](docs/encryption.md). Security assumptions, abuse
-cases, and prerelease residual risks are collected in the
+[Encryption](docs/encryption.md). Security assumptions, abuse cases, and
+prerelease residual risks are collected in the
 [Threat model](docs/threat-model.md). The source and test map for independent
 review is the explicitly unaudited
-[Security audit preparation package](docs/security-audit-package.md). Please
-use the private reporting process in the [Security policy](SECURITY.md) for
-suspected vulnerabilities.
+[Security audit preparation package](docs/security-audit-package.md). Report
+suspected vulnerabilities privately via [SECURITY.md](SECURITY.md).
 
 ## Command line
 
-The desktop app includes the `mdbase` CLI and background daemon. The same
-native executable is also published as a standalone headless archive for
-Linux, macOS, and Windows.
+The desktop app includes the `mdbase` CLI and background daemon (`mdbn-daemon`),
+also published as a standalone headless archive for Linux, macOS, and Windows:
 
 ```bash
 mdbase status
 mdbase collection add /path/to/notes
+mdbase sync enable notes
 mdbase query --types task --where 'status == "open"'
 mdbase read tasks/review.md
 mdbase update tasks/review.md --fields '{"status": "done"}'
 mdbase validate -c notes
 ```
 
-Record commands work on the folder you are in, another with `-C PATH`, or a
-registered collection with `-c`; they go through the daemon when it serves the
-folder. Output is human-readable; `--json` prints machine-readable results. Run `mdbase --help` for the full list, and see the [headless
-installation guide](docs/headless.md) for verified standalone installation,
-service operation and record commands.
+See the [headless installation guide](docs/headless.md) and
+[CLI and daemon guide](docs/cli-daemon.md) for service management and command
+details.
+
+## Release notes
+
+See [CHANGELOG.md](CHANGELOG.md) for release history. Contributors add change
+fragments under `changelog.d/` rather than editing `CHANGELOG.md` directly.
 
 ## Contributing
 
-This repository contains the editor, desktop app, CLI and connector, browser
-SDK, managed-service control plane and relay, hosted collection provider, MCP
-gateway, and shared protocols. These products release independently even
-though they share one workspace and lockfile.
+This repository contains the `mdbase-next` Rust/WASM runtime and `@mdbase-dev/sdk`
+(`runtime/`), the control plane and relay (`services/server`), the Connect
+portal (`apps/portal`), the desktop app (`apps/desktop`), the Markdown editor
+(`apps/editor`), the hosted MCP gateway (`services/mcp`), and shared protocols
+(`packages/protocol`).
 
 See [Contributing](CONTRIBUTING.md) for change fragments, the architecture
 check, generated-file rebases, and release versioning.
 
-Development requires a Rust toolchain, Node.js 24 LTS, and pnpm 11.15.1.
+Development requires Rust (`runtime/rust-toolchain.toml`), Node.js 24 LTS, and
+pnpm 11.15.1:
 
 ```bash
 pnpm install
-cargo test --workspace
 pnpm build
 pnpm typecheck
 pnpm test
+pnpm ci:local
 ```
 
-See the [CI flake policy](docs/ci-flakes.md) for bounded, recorded per-test
-retries and the retry-free nightly stress workflow.
+Inside `runtime/`:
 
-The end-to-end suites cover the runtime daemon's request path, the encrypted
-relay, and the production hosted provider:
+```bash
+cd runtime
+cargo xtask arch
+cargo test --workspace
+```
+
+End-to-end suites:
 
 ```bash
 pnpm e2e
 pnpm e2e:relay
-pnpm e2e:provider
 ```
 
-To run the local development environment:
-
-```bash
-cp .env.example .env
-pnpm dev:environment:up
-```
-
-The desktop app runs on an mdbn-daemon build:
-`MDBN_DAEMON_BIN=<absolute path to mdbase> pnpm dev:desktop:fresh`.
-
-See [Testing](docs/testing-environment.md),
-[Maintainability](docs/maintainability.md), and [Releasing](docs/releasing.md)
-for the complete workflows.
+See [Contributing](CONTRIBUTING.md), [Documentation map](docs/README.md),
+[Testing](docs/testing-environment.md), [Maintainability](docs/maintainability.md),
+and [Releasing](docs/releasing.md).
 
 ## License
 

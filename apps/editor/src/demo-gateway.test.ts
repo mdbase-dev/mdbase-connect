@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import mdbaseReadme from "../../../templates/mdbase/README.md?raw";
-import type { TypePackProvision } from "@mdbase-dev/connect";
+import type { TypePackProvision } from "./connect-types";
 import bundled from "./person-setup.pack.json";
 import { requireGuidedPersonSetup } from "./person-setup";
 import { DemoCollectionGateway } from "./demo-gateway";

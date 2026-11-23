@@ -2,7 +2,6 @@ import { createHash } from "node:crypto";
 import type { DatabaseQueryable } from "../../../database-types.js";
 import type { TimerGrant } from "./grants.js";
 import { TimerError, type DesiredTimer } from "./model.js";
-import { requireTimerMigrationEffects } from "./migration-effects.js";
 
 const TASKNOTES_FAMILY = "bundle:dev.tasknotes.app";
 // This TaskNotes-only policy spans manifest-specific registered UUIDs within
@@ -70,11 +69,6 @@ export async function retireLegacyTaskReminders(
   const row = await scope(db,grant);
   if (!row || row.principal_kind !== "installation") return;
   const values = [row.user_id,TASKNOTES_FAMILY,row.collection_id];
-  const legacy = await db.query<{id:string}>(`SELECT g.id FROM grants g JOIN applications a ON a.id=g.application_id
-    LEFT JOIN collections c ON c.id=g.collection_id
-    WHERE g.user_id=$1 AND a.family_identity=$2
-      AND COALESCE(c.local_id,g.hosted_collection_id,g.next_collection_id)=$3 ORDER BY g.id`,values);
-  for (const old of legacy.rows) await requireTimerMigrationEffects(db,old.id);
   const inserted = await db.query(`INSERT INTO next_tasknotes_legacy_reminder_retirements(user_id,family_identity,collection_id)
     VALUES($1,$2,$3) ON CONFLICT DO NOTHING RETURNING user_id`,values);
   if (!inserted.rows.length) return;

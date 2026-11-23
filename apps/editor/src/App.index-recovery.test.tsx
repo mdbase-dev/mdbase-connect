@@ -4,7 +4,7 @@ import { expect, it, vi } from "vitest";
 import { MdbaseError } from "@mdbase-dev/sdk";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
-import type { CollectionChange, WatchStatus } from "@mdbase-dev/connect";
+import type { CollectionChange, WatchStatus } from "./connect-types";
 import type { NoteIndexRequest } from "./model";
 
 vi.mock("./CodeEditor", () => ({

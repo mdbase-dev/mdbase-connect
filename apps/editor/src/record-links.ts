@@ -1,7 +1,7 @@
 /** Link properties: what a type's `collection.links` rules say about a record's
  * fields, and how one link value is read and written. Whether a link resolves,
  * and to what, stays the collection's answer (`LinkTargets`). */
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { isObject } from "./field-reference";
 
 export type LinkValueFormat = "wikilink" | "markdown" | "path";

@@ -1,24 +1,6 @@
-import type {
-  CollectionDescription,
-  DescribeOptions,
-  CollectionFileDescriptor,
-  CollectionTypeDocument,
-  MdbaseFileProgress,
-  MdbaseFileSource,
-  JsonObject,
-  MdbaseDiagnostic,
-  MutationProgress,
-  MdbaseUnavailableReason,
-  RenamePreflightResult,
-  DeletePreflightResult,
-  DirectAccessStatus,
-  RecordDocument,
-  QueryRecord,
-  TypePackProvision,
-  TypePackAssessment
-} from "@mdbase-dev/connect";
+import type { CollectionDescription, DescribeOptions, CollectionFileDescriptor, CollectionTypeDocument, MdbaseFileProgress, MdbaseFileSource, JsonObject, MdbaseDiagnostic, MutationProgress, MdbaseUnavailableReason, RenamePreflightResult, DeletePreflightResult, DirectAccessStatus, RecordDocument, QueryRecord, TypePackProvision, TypePackAssessment } from "./connect-types";
 
-export type TypePackApplyResult = import("@mdbase-dev/connect").TypePackApplyResult;
+export type TypePackApplyResult = import("./connect-types").TypePackApplyResult;
 
 export type NoteFrontmatter = JsonObject;
 
@@ -231,7 +213,7 @@ export interface NoteHistoryReader {
 }
 
 export interface CollectionGateway {
-  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[];
+  pendingNoteMutations(): readonly import("./connect-types").PendingMutationSummary[];
   /** Undefined only when the exact recovered operation was a confirmed delete. */
   recoverNoteMutation(requestId: string): Promise<NoteDocument | undefined>;
   sessionSnapshot(): CollectionSessionSnapshot;
@@ -248,14 +230,14 @@ export interface CollectionGateway {
   describe(options?: DescribeOptions): Promise<CollectionDescription>;
   /** Demo collections have no authenticated account. Members are never read here.
    * Native collections also report the account's ID, which history authors carry. */
-  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory & { account: { accountId?: string } }>;
+  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("./connect-types").PeopleDirectory & { account: { accountId?: string } }>;
   /** Absent where the gateway serves no history. */
   readonly noteHistory?: NoteHistoryReader;
   /** Every page of one contract/type projection. */
   queryContract?(
-    contract: import("@mdbase-dev/connect").DataContractSelector,
+    contract: import("./connect-types").DataContractSelector,
     options?: { signal?: AbortSignal }
-  ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
+  ): Promise<Array<{ path: string; values: import("./connect-types").JsonObject }>>;
   /** Absent where sync is not the gateway's to report (demo, Connect). */
   syncState?(): import("./app-state-types").EditorSyncState;
   onSyncState?(listener: () => void): () => void;
@@ -284,7 +266,7 @@ export interface CollectionGateway {
    * the same restore is retried, so it lands once. */
   restore(document: NoteDocument, id?: string): Promise<NoteDocument>;
   /** Revision-checked write of only the changed parts, against `base`. */
-  update(base: NoteDocument, change: import("@mdbase-dev/connect/advanced").MdbaseRecordChange): Promise<NoteDocument>;
+  update(base: NoteDocument, change: import("./connect-types").MdbaseRecordChange): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;
   updateDocument(path: string, document: string, revision: string): Promise<NoteDocument>;
   preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight>;
@@ -313,7 +295,7 @@ export interface NativeObservationProblem {
   message: string;
   error: unknown;
 }
-export type ObservationProblem = import("@mdbase-dev/connect").ConnectProblem | NativeObservationProblem;
+export type ObservationProblem = import("./connect-types").ConnectProblem | NativeObservationProblem;
 export type ObservationOutcome = { ok: true } | { ok: false; problem: ObservationProblem };
 /** Presentation subset of watch state; the Connect observer's status satisfies it. */
 export type ObservationWatchStatus =
@@ -334,7 +316,7 @@ export type NativeCollectionChange =
   | { source: "native"; kind: "record.renamed"; from: string; to: string; revision?: string }
   | { source: "native"; kind: "file.changed"; path: string }
   | { source: "native"; kind: "reset" };
-export type EditorCollectionChange = import("@mdbase-dev/connect").CollectionChange | NativeCollectionChange;
+export type EditorCollectionChange = import("./connect-types").CollectionChange | NativeCollectionChange;
 /** The collection-owned index observation the editor consumes. Implemented by
  * the Connect observer and by the native SDK observation; not a second index. */
 export interface NoteObservation {

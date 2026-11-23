@@ -58,8 +58,6 @@ manifest=$temporary/qualification.json
 }
 qualified_inputs=(
   pnpm-lock.yaml
-  deploy/docker/Cargo.lock.hosted-provider
-  deploy/docker/mdbase-rs-revision
   .github/workflows/server-ci.yml
 )
 git diff --quiet -- "${qualified_inputs[@]}" &&
@@ -77,16 +75,12 @@ jq -e \
   --arg run_id "$run_id" \
   --arg tree "$(git rev-parse HEAD^{tree})" \
   --arg pnpm "$(sha256_file pnpm-lock.yaml)" \
-  --arg cargo "$(sha256_file deploy/docker/Cargo.lock.hosted-provider)" \
-  --arg revision "$(git cat-file blob HEAD:deploy/docker/mdbase-rs-revision | tr -d '\r\n')" \
   --arg workflow "$(sha256_file .github/workflows/server-ci.yml)" '
     .schema_version == 1 and .qualification == "full"
     and (.commit == $commit or
       ($event == "pull_request" and .event == $event and .run_id == $run_id))
     and .tree == $tree
     and .inputs.pnpm_lock_sha256 == $pnpm
-    and .inputs.cargo_lock_sha256 == $cargo
-    and .inputs.mdbase_rs_revision == $revision
     and .inputs.workflow_sha256 == $workflow
   ' "$manifest" >/dev/null || {
   printf 'Run %s qualification is not bound to this exact checkout.\n' \

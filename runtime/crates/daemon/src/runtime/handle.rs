@@ -23,14 +23,6 @@ impl Runtime {
         source: Box<dyn mdbn_replica::policy::GrantSource + Send>,
         grants: LocalGrants,
     ) -> Result<Runtime, OpenFailed> {
-        // Inspect private admission before spawning a runtime, transport, watcher
-        // or acquiring the folder lock. The native opener keeps its original
-        // host-lock ordering (an already-active SQLite index is exclusive).
-        if let Some(closed) = preopen_mirror_status(&cfg.private_dir)
-            .map_err(|e| OpenFailed(format!("mirror fence: {e}")))?
-        {
-            return Err(OpenFailed(closed.message()));
-        }
         let (tx, rx) = std_mpsc::channel();
         let (ready_tx, ready_rx) = std_mpsc::channel();
         let (grant_changes_tx, grant_changes) = watch::channel(());

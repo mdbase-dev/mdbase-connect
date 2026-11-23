@@ -22,9 +22,6 @@ import { UsageRetentionWorker } from "./features/usage/usage-report.js";
 import { OpsMetricsPushWorker, type OpsMetricsPushSetting } from "./features/usage/ops-metrics-push.js";
 import type { GitHubAuthConfig } from "./features/auth/github-auth.js";
 import type { GoogleAuthConfig } from "./features/auth/google-auth.js";
-import { HostedAuthorityRegistry } from "./features/hosted/hosted.js";
-import { ProviderRevocationWorker } from "./features/hosted/hosted-capability-lifecycle.js";
-import { drainDeferredAccountDeletions } from "./features/account/account-management.js";
 import { LogServiceClient } from "./features/next/log-service-client.js";
 import { FileQuotaWorker, ObjectGcWorker } from "./features/next/storage-usage.js";
 import { PolicyEmitter } from "./features/next/policy-outbox.js";
@@ -36,30 +33,14 @@ import { collectionModeExecutionAvailable, registerCollectionModeExecution, regi
 import { globalRateLimitKeying, registerNextHostedRoutes } from "./features/next/hosted-routes.js";
 import { registerLabPitrRoutes } from "./features/next/lab-pitr-routes.js";
 import { validatePitrCollections } from "./features/next/lab-pitr-config.js";
-import { registerMigrationRolloutRoutes } from "./features/next/migration-rollout.js";
-import { registerCollectionMigrationRecordRoute } from "./features/next/migration-record-routes.js";
-import { registerMigrationSourceWitnessRoutes } from "./features/next/migration-source.js";
-import { registerMigrationProviderRoutes } from "./features/next/migration-provider.js";
-import { registerPrearchiveMigrationRoutes } from "./features/next/migration-prearchive.js";
-import { registerMigrationReplicaRoutes } from "./features/next/migration-replicas.js";
-import { registerMigrationTimerCleanupRoute } from "./features/next/migration-timer-cleanup.js";
-import { registerMigrationRouteRetireRoute } from "./features/next/migration-routing.js";
-import { registerHostingMoveRoutes } from "./features/next/hosting-moves.js";
 import { registerPolicyRecoveryRoutes } from "./features/next/policy-recovery-routes.js";
-import { registerLabFixtureRoutes } from "./features/next/lab-fixture-routes.js";
-import { validateLabFixtureConfig } from "./features/next/lab-fixture-config.js";
 import { loadPolicySigner, type NextControlPlaneConfig } from "./features/next/policy-keys.js";
 import { NextRelayDevices } from "./features/next/devices.js";
 import { NoisePipes, registerNoisePipeClientRoute } from "./features/next/noise-pipes.js";
 import { registerCollectionLogTokenRoute } from "./features/next/collection-log-token.js";
 import { registerNextDeviceRoutes } from "./features/next/device-routes.js";
-import { registerLocalRollbackBindingRoutes } from "./features/next/local-rollback-bindings.js";
-import { registerLocalTakeoverRoutes } from "./features/next/local-takeover.js";
-import { carryOverLegacyGrants } from "./features/next/legacy-grant-carry-over.js";
-import { registerNextRolloutRoutes } from "./features/next/rollout-routes.js";
 import { registerNextRouteRoutes } from "./features/next/route-routes.js";
 import { registerClientKeyAttachRoute } from "./features/next/client-key-attach.js";
-import type { HostedProviderClient } from "./features/hosted/hosted-provider.js";
 import { NotificationService, type NotificationTransports } from "./features/notifications/notifications.js";
 import { RelayHub } from "./features/relay/relay.js";
 import { LocalRelayBroker, type RelayBroker } from "./features/relay/relay-broker.js";
@@ -75,9 +56,6 @@ import { registerApplicationRoutes } from "./features/applications/routes.js";
 import { registerExternalAuthRoutes } from "./features/auth/external-routes.js";
 import { registerPasswordAuthRoutes } from "./features/auth/password-routes.js";
 import { registerAuthorizationRoutes } from "./features/authorizations/routes.js";
-import { approveHostedAuthorization } from "./features/authorizations/hosted-approval-service.js";
-import { recoverExpiredAuthorityTransfers } from "./features/authority-transfer/lifecycle.js";
-import { AuthorityTransferRecoveryWorker } from "./features/authority-transfer/recovery-worker.js";
 import { registerLocalFileRoutes } from "./features/files/local-routes.js";
 import { registerAuthorityConflictRoutes } from "./features/connectors/authority-conflict-routes.js";
 import { registerBetaAccessRoutes } from "./features/beta-access/routes.js";
@@ -88,24 +66,17 @@ import { registerConnectorPairingRoutes } from "./features/connectors/pairing-ro
 import { registerInstallationSignOutRoute } from "./features/connectors/installation-signout.js";
 import { registerConnectorRelayRoute } from "./features/connectors/relay-route.js";
 import { registerConnectorGrantRoutes } from "./features/grants/connector-routes.js";
-import { registerConnectorHostedRoutes } from "./features/hosted/connector-routes.js";
-import { registerHostedAccountRoutes } from "./features/hosted/account-routes.js";
 import { registerHostedSharingRoutes } from "./features/hosted/sharing-routes.js";
-import { registerReferenceSyncRoutes } from "./features/hosted/reference-sync-routes.js";
-import { registerMirrorRenewalRoute } from "./features/mirrors/renewal-route.js";
 import { registerNotificationRoutes } from "./features/notifications/routes.js";
 import type { PushTargetSealer } from "./features/next/push-target-seal.js";
 import { backgroundTimerGrantResolver, legacyTimerGrantResolver, type TimerGrantResolver } from "./features/next/timers/grants.js";
 import { registerTimerRoutes } from "./features/next/timers/routes.js";
 import { TimerWorker, notificationsConsumer } from "./features/next/timers/worker.js";
-import { registerOnboardingRoutes } from "./features/onboarding/routes.js";
 import { registerPeopleRoutes } from "./features/account/people-routes.js";
 import { registerLocalOperationRoutes } from "./features/operations/local-routes.js";
 import { registerSystemRoutes } from "./features/system/routes.js";
-import { registerLifecycleDiagnosticRoute } from "./features/system/lifecycle-diagnostics.js";
 import { registerErrorHandler } from "./platform/error-handler.js";
 import type { ClientUpdatePolicy } from "./features/next/cutover-problems.js";
-import { authorityUrl } from "./platform/authority-url.js";
 import { installationEnvironment } from "./platform/local-deployment.js";
 import { apiError, RateLimitError } from "./platform/http-errors.js";
 import { acceptOnlyIssuedSessionCookie, sessionToken } from "./platform/session-cookies.js";
@@ -133,8 +104,6 @@ interface BuildOptions {
   accountDeletionEnabled?: boolean;
   hostedCollections?: boolean;
   hostedSharing?: boolean;
-  hostedProvider?: HostedProviderClient;
-  hostedReferenceAuthority?: boolean;
   publicUrl?: string;
   /** Where old clients are told to update once their collection moves to mdbase-next. */
   clientUpdate?: ClientUpdatePolicy;
@@ -169,9 +138,6 @@ export async function buildApp(options: BuildOptions) {
   // enrol would succeed and the collection could never open.
   if (options.nextControlPlane?.privateAppDevices && !options.authRateLimitSecret)
     throw new Error("MDBASE_NEXT_PRIVATE_APP_DEVICES=1 requires MDBASE_CONNECT_AUTH_RATE_LIMIT_SECRET: the account-key routes are not mounted without it.");
-  if (options.nextControlPlane?.labFixtures) validateLabFixtureConfig(
-    options.nextControlPlane.labFixtures, options.environment, options.publicUrl ?? ""
-  );
   let timerGrantResolver = options.nextTimers?.resolver ?? legacyTimerGrantResolver;
   if (options.nextControlPlane && options.nextTimers && !options.nextTimers.resolver) {
     const environment = options.environment;
@@ -248,7 +214,6 @@ export async function buildApp(options: BuildOptions) {
   const opsMetricsPush = options.opsMetricsPush?.enabled
     ? new OpsMetricsPushWorker({
         db: options.db,
-        hostedProvider: options.hostedProvider,
         config: options.opsMetricsPush.config,
         log: app.log
       })
@@ -289,41 +254,14 @@ export async function buildApp(options: BuildOptions) {
         (error) => app.log.error({ err: error }, "file quota worker failed")
       )
     : undefined;
-  if (options.hostedProvider && options.hostedReferenceAuthority) {
-    throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
-  }
-  if (options.hostedCollections && !options.hostedProvider && !options.hostedReferenceAuthority) {
-    throw new Error("Hosted collections require a configured storage provider.");
-  }
-  const hostedReference = options.hostedReferenceAuthority
-    ? new HostedAuthorityRegistry(options.db)
-    : undefined;
-  const authorityTransferRecovery = new AuthorityTransferRecoveryWorker(
-    async () => {
-      await drainDeferredAccountDeletions(options.db);
-      if (options.hostedCollections) await recoverExpiredAuthorityTransfers(options.db, options.hostedProvider, hostedReference);
-    },
-    () => app.log.error("account deletion / authority recovery failed; retrying on next pass")
-  );
   const applicationReconciliation = new ApplicationReconciliationWorker(
     options.db,
     relay,
-    options.hostedProvider,
     (event) => app.log.error(
       { phase: event.phase, errorClass: event.errorClass },
       "application reconciliation operation failed"
     )
   );
-  const providerRevocations = options.hostedProvider
-    ? new ProviderRevocationWorker(
-        options.db,
-        options.hostedProvider,
-        (error) => app.log.error(
-          { err: error },
-          "hosted provider cleanup worker failed"
-        )
-      )
-    : undefined;
 
   await validatePitrCollections(options.db, options.nextControlPlane?.logService.labPitr);
   const serviceDeployments = options.nextControlPlane?.cloudCopyBootstrap;
@@ -337,7 +275,7 @@ export async function buildApp(options: BuildOptions) {
         2_000,
         Date.now,
         serviceDeployments
-          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr, options.nextControlPlane!.migrationRouting)
+          ? (collectionId) => activatePendingServices(options.db, serviceDeployments, undefined, collectionId, options.nextControlPlane!.logService.labPitr)
           : undefined,
         (sweep) => app.log.info(sweep, "mdbase-next policy verification sweep"),
         fileQuotaMode === "enforce"
@@ -377,7 +315,7 @@ export async function buildApp(options: BuildOptions) {
   await app.register(rateLimit, {
     global: true,
     errorResponseBuilder: (_request, context) => new RateLimitError(Math.ceil(context.ttl / 1000) * 1000),
-    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens, options.nextControlPlane?.migrationRouting?.inboundToken),
+    ...globalRateLimitKeying(options.nextControlPlane?.serviceTokens),
     timeWindow: "1 minute"
   });
   await app.register(formbody);
@@ -414,8 +352,6 @@ export async function buildApp(options: BuildOptions) {
     await objectGc?.close();
     await fileQuota?.close();
     await applicationReconciliation.close();
-    await providerRevocations?.close();
-    await authorityTransferRecovery?.close();
     await nextPolicyEmitter?.close();
     await timers?.close();
     await notifications?.close();
@@ -425,44 +361,19 @@ export async function buildApp(options: BuildOptions) {
   notifications?.start();
   timers?.start();
   // Test hook intentionally drains the same production worker; it does not
-  // bypass leases, cursors, result rows, or provider/relay behavior.
+  // bypass leases, cursors, result rows, or relay behavior.
   app.decorate("drainApplicationReconciliation", () =>
     applicationReconciliation.drainUntilIdle()
   );
   applicationReconciliation.start();
   nextPolicyEmitter?.start();
-  providerRevocations?.start();
-  // Restart recovery applies to accepted deletion work, not authority expiry:
-  // startup/account reads must not unexpectedly expire legacy transfers.
-  await drainDeferredAccountDeletions(options.db).catch(() => app.log.error("account deletion startup pass failed; retrying"));
-  authorityTransferRecovery.start();
 
   app.addHook("onRequest", async (request, reply) => {
     if (
       !options.hostedCollections
-      && (
-        request.url.startsWith("/v1/hosted/")
-        || request.url.startsWith("/v1/mirror-pairing-requests")
-      )
+      && request.url.startsWith("/v1/hosted/")
     ) {
       return reply.code(404).send(apiError("not_found", "Not found."));
-    }
-    if (
-      options.hostedProvider
-      && request.url.startsWith("/v1/authorities/")
-      && request.url.includes("/sync/")
-    ) {
-      return reply.code(421).send({
-        ...apiError(
-          "sync_provider_direct_required",
-          "Connect directly to the collection's hosted storage provider."
-        ),
-        sync_url: authorityUrl(
-          options.hostedProvider.url,
-          request.url.split("/")[3] ?? "",
-          "sync"
-        )
-      });
     }
     // This resolved route never uses account-cookie authority: every client
     // must authenticate its first frame with its own active grant. Same-site
@@ -484,7 +395,6 @@ export async function buildApp(options: BuildOptions) {
     db: options.db,
     relay,
     hostedCollections: options.hostedCollections === true,
-    hostedProvider: options.hostedProvider,
     revision: options.revision,
     environment: options.environment,
     publicUrl,
@@ -571,23 +481,9 @@ export async function buildApp(options: BuildOptions) {
     tailscaleAuth: options.tailscaleAuth,
     developmentAuth: options.devAuth,
     passwordAuthenticationAvailable: Boolean(options.authRateLimitSecret),
-    accountDeletionEnabled: options.accountDeletionEnabled !== false
-      && hostedReference === undefined,
+    accountDeletionEnabled: options.accountDeletionEnabled !== false,
     githubAvailable: options.githubAuth !== undefined,
-    googleAvailable: options.googleAuth !== undefined,
-    hostedProvider: options.hostedProvider,
-    triggerProviderCleanup: () => {
-      void providerRevocations?.drain().catch((error) => app.log.error(
-        { err: error },
-        "hosted account cleanup trigger failed"
-      ));
-    }
-  });
-  registerMirrorRenewalRoute(app, {
-    db: options.db,
-    publicUrl,
-    hostedProvider: options.hostedProvider,
-    hostedReference
+    googleAvailable: options.googleAuth !== undefined
   });
   registerConnectorManagementRoutes(app, {
     db: options.db,
@@ -602,7 +498,6 @@ export async function buildApp(options: BuildOptions) {
     service: notifications,
     publicKey: options.notifications?.publicKey,
     transports: options.notifications?.transports,
-    hostedProvider: options.hostedProvider,
     grantResolver: timerGrantResolver,
     serverEnvironment: options.environment
   });
@@ -610,14 +505,9 @@ export async function buildApp(options: BuildOptions) {
     registerTimerRoutes(app, {
       db: options.db,
       resolver: timerGrantResolver,
-      hostedProvider: options.hostedProvider,
       onWrite: () => timers.wake()
     });
   }
-  registerLifecycleDiagnosticRoute(app, {
-    db: options.db,
-    hostedProvider: options.hostedProvider
-  });
   registerLocalOperationRoutes(app, { db: options.db, relay });
   registerPeopleRoutes(app, {
     db: options.db,
@@ -626,29 +516,9 @@ export async function buildApp(options: BuildOptions) {
     editorOrigin: options.editorOrigin
   });
   registerLocalFileRoutes(app, { db: options.db, relay });
-  registerConnectorHostedRoutes(app, {
-    db: options.db,
-    publicUrl,
-    hostedCollections: options.hostedCollections,
-    hostedProvider: options.hostedProvider,
-    hostedReference,
-    approveAuthorization: (input) => approveHostedAuthorization(
-      options.db,
-      options.hostedProvider!,
-      input
-    )
-  });
-  registerHostedAccountRoutes(app, {
-    db: options.db,
-    publicUrl,
-    tailscaleAuth: options.tailscaleAuth,
-    hostedCollections: options.hostedCollections,
-    hostedProvider: options.hostedProvider,
-    hostedReference
-  });
   registerAccountCollectionCreationRoutes(app, {
     db: options.db, publicUrl, tailscaleAuth: options.tailscaleAuth,
-    hostedCollections: options.hostedCollections, hostedProvider: options.hostedProvider, hostedReference,
+    hostedCollections: options.hostedCollections,
     ...(options.nextControlPlane?.cloudCopyBootstrap ? {native:{db:options.db, next:options.nextControlPlane, emitter:nextPolicyEmitter!, log:new LogServiceClient(options.nextControlPlane.logService)}} : {})
   });
   registerHostedSharingRoutes(app, {
@@ -658,50 +528,15 @@ export async function buildApp(options: BuildOptions) {
     tailscaleAuth: options.tailscaleAuth,
     nativePolicyEmitter: nextPolicyEmitter
   });
-  registerOnboardingRoutes(app, {
-    db: options.db,
-    publicUrl,
-    editorOrigin: options.editorOrigin,
-    hostedCollections: options.hostedCollections,
-    hostedProvider: options.hostedProvider
-  });
-  registerReferenceSyncRoutes(app, {
-    db: options.db,
-    hostedReference
-  });
   if (options.nextControlPlane) {
     relay.useNextDevices(new NextRelayDevices(options.db, noisePipes));
     const nextLog = new LogServiceClient(options.nextControlPlane.logService);
     registerNextDeviceRoutes(app, { db: options.db, log: nextLog, relay });
-    registerLocalRollbackBindingRoutes(app, options.db);
-    registerLocalTakeoverRoutes(app, { db: options.db, relay, ...(nextPolicyEmitter ? { emitter: nextPolicyEmitter } : {}) });
-    registerNextRolloutRoutes(app, options.db);
     registerCollectionLogTokenRoute(app, { db: options.db, log: nextLog, privateDevice: options.nextControlPlane });
     registerNoisePipeClientRoute(app, { db: options.db, broker: relayBroker });
-    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog, migrationRouting: options.nextControlPlane.migrationRouting });
+    registerNextHostedRoutes(app, { db: options.db, tokens: options.nextControlPlane.serviceTokens, log: nextLog });
     registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog,
       admission: { signer: nextPolicySigner!, audience: new URL(publicUrl).origin, identity: nextLog } });
-    registerCollectionMigrationRecordRoute(app, options.db);
-    if (options.nextControlPlane.migrationToken) {
-      registerMigrationRolloutRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider,
-        timers: options.nextTimers !== undefined });
-      registerMigrationSourceWitnessRoutes(app, { db: options.db, next: options.nextControlPlane, signer: nextPolicySigner!, provider: options.hostedProvider });
-      registerPrearchiveMigrationRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken,
-        environment: options.environment, provider: options.hostedProvider });
-      registerMigrationProviderRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, environment: options.environment, provider: options.hostedProvider,
-        ...(options.nextControlPlane.serviceTokens.hosted && new URL(publicUrl).protocol === "https:"
-          ? { hostedRead: { token: options.nextControlPlane.serviceTokens.hosted, audience: new URL(publicUrl).origin, migrationRouting: options.nextControlPlane.migrationRouting } } : {}),
-        ...(options.nextControlPlane.cloudCopyBootstrap ? { bootstrap: { next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog } } : {}) });
-      registerMigrationReplicaRoutes(app, { db: options.db, token: options.nextControlPlane.migrationToken, provider: options.hostedProvider,
-        log: nextLog, emitter: nextPolicyEmitter! });
-      registerMigrationTimerCleanupRoute(app, { db: options.db, token: options.nextControlPlane.migrationToken,
-        environment: options.environment, provider: options.hostedProvider });
-      if (options.nextControlPlane.migrationRouting) registerMigrationRouteRetireRoute(app, { db: options.db,
-        token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting });
-      if (options.nextControlPlane.migrationRouting && options.nextControlPlane.cloudCopyBootstrap) registerHostingMoveRoutes(app, { db: options.db,
-        token: options.nextControlPlane.migrationToken, routing: options.nextControlPlane.migrationRouting,
-        hosted: options.nextControlPlane.cloudCopyBootstrap.hosted });
-    }
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });
     if (options.nextControlPlane.privateBootstrap) registerCollectionModeRecovery(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
@@ -711,13 +546,8 @@ export async function buildApp(options: BuildOptions) {
       db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, rateLimitSecret: options.authRateLimitSecret
     });
     registerPolicyRecoveryRoutes(app, options.db, nextPolicyEmitter!);
-    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr, migrationRouting: options.nextControlPlane.migrationRouting,
-      ...(options.nextControlPlane.privateBootstrap ? { carryOver: (collection: string) => carryOverLegacyGrants({ db: options.db, emitter: nextPolicyEmitter! }, collection, app.log) } : {}) });
+    registerNextRouteRoutes(app, { db: options.db, publicUrl, broker: relayBroker, hostedClientUrl: options.nextControlPlane.hostedClientUrl, labPitr: options.nextControlPlane.logService.labPitr });
     registerClientKeyAttachRoute(app, { db: options.db });
-    if (options.nextControlPlane.labFixtures) registerLabFixtureRoutes(app, {
-      db: options.db, config: options.nextControlPlane.labFixtures, next: options.nextControlPlane,
-      environment: options.environment, publicUrl, emitter: nextPolicyEmitter!
-    });
   }
   registerConnectorRelayRoute(app, { db: options.db, relay });
   registerApplicationRoutes(app, { db: options.db });
@@ -731,8 +561,6 @@ export async function buildApp(options: BuildOptions) {
     nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
     hostedCollections: options.hostedCollections,
     hostedSharing: options.hostedSharing,
-    hostedProvider: options.hostedProvider,
-    hostedReference,
     billingAvailable: options.billing !== undefined
   });
   registerConnectorGrantRoutes(app, { db: options.db, relay });
@@ -744,11 +572,7 @@ export async function buildApp(options: BuildOptions) {
     publicUrl,
     tailscaleAuth: options.tailscaleAuth,
     hostedCollections: options.hostedCollections,
-    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap),
-    hostedProvider: options.hostedProvider,
-    drainProviderRevocations: async () => {
-      await providerRevocations?.drain();
-    }
+    nativeCollectionCreation: Boolean(options.nextControlPlane?.cloudCopyBootstrap)
   });
 
   if (options.portalDist && existsSync(options.portalDist)) {

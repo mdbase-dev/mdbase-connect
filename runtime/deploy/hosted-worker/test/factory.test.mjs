@@ -11,11 +11,10 @@ mock.module("#hosted-release-trust", { namedExports: { appReleaseTrust: () => bu
 // Test-only stand-in for the generated allowlist module (null = source default).
 let allowlistModule = null;
 mock.module("#hosted-kms-collections", { namedExports: { kmsCollections: () => allowlistModule } });
-const { ProductionCustody, hostedPort, productionParts, serviceDeviceWrapper, ownedCppControlOrigin, migrationDeployment } = await import("../src/factory.ts");
+const { ProductionCustody, hostedPort, productionParts, serviceDeviceWrapper, migrationDeployment } = await import("../src/factory.ts");
 import { ControlClient } from "../src/control.ts";
 import { LocalSoftwareKms } from "../src/custody/local-kms.ts";
 import { localOrigin } from "../src/local-origin.ts";
-import { connectClient } from "../src/migration-connect.ts";
 import { encodeEnvelope } from "../src/custody/envelope.ts";
 import { KMS_ALLOWLIST_SCHEMA, KMS_ALLOW_ALL_TEXT, canonicalKmsAllowlist, kmsAllowlistDigest } from "../src/custody/kms-allowlist.ts";
 
@@ -27,44 +26,13 @@ const full = {
   HOSTED_SIGNERS: "22222222-2222-4222-8222-222222222222",
 };
 
-test("CPP origin requires the actual fully configured factory's ControlClient object", () => {
-  const parts = productionParts(full);
-  assert.equal(ownedCppControlOrigin(parts.control), "https://cp.test");
-  const manual = new ControlClient({ url: "https://cp.test", token: "t".repeat(40) });
-  assert.equal(manual.cppClaimOriginData(), "https://cp.test", "parsed DATA is not provenance");
-  assert.equal(ownedCppControlOrigin(manual), null);
-  assert.equal(ownedCppControlOrigin({ cppClaimOriginData: () => "https://cp.test" }), null);
-  assert.equal(ownedCppControlOrigin(Object.create(parts.control)), null);
-  assert.equal(ownedCppControlOrigin(new Proxy(parts.control, {})), null);
-  assert.equal(ownedCppControlOrigin({ ...parts, control: manual }.control), null);
-  parts.control.cppClaimOriginData = () => "https://foreign.test";
-  parts.control.base = "https://foreign.test";
-  parts.control.cppOrigin = "https://foreign.test";
-  assert.equal(ownedCppControlOrigin(parts.control), "https://cp.test", "captured intrinsic reads immutable private origin");
-  for (const kind of ["hosted", "escrow"]) {
-    const other = new ControlClient({ url: "https://cp.test", token: "t".repeat(40), kind });
-    assert.equal(ownedCppControlOrigin(other), null);
-  }
-});
-
-test("CPP origin DATA rejects non-origin configurations without changing ordinary ControlClient", () => {
-  for (const url of ["https://u:p@cp.test", "https://cp.test/path", "https://cp.test?x", "https://cp.test#x"]) {
-    const control = new ControlClient({ url, token: "t".repeat(40) });
-    assert.equal(control.cppClaimOriginData(), null, url);
-    assert.equal(ownedCppControlOrigin(control), null);
-  }
-  assert.equal(new ControlClient({ url: "https://cp.test", token: "t".repeat(40), kind: "escrow" }).cppClaimOriginData(), null);
-  assert.equal(productionParts({ ...full, CP_URL: "https://foreign.test" }), null);
-});
-
 test("actual factory-owned transport keeps its original immutable HTTPS base", async () => {
   let called;
   const parts = productionParts(full, async (url) => { called = url; return new Response("", { status: 401 }); });
   parts.control.base = "https://foreign.test";
-  parts.control.cppOrigin = "https://foreign.test";
   await assert.rejects(parts.control.serviceDevice("0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e", AbortSignal.timeout(1000)));
   assert.ok(called.startsWith("https://cp.test/"));
-  assert.equal(ownedCppControlOrigin(parts.control), "https://cp.test");
+  assert.equal(productionParts({ ...full, CP_URL: "https://foreign.test" }), null);
 });
 
 test("managed builds reject local roots/KMS/HTTP even with local runtime configuration", () => {
@@ -78,7 +46,6 @@ test("managed builds reject local roots/KMS/HTTP even with local runtime configu
     assert.throws(() => new LocalSoftwareKms(arn, "ab".repeat(32), environment, [col]), /invalid_config/);
     assert.equal(localOrigin(local.cpOrigin, environment), false);
     assert.throws(() => new ControlClient({ url: local.cpOrigin, token: "t".repeat(40), environment }));
-    assert.throws(() => connectClient({ url: local.cpOrigin, token: "t".repeat(40), environment }));
   }
   assert.equal(productionParts({ ...full, LOCAL_KMS_KEY: "ab".repeat(32) }), null);
 });
@@ -225,8 +192,6 @@ test("staging escrow requires matching bundled trust, complete KMS and pinned al
       "managed escrow reads only the authenticated bundled list, never the inherited secret");
     assert.equal(serviceDeviceWrapper({ ...env, LAB: "1", LAB_CUSTODY_WRAP_KEY: "ab".repeat(32) }, "escrow"), null,
       "staging trust cannot downgrade into LAB even with a valid stub key");
-    assert.equal(parts.control.cppClaimOriginData(), null);
-    assert.equal(ownedCppControlOrigin(parts.control), null, "escrow is not a hosted migration authority");
     for (const field of ["KMS_KEY_ARN", "AWS_REGION", "AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CP_INBOUND_TOKEN", "KMS_COLLECTIONS_SHA256"]) {
       assert.equal(productionParts({ ...env, [field]: "" }, fetch, "escrow"), null, field);
     }

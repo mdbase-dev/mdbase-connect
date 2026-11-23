@@ -28,7 +28,7 @@ function gateway(pages: NoteHistory[] | Error, texts: Record<number, string | Er
       if (text === undefined) throw new Error(`no text for ${seq}`);
       return text;
     }),
-    peopleDirectory: vi.fn(async () => ({ account: { accountId: ME } }) as unknown as import("@mdbase-dev/connect").PeopleDirectory)
+    peopleDirectory: vi.fn(async () => ({ account: { accountId: ME } }) as unknown as import("./connect-types").PeopleDirectory)
   };
 }
 

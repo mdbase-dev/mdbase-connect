@@ -16,13 +16,9 @@ import { registerPeopleRoutes } from "../account/people-routes.js";
 import { collectionLogTokenDigest, registerCollectionLogTokenRoute } from "./collection-log-token.js";
 import { cloudCopyCreateDigest, cloudCopyJoinDigest, registerCloudCopyRoutes } from "./cloud-copy-bootstrap.js";
 import { createServiceCloudCopy } from "./service-cloud-copy.js";
-import { createAccountCollection } from "../account/collection-creation.js";
 import { registerAccountCollectionCreationRoutes } from "../account/collection-creation-routes.js";
-import { registerMigrationProviderRoutes } from "./migration-provider.js";
 import { currentAccount, inTransaction } from "./bootstrap-common.js";
 import { installationCollections } from "./installation-scope.js";
-import { createCohort, addToCohort, acceptCohortArchive, cohortArchiveBinding, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "./migration-rollout.js";
-import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "./migration-archive-profile.js";
 import { clientFingerprint, deviceRegistrationDigest, issueDeviceChallenge, registerDevice } from "./devices.js";
 import { collectionDirectory } from "./hosted-routes.js";
 import { LogServiceClient } from "./log-service-client.js";
@@ -189,10 +185,6 @@ describePg("cloud-copy bootstrap", () => {
     registerConnectorPairingRoutes(app,{db,relay:{pushPolicy:async()=>{}},publicUrl:"https://connect.test",installationDevices:true,installationEnvironment:"lab",cloudCopy:{db,next:config,emitter,log:client,fetchImpl:deployments.fetch}});
     registerCloudCopyRoutes(app, { db, next: config, emitter, log: client, fetchImpl: deployments.fetch,
       deletionFloor: { recordCollectionDeletion: async fact => { floors.push(fact.collection); return { fact, generation: 1n }; } } });
-    const unused = async (): Promise<never> => { throw new Error("unexpected provider call"); };
-    registerMigrationProviderRoutes(app, { db, token: "synthetic-migration-target-token", bootstrap: { next: config, emitter, log: client, fetchImpl: deployments.fetch },
-      provider: { legacyMigrationDrain: unused, legacyMigrationSource: unused, legacyMigrationFence: unused,
-        legacyMigrationPlacement: async () => ({ timezone: "UTC", ownerTimezones: ["Europe/Berlin", "America/Denver"] }) } });
     registerHostedSharingRoutes(app, { db, hostedCollections: true, hostedSharing: true, nativePolicyEmitter: emitter });
     registerCollectionLogTokenRoute(app,{db,log:client});
     registerAccountCollectionCreationRoutes(app, { db, publicUrl: "https://connect.test", hostedCollections: true,
@@ -230,69 +222,6 @@ describePg("cloud-copy bootstrap", () => {
   }
   const create = (who: Who, payload: unknown) => app.inject({ method: "POST", url: "/v1/next/collections/cloud-copy", headers: who.headers, payload });
   const registered = async (collection: string) => (await db.query("SELECT 1 FROM next_collections WHERE collection_id = $1", [collection])).rows.length === 1;
-
-  async function migration() {
-    const who = await identity(), collection = randomUUID(), cohort = `target-${randomUUID().slice(0, 8)}`;
-    const owner = who.connector.user_id;
-    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1", [owner]);
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Legacy source','mdbase')", [collection, owner]);
-    await db.query("INSERT INTO next_migration_cohorts(name,released_at,frozen_at) VALUES($1,now(),now())", [cohort]);
-    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort,started_at) VALUES($1,$2,now())", [owner, cohort]);
-    const request = (payload: unknown = {}, credential = "synthetic-migration-target-token") => app.inject({
-      method: "POST", url: `/internal/v1/next/migration/collections/${collection}/target`, headers: { authorization: `Bearer ${credential}` }, payload
-    });
-    return { owner, collection, request };
-  }
-  it("composes canonical SHADOW metadata for a started suspended legacy owner, never native readiness", async () => {
-    const f = await migration(); await db.query("UPDATE users SET suspended_at=now() WHERE id=$1", [f.owner]);
-    const response = await f.request(); expect(response.statusCode, response.body).toBe(200);
-    const result = response.json(); expect(result).toMatchObject({ collection_id: f.collection, owner_account: f.owner, first_member: "hosted", head: { seq: 1 } });
-    expect(result).not.toHaveProperty("verified"); expect(result).not.toHaveProperty("ready");
-    expect(result).not.toHaveProperty("device"); expect(result).not.toHaveProperty("rekey_recipients");
-    expect(response.headers["cache-control"]).toBe("no-store");
-    expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1", [f.collection])).rows).toEqual([{ runtime: "shadow" }]);
-    expect((await db.query("SELECT account_backend,suspended_at FROM users WHERE id=$1", [f.owner])).rows[0])
-      .toMatchObject({ account_backend: "legacy", suspended_at: expect.any(Date) });
-    const calls = deployments.calls;
-    expect((await f.request()).json()).toEqual(result); expect(deployments.calls).toBe(calls);
-    for (const service of result.service_devices) {
-      expect(response.body).not.toContain(deployments.devices.get(`${service.kind}/${f.collection}`)!.wrapped_keys);
-    }
-  });
-  it("places a migrated collection by its legacy timezones (create_log keys 4 and 5)", async () => {
-    const f = await migration();
-    expect((await f.request()).statusCode).toBe(200);
-    expect(log.placements.get(f.collection.replaceAll("-", ""))).toEqual(new Map<number, Decoded>([[4, "UTC"], [5, ["Europe/Berlin", "America/Denver"]]]));
-  });
-  it("refuses ordinary credentials/caller runtime/owner/readiness facts before generation", async () => {
-    const f = await migration(), calls = deployments.calls;
-    for (const credential of ["session", "app", "hosted-service", ""]) expect((await f.request({}, credential)).statusCode).toBe(401);
-    for (const body of [{ runtime: "next" }, { owner: f.owner }, { verified: true }, { collection: f.collection }]) {
-      expect((await f.request(body)).statusCode).toBe(400);
-    }
-    expect(deployments.calls).toBe(calls); expect(await registered(f.collection)).toBe(false);
-  });
-  for (const boundary of ["before", "generation", "readback"] as const) {
-    it.each(["unstarted", "claim-microsecond", "terminal", "quarantine", "transfer", "backend-flip", "deletion-floor"])(
-      `refuses changed target claims at ${boundary}: %s`, async change => {
-        const f = await migration();
-        const mutate = async () => {
-          if (change === "unstarted") await db.query("UPDATE next_migration_cohort_members SET started_at=NULL WHERE account_id=$1", [f.owner]);
-          if (change === "claim-microsecond") await db.query("UPDATE next_migration_cohort_members SET started_at=started_at+interval '1 microsecond' WHERE account_id=$1", [f.owner]);
-          if (change === "terminal") await db.query("UPDATE next_migration_cohort_members SET terminal_excluded_at=now() WHERE account_id=$1", [f.owner]);
-          if (change === "quarantine") await db.query("UPDATE hosted_collections SET quarantined_at=now() WHERE id=$1", [f.collection]);
-          if (change === "transfer") await db.query("UPDATE hosted_collections SET authority_state='transferred' WHERE id=$1", [f.collection]);
-          if (change === "backend-flip") await db.query("UPDATE users SET account_backend='next' WHERE id=$1", [f.owner]);
-          if (change === "deletion-floor") await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [f.collection, randomUUID()]);
-        };
-        if (boundary === "before") await mutate();
-        if (boundary === "generation") deployments.during = mutate;
-        if (boundary === "readback") log.onRead = mutate;
-        const response = await f.request();
-        expect(response.statusCode, response.body).toBe(boundary === "before" && change === "claim-microsecond" ? 200 : 409);
-        if (boundary === "generation") expect(await registered(f.collection)).toBe(false);
-      });
-  }
 
   async function nativePortal(requestedCreate=true) {
     const who=await identity();
@@ -624,39 +553,6 @@ describePg("cloud-copy bootstrap", () => {
       expect(response.json().error.code).toBe("account_collection_quota_exceeded");
       expect(await registered(refused)).toBe(false);
     }
-  });
-
-  it("account Add resumes the canonical creator after accepted zero-Hosted migration completion without thaw", async () => {
-    const owner = randomUUID(), cohort = `account-add-${randomUUID()}`, actor = "synthetic-local-pg";
-    await db.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')", [owner, `${owner}@example.test`]);
-    await ensureDevelopmentEntitlement(db, owner);
-    await createCohort(db, cohort, actor); await addToCohort(db, cohort, [owner], actor);
-    await releaseCohort(db, cohort, actor); await setCohortFrozen(db, cohort, true, "synthetic archive", actor);
-    const binding = await cohortArchiveBinding(db, cohort);
-    const clock = new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
-    await acceptCohortArchive(db, cohort, { schema: ZERO_HOSTED_ARCHIVE_SCHEMA, environment: "lab",
-      bucket: "synthetic-archives", prefix: `legacy-archive/lab/2026/10/15/${cohort}`, backup_id: cohort,
-      complete_sha256: "a".repeat(64), manifest_sha256: "b".repeat(64), source_commit: "c".repeat(40),
-      migration_batch: binding, archive_created_at: clock, archive_completed_at: clock,
-      retention: { mode: "GOVERNANCE", days: 116, retain_until: new Date(Date.parse(clock) + 116 * 86_400_000).toISOString(),
-        inventory_digest: "d".repeat(64), count: "2" } }, "lab");
-    await setPaused(db, false, "synthetic migration", actor); await startAccountMigration(db, owner, "lab");
-    const input = { requestId: randomUUID(), displayName: "After migration", timezone: "UTC" };
-    const options = { db, publicUrl: "https://connect.test", hostedCollections: true,
-      native: { db, next: config, emitter, log: client, fetchImpl: deployments.fetch } };
-    await expect(createAccountCollection(options, owner, input, async () => {})).rejects.toMatchObject({ code: "migration_frozen" });
-    expect((await db.query("SELECT 1 FROM account_collection_creations WHERE user_id=$1", [owner])).rows).toHaveLength(0);
-    await flipAccountBackend(db, owner, [], flipEvidenceDigest([]), { enabled: true }, "lab");
-    const original = await createAccountCollection(options, owner, input, async () => {});
-    const calls = deployments.calls;
-    expect(await createAccountCollection(options, owner, input, async () => {})).toEqual(original);
-    expect(deployments.calls).toBe(calls);
-    expect((await db.query("SELECT collection_id,display_name,runtime,published_at FROM account_collection_creations WHERE user_id=$1 AND request_id=$2",
-      [owner,input.requestId])).rows).toEqual([{ collection_id: original.id, display_name: input.displayName, runtime: "next", published_at: expect.any(Date) }]);
-    expect((await db.query("SELECT frozen_at,completed_at FROM next_migration_cohorts WHERE name=$1", [cohort])).rows[0])
-      .toEqual({ frozen_at: expect.any(Date), completed_at: expect.any(Date) });
-    expect((await db.query("SELECT 1 FROM next_devices WHERE user_id=$1", [owner])).rows).toHaveLength(0);
-    expect((await db.query("SELECT 1 FROM grants WHERE user_id=$1", [owner])).rows).toHaveLength(0);
   });
 
   it("service-creates a cloud copy for an account with no device: genesis enrols hosted and escrow only", async () => {
@@ -1097,24 +993,6 @@ describePg("cloud-copy bootstrap", () => {
     const migrated = await createServiceCloudCopy(options, { collection, owner: own, runtime: "shadow", displayName: "Own hosted", current: c => currentAccount(c, own) });
     expect(migrated.owner_account).toBe(own);
     expect(await registered(collection)).toBe(true);
-  });
-  it("denies new service creation before completion, then permits a completed migrated account without thawing", async () => {
-    const who = await identity(), owner = who.connector.user_id, cohort = `bootstrap-${randomUUID().slice(0, 8)}`;
-    await db.query("INSERT INTO next_migration_cohorts(name) VALUES($1)", [cohort]);
-    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [owner, cohort]);
-    await setCohortFrozen(db, cohort, true, "synthetic capture", "isolated-pg");
-    const calls = deployments.calls, collection = randomUUID();
-    const result = await serviceCreate(await session(owner), collection);
-    expect(result.statusCode, result.body).toBe(409); expect(deployments.calls).toBe(calls); expect(await registered(collection)).toBe(false);
-    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
-    await acceptCohortArchive(db,cohort,{schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
-      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
-      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}},"lab");
-    await releaseCohort(db,cohort,"synthetic-local-pg");await setPaused(db,false,"synthetic migration","synthetic-local-pg");
-    await startAccountMigration(db,owner,"lab");await flipAccountBackend(db,owner,[],flipEvidenceDigest([]),{enabled:true},"lab");
-    const allowed=await serviceCreate(await session(owner),collection);expect(allowed.statusCode,allowed.body).toBe(200);
-    expect((await db.query("SELECT runtime FROM next_collections WHERE collection_id=$1",[collection])).rows[0].runtime).toBe("next");
-    expect((await db.query("SELECT frozen_at FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0].frozen_at).not.toBeNull();
   });
   it.each(["before", "during-generation"])("honors permanent deletion floors at %s", async boundary => {
     const who = await identity(), owner = who.connector.user_id, collection = randomUUID();

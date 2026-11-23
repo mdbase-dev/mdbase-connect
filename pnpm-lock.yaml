@@ -195,9 +195,6 @@ importers:
       '@lingui/react':
         specifier: 6.9.0
         version: 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0)
-      '@mdbase-dev/connect':
-        specifier: workspace:*
-        version: link:../../packages/client
       '@mdbase-dev/connect-protocol':
         specifier: file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz
         version: file:apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz
@@ -250,12 +247,6 @@ importers:
       '@lingui/vite-plugin':
         specifier: 6.9.0
         version: 6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(@lingui/babel-plugin-lingui-macro@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@rolldown/plugin-babel@0.2.4(@babel/core@7.29.7(supports-color@10.2.2))(@babel/runtime@7.29.7)(rolldown@1.2.14)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1)))(esbuild@0.28.1)(rolldown@1.2.14)(supports-color@10.2.2)(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
-      '@mdbase-dev/connect-dev':
-        specifier: workspace:*
-        version: link:../../packages/devkit
-      '@mdbase-dev/connect-testing':
-        specifier: workspace:*
-        version: link:../../packages/testing
       '@playwright/test':
         specifier: ^1.61.1
         version: 1.61.1
@@ -469,47 +460,6 @@ importers:
         specifier: ^4.1.11
         version: 4.1.12(@types/node@24.19.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
 
-  packages/client:
-    dependencies:
-      '@mdbase-dev/connect-protocol':
-        specifier: workspace:*
-        version: link:../protocol
-    devDependencies:
-      esbuild:
-        specifier: ^0.28.1
-        version: 0.28.1
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.12(@types/node@24.19.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
-
-  packages/devkit:
-    dependencies:
-      '@mdbase-dev/connect':
-        specifier: workspace:*
-        version: link:../client
-      '@mdbase-dev/connect-protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      ajv:
-        specifier: ^8.20.0
-        version: 8.20.0
-      yaml:
-        specifier: ^2.9.1
-        version: 2.9.1
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.12(@types/node@24.13.3)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
-
   packages/i18n:
     dependencies:
       '@lingui/cli':
@@ -596,47 +546,6 @@ importers:
         specifier: ^7.0.2
         version: 7.0.2
 
-  packages/sync:
-    dependencies:
-      '@mdbase-dev/connect-protocol':
-        specifier: workspace:*
-        version: link:../protocol
-      '@noble/hashes':
-        specifier: ^2.4.0
-        version: 2.4.0
-      yaml:
-        specifier: ^2.9.1
-        version: 2.9.1
-    devDependencies:
-      '@types/node':
-        specifier: ^24.0.0
-        version: 24.13.3
-      esbuild:
-        specifier: ^0.28.1
-        version: 0.28.1
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.12(@types/node@24.13.3)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
-
-  packages/testing:
-    dependencies:
-      '@mdbase-dev/connect':
-        specifier: workspace:*
-        version: link:../client
-      '@mdbase-dev/connect-protocol':
-        specifier: workspace:*
-        version: link:../protocol
-    devDependencies:
-      typescript:
-        specifier: ^7.0.2
-        version: 7.0.2
-      vitest:
-        specifier: ^4.1.11
-        version: 4.1.12(@types/node@24.19.0)(jsdom@29.1.1(@noble/hashes@2.4.0))(vite@8.3.4(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
-
   packages/ui:
     dependencies:
       '@mdbase-dev/ui':
@@ -704,9 +613,6 @@ importers:
       '@fastify/rate-limit':
         specifier: ^11.2.0
         version: 11.2.0
-      '@mdbase-dev/connect':
-        specifier: workspace:*
-        version: link:../../packages/client
       '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
@@ -771,9 +677,6 @@ importers:
       '@mdbase-dev/connect-protocol':
         specifier: workspace:*
         version: link:../../packages/protocol
-      '@mdbase-dev/connect-sync':
-        specifier: workspace:*
-        version: link:../../packages/sync
       '@nats-io/transport-node':
         specifier: ^3.4.0
         version: 3.4.0

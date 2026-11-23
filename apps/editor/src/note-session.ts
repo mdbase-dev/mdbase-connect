@@ -1,6 +1,8 @@
 import { t } from "@lingui/core/macro";
-import { MdbaseConnectError, MdbaseRecordSession, type CollectionTypeDescriptor, type ConnectOutcome } from "@mdbase-dev/connect";
-import { connectFailure, connectProblem, connectSuccess, type MdbaseRecordSessionAdapter } from "@mdbase-dev/connect/advanced";
+import { MdbaseConnectError, type CollectionTypeDescriptor, type ConnectOutcome } from "./connect-types";
+import { MdbaseRecordSession } from "./record-session";
+import { connectFailure, connectProblem, connectSuccess } from "./connect-types";
+import { type MdbaseRecordSessionAdapter } from "./record-session";
 import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
 import { editableNote, persistedBody, titlePatch } from "./note";
 import type { RecoveryDraft } from "./draft-recovery";

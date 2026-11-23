@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MDBASE_RECORD_MODIFIED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { buildApp } from "../../app.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { HostedProviderClient } from "../hosted/hosted-provider.js";
 import type {
   FcmPushTarget,
   FcmPushTransport,
@@ -209,55 +208,6 @@ describe("Web Push notifications", () => {
     expect(revoked.statusCode).toBe(403);
   });
 
-  it("accepts only authenticated hosted-authority signals for active hosted grants", async () => {
-    const fixture = await notificationFixture(true);
-    const channel = await fixture.app.inject({
-      method: "POST",
-      url: "/v1/notifications/channels",
-      headers: { authorization: `Bearer ${fixture.applicationToken}` },
-      payload: {
-        installation_id: "hosted_installation_012345",
-        criteria: ["task.ready"],
-        subscription: {
-          endpoint: "https://push.example/subscription/hosted",
-          expirationTime: null,
-          keys: {
-            p256dh: "p256dh_012345678901234567890123456789",
-            auth: "auth_0123456789012345"
-          }
-        }
-      }
-    });
-    expect(channel.statusCode, channel.body).toBe(201);
-    const signal = {
-      signal_id: "hosted_signal_012345678901",
-      grant_id: fixture.grantId,
-      criterion_id: "task.ready",
-      cursor: "77"
-    };
-    const denied = await fixture.app.inject({
-      method: "POST",
-      url: "/internal/v1/hosted/notification-signals",
-      headers: { authorization: "Bearer incorrect-token" },
-      payload: signal
-    });
-    expect(denied.statusCode).toBe(401);
-
-    const accepted = await fixture.app.inject({
-      method: "POST",
-      url: "/internal/v1/hosted/notification-signals",
-      headers: { authorization: `Bearer ${fixture.hostedInternalToken}` },
-      payload: signal
-    });
-    expect(accepted.statusCode, accepted.body).toBe(202);
-    await eventually(() => fixture.transport.deliveries.length === 1);
-    expect(JSON.parse(fixture.transport.deliveries[0].payload)).toMatchObject({
-      signal_id: signal.signal_id,
-      criterion_id: "task.ready",
-      cursor: "77"
-    });
-  });
-
   it("bounds the active push channels of one grant", async () => {
     const fixture = await notificationFixture();
     const register = (index: number) => fixture.app.inject({
@@ -294,7 +244,7 @@ describe("Web Push notifications", () => {
   }, 30_000);
 
   it("registers a managed FCM installation against the manifest project", async () => {
-    const fixture = await notificationFixture(false, {
+    const fixture = await notificationFixture({
       nativeDelivery: {
         mode: "managed_fcm",
         firebase_project_id: "tasks-production"
@@ -341,7 +291,7 @@ describe("Web Push notifications", () => {
   });
 
   it("delivers one signed-webhook route without requiring a device channel", async () => {
-    const fixture = await notificationFixture(false, {
+    const fixture = await notificationFixture({
       nativeDelivery: {
         mode: "webhook",
         url: "https://hooks.tasks.example/mdbase"
@@ -387,7 +337,6 @@ describe("Web Push notifications", () => {
 });
 
 async function notificationFixture(
-  hosted = false,
   options: {
     nativeDelivery?:
       | { mode: "managed_fcm"; firebase_project_id: string }
@@ -398,19 +347,10 @@ async function notificationFixture(
   const transport = new RecordingPushTransport();
   const fcm = new RecordingFcmTransport();
   const webhook = new RecordingWebhookTransport();
-  const hostedInternalToken = "hosted_internal_token_012345678901234567890123";
   const built = await buildApp({
     db,
     devAuth: true,
     publicUrl: "http://127.0.0.1:8787",
-    ...(hosted
-      ? {
-          hostedProvider: new HostedProviderClient({
-            url: "http://127.0.0.1:8790",
-            internalToken: hostedInternalToken
-          })
-        }
-      : {}),
     notifications: {
       publicKey: "public_vapid_key",
       transports: { webPush: transport, fcm, webhook },
@@ -441,14 +381,6 @@ async function notificationFixture(
      VALUES ($1, $2, $3, $4, $5, $6, true)`,
     [collectionId, userId, connectorId, localCollectionId, "Tasks", "0.3.0"]
   );
-  if (hosted) {
-    await db.query(
-      `INSERT INTO hosted_collections
-         (id, user_id, display_name, template, provider_url)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [collectionId, userId, "Hosted Tasks", "blank", "http://127.0.0.1:8790"]
-    );
-  }
   await db.query(
     `INSERT INTO applications
        (id, canonical_identity, manifest_version, name, homepage,
@@ -478,7 +410,7 @@ async function notificationFixture(
   );
   await db.query(
     `INSERT INTO grants
-      (id, user_id, application_id, ${hosted ? "hosted_collection_id" : "collection_id"},
+      (id, user_id, application_id, collection_id,
         operations, scope, application_origin, notification_criteria,
         application_authorization, application_installation_id)
      VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8::jsonb,
@@ -521,8 +453,7 @@ async function notificationFixture(
     webhook,
     grantId,
     connectorToken,
-    applicationToken,
-    hostedInternalToken
+    applicationToken
   };
 }
 

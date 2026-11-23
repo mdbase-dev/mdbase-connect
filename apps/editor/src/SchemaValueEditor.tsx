@@ -4,7 +4,7 @@ import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { PlusIcon as Plus } from "./icons";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { JsonObject } from "@mdbase-dev/connect";
+import type { JsonObject } from "./connect-types";
 import { DeferredCodeEditor as CodeEditor } from "./DeferredCodeEditor";
 import { humanizeName, isObject, resolveSchema } from "./field-reference";
 import { InlineRemoveButton } from "./InlineRemoveButton";

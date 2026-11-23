@@ -10,12 +10,6 @@ import {
 import type { DatabasePool } from "../../db.js";
 import { listAccountComputers } from "./computers.js";
 import { effectiveEntitlement } from "./entitlements.js";
-import {
-  contractRequirements,
-  effectiveHostedContractDescriptors,
-  type HostedAuthorityRegistry
-} from "../hosted/hosted.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import type { RelayHub } from "../relay/relay.js";
 import type { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { requireUser } from "../../platform/request-authentication.js";
@@ -24,7 +18,6 @@ import { liveAuthorizationCollections } from "../authorizations/local-collection
 import { grantWithCompatibleApplicationOrigin } from "../grants/application-origin.js";
 import { grantVisibleToManagementSql } from "../grants/local-grant-revocation.js";
 import { requiresHostedCollection } from "../grants/policy.js";
-import { hostedMirrorReplicas } from "../hosted/service.js";
 import type { LogServiceClient } from "../next/log-service-client.js";
 import { nativeDevicesByCollection } from "../next/native-grant-target.js";
 import { nextFileBytes } from "../next/storage-usage.js";
@@ -46,9 +39,7 @@ interface AccountOverviewRouteOptions {
   hostedCollections?: boolean;
   nativeCollectionCreation?: boolean;
   hostedSharing?: boolean;
-  hostedProvider?: HostedProviderClient;
   nextLog?: Pick<LogServiceClient, "storageStatus">;
-  hostedReference?: HostedAuthorityRegistry;
   /** Whether this deployment sells Plus through Stripe. */
   billingAvailable?: boolean;
 }
@@ -145,36 +136,6 @@ export function registerAccountOverviewRoute(
         collection.access.can_manage_members &&= shared.has(collection.id);
       }
     }
-    const hostedReplicas = {
-      rows: await hostedMirrorReplicas(
-        options.db,
-        hostedCollections.rows.map((collection) => collection.id)
-      )
-    };
-    const hostedReplicaStatuses = new Map<string, {
-      head: number;
-      acknowledged_sequence: number;
-      last_seen_at: string | null;
-      token_expires_at: string;
-    }>();
-    if (options.hostedProvider) {
-      const statusGroups = await Promise.all(
-        hostedCollections.rows.map(async (collection) => {
-          try {
-            return await options.hostedProvider!.replicaStatuses(collection.id);
-          } catch (error) {
-            request.log.warn(
-              { error, collection_id: collection.id },
-              "Hosted mirror status is unavailable"
-            );
-            return [];
-          }
-        })
-      );
-      for (const status of statusGroups.flat()) {
-        hostedReplicaStatuses.set(status.id, status);
-      }
-    }
     // A revoked grant is returned only while the portal still shows it: until
     // its revocation completes, or while it asks for reauthorization.
     const grants = await options.db.query(
@@ -261,18 +222,6 @@ export function registerAccountOverviewRoute(
           [user.id]
         )
       : { rows: [] };
-    // The legacy provider meters only legacy hosted collections, so a native
-    // account's usage never asks it.
-    let hostedUsage = null;
-    if (creation.backend !== "next" && options.hostedProvider && storageAccount.rows[0]) {
-      try {
-        hostedUsage = await options.hostedProvider.accountUsage(
-          storageAccount.rows[0].provider_account_id
-        );
-      } catch (error) {
-        request.log.warn({ error }, "Hosted account usage is unavailable");
-      }
-    }
     let nativeStorageBytes = null;
     if (nativeStorage !== "omit" && options.nextLog && entitlement && creation.backend === "next") {
       try {
@@ -339,14 +288,6 @@ export function registerAccountOverviewRoute(
           live_file_bytes: null,
           live_storage_bytes: null,
           retained_file_bytes: null
-        } : hostedUsage ? {
-          hosted_collections: hostedUsage.collection_count,
-          collection_member_seats: await collectionMemberSeatUsage(options.db, user.id),
-          live_content_bytes: hostedUsage.live_content_bytes,
-          live_file_bytes: hostedUsage.live_file_bytes,
-          live_storage_bytes:
-            hostedUsage.live_content_bytes + hostedUsage.live_file_bytes,
-          retained_file_bytes: hostedUsage.retained_file_bytes
         } : null,
         ...(nativeStorage === "omit" ? {} : { native_storage_bytes: nativeStorageBytes }),
         trial: entitlement.trial ? {
@@ -407,16 +348,8 @@ export function registerAccountOverviewRoute(
           epoch: Number(collection.authority_epoch),
           state: collection.authority_state
         },
-        contracts: contractRequirements(effectiveHostedContractDescriptors(
-          collection.contracts,
-          collection.template
-        )),
-        replicas: hostedReplicas.rows
-          .filter((replica) => replica.collection_id === collection.id)
-          .map((replica) => ({
-            ...replica,
-            sync_status: hostedReplicaStatuses.get(replica.id) ?? null
-          }))
+        contracts: [],
+        replicas: []
       })),
       installation_access: installationAccess.rows.map((scope) => {
         const visible = nativeCollections.find((collection) => collection.id === scope.collection_id);

@@ -6,7 +6,7 @@ import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
 import { useOverlay } from "@mdbase-dev/ui/overlay";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { CaretDownIcon as CaretDown, CheckCircleIcon, FilePlusIcon as FilePlus2, SidebarSimpleIcon as PanelLeft } from "./icons";
 import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
 import { NoteSearchField } from "./NoteSearchField";

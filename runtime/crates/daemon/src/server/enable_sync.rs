@@ -16,35 +16,7 @@ impl Daemon {
         if local {
             self.settled_status(&p.collection, ENABLE_OPEN_WAIT).await?;
         }
-        // Accepting takeover holds clears them: the takeover gate comes first, as
-        // in a takeover run.
-        let _takeover = if p.accept_takeover_holds {
-            Some(self.takeover.run.lock().await)
-        } else {
-            None
-        };
         let _gate = self.account_gate.lock().await;
-        // Before anything else: a running old daemon could write the folder meanwhile.
-        let taken_over = self
-            .inner
-            .lock()
-            .await
-            .registry
-            .get(&p.collection)
-            .is_some_and(|e| e.origin == crate::registry::Origin::MigratedLocal);
-        if taken_over
-            && self
-                .takeover
-                .old_running
-                .load(std::sync::atomic::Ordering::SeqCst)
-        {
-            return Err(ControlError::unavailable(
-                crate::collections::OLD_CONNECTOR_RUNNING,
-                "the old mdbase Connect is running on this computer and could still change \
-                 this folder; quit it (including its menu-bar or tray icon) or update it, \
-                 then turn on sync",
-            ));
-        }
         let (ctx, trust) = self.sync_parts()?;
         let entry = self
             .inner
@@ -147,16 +119,10 @@ impl Daemon {
         } else {
             mdbn_wire::policy::CState::CloudCopy
         };
-        // Adopt: takeover holds first; then the serving local runtime is frozen
-        // (writers fenced, inventory and hold counts taken at that one point,
-        // stopped), so no acknowledged write or new hold can fall outside the plan.
+        // Adopt: the serving local runtime is frozen (writers fenced, inventory
+        // and hold counts taken at that one point, stopped), so no acknowledged
+        // write or new hold can fall outside the plan.
         let inventory = if adopting && journal.is_none() {
-            adopt_holds_refusal(
-                &self.profile.state_dir,
-                &entry.id,
-                p.accept_takeover_holds,
-                None,
-            )?;
             let rt = {
                 let inner = self.inner.lock().await;
                 inner
@@ -182,9 +148,7 @@ impl Daemon {
                 }
             };
             let refused = adopt_holds_refusal(
-                &self.profile.state_dir,
                 &entry.id,
-                true,
                 Some((frozen.holds, frozen.unresolved)),
             )
             .err();
@@ -198,36 +162,7 @@ impl Daemon {
                 }
                 return Err(e);
             }
-            if p.accept_takeover_holds {
-                // Explicitly accepted: this computer's versions stay, as with
-                // keep_mine, and the holds are cleared.
-                let paths = self.takeover_paths();
-                let accepted: Vec<String> = crate::takeover::held::open(&paths.legacy, &entry.id)
-                    .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?
-                    .into_iter()
-                    .map(|h| h.path)
-                    .collect();
-                if !accepted.is_empty() {
-                    tracing::info!(collection = %entry.id, files = accepted.len(), "takeover holds accepted as this computer's versions");
-                    crate::takeover::held::resolve(
-                        &paths.record,
-                        &paths.legacy,
-                        &entry.id,
-                        &accepted,
-                    )
-                    .map_err(|e| ControlError::internal(format!("takeover holds: {e}")))?;
-                }
-            }
-            let (records, resources) = frozen.inventory;
-            let records = if migrated {
-                crate::adopt::prefer_legacy_ids(
-                    records,
-                    &crate::adopt::legacy_hints(&self.profile.state_dir, &entry.id),
-                )
-            } else {
-                records
-            };
-            Some((records, resources))
+            Some(frozen.inventory)
         } else {
             None
         };
@@ -509,28 +444,12 @@ pub(super) fn sync_e2e(
 /// files (`host.lock`, `host.json`: a PID and a diagnostic descriptor, never user
 /// data). Never other files, symlinks or arbitrary hidden user entries.
 /// No file contents are read; inspection is bounded and failures deny.
-/// Adopt is blocked while files the takeover held are unreviewed (the daemon
-/// cannot resolve those; `accept` is the user's explicit review) and while the
-/// local replica has holds or unresolved conflicts (`replica`: holds, conflicts).
+/// Adopt is blocked while the local replica has holds or unresolved conflicts
+/// (`replica`: holds, conflicts).
 pub(super) fn adopt_holds_refusal(
-    state_dir: &std::path::Path,
     id: &str,
-    accept: bool,
     replica: Option<(u64, u64)>,
 ) -> Result<(), ControlError> {
-    let held = crate::adopt::takeover_holds(state_dir, id)
-        .map_err(|e| ControlError::internal(format!("takeover record: {e}")))?;
-    if held > 0 && !accept {
-        return Err(ControlError::invalid(
-            "takeover_holds",
-            format!(
-                "{held} file(s) were held when this collection was taken over: the folder has \
-                 this computer's version and mdbase kept the other. Review them with `mdbase \
-                 holds {id}` and `mdbase resolve`, or accept this computer's versions with \
-                 `mdbase sync enable {id} --accept-takeover-holds`"
-            ),
-        ));
-    }
     if let Some((holds, conflicts)) = replica
         && (holds > 0 || conflicts > 0)
     {

@@ -6,7 +6,6 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import type { ServiceKind } from "./service-devices.js";
 import { pitrCollection, pitrDeployments, type LabPitrConfig } from "./lab-pitr-config.js";
-import { migrationDeployments, type MigrationRouting } from "./migration-routing.js";
 import { isLogRegion } from "./log-service-client.js";
 
 const LIMIT = 4;
@@ -78,8 +77,7 @@ export async function activatePendingServices(
   deployments: Deployments,
   fetchImpl: typeof fetch = fetch,
   collectionId?: string,
-  pitr?: LabPitrConfig,
-  migrationRouting?: MigrationRouting
+  pitr?: LabPitrConfig
 ): Promise<void> {
   const values: unknown[] = [LIMIT];
   const filters: Array<(row: string) => string> = [];
@@ -88,11 +86,6 @@ export async function activatePendingServices(
     const at = values.length;
     filters.push((row) => `AND NOT (${row}.kind = 'escrow' AND ${row}.collection_id = ANY($${at}::uuid[]))`);
   }
-  // A retired migration route (LAB fixture disposal) has no service deployments to
-  // wake; a collection moving hosting has none until the move ends.
-  if (migrationRouting) filters.push((row) => `
-     AND NOT EXISTS (SELECT 1 FROM next_migration_routing_retirements retired WHERE retired.collection_id = ${row}.collection_id)
-     AND NOT EXISTS (SELECT 1 FROM next_hosting_moves move WHERE move.collection_id = ${row}.collection_id AND move.state = 'moving')`);
   if (collectionId) {
     values.push(collectionId);
     const at = values.length;
@@ -134,7 +127,7 @@ export async function activatePendingServices(
   await Promise.all([
     ...pending.rows.map(async ({ collection_id: collection, kind, batch_id: batch, region: stored }) => {
       // The log's recorded region places a new actor next to it; absent, the Worker's default.
-      const result = await wake(db, deployments, fetchImpl, collection, kind, isLogRegion(stored) ? stored : undefined, pitr, migrationRouting);
+      const result = await wake(deployments, fetchImpl, collection, kind, isLogRegion(stored) ? stored : undefined, pitr);
       if (!result) return;
       if (result.kind === "accepted") {
         await db.query(`UPDATE next_service_devices SET activated_at = now(), activation_batch_id = $3::bigint,
@@ -161,7 +154,7 @@ export async function activatePendingServices(
       // An existing actor ignores placement; a retire wake needs no region. A route
       // that cannot be resolved (ambiguous_collection_owner) is an unknown outcome.
       let result: Outcome | null;
-      try { result = await wake(db, deployments, fetchImpl, collection, kind, undefined, pitr, migrationRouting, true); }
+      try { result = await wake(deployments, fetchImpl, collection, kind, undefined, pitr, true); }
       catch { result = { kind: "unknown" }; wakeLog(collection, kind, "retry", { retire: true }); }
       // Either definite answer means the copy has checked the control plane: it
       // retired on the verdict, or it is a current cloud copy again. With no
@@ -181,13 +174,12 @@ export async function activatePendingServices(
 /** One activation request to the collection's current deployment of `kind`.
  * null: it has no deployment now (escrow-less LAB PITR, retired or moving route). */
 async function wake(
-  db: DatabaseQueryable, deployments: Deployments, fetchImpl: typeof fetch, collection: string, kind: ServiceKind,
-  region: string | undefined, pitr: LabPitrConfig | undefined, migrationRouting: MigrationRouting | undefined, retire?: true
+  deployments: Deployments, fetchImpl: typeof fetch, collection: string, kind: ServiceKind,
+  region: string | undefined, pitr: LabPitrConfig | undefined, retire?: true
 ): Promise<Outcome | null> {
   // Do not manufacture an activation ACK for an intentionally stateless record.
   if (kind === "escrow" && pitrCollection(pitr, collection)) return null;
-  const selected = await migrationDeployments(db, pitrDeployments(deployments, pitr, collection), migrationRouting, collection);
-  if (!selected) return null; // Retired after selection; the next poll excludes it.
+  const selected = pitrDeployments(deployments, pitr, collection);
   const deployment = selected[kind];
   const url = new URL("internal/v1/collections/activate", `${deployment.url.replace(/\/+$/u, "")}/`);
   let result: Outcome = { kind: "unknown" };

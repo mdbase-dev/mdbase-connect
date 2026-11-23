@@ -2,8 +2,8 @@ import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect-testing";
+import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "./connect-types";
+import { connectProblem } from "./connect-types";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {

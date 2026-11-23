@@ -3,7 +3,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { MDBASE_TIMER_FIRED_CONTRACT } from "@mdbase-dev/connect-protocol";
 import { buildApp } from "../../../app.js";
 import { createDatabase, type DatabasePool } from "../../../db.js";
-import { HostedProviderClient } from "../../hosted/hosted-provider.js";
 import type { PushSubscriptionTarget, PushTransport } from "../../notifications/notifications.js";
 import { tokenHash } from "../../../security.js";
 import {
@@ -37,7 +36,6 @@ const CRITERION = {
   presentation: { title: "Task reminder", body: "Open TaskNotes to view your task.", tag: "tasknotes-reminders" }
 };
 const TIMER_OPS = ["read", "list_timers", "put_timer", "cancel_timer", "reconcile_timers"];
-const INTERNAL_TOKEN = "hosted_internal_token_012345678901234567890123";
 
 async function fixture(options: {
   hosted?: boolean;
@@ -50,7 +48,6 @@ async function fixture(options: {
     db,
     devAuth: true,
     publicUrl: "http://127.0.0.1:8787",
-    hostedProvider: new HostedProviderClient({ url: "http://127.0.0.1:8790", internalToken: INTERNAL_TOKEN }),
     notifications: {
       publicKey: "public_vapid_key",
       transports: { webPush: transport },
@@ -220,20 +217,7 @@ describe("timer service: put, cancel, reconcile", () => {
     expect(kept.json().data).toEqual({ n: 1 });
   });
 
-  it("serves the hosted shim for a named grant", async () => {
-    const hosted = await fixture({ hosted: true });
-    const shim = await hosted.app.inject({
-      method: "POST",
-      url: `/internal/v1/next/timers/${hosted.grantId}/ns/reconcile`,
-      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
-      payload: { criterion_id: "task.reminder", timers: [{ id: "t", fire_at: future(1_000) }] }
-    });
-    expect(shim.statusCode).toBe(200);
-    const badShim = await hosted.app.inject({
-      method: "GET", url: `/internal/v1/next/timers/${hosted.grantId}/ns`, headers: { authorization: "Bearer nope" }
-    });
-    expect(badShim.statusCode).toBe(401);
-
+  it("keeps the unauthenticated device timer route closed", async () => {
     const local = await fixture();
     const noDeviceRoute = await local.app.inject({
       method: "PUT",
@@ -305,34 +289,6 @@ describe("security conditions before MDBASE_NEXT_TIMERS=1 (#598)", () => {
     await f.timers!.tick();
     expect((await f.db.query("SELECT event_id FROM next_timer_events")).rows).toHaveLength(0);
   });
-
-  it("limits the provider's internal token to cloud-copy grants", async () => {
-    const local = await fixture();
-    const shim = (grantId: string, method: "GET" | "POST" | "DELETE", path: string, payload?: unknown) =>
-      local.app.inject({
-        method,
-        url: `/internal/v1/next/timers/${grantId}/${path}`,
-        headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
-        ...(payload === undefined ? {} : { payload })
-      });
-    for (const response of [
-      await shim(local.grantId, "GET", "ns"),
-      await shim(local.grantId, "POST", "ns/reconcile", { criterion_id: "task.reminder", timers: [] }),
-      await shim(local.grantId, "DELETE", "ns/t"),
-      await shim(randomUUID(), "GET", "ns")
-    ]) {
-      expect(response.statusCode).toBe(403);
-    }
-
-    const hosted = await fixture({ hosted: true });
-    await markPrivate(hosted);
-    const privateGrant = await hosted.app.inject({
-      method: "GET",
-      url: `/internal/v1/next/timers/${hosted.grantId}/ns`,
-      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` }
-    });
-    expect(privateGrant.statusCode).toBe(403);
-  });
 });
 
 describe("fail-closed grants at registration, consumption and delivery; event ceiling (#598 audit)", () => {
@@ -381,13 +337,13 @@ describe("fail-closed grants at registration, consumption and delivery; event ce
   });
 
   it("consumes events and drops deliveries for unapproved end-to-end grants", async () => {
-    const f = await fixture({ hosted: true });
+    const f = await fixture();
     await f.app.inject({ method: "POST", url: "/v1/notifications/channels", headers: f.auth, payload: channelBody });
     // A delivery already queued before the collection went private is discarded.
     const queued = await f.app.inject({
       method: "POST",
-      url: "/internal/v1/hosted/notification-signals",
-      headers: { authorization: `Bearer ${INTERNAL_TOKEN}` },
+      url: "/v1/connectors/notification-signals",
+      headers: { authorization: `Bearer ${f.connectorToken}` },
       payload: { signal_id: "signal_01234567890123456789", grant_id: f.grantId, criterion_id: "task.reminder", cursor: "c" }
     });
     expect(queued.statusCode).toBe(202);

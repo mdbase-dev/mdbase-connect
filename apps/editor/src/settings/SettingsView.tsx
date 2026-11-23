@@ -3,7 +3,7 @@ import { formatters } from "@mdbase-dev/i18n";
 import { LanguageSetting } from "../i18n/LanguageSetting";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "../icons";
-import type { CollectionDescription } from "@mdbase-dev/connect";
+import type { CollectionDescription } from "../connect-types";
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { managedAppOrigins } from "../../../../scripts/lib/managed-app-origins.mjs";
 import { editorEnvironment } from "../environment";

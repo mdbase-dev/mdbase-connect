@@ -127,7 +127,6 @@ export function registerAuthorizationPollingRoutes(
         }
         tokens = await issueApplicationTokens(
           connection,
-          options.hostedProvider,
           consumed.rows[0].grant_id
         );
         await connection.query("COMMIT");
@@ -178,7 +177,7 @@ export function registerAuthorizationPollingRoutes(
           await connection.query("ROLLBACK");
           return reply.code(400).send(apiError("invalid_grant", "Authorization code has already been used."));
         }
-        tokens = await issueApplicationTokens(connection, options.hostedProvider, authorizationCode.grant_id);
+        tokens = await issueApplicationTokens(connection, authorizationCode.grant_id);
         await connection.query("COMMIT");
       } catch (error) {
         await connection.query("ROLLBACK");
@@ -247,7 +246,7 @@ export function registerAuthorizationPollingRoutes(
         await connection.query("ROLLBACK");
         return reply.code(400).send(apiError("invalid_grant", "Refresh token has already been used."));
       }
-      tokens = await issueApplicationTokens(connection, options.hostedProvider, current.grant_id);
+      tokens = await issueApplicationTokens(connection, current.grant_id);
       await connection.query("COMMIT");
     } catch (error) {
       await connection.query("ROLLBACK");

@@ -25,12 +25,8 @@
  */
 import { DurableObject } from "cloudflare:workers";
 import { encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
-import { Engine, type CppClaimTicket, type MigrationPendingTicket, type MigrationPhysicalTicket } from "./engine.js";
-import type { MigrationProviderResult } from "./migration-provider-result.js";
-import type { MigrationSourceResult } from "./migration-source-result.js";
-import type { Gen0Result } from "./migration-gen0-input.js";
+import { Engine } from "./engine.js";
 import { AlarmLifecycle } from "./alarm-lifecycle.ts";
-import { withDeadline } from "./deadline.ts";
 import { attachmentSlots, ChunkBusy, type ChunkPermit } from "./chunk-slots.ts";
 import { deploymentLog, pumpLog, PumpReport, SpareNonces, StaleAppendStore, type CallTimings } from "./log.js";
 import { DENY_ADMISSION, DENY_CUSTODY, DENY_WRAPPER, type Admission, type Custody, type OpenKeys } from "./seams.js";
@@ -39,23 +35,14 @@ import { PitrCut, PitrWork } from "./pitr-cut.ts";
 import { PitrActorRestriction } from "./pitr-actor.ts";
 import { pitrFactory, type PitrFactorySettings } from "./pitr-factory.ts";
 import { modeServiceRequest, modeReady, modeAck, modeUnavailable } from "./collection-mode.js";
-import { migrationAdmissionRequest, migrationAdmissionObservation, migrationAdmissionUnavailable } from "./migration-admission.ts";
 import { generateDeviceKeys } from "./keygen.js";
 import engineModule from "../hosted.wasm";
 import { labCustody, labAuthorized } from "./lab.js";
 import { labStubUnwrap } from "./custody-stub.js";
 import { combinedCustody, cpCustody } from "./cp-custody.js";
-import { ControlClient, type MigrationClaimData } from "./control.js";
-import { IDLE, MigrationExecutor, SettlementRefused, SettlementUnknown, type MigrationHost } from "./migration-executor.ts";
-import { connectClient } from "./migration-connect.ts";
-import { hasGen0Objects, putGen0Object } from "./migration-objects.ts";
-import { migrationOperatorBody, migrationOperatorRequest, type MigrationOperatorRequest } from "./migration-operator.ts";
-import { PAUSE_REASON, STEP, atPreCutoverPause, migrationRunRequest, migrationStatus, migrationStatusRequest, newRun, readNativeState, storageRunStore, type RunRecord } from "./migration-run.ts";
-import { migrationSampleBody, migrationSampleRequest, nativeSampleRequest } from "./migration-sample.ts";
-import { LegacyBindingError, openLegacySource, type LegacySourceEnv, type PgConnect } from "./legacy-source/bindings.ts";
+import { ControlClient } from "./control.js";
 import { isPermanentCustodyRefusal, withCustodyRetry } from "./custody-retry.ts";
 import { ProductionCustody, deploymentRelease, productionParts, serviceDeviceWrapper, type FactoryEnv } from "./factory.ts";
-import { localBuild, localOrigin } from "./local-origin.ts";
 import { devicePublicKeys, verifyHostedGenesis } from "./keygen.js";
 import { resetIndex } from "./sql.js";
 import { labHealth } from "./health.js";
@@ -65,7 +52,7 @@ import { deploymentObjectOrigins, type ObjectOriginPolicy } from "./object-origi
 import { grantRecipients, hasGrantAppend, wakeCollectionTag, wakeLog } from "./wake-observe.ts";
 import { INSTALL_RETRY_MAX_STEPS, INSTALL_WAKE_MS, installRetryMs } from "./install-retry.ts";
 import { PIN_RESET_KEY, PinParked, isPinMismatch, pinLog, pinsDigest } from "./pin-reset.ts";
-import { labRawError, readyDiagnostic, type ReadyDiagnostic, type ReadyTrace } from "./ready-diagnostic.ts";
+import { readyDiagnostic, type ReadyDiagnostic, type ReadyTrace } from "./ready-diagnostic.ts";
 import { LiveAdmission, type AdmissionContext } from "./admission/live-admission.ts";
 import { FrameReader, MAX_APP_BUFFERED, MAX_APP_SESSIONS, MAX_APP_SOCKETS, evidence, frameChunks, parsePrologue, uuidString } from "./app.ts";
 
@@ -236,7 +223,6 @@ export class HostedCollection extends DurableObject<Env> {
     // Production: KMS custody when fully configured; otherwise LAB stub
     // custody on LAB builds; otherwise DENY.
     const parts = this.escrow ? null : productionParts(env as unknown as FactoryEnv);
-    this.cppControl=parts?.control??null;
     this.production = parts
       ? new ProductionCustody(parts, () => this.replicaId(), (secret) => devicePublicKeys(engineModule, secret), verifyOriginal, lab)
       : null;
@@ -290,12 +276,6 @@ export class HostedCollection extends DurableObject<Env> {
 
   /** The production KMS custody, when configured (closed on terminal events). */
   private readonly production: ProductionCustody | null;
-  private readonly cppControl: ControlClient|null=null;
-  /** Actual host confirmation provenance; not serialized or inferred from IDs. */
-  /** The claim the last migration prepare read (DATA for claim-bound calls). */
-  #migrationClaim: MigrationClaimData | null = null;
-  #migrationOperatorRunning = false;
-  readonly #migrationConfirmed = new WeakMap<MigrationPendingTicket, { engine: Engine; generation: number }>();
 
   /** A replica ID for this DO, persisted so it is stable across wakes. */
   private async replicaId(): Promise<string> {
@@ -317,387 +297,12 @@ export class HostedCollection extends DurableObject<Env> {
     }
   }
 
-  /** LAB diagnosis only: which fence a migration step failed, as fixed booleans. */
-  private hostChanged(site: string, facts: Record<string, boolean>): Error {
-    if (this.env.LAB === "1") {
-      try { console.info(JSON.stringify({ event: "migration_host_changed", site, ...facts })); } catch { /* Logging is not authority. */ }
-    }
-    return new Error("migration_host_changed");
-  }
-
-  /** An engine teardown that fences in-flight migration steps: the held log token
-   * goes with it (LAB also logs the site). */
+  /** An engine teardown: the held log token goes with it (LAB also logs the site). */
   private engineReset(site: string): void {
     this.dropLogToken();
     if (this.env.LAB === "1") {
       try { console.info(JSON.stringify({ event: "hosted_engine_reset", site })); } catch { /* Logging is not authority. */ }
     }
-  }
-
-  /** Closed native/owned-Control exchange, then actual physical journal ACK.
-   * Internal action-host seam only: no operator route or H1/effect permission.
-   * No caller owner/key/audience/result/ACK inputs; original CPP receipt is DATA. */
-  private async ownedMigrationClaim<T>(signal: AbortSignal, use: (engine: Engine, generation: number, cpp: CppClaimTicket, claim: MigrationClaimData, check: () => void) => Promise<T>,
-    open = true): Promise<T> {
-    const engine = this.engine, control = this.cppControl;
-    if (!engine || !control || this.escrow) throw new Error("migration_host_unavailable");
-    await this.requireBackground();
-    if (this.engine !== engine || this.cppControl !== control) {
-      throw this.hostChanged("claim_background", { engine: this.engine === engine, control: this.cppControl === control });
-    }
-    const generation = this.logGen;
-    const cpp = engine.beginCppClaim();
-    let challenge: Uint8Array | undefined, signature: Uint8Array | undefined;
-    const check = (): void => {
-      if (signal?.aborted || this.engine !== engine || this.collection !== cpp.collection ||
-          this.logGen !== generation || !this.alarms.current) {
-        throw this.hostChanged("claim_check", { aborted: !!signal?.aborted, engine: this.engine === engine,
-          collection: this.collection === cpp.collection, generation: this.logGen === generation, alarm: this.alarms.current });
-      }
-      this.requirePhysicalCollection(cpp.collection);
-      engine.assertCppClaimCurrent(cpp);
-    };
-    try {
-      check();
-      challenge = await control.migrationClaimChallenge(cpp.collection, cpp.device, signal);
-      check();
-      signature = engine.signCppClaimChallenge(cpp, challenge);
-      const hex = (b: Uint8Array): string => Array.from(b, v => v.toString(16).padStart(2, "0")).join("");
-      const claim = this.#migrationClaim = await control.migrationClaimRead(cpp.collection, {
-        device_id: cpp.device, challenge: hex(challenge), sig: hex(signature),
-      }, signal);
-      check();
-      if (open) engine.openMigrationDriver(cpp, claim);
-      return await use(engine, generation, cpp, claim, check);
-    } finally {
-      challenge?.fill(0); signature?.fill(0); engine.finishCppClaim(cpp);
-    }
-  }
-
-  private prepareMigrationPending(signal: AbortSignal): Promise<MigrationPendingTicket> {
-    return this.ownedMigrationClaim(signal, async (engine, generation, _cpp, _claim, current) => {
-      let pending: MigrationPendingTicket | undefined, physical: MigrationPhysicalTicket | undefined;
-      const check = () => { current(); if (pending) engine.assertMigrationPendingCurrent(pending); };
-      try {
-        pending = engine.beginMigrationPending();
-        check();
-        // Only the platform's actual promise confirms prior SQL/KV writes.
-        physical = engine.beginMigrationPhysical(pending);
-        engine.assertMigrationPhysicalCurrent(physical);
-        await this.ctx.storage.sync();
-        check();
-        engine.finishMigrationPhysical(physical);
-        this.#migrationConfirmed.set(pending, { engine, generation });
-        return pending;
-      } catch (error) {
-        if (pending) engine.finishMigrationPending(pending); // DB stays UNKNOWN.
-        throw error;
-      } finally { if (physical) engine.closeMigrationPhysical(physical); }
-    });
-  }
-
-  private async operateMigration(input: MigrationOperatorRequest, signal: AbortSignal): Promise<void> {
-    const store = storageRunStore(this.ctx.storage), run = await store.load();
-    if (!run || run.collection !== input.collection || (run.state !== "stopped" && run.state !== "done")) throw new Error("migration_operator_busy");
-    await this.ownedMigrationClaim(signal, async (engine, _generation, cpp, claim, check) => {
-      const native = readNativeState(this.ctx.storage.sql);
-      if (input.operation === "abandon") {
-        if (native.outstanding?.kind !== 6 || native.outstanding.sequence !== input.expectedSequence) throw new Error("migration_operator_conflict");
-        run.state = "stopped"; run.reason = "operator_abandoned:AppendBase"; run.updatedAt = Date.now();
-        await store.save(run);
-        check(); // UNKNOWN row and checkpoint were never changed.
-        return;
-      }
-      if (input.operation === "resume") {
-        if (!run.pauseBeforeCutover || run.resumeRunSequence !== null || run.state !== "stopped" || run.reason !== PAUSE_REASON) throw new Error("migration_operator_conflict");
-        const paused = (): void => {
-          check();
-          const current = readNativeState(this.ctx.storage.sql);
-          if (current.runSequence !== input.expectedSequence || !atPreCutoverPause(current)) throw new Error("migration_operator_conflict");
-        };
-        paused();
-        await this.ctx.storage.sync();
-        paused();
-        run.resumeRunSequence = input.expectedSequence;
-        run.state = "running"; run.reason = null; run.refusals = 0; run.updatedAt = Date.now();
-        await store.save(run);
-        paused();
-        return;
-      }
-      if (input.operation === "rollback" || input.operation === "restart") {
-        if (native.outstanding && !(input.operation === "rollback" && [4, 5].includes(native.outstanding.kind)
-            && native.checkpoint?.step === STEP.created)) throw new Error("migration_operator_outstanding_unknown");
-        if (input.operation === "restart") {
-          engine.restartMigrationDriver(cpp, claim, input.expectedSequence);
-        } else {
-          let source: unknown | null = null;
-          if (native.checkpoint?.fenced && native.checkpoint.step !== 20) {
-            const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string };
-            const reply = await connectClient({ url: e.CP_URL ?? "", token: e.CP_MIGRATION_TOKEN ?? "", environment: deploymentRelease(this.env as unknown as FactoryEnv)?.environment }).source(input.collection, signal);
-            check();
-            if (reply.status < 200 || reply.status >= 300) throw new Error("migration_rollback_source_unavailable");
-            source = reply.body;
-          }
-          engine.requestMigrationRollback(cpp, claim, input.expectedSequence, source);
-        }
-        await this.ctx.storage.sync();
-        check();
-        const next = input.operation === "restart" ? newRun(input.collection, run.backupHold, Date.now(), run.pauseBeforeCutover) : run;
-        next.state = "running"; next.reason = null; next.refusals = 0; next.updatedAt = Date.now();
-        await store.save(next);
-        check();
-        return;
-      }
-      const pending = native.outstanding;
-      if (!pending || pending.sequence !== input.expectedSequence || ![6, 20, 21].includes(pending.kind)) throw new Error("migration_operator_conflict");
-      let receipt: unknown;
-      if (pending.kind !== 6) {
-        const scope = engine.migrationUnknownRollbackScope(pending.sequence);
-        const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string };
-        const reply = await connectClient({ url: e.CP_URL ?? "", token: e.CP_MIGRATION_TOKEN ?? "", environment: deploymentRelease(this.env as unknown as FactoryEnv)?.environment }).rollbackReceipt(input.collection,
-          { owner_account: claim.owner_account, started_us: claim.started_us, migration_id: scope.providerMigrationId }, scope, signal);
-        check();
-        if (reply.status < 200 || reply.status >= 300) throw new Error("migration_receipt_unknown");
-        receipt = reply.body;
-      }
-      let settled: MigrationPendingTicket | undefined, physical: MigrationPhysicalTicket | undefined;
-      try {
-        check();
-        settled = engine.resolveMigrationAction(cpp, claim, pending.sequence, receipt);
-        physical = engine.beginMigrationPhysical(settled);
-        engine.assertMigrationPhysicalCurrent(physical);
-        await this.ctx.storage.sync();
-        check();
-        engine.assertMigrationSettlementCurrent(settled);
-        engine.finishMigrationPhysical(physical);
-        engine.assertMigrationSettlementConfirmed(settled);
-        run.state = "running"; run.reason = null; run.refusals = 0; run.updatedAt = Date.now();
-        await store.save(run);
-        check();
-      } finally {
-        if (physical) engine.closeMigrationPhysical(physical);
-        if (settled) engine.finishMigrationPending(settled);
-      }
-    });
-    if (input.operation !== "abandon") await this.alarms.schedule(Date.now() + 100, () => this.alarms.current);
-  }
-
-  /** A re-armed account's fresh attempt (`run` with a new hold): only a fully rolled-back,
-   * unfenced run with nothing outstanding is replaced, by a native run bound to the CP
-   * claim's strictly newer start; native refuses anything else. A committed supersede
-   * whose run record was lost reopens under the same claim. Caller holds the operator flag. */
-  private async supersedeMigration(run: RunRecord, hold: string, pauseBeforeCutover: boolean, signal: AbortSignal): Promise<void> {
-    const store = storageRunStore(this.ctx.storage);
-    await this.ownedMigrationClaim(signal, async (engine, _generation, cpp, claim, check) => {
-      const native = readNativeState(this.ctx.storage.sql), cp = native.checkpoint;
-      if (native.outstanding || !cp || native.runSequence === null) throw new Error("migration_run_exists");
-      if (cp.step === STEP.rolledBack && !cp.fenced) engine.supersedeMigrationDriver(cpp, claim, native.runSequence);
-      else if (cp.step === STEP.start && native.runSequence > 1) {
-        engine.openMigrationDriver(cpp, claim);
-        // Only a supersede changes the start; a lost operator restart keeps it.
-        const prior = engine.migrationRun(native.runSequence - 1);
-        if (!Array.isArray(prior) || typeof prior[4] !== "string" || prior[4] === claim.started_us) throw new Error("migration_run_exists");
-      } else throw new Error("migration_run_exists");
-      await this.ctx.storage.sync();
-      check();
-      // Each later action re-validates its own claim; the alarm runs the saved record.
-      await store.save(newRun(run.collection, hold, Date.now(), pauseBeforeCutover));
-    }, false);
-  }
-
-  /** VOID exact original host-confirmed pending, no H1/effect conversion. */
-  private assertMigrationConfirmed(ticket: MigrationPendingTicket): void {
-    const original = this.#migrationConfirmed.get(ticket);
-    if (!original || original.engine !== this.engine || original.generation !== this.logGen ||
-        this.collection !== ticket.collection || !this.alarms.current) {
-      throw this.hostChanged("confirmed", { original: !!original, engine: original?.engine === this.engine,
-        generation: original?.generation === this.logGen, collection: this.collection === ticket.collection, alarm: this.alarms.current });
-    }
-    this.requirePhysicalCollection(ticket.collection);
-    original.engine.assertMigrationPendingCurrent(ticket);
-  }
-
-  private commitMigrationKeyingWait(ticket: MigrationPendingTicket, signal?: AbortSignal): Promise<string> {
-    return this.#commitMigrationSettlement(ticket, "keying-wait", signal);
-  }
-
-  /** Internal authenticated action host only; native derives target completion.
-   * This is not reachable from the read-only admission observation route. */
-  #commitMigrationTargetCreated(ticket: MigrationPendingTicket, signal?: AbortSignal): Promise<string> {
-    return this.#commitMigrationSettlement(ticket, "target-created", signal);
-  }
-
-  /** Internal action host only: one Connect/provider body from the action's own
-   * migration-token request. Native binds it; no caller Outcome/ACK data. */
-  #commitMigrationProviderResult(ticket: MigrationPendingTicket, result: MigrationProviderResult, signal?: AbortSignal): Promise<string> {
-    return this.#commitMigrationSettlement(ticket, result, signal);
-  }
-
-  /** Internal action host only: one legacy source open/page result from the
-   * action's own bounded source read. Native binds it; no caller Outcome/ACK. */
-  #commitMigrationSourceResult(ticket: MigrationPendingTicket, result: MigrationSourceResult, signal?: AbortSignal): Promise<string> {
-    return this.#commitMigrationSettlement(ticket, { source: result }, signal);
-  }
-
-  /** Internal action host only: HasObjects flags over the addresses native
-   * returned for the pending generation-0 window or finish, after the action's
-   * own uploads. Native binds them; no caller Outcome/ACK. */
-  #commitMigrationGen0Result(ticket: MigrationPendingTicket, result: Gen0Result, signal?: AbortSignal): Promise<string> {
-    return this.#commitMigrationSettlement(ticket, { gen0: result }, signal);
-  }
-
-  /** Internal action host only: the pending log action, settled by native from
-   * the Engine's own log evidence. No caller input, Outcome or ACK. */
-  #commitMigrationLogResult(ticket: MigrationPendingTicket, signal?: AbortSignal): Promise<string> {
-    return this.#commitMigrationSettlement(ticket, "log", signal);
-  }
-
-  /** SAME original native settlement/checkpoint and actual physical ACK before
-   * output. Fixed internal operation selectors, never caller Outcome/ACK data. */
-  async #commitMigrationSettlement(ticket: MigrationPendingTicket, action: "keying-wait" | "target-created" | "log" | MigrationProviderResult | { source: MigrationSourceResult } | { gen0: Gen0Result } | { rollback: unknown }, signal?: AbortSignal): Promise<string> {
-    if (signal?.aborted) throw this.hostChanged("settlement_start", { aborted: true });
-    this.assertMigrationConfirmed(ticket);
-    const original = this.#migrationConfirmed.get(ticket)!;
-    let result: string;
-    try {
-      result = action === "keying-wait" ? original.engine.recordMigrationKeyingWait(ticket)
-        : action === "target-created" ? original.engine.recordMigrationTargetCreated(ticket)
-        : action === "log" ? original.engine.recordMigrationLogResult(ticket)
-        : "source" in action ? original.engine.recordMigrationSourceResult(ticket, action.source)
-        : "gen0" in action ? original.engine.recordMigrationGen0Result(ticket, action.gen0)
-        : "rollback" in action ? original.engine.recordMigrationRollbackResult(ticket, action.rollback)
-        : original.engine.recordMigrationProviderResult(ticket, action);
-    } catch (error) {
-      // Settlement and checkpoint are one SQL transaction: an unsettled row
-      // means nothing was written and the ticket is still live.
-      const row = this.ctx.storage.sql.exec<{ settled: number }>(
-        "SELECT settled FROM mig_native_action WHERE seq=?", ticket.sequence).toArray()[0];
-      if (row?.settled === 0) throw new SettlementRefused(error instanceof Error ? error.message : "migration_settlement_refused");
-      throw new SettlementUnknown("migration_settlement_unknown");
-    }
-    // From here any error is UNKNOWN despite a potentially landed settlement.
-    const physical = original.engine.beginMigrationPhysical(ticket);
-    try {
-      original.engine.assertMigrationPhysicalCurrent(physical);
-      await this.ctx.storage.sync();
-      if (signal?.aborted || this.engine !== original.engine || this.logGen !== original.generation ||
-          this.collection !== ticket.collection || !this.alarms.current) {
-        throw this.hostChanged("settlement_sync", { aborted: !!signal?.aborted, engine: this.engine === original.engine,
-          generation: this.logGen === original.generation, collection: this.collection === ticket.collection, alarm: this.alarms.current });
-      }
-      this.requirePhysicalCollection(ticket.collection);
-      original.engine.assertMigrationSettlementCurrent(ticket);
-      original.engine.finishMigrationPhysical(physical);
-      original.engine.assertMigrationSettlementConfirmed(ticket);
-      this.#migrationConfirmed.delete(ticket);
-      original.engine.finishMigrationPending(ticket);
-      return result;
-    } catch (error) { throw new SettlementUnknown(error instanceof Error ? error.message : "migration_settlement_unknown"); }
-    finally { original.engine.closeMigrationPhysical(physical); }
-  }
-
-  /** The legacy Postgres client factory (`pg`), installed by the deployment
-   * that enables the legacy bindings (needs `nodejs_compat`); unset, the
-   * source refuses with `legacy_source_unconfigured`. */
-  static legacyConnect: PgConnect | null = null;
-  #executorInstance: MigrationExecutor | null = null;
-
-  /** Whether this deployment can run a migration at all (no secret values). */
-  private migrationConfigured(): boolean {
-    const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string };
-    return !this.escrow && !this.pitrClosed && !!this.cppControl && (!!e.CP_URL?.startsWith("https://") || localOrigin(e.CP_URL ?? "", deploymentRelease(this.env as unknown as FactoryEnv)?.environment))
-      && (e.CP_MIGRATION_TOKEN?.length ?? 0) >= 32;
-  }
-
-  /** The executor's private bridge to this DO's native ledger and log. */
-  private migrationHost(): MigrationHost {
-    const engine = (): Engine => {
-      if (!this.engine) throw new Error("migration_host_unavailable");
-      return this.engine;
-    };
-    const confirmed = (t: MigrationPendingTicket): Engine => { this.assertMigrationConfirmed(t); return engine(); };
-    const fence = (e: Engine) => { const gen = this.logGen; return () => this.engine === e && this.logGen === gen && this.alarms.current; };
-    return {
-      state: () => readNativeState(this.ctx.storage.sql),
-      claim: () => this.#migrationClaim && { owner_account: this.#migrationClaim.owner_account, started_us: this.#migrationClaim.started_us },
-      prepare: async (signal) => {
-        let ticket: MigrationPendingTicket;
-        try { ticket = await this.prepareMigrationPending(signal); }
-        catch (error) {
-          // Only a null pending begin carries a fresh native idle reason.
-          const e = this.engine;
-          return { idle: e && error instanceof Error && error.message === "migration_pending_refused" ? e.migrationIdle() : IDLE.unavailable };
-        }
-        try { return { ticket, fields: engine().migrationPendingAction(ticket) }; }
-        catch (error) { this.engine?.finishMigrationPending(ticket); this.#migrationConfirmed.delete(ticket); throw error; }
-      },
-      keyingWait: (t, signal) => this.commitMigrationKeyingWait(t, signal),
-      targetCreated: (t, signal) => this.#commitMigrationTargetCreated(t, signal),
-      provider: (t, result, signal) => this.#commitMigrationProviderResult(t, result, signal),
-      rollbackScope: (t) => confirmed(t).migrationRollbackScope(t),
-      rollbackResult: (t, body, signal) => this.#commitMigrationSettlement(t, { rollback: body }, signal),
-      source: (t, result, signal) => this.#commitMigrationSourceResult(t, result, signal),
-      gen0Placements: (t) => confirmed(t).migrationGen0Placements(t),
-      gen0FileChunk: (t, input) => confirmed(t).migrationGen0FileChunk(t, input),
-      gen0Window: (t, input) => confirmed(t).migrationGen0Window(t, input),
-      gen0Finish: (t) => confirmed(t).migrationGen0Finish(t),
-      gen0Result: (t, result, signal) => this.#commitMigrationGen0Result(t, result, signal),
-      logAppend: (t) => confirmed(t).migrationLogAppend(t),
-      logResult: (t, signal) => this.#commitMigrationLogResult(t, signal),
-      release: (t) => { this.engine?.finishMigrationPending(t); this.#migrationConfirmed.delete(t); },
-      pump: async (_signal, head) => { const e = this.engine; if (e) { if (head) e.requestHead(); await this.sync(e); } },
-      resetForRebuild: async () => {
-        const collection = this.collection;
-        if (!collection || this.opening) throw new Error("migration_host_unavailable");
-        if (this.engine) this.releaseAttachment(this.engine);
-        this.engineReset("migration_rebuild");
-        this.logGen++;
-        this.engine = null;
-        this.live = null;
-        for (const r of this.readers.values()) r.wipe();
-        this.readers.clear();
-        // Drops only the `st_*` cache tables; the migration ledger stays.
-        resetIndex(this.ctx.storage);
-        await this.ready(collection);
-      },
-      putObject: async (collection, object, signal) => {
-        const e = engine(), live = fence(e), current = () => live() && !signal.aborted, token = await this.token();
-        await putGen0Object(this.log(), e, token, collection, object, current, signal);
-      },
-      hasObjects: async (collection, addresses, signal) => {
-        const e = engine(), live = fence(e), current = () => live() && !signal.aborted, token = await this.token();
-        return hasGen0Objects(this.log(), e, token, collection, addresses, current);
-      },
-    };
-  }
-
-  /** The real source boundary; constructing bindings does not query or unwrap. */
-  protected async legacyMigrationSource(collection: string) {
-    const connect = HostedCollection.legacyConnect;
-    if (!connect) throw new LegacyBindingError("legacy_source_unconfigured", "no legacy database client in this deployment");
-    return openLegacySource(this.env as Env & LegacySourceEnv, collection, { connect });
-  }
-
-  private migrationExecutor(collection: string): MigrationExecutor {
-    const e = this.env as unknown as { CP_URL?: string; CP_MIGRATION_TOKEN?: string } & LegacySourceEnv;
-    return this.#executorInstance ??= new MigrationExecutor({
-      collection, host: this.migrationHost(), store: storageRunStore(this.ctx.storage),
-      connect: () => connectClient({ url: e.CP_URL ?? "", token: e.CP_MIGRATION_TOKEN ?? "", environment: deploymentRelease(this.env as unknown as FactoryEnv)?.environment }),
-      source: () => this.legacyMigrationSource(collection),
-    });
-  }
-
-  /** The alarm-driven loop: run the executor's wake, schedule the next. */
-  private async migrationWake(): Promise<void> {
-    if (!this.collection || !this.engine || !this.migrationConfigured()) return;
-    const run = await storageRunStore(this.ctx.storage).load();
-    if (!run || run.collection !== this.collection || run.state === "stopped" || run.state === "done") return;
-    // The executor's own budget (60 s) bounds starting actions; this backstop only
-    // fences a stuck one. It must outlast an action started in budget: token/sealer
-    // fetches retry for up to 45 s each, and an abort at settlement stops the run.
-    const collection = this.collection;
-    const result = await withDeadline(600_000, signal => this.migrationExecutor(collection).wake(signal));
-    if (result.nextAt !== null) await this.alarms.schedule(result.nextAt, () => this.alarms.current);
   }
 
   /** Open (or return) the engine for this wake, rebuilt from the log. */
@@ -774,11 +379,10 @@ export class HostedCollection extends DurableObject<Env> {
         engine = new Engine(this.ctx.storage);
         tWasm = Date.now();
         openingTrace.stage = "engine_config";
-        const config=openConfig(collection,keys,this.escrow);
+        const config = openConfig(collection, keys, this.escrow);
         try {
-          openingTrace.stage = this.cppControl ? "engine_cpp_open" : "engine_open";
-          if(this.cppControl) engine.openForCppClaim(config,this.cppControl);
-          else engine.open(config); // No CPP signer in escrow/LAB-fixture/unconfigured opens.
+          openingTrace.stage = "engine_open";
+          engine.open(config);
         } catch (error) {
           // Only the exact pin refusal; every other open failure keeps the store.
           if (!isPinMismatch(error)) throw error;
@@ -1339,7 +943,6 @@ export class HostedCollection extends DurableObject<Env> {
       await this.retireForVerdict(error);
       return;
     }
-    await this.migrationWake();
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -1405,136 +1008,6 @@ export class HostedCollection extends DurableObject<Env> {
         if (!modeReady(engine.modeServiceReady(),input)) return refuse("native_not_ready");
         return modeAck(input);
       } catch (error) { return refuse("exception", { diagnostic: diagnostic ?? readyDiagnostic("unknown", error) }); }
-    }
-    if (url.pathname === "/v1/hosted/migration-admission") {
-      if (this.escrow) return new Response("not found", { status: 404 });
-      const input = await migrationAdmissionRequest(request, (this.env as Env & { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN);
-      if (input instanceof Response) return input;
-      if (input.collection !== collection) return new Response("bad collection", { status: 400, headers: { "cache-control": "no-store" } });
-      // Observation ONLY: never ready()/refresh()/sync(), custody, bootstrap,
-      // app sessions or object effects. A cold/opening wake must be activated
-      // separately; persisted SQL/status cannot substitute for live custody.
-      const engine = this.engine;
-      const live = this.live;
-      if (!engine || this.opening || !live || live.engine !== engine || this.collection !== collection ||
-        !this.admitted(engine, { collection, op: "wake" })) return migrationAdmissionUnavailable();
-      try {
-        const observation = migrationAdmissionObservation(engine.admission(), input, live.device);
-        return observation
-          ? Response.json(observation, { headers: { "cache-control": "no-store" } })
-          : migrationAdmissionUnavailable();
-      } catch { return migrationAdmissionUnavailable(); }
-    }
-    if (url.pathname === "/v1/hosted/migration/operator") {
-      if (this.escrow) return new Response("not found", { status: 404 });
-      const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
-      const input = await migrationOperatorRequest(request, token);
-      if (input instanceof Response) return input;
-      if (input.collection !== collection) return Response.json({ error: "invalid_request" }, { status: 400 });
-      if (!this.migrationConfigured()) return Response.json({ error: "migration_unconfigured" }, { status: 503 });
-      // Serialize operator intent before the first await; an overlapping request
-      // must not release the same paused run or interrupt a live continuation.
-      if (this.#migrationOperatorRunning) return Response.json({ error: "migration_operator_busy" }, { status: 409 });
-      this.#migrationOperatorRunning = true;
-      try {
-        const before = await storageRunStore(this.ctx.storage).load();
-        if (!before || (before.state !== "stopped" && before.state !== "done")) {
-          return Response.json({ error: "migration_operator_busy" }, { status: 409 });
-        }
-        await this.ready(collection);
-        await withDeadline(60_000, signal => this.operateMigration(input, signal));
-        return Response.json(migrationStatus(await storageRunStore(this.ctx.storage).load(), readNativeState(this.ctx.storage.sql)),
-          { headers: { "cache-control": "no-store" } });
-      } catch (error) {
-        // Do not leave a reactivated job runnable after its final context/commit
-        // check failed. Invalid requests leave the already-stopped job unchanged.
-        const store = storageRunStore(this.ctx.storage), current = await store.load();
-        if (current?.state === "running") {
-          current.state = "stopped"; current.reason = "operator_outcome_unknown"; current.updatedAt = Date.now();
-          await store.save(current);
-        }
-        // A failed physical confirmation may follow a landed write. Preserve
-        // exact UNKNOWN/settled evidence; never infer undone.
-        return Response.json({ error: error instanceof Error ? error.message : "migration_operator_unknown" },
-          { status: 409, headers: { "cache-control": "no-store" } });
-      } finally { this.#migrationOperatorRunning = false; }
-    }
-    if (url.pathname === "/v1/hosted/migration/sample") {
-      // Read-only digest sample for a post-routed verifier (migration-sample.ts).
-      if (this.escrow) return new Response("not found", { status: 404 });
-      const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
-      const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
-      const input = await migrationSampleRequest(request, token);
-      if (input instanceof Response) return input;
-      if (input.collection !== collection) return json(400, { error: "invalid_request" });
-      this.requirePhysicalCollection(collection);
-      let step: number | null;
-      try { step = readNativeState(this.ctx.storage.sql).checkpoint?.step ?? null; }
-      catch { return json(409, { error: "migration_state_unreadable" }); }
-      if (step === null || step < STEP.verified || step > STEP.routed) return json(409, { error: "migration_not_verified" });
-      try {
-        const engine = await this.ready(collection);
-        return json(200, migrationSampleBody(input, step, engine.migrationSample(nativeSampleRequest(input))));
-      } catch { return json(503, { error: "migration_sample_unavailable" }); }
-    }
-    if (url.pathname === "/v1/hosted/migration/run" || url.pathname === "/v1/hosted/migration/status") {
-      if (this.escrow) return new Response("not found", { status: 404 });
-      const token = (this.env as unknown as { HOSTED_SERVICE_TOKEN?: string }).HOSTED_SERVICE_TOKEN;
-      const json = (status: number, body: unknown) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
-      const store = storageRunStore(this.ctx.storage);
-      const status = async () => {
-        let native;
-        try { native = readNativeState(this.ctx.storage.sql); } catch { native = { error: "migration_state_unreadable" }; }
-        return migrationStatus(await store.load(), native);
-      };
-      if (url.pathname.endsWith("/status")) {
-        const input = await migrationStatusRequest(request, token);
-        if (input instanceof Response) return input;
-        if (input.collection !== collection) return json(400, { error: "invalid_request" });
-        this.requirePhysicalCollection(collection);
-        return json(200, await status());
-      }
-      const input = await migrationRunRequest(request, token);
-      if (input instanceof Response) return input;
-      if (input.collection !== collection) return json(400, { error: "invalid_request" });
-      if (!this.migrationConfigured()) return json(503, { error: "migration_unconfigured" });
-      let diagnostic: ReadyDiagnostic | undefined;
-      try {
-        await this.ready(collection, value => { diagnostic = value; });
-      } catch (error) {
-        // ready() may already have effects; 500/UNKNOWN is unchanged. No run save yet.
-        return json(500, { error: "migration_run_ready_failed", ...(diagnostic ?? readyDiagnostic("unknown", error)),
-          ...labRawError(this.env.LAB, error) });
-      }
-      try {
-        const run = await store.load();
-        if (run && run.backupHold !== input.backupHold) {
-          if ((run.state !== "stopped" && run.state !== "done") || this.#migrationOperatorRunning) {
-            return json(409, { error: "migration_run_exists", ...(await status()) });
-          }
-          this.#migrationOperatorRunning = true;
-          try {
-            await withDeadline(60_000, signal => this.supersedeMigration(run, input.backupHold, input.pauseBeforeCutover, signal));
-          } catch {
-            // Native refused or the outcome is unknown; the stored run is unchanged
-            // unless the new run record itself landed, which status shows.
-            return json(409, { error: "migration_run_exists", ...(await status()) });
-          } finally { this.#migrationOperatorRunning = false; }
-          await this.alarms.schedule(Date.now() + 100, () => this.alarms.current);
-          return json(202, await status());
-        }
-        if (run && run.pauseBeforeCutover !== input.pauseBeforeCutover) return json(409, { error: "migration_pause_mode_conflict", ...(await status()) });
-        // A stopped run stays stopped: resuming it is an operator procedure.
-        if (!run) await store.save(newRun(collection, input.backupHold, Date.now(), input.pauseBeforeCutover));
-        if (!run || run.state === "running" || run.state === "waiting") {
-          await this.alarms.schedule(Date.now() + 100, () => this.alarms.current);
-        }
-        return json(run ? 200 : 202, await status());
-      } catch (error) {
-        // A run write/alarm may already have landed. Preserve UNKNOWN; never retry.
-        if (this.env.LAB !== "1") throw error;
-        return json(500, { error: "migration_run_failed", ...labRawError(this.env.LAB, error) });
-      }
     }
     if (url.pathname === "/v1/hosted/initialize") {
       if (this.escrow) return new Response("not found", { status: 404 });
@@ -1889,51 +1362,6 @@ export default {
       const headers = new Headers(request.headers); headers.delete("content-length");
       return stub.fetch(new Request(`${url.origin}/v1/hosted/collection-mode/${operation}?collection=${input.collection}`,
         {method:"POST",headers,body:JSON.stringify(input)}));
-    }
-    if (url.pathname === "/internal/v1/migration-admission") {
-      if (kind !== "hosted") return new Response("not found", { status: 404 });
-      const input = await migrationAdmissionRequest(request, e.HOSTED_SERVICE_TOKEN);
-      if (input instanceof Response) return input;
-      // A creating request may place a new actor in the collection's region.
-      const stub = namedStub(env.COLLECTIONS, input.collection, input.region ?? hint);
-      const headers = new Headers(request.headers);
-      headers.delete("content-length");
-      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration-admission?collection=${input.collection}`, {
-        method: "POST", headers, body: JSON.stringify({ collection: input.collection, challenge: input.challenge }),
-      }));
-    }
-    if (url.pathname === "/internal/v1/migration/operator") {
-      if (kind !== "hosted") return new Response("not found", { status: 404 });
-      const input = await migrationOperatorRequest(request, e.HOSTED_SERVICE_TOKEN);
-      if (input instanceof Response) return input;
-      const stub = namedStub(env.COLLECTIONS, input.collection, hint);
-      const headers = new Headers(request.headers); headers.delete("content-length");
-      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/operator?collection=${input.collection}`,
-        { method: "POST", headers, body: JSON.stringify(migrationOperatorBody(input)) }));
-    }
-    if (url.pathname === "/internal/v1/migration/run" || url.pathname === "/internal/v1/migration/status") {
-      if (kind !== "hosted") return new Response("not found", { status: 404 });
-      const run = url.pathname.endsWith("/run");
-      const input = run ? await migrationRunRequest(request, e.HOSTED_SERVICE_TOKEN) : await migrationStatusRequest(request, e.HOSTED_SERVICE_TOKEN);
-      if (input instanceof Response) return input;
-      const stub = namedStub(env.COLLECTIONS, input.collection, hint);
-      const headers = new Headers(request.headers);
-      headers.delete("content-length");
-      const body = "backupHold" in input && "pauseBeforeCutover" in input ? { collection: input.collection, backup_hold: input.backupHold, stop_before_flip: input.pauseBeforeCutover } : { collection: input.collection };
-      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/${run ? "run" : "status"}?collection=${input.collection}`, {
-        method: "POST", headers, body: JSON.stringify(body),
-      }));
-    }
-    if (url.pathname === "/internal/v1/migration/sample") {
-      if (kind !== "hosted") return new Response("not found", { status: 404 });
-      const input = await migrationSampleRequest(request, e.HOSTED_SERVICE_TOKEN);
-      if (input instanceof Response) return input;
-      const stub = namedStub(env.COLLECTIONS, input.collection, hint);
-      const headers = new Headers(request.headers);
-      headers.delete("content-length");
-      return stub.fetch(new Request(`${url.origin}/v1/hosted/migration/sample?collection=${input.collection}`, {
-        method: "POST", headers, body: JSON.stringify(input),
-      }));
     }
     if (url.pathname === "/internal/v1/collections/initialize") {
       if (kind !== "hosted") return new Response("not found", { status: 404 });
