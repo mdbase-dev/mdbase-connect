@@ -117,4 +117,78 @@ describe("foreground committed policy wake", () => {
     await expect(e.drainCollection(collection)).rejects.toThrow("offline");
     expect(wake).toHaveBeenCalledExactlyOnceWith(collection);
   });
+  it("re-arms one coalesced wake when commits land while an earlier wake is in flight", async () => {
+    const wakes: Array<() => void> = [];
+    const wake = vi.fn(() => new Promise<void>(resolve => { wakes.push(resolve); }));
+    const e = emitter(wake);
+    let steps = 0;
+    vi.spyOn(e as unknown as Steps, "step").mockImplementation(async () => (++steps % 2 === 1 ? "appended" : "idle"));
+    try {
+      // First batch commits and starts an in-flight wake (e.g., an earlier enrolment/revoke).
+      expect(await e.drainCollection(collection)).toBe(1);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      expect(wake).toHaveBeenCalledTimes(1);
+      // Multiple grants/enrolments commit while the first wake is still in flight.
+      expect(await e.drainCollection(collection)).toBe(1);
+      expect(await e.drainCollection(collection)).toBe(1);
+      expect(await e.drainCollection(collection)).toBe(1);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      // Still bounded to one in-flight wake per collection (no wake storm).
+      expect(wake).toHaveBeenCalledTimes(1);
+      // Once the first wake finishes, one coalesced follow-up wake runs for the newer commits.
+      wakes.shift()!();
+      await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(2));
+      expect(wake).toHaveBeenNthCalledWith(2, collection);
+      // Finishing the follow-up wake with no further commits does not loop.
+      wakes.shift()!();
+      for (let i = 0; i < 12; i++) await Promise.resolve();
+      expect(wake).toHaveBeenCalledTimes(2);
+    } finally {
+      while (wakes.length) wakes.shift()!();
+      await e.close();
+    }
+  });
+  it("still runs the re-armed wake when the in-flight wake fails", async () => {
+    let failFirst!: (error: Error) => void;
+    let finishSecond!: () => void;
+    const wake = vi.fn<() => Promise<void>>()
+      .mockImplementationOnce(() => new Promise<void>((_, reject) => { failFirst = reject; }))
+      .mockImplementationOnce(() => new Promise<void>(resolve => { finishSecond = resolve; }));
+    const e = emitter(wake);
+    let steps = 0;
+    vi.spyOn(e as unknown as Steps, "step").mockImplementation(async () => (++steps % 2 === 1 ? "appended" : "idle"));
+    try {
+      expect(await e.drainCollection(collection)).toBe(1);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      expect(await e.drainCollection(collection)).toBe(1);
+      expect(wake).toHaveBeenCalledTimes(1);
+      failFirst(new Error("wake transport failed"));
+      await vi.waitFor(() => expect(wake).toHaveBeenCalledTimes(2));
+      finishSecond();
+      await e.close();
+    } finally {
+      finishSecond?.();
+      await e.close();
+    }
+  });
+  it("does not launch a re-armed wake after close starts, and drains an already started follow-up wake", async () => {
+    const wakes: Array<() => void> = [];
+    const wake = vi.fn(() => new Promise<void>(resolve => { wakes.push(resolve); }));
+    const e = emitter(wake);
+    let steps = 0;
+    vi.spyOn(e as unknown as Steps, "step").mockImplementation(async () => (++steps % 2 === 1 ? "appended" : "idle"));
+    try {
+      expect(await e.drainCollection(collection)).toBe(1);
+      for (let i = 0; i < 6; i++) await Promise.resolve();
+      expect(await e.drainCollection(collection)).toBe(1);
+      // Start closing while wake 1 is in flight with a pending re-arm.
+      const closing = e.close();
+      wakes.shift()!();
+      await closing;
+      expect(wake).toHaveBeenCalledTimes(1);
+    } finally {
+      while (wakes.length) wakes.shift()!();
+      await e.close();
+    }
+  });
 });

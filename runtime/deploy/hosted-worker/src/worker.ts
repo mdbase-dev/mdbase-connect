@@ -138,6 +138,8 @@ export class HostedCollection extends DurableObject<Env> {
   private opening: Promise<Engine> | null = null;
   /** Trace belongs to this exact cached opening, never a last-request stage. */
   private openingTrace: ReadyTrace | null = null;
+  /** Serializes sync turns so concurrent wakes/alarms never retire an in-flight pump. */
+  private syncing: Promise<void> | undefined;
   private background: AlarmLifecycle | null = null;
   private get alarms(): AlarmLifecycle {
     return this.background ??= new AlarmLifecycle(this.ctx.storage);
@@ -328,6 +330,10 @@ export class HostedCollection extends DurableObject<Env> {
     await this.ctx.storage.put("service-collection", collection);
     trace.stage = "alarm_guard";
     if (!this.alarms.current) throw new Error("hosted_alarm_inhibited");
+    if (this.opening) {
+      trace.opening = this.openingTrace ?? undefined;
+      return this.opening;
+    }
     if (this.engine) return this.engine;
     const openingTrace = this.openingTrace ??= { stage: "open_retry_read" };
     trace.opening = openingTrace;
@@ -418,7 +424,7 @@ export class HostedCollection extends DurableObject<Env> {
       this.lastRefresh = Date.now();
       openingTrace.stage = "sync";
       const gen = this.logGen;
-      const next = await this.sync(engine, calls);
+      const next = await this.withSyncTurn(() => this.sync(engine, calls));
       openingTrace.stage = "pin_parked_guard";
       if (this.pinParked) throw new PinParked();
       openingTrace.stage = "timing_snapshot";
@@ -692,6 +698,21 @@ export class HostedCollection extends DurableObject<Env> {
       console.info(JSON.stringify({ event: "custody_retry", fetch, ...facts })) } : {};
   }
 
+  /** Serialize refresh/sync turns so overlapping wakes or alarms never retire each other mid-flight. */
+  private async withSyncTurn<T>(fn: () => Promise<T>): Promise<T> {
+    const prior = this.syncing ?? Promise.resolve();
+    let done!: () => void;
+    const mine = new Promise<void>((resolve) => { done = resolve; });
+    this.syncing = mine;
+    try {
+      await prior;
+      return await fn();
+    } finally {
+      if (this.syncing === mine) this.syncing = undefined;
+      done();
+    }
+  }
+
   /** Move log traffic until quiet, deliver output, schedule the next wakeup. */
   private async sync(engine: Engine, openingTimings?: CallTimings): Promise<number | undefined> {
     if (this.pitrClosed) { this.closePitrResources(); return; }
@@ -919,7 +940,9 @@ export class HostedCollection extends DurableObject<Env> {
       return;
     }
     const cold = !this.engine;
-    if (cold) {
+    if (this.opening) {
+      try { await this.opening; } catch (error) { if (error instanceof OpenParked || error instanceof PinParked || this.lastingRefusal(error)) return; throw error; }
+    } else if (cold) {
       // Keep the old escrow key readable for existing enrolled DOs.
       const collection = await this.ctx.storage.get<string>("service-collection")
         ?? (this.escrow ? await this.ctx.storage.get<string>("escrow-collection") : undefined);
@@ -931,12 +954,17 @@ export class HostedCollection extends DurableObject<Env> {
     }
     if (!await this.alarms.allowed() || !this.engine || !this.collection) return;
     const engine = this.engine;
-    engine.tick(Date.now(), cold);
-    if (this.escrow || Date.now() - this.lastRefresh >= REFRESH_MS) {
-      this.lastRefresh = Date.now();
-      engine.refresh();
+    try {
+      await this.withSyncTurn(async () => {
+        if (this.engine !== engine) return;
+        engine.tick(Date.now(), cold);
+        if (this.escrow || Date.now() - this.lastRefresh >= REFRESH_MS) {
+          this.lastRefresh = Date.now();
+          engine.refresh();
+        }
+        await this.sync(engine);
+      });
     }
-    try { await this.sync(engine); }
     catch (error) {
       // A warm engine learns of deletion through its next log token.
       if (!this.lastingRefusal(error)) throw error;
@@ -999,8 +1027,11 @@ export class HostedCollection extends DurableObject<Env> {
         const generation = this.logGen;
         // CP enrolment activation can open this actor before the owner's grants
         // arrive. A warm cached open is not a fresh readiness observation.
-        engine.refresh();
-        await this.sync(engine);
+        await this.withSyncTurn(async () => {
+          if (this.engine !== engine || this.logGen !== generation) return;
+          engine.refresh();
+          await this.sync(engine);
+        });
         if (this.engine !== engine) return refuse("engine_changed");
         if (this.logGen !== generation) return refuse("generation_changed");
         if (this.opening) return refuse("opening");
@@ -1021,12 +1052,18 @@ export class HostedCollection extends DurableObject<Env> {
         const engine = await this.ready(collection);
         const generation = this.logGen;
         const current = () => this.engine === engine && this.logGen === generation && !request.signal.aborted;
-        engine.requestHead();
-        await this.sync(engine);
+        await this.withSyncTurn(async () => {
+          if (!current()) return;
+          engine.requestHead();
+          await this.sync(engine);
+        });
         if (!current()) return pending();
         let status = engine.initializeCollection(input.request_id, input.timezone, true);
         if (status === 0) {
-          await this.sync(engine);
+          await this.withSyncTurn(async () => {
+            if (!current()) return;
+            await this.sync(engine);
+          });
           if (!current()) return pending();
           status = engine.initializeCollection(input.request_id, input.timezone, false);
         }
@@ -1061,8 +1098,13 @@ export class HostedCollection extends DurableObject<Env> {
         throw error;
       }
       const generation = this.logGen;
-      engine.refresh();
-      try { await this.sync(engine); }
+      try {
+        await this.withSyncTurn(async () => {
+          if (this.engine !== engine || this.logGen !== generation) return;
+          engine.refresh();
+          await this.sync(engine);
+        });
+      }
       catch (error) {
         // A warm engine learns of the verdict through its fresh log token (the
         // activation dropped the held one): retire as the alarm path does, and
@@ -1105,8 +1147,11 @@ export class HostedCollection extends DurableObject<Env> {
     if (this.escrow) {
       // Escrow: follow the log now (and keep polling); never a content surface.
       if (url.pathname.endsWith("/wake") && request.method === "POST") {
-        engine.refresh();
-        await this.sync(engine);
+        await this.withSyncTurn(async () => {
+          if (this.engine !== engine) return;
+          engine.refresh();
+          await this.sync(engine);
+        });
         return Response.json({ keyed: engine.serving(), next_wakeup: engine.nextWakeup() });
       }
       return new Response("not found", { status: 404 });
@@ -1212,7 +1257,7 @@ export class HostedCollection extends DurableObject<Env> {
       } finally {
         m1.payload.fill(0);
       }
-      await this.sync(engine);
+      await this.withSyncTurn(async () => { if (this.engine === engine) await this.sync(engine); });
       return;
     }
     // 3. Transport: frames, each admitted right before it reaches the replica.
@@ -1241,7 +1286,7 @@ export class HostedCollection extends DurableObject<Env> {
     } finally {
       for (const f of frames) f.fill(0);
     }
-    await this.sync(engine);
+    await this.withSyncTurn(async () => { if (this.engine === engine) await this.sync(engine); });
   }
 
   async webSocketMessage(ws: WebSocket, message: ArrayBuffer | string): Promise<void> {
@@ -1276,7 +1321,7 @@ export class HostedCollection extends DurableObject<Env> {
     } else {
       await this.attachmentFrame(engine, a.session, frame);
     }
-    await this.sync(engine);
+    await this.withSyncTurn(async () => { if (this.engine === engine) await this.sync(engine); });
   }
 
   async webSocketError(ws: WebSocket): Promise<void> {
