@@ -11,9 +11,10 @@
  *    the target device — the same values the relay gives the daemon in `pipe_open`.
  *    It never sends a second `pipe_auth` and never sees the token.
  *
- * **Sticky target.** Reconnects stay on the device they last reached while the route
- * still lists it; only then do they move. The client's read fence
- * (`MdbaseClient`, `confirmed_through`) keeps a switch from serving older data.
+ * **Sticky target.** Reconnects prefer the device they last reached while it is still
+ * online; when it goes offline or stops serving, they move to another online target in
+ * route order. The client's read fence (`MdbaseClient`, `confirmed_through`) keeps a
+ * switch from serving older data.
  */
 import { uuidToBytes } from "../codec.js";
 import { collectionUnavailableError, parseCollectionAvailability, type CollectionAvailability } from "../collection-availability.js";
@@ -190,14 +191,35 @@ async function bridged<T>(f: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Valid relay targets, sticky device first, then those hinted online, in route order. */
+/**
+ * Valid relay targets in connection order: online targets first, then targets
+ * without an online hint, then offline targets, preferring the sticky device
+ * within its tier and preserving route order otherwise.
+ */
 export function orderTargets(route: NextRouteResponse, sticky: string | null): NextRouteTarget[] {
   const usable = route.targets.filter(
     (t) => UUID.test(t.device) && /^[0-9a-f]{64}$/.test(t.noise_pk) && !!t.relay_collection && UUID.test(t.relay_collection),
   );
-  const stuck = usable.filter((t) => t.device === sticky);
-  if (stuck.length) return stuck;
-  return [...usable.filter((t) => t.online === true), ...usable.filter((t) => t.online !== true)];
+  const rank = (t: NextRouteTarget): number => {
+    const tier = t.online === true ? 0 : t.online === undefined ? 1 : 2;
+    return tier * 2 + (t.device === sticky ? 0 : 1);
+  };
+  return usable
+    .map((target, index) => ({ target, index, rank: rank(target) }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map(({ target }) => target);
+}
+
+/** @internal Targets to try in one open: all online-hinted targets in priority order, or the first target when none carries `online: true`. */
+export function attemptTargets(route: NextRouteResponse, sticky: string | null): NextRouteTarget[] {
+  const ordered = orderTargets(route, sticky);
+  const online = ordered.filter((t) => t.online === true);
+  return online.length ? online : ordered.slice(0, 1);
+}
+
+/** @internal Whether a per-target open failure should try the next online target in the same route. */
+export function isRetryableTargetError(error: unknown, signal?: AbortSignal): boolean {
+  return !signal?.aborted && isMdbaseError(error) && (error.code === "unavailable" || error.code === "rate_limited");
 }
 
 /**
@@ -209,19 +231,21 @@ export function nextRelayConnector(o: NextRelayConnectorOptions): Connector & { 
   const collection = o.collection, next = o.next, staticKey = o.staticKey;
   if (!UUID.test(collection)) throw mdbaseError("invalid_request", "collection must be a UUID");
   const routeCall = next.route.bind(next), pipeCall = next.openPipe.bind(next);
+  const description = `next-relay:${collection}`;
   let sticky: string | null = null;
-  const connector = noiseConnector({
-    description: `next-relay:${collection}`,
-    staticKey,
-    target: async (signal) => {
+  return registerNextRelayFence({
+    description,
+    open: async (hello, signal) => {
+      if (signal?.aborted) throw mdbaseError("cancelled", "connect aborted");
       const route = await bridged(() => routeCall(collection, signal ? { signal } : {}));
+      if (signal?.aborted) throw mdbaseError("cancelled", "connect aborted");
       if (route.collection.toLowerCase() !== collection.toLowerCase() || !UUID.test(route.grant)) {
         throw mdbaseError("unauthenticated", "the route does not match this collection's grant", "route_mismatch");
       }
       const availability = parseCollectionAvailability(route.availability);
       if (availability?.state === "unavailable") throw collectionUnavailableError(availability.reason);
-      const selected = orderTargets(route, sticky)[0];
-      if (!selected) {
+      const targets = attemptTargets(route, sticky);
+      if (!targets.length) {
         throw mdbaseError(
           "unavailable",
           route.reason === "no_device_registered"
@@ -230,28 +254,37 @@ export function nextRelayConnector(o: NextRelayConnectorOptions): Connector & { 
           route.reason ?? "no_device_online",
         );
       }
-      const target = Object.freeze({ ...selected });
-      const hex = target.noise_pk;
-      const remoteStatic = new Uint8Array(32);
-      for (let i = 0; i < 32; i++) remoteStatic[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
-      return {
-        // Must equal the daemon's pipe_open prologue: relay collection, grant, device.
-        prologue: clientPrologue(uuidToBytes(target.relay_collection!), uuidToBytes(route.grant), uuidToBytes(target.device)),
-        remoteStatic,
-        device: target.device,
-        openCarrier: async (signal) => {
-          const pipe = await bridged(() => pipeCall(collection, target, signal ? { signal } : {}));
-          return duplexCarrier(pipe);
-        },
-      };
-    },
-  });
-  return registerNextRelayFence({
-    description: connector.description,
-    open: async (hello, signal) => {
-      const opened = await connector.open(hello, signal);
-      sticky = opened.device ?? null;
-      return opened;
+      let firstError: unknown;
+      for (const selected of targets) {
+        const target = Object.freeze({ ...selected });
+        const hex = target.noise_pk;
+        const remoteStatic = new Uint8Array(32);
+        for (let i = 0; i < 32; i++) remoteStatic[i] = parseInt(hex.slice(2 * i, 2 * i + 2), 16);
+        const connector = noiseConnector({
+          description,
+          staticKey,
+          target: async () => ({
+            // Must equal the daemon's pipe_open prologue: relay collection, grant, device.
+            prologue: clientPrologue(uuidToBytes(target.relay_collection!), uuidToBytes(route.grant), uuidToBytes(target.device)),
+            remoteStatic,
+            device: target.device,
+            openCarrier: async (carrierSignal) => {
+              const pipe = await bridged(() => pipeCall(collection, target, carrierSignal ? { signal: carrierSignal } : {}));
+              return duplexCarrier(pipe);
+            },
+          }),
+        });
+        try {
+          const opened = await connector.open(hello, signal);
+          sticky = opened.device ?? null;
+          return opened;
+        } catch (error) {
+          if (!isRetryableTargetError(error, signal)) throw error;
+          if (sticky === target.device) sticky = null;
+          firstError ??= error;
+        }
+      }
+      throw firstError;
     },
     get target() {
       return sticky;
