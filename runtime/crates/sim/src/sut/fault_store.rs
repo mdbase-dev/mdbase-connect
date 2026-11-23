@@ -222,6 +222,7 @@ impl<S: Store> Store for FaultStore<S> {
         fn own_retained_stats(&self) -> StoreResult<TailStats>;
         fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>>;
         fn has_files(&self) -> bool;
+        fn files_read_only(&self) -> bool;
         fn disk_revision(&self, path: &str) -> StoreResult<Option<Hash>>;
         fn disk_paths(&self) -> StoreResult<Vec<(String, Hash)>>;
     }

@@ -990,6 +990,14 @@ impl<S: Store> Replica<S> {
         };
         r.restore_private_choice();
         r.check_key_trust();
+        if r.store.files_read_only() {
+            r.incident(
+                IncidentKind::ReadOnly,
+                Some(mdbn_wire::common::Value::Text(
+                    "this volume does not support atomic file replacement; opened read-only".into(),
+                )),
+            );
+        }
         let mut inst = [0u8; 8];
         r.host.entropy.fill(&mut inst);
         r.live.instance = u64::from_be_bytes(inst);

@@ -1309,6 +1309,11 @@ pub trait Store {
     fn has_files(&self) -> bool {
         false
     }
+    /// Whether this file-backed store's volume is read-only: it observes the
+    /// folder but cannot safely publish writes to files (`ReplaceStrategy::ReadOnly`).
+    fn files_read_only(&self) -> bool {
+        false
+    }
     /// Whether the store implements [`Tx::stage`]. Without it a snapshot install
     /// holds the whole staged state in memory.
     fn stages(&self) -> bool {

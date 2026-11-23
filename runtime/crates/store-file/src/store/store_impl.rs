@@ -324,6 +324,10 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
         true
     }
 
+    fn files_read_only(&self) -> bool {
+        self.strategy() == ReplaceStrategy::ReadOnly
+    }
+
     /// Snapshot-install staging lives in the inner store: staged rows are
     /// never published to, or observed on, the disk.
     fn stages(&self) -> bool {

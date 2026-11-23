@@ -120,6 +120,12 @@ impl<S: Store> Replica<S> {
         if self.before.is_empty() {
             return Ok(());
         }
+        if self.store.files_read_only() {
+            for key in std::mem::take(&mut self.before).into_keys() {
+                self.published_key(&key, PublishState::NotPublished);
+            }
+            return Ok(());
+        }
         let holds = self.store.holds()?;
         let held_ids: std::collections::BTreeSet<_> = holds.iter().map(|h| h.id).collect();
         let held_paths: std::collections::BTreeSet<_> = holds
@@ -355,8 +361,9 @@ impl<S: Store> Replica<S> {
     }
 
     fn on_drift(&mut self, d: Drift) {
-        // `changed`/`missing`: the store observes the path and ingest reconciles.
-        // `locked`/`read_only`/others: retry on the next tick from the same state.
+        // `changed`/`missing`/`editor_busy`: ingest or the fence reconciles.
+        // `read_only`: volume capabilities are fixed for the open; never retry.
+        // `locked`/others: retry on the next tick from the same state.
         if !retried(&d) {
             return;
         }
@@ -411,7 +418,7 @@ impl<S: Store> Replica<S> {
         self.check_apply_store_health()?;
         // Attachment files: unlink, move or fetch what a crash left behind.
         self.reconcile_attachments()?;
-        if !self.store.has_files() {
+        if !self.store.has_files() || self.store.files_read_only() {
             return Ok(());
         }
         // Path -> the key the local view has there and, for a record, the
@@ -2170,9 +2177,12 @@ pub(crate) fn conflict_path(path: &str, dev: &str, date: &str) -> String {
 pub(crate) type Before = BTreeMap<DiskKey, Option<Shown>>;
 
 /// Whether a drift is retried from the same state (the file is busy) rather than
-/// left to ingest (the file holds other bytes).
+/// left to ingest (the file holds other bytes) or settled as permanent (`read_only`).
 fn retried(d: &Drift) -> bool {
-    !matches!(d.reason.as_str(), "changed" | "missing" | "editor_busy")
+    !matches!(
+        d.reason.as_str(),
+        "changed" | "missing" | "editor_busy" | "read_only"
+    )
 }
 
 /// The disk key a publish is for.
