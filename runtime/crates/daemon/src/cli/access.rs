@@ -24,6 +24,19 @@ pub(super) async fn access_command(
             e.grant.fingerprint()
         );
     };
+    let print_list = |v: Value, empty: &str| -> Result<ExitCode, ClientError> {
+        if out.json {
+            out.value(&v);
+        } else {
+            let list: Vec<AccessEntry> =
+                serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
+            if list.is_empty() {
+                println!("{empty}");
+            }
+            list.iter().for_each(print);
+        }
+        Ok(ExitCode::SUCCESS)
+    };
     let (method, grant) = match cmd {
         AccessCmd::List { collection } => {
             let c = match collection {
@@ -31,17 +44,10 @@ pub(super) async fn access_command(
                 None => None,
             };
             let v = call(profile, Method::ACCESS_LIST, json!({ "collection": c })).await?;
-            if out.json {
-                out.value(&v);
-            } else {
-                let list: Vec<AccessEntry> =
-                    serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
-                if list.is_empty() {
-                    println!("No apps use your local collections through this computer.");
-                }
-                list.iter().for_each(print);
-            }
-            return Ok(ExitCode::SUCCESS);
+            return print_list(
+                v,
+                "No apps use your local collections through this computer.",
+            );
         }
         AccessCmd::Revoke { grant } => (Method::ACCESS_REVOKE, grant),
         AccessCmd::Approve { grant } => {
@@ -54,7 +60,18 @@ pub(super) async fn access_command(
             (Method::ACCESS_APPROVE, grant)
         }
         AccessCmd::Deny { grant } => (Method::ACCESS_DENY, grant),
-        AccessCmd::Ack { grant } => (Method::ACCESS_ACK, grant),
+        AccessCmd::Ack {
+            collection: Some(c),
+            ..
+        } => {
+            let c = resolve(profile, &c).await?;
+            let v = call(profile, Method::ACCESS_ACK, json!({ "collection": c })).await?;
+            return print_list(v, "No new-access notices to mark as seen.");
+        }
+        AccessCmd::Ack { grant, .. } => (
+            Method::ACCESS_ACK,
+            grant.expect("clap requires a grant without --collection"),
+        ),
     };
     let v = call(profile, method, json!({ "grant": grant })).await?;
     if out.json {

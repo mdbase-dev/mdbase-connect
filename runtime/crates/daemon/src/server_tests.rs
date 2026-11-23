@@ -305,6 +305,22 @@ fn snapshot(seq: u64) -> crate::relay::Snapshot {
 fn grants(g: Option<CachedGrant>) -> BTreeMap<String, Vec<CachedGrant>> {
     BTreeMap::from([("c".into(), g.into_iter().collect())])
 }
+/// Commit the next feed, listing `listed` for collection `c`.
+async fn feed(d: &Daemon, listed: &[CachedGrant]) {
+    let sequence = d
+        .inner
+        .lock()
+        .await
+        .access
+        .feed_cursor
+        .as_ref()
+        .map_or(1, |c| c.sequence + 1);
+    let path = d.profile.access_file();
+    let listed = BTreeMap::from([("c".into(), listed.to_vec())]);
+    d.commit_control_plane_feed_with(&snapshot(sequence), &listed, |a| a.save(&path))
+        .await
+        .unwrap();
+}
 
 struct Suspended {
     shown: tokio::sync::Notify,
@@ -328,9 +344,7 @@ async fn displayed_consent_cannot_approve_replacement_or_aba() {
         let dir = crate::testutil::TestDir::new("consent");
         let d = daemon(&dir);
         d.inner.lock().await.access.require_grant_approval = true;
-        d.apply_control_plane_grants("c", &[grant(1)], fsutil::now_ms() as u64 + 55_000)
-            .await
-            .unwrap();
+        feed(&d, &[grant(1)]).await;
         let before = d.inner.lock().await.access.entries[0].clone();
         let c = Arc::new(Suspended {
             shown: Default::default(),
@@ -363,13 +377,9 @@ async fn displayed_consent_cannot_approve_replacement_or_aba() {
         let mut replacement = grant(2);
         replacement.capabilities.push("collection.write".into());
         replacement.folders = Some(vec!["Private".into()]);
-        d.apply_control_plane_grants("c", &[replacement], fsutil::now_ms() as u64 + 55_000)
-            .await
-            .unwrap();
+        feed(&d, &[replacement]).await;
         if aba {
-            d.apply_control_plane_grants("c", &[grant(1)], fsutil::now_ms() as u64 + 55_000)
-                .await
-                .unwrap();
+            feed(&d, &[grant(1)]).await;
         }
         c.answer.notify_one();
         let error = task.await.unwrap().unwrap_err();
@@ -533,18 +543,14 @@ async fn native_activation_cannot_override_changed_terms_or_a_refusal() {
         let dir = crate::testutil::TestDir::new("native-activation");
         let d = daemon(&dir);
         d.inner.lock().await.access.require_grant_approval = true;
-        d.apply_control_plane_grants("c", &[grant(1)], fsutil::now_ms() as u64 + 55_000)
-            .await
-            .unwrap();
+        feed(&d, &[grant(1)]).await;
         let expected = d.inner.lock().await.access.entries[0].clone();
         if deny {
             d.access_change(|list| list.deny("g").cloned())
                 .await
                 .unwrap();
         } else {
-            d.apply_control_plane_grants("c", &[grant(2)], fsutil::now_ms() as u64 + 55_000)
-                .await
-                .unwrap();
+            feed(&d, &[grant(2)]).await;
         }
         let error = d.activate_native_entry(&expected).await.unwrap_err();
         assert_eq!(error.reason.as_deref(), Some("consent_changed"));
@@ -565,14 +571,12 @@ async fn silent_pending_removal_and_lease_renewal_are_durable() {
     let dir = crate::testutil::TestDir::new("silent-feed");
     let d = paired_daemon(&dir).await;
     d.inner.lock().await.access.require_grant_approval = true;
-    d.apply_control_plane_grants("c", &[grant(1)], fsutil::now_ms() as u64 + 30_000)
-        .await
-        .unwrap();
+    feed(&d, &[grant(1)]).await;
+    let mut events = d.access_events.subscribe();
+    feed(&d, &[]).await;
     assert!(
-        d.apply_control_plane_grants("c", &[], fsutil::now_ms() as u64 + 31_000)
-            .await
-            .unwrap()
-            .is_empty()
+        events.try_recv().is_err(),
+        "a pending grant leaves silently"
     );
     assert!(d.inner.lock().await.access.entries.is_empty());
     assert!(
@@ -582,11 +586,11 @@ async fn silent_pending_removal_and_lease_renewal_are_durable() {
             .is_empty()
     );
     d.inner.lock().await.access.require_grant_approval = false;
-    let initial = snapshot(1);
+    let initial = snapshot(3);
     d.commit_control_plane_feed(&initial, &grants(Some(grant(1))))
         .await
         .unwrap();
-    let mut renew = snapshot(2);
+    let mut renew = snapshot(4);
     renew.lease_expires_ms = initial.lease_expires_ms + 10_000;
     let mut events = d.access_events.subscribe();
     d.commit_control_plane_feed(&renew, &grants(Some(grant(1))))
@@ -598,7 +602,7 @@ async fn silent_pending_removal_and_lease_renewal_are_durable() {
     );
     let loaded = AccessList::load(&d.profile.access_file()).unwrap();
     assert_eq!(loaded.leases["c"], renew.lease_expires_ms);
-    assert_eq!(loaded.feed_cursor.as_ref().unwrap().sequence, 2);
+    assert_eq!(loaded.feed_cursor.as_ref().unwrap().sequence, 4);
     assert!(
         d.inner
             .lock()
@@ -638,12 +642,12 @@ async fn silent_pending_removal_and_lease_renewal_are_durable() {
             .grant_live("c", "g", fsutil::now_ms() as u64)
     );
     // Empty snapshots remove active entries and commit their cursor together.
-    d.commit_control_plane_feed(&snapshot(3), &grants(None))
+    d.commit_control_plane_feed(&snapshot(5), &grants(None))
         .await
         .unwrap();
     let loaded = AccessList::load(&d.profile.access_file()).unwrap();
     assert!(loaded.entries.is_empty());
-    assert_eq!(loaded.feed_cursor.unwrap().sequence, 3);
+    assert_eq!(loaded.feed_cursor.unwrap().sequence, 5);
 }
 
 #[tokio::test]
@@ -1909,4 +1913,170 @@ fn sync_defaults_to_a_cloud_copy() {
     assert!(!sync_e2e(Some(false), None, true).unwrap());
     let changed = sync_e2e(Some(true), Some(SyncMode::Synced), false).unwrap_err();
     assert_eq!(changed.reason.as_deref(), Some("adopt_in_progress"));
+}
+
+#[tokio::test]
+async fn bulk_ack_clears_one_collections_added_access_and_needs_privilege() {
+    let dir = crate::testutil::TestDir::new("bulk-ack");
+    let d = daemon(&dir);
+    let listed = |id: &str, collection: &str| CachedGrant {
+        grant: id.into(),
+        collection: collection.into(),
+        ..grant(1)
+    };
+    {
+        let mut inner = d.inner.lock().await;
+        let access = &mut inner.access;
+        access.sync_from_control_plane(
+            "c",
+            &[listed("a1", "c"), listed("a2", "c")],
+            1,
+            1000,
+            false,
+        );
+        access.sync_from_control_plane("other", &[listed("o1", "other")], 1, 1000, false);
+        access.require_grant_approval = true;
+        access.sync_from_control_plane(
+            "c",
+            &[listed("a1", "c"), listed("a2", "c"), listed("p1", "c")],
+            2,
+            1000,
+            false,
+        );
+    }
+    let ack = |privileged| {
+        let d = d.clone();
+        async move {
+            let req = Request {
+                v: PROTOCOL,
+                id: 1,
+                method: Method::ACCESS_ACK.into(),
+                params: json!({"collection": "c"}),
+            };
+            d.handle(
+                &req,
+                &mut ConnAuth {
+                    privileged,
+                    ..Default::default()
+                },
+            )
+            .await
+        }
+    };
+    let error = ack(false).await.unwrap_err();
+    assert_eq!(error.reason.as_deref(), Some("caller_not_authenticated"));
+    assert!(
+        d.inner
+            .lock()
+            .await
+            .access
+            .entries
+            .iter()
+            .all(|e| !e.acknowledged)
+    );
+
+    let acked: Vec<AccessEntry> = serde_json::from_value(ack(true).await.unwrap()).unwrap();
+    let ids = |entries: &[AccessEntry]| {
+        entries
+            .iter()
+            .map(|e| e.grant.grant.clone())
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&acked), ["a1", "a2"]);
+    let state = |id: &str| {
+        let inner = d.inner.try_lock().unwrap();
+        let e = inner
+            .access
+            .entries
+            .iter()
+            .find(|e| e.grant.grant == id)
+            .unwrap();
+        (e.state, e.acknowledged)
+    };
+    assert_eq!(state("a1"), (AccessState::Active, true));
+    assert_eq!(state("a2"), (AccessState::Active, true));
+    assert_eq!(state("p1"), (AccessState::PendingApproval, false));
+    assert_eq!(state("o1"), (AccessState::Active, false));
+    let saved = AccessList::load(&d.profile.access_file()).unwrap();
+    assert_eq!(saved.entries, d.inner.lock().await.access.entries);
+    // Again: nothing left to acknowledge.
+    assert!(ids(&serde_json::from_value::<Vec<_>>(ack(true).await.unwrap()).unwrap()).is_empty());
+    for params in [json!({}), json!({"grant": "a1", "collection": "c"})] {
+        let req = Request {
+            v: PROTOCOL,
+            id: 2,
+            method: Method::ACCESS_ACK.into(),
+            params,
+        };
+        let error = d
+            .handle(
+                &req,
+                &mut ConnAuth {
+                    privileged: true,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(error.reason.as_deref(), Some("invalid_params"));
+    }
+}
+
+/// A real daemon's `access.list` once overflowed the control frame and the
+/// CLI reported the daemon as unreachable.
+#[tokio::test]
+async fn an_oversized_reply_is_answered_with_a_typed_error() {
+    let dir = crate::testutil::TestDir::new("oversized-reply");
+    let d = daemon(&dir);
+    let big = CachedGrant {
+        app_name: "x".repeat(ipc::MAX_CONTROL_FRAME / 2),
+        ..grant(1)
+    };
+    let other = CachedGrant {
+        grant: "g2".into(),
+        ..big.clone()
+    };
+    d.inner
+        .lock()
+        .await
+        .access
+        .sync_from_control_plane("c", &[big, other], 1, 1000, false);
+    let (client, server) = tokio::io::duplex(1 << 16);
+    let serving = tokio::spawn(serve_control(d.clone(), Box::new(server)));
+    let (mut rd, mut wr) = tokio::io::split(client);
+    let reader = tokio::spawn(async move {
+        let mut replies = Vec::new();
+        while let Some(frame) = ipc::read_frame(&mut rd, ipc::MAX_CONTROL_FRAME)
+            .await
+            .unwrap()
+        {
+            replies.push(serde_json::from_slice::<Response>(&frame).unwrap());
+            if replies.len() == 2 {
+                break;
+            }
+        }
+        replies
+    });
+    for (id, method) in [(7, Method::ACCESS_LIST), (8, Method::PING)] {
+        let req = Request {
+            v: PROTOCOL,
+            id,
+            method: method.into(),
+            params: json!({}),
+        };
+        ipc::write_frame(&mut wr, &serde_json::to_vec(&req).unwrap())
+            .await
+            .unwrap();
+    }
+    let replies = reader.await.unwrap();
+    let error = replies[0].error.as_ref().unwrap();
+    assert_eq!(replies[0].id, Some(7));
+    assert_eq!(
+        (error.code.as_str(), error.reason.as_deref()),
+        ("too_large", Some("response_too_large"))
+    );
+    assert_eq!(replies[1].id, Some(8), "the connection stays usable");
+    assert!(replies[1].result.is_some());
+    drop(wr);
+    serving.await.unwrap().unwrap();
 }

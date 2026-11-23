@@ -1136,15 +1136,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn declared_setup_native_source_requires_synced_account_custody_consent_and_lease() {
+    /// An authority with an account, this device and `cached`'s collection
+    /// registered as synced Private.
+    fn native_authority(
+        cached: &CachedGrant,
+    ) -> (crate::authority::Authority, crate::registry::Entry) {
         use crate::{
-            access::AccessList,
             authority::Authority,
             cloud::AccountRecord,
-            registry::{Entry, Origin, Registry, SyncMode},
+            registry::{Entry, Origin, SyncMode},
         };
-        let cached = to_cached(&declared_setup_grant()).unwrap();
         let authority = Authority::default();
         let identity = crate::secrets::DeviceIdentity::generate().unwrap();
         let record = AccountRecord {
@@ -1162,7 +1163,7 @@ mod tests {
         authority
             .publish_account_identity(&record, &config, &identity)
             .unwrap();
-        let mut registration = Entry {
+        let registration = Entry {
             id: cached.collection.clone(),
             name: "test".into(),
             root: "/not-opened".into(),
@@ -1176,13 +1177,23 @@ mod tests {
             owner_account: None,
             device: Some(secrets::uuid_string(&identity.device_id)),
         };
-        let publish_registry = |entry: &Entry| {
-            authority.publish_registry(&Registry {
-                collections: vec![entry.clone()],
-                ..Default::default()
-            })
-        };
-        publish_registry(&registration);
+        publish_registry(&authority, &registration);
+        (authority, registration)
+    }
+
+    fn publish_registry(authority: &crate::authority::Authority, entry: &crate::registry::Entry) {
+        authority.publish_registry(&crate::registry::Registry {
+            collections: vec![entry.clone()],
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn declared_setup_native_source_requires_synced_account_custody_consent_and_lease() {
+        use crate::access::AccessList;
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        let (authority, mut registration) = native_authority(&cached);
+        let publish_registry = |entry: &crate::registry::Entry| publish_registry(&authority, entry);
         let mut access = AccessList::default();
         let now = crate::fsutil::now_ms() as u64;
         access.sync_from_control_plane(
@@ -1190,7 +1201,7 @@ mod tests {
             std::slice::from_ref(&cached),
             now,
             now + 50_000,
-            false,
+            true,
         );
         authority.publish_access(&access);
         let grant = mdbn_wire::common::B16(attest::uuid_bytes(&cached.grant).unwrap());
@@ -1213,7 +1224,7 @@ mod tests {
             std::slice::from_ref(&cached),
             now,
             now + 50_000,
-            false,
+            true,
         );
         authority.publish_access(&access);
         assert_eq!(
@@ -1230,7 +1241,7 @@ mod tests {
             std::slice::from_ref(&cached),
             now,
             now + 50_000,
-            false,
+            true,
         );
         authority.publish_access(&access);
         assert!(source.declared_setup(&grant).unwrap().lease_generation > current.lease_generation);
@@ -1291,6 +1302,260 @@ mod tests {
         let value = serde_json::to_value(&summaries).unwrap();
         assert!(value[0].get("declared_setup").is_none());
         assert!(access.list(None)[0].grant.declared_setup.is_some());
+    }
+
+    /// A local collection's grant keeps no declaration, and re-listing it is
+    /// still not a change of terms.
+    #[test]
+    fn a_local_grant_keeps_no_setup_declaration() {
+        use crate::access::{AccessEvent, AccessList};
+        let feed = declared_setup_grant();
+        let cached = to_cached(&feed).unwrap();
+        let mut access = AccessList::default();
+        let mut events = Vec::new();
+        for now in 1..=3 {
+            events.push(access.sync_from_control_plane(
+                &cached.collection,
+                std::slice::from_ref(&cached),
+                now,
+                1000,
+                false,
+            ));
+        }
+        assert!(matches!(&events[0][..], [AccessEvent::NewAccess { .. }]));
+        assert!(events[1].is_empty() && events[2].is_empty(), "{events:?}");
+        assert_eq!(access.entries.len(), 1);
+        assert_eq!(access.entries[0].generation, 1);
+        assert_eq!(access.generation, 1);
+        let kept = access.entries[0].grant.declared_setup.as_ref().unwrap();
+        assert!(kept.declaration_dropped());
+        assert!(kept.core_setup().is_err(), "no setup is served from it");
+        let persisted = serde_json::to_value(&access).unwrap();
+        assert_eq!(
+            persisted["entries"][0]["declared_setup"]["declaration"],
+            Value::Null
+        );
+        let declaration = serde_json::to_vec(&feed["application_declaration"]).unwrap();
+        assert!(serde_json::to_vec(&access).unwrap().len() < declaration.len());
+    }
+
+    #[test]
+    fn a_relisted_refusal_keeps_no_setup_declaration() {
+        use crate::access::{AccessList, AccessState, Refusal};
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        let pk = crate::noise::public_key(&[9; 32]);
+        for synced_private in [false, true] {
+            let mut access = AccessList::default();
+            let c = &cached.collection;
+            access.sync_from_control_plane(
+                c,
+                std::slice::from_ref(&cached),
+                1,
+                1000,
+                synced_private,
+            );
+            assert_eq!(
+                access.entries[0]
+                    .grant
+                    .declared_setup
+                    .as_ref()
+                    .unwrap()
+                    .declaration_dropped(),
+                !synced_private
+            );
+            access.revoke(&cached.grant).unwrap();
+            let revoked = access.entries[0].clone();
+            assert!(
+                revoked
+                    .grant
+                    .declared_setup
+                    .as_ref()
+                    .unwrap()
+                    .declaration_dropped()
+            );
+            for now in 2..=3 {
+                let events = access.sync_from_control_plane(
+                    c,
+                    std::slice::from_ref(&cached),
+                    now,
+                    1000,
+                    synced_private,
+                );
+                assert!(events.is_empty());
+            }
+            assert_eq!(access.entries, vec![revoked]);
+            assert_eq!(access.entries[0].state, AccessState::RevokedLocally);
+            assert_eq!(
+                access.authorize(c, &cached.grant, &pk, 10).unwrap_err(),
+                Refusal::RevokedLocally
+            );
+        }
+    }
+
+    /// Dropping the declaration changes no outcome: the same terms are never
+    /// new consent, whichever mode the collection was in when they were cached,
+    /// and an in-place narrowing of the approved operations still is.
+    #[test]
+    fn dropping_setup_declarations_keeps_every_outcome() {
+        use crate::access::{AccessEvent, AccessList, AccessState};
+        use crate::registry::SyncMode;
+        let feed = declared_setup_grant();
+        let full = to_cached(&feed).unwrap();
+        let narrowed = {
+            let mut feed = feed.clone();
+            feed["operations"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|op| op != "rename");
+            to_cached(&feed).unwrap()
+        };
+        let no_setup = {
+            let mut feed = feed.clone();
+            feed["operations"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|op| !op.as_str().unwrap().ends_with("_collection_setup"));
+            to_cached(&feed).unwrap()
+        };
+        assert!(no_setup.declared_setup.is_none());
+        let (authority, mut registration) = native_authority(&full);
+        let source = authority
+            .source(mdbn_wire::common::B16(
+                attest::uuid_bytes(&full.collection).unwrap(),
+            ))
+            .unwrap();
+        let grant = mdbn_wire::common::B16(attest::uuid_bytes(&full.grant).unwrap());
+        let pk = crate::noise::public_key(&[9; 32]);
+        let c = full.collection.clone();
+        let mut access = AccessList::default();
+        enum Step<'a> {
+            Feed(SyncMode, &'a CachedGrant),
+            Revoke,
+        }
+        // (step, new access event, generation, state, setup served)
+        let table = [
+            (
+                Step::Feed(SyncMode::Local, &full),
+                true,
+                1,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &full),
+                false,
+                1,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                1,
+                AccessState::Active,
+                true,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                1,
+                AccessState::Active,
+                true,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &full),
+                false,
+                1,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                1,
+                AccessState::Active,
+                true,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &narrowed),
+                true,
+                2,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &no_setup),
+                true,
+                3,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                true,
+                4,
+                AccessState::Active,
+                true,
+            ),
+            (Step::Revoke, false, 4, AccessState::RevokedLocally, false),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                4,
+                AccessState::RevokedLocally,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &full),
+                false,
+                4,
+                AccessState::RevokedLocally,
+                false,
+            ),
+        ];
+        let now = crate::fsutil::now_ms() as u64;
+        for (i, (step, new_access, generation, state, served)) in table.into_iter().enumerate() {
+            let events = match step {
+                Step::Feed(mode, listed) => {
+                    registration.mode = mode;
+                    publish_registry(&authority, &registration);
+                    access.sync_from_control_plane(
+                        &c,
+                        std::slice::from_ref(listed),
+                        now,
+                        now + 50_000,
+                        mode == SyncMode::SyncedE2e,
+                    )
+                }
+                Step::Revoke => {
+                    access.revoke(&full.grant).unwrap();
+                    Vec::new()
+                }
+            };
+            authority.publish_access(&access);
+            assert_eq!(
+                matches!(&events[..], [AccessEvent::NewAccess { .. }]),
+                new_access,
+                "step {i}: {events:?}"
+            );
+            assert!(new_access || events.is_empty(), "step {i}: {events:?}");
+            assert_eq!(access.entries.len(), 1, "step {i}");
+            let entry = &access.entries[0];
+            assert_eq!(
+                (entry.generation, entry.state),
+                (generation, state),
+                "step {i}"
+            );
+            assert_eq!(
+                access.authorize(&c, &full.grant, &pk, now).is_ok(),
+                state == AccessState::Active,
+                "step {i}"
+            );
+            assert_eq!(source.declared_setup(&grant).is_some(), served, "step {i}");
+            if let Some(setup) = &entry.grant.declared_setup {
+                assert_eq!(setup.declaration_dropped(), !served, "step {i}");
+            }
+        }
     }
 
     #[test]

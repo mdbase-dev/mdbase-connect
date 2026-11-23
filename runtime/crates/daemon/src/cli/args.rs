@@ -366,10 +366,15 @@ pub(super) enum AccessCmd {
         /// Grant ID.
         grant: String,
     },
-    /// Mark a new-access notice as seen.
+    /// Mark a new-access notice as seen: one grant's, or with `--collection`
+    /// every one of a collection. Apps waiting for approval stay waiting.
     Ack {
         /// Grant ID.
-        grant: String,
+        #[arg(required_unless_present = "collection", conflicts_with = "collection")]
+        grant: Option<String>,
+        /// Every new-access notice of this collection (ID, ID prefix or name).
+        #[arg(long)]
+        collection: Option<String>,
     },
 }
 
