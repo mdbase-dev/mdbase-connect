@@ -319,7 +319,7 @@ async fn feed(d: &Daemon, listed: &[CachedGrant]) {
         .map_or(1, |c| c.sequence + 1);
     let path = d.profile.access_file();
     let listed = BTreeMap::from([("c".into(), listed.to_vec())]);
-    d.commit_control_plane_feed_with(&snapshot(sequence), &listed, |a| a.save(&path))
+    d.commit_control_plane_feed_with(&snapshot(sequence), &listed, move |a| a.save(&path))
         .await
         .unwrap();
 }
@@ -344,7 +344,7 @@ impl Confirmer for Suspended {
 async fn displayed_consent_cannot_approve_replacement_or_aba() {
     for aba in [false, true] {
         let dir = crate::testutil::TestDir::new("consent");
-        let d = daemon(&dir);
+        let d = paired_daemon(&dir).await;
         d.inner.lock().await.access.require_grant_approval = true;
         feed(&d, &[grant(1)]).await;
         let before = d.inner.lock().await.access.entries[0].clone();
@@ -543,7 +543,7 @@ async fn automatic_private_publication_requires_a_live_bound_account() {
 async fn native_activation_cannot_override_changed_terms_or_a_refusal() {
     for deny in [false, true] {
         let dir = crate::testutil::TestDir::new("native-activation");
-        let d = daemon(&dir);
+        let d = paired_daemon(&dir).await;
         d.inner.lock().await.access.require_grant_approval = true;
         feed(&d, &[grant(1)]).await;
         let expected = d.inner.lock().await.access.entries[0].clone();
