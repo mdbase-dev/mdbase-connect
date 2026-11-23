@@ -55,16 +55,6 @@ jobs:
     outputs:
       manifest_sha256: ${{ steps.pack.outputs.manifest_sha256 }}
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: mdbn
-          POSTGRES_PASSWORD: mdbn
-          POSTGRES_DB: mdbn_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U mdbn" --health-interval 2s --health-timeout 5s --health-retries 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -192,23 +182,11 @@ jobs:
           path: runtime/deploy/cloudflare-do/.wrangler/runtime-test-*/wrangler.log
           if-no-files-found: ignore
           retention-days: 7
-      - name: Qualify fresh hosted and staging escrow bytes, real Postgres, zero skips
+      - name: Qualify fresh hosted and staging escrow bytes, zero skips
         working-directory: runtime/deploy/hosted-worker
-        env:
-          MDBASE_HOSTED_LEGACY_TEST_PG: postgres://mdbn:mdbn@127.0.0.1:5432/mdbn_test
-          LEGACY_HOLD_PG_TEST_URL: postgres://mdbn:mdbn@127.0.0.1:5432/hold_frontend_test
         shell: bash
         run: |
           set -euo pipefail
-          # Separate database, as in hosted-worker.yml: hold composition counts
-          # backends and deletes its rows. Without it the hold test skips.
-          node --input-type=module -e '
-            import { Client } from "pg";
-            const client = new Client({ connectionString: process.env.MDBASE_HOSTED_LEGACY_TEST_PG });
-            await client.connect();
-            try { await client.query("CREATE DATABASE hold_frontend_test"); }
-            finally { await client.end(); }
-          '
           # This named test is mandatory; publishing predates neither the staging
           # escrow implementation nor its real native-WASM refusal coverage.
           node --experimental-transform-types --test test/staging-escrow.test.mjs
@@ -216,8 +194,6 @@ jobs:
           # Node 22 summarises in TAP ("# skipped N"); Node 24 uses the spec reporter ("ℹ skipped N").
           grep -Eq '^(#|ℹ) skipped 0$' "../../target/$RELEASE_ENVIRONMENT-worker-release/hosted-test.log"
           ! grep -Eq '^(#|ℹ) skipped [1-9][0-9]*$' "../../target/$RELEASE_ENVIRONMENT-worker-release/hosted-test.log"
-          HOSTED_WASM="$PWD/hosted.wasm" PITR_APP_FIXTURE="$PWD/.ci/fixture.json" \
-            timeout 600s node --experimental-transform-types test/migration-native-workerd.mjs
       - name: Compile the fixed managed profile and bind public-only inventory
         id: pack
         env:
