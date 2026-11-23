@@ -139,6 +139,9 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     let push: AppLogPushChannel | null = null, paused = false, pausing: ReturnType<typeof setTimeout> | null = null, kicked = false;
     /** Access ended on the log (removed, device revoked, collection gone). Terminal. */
     let ended: AppLogPushEnd | null = null;
+    /** Terminal push end observed while waitForVerifiedRead is still running;
+     * applied once started so it neither fails/slows the open nor gets dropped. */
+    let pendingEnd: AppLogPushEnd | null = null;
     /** Tabs attached after the first: their ports, closed with the connection. */
     const attached = new Map<MessagePort, {data: MessageChannel; command: MessageChannel; control: ReturnType<typeof attachAppCollectionControl>; timers: ReturnType<typeof host.openTimersPort>}>();
     /** Each tab's ports, by data port: the reminder consent its timer port was made under. */
@@ -161,6 +164,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       closed = true; assessment = "setup_required";
       if (timer !== null) clearTimeout(timer); timer = null;
       if (pausing !== null) clearTimeout(pausing); pausing = null;
+      pendingEnd = null;
       try {push?.close();} catch { /* socket close is best effort */ } push = null;
       try {host.onLogWork?.(null);} catch { /* closed with the host */ }
       parentSignal.removeEventListener("abort", abort);
@@ -235,6 +239,9 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       try { return host.pendingWrites() > 0; } catch { return false; }
     };
     const startLog = () => host.startCollectionLog({signal: life.signal, fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp});
+    const applyEnd = (reason: AppLogPushEnd) => {
+      ended = reason; kick(); onLive(false); settleInitial?.(); changed();
+    };
     const openPush = () => {
       if (push || !current()) return;
       try {
@@ -243,12 +250,11 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           live: onLive,
           // Access ended: the replica has the `closed` push; drive so it
           // settles, then the session stops this collection in every tab.
-          // While the open itself is still waiting on waitForVerifiedRead, push
-          // auth refusal falls back to the backoff rather than failing or
-          // blocking an open that HTTP can still verify.
+          // While waitForVerifiedRead is still running, record the reason
+          // without failing or slowing the open and surface it once started.
           ended: reason => {
-            if (!started) { onLive(false); return; }
-            ended = reason; kick(); onLive(false); settleInitial?.(); changed();
+            if (!started) { pendingEnd ??= reason; onLive(false); return; }
+            applyEnd(reason);
           },
         }) : null;
       } catch { push = null; }
@@ -475,6 +481,10 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       // file transfer drives the log at once rather than on the next turn.
       started = true;
       host.onLogWork?.(kick);
+      if (pendingEnd !== null) {
+        const reason = pendingEnd; pendingEnd = null;
+        applyEnd(reason);
+      }
       if (local) {
         // The first turn binds the log; no socket is live until then.
         keys = "pending"; kicked = true; schedule();

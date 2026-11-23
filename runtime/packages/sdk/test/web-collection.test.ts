@@ -11,6 +11,8 @@ import { AppCpAuthorityError } from "../src/app-host/cp-authority.js";
 import { appServerProblem } from "../src/app-host/cp-problem.js";
 import { attachAppTimerReceiver } from "../src/app-host/timer-port.js";
 import type { AppLogHealth } from "../src/app-host/log-pump.js";
+import { AppLogPushChannel, type AppLogPushEvents } from "../src/app-host/log-push.js";
+import { decode, encode, type CborValue } from "../src/cbor.js";
 import type { AppWebCloudCopyHost } from "../src/app-host/cloud-copy-host.js";
 const scope = {account: "11111111-1111-4111-8111-111111111111", installation: "22222222-2222-4222-8222-222222222222", collection: "33333333-3333-4333-8333-333333333333"};
 const options = {databaseName: "tasknotes.native-model-setup.v1", applicationNamespace: "tasknotes-web", appOrigin: "https://app.example.test", cpOrigin: "https://cp.example.test"};
@@ -898,7 +900,7 @@ describe("cold open push socket during key wait", () => {
       expect(vi.getTimerCount()).toBe(0);
     } finally { vi.useRealTimers(); }
   });
-  it.each(["open_throws", "start_throws", "socket_down", "auth_forbidden", "auth_revoked"] as const)(
+  it.each(["open_throws", "start_throws", "socket_down"] as const)(
     "push failure (%s) during cold open does not fail or slow the open and falls back to backoff", async mode => {
       vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
       try {
@@ -913,10 +915,6 @@ describe("cold open push socket during key wait", () => {
         await vi.waitFor(() => expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce());
         await vi.advanceTimersByTimeAsync(1_500);
         if (mode === "socket_down") { p.channel.live = false; p.events().live(false); }
-        if (mode === "auth_forbidden" || mode === "auth_revoked") {
-          p.channel.available = false; p.channel.live = false;
-          p.events().ended(mode === "auth_revoked" ? "revoked" : "forbidden");
-        }
         // Grant lands at 6 s -> completes on the 7 s backoff step (unaffected by push failure).
         await vi.advanceTimersByTimeAsync(4_500);
         backoff.landGrant(11);
@@ -931,6 +929,97 @@ describe("cold open push socket during key wait", () => {
       } finally { vi.useRealTimers(); }
     },
   );
+  it.each(["revoked", "forbidden", "gone"] as const)(
+    "push %s during the key wait does not fail or slow the open, then surfaces ended once open completes", async reason => {
+      vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
+      try {
+        const f = fixture();
+        const p = makePushChannel(f.trace);
+        Object.assign(f.host, {openLogPush: p.openLogPush});
+        const backoff = attachBackoffRead(f);
+        let opened = false;
+        const opening = f.open().then(result => { opened = true; return result; });
+        await vi.waitFor(() => expect(f.host.waitForVerifiedRead).toHaveBeenCalledOnce());
+        await vi.advanceTimersByTimeAsync(1_500);
+        p.channel.available = false; p.channel.live = false;
+        p.events().ended(reason);
+        // Open is still waiting on the verified read (neither failed nor kicked early).
+        expect(opened).toBe(false);
+        expect(f.host.driveCollection).not.toHaveBeenCalled();
+        // Grant lands at 6 s -> HTTP verified read succeeds on the 7 s backoff step.
+        await vi.advanceTimersByTimeAsync(4_500);
+        backoff.landGrant(11);
+        await vi.advanceTimersByTimeAsync(2_000);
+        await vi.waitFor(() => expect(opened).toBe(true));
+        const result = await opening;
+        expect(result.failure).toBeNull();
+        expect(result.ended).toBe(reason);
+        expect(result.connection.attach!()).toBeNull();
+        await vi.waitFor(() => expect(f.host.driveCollection).toHaveBeenCalled());
+        expect(p.openLogPush).toHaveBeenCalledOnce();
+        await result.close();
+        expect(vi.getTimerCount()).toBe(0);
+      } finally { vi.useRealTimers(); }
+    },
+  );
+  it("a transient push close during the key wait still reconnects after the open completes", async () => {
+    vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"], shouldAdvanceTime: true});
+    try {
+      type Frame = Map<CborValue, CborValue>;
+      const sockets: FakeSocket[] = [];
+      let failAttempts = 2;
+      class FakeSocket {
+        binaryType = "blob"; sent: unknown[] = []; closed: number | null = null;
+        onopen: (() => void) | null = null; onmessage: ((e: {data: unknown}) => void) | null = null;
+        onclose: ((e: {code: number}) => void) | null = null; onerror: (() => void) | null = null;
+        constructor(readonly url: string) {
+          sockets.push(this);
+          queueMicrotask(() => {
+            if (failAttempts > 0) { failAttempts--; this.onerror?.(); this.onclose?.({code: 1006}); return; }
+            this.onopen?.();
+          });
+        }
+        send(data: unknown) {
+          this.sent.push(data);
+          if (!(data instanceof Uint8Array)) return;
+          const id = (decode(data) as Frame).get(1) as number;
+          if (id === 1) queueMicrotask(() => this.onmessage?.({data: encode(new Map<number, CborValue>([[0, 1], [1, 1], [2, new Map()]])).buffer}));
+          if (id === 2) queueMicrotask(() => this.onmessage?.({data: encode(new Map<number, CborValue>([[0, 1], [1, 2], [2, new Map<number, CborValue>([[0, 11], [1, new Uint8Array(32).fill(1)]])]])).buffer}));
+        }
+        close(code = 1000) { this.closed = code; }
+      }
+      const f = fixture();
+      const openLogPush = vi.fn((events: AppLogPushEvents) => new AppLogPushChannel({
+        origin: "https://log.example.test", collection: scope.collection, deviceId: scope.account,
+        isCurrent: () => !f.parent.signal.aborted,
+        accessToken: async () => "token-1",
+        nonce: async () => new Uint8Array(32).fill(7),
+        signHello: () => new Uint8Array(64).fill(9),
+      }, events, {WebSocket: FakeSocket as unknown as typeof WebSocket, random: () => 0.99}));
+      Object.assign(f.host, {openLogPush});
+      const backoff = attachBackoffRead(f);
+      let opened = false;
+      const opening = f.open().then(result => { opened = true; return result; });
+      await vi.waitFor(() => expect(sockets).toHaveLength(1));
+      // Pre-open socket attempts fail transiently (1006); grant lands and open finishes via backoff
+      // before the 2 s backoff retry fires.
+      backoff.landGrant(11);
+      await vi.advanceTimersByTimeAsync(1_100);
+      await vi.waitFor(() => expect(opened).toBe(true));
+      const result = await opening;
+      expect(result.ended).toBeNull();
+      expect(openLogPush).toHaveBeenCalledOnce();
+      const beforeReconnect = sockets.length;
+      // Post-open reconnect happens on the same push channel and brings live updates up.
+      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.waitFor(() => expect(sockets.length).toBeGreaterThan(beforeReconnect));
+      await vi.waitFor(() => expect(result.live).toBe(true));
+      expect(backoff.pushLog).toHaveBeenCalled();
+      expect(openLogPush).toHaveBeenCalledOnce();
+      await result.close();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally { vi.useRealTimers(); }
+  });
   it.each(["failure", "cancel"] as const)("closes the push socket on cold open %s", async mode => {
     vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "Date"], shouldAdvanceTime: true});
     try {
