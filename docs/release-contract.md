@@ -244,9 +244,7 @@ requires a dispatch, matching workspace version/tag/checkout/full verified SHA,
 checks the current annotated tag through the existing GitHub API, and reads only
 fixed canonical production endpoints. Connect `/health` must identify production,
 its canonical origin, the exact revision, protocol 1 and fresh-v2 issuance;
-Connect `/ready` must succeed; canonical `sync.mdbase.dev/ready` must identify
-the candidate provider version, fresh-v2 issuance and successful notification
-recovery with zero consecutive failures; MCP `/health` must identify the exact
+Connect `/ready` must succeed; MCP `/health` must identify the exact
 revision.
 Missing fields, disabled capability, mismatches, redirects, HTTP failures and
 timeouts fail closed. Existing exact Server CI qualification and release gates
@@ -254,10 +252,8 @@ remain in force. No caller-supplied service URL or cross-repository ops credenti
 is accepted.
 
 These live public responses supplement the parent's verification. They do not
-prove unique service deployment identity, the hosted-provider source revision
-(its public readiness exposes version, not source), or successful end-to-end fresh
-authorization. Provider fresh-v2 readiness is checked directly, not inferred from
-Connect readiness. The full SHA input records the parent's explicit assertion;
+prove unique service deployment identity or successful end-to-end fresh
+authorization. The full SHA input records the parent's explicit assertion;
 it is not a signed receipt or independent readiness evidence. If independent ops
 verification is unavailable, do not dispatch. A rollback or service change between
 verification and publication requires re-verification; publication is not atomic

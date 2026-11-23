@@ -388,8 +388,7 @@ test("workspace plans retain exact successful proof and fail closed on unavailab
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const planFile = join(directory, "plan.json");
   const record = { schema: 1, kind: "workspace", commit, packages: [] };
-  const evidence = { candidate: commit, production: "b".repeat(40), reason: "production-contains-candidate",
-    provider: "c".repeat(40), providerReason: "unchanged-contract-axis" };
+  const evidence = { candidate: commit, production: "b".repeat(40), reason: "production-contains-candidate" };
   for (const live of ["true", "false"]) {
     writeFileSync(planFile, JSON.stringify(record));
     const env = { GITHUB_SHA: commit, LIVE_PUBLICATION: live };
@@ -407,7 +406,7 @@ test("workspace plans retain exact successful proof and fail closed on unavailab
   }
 });
 
-test("workspace plan and mutation boundary use the real shared proof against both production identities", context => {
+test("workspace plan and mutation boundary use the real shared proof against production", context => {
   const directory = mkdtempSync(join(tmpdir(), "workspace-compatibility-boundary-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const planFile = join(directory, "plan.json");
@@ -420,8 +419,6 @@ else if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[3] !== 
 else if (args[0] === "diff") console.log(args[4] === process.env.BLOCKED_COMMIT ? process.env.CONTRACT_PATH : "docs/releasing.md");`,
     gh: `const path = process.argv.at(-1);
 if (path.includes("actions/workflows/")) console.log(JSON.stringify({ state: "active" }));
-else if (path.includes("git/ref/tags/")) console.log(JSON.stringify({ object: { type: "tag", sha: "d".repeat(40) } }));
-else if (path.includes("git/tags/")) console.log(JSON.stringify({ object: { type: "commit", sha: "c".repeat(40) } }));
 else throw new Error("Unexpected API read: " + path);`,
     npm: `require("node:fs").writeFileSync(process.env.NPM_MARKER, "called"); process.exit(99);`
   })) {
@@ -434,36 +431,34 @@ globalThis.fetch = async url => {
   let body;
   if (url === "https://connect.mdbase.dev/health") body = { ok: true, service: "mdbase-connect", revision: "b".repeat(40), environment: "production", public_origin: "https://connect.mdbase.dev", protocol_version: 1, capabilities: ["application-authorization-v2-issuance"] };
   else if (url === "https://connect.mdbase.dev/ready") body = { ok: true, service: "mdbase-connect" };
-  else if (url === "https://sync.mdbase.dev/ready") body = { status: "ready", provider: { version: "0.1.0-beta.152", revision: "c".repeat(40), capabilities: ["application-authorization-v2-issuance"] }, notifications: { recovery: "ok", consecutive_failures: 0 } };
   else if (url === "https://mcp.mdbase.dev/health") body = { ok: true, service: "mdbase-mcp", revision: "b".repeat(40) };
   else throw new Error("Unexpected network read: " + url);
   return { ok: true, json: async () => body };
 };
 if (process.env.TEST_COMMAND === "plan") await qualifyWorkspace(process.env.PLAN_FILE);
 else await publishWorkspace(process.env.PLAN_FILE, process.env.ARCHIVE_DIRECTORY);`;
-  for (const blocked of ["b".repeat(40), "c".repeat(40)]) {
-    for (const path of ["packages/client/src/index.ts", "packages/protocol/src/auth.ts", "packages/sync/src/index.ts",
-      "pnpm-lock.yaml", "config/next-trust/production.json", "new-contract/source.ts"]) {
-      for (const [command, live] of [["plan", "true"], ["plan", "false"], ["publish", "true"]]) {
-        const record = { schema: 1, kind: "workspace", commit, packages: [{ name: "@mdbase-dev/connect", version }],
-          compatibility: { status: "passed", evidence: { candidate: commit } } };
-        writeFileSync(planFile, JSON.stringify(record));
-        const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
-          env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect",
-            GITHUB_SHA: commit, GITHUB_WORKFLOW: "Publish npm packages", SDK_RELEASE_STOPPED: "false", LIVE_PUBLICATION: live,
-            TEST_COMMAND: command, PLAN_FILE: planFile, ARCHIVE_DIRECTORY: directory, BLOCKED_COMMIT: blocked,
-            CONTRACT_PATH: path, NPM_MARKER: marker, GITHUB_STEP_SUMMARY: "" } });
-        assert.equal(result.status, live === "true" ? 1 : 0, result.stderr);
-        if (command === "plan") {
-          assert.match(result.stdout + result.stderr, /production-compatibility-unproven/);
-          assert(!(result.stdout + result.stderr).includes(path), "planner diagnostics are fixed text");
-        } else {
-          assert.match(result.stdout + result.stderr, /Production does not contain this client's server-facing contract/);
-          assert((result.stdout + result.stderr).includes(path));
-        }
-        assert.equal(existsSync(marker), false, "incompatible source must never reach npm");
-        if (command === "plan") assert.equal(JSON.parse(readFileSync(planFile, "utf8")).compatibility.status, "blocked");
+  const blocked = "b".repeat(40);
+  for (const path of ["packages/client/src/index.ts", "packages/protocol/src/auth.ts", "packages/sync/src/index.ts",
+    "pnpm-lock.yaml", "config/next-trust/production.json", "new-contract/source.ts"]) {
+    for (const [command, live] of [["plan", "true"], ["plan", "false"], ["publish", "true"]]) {
+      const record = { schema: 1, kind: "workspace", commit, packages: [{ name: "@mdbase-dev/connect", version }],
+        compatibility: { status: "passed", evidence: { candidate: commit } } };
+      writeFileSync(planFile, JSON.stringify(record));
+      const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect",
+          GITHUB_SHA: commit, GITHUB_WORKFLOW: "Publish npm packages", SDK_RELEASE_STOPPED: "false", LIVE_PUBLICATION: live,
+          TEST_COMMAND: command, PLAN_FILE: planFile, ARCHIVE_DIRECTORY: directory, BLOCKED_COMMIT: blocked,
+          CONTRACT_PATH: path, NPM_MARKER: marker, GITHUB_STEP_SUMMARY: "" } });
+      assert.equal(result.status, live === "true" ? 1 : 0, result.stderr);
+      if (command === "plan") {
+        assert.match(result.stdout + result.stderr, /production-compatibility-unproven/);
+        assert(!(result.stdout + result.stderr).includes(path), "planner diagnostics are fixed text");
+      } else {
+        assert.match(result.stdout + result.stderr, /Production does not contain this client's server-facing contract/);
+        assert((result.stdout + result.stderr).includes(path));
       }
+      assert.equal(existsSync(marker), false, "incompatible source must never reach npm");
+      if (command === "plan") assert.equal(JSON.parse(readFileSync(planFile, "utf8")).compatibility.status, "blocked");
     }
   }
 });
@@ -784,6 +779,8 @@ function plannerFixture(context) {
     const manifest = JSON.parse(readFileSync(new URL(`../../${path}`, import.meta.url), "utf8"));
     writeFileSync(join(directory, path), JSON.stringify(manifest));
   }
+  mkdirSync(join(directory, "scripts"), { recursive: true });
+  writeFileSync(join(directory, "scripts/public-packages.mjs"), readFileSync(new URL("../public-packages.mjs", import.meta.url), "utf8"));
   const save = () => { git("add", "."); git("commit", "-qm", "fixture"); return git("rev-parse", "HEAD"); };
   const base = save();
   // An unclassifiable lockfile fails closed, selecting every workspace package and the source SDK.
@@ -800,7 +797,7 @@ function plannerFixture(context) {
   // tag: plan as the publisher dispatched on that reservation; otherwise as the
   // main coordinator whose own (main tip) commit is run.
   const execute = ({ kind, baselineCommit = production, run = production, selected = production, tag, published = [version],
-    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, tagReady = true, reservation = true, shared = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
+    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, tagReady = true, providerFree = true, reservation = true, shared = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
     git("checkout", "--detach", run);
     const summary = join(directory, "summary.md");
     const output = join(directory, "outputs");
@@ -828,6 +825,7 @@ await plan(${JSON.stringify(kind)}, ${JSON.stringify(planFile)}, process.env, {
   },
   runtimeCi: sha => { if (sha !== selected) throw new Error('wrong runtime commit'); return ${JSON.stringify(runtime)}; },
   publisherAt: (kind, sha) => { if (sha !== selected) throw new Error('wrong publisher commit'); return ${JSON.stringify(tagReady)}; },
+  compatibleAt: sha => { if (sha !== selected) throw new Error('wrong compatibility commit'); return ${JSON.stringify(providerFree)}; },
   checkAttempts: () => { if (${JSON.stringify(priorFailure)}) throw new Error('RAW-PRIOR-ATTEMPT-STDERR'); },
   verify: async () => {
     if (!${JSON.stringify(compatibility)}) throw new Error('RAW-COMPATIBILITY-STDERR');
@@ -945,6 +943,12 @@ for (const kind of ["source", "workspace"]) {
     assert.equal(predates.plan.reservation, undefined, "never reserve a tag whose publisher would skip every job");
     check(predates, new RegExp(`waiting for production to contain tag publication \\(${production} predates it\\)`));
 
+    const predatesProviderFree = execute({ kind, baselineCommit: base, run: successor, providerFree: false, compatibility: false, priorFailure: true });
+    assert.equal(predatesProviderFree.status, 0, predatesProviderFree.stderr);
+    assert.deepEqual(predatesProviderFree.plan.packages, []);
+    assert.equal(predatesProviderFree.plan.reservation, undefined, "never reserve a tag whose compatibility check still reads the retired provider");
+    check(predatesProviderFree, new RegExp(`waiting for production to contain provider-free compatibility \\(${production} predates it\\)`));
+
     if (kind === "workspace") {
       const mixed = execute({ kind, baselineCommit: base, aheadUi: true, run: successor, compatibility: false, priorFailure: true });
       assert.equal(mixed.status, 0, mixed.stderr);
@@ -997,6 +1001,94 @@ for (const kind of ["source", "workspace"]) {
     assert.match(prior.summary, /blocked: publication-prior-attempt-unreconciled/);
   });
 }
+
+test("workspace planning reads the checked-out candidate's own package list when packages are deleted on main", context => {
+  const directory = mkdtempSync(join(tmpdir(), "publication-deleted-packages-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", args, { cwd: directory, encoding: "utf8", stdio: "pipe" }).trim();
+  git("init", "-b", "main");
+  git("config", "user.email", "test@example.invalid");
+  git("config", "user.name", "Publication test");
+  const writePackage = (dir, pkgName) => {
+    mkdirSync(join(directory, dir), { recursive: true });
+    writeFileSync(join(directory, dir, "package.json"), JSON.stringify({ name: pkgName, version: "0.1.0" }));
+  };
+  const writeList = dirs => {
+    mkdirSync(join(directory, "scripts"), { recursive: true });
+    const template = readFileSync(new URL("../public-packages.mjs", import.meta.url), "utf8");
+    writeFileSync(join(directory, "scripts/public-packages.mjs"),
+      template.replace(/export const publicPackageDirectories = \[[\s\S]*?\];/, `export const publicPackageDirectories = ${JSON.stringify(dirs)};`));
+  };
+  writeFileSync(join(directory, "package.json"), JSON.stringify({ name: "fixture", private: true, version: "0.1.0" }));
+  writePackage("packages/protocol", "@mdbase-dev/connect-protocol");
+  writePackage("packages/client", "@mdbase-dev/connect");
+  writePackage("packages/devkit", "@mdbase-dev/connect-devkit");
+  writePackage("packages/app-ui", "@mdbase-dev/ui");
+  writePackage("packages/i18n", "@mdbase-dev/i18n");
+  writeList(["packages/protocol", "packages/client", "packages/devkit", "packages/app-ui", "packages/i18n"]);
+  git("add", ".");
+  git("commit", "-qm", "pre-retirement baseline");
+  const baselineCommit = git("rev-parse", "HEAD");
+  git("tag", "v0.1.41", baselineCommit);
+  writeFileSync(join(directory, "packages/protocol/index.js"), "export const v = 2;\n");
+  git("add", ".");
+  git("commit", "-qm", "pre-retirement production");
+  const oldProduction = git("rev-parse", "HEAD");
+  rmSync(join(directory, "packages/client"), { recursive: true, force: true });
+  rmSync(join(directory, "packages/devkit"), { recursive: true, force: true });
+  writeList(["packages/protocol", "packages/app-ui", "packages/i18n"]);
+  git("add", "-A");
+  git("commit", "-qm", "retire legacy client and devkit packages");
+  const postRetirement = git("rev-parse", "HEAD");
+  writePackage("packages/unlisted", "@mdbase-dev/unlisted");
+  git("add", ".");
+  git("commit", "-qm", "unlisted public package");
+  const incomplete = git("rev-parse", "HEAD");
+
+  const program = new URL("../continuous-sdk-release.mjs", import.meta.url).href;
+  const runPlan = (run, selected) => {
+    git("checkout", "--detach", run);
+    const planFile = join(directory, "plan.json");
+    rmSync(planFile, { force: true });
+    const script = `import { plan } from ${JSON.stringify(program)};
+await plan("workspace", ${JSON.stringify(planFile)}, process.env, {
+  selectProduction: async () => {
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['checkout', '--detach', ${JSON.stringify(selected)}], { stdio: 'pipe' });
+    return ${JSON.stringify(selected)};
+  },
+  qualify: () => {},
+  readPublished: async () => ({ version: "0.1.41", versions: ["0.1.41"], commit: ${JSON.stringify(baselineCommit)} }),
+  reservations: () => ({ versions: ["0.1.41"], reserved: [] }),
+  publisherAt: () => true,
+  compatibleAt: () => true,
+  sharedAt: () => true,
+  checkAttempts: () => {},
+  verify: async () => ({ candidate: ${JSON.stringify(selected)} })
+});`;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: directory, encoding: "utf8",
+      env: { ...process.env, GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main",
+        GITHUB_EVENT_NAME: "schedule", GITHUB_SHA: run, LIVE_PUBLICATION: "false", SDK_RELEASE_STOPPED: "false" } });
+    return { ...result, plan: existsSync(planFile) ? JSON.parse(readFileSync(planFile, "utf8")) : undefined };
+  };
+
+  // Running on post-retirement main while production is still at pre-retirement must not throw on deleted packages.
+  const older = runPlan(postRetirement, oldProduction);
+  assert.equal(older.status, 0, older.stderr);
+  assert.deepEqual(Object.keys(older.plan.dependencies),
+    ["@mdbase-dev/connect-protocol", "@mdbase-dev/connect", "@mdbase-dev/connect-devkit", "@mdbase-dev/ui", "@mdbase-dev/i18n"]);
+
+  // Once production reaches post-retirement, only the remaining public packages are planned.
+  const newer = runPlan(postRetirement, postRetirement);
+  assert.equal(newer.status, 0, newer.stderr);
+  assert.deepEqual(Object.keys(newer.plan.dependencies),
+    ["@mdbase-dev/connect-protocol", "@mdbase-dev/ui", "@mdbase-dev/i18n"]);
+
+  // A candidate whose own package list omits a public package in its own tree still fails closed.
+  const broken = runPlan(incomplete, incomplete);
+  assert.equal(broken.status, 1);
+  assert.match(broken.stderr, /Public package release list is incomplete/);
+});
 
 test("ancestry invocation failures are named and never interpreted as an ahead baseline", () => {
   for (const failAt of [1, 2]) {

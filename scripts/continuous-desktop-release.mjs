@@ -4,7 +4,7 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, pages, releaseTag, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, pages, productionOnlyCompatibility, releaseTag, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 import { readRollout } from "./desktop-rollout.mjs";
 import { rolloutService, stageOf, variableSet, wideningLimit, wideningPlan } from "./lib/desktop-rollout.mjs";
 
@@ -47,7 +47,7 @@ export function semverPrepare(commit, runGit = git) {
   return runGit("show", `${commit}:scripts/continuous-desktop-release.mjs`).includes("assert.match(tag, releaseTag);");
 }
 
-export function desktopPlan({ latest, reservations, changed, acknowledged = "", semver = true, gap = releaseGap(false), now = Date.now() }) {
+export function desktopPlan({ latest, reservations, changed, acknowledged = "", semver = true, compatible = true, gap = releaseGap(false), now = Date.now() }) {
   const unreconciled = item => !acknowledged || compareVersions(tagVersion(item.tag), tagVersion(acknowledged)) > 0;
   if (reservations.some(item => !item.published && unreconciled(item))) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
   if (latest?.body?.includes(marker)) throw new Error("Desktop line is latched stopped; release-owner review required.");
@@ -57,7 +57,9 @@ export function desktopPlan({ latest, reservations, changed, acknowledged = "", 
     if (age < gap) return { operation: "wait", reason: "release gap" };
   }
   if (!changed) return { operation: "wait", reason: "desktop tree unchanged" };
-  return semver ? { operation: "release" } : { operation: "wait", reason: "selected commit predates semver releases" };
+  if (!semver) return { operation: "wait", reason: "selected commit predates semver releases" };
+  if (!compatible) return { operation: "wait", reason: "selected commit predates provider-free compatibility" };
+  return { operation: "release" };
 }
 
 function reservations(releases) {
@@ -145,7 +147,7 @@ export async function coordinate(env = process.env) {
     };
     const changed = desktopChanged(paths, path => ({ before: base ? readAt(base, path) : undefined, after: readAt(env.GITHUB_SHA, path) }));
     const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG,
-      semver: semverPrepare(env.GITHUB_SHA), gap: releaseGap(service !== null) });
+      semver: semverPrepare(env.GITHUB_SHA), compatible: productionOnlyCompatibility(env.GITHUB_SHA), gap: releaseGap(service !== null) });
     console.log(JSON.stringify(plan));
     // After the plan, so a latched stop or an unfinished attempt also pauses widening.
     if (service) await widenRollouts(service, all, env);

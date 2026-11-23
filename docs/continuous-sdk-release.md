@@ -27,7 +27,10 @@ tag or `production_verified_commit` is accepted.
 
 ## Package selection and versions
 
-Workspace publication covers the packages listed in `scripts/public-packages.mjs`.
+Workspace publication covers the packages listed in the checked-out candidate's
+`scripts/public-packages.mjs` (never `main`'s cached list, so legitimately added
+or deleted packages on `main` do not break planning of an older production
+tree).
 Each package is compared with **its own highest published npm version**, not a
 dist-tag, server release or global release counter. The planner verifies the
 baseline npm Sigstore/SLSA provenance, publisher workflow, fixed repository,
@@ -132,16 +135,16 @@ require a separate approved source-build/qualification contract.
 ## Qualification and compatibility
 
 Coordinators observe live production and select the newest green first-parent
-commit in the common ancestry of main, Connect/MCP and the provider. They check
+commit in the common ancestry of main and Connect/MCP. They check
 out that source and require its exact successful **full Server CI main-push**
 qualification artifact; a source-SDK coordinator reserves only once the same
 commit's exact Runtime CI has passed. A green badge alone, PR,
 documentation-only successor or stale qualification cannot substitute.
 Missing/unreadable evidence fails closed. However far main has moved, the
 coordinator plans the production commit itself; it never waits for production
-to reach main's tip. A tag run executes the workflow committed at its tag, so
-until production contains tag publication the coordinator reserves nothing and
-reports `waiting for production to contain tag publication`.
+to reach main's tip. A tag run executes the workflow and compatibility check
+committed at its tag, so until production contains tag publication and
+provider-free compatibility the coordinator reserves nothing and waits.
 
 A tag run qualifies its own commit again: the exact Server CI artifact (which
 names the workspace tarballs it packs) and, for the SDK build, exact Runtime CI.
@@ -163,10 +166,9 @@ events are restricted to successful main pushes from this repository, and
 publishers never consume artifacts from the triggering run as arbitrary input.
 All plan/build transfers belong to this run and identify its selected source SHA.
 
-`continuous-client-release.mjs` retains the fixed production Connect/MCP and
-provider readiness observations. It proves compatibility independently against
-Connect/MCP's revision and the revision the provider reports in `/ready`:
-each must contain the client commit, or its exact tree diff to the client must
+`continuous-client-release.mjs` retains the fixed production Connect/MCP
+readiness observations. It proves compatibility against Connect/MCP's revision:
+it must contain the client commit, or its exact tree diff to the client must
 be off the contract axis. Unknown paths, authorization/protocol, server, shared
 runtime, dependency-lock and trust changes fail closed. Only documentation/tests,
 known release tooling, static visual assets and locale data are off-axis;
@@ -176,13 +178,12 @@ version numbers is required. Readiness/compatibility and workflow-active state
 are rechecked immediately before every npm publication.
 
 Nonempty workspace planning runs this same `verifyCompatibility` proof before
-packing, for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
-devkit and webhooks. There are no server-independent
+packing, for **every** public workspace package. There are no server-independent
 exemptions: i18n, UI and newly added public packages are gated too. The existing
 fail-closed contract-path classification is shared unchanged with the source SDK.
 
 The workspace `npm-release-plan.json` records `compatibility.status` as `passed`
-with the exact Connect/MCP and provider commit evidence, or `blocked` with the
+with the exact Connect/MCP commit evidence, or `blocked` with the
 fixed reason `production-compatibility-unproven`. The Actions job summary also
 shows the result. A manual `dry_run: true` reports incompatibility or unavailable proof without failing the
 plan, so operators can still inspect and pack the proposed versions. A live

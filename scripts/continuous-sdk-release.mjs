@@ -4,13 +4,21 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module";
 import { join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { publicPackages } from "./public-packages.mjs";
-import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, releaseTag, releaseVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, productionOnlyCompatibility, releaseTag, releaseVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
 const sdk = { name: "@mdbase-dev/sdk", directory: "runtime/packages/sdk" };
 const publisherWorkflow = env => env.GITHUB_WORKFLOW === "Publish source-built SDK" ? "publish-sdk-npm.yml" : "publish-npm.yml";
+
+// Load the checked-out candidate's own package manifest list, never main's
+// cached module, so legitimately added or deleted packages on main never
+// conflict with an older checked-out production tree.
+export async function candidatePublicPackages(commit) {
+  assert.match(commit ?? "", /^[a-f0-9]{40}$/);
+  const { publicPackages } = await import(`${pathToFileURL(resolve("scripts/public-packages.mjs")).href}?commit=${commit}`);
+  return publicPackages();
+}
 
 async function registryJson(path) {
   const response = await fetch(`${registry}/${path}`, { redirect: "error", cache: "no-store",
@@ -383,7 +391,9 @@ function checkPriorAttempts(kind, env) {
 // publication of that tag's own commit at the tag's version.
 export async function plan(kind, output, env = process.env, {
   selectProduction = checkoutProductionCommit, qualify = requireGreenMain, readPublished = published,
+  readPackages = candidatePublicPackages,
   reservation = readReservation, reservations = listReservations, runtimeCi = runtimeQualified, publisherAt = tagPublisher,
+  compatibleAt = productionOnlyCompatibility,
   sharedAt = sharesReservations,
   checkAttempts = checkPriorAttempts, verify = verifyCompatibility
 } = {}) {
@@ -404,7 +414,7 @@ export async function plan(kind, output, env = process.env, {
     commit = await selectProduction(env, { qualify: sha => qualify(sha, quiet) });
   }
   env = { ...env, GITHUB_SHA: commit };
-  const packages = kind === "source" ? [sdk] : await publicPackages();
+  const packages = kind === "source" ? [sdk] : await readPackages(commit);
   const inventory = [];
   const changed = [];
   for (const item of packages) {
@@ -429,8 +439,9 @@ export async function plan(kind, output, env = process.env, {
   const ahead = inventory.find(item => item.history === "ahead");
   let chosen = ahead ? [] : dependentPackages(inventory, changed);
   const predatesTags = !tag && chosen.length > 0 && !publisherAt(kind, commit);
-  const waitingForRuntime = !tag && !predatesTags && kind === "source" && chosen.length > 0 && !runtimeCi(commit);
-  if (predatesTags || waitingForRuntime) chosen = [];
+  const predatesProviderFree = !tag && !predatesTags && chosen.length > 0 && !compatibleAt(commit);
+  const waitingForRuntime = !tag && !predatesTags && !predatesProviderFree && kind === "source" && chosen.length > 0 && !runtimeCi(commit);
+  if (predatesTags || predatesProviderFree || waitingForRuntime) chosen = [];
   // One version per tag: every package a tag publishes carries the tag's version,
   // above every version any of these packages has published.
   const lineVersions = inventory.flatMap(item => item.baseline.versions);
@@ -464,6 +475,7 @@ export async function plan(kind, output, env = process.env, {
     if (blocked || result.compatibility?.status === "blocked") return `blocked: ${blocked ?? "production-compatibility-unproven"}`;
     if (ahead) return `nothing to publish; waiting for production to reach commit ${ahead.baseline.commit}`;
     if (predatesTags) return `nothing to publish; waiting for production to contain tag publication (${commit} predates it)`;
+    if (predatesProviderFree) return `nothing to publish; waiting for production to contain provider-free compatibility (${commit} predates it)`;
     if (waitingForRuntime) return `nothing to publish; waiting for successful Runtime CI of commit ${commit}`;
     if (!selected.some(value => value.name === item.name)) return "nothing to publish";
     if (tag) return `publishing ${version} from ${commit}${live ? "" : " (dry run)"}`;
