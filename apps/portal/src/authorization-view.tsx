@@ -860,10 +860,12 @@ function SupportedApprovalForm({
             ? t(i18n)({ message: "The collection requested by this app is not available." })
             : request.requirements.collection_kind === "hosted"
               ? t(i18n)({ message: "This app needs a collection hosted by mdbase, and none is ready yet." })
-              : t(i18n)({ message: "No compatible collection is ready." })}</p>}
+              : request.account_backend === "next" && unavailable.length === 0 && unavailableConnectors.length === 0
+                ? t(i18n)({ message: "Create a new collection below, or sync an existing folder in mdbase Desktop first." })
+                : t(i18n)({ message: "No compatible collection is ready." })}</p>}
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
-            || (request.account_backend !== "next" && request.requirements.collection_kind !== "hosted" && !request.collection_id)
+            || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
             || (canCreateCollection && !request.collection_id)) && <details className="mdbase-disclosure alternate-collection-options"
               open={compatible.length === 0 || creatingCollection || showAlternateCollections}
               onToggle={(event) => {
@@ -951,6 +953,21 @@ function SupportedApprovalForm({
                   ><Trans>New collection</Trans></button>
                 </div>
               ))}
+              {request.account_backend === "next"
+                && request.requirements.collection_kind !== "hosted"
+                && !request.collection_id
+                && <div className="alternate-collection-row">
+                  <div>
+                    <strong><Trans>Use an existing folder or Obsidian vault</Trans></strong>
+                    <small><Trans>Add and sync your folder in mdbase Desktop, then return to this page. If this request expires while you set up Desktop, connect again from {literal(request.application_name)}.</Trans></small>
+                  </div>
+                  <a
+                    className="mdbase-button is-tertiary"
+                    href="https://mdbase.dev/downloads/"
+                    target="_blank"
+                    rel="noreferrer"
+                  ><Trans>Get mdbase Desktop</Trans></a>
+                </div>}
             </div>
           </details>}
           {error && <div className="mdbase-message is-error compact" role="alert">{error}</div>}

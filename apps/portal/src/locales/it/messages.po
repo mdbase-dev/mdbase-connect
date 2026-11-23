@@ -539,6 +539,11 @@ msgstr "Aggiungi una raccolta per iniziare."
 msgid "Add a new {0} type"
 msgstr "Aggiungi un nuovo tipo {0}"
 
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "Add and sync your folder in mdbase Desktop, then return to this page. If this request expires while you set up Desktop, connect again from {0}."
+msgstr "Aggiungi e sincronizza la tua cartella in mdbase Desktop, poi torna su questa pagina. Se questa richiesta scade mentre configuri Desktop, riconnettiti da {0}."
+
 #: src/ConnectApp.tsx
 #: src/HomePage.tsx
 #: src/portal-commands.ts
@@ -1247,6 +1252,10 @@ msgstr "Crea"
 msgid "Create a collection"
 msgstr "Crea una raccolta"
 
+#: src/authorization-view.tsx
+msgid "Create a new collection below, or sync an existing folder in mdbase Desktop first."
+msgstr "Crea una nuova raccolta qui sotto oppure sincronizza prima una cartella esistente in mdbase Desktop."
+
 #: src/authorization-review.tsx
 msgid "Create a new collection…"
 msgstr "Crea una nuova raccolta…"
@@ -1725,6 +1734,10 @@ msgstr "Genera codice"
 msgctxt "Account management"
 msgid "Generating…"
 msgstr "Generazione in corso…"
+
+#: src/authorization-view.tsx
+msgid "Get mdbase Desktop"
+msgstr "Scarica mdbase Desktop"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
@@ -3686,6 +3699,10 @@ msgstr "Usa una cartella locale"
 #: src/ConnectApp.tsx
 msgid "Use a single-line collection name."
 msgstr "Usa un nome della raccolta su una sola riga."
+
+#: src/authorization-view.tsx
+msgid "Use an existing folder or Obsidian vault"
+msgstr "Usa una cartella esistente o un vault di Obsidian"
 
 #: src/ConnectApp.tsx
 msgid "Use an existing person or create a note"

@@ -1,5 +1,7 @@
 ## Fixed
 
-- MCP gateway now signs Connect refresh token requests with the approved grant signing key for native (`mdbase-next`) collections, preventing connections from failing with `invalid_grant` after one hour, and preserves OAuth error codes/descriptions returned by Connect.
-- Portal authorization return screen now cancels its automatic redirect countdown when the user clicks the return link and ignores duplicate clicks, preventing aborted/replayed single-use OAuth callback requests (`499`/`400`).
-- Portal authorization consent screen no longer offers the legacy `mdbase-connect://authorize` desktop-approval continuation path for `mdbase-next` accounts, where the desktop app cannot complete pending browser authorization requests.
+- Sign native (`mdbase-next`) Connect refresh-token requests in the MCP gateway with the approved grant signing key and preserve OAuth error codes/descriptions from token responses.
+- Prevent the Portal approval outcome screen from firing its automatic redirect after the user manually clicks the return link, avoiding duplicate OAuth callback failures.
+- Hide the legacy local-folder desktop continuation on the Portal consent screen for `next` accounts, and guide zero-collection `next` users to create a collection or sync an existing folder/Obsidian vault in mdbase Desktop.
+- Render HTML error pages with retry guidance on browser-facing MCP OAuth callback and connection-ticket errors, and log privacy-safe metadata when the MCP HTTP transport rejects a request with 4xx.
+- Pin `services/mcp` to the verified vendored production `@mdbase-dev/sdk` archive (`0.1.40`) alongside the Editor.

@@ -122,7 +122,9 @@ it("hides legacy desktop continuation for next accounts even when continue_in_de
   expect(screen.queryByText("Use a folder on this computer")).not.toBeInTheDocument();
   expect(screen.queryByRole("link", { name: "Use a local folder" })).not.toBeInTheDocument();
   expect(screen.queryByText(/Waiting for mdbase Connect/)).not.toBeInTheDocument();
+  expect(screen.getByText("Create a new collection below, or sync an existing folder in mdbase Desktop first.")).toBeInTheDocument();
   expect(screen.getByRole("button", { name: "New collection" })).toBeInTheDocument();
+  expect(screen.getByRole("link", { name: "Get mdbase Desktop" })).toHaveAttribute("href", "https://mdbase.dev/downloads/");
 });
 
 it("keeps legacy desktop continuation available for legacy accounts", async () => {

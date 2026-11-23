@@ -539,6 +539,11 @@ msgstr "시작하려면 컬렉션을 추가하세요."
 msgid "Add a new {0} type"
 msgstr "새 {0} 유형 추가"
 
+#. placeholder {0}: literal(request.application_name)
+#: src/authorization-view.tsx
+msgid "Add and sync your folder in mdbase Desktop, then return to this page. If this request expires while you set up Desktop, connect again from {0}."
+msgstr "mdbase Desktop에서 폴더를 추가하고 동기화한 뒤 이 페이지로 돌아오세요. Desktop을 설정하는 동안 이 요청이 만료되면 {0}에서 다시 연결하세요."
+
 #: src/ConnectApp.tsx
 #: src/HomePage.tsx
 #: src/portal-commands.ts
@@ -1247,6 +1252,10 @@ msgstr "만들기"
 msgid "Create a collection"
 msgstr "컬렉션 만들기"
 
+#: src/authorization-view.tsx
+msgid "Create a new collection below, or sync an existing folder in mdbase Desktop first."
+msgstr "아래에서 새 컬렉션을 만들거나 먼저 mdbase Desktop에서 기존 폴더를 동기화하세요."
+
 #: src/authorization-review.tsx
 msgid "Create a new collection…"
 msgstr "새 컬렉션 만들기…"
@@ -1725,6 +1734,10 @@ msgstr "코드 생성"
 msgctxt "Account management"
 msgid "Generating…"
 msgstr "생성하는 중…"
+
+#: src/authorization-view.tsx
+msgid "Get mdbase Desktop"
+msgstr "mdbase Desktop 받기"
 
 #: src/portal-model.ts
 msgid "GitHub account @{login}"
@@ -3686,6 +3699,10 @@ msgstr "로컬 폴더 사용"
 #: src/ConnectApp.tsx
 msgid "Use a single-line collection name."
 msgstr "컬렉션 이름을 한 줄로 입력하세요."
+
+#: src/authorization-view.tsx
+msgid "Use an existing folder or Obsidian vault"
+msgstr "기존 폴더 또는 Obsidian 보관함 사용"
 
 #: src/ConnectApp.tsx
 msgid "Use an existing person or create a note"

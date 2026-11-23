@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
 import {
   applicationInstallationId,
@@ -128,6 +129,8 @@ interface ConnectionRow {
   refresh_expires_at: Date | string;
 }
 
+const { version: MCP_PACKAGE_VERSION } = createRequire(import.meta.url)("../package.json") as { version: string };
+
 export class ConnectGateway {
   private readonly applicationOrigin: string;
   private readonly noise: NoiseKeyStore;
@@ -144,7 +147,7 @@ export class ConnectGateway {
   ) {
     this.applicationOrigin = new URL(callbackUrl).origin;
     this.noise = new NoiseKeyStore(db, secrets);
-    this.next = new NextGateway({ keyStore, noise: this.noise, version: "0.1.0-beta.129" });
+    this.next = new NextGateway({ keyStore, noise: this.noise, version: MCP_PACKAGE_VERSION });
   }
 
   async registerApplication(): Promise<{ id: string; manifestDigest: string }> {
