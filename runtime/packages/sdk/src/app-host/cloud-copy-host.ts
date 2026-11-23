@@ -167,6 +167,7 @@ export class AppWebCloudCopyHost {
     private readonly timerPorts = new Set<{close():Promise<void>}>();
     private readWork: Promise<void> | null = null;
     private readAbort: AbortController | null = null;
+    private readWake: (() => void) | null = null;
     private readClient: MdbaseClient | null = null;
     private readVerified = false;
     /** One data facade per attached tab (the first, then any follower tabs). */
@@ -1009,7 +1010,9 @@ export class AppWebCloudCopyHost {
     /** Feed one push frame to the native replica (current log session only). */
     pushLog(frame: Uint8Array): boolean {
         try {
-            return this.native?.pushLog(frame) === true;
+            const accepted = this.native?.pushLog(frame) === true;
+            if (accepted) this.readWake?.();
+            return accepted;
         } catch {
             return false;
         }
@@ -1135,6 +1138,34 @@ export class AppWebCloudCopyHost {
         // A local read never drives the log, even one bound while it runs.
         const pump = () => (local ? null : this.pump);
         this.readAbort = ctrl;
+        let readPushed = false;
+        let wakeSleep: (() => void) | null = null;
+        if (pump()) {
+            this.readWake = () => {
+                readPushed = true;
+                wakeSleep?.();
+            };
+        }
+        const waitRetry = (ms: number): Promise<void> => {
+            if (readPushed) {
+                readPushed = false;
+                return Promise.resolve();
+            }
+            if (!pump()) return waitForOpenRetry(ms, ctrl.signal);
+            return new Promise<void>((resolve, reject) => {
+                if (ctrl.signal.aborted) { reject(ctrl.signal.reason); return; }
+                const finish = () => {
+                    clearTimeout(wait);
+                    ctrl.signal.removeEventListener("abort", cancel);
+                    if (wakeSleep === onWake) wakeSleep = null;
+                };
+                const onWake = () => { finish(); readPushed = false; resolve(); };
+                const cancel = () => { finish(); reject(ctrl.signal.reason); };
+                const wait = setTimeout(() => { finish(); resolve(); }, ms);
+                wakeSleep = onWake;
+                ctrl.signal.addEventListener("abort", cancel, { once: true });
+            });
+        };
         signal.addEventListener("abort", abort, { once: true });
         let timer: ReturnType<typeof setTimeout> | null = null;
         // The step in progress names a timed-out read.
@@ -1234,6 +1265,7 @@ export class AppWebCloudCopyHost {
             let delay = 250;
             while (!ctrl.signal.aborted) {
                 stage = "read_catch_up";
+                readPushed = false;
                 this.native!.tick();
                 const turn = pump();
                 if (turn) await Promise.race([turn.pump(), aborted]);
@@ -1243,7 +1275,7 @@ export class AppWebCloudCopyHost {
                 // known prefix is applied. Still require the actual native Query
                 // before any data facade; sync metadata never grants READ.
                 if (cold && initialSyncWait(observation.status) !== null) {
-                    await waitForOpenRetry(delay, ctrl.signal);
+                    await waitRetry(delay);
                     delay = Math.min(1_000, delay * 2);
                     continue;
                 }
@@ -1271,7 +1303,7 @@ export class AppWebCloudCopyHost {
                 // Quiet native turns do not imply the remote key/prefix can
                 // arrive synchronously. Keep ONE client and the warm deadline
                 // or cold inactivity budget; never replay bootstrap/setup/write.
-                await waitForOpenRetry(delay, ctrl.signal);
+                await waitRetry(delay);
                 delay = Math.min(1_000, delay * 2);
             }
             throw stopped();
@@ -1283,6 +1315,8 @@ export class AppWebCloudCopyHost {
             if (timer !== null) clearTimeout(timer);
             signal.removeEventListener("abort", abort);
             ctrl.signal.removeEventListener("abort", rejectAbort);
+            this.readWake = null;
+            wakeSleep = null;
             this.readClient?.close();
             this.readClient = null;
             this.readAbort = null;

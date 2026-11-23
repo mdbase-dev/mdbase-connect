@@ -150,6 +150,31 @@ fn a_pushed_head_past_the_last_probe_reads_again_within_a_second() {
     assert!(!replica.caught_up);
 }
 #[test]
+fn a_pushed_head_after_a_second_probes_immediately_without_waiting_for_the_backoff() {
+    let (mut replica, clock) = waiting();
+    replica.pump();
+    // Advance through the 1 s, 2 s, 4 s and 8 s backoff steps to the 16 s step (15 s -> 31 s).
+    for probe_at in [1_000, 3_000, 7_000, 15_000] {
+        clock.set(probe_at);
+        replica.tick();
+        let calls = replica.take_log_calls();
+        assert_eq!(calls.len(), 1);
+        replica.on_log_reply(calls[0].id, Err(LogError::Offline));
+    }
+    assert_eq!(replica.next_wakeup(), Some(31_000));
+    // A pushed head at 18 s (more than FIRST_MS after the 15 s probe, 13 s before 31 s)
+    // queues the probe immediately without waiting for the 31 s backoff step.
+    clock.set(18_000);
+    replica.on_log_push(LogPush::Head {
+        collection: B16([1; 16]),
+        head: 100,
+        head_chain: B32([9; 32]),
+    });
+    assert_eq!(replica.take_log_calls().len(), 1);
+    assert_eq!(replica.stalled, Some((IncidentKind::WaitingForKey, 4)));
+    assert!(!replica.caught_up);
+}
+#[test]
 fn a_stall_of_any_kind_is_re_read_on_the_backoff_not_from_the_read_reply() {
     for kind in [
         IncidentKind::UpgradeRequired,

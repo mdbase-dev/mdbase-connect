@@ -139,6 +139,9 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
     let push: AppLogPushChannel | null = null, paused = false, pausing: ReturnType<typeof setTimeout> | null = null, kicked = false;
     /** Access ended on the log (removed, device revoked, collection gone). Terminal. */
     let ended: AppLogPushEnd | null = null;
+    /** Terminal push end observed while waitForVerifiedRead is still running;
+     * applied once started so it neither fails/slows the open nor gets dropped. */
+    let pendingEnd: AppLogPushEnd | null = null;
     /** Tabs attached after the first: their ports, closed with the connection. */
     const attached = new Map<MessagePort, {data: MessageChannel; command: MessageChannel; control: ReturnType<typeof attachAppCollectionControl>; timers: ReturnType<typeof host.openTimersPort>}>();
     /** Each tab's ports, by data port: the reminder consent its timer port was made under. */
@@ -161,6 +164,7 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       closed = true; assessment = "setup_required";
       if (timer !== null) clearTimeout(timer); timer = null;
       if (pausing !== null) clearTimeout(pausing); pausing = null;
+      pendingEnd = null;
       try {push?.close();} catch { /* socket close is best effort */ } push = null;
       try {host.onLogWork?.(null);} catch { /* closed with the host */ }
       parentSignal.removeEventListener("abort", abort);
@@ -235,19 +239,31 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
       try { return host.pendingWrites() > 0; } catch { return false; }
     };
     const startLog = () => host.startCollectionLog({signal: life.signal, fetch: options.fetch, allowLoopbackHttp: options.allowLoopbackHttp});
+    const applyEnd = (reason: AppLogPushEnd) => {
+      ended = reason; kick(); onLive(false); settleInitial?.(); changed();
+    };
     const openPush = () => {
+      if (push || !current()) return;
       try {
         push = typeof host.openLogPush === "function" ? host.openLogPush({
           push: frame => { if (!current()) return; host.pushLog(frame); kick(); },
           live: onLive,
           // Access ended: the replica has the `closed` push; drive so it
           // settles, then the session stops this collection in every tab.
-          ended: reason => { ended = reason; kick(); onLive(false); settleInitial?.(); changed(); },
+          // While waitForVerifiedRead is still running, record the reason
+          // without failing or slowing the open and surface it once started.
+          ended: reason => {
+            if (!started) { pendingEnd ??= reason; onLive(false); return; }
+            applyEnd(reason);
+          },
         }) : null;
       } catch { push = null; }
       // Not live within PAUSED_AFTER_MS of starting (a blocked or hung socket)
       // reads as paused, as a lost one does.
-      if (push) {push.start(); onLive(false);} else setPaused(true);
+      if (push) {
+        try { push.start(); } catch { try { push.close(); } catch { /* socket close is best effort */ } push = null; setPaused(true); return; }
+        onLive(false);
+      } else setPaused(true);
     };
     /** First drive turn of a replica opened before its log: obtain the token
      * (or take the request already under way) and bind the transport. */
@@ -453,17 +469,28 @@ export function createAppWebCollectionAdapter(source: AppWebCollectionAdapterOpt
           if (bound) logBound = true; else await connectLog();
         }
       }
-      if (!local) { report("syncing"); await host.waitForVerifiedRead({signal: life.signal, cold: !warm, onProgress: report}); check(); }
+      if (!local) {
+        // Open the push socket before the verified read so a pushed head
+        // during a cold key wait wakes the replica's stall probe promptly.
+        openPush();
+        report("syncing");
+        await host.waitForVerifiedRead({signal: life.signal, cold: !warm, onProgress: report});
+        check();
+      }
       // Drive the log now: the first catch-up below needs it, and a write or
       // file transfer drives the log at once rather than on the next turn.
       started = true;
       host.onLogWork?.(kick);
+      if (pendingEnd !== null) {
+        const reason = pendingEnd; pendingEnd = null;
+        applyEnd(reason);
+      }
       if (local) {
         // The first turn binds the log; no socket is live until then.
         keys = "pending"; kicked = true; schedule();
         pausing = setTimeout(() => { pausing = null; if (current() && !push?.live) setPaused(true); }, PAUSED_AFTER_MS);
       } else {
-        schedule(); openPush();
+        schedule();
         if (warm) { report("syncing"); await waitForWarmSync(); } check();
       }
       report("checking_setup");
