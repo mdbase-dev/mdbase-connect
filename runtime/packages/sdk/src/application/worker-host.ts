@@ -513,6 +513,7 @@ export class ApplicationWorkerHost {
       case "start":await this.session.start();break;
       case "authorize":await this.session.authorize({collectionHint:payload as string|null});break;
       case "renewExpiredPairing":await this.session.renewExpiredPairing();break;
+      case "cancelAuthorization":await this.session.cancelAuthorization();break;
       case "select":{
         // This tab's own selection: other tabs keep theirs open. A tab lets go of
         // its ports before it asks (even for the collection it showed, say after a

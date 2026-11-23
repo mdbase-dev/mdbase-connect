@@ -38,6 +38,7 @@ function fixture(initial: AppInstallationSignInView["state"] = "pending", autoSe
     signOutInstallation: vi.fn(async (): Promise<"revoked" | "already_signed_out"> => {trace.push("cp-sign-out"); return "revoked";}),
     hasWebPushChannel: vi.fn(() => false),
     requestSent: vi.fn(() => false),
+    forgetSentRequest: vi.fn(async () => {trace.push("forget-sent");}),
   };
   const flowOpen = vi.spyOn(AppProtectedInstallationSignIn, "open").mockImplementation(async p => {
     flowSignal = p.signal; expect(p.mode).toBe("open"); expect(p.appId).toBe("independent-app"); expect(p.origin).toBe("https://notes.example.test"); return flow as unknown as AppProtectedInstallationSignIn;
@@ -824,6 +825,35 @@ describe("shared first-party web sign-in", () => {
     popup.gone = true; await vi.advanceTimersByTimeAsync(1000);
     expect(seen.length).toBeGreaterThan(0); expect(seen).not.toContain("authorizing");
     expect(f.session.viewFor(collectionId, {bystander: true})).toMatchObject({status: "ready", selectedCollectionId: collectionId}); await f.session.close();
+  });
+  it("cancelling a sign-in signs out at once, stops reading, and Sign in sends the same request again", async () => {
+    vi.useFakeTimers(); const f = fixture(); await f.session.start(); f.selectOnPortal(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing"); const reads = f.flow.exchange.mock.calls.length;
+    await f.session.cancelAuthorization();
+    expect(f.session.snapshot()).toMatchObject({status: "signed_out", problem: null, approval: {outcome: "closed"}});
+    expect(f.closePortal).toHaveBeenCalledOnce(); expect(f.flow.forgetSentRequest).toHaveBeenCalledOnce(); expect(f.flow.exchange).toHaveBeenCalledTimes(reads);
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchange).toHaveBeenCalledTimes(reads);
+    await f.session.authorize(); expect(f.flow.start).toHaveBeenCalledTimes(2); expect(f.flow.renewExpiredPairing).not.toHaveBeenCalled();
+    f.approve(); await vi.advanceTimersByTimeAsync(1000); expect(f.session.snapshot().status).toBe("ready"); await f.session.close();
+  });
+  it("cancels a sign-in a restart resumed, with no window to close", async () => {
+    vi.useFakeTimers(); const f = fixture(); f.flow.requestSent.mockReturnValue(true);
+    await f.session.start(); expect(f.session.snapshot().status).toBe("authorizing");
+    await f.session.cancelAuthorization();
+    expect(f.session.snapshot()).toMatchObject({status: "signed_out", problem: null}); expect(f.flow.forgetSentRequest).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchange).not.toHaveBeenCalled(); expect(f.openPortal).not.toHaveBeenCalled(); await f.session.close();
+  });
+  it("cancelling an add-collection window keeps the person signed in on their collections", async () => {
+    vi.useFakeTimers(); const f = fixture("paired"); await f.session.start(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing"); const reads = f.flow.exchangeCollectionConsent.mock.calls.length;
+    await f.session.cancelAuthorization();
+    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null, selectedCollectionId: collectionId, approval: {outcome: "closed"}, signIn: {state: "paired"}});
+    expect(f.closePortal).toHaveBeenCalledOnce(); expect(f.flow.forgetSentRequest).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchangeCollectionConsent).toHaveBeenCalledTimes(reads); await f.session.close();
+  });
+  it("cancelling while nothing is being authorized changes nothing", async () => {
+    const f = fixture("paired"); await f.session.start(); const before = f.session.snapshot();
+    expect(await f.session.cancelAuthorization()).toBe(before); expect(f.flow.forgetSentRequest).not.toHaveBeenCalled(); await f.session.close();
   });
   it.each(["refused", "expired"] as const)("a re-consent %s in Connect cancels back to the collections, never blocked", async reason => {
     vi.useFakeTimers(); const f = fixture("paired"); await f.session.start(); await f.session.authorize();

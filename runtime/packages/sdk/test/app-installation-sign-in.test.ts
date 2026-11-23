@@ -634,6 +634,19 @@ describe("original native timer consent receipts",()=>{
     await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toMatchObject({reason:"response"}); expect(f.read()).toEqual(before); await f.flow.close();
   });
 });
+describe("a cancelled sign-in wait", () => {
+  it("forgets only that the request was sent: a restart does not resume it and the next START repeats the same request", async () => {
+    const f = await fixture(), original = f.read();
+    await f.flow.start(); expect(f.flow.requestSent()).toBe(true);
+    await f.flow.forgetSentRequest();
+    expect(f.read()).toEqual(original); expect(f.flow.requestSent()).toBe(false);
+    await f.flow.close();
+    const reopened = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"}); expect(reopened.requestSent()).toBe(false);
+    expect((await reopened.start()).requestId).toBe(original.requestId); expect(reopened.requestSent()).toBe(true);
+    expect(f.requests.map(r => (r.body as {installation?: {request_id?: string}} | undefined)?.installation?.request_id)).toEqual([original.requestId, original.requestId]);
+    await reopened.close();
+  });
+});
 describe("fresh scoped recovery receipt constraints", () => {
   const recoveryFor = {accountId: account, collectionId: collection};
   it("sends the protected CID on START and retains a status-only pending exchange", async () => {

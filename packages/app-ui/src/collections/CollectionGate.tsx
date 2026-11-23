@@ -11,7 +11,7 @@ import { ActionButton, CollectionMark, GateFooter, ItemCopy, ItemMore, NoticeBlo
 import { SetupReview } from "./SetupReview.js";
 import { BringInBanner, UnsyncedLine } from "./UnsyncedWork.js";
 import { unsyncedApi } from "./unsynced.js";
-import { useAutoStart, useCollectionUi, type CollectionSection, type CollectionSectionItem, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
+import { cancelAuthorizationApi, useAutoStart, useCollectionUi, type CollectionSection, type CollectionSectionItem, type CollectionUi, type CollectionUiOptions } from "./use-collection-ui.js";
 
 /**
  * The app's own actions on the gate's screens ("Try sample tasks"). A function
@@ -196,12 +196,15 @@ function GateBody({ ui, layout, extraActions, onDialog }: {
         </div>
         <AppSections ui={ui} onDialog={onDialog} />
       </>;
-    case "authorizing":
+    case "authorizing": {
+      // Signing in from work before connecting: cancelling goes back to it.
+      const unsynced = view.purpose === "sign_in" && ui.options.unsynced && unsyncedApi(ui.options.mdbase);
+      const cancellable = cancelAuthorizationApi(ui.options.mdbase) !== null || busy === "sign_in" || busy === "add" || busy === "approve";
       return <div className="mdbase-collections-actions">
-        <ActionButton tone="secondary" onClick={actions.reopen}>{copy.openWindowAgain}</ActionButton>
-        {busy === "sign_in" || busy === "add" || busy === "approve"
-          ? <ActionButton tone="quiet" onClick={actions.cancel}>{copy.cancel}</ActionButton> : null}
+        <ActionButton tone="secondary" inert={busy === "cancel"} onClick={actions.reopen}>{copy.openWindowAgain}</ActionButton>
+        {cancellable && <ActionButton tone="quiet" inert={busy === "cancel"} onClick={actions.cancel}>{unsynced ? copy.continueWithoutConnecting : copy.cancel}</ActionButton>}
       </div>;
+    }
     case "choosing":
       return <>
         {view.notice && <NoticeBlock notice={view.notice} ui={ui} variant="inline" />}

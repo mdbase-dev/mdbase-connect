@@ -131,7 +131,7 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     return fault;
   };
   const current = () => mdbase.getSnapshot();
-  for (const action of ["start", "reauthorize", "refreshCollectionList", "chooseAnother", "forget", "deleteCollection", "assess", "configure", "planSetup", "close"] as const)
+  for (const action of ["start", "cancelAuthorization", "reauthorize", "refreshCollectionList", "chooseAnother", "forget", "deleteCollection", "assess", "configure", "planSetup", "close"] as const)
     controls.setHandler(action, () => { errorFault(action); });
   for (const action of ["authorize", "approve"] as const) controls.setHandler(action, call => {
     const fault = errorFault(action), s = current();
