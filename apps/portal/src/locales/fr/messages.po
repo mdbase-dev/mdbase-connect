@@ -1963,10 +1963,6 @@ msgid "Loading the request…"
 msgstr "Chargement de la demande…"
 
 #: src/AccountManagement.tsx
-msgid "Local collection and mirror files remain on your computers."
-msgstr "Les fichiers des collections locales et des miroirs restent sur vos ordinateurs."
-
-#: src/AccountManagement.tsx
 msgid "Local collection files stay on your computers and are not measured here."
 msgstr "Les fichiers des collections locales restent sur vos ordinateurs et ne sont pas comptabilisés ici."
 
