@@ -520,10 +520,12 @@ export class ConnectGateway {
         refresh_token: credentials.refreshToken,
         client_id: connection.upstream_client_id
       }).toString();
-      const proof = credentials.authority
+      const proofPublicKey = credentials.authority?.proofPublicKey
+        ?? credentials.nativeCompletion?.grant_signing_public_key;
+      const proof = proofPublicKey
         ? await this.authorityProof(
             connection,
-            credentials.authority.proofPublicKey,
+            proofPublicKey,
             "POST",
             refreshUrl,
             refreshBody,
@@ -793,8 +795,16 @@ function summary(connection: ConnectionRow): ConnectionSummary {
 
 function upstreamError(body: any, fallback: string): GatewayOperationError {
   return new GatewayOperationError(
-    typeof body?.error?.code === "string" ? body.error.code : "upstream_error",
-    typeof body?.error?.message === "string" ? body.error.message : fallback,
+    typeof body?.error?.code === "string"
+      ? body.error.code
+      : typeof body?.error === "string"
+        ? body.error
+        : "upstream_error",
+    typeof body?.error?.message === "string"
+      ? body.error.message
+      : typeof body?.error_description === "string"
+        ? body.error_description
+        : fallback,
     body?.error?.details && typeof body.error.details === "object" && !Array.isArray(body.error.details)
       ? body.error.details as Record<string, unknown>
       : undefined

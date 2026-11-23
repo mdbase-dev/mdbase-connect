@@ -163,6 +163,12 @@ describe("mdbase MCP gateway", () => {
         code: "no_device_registered", message: expect.stringContaining("turn on sync")
       });
       expect(upstream.refreshProofs).toHaveLength(1);
+      expect(upstream.refreshProofs[0]).toEqual({
+        version: "1",
+        timestamp: expect.any(String),
+        nonce: expect.any(String),
+        signature: expect.any(String)
+      });
       expect(upstream.localInputs).toEqual([]);
       expect(upstream.hostedInputs).toEqual([]);
       expect(upstream.operationAuthorizations).toEqual([]);
