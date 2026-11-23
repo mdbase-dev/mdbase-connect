@@ -2,74 +2,62 @@
 
 [![What mdbase does, in two minutes](https://mdbase.dev/videos/mdbase-in-two-minutes.jpg)](https://mdbase.dev/videos/mdbase-in-two-minutes.mp4)
 
-> [!IMPORTANT]
-> **Beta:** The managed mdbase connect cloud service is transitioning from
-> invite-only access to public signup. Existing invitation links remain valid.
-
-mdbase connect lets you use the applications you choose with the Markdown data
-you control. An application gets access to one collection only after you
-approve the exact actions it can perform, and you can pause or revoke that
-access at any time.
-
-Your collection can stay in a folder on your computer or be hosted by mdbase
-with an optional local Markdown mirror. Either way, it remains a standard
-[mdbase](https://mdbase.dev) collection rather than being moved into an
-application-specific database.
+mdbase connect lets the applications and AI agents you choose work with your
+Markdown notes without handing them your whole folder or account. Your notes
+stay ordinary Markdown files with YAML frontmatter, a standard
+[mdbase](https://mdbase.dev) collection, instead of moving into an
+application's database. An application gets access to one collection only
+after you approve the exact operations it can perform, and you can pause or
+revoke that access at any time.
 
 ## What you can do
 
-- Connect websites and native applications to a local or hosted collection.
-- Review concrete permissions such as reading, querying, creating, or updating
-  records before granting access.
-- Keep local collection folders private and make remote access available
-  without opening an inbound port on your computer.
-- Work directly on the same computer when possible, with automatic fallback to
-  an encrypted relay when needed.
-- Pause an application or immediately disable its Connect credentials; hosted
-  revocation remains visibly pending until the data authority confirms it.
-- Use your collections from MCP clients such as Claude and ChatGPT.
-- Mirror a hosted collection to a local folder for Markdown-based tools and
-  backups.
+- Connect web, desktop and mobile applications, Obsidian, and MCP clients such
+  as Claude and ChatGPT to a collection.
+- Review concrete permissions, such as reading, querying, creating or updating
+  records, before granting access.
+- Sync a collection to a folder on each of your computers and keep using any
+  Markdown tool alongside connected applications.
+- Pause an application or revoke its access at any time.
 - Read, query and write your collections from the `mdbase` command line.
+- Build your own application with the `@mdbase-dev/connect` SDK.
 
 ## How it works
 
-### Collections on your computer
+Every collection keeps an ordered log of changes and syncs through the mdbase
+service. The log is sealed: the sync service orders and stores encrypted
+changes but holds no collection keys. You choose how the collection is served
+when your computers are off:
 
-The mdbase connect desktop app registers your collection and runs a small
-background connector. Applications use a direct local connection when they
-are on the same computer. From elsewhere, requests travel through the managed
-relay, while the connector on your computer remains the final authority for
-every operation.
+- **Cloud copy** (the default): mdbase also keeps a copy of the collection, so
+  web applications and AI agents can use it while your computers are off.
+- **Private**: collection keys stay on your devices and sync is end-to-end
+  encrypted. Web applications and agents reach the collection through one of
+  your computers, which needs to be online.
 
-Your collection path is not sent to the cloud service, and you do not need to
-expose your computer to incoming internet connections.
+On a computer, the desktop app syncs the collection to a folder you pick and
+runs a small background connector. Applications on the same computer can
+connect to it directly. For a Private collection, applications elsewhere reach
+it through an end-to-end encrypted relay. The folder's path is never sent to the service, and you do not need to open an
+inbound port.
 
-### Hosted collections
+Applications use the same approval model whichever way a collection is served,
+so changing it does not give an application broader access.
 
-Hosted collections keep their authoritative Markdown with mdbase. You can
-optionally mirror a hosted collection to a folder on your computer and continue
-using file-based tools alongside connected applications.
+## Getting started
 
-Applications use the same approval model for local and hosted collections, so
-moving where a collection lives does not give an application broader access.
-
-## Getting started during the beta
-
-To use the managed cloud service, create an account from the Connect sign-in
-page or follow an existing invitation link. Then:
-
-1. Create or sign in to your mdbase connect account.
-2. Install the desktop build provided for your platform.
-3. Open the desktop app and pair your computer.
-4. Add an existing mdbase collection or create a hosted collection.
-5. In a compatible application, choose **Connect collection** and review the
+1. Create a free account at
+   [connect.mdbase.dev](https://connect.mdbase.dev/signup).
+2. Create a collection in the [editor](https://editor.mdbase.dev/), or install
+   the [desktop app](https://mdbase.dev/downloads/) to sync a collection with a
+   folder on your computer, including a folder of Markdown you already have.
+3. In a compatible application, choose **Connect collection** and review the
    requested access before approving it.
 
 The editor's **Connect** workspace is the main web place to manage collections,
 connected applications, computers, and account sessions. The desktop app owns
-local-folder and mirror administration. The Connect portal is intentionally
-limited to sign-in, pairing, recovery, and authorization transactions.
+folder and sync settings. The Connect portal is intentionally limited to
+sign-in, pairing, recovery, and authorization transactions.
 
 ## Connect an MCP client
 
@@ -124,24 +112,25 @@ an application an entire folder or account:
 
 - Each grant is tied to one application, one collection, and an explicit set of
   operations.
-- The local connector enforces access at the computer that owns a local
-  collection.
-- Local collection paths never leave the computer.
+- Access is checked against that exact grant wherever the collection is
+  served: by the connector on your computer, or by the cloud copy.
+- Folder paths on your computers never leave them.
 - Browser-to-connector relay payloads are end-to-end encrypted. The managed
   relay can see routing metadata, operation timing, and payload sizes, but not
   record contents or operation results.
-- Hosted Markdown is encrypted at rest using per-collection data keys.
-- Pausing is enforced immediately. Revocation immediately disables
-  Connect-issued credentials; a hosted authority rechecks access before each
-  new operation or bounded file range and explicitly confirms completion.
+- The sync log is sealed: the service orders and stores encrypted changes but
+  holds no collection keys. A cloud copy is readable by mdbase so it can serve
+  applications; a Private collection is not.
+- Pausing is enforced immediately, and revocation immediately disables
+  Connect-issued credentials.
 
 The MCP gateway is an authorized application endpoint: it decrypts responses
 in memory so it can return them to the MCP client, but does not persist record
 payloads or operation results.
 
-For the detailed trust model, see
-[Architecture](docs/architecture.md), [Encryption](docs/encryption.md), and
-[Hosted collections](docs/hosted-provider.md). Security assumptions, abuse
+For the detailed design, see the [runtime overview](runtime/README.md), its
+[contracts](runtime/docs/contracts/00-overview.md), and
+[Encryption](docs/encryption.md). Security assumptions, abuse
 cases, and prerelease residual risks are collected in the
 [Threat model](docs/threat-model.md). The source and test map for independent
 review is the explicitly unaudited
@@ -178,7 +167,7 @@ gateway, and shared protocols. These products release independently even
 though they share one workspace and lockfile.
 
 See [Contributing](CONTRIBUTING.md) for change fragments, the architecture
-check, generated-file rebases, and automated beta version preparation.
+check, generated-file rebases, and release versioning.
 
 Development requires a Rust toolchain, Node.js 24 LTS, and pnpm 11.15.1.
 
