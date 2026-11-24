@@ -11,10 +11,9 @@ import { authenticateOwner, isRekeyItem, ownedMode, type Owner, type Mode } from
 import { collectionModeDigest } from "./collection-mode-proof.js";
 import { generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
-import type { LogServiceClient } from "./log-service-client.js";
 import { PolicyPublicationDeferredError, serializeOps } from "./policy-outbox.js";
 import { pitrDeployments } from "./lab-pitr-config.js";
-import { chainHash, decodeCbor, type PolicyOp } from "./policy-wire.js";
+import { chainHash, type PolicyOp } from "./policy-wire.js";
 import { armModeFloor, ModeDevicesNeedUpdate } from "./collection-mode-capability.js";
 
 const uuid = z.uuid().transform(s => s.toLowerCase()).refine(s => s !== SERVICE_ACCOUNT);
@@ -87,75 +86,6 @@ async function services(options: CloudCopyBootstrapOptions, collection: string, 
 export const collectionModeExecutionEnabled = (next: CloudCopyBootstrapOptions["next"]): boolean =>
   Boolean(next.collectionModeExecution && next.privateBootstrap && next.cloudCopyBootstrap);
 
-const REKEY_REASON_CLOUD_COPY_OFF = 3;
-const MAX_REKEY_SCAN_PAGES = 64;
-
-function cborUint(value: unknown): bigint | null {
-  if (typeof value === "bigint") return value >= 0n ? value : null;
-  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
-  return null;
-}
-
-/** Clear wire check for a Private switch rekey matching the replica's rule:
- * kind = Rekey (3), RekeyPayload fmt = 1, from = source_epoch,
- * epoch = source_epoch + 1, reason = CloudCopyOff (3). Native owns signatures,
- * unwrap/commitment checks and the frozen-set rule. */
-function isQualifyingPrivateRekey(item: Uint8Array, fromEpoch: bigint, toEpoch: bigint): boolean {
-  try {
-    const envelope = decodeCbor(item);
-    if (!(envelope instanceof Map) || envelope.get(1) !== 3) return false;
-    const body = envelope.get(11);
-    if (!(body instanceof Uint8Array)) return false;
-    const payload = decodeCbor(body);
-    if (!(payload instanceof Map) || payload.get(0) !== 1) return false;
-    return cborUint(payload.get(1)) === toEpoch
-      && cborUint(payload.get(2)) === fromEpoch
-      && payload.get(6) === REKEY_REASON_CLOUD_COPY_OFF;
-  } catch { return false; }
-}
-
-/** Whether a Policy item sets collection-state to something other than e2e (0). */
-function policyLeavesE2e(item: Uint8Array): boolean {
-  try {
-    const envelope = decodeCbor(item);
-    if (!(envelope instanceof Map) || envelope.get(1) !== 2) return false;
-    const body = envelope.get(11);
-    if (!(body instanceof Uint8Array)) return false;
-    const payload = decodeCbor(body);
-    const ops = payload instanceof Map ? payload.get(3) : undefined;
-    return Array.isArray(ops) && ops.some(op => op instanceof Map && op.get(0) === 8 && op.get(1) !== 0);
-  } catch { return false; }
-}
-
-/** Locate the control item at `targetSeq`, verifying it is the first rekey
- * after `policySeq` and no intervening policy item left e2e. */
-async function findPrivateRekey(
-  log: Pick<LogServiceClient, "controlItemsAfter" | "head">,
-  collection: string,
-  policySeq: number,
-  targetSeq: number
-): Promise<Uint8Array> {
-  let after = policySeq;
-  for (let page = 0; page < MAX_REKEY_SCAN_PAGES; page++) {
-    const { items, more } = await log.controlItemsAfter(collection, after, 64);
-    for (const entry of items) {
-      if (entry.seq < targetSeq) {
-        if (isRekeyItem(entry.item) || policyLeavesE2e(entry.item)) throw new CreateError(409, "private_receipt_mismatch");
-        continue;
-      }
-      if (entry.seq === targetSeq) return entry.item;
-      throw new CreateError(409, "private_receipt_mismatch");
-    }
-    if (!more || !items.length) {
-      const head = await log.head(collection);
-      if (head.seq >= targetSeq) throw new CreateError(409, "private_receipt_mismatch");
-      throw new CreateError(503, "not_ready");
-    }
-    after = items.at(-1)!.seq;
-  }
-  throw new CreateError(503, "not_ready");
-}
-
 export function registerCollectionModeRecovery(app: FastifyInstance, options: CloudCopyBootstrapOptions): void {
   // Abandon is not cancellation: the published revocations/Private policy stay
   // immutable. No epoch is created and no native key readiness is claimed.
@@ -191,7 +121,7 @@ export function registerCollectionModeRecovery(app: FastifyInstance, options: Cl
   });
 }
 
-export function registerCollectionModeExecution(app: FastifyInstance, options: CloudCopyBootstrapOptions & { log: Pick<LogServiceClient, "controlItemAt" | "controlItemsAfter" | "head">; now?: () => number }): void {
+export function registerCollectionModeExecution(app: FastifyInstance, options: CloudCopyBootstrapOptions & { now?: () => number }): void {
   for (const finish of [false, true]) app.post(`/v1/next/collections/:id/mode/:requestId/${finish ? "finish" : "prepare"}`, {
     bodyLimit: 64 * 1024, config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
   }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -275,13 +205,11 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
       const policy = await batch(options, collection, initial.row.policy_outbox_id);
       const epoch = BigInt(initial.row.source_epoch);
       if (initial.row.target_mode === "private") {
-        const targetEpoch = epoch + 1n;
-        const targetSeq = Number(body.seq);
-        if (BigInt(body.epoch) !== targetEpoch || BigInt(body.seq) <= BigInt(policy.seq) || !Number.isSafeInteger(targetSeq))
-          throw new CreateError(409, "private_receipt_mismatch");
-        const rekey = await findPrivateRekey(options.log, collection, Number(policy.seq), targetSeq);
-        if (Buffer.from(chainHash(rekey)).toString("hex") !== body.chain) throw new CreateError(503, "not_ready");
-        if (!isQualifyingPrivateRekey(rekey, epoch, targetEpoch)) throw new CreateError(409, "private_receipt_mismatch");
+        // The replica may accept a later first qualifying rekey when another item
+        // took the adjacent slot (#1100); the signed native receipt names it.
+        if (BigInt(body.epoch) !== epoch + 1n || BigInt(body.seq) <= BigInt(policy.seq)) throw new CreateError(409, "private_receipt_mismatch");
+        const rekey = await options.log.controlItemAt(collection, Number(body.seq));
+        if (!rekey || Buffer.from(chainHash(rekey)).toString("hex") !== body.chain) throw new CreateError(503, "not_ready");
         // Signature proves the current owner native device's committed acceptance;
         // it cannot be supplied by a browser, app or service. Native owns validity,
         // unwrap/commitment checks and the frozen-set rule, not a second JS replay.

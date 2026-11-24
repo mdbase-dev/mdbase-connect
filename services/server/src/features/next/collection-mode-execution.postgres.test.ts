@@ -359,7 +359,7 @@ describePg("collection mode capability floor and token drain", () => {
     const readyCalls=calls;expect((await finish()).json().phase).toBe("complete");expect(calls).toBe(readyCalls);
   });
 
-  it("accepts a qualifying non-adjacent CloudCopyOff rekey and rejects non-qualifying receipts", async () => {
+  it("accepts the native receipt of a non-adjacent rekey and refuses receipts at or before the policy", async () => {
     const finishProof = async (f: Fixture, epoch: bigint, seq: number, chain: Uint8Array) => {
       const issued = await issueDeviceChallenge(db, f.connector);
       const digest = collectionModeDigest({ challenge: Buffer.from(issued.challenge, "hex"), connector: f.connector, device: f.a, collection: f.collection, request: f.request, target: "private", finish: true, epoch, seq: BigInt(seq), chain, members: [] });
@@ -370,7 +370,7 @@ describePg("collection mode capability floor and token drain", () => {
       return Response.json({ ...body, ready: true });
     };
 
-    // 1. Non-adjacent qualifying CloudCopyOff rekey after Entry (kind 1), KeyGrant (kind 4), and Policy (kind 2 staying e2e).
+    // Non-adjacent rekey after an entry, a key grant and a policy item staying e2e.
     const f = await fixture();
     await prepare(f); now += LOG_TOKEN_LIFETIME_MS;
     expect((await prepare(f)).json().phase).toBe("finishing");
@@ -385,11 +385,10 @@ describePg("collection mode capability floor and token drain", () => {
     // Intervening policy item (kind=2) staying in e2e (device-revoke)
     items.push(Buffer.from(signPolicyItem(signer, { collection: f.collection, seq: grantHead.seq + 1, prev: grantHead.chain, issuedAt: now + 1000, previousIssuedAt: now, ops: [{ op: "device-revoke", device: f.b }] })));
     const revokeHead = await log.head(f.collection);
-    // Non-qualifying receipts checked against the live log before the qualifying rekey lands:
+    // A receipt at or before the policy is never a switch rekey.
     expect((await finishProof(f, 2n, policyHead.seq, policyHead.chain)).json().error.code).toBe("private_receipt_mismatch");
+    // The native receipt must name the next epoch.
     expect((await finishProof(f, 3n, revokeHead.seq + 1, Buffer.alloc(32, 9))).json().error.code).toBe("private_receipt_mismatch");
-    expect((await finishProof(f, 2n, entryHead.seq, entryHead.chain)).json().error.code).toBe("private_receipt_mismatch");
-    expect((await finishProof(f, 2n, grantHead.seq, grantHead.chain)).json().error.code).toBe("private_receipt_mismatch");
     // Future seq not yet in log returns retryable 503 not_ready.
     const notYet = await finishProof(f, 2n, revokeHead.seq + 1, Buffer.alloc(32, 9));
     expect(notYet.statusCode).toBe(503); expect(notYet.json().error.code).toBe("not_ready");
@@ -404,43 +403,6 @@ describePg("collection mode capability floor and token drain", () => {
     expect(done.statusCode, done.body).toBe(200); expect(done.json().phase).toBe("complete");
     const row = (await db.query("SELECT rekey_seq,completed_at FROM next_collection_mode_changes WHERE collection_id=$1", [f.collection])).rows[0];
     expect(String(row.rekey_seq)).toBe(String(rekeyHead.seq)); expect(row.completed_at).not.toBeNull();
-
-    // 2. Non-qualifying reason (DeviceRevoked=1) and wrong payload from/epoch are rejected.
-    for (const bad of [{ from: 1, to: 2, reason: 1 }, { from: 2, to: 3, reason: 3 }]) {
-      const g = await fixture();
-      await prepare(g); now += LOG_TOKEN_LIFETIME_MS; await prepare(g);
-      const pHead = await log.head(g.collection);
-      wire.logs.get(g.collection.replaceAll("-", ""))!.push(rekeyItem(g.collection, pHead.seq + 1, pHead.chain, g.a, bad.from, bad.to, bad.reason));
-      const head = await log.head(g.collection);
-      const res = await finishProof(g, 2n, head.seq, head.chain);
-      expect(res.statusCode, res.body).toBe(409); expect(res.json().error.code).toBe("private_receipt_mismatch");
-    }
-
-    // 3. A second rekey after an earlier rekey is NOT the first rekey after the policy.
-    const h = await fixture();
-    await prepare(h); now += LOG_TOKEN_LIFETIME_MS; await prepare(h);
-    const hPolicy = await log.head(h.collection);
-    const hItems = wire.logs.get(h.collection.replaceAll("-", ""))!;
-    hItems.push(rekeyItem(h.collection, hPolicy.seq + 1, hPolicy.chain, h.b, 1, 2, 1)); // earlier rekey
-    const firstRekey = await log.head(h.collection);
-    hItems.push(rekeyItem(h.collection, firstRekey.seq + 1, firstRekey.chain, h.a, 1, 2, 3)); // later CloudCopyOff
-    const secondRekey = await log.head(h.collection);
-    const rejectedSecond = await finishProof(h, 2n, secondRekey.seq, secondRekey.chain);
-    expect(rejectedSecond.statusCode, rejectedSecond.body).toBe(409);
-    expect(rejectedSecond.json().error.code).toBe("private_receipt_mismatch");
-
-    // 4. An intervening policy item that leaves e2e (collection-state: cloud-copy) invalidates the switch.
-    const k = await fixture();
-    await prepare(k); now += LOG_TOKEN_LIFETIME_MS; await prepare(k);
-    const kPolicy = await log.head(k.collection);
-    const kItems = wire.logs.get(k.collection.replaceAll("-", ""))!;
-    kItems.push(Buffer.from(signPolicyItem(signer, { collection: k.collection, seq: kPolicy.seq + 1, prev: kPolicy.chain, issuedAt: now + 1000, previousIssuedAt: now, ops: [{ op: "collection-state", state: "cloud-copy" }] })));
-    const leftE2e = await log.head(k.collection);
-    kItems.push(rekeyItem(k.collection, leftE2e.seq + 1, leftE2e.chain, k.a, 1, 2, 3));
-    const afterLeave = await log.head(k.collection);
-    const rejectedAfterLeave = await finishProof(k, 2n, afterLeave.seq, afterLeave.chain);
-    expect(rejectedAfterLeave.statusCode, rejectedAfterLeave.body).toBe(409);
-    expect(rejectedAfterLeave.json().error.code).toBe("private_receipt_mismatch");
   });
 
   it("returns 202 publishing_policy when foreground publishCommitted defers, without masking unrelated errors", async () => {

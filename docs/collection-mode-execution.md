@@ -56,10 +56,12 @@ collection advisory lock and row lock. All responses are `cache-control: no-stor
     with `phase: "waiting_for_token_expiry"` (+ `retry_at`),
     `phase: "publishing_policy"` when the foreground outbox wake is deferred
     (the durable outbox publishes asynchronously), or `phase: "finishing"`.
-  - `/finish` validates either the first qualifying `CloudCopyOff` rekey after
-    the switch policy (adjacent or non-adjacent, matching `source_epoch + 1`
-    and chain hash; native replicas own signature, unwrap/commitment, and
-    frozen-set verification) plus hosted/escrow cache retirement
+  - `/finish` takes the owner device's signed native receipt for the rekey that
+    accepted the switch: any control item after the switch policy whose chain
+    hash matches, at epoch `source_epoch + 1`. The replica alone decides which
+    rekey qualifies (adjacent, or the first one after another item took the
+    adjacent slot); the control plane does not re-decode it. Then it checks
+    hosted/escrow cache retirement
     (Cloud copy → Private), or hosted/escrow native readiness
     (Private → Cloud copy). Returns `503 not_ready` while Workers catch up and
     `200 { request_id, phase: "complete" }` once complete.
