@@ -246,6 +246,10 @@ fn format_mode(id: &str, name: &str, value: &Value, status: bool, now_ms: u64) -
             ("There is no active mode switch to cancel.".into(), None)
         }
         ("cancelled", _) => ("The mode switch was cancelled.".into(), None),
+        _ if record["retry_scheduled"] == true && record["cancel_requested"] == true => (
+            format!("Cancellation of the switch to {label} is pending."),
+            Some(check),
+        ),
         ("abandoned", _) => (
             "The mode switch was abandoned. A keyed owner device must finish rotating the keys."
                 .into(),
@@ -306,7 +310,7 @@ fn format_mode(id: &str, name: &str, value: &Value, status: bool, now_ms: u64) -
     if matches!(
         phase,
         "waiting_for_token_expiry" | "publishing_policy" | "finishing"
-    ) && code == "mode_switch_in_progress"
+    ) && matches!(code, "mode_switch_in_progress" | "mode_switch_token_drain")
     {
         lines.push("This computer is continuing the switch.".into());
     }
@@ -336,6 +340,71 @@ fn mode_renderer_uses_request_bound_progress_and_device_names() {
     let out = format_mode(request, "Notes", &refused, false, 0);
     assert!(out.contains("ThinkPad (22222222)"));
     assert!(out.contains(&format!("sync mode {request} private")));
+}
+
+#[cfg(test)]
+#[test]
+fn mode_renderer_reports_locally_owned_token_drain_and_pending_cancellation() {
+    let mut status = json!({
+        "current_mode": "cloud_copy",
+        "change": {"request_id": "request", "target_mode": "private", "phase": "waiting_for_token_expiry",
+                   "retry_at": "2026-01-01T00:00:20Z"},
+    });
+    let now = 1_767_225_600_000;
+    let render = |value: &Value| format_mode("notes", "Notes", value, true, now);
+    let waiting = render(&status);
+    assert!(waiting.contains("Waiting about 20 s for older app connections to expire."));
+    assert!(!waiting.contains("This computer"));
+    status["local"] = json!({"code": "mode_switch_token_drain"});
+    assert!(render(&status).contains("This computer is continuing the switch."));
+
+    let pending =
+        json!({"target_mode": "private", "retry_scheduled": true, "cancel_requested": true});
+    assert!(
+        format_mode("notes", "Notes", &pending, false, now)
+            .contains("Cancellation of the switch to Private is pending.")
+    );
+}
+
+#[cfg(test)]
+#[test]
+fn mode_renderer_distinguishes_terminal_results_and_parked_notices() {
+    for (record, expected) in [
+        (
+            json!({"phase": "cancelled"}),
+            "There is no active mode switch to cancel.",
+        ),
+        (
+            json!({"phase": "cancelled", "request_id": "request"}),
+            "The mode switch was cancelled.",
+        ),
+        (
+            json!({"phase": "complete", "target_mode": "private"}),
+            "Notes is set to Private.",
+        ),
+        (
+            json!({"phase": "complete", "target_mode": "private", "request_id": "request"}),
+            "Reconnect apps",
+        ),
+        (
+            json!({"phase": "abandoned"}),
+            "The mode switch was abandoned.",
+        ),
+        (
+            json!({"retry_scheduled": true, "target_mode": "private"}),
+            "A retry for the switch to Private is scheduled.",
+        ),
+        (
+            json!({"local": {"code": "mode_switch_sign_in_required", "message": "Sign in with the account that owns this collection."}}),
+            "Run `mdbase account sign-in`.",
+        ),
+    ] {
+        let out = format_mode("notes", "Notes", &record, false, 0);
+        assert!(out.contains(expected), "{out}");
+        if record["phase"] == "complete" && record["request_id"].is_null() {
+            assert!(!out.contains("Reconnect apps"));
+        }
+    }
 }
 
 #[cfg(test)]

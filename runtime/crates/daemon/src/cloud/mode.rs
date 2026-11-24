@@ -1,6 +1,6 @@
 //! Collection mode changes: status, intent, cancel and the signed native prepare/finish.
 
-use super::transport::{decode_response, response_code};
+use super::transport::{decode_challenge, decode_response, response_code};
 use super::*;
 
 impl Cloud {
@@ -109,12 +109,7 @@ impl Cloud {
                 }
                 other => other,
             })?;
-        let challenge: [u8; 32] = challenge["challenge"]
-            .as_str()
-            .filter(|hex| hex.len() == 64)
-            .and_then(|hex| secrets::hex_decode(hex).ok())
-            .and_then(|bytes| bytes.try_into().ok())
-            .ok_or_else(|| CloudError::Server(200, "malformed".into()))?;
+        let challenge = decode_challenge(&challenge)?;
         current().map_err(CloudError::Local)?;
         let connector = crate::attest::uuid_bytes(connector_id)
             .ok_or_else(|| CloudError::Local("connector UUID".into()))?;
@@ -245,7 +240,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mode_post_maps_http_429_to_rate_limited_and_preserves_409_codes() {
+    async fn mode_post_preserves_proof_refusals_and_distinguishes_challenge_refusals() {
         let id = DeviceIdentity::generate().unwrap();
         let proof = proof::ModeProof {
             request: B16([4; 16]),
@@ -256,34 +251,58 @@ mod tests {
             chain: mdbn_wire::common::B32([5; 32]),
             members: vec![B16(id.device_id)],
         };
-        for (status, extra_header, body, expected) in [
+        for (challenge_refused, status, extra_header, body, expected) in [
             (
+                false,
                 "429 Too Many Requests",
                 "Retry-After: 12\r\n",
                 r#"{"error":{"code":"rate_limited"}}"#,
                 CloudError::RateLimited(Some(12)),
             ),
             (
+                false,
                 "429 Too Many Requests",
                 "",
                 r#"{"error":{"code":"rate_limited"}}"#,
                 CloudError::RateLimited(None),
             ),
             (
+                false,
                 "409 Conflict",
                 "",
                 r#"{"error":{"code":"mode_source_changed"}}"#,
                 CloudError::Server(409, "mode_source_changed".into()),
             ),
+            (
+                true,
+                "400 Bad Request",
+                "",
+                r#"{"error":{"code":"invalid_request"}}"#,
+                CloudError::Server(400, "mode_challenge_refused".into()),
+            ),
+            (
+                true,
+                "404 Not Found",
+                "",
+                r#"{"error":{"code":"not_found"}}"#,
+                CloudError::Server(404, "mode_challenge_refused".into()),
+            ),
+            (
+                true,
+                "409 Conflict",
+                "",
+                r#"{"error":{"code":"mode_cancelled"}}"#,
+                CloudError::Server(409, "mode_challenge_refused".into()),
+            ),
         ] {
             let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
             let address = listener.local_addr().unwrap();
             let mock = tokio::spawn(async move {
-                for step in 0..2 {
+                for step in 0..if challenge_refused { 1 } else { 2 } {
                     let (mut socket, _) = listener.accept().await.unwrap();
                     let mut buf = [0; 4096];
                     let _ = socket.read(&mut buf).await.unwrap();
-                    let reply = if step == 0 {
+                    let reply = if step == 0 && !challenge_refused {
                         let challenge = json!({"challenge": secrets::hex(&[7; 32])}).to_string();
                         format!(
                             "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{challenge}",

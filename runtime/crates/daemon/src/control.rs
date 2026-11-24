@@ -133,9 +133,6 @@ pub struct ControlError {
     /// Finer cause, snake_case.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reason: Option<String>,
-    /// Structured data for a refusal that needs user action.
-    #[serde(skip_serializing_if = "Option::is_none", default)]
-    pub details: Option<Value>,
 }
 
 impl ControlError {
@@ -145,7 +142,6 @@ impl ControlError {
             code: code.to_string(),
             message: message.into(),
             reason: Some(reason.to_string()),
-            details: None,
         }
     }
 
