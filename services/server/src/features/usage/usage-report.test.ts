@@ -441,6 +441,66 @@ describe("usage report", () => {
     expect(cleared.consent).toMatchObject({ started: 3, approved: 1, denied: 1 });
   });
 
+  it("counts accounts by uploaded-file bytes, split by whether their plan is Free", async () => {
+    const db = await database();
+    const MIB = 1024 * 1024;
+    const planned = async (
+      email: string,
+      fileBytes: number,
+      grants: Array<{ profile: string; ends?: string; revoked?: boolean }>
+    ) => {
+      const id = await user(db, email, 40);
+      for (const grant of grants) {
+        await db.query(
+          `INSERT INTO account_entitlement_grants
+             (id, user_id, profile_code, source, starts_at, ends_at, revoked_at)
+           VALUES ($1, $2, $3, 'operator', now() - interval '40 days',
+             now() + ($4::text)::interval, CASE WHEN $5 THEN now() ELSE NULL END)`,
+          [randomUUID(), id, grant.profile, grant.ends ?? "100 years", grant.revoked ?? false]
+        );
+      }
+      await db.query(
+        "INSERT INTO account_file_usage (user_id, file_bytes) VALUES ($1, $2)",
+        [id, fileBytes]
+      );
+      return id;
+    };
+    await planned("trial@example.com", 300 * MIB, [
+      { profile: "free_v1" }, { profile: "trial_v1", ends: "5 days" }
+    ]);
+    // A trial that has ended, and one an operator revoked, leave Free.
+    await planned("ended@example.com", 250 * MIB, [
+      { profile: "free_v1" }, { profile: "trial_v1", ends: "-10 days" }
+    ]);
+    await planned("revoked@example.com", 20 * MIB, [
+      { profile: "free_v1" }, { profile: "trial_v1", ends: "5 days", revoked: true }
+    ]);
+    await planned("beta@example.com", 6 * 1024 * MIB, [
+      { profile: "free_v1" }, { profile: "open_beta_v1" }
+    ]);
+    await planned("nogrant@example.com", 0, []);
+    await planned("tester@example.com", 2 * 1024 * MIB, [{ profile: "free_v1" }]);
+    await runAuthAdminCommand(
+      ["users", "mark-test", "--user", "tester@example.com", "--operation-id", randomUUID(),
+        "--actor", "operator:test", "--reason", "Agent test account"],
+      { db, defaultRegistrationMode: "closed" }
+    );
+
+    const report = await runAuthAdminCommand(
+      ["usage", "report", "--days", "30"],
+      { db, defaultRegistrationMode: "closed" }
+    ) as Record<string, any>;
+    const none = { at_least_25_mib: 0, at_least_250_mib: 0, at_least_1_gib: 0, at_least_5_gib: 0 };
+    expect(report.storage).toEqual({
+      trial: { ...none, accounts: 1, with_files: 1, at_least_25_mib: 1, at_least_250_mib: 1 },
+      free: { ...none, accounts: 2, with_files: 2, at_least_25_mib: 1, at_least_250_mib: 1 },
+      other: {
+        accounts: 2, with_files: 1,
+        at_least_25_mib: 1, at_least_250_mib: 1, at_least_1_gib: 1, at_least_5_gib: 1
+      }
+    });
+  });
+
   it("rejects an unsupported window", async () => {
     const db = await database();
     await expect(runAuthAdminCommand(
