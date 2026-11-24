@@ -36,5 +36,12 @@ export function currentAppOrigin(): string | null {
   const location = globalThis.location as Location | undefined;
   if (!location) return null;
   if (typeof location.origin === "string" && location.origin !== "null") return location.origin;
-  try { return urlOrigin(new URL(location.href)); } catch { return null; }
+  try {
+    const url = new URL(location.href);
+    if (url.protocol === "blob:") {
+      const origin = urlOrigin(new URL(url.pathname));
+      return isAppOrigin(origin) ? origin : null;
+    }
+    return urlOrigin(url);
+  } catch { return null; }
 }

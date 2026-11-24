@@ -1,6 +1,7 @@
 /** Internal companion boundary only. Expected facts must come from the original
  * protected preparation and verified Worker account, never current UI labels.
  * Valid metadata is not a credential, custody ACK, admitted client or READY. */
+import { isAppOrigin, urlOrigin } from "../app-host/app-origin.js";
 import { mdbaseError } from "../errors.js";
 
 const fields = [
@@ -50,7 +51,7 @@ export function nativeCompletionFromToken(value: unknown, expected: ExpectedNati
   }
   if (!c.application_declaration_id || !/^[0-9a-f]{64}$/.test(c.application_manifest_digest)
       || !publicBytes(c.grant_signing_public_key, 65, 4) || !publicBytes(c.client_noise_public_key, 32)) throw refused();
-  try { if (new URL(c.application_origin).origin !== c.application_origin) throw refused(); }
+  try { if (!isAppOrigin(c.application_origin) || urlOrigin(new URL(c.application_origin)) !== c.application_origin) throw refused(); }
   catch { throw refused(); }
   const bindings = {
     account_id: expected.accountId, authorization_request_id: expected.authorizationRequestId,

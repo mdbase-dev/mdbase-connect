@@ -21,6 +21,7 @@ import type { MdbasePrivateSetup, MdbasePrivateSetupStatus } from "../app-grant/
 import type { CollectionAvailability, CollectionUnavailableReason } from "../collection-availability.js";
 import type { MdbaseClient } from "../client.js";
 import { isMdbaseError, mdbaseError, type MdbaseError } from "../errors.js";
+import { urlOrigin } from "../app-host/app-origin.js";
 import type { MdbaseApplicationDeclaration } from "./declaration.js";
 import type { MdbaseApplicationConnection, MdbaseApplicationReadinessSnapshot } from "./entry.js";
 import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "./setup.js";
@@ -100,7 +101,7 @@ const problemDetailOf = (error: unknown): AppWebSignInProblemDetail | undefined 
 export function appGrantRedirectUri(declaration: MdbaseApplicationDeclaration): string {
   const declared = (declaration.manifest as { redirect_uris?: unknown } | undefined)?.redirect_uris;
   const uris = Array.isArray(declared) ? declared.filter((uri): uri is string => typeof uri === "string") : [];
-  return uris.find(uri => { try { return new URL(uri).origin === declaration.origin; } catch { return false; } }) ?? new URL("/", declaration.origin).href;
+  return uris.find(uri => { try { return urlOrigin(new URL(uri)) === declaration.origin; } catch { return false; } }) ?? new URL("/", declaration.origin).href;
 }
 
 /** The entry's collection list with this browser's Private collections added

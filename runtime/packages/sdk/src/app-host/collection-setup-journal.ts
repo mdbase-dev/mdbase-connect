@@ -1,4 +1,5 @@
 import { LOCAL_APPLICATION_BUILD, localApplicationHttpOrigin } from "../application/local-build.js";
+import { isAppOrigin, urlOrigin } from "./app-origin.js";
 import {
   MODEL_SETUP_LIMITS,
   type LegacyModelSetupIntent,
@@ -535,7 +536,8 @@ export class AppCollectionSetupJournal implements ModelResourceSetupJournal {
     const app = new URL(owner.appOrigin),
       cp = new URL(owner.cpOrigin);
     if (
-      app.origin !== owner.appOrigin ||
+      !isAppOrigin(owner.appOrigin) ||
+      urlOrigin(app) !== owner.appOrigin ||
       cp.origin !== owner.cpOrigin ||
       (cp.protocol !== "https:" && !(LOCAL_APPLICATION_BUILD && localApplicationHttpOrigin(owner.cpOrigin)))
     )
