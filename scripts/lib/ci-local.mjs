@@ -51,7 +51,8 @@ export const ciOnlySteps = [
   { prefix: "node scripts/ci/prefetch-worker-tools.mjs", reason: "authenticated binary bootstrap for worker-build; local LAB uses the ops front door" },
   { prefix: "if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]", reason: "merge-queue qualification reuse" },
   { prefix: "rustup ", reason: "toolchain setup; rust-toolchain.toml selects it locally" },
-  { prefix: "node scripts/ci/server-test-plan.mjs", reason: "pull-request path selection; ci:local applies serverTestPlan to its own diff" },
+  { prefix: "node scripts/ci/server-test-plan.mjs", reason: "pull-request path selection and full-suite matrix; ci:local applies serverTestPlan to its own diff" },
+  { prefix: "node scripts/ci/runtime-reuse.mjs classify-native", reason: "merge-queue reuse of exact-tree native runtime test results" },
   { prefix: "cargo install worker-build", reason: "pinned Worker build tool for the local DO lane" },
   { prefix: "worker-build --release --locked", reason: "separate wasm32 DO workspace; build with rcargo and package locally before running the harness" },
   { prefix: "cargo build --locked -p mdbn-log-conformance --bin logsvc-bench", reason: "separate runtime workspace; build and pull with rcargo for the DO harness" },
@@ -65,7 +66,7 @@ export const ciOnlySteps = [
   { prefix: "MDBASE_CONNECT_E2E_BUILD=0 node test/system/run.mjs --suite container", reason: "container lane; run with pnpm test:system -- --suite container" },
   { prefix: "pnpm --filter @mdbase/connect-server exec vitest run src/features/next", reason: "needs the CI PostgreSQL service; locally set MDBASE_CONNECT_TEST_DATABASE_URL and the destructive-test approval, then run the same command" },
   { prefix: "node test/system/run.mjs --suite", reason: "system suites need PostgreSQL and services; run with pnpm test:system" },
-  { prefix: "if [[ \"$RUN_FULL\" == true ]]", reason: "aggregates the CI lanes into one required check" },
+  { prefix: "[[ \"$CLASSIFY\" == success ]]", reason: "aggregates the CI lanes into one required check" },
   { prefix: "kind=fast", reason: "records qualification inputs" }
 ];
 

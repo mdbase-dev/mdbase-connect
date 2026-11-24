@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { pulledBinaries, systemSuites, preparationSteps } from "../../test/system/suites.mjs";
+import { fullServerTestPlan, selectedSystemSuites, systemSuiteShards } from "../ci/server-test-plan.mjs";
 
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../..");
@@ -35,8 +36,9 @@ test("every cargo preparation step names the binaries rcargo copies back", () =>
 
 test("full Server CI covers every registered system suite exactly once", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/server-ci.yml"), "utf8");
-  const matrixSuites = [...workflow.matchAll(/^\s+suites:\s*([a-z,-]+)\s*$/gm)]
-    .flatMap((match) => match[1].split(","));
+  assert.match(workflow, /matrix: \$\{\{ fromJSON\(needs\.classify\.outputs\.system_suites_matrix\) \}\}/);
+  assert.deepEqual(selectedSystemSuites(fullServerTestPlan()), systemSuiteShards);
+  const matrixSuites = systemSuiteShards.flatMap((entry) => entry.suites.split(","));
   for (const suite of ["container"]) {
     const commands = [...workflow.matchAll(new RegExp(`--suite\\s+${suite}\\b`, "g"))];
     assert.equal(commands.length, 1, `${suite} suite must have one full-CI job`);

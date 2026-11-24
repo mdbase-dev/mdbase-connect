@@ -22,44 +22,84 @@ jobs:
     outputs:
       run_full: ${{ steps.depth.outputs.run_full }}
       upstream_run_id: ${{ steps.depth.outputs.upstream_run_id }}
+      container: ${{ steps.depth.outputs.container }}
+      log_postgres: ${{ steps.depth.outputs.log_postgres }}
+      log_do: ${{ steps.depth.outputs.log_do }}
+      has_system_suites: ${{ steps.depth.outputs.has_system_suites }}
+      system_suites_matrix: ${{ steps.depth.outputs.system_suites_matrix }}
+      native_upstream_run_id: ${{ steps.native.outputs.native_upstream_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        if: github.event_name == 'pull_request'
         with:
-          fetch-depth: 0
+          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        if: github.event_name == 'pull_request'
         with:
           node-version: 24
       - id: plan
-        name: Select native PR qualification from changed paths
+        name: Select PR suites from changed paths
         if: github.event_name == 'pull_request'
         env:
           BASE: ${{ github.event.pull_request.base.sha }}
           HEAD: ${{ github.event.pull_request.head.sha }}
         run: node scripts/ci/server-test-plan.mjs "$BASE" "$HEAD"
-      - id: depth
-        name: Reuse only an exact merge-queue qualification
+      - id: full_plan
+        name: Load full suite matrix
+        if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:full')
+        run: node scripts/ci/server-test-plan.mjs --full
+      - id: native
+        name: Reuse verified native runtime tests for the exact tree
+        if: github.event_name == 'merge_group'
         env:
           GH_TOKEN: ${{ github.token }}
-          NATIVE_CHANGES: ${{ steps.plan.outputs.native }}
+        run: node scripts/ci/runtime-reuse.mjs classify-native
+      - id: depth
+        name: Select qualification depth and merge-queue reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_CONTAINER: ${{ steps.plan.outputs.container }}
+          PLAN_LOG_POSTGRES: ${{ steps.plan.outputs.log_postgres }}
+          PLAN_LOG_DO: ${{ steps.plan.outputs.log_do }}
+          PLAN_HAS_SYSTEM_SUITES: ${{ steps.plan.outputs.has_system_suites }}
+          PLAN_SYSTEM_SUITES_MATRIX: ${{ steps.plan.outputs.system_suites_matrix }}
+          FULL_SYSTEM_SUITES_MATRIX: ${{ steps.full_plan.outputs.system_suites_matrix }}
         run: |
           if [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            if [[ $NATIVE_CHANGES == true ]] ||
-              jq -e 'any(.pull_request.labels[]?; .name == "ci:full")' \
+            if jq -e 'any(.pull_request.labels[]?; .name == "ci:full")' \
               "$GITHUB_EVENT_PATH" >/dev/null
             then
-              echo 'run_full=true' >>"$GITHUB_OUTPUT"
+              {
+                echo 'run_full=true'
+                echo 'container=true'
+                echo 'log_postgres=true'
+                echo 'log_do=true'
+                echo 'has_system_suites=true'
+                echo "system_suites_matrix=$FULL_SYSTEM_SUITES_MATRIX"
+                echo 'upstream_run_id='
+              } >>"$GITHUB_OUTPUT"
             else
-              echo 'run_full=false' >>"$GITHUB_OUTPUT"
+              {
+                echo 'run_full=false'
+                echo "container=${PLAN_CONTAINER:-false}"
+                echo "log_postgres=${PLAN_LOG_POSTGRES:-false}"
+                echo "log_do=${PLAN_LOG_DO:-false}"
+                echo "has_system_suites=${PLAN_HAS_SYSTEM_SUITES:-false}"
+                echo "system_suites_matrix=${PLAN_SYSTEM_SUITES_MATRIX:-{\"include\":[]}}"
+                echo 'upstream_run_id='
+              } >>"$GITHUB_OUTPUT"
             fi
-            echo 'upstream_run_id=' >>"$GITHUB_OUTPUT"
             exit 0
           fi
           if [[ "$GITHUB_EVENT_NAME" == merge_group ]]; then
-            echo 'run_full=true' >>"$GITHUB_OUTPUT"
-            echo 'upstream_run_id=' >>"$GITHUB_OUTPUT"
+            {
+              echo 'run_full=true'
+              echo 'container=true'
+              echo 'log_postgres=true'
+              echo 'log_do=true'
+              echo 'has_system_suites=true'
+              echo "system_suites_matrix=$FULL_SYSTEM_SUITES_MATRIX"
+              echo 'upstream_run_id='
+            } >>"$GITHUB_OUTPUT"
             exit 0
           fi
           runs=$(gh api --method GET \
@@ -71,11 +111,25 @@ jobs:
               and .conclusion == "success"
             )] | sort_by(.run_number) | last | .id // empty' <<<"$runs")
           if [[ -n $upstream ]]; then
-            echo 'run_full=false' >>"$GITHUB_OUTPUT"
-            echo "upstream_run_id=$upstream" >>"$GITHUB_OUTPUT"
+            {
+              echo 'run_full=false'
+              echo 'container=false'
+              echo 'log_postgres=false'
+              echo 'log_do=false'
+              echo 'has_system_suites=false'
+              echo 'system_suites_matrix={"include":[]}'
+              echo "upstream_run_id=$upstream"
+            } >>"$GITHUB_OUTPUT"
           else
-            echo 'run_full=true' >>"$GITHUB_OUTPUT"
-            echo 'upstream_run_id=' >>"$GITHUB_OUTPUT"
+            {
+              echo 'run_full=true'
+              echo 'container=true'
+              echo 'log_postgres=true'
+              echo 'log_do=true'
+              echo 'has_system_suites=true'
+              echo "system_suites_matrix=$FULL_SYSTEM_SUITES_MATRIX"
+              echo 'upstream_run_id='
+            } >>"$GITHUB_OUTPUT"
           fi
 
   node:
@@ -245,7 +299,7 @@ jobs:
 
   server-container-full:
     needs: classify
-    if: needs.classify.outputs.run_full == 'true'
+    if: needs.classify.outputs.container == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -262,7 +316,7 @@ jobs:
   log-postgres-conformance:
     name: Log conformance (Postgres)
     needs: classify
-    if: needs.classify.outputs.run_full == 'true'
+    if: needs.classify.outputs.log_postgres == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -294,7 +348,7 @@ jobs:
   log-do-conformance:
     name: Log conformance (Durable Objects)
     needs: classify
-    if: needs.classify.outputs.run_full == 'true'
+    if: needs.classify.outputs.log_do == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     defaults:
@@ -326,19 +380,12 @@ jobs:
   system-suites:
     name: System suite (${{ matrix.shard }})
     needs: classify
-    if: needs.classify.outputs.run_full == 'true'
+    if: needs.classify.outputs.has_system_suites == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - shard: relay
-            suites: relay
-            timeout: 55
-          - shard: linux-packages
-            suites: linux-packages
-            timeout: 35
+      matrix: ${{ fromJSON(needs.classify.outputs.system_suites_matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
@@ -361,7 +408,8 @@ jobs:
           MDBASE_CONNECT_SECRET_BACKEND: insecure-test-file
 
   runtime-native:
-    if: github.event_name == 'merge_group'
+    needs: classify
+    if: github.event_name == 'merge_group' && needs.classify.outputs.native_upstream_run_id == ''
     uses: ./.github/workflows/runtime-native-tests.yml
 
   qualification:
@@ -379,8 +427,14 @@ jobs:
     steps:
       - name: Require the selected qualification lane
         env:
+          CLASSIFY: ${{ needs.classify.result }}
           RUN_FULL: ${{ needs.classify.outputs.run_full }}
           UPSTREAM_RUN_ID: ${{ needs.classify.outputs.upstream_run_id }}
+          NATIVE_UPSTREAM_RUN_ID: ${{ needs.classify.outputs.native_upstream_run_id }}
+          RUN_CONTAINER: ${{ needs.classify.outputs.container }}
+          RUN_LOG_POSTGRES: ${{ needs.classify.outputs.log_postgres }}
+          RUN_LOG_DO: ${{ needs.classify.outputs.log_do }}
+          RUN_SYSTEM_SUITES: ${{ needs.classify.outputs.has_system_suites }}
           RUNTIME_NATIVE: ${{ needs.runtime-native.result }}
           NODE: ${{ needs.node.result }}
           CONTAINER: ${{ needs.server-container-full.result }}
@@ -388,8 +442,9 @@ jobs:
           LOG_DO: ${{ needs.log-do-conformance.result }}
           SYSTEM_SUITES: ${{ needs.system-suites.result }}
         run: |
+          [[ "$CLASSIFY" == success ]]
           if [[ "$RUN_FULL" == true ]]; then
-            [[ "$GITHUB_EVENT_NAME" != merge_group || "$RUNTIME_NATIVE" == success ]]
+            [[ "$GITHUB_EVENT_NAME" != merge_group || "$RUNTIME_NATIVE" == success || -n "$NATIVE_UPSTREAM_RUN_ID" ]]
             for result in "$NODE" "$CONTAINER" \
               "$SYSTEM_SUITES" "$LOG_POSTGRES" "$LOG_DO"
             do
@@ -397,6 +452,10 @@ jobs:
             done
           elif [[ -z "$UPSTREAM_RUN_ID" ]]; then
             [[ "$NODE" == success ]]
+            [[ "$RUN_CONTAINER" != true || "$CONTAINER" == success ]]
+            [[ "$RUN_LOG_POSTGRES" != true || "$LOG_POSTGRES" == success ]]
+            [[ "$RUN_LOG_DO" != true || "$LOG_DO" == success ]]
+            [[ "$RUN_SYSTEM_SUITES" != true || "$SYSTEM_SUITES" == success ]]
           fi
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

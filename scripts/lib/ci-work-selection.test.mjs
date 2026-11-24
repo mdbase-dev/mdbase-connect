@@ -117,30 +117,67 @@ test("native selection retains explicit dispatch checks and includes Rust input 
   }
 });
 
-test("pull requests changing native or system-suite inputs run full Server CI", () => {
-  for (const path of ["rust-toolchain.toml", "deploy/docker/Dockerfile.server",
-    "test/system/suites.mjs", ".github/workflows/server-ci.yml"]) {
-    assert.equal(serverTestPlan(["docs/readme.md", path]).native, true, path);
+test("pull requests select only the Server CI suites touched by their diff", () => {
+  const none = {
+    container: false,
+    log_postgres: false,
+    log_do: false,
+    relay: false,
+    linux_packages: false,
+    native: false
+  };
+  const all = {
+    container: true,
+    log_postgres: true,
+    log_do: true,
+    relay: true,
+    linux_packages: true,
+    native: true
+  };
+  for (const paths of [[], ["apps/editor/src/App.tsx"], ["docs/ci-qualification.md"], ["packages/client/src/index.ts"],
+    ["services/server/src/features/next/policy-outbox.ts"], ["services/server/src/features/next/log-service-client.ts"]]) {
+    assert.deepEqual(serverTestPlan(paths), none, paths.join());
   }
-  for (const path of ["runtime/crates/log-conformance/src/suite.rs", "runtime/crates/log-server/src/pg.rs",
-    "runtime/crates/log-service/src/service.rs", "runtime/deploy/cloudflare-do/tests/runtime.mjs",
-    "services/server/src/features/next/policy-outbox.ts", "services/server/src/features/next/policy-outbox.postgres.test.ts",
-    "services/server/src/features/next/log-service-client.ts", "runtime/crates/wire/src/log_service.rs",
-    "runtime/Cargo.toml", "runtime/Cargo.lock", "runtime/rust-toolchain.toml"]) {
-    assert.equal(serverTestPlan([path]).native, true, path);
+  assert.deepEqual(serverTestPlan(["docs/readme.md", "deploy/docker/Dockerfile.server"]), {
+    ...none, container: true, native: true
+  });
+  assert.deepEqual(serverTestPlan(["deploy/docker/Dockerfile.nats"]), {
+    ...none, container: true, relay: true, native: true
+  });
+  assert.deepEqual(serverTestPlan(["runtime/deploy/cloudflare-do/tests/runtime.mjs"]), {
+    ...none, log_do: true, native: true
+  });
+  for (const path of ["rust-toolchain.toml", "runtime/crates/log-conformance/src/suite.rs",
+    "runtime/crates/log-server/src/pg.rs", "runtime/crates/log-service/src/service.rs",
+    "runtime/crates/wire/src/log_service.rs", "runtime/Cargo.toml", "runtime/Cargo.lock",
+    "runtime/rust-toolchain.toml"]) {
+    assert.deepEqual(serverTestPlan([path]), {
+      ...none, log_postgres: true, log_do: true, native: true
+    }, path);
   }
-  for (const paths of [[], ["apps/editor/src/App.tsx"], ["docs/ci-qualification.md"], ["packages/client/src/index.ts"]]) {
-    assert.deepEqual(serverTestPlan(paths), { native: false }, paths.join());
+  for (const path of ["scripts/relay-e2e.mjs", "services/server/src/features/relay/relay-broker.ts"]) {
+    assert.deepEqual(serverTestPlan([path]), { ...none, relay: true, native: true }, path);
+  }
+  assert.deepEqual(serverTestPlan(["apps/desktop/test/linux-packages/run.mjs"]), {
+    ...none, linux_packages: true, native: true
+  });
+  assert.deepEqual(serverTestPlan(["test/system/suites.mjs"]), {
+    ...none, container: true, relay: true, linux_packages: true, native: true
+  });
+  for (const path of [".github/workflows/server-ci.yml", "scripts/ci/server-test-plan.mjs"]) {
+    assert.deepEqual(serverTestPlan(["docs/readme.md", path]), all, path);
   }
   const classify = workflow("server-ci").split("  classify:\n")[1].split("  node:\n")[0];
   assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs "\$BASE" "\$HEAD"/);
-  assert.match(classify, /if \[\[ \$NATIVE_CHANGES == true \]\] \|\|/);
+  assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs --full/);
+  assert.match(classify, /node scripts\/ci\/runtime-reuse\.mjs classify-native/);
+  assert.doesNotMatch(classify, /NATIVE_CHANGES == true/);
 });
 
 test("protocol-only packaging selection leaves Node and full merge-queue qualification intact", () => {
   const server = workflow("server-ci");
   const classify = server.split("  classify:\n")[1].split("  node:\n")[0];
-  assert.match(classify, /if \[\[ "\$GITHUB_EVENT_NAME" == merge_group \]\]; then\s+echo 'run_full=true'/);
+  assert.match(classify, /if \[\[ "\$GITHUB_EVENT_NAME" == merge_group \]\]; then[\s\S]+?echo 'run_full=true'/);
   const node = server.split("  node:\n")[1].split("  server-container-full:\n")[0];
   assert.doesNotMatch(node, /needs.select-tests|outputs.bundle|outputs.windows|outputs.headless/);
   for (const job of ["node", "server-container-full", "system-suites", "log-postgres-conformance", "log-do-conformance"]) {
