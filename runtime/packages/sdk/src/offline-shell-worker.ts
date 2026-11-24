@@ -16,6 +16,8 @@ interface ShellMessageEvent extends ShellEvent { data: unknown; source: ShellCli
 interface ShellWorker {
   location: { origin: string };
   clients: { claim(): Promise<void>; matchAll(options: { type: "window"; includeUncontrolled: boolean }): Promise<readonly ShellClient[]> };
+  /** A release installing or waiting behind this one owns one of the other caches. */
+  registration: { readonly installing: unknown; readonly waiting: unknown };
   skipWaiting(): Promise<void>;
   addEventListener(type: "message", listener: (event: ShellMessageEvent) => void): void;
   addEventListener(type: "install" | "activate", listener: (event: ShellEvent) => void): void;
@@ -23,18 +25,31 @@ interface ShellWorker {
 }
 
 /** Installs the same shell policy in generated workers and app notification workers.
- * Activation is explicit. Older tabs keep their pinned assets until they leave. */
+ * A page and its same-named assets always come from one release: a navigation to
+ * a pinned page is answered from the controlling worker's own cache, never with a
+ * newer deployment's HTML. A new release waits until a page asks for it (the
+ * generated registration does so when the app starts) and then reloads into it.
+ * Other open tabs keep their pinned assets until they leave. */
 export function installOfflineShell(worker: ShellWorker, manifest: OfflineShellManifest): void {
   const prefix = `mdbase-shell:${manifest.base}:`;
   const name = `${prefix}${manifest.version}`;
   const root = new URL(manifest.base, worker.location.origin);
   const index = new URL("index.html", root).href;
   const assets = new Map(manifest.assets.map(asset => [new URL(asset.path, root).href, asset.sha256]));
+  /** The pinned page a navigation names: `dir/` is `dir/index.html`, a clean URL
+   * `page` is `page.html`. Its query is the page's own business, never a cache key. */
+  const pinnedPage = (url: URL): string | undefined => {
+    const path = url.pathname;
+    const page = new URL(path.endsWith("/") ? `${path}index.html` : path.endsWith(".html") ? path : `${path}.html`, root).href;
+    return assets.has(page) ? page : undefined;
+  };
   let acceptingClient: string | undefined;
   const otherClients = async (except: readonly (string | undefined)[]) =>
     (await worker.clients.matchAll({ type: "window", includeUncontrolled: true }))
       .some(client => client.url.startsWith(root.href) && !except.includes(client.id));
+  /** Retire older releases' caches, never a newer one that is installing or waiting. */
   const clean = async () => {
+    if (worker.registration.installing || worker.registration.waiting) return;
     for (const key of await caches.keys()) if (key.startsWith(prefix) && key !== name) await caches.delete(key);
   };
   worker.addEventListener("message", event => {
@@ -104,15 +119,19 @@ export function installOfflineShell(worker: ShellWorker, manifest: OfflineShellM
       })());
     } else if (request.mode === "navigate") {
       event.respondWith((async () => {
-        try { return await fetch(request); }
-        catch {
-          const cache = await caches.open(name);
-          const shell = await cache.match(index);
-          if (shell && !await otherClients([event.clientId, event.resultingClientId])) await clean();
-          return shell ?? new Response("The app is not available offline yet. Reconnect and try again.", {
-            status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" },
-          });
+        const cache = await caches.open(name);
+        const page = pinnedPage(url);
+        // This release's own page: another deployment's HTML would load against
+        // this release's same-named styles and scripts.
+        let shell = page === undefined ? undefined : await cache.match(page);
+        if (!shell) {
+          try { return await fetch(request); }
+          catch { shell = await cache.match(index); }
         }
+        if (shell && !await otherClients([event.clientId, event.resultingClientId])) await clean();
+        return shell ?? new Response("The app is not available offline yet. Reconnect and try again.", {
+          status: 503, headers: { "Content-Type": "text/plain; charset=utf-8" },
+        });
       })());
     }
   });

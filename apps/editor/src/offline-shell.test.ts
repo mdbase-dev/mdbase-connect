@@ -1,17 +1,25 @@
 import { describe, expect, it, vi } from "vitest";
 import { offlineShellScheduler } from "./offline-shell";
 
-function harness(options: { idle?: boolean; worker?: boolean } = {}) {
+function harness(options: { idle?: boolean; worker?: boolean; controlled?: boolean; waiting?: boolean } = {}) {
   const register = vi.fn(() => Promise.resolve({} as ServiceWorkerRegistration));
+  const postMessage = vi.fn();
+  const getRegistration = vi.fn(() => Promise.resolve({ waiting: options.waiting ? { postMessage } : null } as unknown as ServiceWorkerRegistration));
+  const changes: Array<{ listener: () => void; options: unknown }> = [];
+  const reload = vi.fn();
   const idle: Array<() => void> = [];
   const timers: Array<{ callback: () => void; delay: number }> = [];
   const shell = offlineShellScheduler("/app/", {
-    serviceWorker: options.worker === false ? undefined : { register } as unknown as Pick<ServiceWorkerContainer, "register">,
+    serviceWorker: options.worker === false ? undefined : {
+      register, getRegistration, controller: options.controlled ? {} : null,
+      addEventListener: (_type: string, listener: () => void, listenerOptions: unknown) => { changes.push({ listener, options: listenerOptions }); }
+    } as unknown as Pick<ServiceWorkerContainer, "register" | "getRegistration" | "controller" | "addEventListener">,
     requestIdle: options.idle === false ? undefined : (callback) => { idle.push(callback); },
-    setTimer: (callback, delay) => { timers.push({ callback, delay }); }
+    setTimer: (callback, delay) => { timers.push({ callback, delay }); },
+    reload
   });
   const runTimer = (index: number) => timers[index].callback();
-  return { shell, register, idle, timers, runTimer };
+  return { shell, register, idle, timers, runTimer, getRegistration, postMessage, changes, reload };
 }
 
 describe("offline shell registration", () => {
@@ -61,5 +69,29 @@ describe("offline shell registration", () => {
     unsupported.runTimer(0);
     expect(unsupported.timers).toHaveLength(1);
     expect(unsupported.idle).toHaveLength(0);
+  });
+
+  it("moves a page controlled by an older release onto the waiting one at start, reloading once", async () => {
+    const updated = harness({ controlled: true, waiting: true });
+    updated.shell.start();
+    await vi.waitFor(() => expect(updated.postMessage).toHaveBeenCalledWith({ type: "mdbase-shell:activate" }));
+    expect(updated.getRegistration).toHaveBeenCalledWith("/app/");
+    expect(updated.reload).not.toHaveBeenCalled();
+    expect(updated.changes.map(change => change.options)).toEqual([{ once: true }]);
+    updated.changes[0].listener();
+    expect(updated.reload).toHaveBeenCalledTimes(1);
+    expect(updated.register).not.toHaveBeenCalled();
+  });
+
+  it("never activates on a first install or when nothing waits", async () => {
+    const first = harness({ controlled: false, waiting: true });
+    first.shell.start();
+    expect(first.getRegistration).not.toHaveBeenCalled();
+    const current = harness({ controlled: true, waiting: false });
+    current.shell.start();
+    await vi.waitFor(() => expect(current.getRegistration).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(current.postMessage).not.toHaveBeenCalled();
+    expect(current.changes).toEqual([]);
   });
 });
