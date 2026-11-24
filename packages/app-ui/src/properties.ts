@@ -6,11 +6,11 @@
 export { PropertyKindIcon, PropertyList } from "./properties/PropertyList.js";
 export type { PropertyListProps } from "./properties/PropertyList.js";
 export { PropertyValue } from "./properties/PropertyValue.js";
-export type { PropertyRecords, PropertyValueProps } from "./properties/PropertyValue.js";
+export type { PropertyLinkCreation, PropertyRecord, PropertyRecords, PropertyValueProps } from "./properties/PropertyValue.js";
 export { propertyLabels } from "./properties/labels.js";
 export type { PropertyLabels } from "./properties/labels.js";
 export {
-  describeProperty, filterFieldsFromProperties, inferProperty, isEmptyValue, isPropertyName, linkLabel, linkToPath, parseValue, pathToLink,
+  blankValue, describeProperty, filterFieldsFromProperties, inferProperty, isEmptyValue, isPropertyName, linkLabel, linkToPath, parseValue, pathToLink,
   propertiesInUse, propertyKind, valueLine,
 } from "./properties/model.js";
 export type { PropertyInfo, PropertyKind, PropertyScalar } from "./properties/model.js";

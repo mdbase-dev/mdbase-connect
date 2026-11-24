@@ -69,6 +69,10 @@ msgstr "Приложение {app} перестанет показывать е�
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, one {# пустое} few {# пустых} many {# пустых} other {# пустого}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# item} other {# items}}"
+msgstr "{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -78,9 +82,17 @@ msgstr "{count, plural, one {Нанесена # пометка.} few {Нанес
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, one {# открытый комментарий} few {# открытых комментария} many {# открытых комментариев} other {# открытого комментария}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# property} other {# properties}}"
+msgstr "{count, plural, one {# свойство} few {# свойства} many {# свойств} other {# свойства}}"
+
 #: src/filter-builder/labels.ts
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, one {Выбрано: #} few {Выбрано: #} many {Выбрано: #} other {Выбрано: #}}"
+
+#: src/properties/labels.ts
+msgid "{kind} “{title}”"
+msgstr "{kind} «{title}»"
 
 #: src/filter-builder/labels.ts
 msgid "{name} group"
@@ -140,8 +152,20 @@ msgid "Add filter to group"
 msgstr "Добавить фильтр в группу"
 
 #: src/properties/labels.ts
+msgid "Add item"
+msgstr "Добавить элемент"
+
+#: src/properties/labels.ts
+msgid "Add item to {property}"
+msgstr "Добавить элемент в {property}"
+
+#: src/properties/labels.ts
 msgid "Add property"
 msgstr "Добавить свойство"
+
+#: src/properties/labels.ts
+msgid "Add property to {property}"
+msgstr "Добавить свойство в {property}"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -785,6 +809,10 @@ msgid "Find a property, or name a new one…"
 msgstr "Найдите свойство или назовите новое…"
 
 #: src/properties/labels.ts
+msgid "Find a property…"
+msgstr "Найдите свойство…"
+
+#: src/properties/labels.ts
 msgid "Find a record…"
 msgstr "Найти запись…"
 
@@ -947,6 +975,10 @@ msgstr "Загрузка комментариев…"
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "Загрузка снимка коллекции…"
+
+#: src/properties/labels.ts
+msgid "Local time ({zone})"
+msgstr "Местное время ({zone})"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -1358,6 +1390,10 @@ msgstr "Убрать из этого списка"
 msgid "Remove group"
 msgstr "Удалить группу"
 
+#: src/properties/labels.ts
+msgid "Remove item {place} from {property}"
+msgstr "Удалить элемент {place} из {property}"
+
 #: src/CommentsPanel.tsx
 msgid "Reopen"
 msgstr "Открыть снова"
@@ -1386,6 +1422,11 @@ msgstr "Электронная почта для ответа"
 #: src/Feedback.tsx
 msgid "Report a problem"
 msgstr "Сообщить о проблеме"
+
+#: src/properties/labels.ts
+msgctxt "A property a record must have"
+msgid "Required"
+msgstr "Обязательное"
 
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"

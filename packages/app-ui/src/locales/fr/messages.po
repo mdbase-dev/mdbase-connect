@@ -69,6 +69,10 @@ msgstr "{app} cesse de l’afficher sur cet appareil. Rien n’est supprimé dan
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, one {# vide} other {# vides}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# item} other {# items}}"
+msgstr "{count, plural, one {# élément} other {# éléments}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -78,9 +82,17 @@ msgstr "{count, plural, one {# marque appliquée.} other {# marques appliquées.
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, one {# commentaire ouvert} other {# commentaires ouverts}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# property} other {# properties}}"
+msgstr "{count, plural, one {# propriété} other {# propriétés}}"
+
 #: src/filter-builder/labels.ts
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, one {# sélectionné} other {# sélectionnés}}"
+
+#: src/properties/labels.ts
+msgid "{kind} “{title}”"
+msgstr "{kind} « {title} »"
 
 #: src/filter-builder/labels.ts
 msgid "{name} group"
@@ -140,8 +152,20 @@ msgid "Add filter to group"
 msgstr "Ajouter un filtre au groupe"
 
 #: src/properties/labels.ts
+msgid "Add item"
+msgstr "Ajouter un élément"
+
+#: src/properties/labels.ts
+msgid "Add item to {property}"
+msgstr "Ajouter un élément à {property}"
+
+#: src/properties/labels.ts
 msgid "Add property"
 msgstr "Ajouter une propriété"
+
+#: src/properties/labels.ts
+msgid "Add property to {property}"
+msgstr "Ajouter une propriété à {property}"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -785,6 +809,10 @@ msgid "Find a property, or name a new one…"
 msgstr "Trouver une propriété, ou en nommer une nouvelle…"
 
 #: src/properties/labels.ts
+msgid "Find a property…"
+msgstr "Trouver une propriété…"
+
+#: src/properties/labels.ts
 msgid "Find a record…"
 msgstr "Trouver un document…"
 
@@ -947,6 +975,10 @@ msgstr "Chargement des commentaires…"
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "Chargement de l’instantané de la collection…"
+
+#: src/properties/labels.ts
+msgid "Local time ({zone})"
+msgstr "Heure locale ({zone})"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -1358,6 +1390,10 @@ msgstr "Retirer de cette liste"
 msgid "Remove group"
 msgstr "Retirer le groupe"
 
+#: src/properties/labels.ts
+msgid "Remove item {place} from {property}"
+msgstr "Retirer l’élément {place} de {property}"
+
 #: src/CommentsPanel.tsx
 msgid "Reopen"
 msgstr "Rouvrir"
@@ -1386,6 +1422,11 @@ msgstr "E-mail de réponse"
 #: src/Feedback.tsx
 msgid "Report a problem"
 msgstr "Signaler un problème"
+
+#: src/properties/labels.ts
+msgctxt "A property a record must have"
+msgid "Required"
+msgstr "Obligatoire"
 
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"

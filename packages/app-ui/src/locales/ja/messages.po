@@ -69,6 +69,10 @@ msgstr "このデバイスで{app}に表示されなくなります。コレク�
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, other {空の項目 # 件}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# item} other {# items}}"
+msgstr "{count, plural, other {# 項目}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -78,9 +82,17 @@ msgstr "{count, plural, other {#件のマークを適用しました。}}"
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, other {未解決のコメント # 件}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# property} other {# properties}}"
+msgstr "{count, plural, other {プロパティ # 件}}"
+
 #: src/filter-builder/labels.ts
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, other {# 件選択中}}"
+
+#: src/properties/labels.ts
+msgid "{kind} “{title}”"
+msgstr "{kind}「{title}」"
 
 #: src/filter-builder/labels.ts
 msgid "{name} group"
@@ -140,8 +152,20 @@ msgid "Add filter to group"
 msgstr "グループにフィルターを追加"
 
 #: src/properties/labels.ts
+msgid "Add item"
+msgstr "項目を追加"
+
+#: src/properties/labels.ts
+msgid "Add item to {property}"
+msgstr "{property} に項目を追加"
+
+#: src/properties/labels.ts
 msgid "Add property"
 msgstr "プロパティを追加"
+
+#: src/properties/labels.ts
+msgid "Add property to {property}"
+msgstr "{property} にプロパティを追加"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -785,6 +809,10 @@ msgid "Find a property, or name a new one…"
 msgstr "プロパティを検索、または新しい名前を入力…"
 
 #: src/properties/labels.ts
+msgid "Find a property…"
+msgstr "プロパティを検索…"
+
+#: src/properties/labels.ts
 msgid "Find a record…"
 msgstr "レコードを検索…"
 
@@ -947,6 +975,10 @@ msgstr "コメントを読み込み中…"
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "コレクションのスナップショットを読み込んでいます…"
+
+#: src/properties/labels.ts
+msgid "Local time ({zone})"
+msgstr "現地時間（{zone}）"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -1358,6 +1390,10 @@ msgstr "このリストから削除"
 msgid "Remove group"
 msgstr "グループを削除"
 
+#: src/properties/labels.ts
+msgid "Remove item {place} from {property}"
+msgstr "{property} の項目 {place} を削除"
+
 #: src/CommentsPanel.tsx
 msgid "Reopen"
 msgstr "再オープン"
@@ -1386,6 +1422,11 @@ msgstr "返信先メールアドレス"
 #: src/Feedback.tsx
 msgid "Report a problem"
 msgstr "問題を報告"
+
+#: src/properties/labels.ts
+msgctxt "A property a record must have"
+msgid "Required"
+msgstr "必須"
 
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
