@@ -66,10 +66,12 @@ msgid "{app} stops showing it on this device. Nothing in the collection is delet
 msgstr "{app} 将不再在此设备上显示该集合。集合内容不会被删除，且 {app} 仍保有访问权限。如需撤销访问权限，请使用“管理访问权限”。"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, other {# 项为空}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, other {# 项}}"
 
@@ -83,22 +85,27 @@ msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, other {# 条未解决的评论}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# property} other {# properties}}"
 msgstr "{count, plural, other {# 个属性}}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, other {已选 # 项}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{kind} “{title}”"
 msgstr "{kind}“{title}”"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{name} group"
 msgstr "“{name}”组"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "A date, “tomorrow”, “fri” or “+3”"
 msgstr "日期、“明天”、“星期五”或“+3”"
 
@@ -130,6 +137,7 @@ msgid "Add a collection…"
 msgstr "添加集合…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add a filter to this group"
 msgstr "向此组添加筛选条件"
 
@@ -144,26 +152,32 @@ msgid "Add column"
 msgstr "添加列"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter"
 msgstr "添加筛选条件"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter to group"
 msgstr "向组添加筛选条件"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item"
 msgstr "添加条目"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "向 {property} 添加条目"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property"
 msgstr "添加属性"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property to {property}"
 msgstr "向 {property} 添加属性"
 
@@ -173,10 +187,12 @@ msgid "Add row"
 msgstr "添加行"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value"
 msgstr "添加值"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value…"
 msgstr "添加值…"
 
@@ -210,6 +226,7 @@ msgid "All"
 msgstr "全部"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "All views"
 msgstr "所有视图"
 
@@ -219,14 +236,17 @@ msgid "Any"
 msgstr "任一"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Any / All"
 msgstr "任一 / 全部"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Applies to every view"
 msgstr "应用于所有视图"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Apply"
 msgstr "应用"
 
@@ -248,6 +268,7 @@ msgid "as {signer}"
 msgstr "以 {signer} 的身份"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "at least one"
 msgstr "至少一个"
 
@@ -260,6 +281,7 @@ msgid "Attach screenshot"
 msgstr "附加屏幕截图"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Back"
 msgstr "返回"
 
@@ -308,6 +330,7 @@ msgid "by {resolver}"
 msgstr "由 {resolver}"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Calendar"
 msgstr "日历"
 
@@ -350,14 +373,17 @@ msgid "Cancel switch"
 msgstr "取消切换"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL · Shift+Enter for a new line"
 msgstr "CEL · Shift+Enter 换行"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL expression"
 msgstr "CEL 表达式"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Change operator"
 msgstr "更改运算符"
 
@@ -408,6 +434,7 @@ msgid "Choose or create a collection there."
 msgstr "在那里选择或创建集合。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Choose value"
 msgstr "选择值"
 
@@ -416,6 +443,7 @@ msgid "Claude, ChatGPT and Codex"
 msgstr "Claude、ChatGPT 和 Codex"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Clear"
 msgstr "清除"
 
@@ -490,6 +518,7 @@ msgid "Comments could not be loaded: {problem}"
 msgstr "无法加载评论：{problem}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Compare with {expr}"
 msgstr "与 {expr} 比较"
 
@@ -540,6 +569,7 @@ msgid "Continue without connecting"
 msgstr "不连接，继续使用"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Convert to filter"
 msgstr "转换为筛选条件"
 
@@ -574,6 +604,7 @@ msgid "Current"
 msgstr "当前"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Custom expression"
 msgstr "自定义表达式"
 
@@ -670,6 +701,7 @@ msgid "does not contain"
 msgstr "不包含"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Done"
 msgstr "完成"
 
@@ -687,6 +719,7 @@ msgid "Edit"
 msgstr "编辑"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit as expression"
 msgstr "以表达式编辑"
 
@@ -695,10 +728,12 @@ msgid "Edit diagram source"
 msgstr "编辑图表源代码"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit expression"
 msgstr "编辑表达式"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit value"
 msgstr "编辑值"
 
@@ -708,6 +743,7 @@ msgid "Empty"
 msgstr "空"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Empty expression"
 msgstr "空表达式"
 
@@ -721,6 +757,7 @@ msgid "Esc"
 msgstr "Esc"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "every filter"
 msgstr "所有筛选条件"
 
@@ -739,6 +776,7 @@ msgid "Example"
 msgstr "示例"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Exclude"
 msgstr "排除"
 
@@ -747,14 +785,17 @@ msgid "Expand callout"
 msgstr "展开提示框"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "expression"
 msgstr "表达式"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Expression {text}"
 msgstr "表达式 {text}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "False"
 msgstr "假"
 
@@ -772,30 +813,37 @@ msgid "Feedback type"
 msgstr "反馈类型"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Fields"
 msgstr "字段"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter"
 msgstr "筛选"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by field"
 msgstr "按字段筛选"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by…"
 msgstr "筛选依据…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter group"
 msgstr "筛选组"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter options"
 msgstr "筛选选项"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filters"
 msgstr "筛选条件"
 
@@ -805,14 +853,17 @@ msgid "Find a collection"
 msgstr "查找集合"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property, or name a new one…"
 msgstr "查找属性，或输入新名称…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property…"
 msgstr "查找属性…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a record…"
 msgstr "查找记录…"
 
@@ -841,6 +892,7 @@ msgid "Give {app} access to this collection?"
 msgstr "允许 {app} 访问此集合？"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Hide empty"
 msgstr "隐藏空项"
 
@@ -849,10 +901,12 @@ msgid "Highlight"
 msgstr "高亮"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How the filters combine"
 msgstr "筛选条件的组合方式"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How these filters combine"
 msgstr "这些筛选条件的组合方式"
 
@@ -964,6 +1018,7 @@ msgid "Light"
 msgstr "浅色"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Link a record in {property}"
 msgstr "在 {property} 中链接记录"
 
@@ -977,6 +1032,7 @@ msgid "Loading the collection snapshot…"
 msgstr "正在加载集合快照…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Local time ({zone})"
 msgstr "本地时间（{zone}）"
 
@@ -1012,14 +1068,17 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "已丢弃标记，未包含屏幕截图。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match"
 msgstr "匹配"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match all"
 msgstr "匹配全部"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match any"
 msgstr "匹配任一"
 
@@ -1066,10 +1125,12 @@ msgid "Move row up"
 msgstr "向上移动行"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to shared"
 msgstr "移到共享"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to this view"
 msgstr "移到此视图"
 
@@ -1087,6 +1148,7 @@ msgid "New comment"
 msgstr "新评论"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "New property"
 msgstr "新属性"
 
@@ -1099,6 +1161,7 @@ msgid "New since your last visit"
 msgstr "自上次访问后新增"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Next month"
 msgstr "下个月"
 
@@ -1118,10 +1181,12 @@ msgid "No collections match “{query}”."
 msgstr "没有匹配“{query}”的集合。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "no filter"
 msgstr "不匹配任何筛选条件"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No matching fields"
 msgstr "没有匹配的字段"
 
@@ -1134,6 +1199,7 @@ msgid "No open comments"
 msgstr "没有未解决的评论"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "No properties."
 msgstr "没有属性。"
 
@@ -1142,6 +1208,7 @@ msgid "No screenshot taken. You can still send feedback."
 msgstr "未截取屏幕截图。你仍可以发送反馈。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No values to choose from."
 msgstr "没有可选的值。"
 
@@ -1151,6 +1218,7 @@ msgid "None"
 msgstr "无"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Not a number"
 msgstr "不是数字"
 
@@ -1169,6 +1237,7 @@ msgid "Nothing matches"
 msgstr "没有匹配项"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Nothing matches."
 msgstr "没有匹配项。"
 
@@ -1177,6 +1246,7 @@ msgid "Nothing resolved yet."
 msgstr "尚无已解决的评论。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Number"
 msgstr "数字"
 
@@ -1257,6 +1327,7 @@ msgid "Opens in a new tab"
 msgstr "在新标签页中打开"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Operator"
 msgstr "运算符"
 
@@ -1265,6 +1336,7 @@ msgid "Optional"
 msgstr "可选"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "或按 Enter"
 
@@ -1274,6 +1346,7 @@ msgid "Owner"
 msgstr "所有者"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Pick one or more"
 msgstr "选择一个或多个"
 
@@ -1292,6 +1365,7 @@ msgid "Preparing your offline copy…"
 msgstr "正在准备离线副本…"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Previous month"
 msgstr "上个月"
 
@@ -1355,12 +1429,16 @@ msgid "Reload to continue."
 msgstr "请重新加载以继续。"
 
 #: src/Feedback.tsx
-#: src/filter-builder/labels.ts
 msgid "Remove"
 msgstr "移除"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Remove"
+msgstr "移除"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove"
 msgstr "移除"
 
@@ -1370,14 +1448,17 @@ msgid "Remove {collection} from this list?"
 msgstr "要从此列表中移除 {collection} 吗？"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {name}"
 msgstr "移除 {name}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {value}"
 msgstr "移除 {value}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove filter"
 msgstr "移除筛选条件"
 
@@ -1387,10 +1468,12 @@ msgid "Remove from this list"
 msgstr "从此列表中移除"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove group"
 msgstr "移除组"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove item {place} from {property}"
 msgstr "从 {property} 移除第 {place} 项"
 
@@ -1577,6 +1660,7 @@ msgid "Shared"
 msgstr "共享"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Shared: {name}"
 msgstr "共享：{name}"
 
@@ -1760,6 +1844,7 @@ msgid "The diagram could not be shown. Check your connection and reopen the note
 msgstr "无法显示图表。请检查网络连接，然后重新打开笔记。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "The filter on {field} cannot be removed here"
 msgstr "{field} 的筛选条件无法在此移除"
 
@@ -1846,6 +1931,7 @@ msgid "This passage is no longer in the text"
 msgstr "这段文字已不在正文中"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "This view"
 msgstr "此视图"
 
@@ -1867,6 +1953,7 @@ msgid "to run"
 msgstr "执行"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Today"
 msgstr "今天"
 
@@ -1876,10 +1963,12 @@ msgid "Todo"
 msgstr "待办"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Tomorrow"
 msgstr "明天"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "True"
 msgstr "真"
 
@@ -1940,18 +2029,22 @@ msgid "Use {app}'s version"
 msgstr "使用 {app} 的版本"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Use letters, digits, - and _, starting with a letter."
 msgstr "请使用字母、数字、- 和 _，并以字母开头。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Value"
 msgstr "值"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values"
 msgstr "值"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values to compare with"
 msgstr "可比较的值"
 
@@ -2038,6 +2131,7 @@ msgid "Working…"
 msgstr "正在处理…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Wrap in “any” group"
 msgstr "放入“任一”组"
 
@@ -2051,6 +2145,7 @@ msgid "year is"
 msgstr "年份是"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Year, e.g. 2026"
 msgstr "年份，例如 2026"
 
@@ -2060,6 +2155,7 @@ msgid "yes"
 msgstr "是"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Yesterday"
 msgstr "昨天"
 

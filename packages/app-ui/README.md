@@ -197,6 +197,12 @@ not prove a language is complete.
 Reviewed identical terms are Esc/ID, the literal example email, and French
 Collection/Collections (allowlisted per generated ID).
 
+Give every new message a `context` (for example `t({ message: "Clear", context: "Date picker" })`).
+Apps compose this catalogue with their own, and a message without a context gets the same
+generated ID as an app's message with the same English text, so one would replace the other's
+translations. `i18n-context-baseline.json` freezes the older messages that have none; the
+catalogue test rejects any other.
+
 ## Command palette
 
 `CommandPalette` from `@mdbase-dev/ui/command-palette` accepts an optional

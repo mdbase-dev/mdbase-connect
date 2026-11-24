@@ -23,14 +23,14 @@ export interface DateLabels extends DayWords {
 /** The date picker's text in the current language. */
 export function dateLabels(): DateLabels {
   return {
-    typeDate: t`A date, “tomorrow”, “fri” or “+3”`,
-    today: t`Today`,
-    tomorrow: t`Tomorrow`,
-    yesterday: t`Yesterday`,
-    clear: t`Clear`,
-    previousMonth: t`Previous month`,
-    nextMonth: t`Next month`,
-    calendar: t`Calendar`,
+    typeDate: t({ message: "A date, “tomorrow”, “fri” or “+3”", context: "Date picker" }),
+    today: t({ message: "Today", context: "Date picker" }),
+    tomorrow: t({ message: "Tomorrow", context: "Date picker" }),
+    yesterday: t({ message: "Yesterday", context: "Date picker" }),
+    clear: t({ message: "Clear", context: "Date picker" }),
+    previousMonth: t({ message: "Previous month", context: "Date picker" }),
+    nextMonth: t({ message: "Next month", context: "Date picker" }),
+    calendar: t({ message: "Calendar", context: "Date picker" }),
   };
 }
 
