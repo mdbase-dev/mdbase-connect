@@ -182,6 +182,7 @@ mod driver {
     enum PrepareAction {
         PublishAndFinish,
         Defer(Arc<Barrier>),
+        Drop(Arc<Barrier>),
         WaitForTokenExpiry(u64),
         Raw {
             status: u16,
@@ -228,7 +229,6 @@ mod driver {
         finish_queue: VecDeque<FinishAction>,
         status_gate: Option<Arc<Barrier>>,
         reserve_gate: Option<Arc<Barrier>>,
-        challenge_gate: Option<Arc<Barrier>>,
         reserve_fault: Option<Fault>,
         delete_fault: Option<Fault>,
         intent_ids: Vec<String>,
@@ -256,7 +256,6 @@ mod driver {
                 finish_queue: VecDeque::new(),
                 status_gate: None,
                 reserve_gate: None,
-                challenge_gate: None,
                 reserve_fault: None,
                 delete_fault: None,
                 intent_ids: Vec::new(),
@@ -420,11 +419,7 @@ mod driver {
                 let state = {
                     let collections = plane.collections.lock().unwrap();
                     if challenge {
-                        collections
-                            .values()
-                            .find(|state| state.lock().unwrap().challenge_gate.is_some())
-                            .or_else(|| collections.values().next())
-                            .cloned()
+                        collections.values().next().cloned()
                     } else {
                         id.and_then(|id| collections.get(id)).cloned()
                     }
@@ -439,11 +434,7 @@ mod driver {
                     .await;
                     return;
                 };
-                if method == "POST" && path == "/v1/next/devices/challenge" {
-                    let gate = state.lock().unwrap().challenge_gate.take();
-                    if let Some(gate) = gate {
-                        gate.wait().await;
-                    }
+                if challenge {
                     write_http(
                         &mut socket,
                         200,
@@ -708,6 +699,7 @@ mod driver {
                             gate.wait().await;
                             publish.await;
                         }
+                        PrepareAction::Drop(gate) => gate.wait().await,
                         PrepareAction::WaitForTokenExpiry(delay_ms) => {
                             let retry_at =
                                 format_rfc3339_ms(crate::fsutil::now_ms() as u64 + delay_ms);
@@ -1792,11 +1784,12 @@ mod driver {
         let mut f = DriverFixture::start("mode-checkpoint", true).await;
         f.stop_driver().await;
         let reserve = Arc::new(Barrier::default());
-        let challenge = Arc::new(Barrier::default());
+        let prepare = Arc::new(Barrier::default());
         {
             let mut s = f.state.lock().unwrap();
             s.reserve_gate = Some(reserve.clone());
-            s.challenge_gate = Some(challenge.clone());
+            s.prepare_queue
+                .push_back(PrepareAction::Drop(prepare.clone()));
         }
         let change = |f: &DriverFixture| {
             let daemon = f.daemon.clone();
@@ -1824,7 +1817,7 @@ mod driver {
 
         elapse(3).await;
         let before_prepare = change(&f);
-        challenge.reached.notified().await;
+        prepare.reached.notified().await;
         let later = f.journal();
         assert!(later.native_started);
         assert_eq!(later.generation, prior.generation);
@@ -1832,14 +1825,14 @@ mod driver {
         assert!(f.cloud_opted_in());
         before_prepare.abort();
         let _ = before_prepare.await;
-        challenge.release.notify_one();
+        prepare.release.notify_one();
 
         f.step().await;
         assert_eq!(
             f.state.lock().unwrap().intent_ids,
             [prior.request.clone(), prior.request]
         );
-        assert_eq!(f.calls(), (2, 1, 0, 0));
+        assert_eq!(f.calls(), (2, 2, 0, 0));
         assert_eq!(f.asked.0.load(Ordering::SeqCst), 1);
         f.close().await;
     }
