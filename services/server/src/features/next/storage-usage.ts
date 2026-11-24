@@ -118,7 +118,7 @@ export interface FileAllocation {
  * account has room for. The account can overshoot its plan only when several
  * collections upload before the next pass, by at most what was left in each; the
  * next pass then sets every collection's headroom to 0, and files over the plan
- * are kept.
+ * are kept. Records the account's file bytes for the usage report in both modes.
  */
 export async function allocateFileQuotas(
   db: DatabaseQueryable,
@@ -139,6 +139,11 @@ export async function allocateFileQuotas(
   const limitBytes = (await effectiveEntitlement(db, owner))?.hostedStorageBytes ?? 0;
   const fileBytes = statuses.reduce((total, status) => total + status.fileBytes, 0);
   const headroomBytes = Math.max(0, limitBytes - fileBytes);
+  await db.query(
+    `INSERT INTO account_file_usage (user_id, file_bytes) VALUES ($1, $2)
+     ON CONFLICT (user_id) DO UPDATE SET file_bytes = EXCLUDED.file_bytes`,
+    [owner, fileBytes]
+  );
   if (mode === "enforce") {
     for (const status of statuses) {
       if (status.fileQuotaBytes - status.fileBytes !== headroomBytes) await log.setFileHeadroom(status.id, headroomBytes);
@@ -147,7 +152,11 @@ export async function allocateFileQuotas(
   return { owner, limitBytes, fileBytes, headroomBytes, collections: statuses.length };
 }
 
-/** Allocates every owner with collections. One owner's failure doesn't stop the others. */
+/**
+ * Allocates every owner with collections. One owner's failure doesn't stop the
+ * others. Afterwards it drops the measurement of any account that no longer
+ * holds a collection, which no pass would otherwise visit again.
+ */
 async function sweepFileQuotas(
   db: DatabaseQueryable,
   log: Pick<LogServiceClient, "storageStatus" | "setFileHeadroom">,
@@ -170,8 +179,12 @@ async function sweepFileQuotas(
       }
       after = owner;
     }
-    if (page.rows.length < SWEEP_PAGE) return;
+    if (page.rows.length < SWEEP_PAGE) break;
   }
+  await db.query(
+    `DELETE FROM account_file_usage u
+     WHERE NOT EXISTS (SELECT 1 FROM next_collections n WHERE n.owner_user_id = u.user_id AND ${HELD})`
+  );
 }
 
 /** Keeps file quotas in line with plans, catching up on grants that start or end and collections that come and go. */

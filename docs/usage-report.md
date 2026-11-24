@@ -51,6 +51,7 @@ production.
 | `consent` | `authorization_requests` expiring in the window | Whether the approval screen loses people. `abandoned_before_sign_in` counts requests that never reached a signed-in account. A denial is counted as `denied`, never as approved. |
 | `consent_by_flow` | the same requests split by `authorization_code` and `device_code` | Which authorization flow loses people. |
 | `collections` | `collections`, `hosted_collections`, `next_collections` | Local, hosted, and native adoption. |
+| `storage` | `account_file_usage`, written by the hourly file quota pass, and active `account_entitlement_grants` | Whether Free's storage limits anyone, before and after the first-month trial. See [Storage](#storage). |
 | `transport_users_in_window` | `protocol_usage_telemetry` for direct and relay; the hosted provider's protocol usage, mapped through `account_storage_accounts`, for hosted; `device_activity_days` by device kind for `native` | Direct, relay, hosted, and native reliance. `hosted` is `null` when no provider is configured. |
 | `retention` | `users.created_at`, `access_tokens` issuance days, and `device_activity_days` | Whether people come back after setup. |
 | `applications` | `grants`, `applications`, `authorization_requests`, `access_tokens`, `installation_device_pairings`, `installation_device_credentials` and `device_activity_days` through them | Which applications are connected and in use, and which lose people at consent. |
@@ -108,6 +109,26 @@ sync, and with no deletion fact.
 - `created_in_window`: collections created here, excluding migrated ones, whose
   `created_at` is the migration time.
 - `active_in_window`: collections a device refreshed a log token for.
+
+## Storage
+
+`storage` counts accounts by the uploaded-file bytes the file quota pass last
+measured, across the native collections they own. Log text and snapshots do not
+count, as they do not count towards a plan. The pass runs hourly while
+`MDBASE_NEXT_FILE_QUOTA` is set, writes one number per account it allocates, and
+deletes it once the account holds no collection, so an account appears here
+when it owns a native collection and has been measured at least once.
+
+Accounts are split by plan:
+
+- `trial`: Free with the first-month storage trial still running.
+- `free`: Free and nothing else, so storage is Free's.
+- `other`: any other plan (beta, open beta, Plus, operator), or no grant.
+
+Each holds `accounts`, `with_files` (more than 0 bytes) and the cumulative
+`at_least_25_mib`, `at_least_250_mib` (Free's storage), `at_least_1_gib` and
+`at_least_5_gib` (the trial's). The figures are as of the last pass, not over
+the window.
 
 ## Consent installations
 

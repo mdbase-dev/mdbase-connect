@@ -134,7 +134,8 @@ frequency. They must not receive exact Markdown or body prose from the projectio
 Logs and telemetry may record bounded counts and timing, never projection payloads.
 The operator usage report reads only control-plane lifecycle rows (accounts,
 pairing and authorization requests, grants, token issuance times, protocol
-counts, the day a device was active, a collection's last active day) and returns
+counts, the day a device was active, a collection's last active day, an
+account's current uploaded-file bytes) and returns
 aggregates; its inputs are deleted 395 days after they stop mattering to
 authorization. Device days and collection days are kept apart, so they give no
 history of which account used which collection. See [Usage report](usage-report.md).

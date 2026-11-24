@@ -1,5 +1,6 @@
 import { MAX_AUTHORIZATION_LIFETIME_MS } from "../../application-authorization.js";
 import type { DatabasePool } from "../../db.js";
+import { FREE_ENTITLEMENT_PROFILE, TRIAL_ENTITLEMENT_PROFILE } from "../account/entitlements.js";
 import {
   isoTimestamp,
   reportWindowDays
@@ -21,6 +22,15 @@ const MAX_RETENTION_COHORTS = 52;
 // Release canaries and test fixtures register real applications and start real
 // requests. They are listed in `applications`, flagged, and left out of totals.
 const SYNTHETIC_FAMILY = /^bundle:dev\.mdbase\.(release-canary|test)(\.|$)/;
+const MIB = 1024 * 1024;
+// Cumulative, so each figure reads on its own: 250 MiB is the Free plan's
+// storage and 5 GiB the first-month trial's.
+const FILE_BYTES_AT_LEAST = {
+  at_least_25_mib: 25 * MIB,
+  at_least_250_mib: 250 * MIB,
+  at_least_1_gib: 1024 * MIB,
+  at_least_5_gib: 5 * 1024 * MIB
+} as const;
 
 interface GrantRow {
   id: string;
@@ -101,7 +111,9 @@ export async function usageReport(
     transports,
     authorizations,
     pairings,
-    pairingChallenges
+    pairingChallenges,
+    fileUsage,
+    entitlementGrants
   ] = await Promise.all([
     db.query<{
       id: string;
@@ -271,6 +283,16 @@ export async function usageReport(
        JOIN pairing_requests p ON p.id = i.pairing_id
        WHERE p.expires_at >= $1`,
       [new Date(start - MAX_AUTHORIZATION_LIFETIME_MS)]
+    ),
+    // Written by the hourly file quota pass, for accounts holding a native
+    // collection: uploaded files only, not log text or snapshots.
+    db.query<{ user_id: string; file_bytes: string | number }>(
+      "SELECT user_id, file_bytes FROM account_file_usage"
+    ),
+    db.query<{ user_id: string; profile_code: string }>(
+      `SELECT user_id, profile_code FROM account_entitlement_grants
+       WHERE revoked_at IS NULL AND starts_at <= now()
+         AND (ends_at IS NULL OR ends_at > now())`
     )
   ]);
 
@@ -302,6 +324,7 @@ export async function usageReport(
   withoutTestAccounts(transports, (row) => row.user_id);
   withoutTestAccounts(authorizations, (row) => row.user_id);
   withoutTestAccounts(pairings, (row) => row.user_id);
+  withoutTestAccounts(fileUsage, (row) => row.user_id);
   const companionNonces = new Set(
     pairingChallenges.rows.map((row) => row.challenge.toString("base64url"))
   );
@@ -515,6 +538,38 @@ export async function usageReport(
     });
   }
 
+  const activeProfiles = new Map<string, Set<string>>();
+  for (const row of entitlementGrants.rows) {
+    const codes = activeProfiles.get(row.user_id) ?? new Set<string>();
+    codes.add(row.profile_code);
+    activeProfiles.set(row.user_id, codes);
+  }
+  // `trial` and `free` hold Free and nothing above it, so their storage drops,
+  // or has dropped, to Free's; `other` is every other plan (beta, Plus, operator).
+  const storageSegment = (userId: string): "trial" | "free" | "other" => {
+    const codes = [...activeProfiles.get(userId) ?? []];
+    if (codes.length === 0 || codes.some((code) =>
+      code !== FREE_ENTITLEMENT_PROFILE && code !== TRIAL_ENTITLEMENT_PROFILE
+    )) return "other";
+    return codes.includes(TRIAL_ENTITLEMENT_PROFILE) ? "trial" : "free";
+  };
+  const emptyStorage = () => ({
+    accounts: 0,
+    with_files: 0,
+    ...Object.fromEntries(Object.keys(FILE_BYTES_AT_LEAST).map((key) => [key, 0])) as
+      Record<keyof typeof FILE_BYTES_AT_LEAST, number>
+  });
+  const storage = { trial: emptyStorage(), free: emptyStorage(), other: emptyStorage() };
+  for (const row of fileUsage.rows) {
+    const bytes = Number(row.file_bytes);
+    const counts = storage[storageSegment(row.user_id)];
+    counts.accounts += 1;
+    if (bytes > 0) counts.with_files += 1;
+    for (const [key, threshold] of Object.entries(FILE_BYTES_AT_LEAST)) {
+      if (bytes >= threshold) counts[key as keyof typeof FILE_BYTES_AT_LEAST] += 1;
+    }
+  }
+
   const recentSignups = betaSignups
     .filter((userId) => userCreatedAt.get(userId)! >= start)
     .sort((left, right) => userCreatedAt.get(right)! - userCreatedAt.get(left)!);
@@ -591,6 +646,7 @@ export async function usageReport(
         ).length
       }
     },
+    storage,
     transport_users_in_window: {
       direct: surfaceUsers("direct"),
       relay: surfaceUsers("relay"),

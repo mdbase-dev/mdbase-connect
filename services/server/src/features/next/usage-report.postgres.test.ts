@@ -4,6 +4,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { runAuthAdminCommand } from "../../auth-admin.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { pruneUsageHistory } from "../usage/usage-report.js";
+import { LogServiceError } from "./log-service-client.js";
+import { FileQuotaWorker } from "./storage-usage.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -78,6 +80,25 @@ describePg("usage report on PostgreSQL", () => {
       [randomUUID(), user, application, kept, randomUUID()]
     );
 
+    // The file quota pass measures the account that holds a collection and drops
+    // one that no longer does.
+    const departed = randomUUID();
+    await db.query("INSERT INTO users (id, email, name) VALUES ($1, $2, 'Person')", [departed, `${departed}@example.test`]);
+    await db.query("INSERT INTO account_file_usage (user_id, file_bytes) VALUES ($1, 9)", [departed]);
+    const storageStatus = async (id: string) => {
+      if (id !== kept) throw new LogServiceError("gone", undefined);
+      return { usedBytes: 0, quotaBytes: 0, fileBytes: 300 * 1024 * 1024, fileQuotaBytes: 0 };
+    };
+    const errors: unknown[] = [];
+    const worker = new FileQuotaWorker(db, { storageStatus, setFileHeadroom: async () => { throw new Error("report only"); } },
+      "report", () => {}, (error) => errors.push(error));
+    worker.start();
+    await worker.close();
+    expect(errors).toEqual([]);
+    const measured = await db.query<{ user_id: string; file_bytes: string }>("SELECT user_id, file_bytes FROM account_file_usage");
+    expect(measured.rows).toEqual([{ user_id: user, file_bytes: String(300 * 1024 * 1024) }]);
+    await db.query("DELETE FROM users WHERE id = $1", [departed]);
+
     const report = await runAuthAdminCommand(
       ["usage", "report", "--days", "30"],
       { db, defaultRegistrationMode: "closed" }
@@ -86,6 +107,7 @@ describePg("usage report on PostgreSQL", () => {
     expect(report.activation.all_accounts).toEqual({
       accounts: 1, paired_computer: 1, collection: 1, grant: 1, active_in_window: 1
     });
+    expect(report.storage.other).toMatchObject({ accounts: 1, with_files: 1, at_least_250_mib: 1, at_least_1_gib: 0 });
     expect(report.collections.native).toMatchObject({ total: 1, private: 1, active_in_window: 1 });
     expect(report.transport_users_in_window.native).toMatchObject({ desktop: 1 });
     expect(report.applications[0]).toMatchObject({ name: "Tasks", native_active_grants: 1, local_active_grants: 0 });
