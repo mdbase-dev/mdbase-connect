@@ -1522,6 +1522,7 @@ impl<S: Store> Replica<S> {
             Ok(LogResponse::Read(r)) => {
                 self.connection = Connection::Online;
                 self.head_known = self.head_known.max(r.head);
+                self.stall_read.observe_head(r.head);
                 if r.behind {
                     // A replica at H can read H + 1 whenever the service retains it;
                     // `behind` with retained_from ≤ H + 1 contradicts the answer
