@@ -1014,7 +1014,8 @@ impl<S: Store> Replica<S> {
         if derived_version < crate::store::DERIVED_DATA_VERSION && !r.is_hosted() {
             // Reuse the catalog rebuild; never reset authoritative local state.
             // Stamp only after ALL pages succeed so an interrupted open retries.
-            r.reindex().map_err(|e| OpenError::StoreAt("reindex", e))?;
+            r.reindex(Some(query_index::Reindex::All))
+                .map_err(|e| OpenError::StoreAt("reindex", e))?;
             r.store.commit(crate::store::Tx {
                 meta: vec![(
                     meta_keys::DERIVED_VERSION.into(),
@@ -1042,7 +1043,8 @@ impl<S: Store> Replica<S> {
                 hosted.reindex_stamp = Some(stamp);
                 r.hosted_reindex_step()?;
             } else {
-                r.reindex().map_err(OpenError::Store)?;
+                r.reindex(Some(query_index::Reindex::Changed))
+                    .map_err(OpenError::Store)?;
             }
         }
         // A store opened without a complete query index (older store, crash after

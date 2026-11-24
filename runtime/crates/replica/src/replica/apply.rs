@@ -114,7 +114,9 @@ struct EffectStage {
 /// What staging the entry's metadata and receipt rows decides for the commit.
 struct MetaStage {
     catalog: std::sync::Arc<mdbn_core::types::Catalog>,
-    hosted_reindex_stamp: Option<Vec<u8>>,
+    /// The record-meta stamp of the catalog the entry leaves, when it differs
+    /// from the stored one: records must be indexed again.
+    reindex_stamp: Option<Vec<u8>>,
     receipt_conflicts: Vec<mdbn_wire::entry::Conflict>,
     log_time: i64,
     ratchet: u64,
@@ -1677,7 +1679,7 @@ impl<S: Store> Replica<S> {
         tx: &mut Tx,
     ) -> Result<MetaStage, StoreError> {
         // Record metadata under the catalog after this entry's resource effects.
-        let (catalog, hosted_reindex_stamp) = if catalog_changed {
+        let (catalog, reindex_stamp) = if catalog_changed {
             let mut rs: std::collections::BTreeMap<String, String> =
                 self.store.resources()?.into_iter().collect();
             for p in &tx.resources_del {
@@ -1688,12 +1690,16 @@ impl<S: Store> Replica<S> {
             }
             let resources: Vec<_> = rs.into_iter().collect();
             let catalog = crate::plan::compile_catalog(&resources);
-            let stamp = if self.is_hosted() {
-                let stamp = crate::plan::record_meta_stamp(&catalog);
-                (self.store.meta(meta_keys::RECORD_META)?.as_ref() != Some(&stamp)).then_some(stamp)
-            } else {
-                None
-            };
+            // A change that leaves every input of `record_meta` alone (a schema,
+            // a contract) leaves every record's metadata as it is.
+            let stamp = crate::plan::record_meta_stamp(&catalog);
+            let stamp = (self.store.meta(meta_keys::RECORD_META)?.as_ref() != Some(&stamp))
+                .then_some(stamp);
+            if stamp.is_some() && !self.is_hosted() {
+                // The device reindexes right after this commit. Until it stamps
+                // the new catalog, no stamp claims the rows it has not reached.
+                tx.meta.push((meta_keys::RECORD_META.into(), None));
+            }
             (std::sync::Arc::new(catalog), stamp)
         } else {
             (self.catalog.clone(), None)
@@ -1744,7 +1750,7 @@ impl<S: Store> Replica<S> {
             .push((meta_keys::LOG_STATE.into(), log_state(log_time, ratchet)));
         Ok(MetaStage {
             catalog,
-            hosted_reindex_stamp,
+            reindex_stamp,
             receipt_conflicts,
             log_time,
             ratchet,
@@ -1903,7 +1909,7 @@ impl<S: Store> Replica<S> {
     ) -> Result<Outcome, StoreError> {
         let MetaStage {
             catalog,
-            hosted_reindex_stamp,
+            reindex_stamp,
             receipt_conflicts,
             log_time,
             ratchet,
@@ -1973,23 +1979,31 @@ impl<S: Store> Replica<S> {
         self.query_context = query_context;
         self.log_time = log_time;
         self.sem_ratchet_set(ratchet);
+        // The entry is committed: a later typed abort cannot certify that the
+        // apply changed nothing.
+        let committed = |error| match error {
+            StoreError::CommitAborted(reason) => StoreError::Io(reason),
+            other => other,
+        };
         if catalog_changed {
             self.catalog = catalog;
             if let Some(hosted) = self.hosted.as_mut() {
-                hosted.reindex_stamp = hosted_reindex_stamp;
+                hosted.reindex_stamp = reindex_stamp;
             } else {
-                self.reindex()?;
+                // Records whose metadata the catalog changes are written back
+                // with the projection the index's new generation needs.
+                let rederive = reindex_stamp.map(|_| super::query_index::Reindex::Changed);
+                self.reindex(rederive).map_err(committed)?;
             }
             self.reset_feed();
             // Every pending row plans under the new catalog.
             changed.extend(self.pending_keys.values().flatten().cloned());
         }
-        if deferred_projection {
+        // A device whose rebuild met a value too long for an index key narrows
+        // the index here.
+        if deferred_projection || (catalog_changed && !self.is_hosted()) {
             self.backfill_query_index_within_budget()
-                .map_err(|error| match error {
-                    StoreError::CommitAborted(reason) => StoreError::Io(reason),
-                    other => other,
-                })?;
+                .map_err(committed)?;
         }
         if relocated_from.is_some() {
             self.resurrected.remove(&payload.mutation.id);
@@ -2682,55 +2696,6 @@ impl<S: Store> Replica<S> {
         *catalog_changed = true;
         tx.resources_put.push((r.path.clone(), doc.clone()));
         Ok(ControlFlow::Continue(()))
-    }
-
-    /// Recompute every record's index entries under the current catalog, then
-    /// stamp which catalog they were derived under. The pages and the stamp share
-    /// one deferred-durability window: the stamp is written last, so a crash
-    /// leaves it missing and the next open reindexes again.
-    pub(super) fn reindex(&mut self) -> Result<(), StoreError> {
-        self.with_deferred_durability(Self::reindex_pages)
-    }
-
-    fn reindex_pages(&mut self) -> Result<(), StoreError> {
-        let mut after = None;
-        loop {
-            let page = self
-                .store
-                .records(crate::store::Page { after, limit: 128 })?;
-            let Some(l) = page.last() else {
-                break;
-            };
-            after = Some(l.id);
-            let rows: Vec<RecordRow> = page
-                .into_iter()
-                .map(|mut r| {
-                    r.meta = record_meta(&self.catalog, &r.path, &r.doc);
-                    r
-                })
-                .collect();
-            self.stats.reindexed += rows.len() as u64;
-            for rows in super::query_index::byte_batches(rows) {
-                let mut tx = Tx {
-                    records_put: rows,
-                    ..Tx::default()
-                };
-                let context = self
-                    .prepare_query_index(&mut tx)
-                    .map_err(|error| match error {
-                        StoreError::CommitAborted(reason) => StoreError::Io(reason),
-                        other => other,
-                    })?;
-                self.store.commit(tx)?;
-                self.query_context = context;
-            }
-        }
-        let stamp = crate::plan::record_meta_stamp(&self.catalog);
-        self.store.commit(Tx {
-            meta: vec![(crate::store::meta_keys::RECORD_META.into(), Some(stamp))],
-            ..Tx::default()
-        })?;
-        Ok(())
     }
 
     /// Count and report a re-planned entry whose recorded results differ.

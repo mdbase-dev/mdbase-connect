@@ -457,6 +457,15 @@ fn submit_validation_param_overrides_the_collection_level() {
 /// without one.
 fn collection_unique() -> (FakeLogService, Node) {
     let service = FakeLogService::new();
+    let mut a = node(&service, 1, unique_store());
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+    assert!(a.r.catalog.is_valid(), "{:?}", a.r.catalog.issues());
+    (service, a)
+}
+
+/// A store holding `collection_unique`'s Task (unique slug) and Note types.
+fn unique_store() -> MemStore {
     let mut store = MemStore::new();
     let task = "---\nkind: mdbase.type\nname: Task\nmatch:\n  path_glob: 'tasks/**/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\ncollection:\n  unique:\n    - field: slug\n      enforce: report\n      scope: collection\n---\n";
     let note = "---\nkind: mdbase.type\nname: Note\nmatch:\n  path_glob: 'notes/**/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
@@ -470,11 +479,7 @@ fn collection_unique() -> (FakeLogService, Node) {
             ..Tx::default()
         })
         .unwrap();
-    let mut a = node(&service, 1, store);
-    a.r.planner = Box::new(crate::plan::CorePlanner);
-    settle(&mut [&mut a]);
-    assert!(a.r.catalog.is_valid(), "{:?}", a.r.catalog.issues());
-    (service, a)
+    store
 }
 
 #[test]
@@ -665,6 +670,173 @@ fn validation_index_is_rederived_on_open_when_stale() {
             .unwrap()
             .is_some()
     );
+}
+
+/// Put a type definition; the submit is accepted.
+fn put_type(a: &mut Node, path: &str, doc: &str) {
+    let receipts =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::ResourcePut(ResourcePut {
+                    path: path.into(),
+                    doc: Text::Inline(doc.into()),
+                    base_revision: None,
+                    must_not_exist: None,
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+    assert!(receipts[0].problem.is_none(), "{:?}", receipts[0].problem);
+}
+
+const IDEA: &str = "---\nkind: mdbase.type\nname: Idea\nmatch:\n  path_glob: 'ideas/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+
+/// A writer and a catching-up device over `collection_unique`, with two
+/// tasks, a note and an untyped idea.
+fn catalog_pair() -> (FakeLogService, Node, Node) {
+    let (service, mut a) = collection_unique();
+    a.create(10, "tasks/a.md", "---\nslug: x\n---\n");
+    a.create(11, "tasks/b.md", "---\nslug: y\n---\n");
+    a.create(12, "notes/n.md", "---\ntitle: n\n---\n[[a]]\n");
+    a.create(13, "ideas/i.md", "---\ntitle: i\n---\n");
+    settle(&mut [&mut a]);
+    let mut b = node(&service, 2, unique_store());
+    b.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.store.record_count().unwrap(), 4);
+    (service, a, b)
+}
+
+/// Every record's stored metadata is the one the device's catalog derives, and
+/// the stamp names that catalog.
+fn assert_metadata_current(b: &Node) {
+    let rows =
+        b.r.store
+            .records(crate::store::Page {
+                after: None,
+                limit: 100,
+            })
+            .unwrap();
+    for row in rows {
+        assert_eq!(
+            row.meta,
+            crate::plan::record_meta(&b.r.catalog, &row.path, &row.doc),
+            "{}",
+            row.path
+        );
+    }
+    assert_eq!(
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap(),
+        Some(crate::plan::record_meta_stamp(&b.r.catalog))
+    );
+}
+
+/// A schema change leaves every input of record metadata alone: a device
+/// applying it writes no record and keeps the stamp.
+#[test]
+fn a_schema_only_catalog_change_rewrites_no_record_on_a_device() {
+    let (_service, mut a, mut b) = catalog_pair();
+    let stamp =
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap();
+    let written = b.r.store.data().borrow().records_written;
+    let reindexed = b.r.stats.reindexed;
+    let note = a.r.store.resource("_types/note.md").unwrap().unwrap();
+    put_type(
+        &mut a,
+        "_types/note.md",
+        &note.replace(
+            "value: {type: object}",
+            "value: {type: object, required: [title]}",
+        ),
+    );
+    settle(&mut [&mut a, &mut b]);
+    assert!(
+        b.r.store
+            .resource("_types/note.md")
+            .unwrap()
+            .unwrap()
+            .contains("required"),
+        "the change is applied"
+    );
+    assert_eq!(b.r.store.data().borrow().records_written, written);
+    assert_eq!(b.r.stats.reindexed, reindexed, "no record is visited");
+    assert_eq!(
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap(),
+        stamp
+    );
+    assert_metadata_current(&b);
+}
+
+/// A new type that matches one record: a device applying it writes that record
+/// back and no other, and reads of the metadata see the new type at once.
+#[test]
+fn a_catalog_change_rewrites_only_the_records_whose_metadata_it_changes() {
+    let (_service, mut a, mut b) = catalog_pair();
+    let written = b.r.store.data().borrow().records_written;
+    let reindexed = b.r.stats.reindexed;
+    put_type(&mut a, "_types/idea.md", IDEA);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        b.r.stats.reindexed - reindexed,
+        4,
+        "every record is visited"
+    );
+    assert_eq!(
+        b.r.store.data().borrow().records_written - written,
+        1,
+        "only the idea is written"
+    );
+    let idea = b.r.store.record(&B16([13; 16])).unwrap().unwrap();
+    assert_eq!(idea.meta.types, ["Idea"]);
+    let key = crate::plan::value_key(&mdbn_core::value::Value::Text("x".into()));
+    assert_eq!(b.r.store.unique_holders("slug", &key).unwrap().len(), 1);
+    assert_metadata_current(&b);
+}
+
+/// A device that stops right after committing a catalog entry (before writing
+/// any record back) left no stamp for rows it had not reached; the next open
+/// rederives them.
+#[test]
+fn a_device_stopped_after_a_catalog_entry_reindexes_on_open() {
+    let (service, mut a, mut b) = catalog_pair();
+    put_type(&mut a, "_types/idea.md", IDEA);
+    settle(&mut [&mut a]);
+    let seq = a.r.head().seq;
+    b.r.store.fail_after_head_commit(seq);
+    settle(&mut [&mut b]);
+    assert_eq!(b.r.store.head().unwrap().seq, seq, "the entry committed");
+    assert!(
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap()
+            .is_none(),
+        "no stamp claims the rows"
+    );
+    let idea = b.r.store.record(&B16([13; 16])).unwrap().unwrap();
+    assert!(idea.meta.types.is_empty(), "not reached");
+    let data = b.r.store.data();
+    drop(b);
+    let mut b = node(&service, 2, MemStore::shared(data));
+    b.r.planner = Box::new(crate::plan::CorePlanner);
+    let idea = b.r.store.record(&B16([13; 16])).unwrap().unwrap();
+    assert_eq!(idea.meta.types, ["Idea"]);
+    assert_metadata_current(&b);
 }
 
 fn update_body(a: &mut Node, id: u8, body: &str) -> mdbn_wire::client::Receipt {
