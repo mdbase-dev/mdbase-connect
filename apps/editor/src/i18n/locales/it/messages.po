@@ -148,6 +148,12 @@ msgid "{0} · {1} (Contact-only)"
 msgstr "{0} · {1} (Solo contatto)"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
+#. placeholder {1}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/FileViewer.tsx
+msgid "{0} · HTML preview is limited to {1}. Use Open original to view this file."
+msgstr "{0} · L’anteprima HTML è limitata a {1}. Usa Apri originale per visualizzare questo file."
+
+#. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
 msgstr "{0} · Anteprima non disponibile. Usa Apri originale per visualizzare questo file."
@@ -2902,6 +2908,24 @@ msgstr "Come vengono assegnate le note a questo tipo."
 msgid "How this type appears and behaves across compatible tools."
 msgstr "Come questo tipo appare e si comporta negli strumenti compatibili."
 
+#: src/FileViewer.tsx
+msgid "HTML file view"
+msgstr "Vista file HTML"
+
+#. placeholder {0}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/code-editor-file-embeds.ts
+msgid "HTML preview is limited to {0}."
+msgstr "L’anteprima HTML è limitata a {0}."
+
+#: src/code-editor-file-embeds.ts
+#: src/FileViewer.tsx
+msgid "HTML preview, {filename}"
+msgstr "Anteprima HTML, {filename}"
+
+#: src/FileViewer.tsx
+msgid "HTML source, {filename}"
+msgstr "Sorgente HTML, {filename}"
+
 #: src/TypeBrowser.tsx
 msgid "Icon"
 msgstr "Icona"
@@ -4400,6 +4424,11 @@ msgctxt "shortcut settings"
 msgid "Press keys…"
 msgstr "Premi i tasti…"
 
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Preview"
+msgstr "Anteprima"
+
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
@@ -4416,6 +4445,7 @@ msgstr "L'anteprima è limitata a {0}. Scarica questo file {1} per aprirlo."
 msgid "Preview of {0}"
 msgstr "Anteprima di {0}"
 
+#: src/FileViewer.tsx
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
 msgstr "Anteprima troncata. Il file originale completo e verificato è disponibile con Apri originale."
@@ -5307,6 +5337,11 @@ msgstr "Ammorbidisci la punteggiatura lontano dalla riga attiva e rendi le attiv
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
 msgstr "Ordina"
+
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Source"
+msgstr "Sorgente"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."

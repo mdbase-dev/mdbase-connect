@@ -148,6 +148,12 @@ msgid "{0} · {1} (Contact-only)"
 msgstr "{0} · {1}（連絡先のみ）"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
+#. placeholder {1}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/FileViewer.tsx
+msgid "{0} · HTML preview is limited to {1}. Use Open original to view this file."
+msgstr "{0} · HTML プレビューの上限は {1} です。「元のファイルを開く」で表示してください。"
+
+#. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
 msgstr "{0} · プレビューできません。「元のファイルを開く」で表示してください。"
@@ -2902,6 +2908,24 @@ msgstr "ノートをこの型に割り当てる方法です。"
 msgid "How this type appears and behaves across compatible tools."
 msgstr "対応ツールでのこの型の表示と動作です。"
 
+#: src/FileViewer.tsx
+msgid "HTML file view"
+msgstr "HTML ファイルの表示"
+
+#. placeholder {0}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/code-editor-file-embeds.ts
+msgid "HTML preview is limited to {0}."
+msgstr "HTML プレビューの上限は {0} です。"
+
+#: src/code-editor-file-embeds.ts
+#: src/FileViewer.tsx
+msgid "HTML preview, {filename}"
+msgstr "HTML プレビュー、{filename}"
+
+#: src/FileViewer.tsx
+msgid "HTML source, {filename}"
+msgstr "HTML ソース、{filename}"
+
 #: src/TypeBrowser.tsx
 msgid "Icon"
 msgstr "アイコン"
@@ -4400,6 +4424,11 @@ msgctxt "shortcut settings"
 msgid "Press keys…"
 msgstr "キーを押してください…"
 
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Preview"
+msgstr "プレビュー"
+
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
@@ -4416,6 +4445,7 @@ msgstr "プレビューは{0}までです。この{1}ファイルを開くには
 msgid "Preview of {0}"
 msgstr "{0}のプレビュー"
 
+#: src/FileViewer.tsx
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
 msgstr "表示用プレビューは途中までです。検証済みの完全な元ファイルは「元のファイルを開く」から利用できます。"
@@ -5307,6 +5337,11 @@ msgstr "現在の行以外の句読点を目立たなくし、タスクをチェ
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
 msgstr "並べ替え"
+
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Source"
+msgstr "ソース"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."

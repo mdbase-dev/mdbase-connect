@@ -148,6 +148,12 @@ msgid "{0} · {1} (Contact-only)"
 msgstr "{0} · {1}（仅联系人）"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
+#. placeholder {1}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/FileViewer.tsx
+msgid "{0} · HTML preview is limited to {1}. Use Open original to view this file."
+msgstr "{0} · HTML 预览上限为 {1}。请使用“打开原文件”查看此文件。"
+
+#. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
 msgstr "{0} · 无法预览。请使用“打开原文件”查看此文件。"
@@ -2902,6 +2908,24 @@ msgstr "笔记如何归入此类型。"
 msgid "How this type appears and behaves across compatible tools."
 msgstr "此类型在兼容工具中的显示方式和行为。"
 
+#: src/FileViewer.tsx
+msgid "HTML file view"
+msgstr "HTML 文件视图"
+
+#. placeholder {0}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/code-editor-file-embeds.ts
+msgid "HTML preview is limited to {0}."
+msgstr "HTML 预览上限为 {0}。"
+
+#: src/code-editor-file-embeds.ts
+#: src/FileViewer.tsx
+msgid "HTML preview, {filename}"
+msgstr "HTML 预览，{filename}"
+
+#: src/FileViewer.tsx
+msgid "HTML source, {filename}"
+msgstr "HTML 源码，{filename}"
+
 #: src/TypeBrowser.tsx
 msgid "Icon"
 msgstr "图标"
@@ -4400,6 +4424,11 @@ msgctxt "shortcut settings"
 msgid "Press keys…"
 msgstr "请按键…"
 
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Preview"
+msgstr "预览"
+
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
@@ -4416,6 +4445,7 @@ msgstr "预览大小上限为 {0}。请下载这个大小为 {1} 的文件以打
 msgid "Preview of {0}"
 msgstr "{0} 的预览"
 
+#: src/FileViewer.tsx
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
 msgstr "显示的预览已截断。点击“打开原文件”可查看经过验证的完整原文件。"
@@ -5307,6 +5337,11 @@ msgstr "淡化非当前行的标点，并让任务可以勾选。"
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
 msgstr "排序"
+
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Source"
+msgstr "源码"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."

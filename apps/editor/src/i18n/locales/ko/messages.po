@@ -148,6 +148,12 @@ msgid "{0} · {1} (Contact-only)"
 msgstr "{0} · {1} (연락처 전용)"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
+#. placeholder {1}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/FileViewer.tsx
+msgid "{0} · HTML preview is limited to {1}. Use Open original to view this file."
+msgstr "{0} · HTML 미리보기는 {1}까지 지원됩니다. 이 파일을 보려면 원본 열기를 사용하세요."
+
+#. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
 msgstr "{0} · 미리보기를 사용할 수 없습니다. 이 파일을 보려면 원본 열기를 사용하세요."
@@ -2902,6 +2908,24 @@ msgstr "노트를 이 유형에 할당하는 방법입니다."
 msgid "How this type appears and behaves across compatible tools."
 msgstr "호환 도구에서 이 유형이 표시되고 동작하는 방식입니다."
 
+#: src/FileViewer.tsx
+msgid "HTML file view"
+msgstr "HTML 파일 보기"
+
+#. placeholder {0}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/code-editor-file-embeds.ts
+msgid "HTML preview is limited to {0}."
+msgstr "HTML 미리보기는 {0}까지 지원됩니다."
+
+#: src/code-editor-file-embeds.ts
+#: src/FileViewer.tsx
+msgid "HTML preview, {filename}"
+msgstr "HTML 미리보기, {filename}"
+
+#: src/FileViewer.tsx
+msgid "HTML source, {filename}"
+msgstr "HTML 소스, {filename}"
+
 #: src/TypeBrowser.tsx
 msgid "Icon"
 msgstr "아이콘"
@@ -4400,6 +4424,11 @@ msgctxt "shortcut settings"
 msgid "Press keys…"
 msgstr "키를 누르세요…"
 
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Preview"
+msgstr "미리보기"
+
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
@@ -4416,6 +4445,7 @@ msgstr "미리보기는 {0}(으)로 제한됩니다. 열려면 이 {1} 파일을
 msgid "Preview of {0}"
 msgstr "{0} 미리보기"
 
+#: src/FileViewer.tsx
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
 msgstr "표시용 미리보기가 잘렸습니다. 원본 열기를 사용하면 검증된 전체 원본을 볼 수 있습니다."
@@ -5307,6 +5337,11 @@ msgstr "현재 줄 바깥의 문장 부호를 약하게 표시하고 작업을 �
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
 msgstr "정렬"
+
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Source"
+msgstr "소스"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."

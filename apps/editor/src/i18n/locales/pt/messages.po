@@ -148,6 +148,12 @@ msgid "{0} · {1} (Contact-only)"
 msgstr "{0} · {1} (somente contato)"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
+#. placeholder {1}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/FileViewer.tsx
+msgid "{0} · HTML preview is limited to {1}. Use Open original to view this file."
+msgstr "{0} · A prévia de HTML é limitada a {1}. Use Abrir original para visualizar este arquivo."
+
+#. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
 msgstr "{0} · Prévia indisponível. Use Abrir original para visualizar este arquivo."
@@ -2902,6 +2908,24 @@ msgstr "Como as notas são atribuídas a este tipo."
 msgid "How this type appears and behaves across compatible tools."
 msgstr "Como este tipo aparece e funciona em ferramentas compatíveis."
 
+#: src/FileViewer.tsx
+msgid "HTML file view"
+msgstr "Visualização de arquivo HTML"
+
+#. placeholder {0}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/code-editor-file-embeds.ts
+msgid "HTML preview is limited to {0}."
+msgstr "A prévia de HTML é limitada a {0}."
+
+#: src/code-editor-file-embeds.ts
+#: src/FileViewer.tsx
+msgid "HTML preview, {filename}"
+msgstr "Prévia de HTML, {filename}"
+
+#: src/FileViewer.tsx
+msgid "HTML source, {filename}"
+msgstr "Código-fonte HTML, {filename}"
+
 #: src/TypeBrowser.tsx
 msgid "Icon"
 msgstr "Ícone"
@@ -4400,6 +4424,11 @@ msgctxt "shortcut settings"
 msgid "Press keys…"
 msgstr "Pressione as teclas…"
 
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Preview"
+msgstr "Prévia"
+
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
@@ -4416,6 +4445,7 @@ msgstr "A prévia está limitada a {0}. Baixe este arquivo {1} para abri-lo."
 msgid "Preview of {0}"
 msgstr "Prévia de {0}"
 
+#: src/FileViewer.tsx
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
 msgstr "Prévia truncada para exibição. O original completo e verificado está disponível em Abrir original."
@@ -5307,6 +5337,11 @@ msgstr "Suavize a pontuação fora da linha ativa e permita marcar tarefas como 
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
 msgstr "Ordenar"
+
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Source"
+msgstr "Código-fonte"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
