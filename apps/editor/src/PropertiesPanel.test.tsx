@@ -19,7 +19,7 @@ vi.mock("./DeferredCodeEditor", async () => ({
 afterEach(() => vi.useRealTimers());
 
 describe("typed note properties", () => {
-  it("shows retyped values and saves only after explicit valid replacements", async () => {
+  it("shows values that are not what the type says and saves only once each is put right", async () => {
     vi.useFakeTimers();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const note = { ...eventNote, frontmatter: { rating: 49, tags: "original", title: "Before" } };
@@ -27,43 +27,42 @@ describe("typed note properties", () => {
       rating: { type: "string" }, tags: { type: "array", items: { type: "string" } }, title: { type: "string" }
     } } };
     const view = render(<PropertiesPanel note={note} types={[type]} onClose={vi.fn()} onSave={onSave} />);
-    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
-    const tags = screen.getByRole("textbox", { name: "tags value JSON value" });
+    const rating = screen.getByRole("textbox", { name: "rating" });
     expect(rating).toHaveValue("49");
-    expect(tags).toHaveValue('"original"');
-    expect(screen.getByText(/doesn't match type string/)).toBeVisible();
-    expect(screen.getByText(/doesn't match type array/)).toBeVisible();
-    fireEvent.change(screen.getByLabelText("title value"), { target: { value: "After" } });
+    expect(screen.getByRole("button", { name: "Remove original" })).toBeVisible();
+    expect(screen.getByText("Enter text.")).toBeVisible();
+    expect(screen.getByText("Enter a list.")).toBeVisible();
+    commit(screen.getByRole("textbox", { name: "title" }), "After");
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(onSave).not.toHaveBeenCalled();
-    fireEvent.change(rating, { target: { value: '"49"' } });
-    fireEvent.blur(rating);
-    expect(screen.getByLabelText("rating value JSON value")).toBe(rating);
-    expect(rating).toHaveValue('"49"');
-    fireEvent.change(tags, { target: { value: "[" } });
+    // Enter says the number is right as the text it reads as.
+    rating.focus();
+    fireEvent.keyDown(rating, { key: "Enter" });
+    expect(screen.queryByText("Enter text.")).toBeNull();
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(onSave).not.toHaveBeenCalled();
-    fireEvent.change(tags, { target: { value: '["original"]' } });
-    fireEvent.blur(tags);
+    const tags = screen.getByRole("textbox", { name: "tags" });
+    fireEvent.change(tags, { target: { value: "next" } });
+    fireEvent.keyDown(tags, { key: "Enter" });
     await act(async () => vi.advanceTimersByTime(500));
-    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49", tags: ["original"], title: "After" });
+    expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49", tags: ["original", "next"], title: "After" });
     view.unmount();
   });
 
-  it("keeps correction focused and never autosaves a transient empty JSON string", async () => {
+  it("keeps the keyboard in a field being retyped and saves nothing until it is left", async () => {
     vi.useFakeTimers();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const note = { ...eventNote, frontmatter: { rating: 49 } };
     render(<PropertiesPanel note={note}
       types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" } } } }]}
       onClose={vi.fn()} onSave={onSave} />);
-    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
+    const rating = screen.getByRole("textbox", { name: "rating" });
     rating.focus();
-    fireEvent.change(rating, { target: { value: '""' } });
+    fireEvent.change(rating, { target: { value: "" } });
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(rating).toHaveFocus();
     expect(onSave).not.toHaveBeenCalled();
-    fireEvent.change(rating, { target: { value: '"49 stars"' } });
+    fireEvent.change(rating, { target: { value: "49 stars" } });
     expect(rating).toHaveFocus();
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(onSave).not.toHaveBeenCalled();
@@ -79,36 +78,36 @@ describe("typed note properties", () => {
     render(<PropertiesPanel note={note}
       types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: ["string", "null"] } } } }]}
       onClose={vi.fn()} onSave={onSave} />);
-    const rating = screen.getByRole("textbox", { name: "rating value JSON value" });
+    const rating = screen.getByRole("textbox", { name: "rating" });
     expect(rating).toHaveValue("49");
-    expect(screen.getByText(/doesn't match type string \| null/)).toBeVisible();
-    fireEvent.change(rating, { target: { value: '"49"' } });
-    fireEvent.blur(rating);
+    expect(screen.getByText("Enter text.")).toBeVisible();
+    rating.focus();
+    fireEvent.keyDown(rating, { key: "Enter" });
     await act(async () => vi.advanceTimersByTime(500));
     expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { rating: "49" });
   });
 
-  it("clears invalid JSON validation when the property is removed", async () => {
+  it("saves again once a field that was wrong is emptied", async () => {
     vi.useFakeTimers();
     const onSave = vi.fn().mockResolvedValue(undefined);
     const note = { ...eventNote, frontmatter: { rating: 49, title: "Before" } };
     render(<PropertiesPanel note={note}
       types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" }, title: { type: "string" } } } }]}
       onClose={vi.fn()} onSave={onSave} />);
-    fireEvent.change(screen.getByLabelText("rating value JSON value"), { target: { value: '"' } });
-    fireEvent.click(screen.getByRole("button", { name: "Remove rating property" }));
-    fireEvent.change(screen.getByLabelText("title value"), { target: { value: "After" } });
+    commit(screen.getByRole("textbox", { name: "rating" }), "");
+    expect(screen.queryByText("Enter text.")).toBeNull();
+    commit(screen.getByRole("textbox", { name: "title" }), "After");
     await act(async () => vi.advanceTimersByTime(500));
     expect(onSave).toHaveBeenCalledExactlyOnceWith(note.path, { title: "After" });
   });
 
-  it("never flushes a hidden empty replacement when retyped properties are closed", async () => {
+  it("never saves on closing while a field is still wrong", async () => {
     vi.useFakeTimers();
     const onSave = vi.fn();
     const view = render(<PropertiesPanel note={{ ...eventNote, frontmatter: { rating: 49, title: "Before" } }}
       types={[{ ...eventType, schema: { type: "object", properties: { rating: { type: "string" }, title: { type: "string" } } } }]}
       onClose={vi.fn()} onSave={onSave} />);
-    fireEvent.change(screen.getByLabelText("title value"), { target: { value: "After" } });
+    commit(screen.getByRole("textbox", { name: "title" }), "After");
     view.unmount();
     await act(async () => vi.advanceTimersByTime(1_000));
     expect(onSave).not.toHaveBeenCalled();
@@ -132,15 +131,17 @@ describe("typed note properties", () => {
     expect(facts.getByText("Modified").nextElementSibling).not.toHaveTextContent("Unknown");
   });
 
-  it("keeps property saves silent until slow, preserves input focus, and retries failures", async () => {
+  it("keeps property saves silent until slow, leaves the keyboard where it is, and retries failures", async () => {
     vi.useFakeTimers();
     let reject!: (error: Error) => void;
     const onSave = vi.fn().mockImplementationOnce(() => new Promise<void>((_done, fail) => { reject = fail; })).mockResolvedValue(undefined);
     const view = render(<PropertiesPanel note={eventNote} types={[eventType]} body="Forty two words would be a lot to write out here." onClose={() => {}} onSave={onSave} />);
     expect(screen.getByText("Words").nextElementSibling).toHaveTextContent("11");
-    const input = screen.getByLabelText("event_date value");
-    input.focus();
-    fireEvent.change(input, { target: { value: "2026-07-23" } });
+    const input = moment("starts_at");
+    commit(input, "2026-07-23T09:45:00");
+    // The save starts after the field is left; the keyboard is by then in the next thing.
+    const next = screen.getByRole("button", { name: /^event_date: / });
+    next.focus();
     await act(async () => vi.advanceTimersByTime(500));
     expect(onSave).toHaveBeenCalledOnce();
     expect(view.container.querySelector(".property-save-state")).toBeEmptyDOMElement();
@@ -148,9 +149,10 @@ describe("typed note properties", () => {
     expect(screen.queryByText("Saving…")).not.toBeInTheDocument();
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByText("Saving…")).toBeInTheDocument();
-    expect(input).toHaveFocus();
+    expect(next).toHaveFocus();
     await act(async () => reject(new Error("Offline")));
     expect(screen.getByRole("alert")).toHaveTextContent("Offline");
+    expect(next).toHaveFocus();
     fireEvent.click(screen.getByRole("button", { name: "Retry save" }));
     await act(async () => vi.advanceTimersByTime(500));
     expect(onSave).toHaveBeenCalledTimes(2);
@@ -197,7 +199,11 @@ describe("typed note properties", () => {
     const onSaveDocument = vi.fn();
     render(<PropertiesPanel note={eventNote} types={[eventType]} readOnly onClose={() => undefined}
       onSave={onSave} onSaveDocument={onSaveDocument} />);
-    expect(screen.getByLabelText("event_date value")).toBeDisabled();
+    // The fields are only shown: nothing to type into, add or take off.
+    const fields = within(screen.getByRole("tabpanel"));
+    expect(fields.getByText("Jul 21, 2026")).toBeVisible();
+    expect(fields.queryByRole("textbox")).toBeNull();
+    expect(fields.queryByRole("button")).toBeNull();
     await user.click(screen.getByRole("tab", { name: "Advanced" }));
     expect(screen.getByLabelText("Raw frontmatter JSON")).toHaveAttribute("readonly");
     fireEvent.change(screen.getByLabelText("Raw frontmatter JSON"), { target: { value: "{}" } });
@@ -210,40 +216,46 @@ describe("typed note properties", () => {
     expect(onSaveDocument).not.toHaveBeenCalled();
   });
 
-  it("edits date and date-time strings with native pickers", async () => {
+  it("edits a day with the date picker and a moment with the browser's date and time control", async () => {
+    const user = userEvent.setup();
     const onSave = vi.fn();
     render(<PropertiesPanel note={eventNote} types={[eventType]} onClose={() => undefined} onSave={onSave} />);
 
-    const eventDate = screen.getByLabelText("event_date value");
-    const startsAt = screen.getByLabelText("starts_at value");
-    expect(eventDate).toHaveAttribute("type", "date");
-    expect(eventDate).toHaveValue("2026-07-21");
+    const startsAt = moment("starts_at");
     expect(startsAt).toHaveAttribute("type", "datetime-local");
-    expect((startsAt as HTMLInputElement).value).toContain(schemaDateInputValue("2026-07-21T05:15:30.000Z", "date-time"));
-    expect(screen.getAllByTitle("Defined by this note's type")[0]).toHaveTextContent("Date");
-    expect(screen.queryByLabelText("event_date property type")).not.toBeInTheDocument();
-
-    fireEvent.change(eventDate, { target: { value: "2026-07-23" } });
-    fireEvent.change(startsAt, { target: { value: "2026-07-23T09:45:00" } });
+    expect(startsAt.value).toContain(schemaDateInputValue("2026-07-21T05:15:30.000Z", "date-time"));
+    await user.click(screen.getByRole("button", { name: "event_date: Jul 21, 2026" }));
+    await user.type(within(screen.getByRole("dialog", { name: "event_date" })).getByRole("textbox"), "2026-07-23{Enter}");
+    expect(screen.getByRole("button", { name: "event_date: Jul 23, 2026" })).toBeVisible();
+    commit(startsAt, "2026-07-23T09:45:00");
     await waitFor(() => expect(onSave).toHaveBeenCalledWith("Events/planning.md", {
       event_date: "2026-07-23",
       starts_at: new Date("2026-07-23T09:45:00").toISOString()
     }), { timeout: 1_500 });
   });
 
-  it("edits schema-defined nested objects and lists without raw JSON", async () => {
+  it("describes a field that may be a day or a moment as the one it holds", () => {
+    const either = { anyOf: [{ type: "string", format: "date" }, { type: "string", format: "date-time" }] };
+    render(<PropertiesPanel note={{ ...eventNote, frontmatter: { due: "2026-07-21", scheduled: "2026-07-21T05:15:30.000Z" } }}
+      types={[{ ...eventType, schema: { type: "object", properties: { due: either, scheduled: either } } }]} onClose={() => undefined} onSave={vi.fn()} />);
+    expect(screen.getByRole("button", { name: "due: Jul 21, 2026" })).toBeVisible();
+    expect(moment("scheduled")).toHaveAttribute("type", "datetime-local");
+  });
+
+  it("edits the parts of nested values and lists in place", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(<PropertiesPanel note={contactNote} types={[contactType]} onClose={() => undefined} onSave={onSave} />);
 
-    await user.clear(screen.getByLabelText("display_name"));
-    await user.type(screen.getByLabelText("display_name"), "Ada Byron");
-    const contacts = screen.getByRole("group", { name: "contacts value" });
-    await user.click(within(contacts).getByRole("button", { name: "Add item" }));
-    const kinds = screen.getAllByRole("combobox", { name: "kind" });
-    const values = screen.getAllByLabelText("value");
-    await chooseOption(user, kinds[1], "phone");
-    await user.type(values[1], "+44 20 0000 0000");
+    const name = screen.getByRole("textbox", { name: "profile display_name" });
+    await user.clear(name);
+    await user.type(name, "Ada Byron{Enter}");
+    expect(screen.getByRole("button", { name: "contacts 1: ada@example.com" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Add item to contacts" }));
+    // The new item has the parts it must have, and is wrong until they are filled in.
+    expect(screen.getByRole("alert")).toBeVisible();
+    await chooseOption(user, screen.getByRole("combobox", { name: "contacts 2 kind" }), "phone");
+    await user.type(screen.getByRole("textbox", { name: "contacts 2 value" }), "+44 20 0000 0000{Enter}");
     await waitFor(() => expect(onSave).toHaveBeenCalledWith("People/ada.md", {
       profile: { display_name: "Ada Byron" },
       contacts: [
@@ -253,19 +265,23 @@ describe("typed note properties", () => {
     }), { timeout: 1_500 });
   });
 
-  it("surfaces missing required fields, descriptions, defaults, and effective values", async () => {
+  it("always shows a required field, says what it is for, and lists what the type provides", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();
     render(<PropertiesPanel note={schemaLedNote} types={[schemaLedType]} onClose={() => undefined} onSave={onSave} />);
 
-    const required = screen.getByRole("region", { name: "Missing required properties" });
-    expect(within(required).getByText("A human-readable title.")).toBeInTheDocument();
-    await user.click(within(required).getByRole("button", { name: /title/i }));
-    expect(screen.getByLabelText("title value")).toHaveValue("");
-    expect(screen.queryByLabelText("title property type")).not.toBeInTheDocument();
-    expect(screen.getByRole("region", { name: "Automatic properties" })).toHaveTextContent("Default");
+    const title = screen.getByRole("textbox", { name: "title" });
+    expect(title).toHaveValue("");
+    expect(screen.getByTitle("title: A human-readable title.")).toHaveTextContent("title*");
+    expect(screen.getByTitle("Required")).toBeVisible();
+    expect(screen.getByText("This required property is missing.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Remove title" })).toBeNull();
+    const provided = within(screen.getByRole("region", { name: "Automatic properties" }));
+    expect(provided.getByText("status")).toBeVisible();
+    expect(provided.getByText("draft")).toBeVisible();
+    expect(provided.queryByRole("combobox")).toBeNull();
 
-    await user.type(screen.getByLabelText("title value"), "Ready");
+    await user.type(title, "Ready{Enter}");
     await waitFor(() => expect(onSave).toHaveBeenCalledWith("Notes/missing.md", { title: "Ready" }), { timeout: 1_500 });
   });
 
@@ -274,15 +290,18 @@ describe("typed note properties", () => {
     const onSave = vi.fn().mockRejectedValue(new Error("Server rejected the record."));
     render(<PropertiesPanel note={invalidNote} types={[schemaLedType]} error="Server rejected the record." onClose={vi.fn()} onSave={onSave} />);
 
-    await user.clear(screen.getByLabelText("title value"));
+    const title = screen.getByRole("textbox", { name: "title" });
+    await user.clear(title);
+    await user.type(title, "ab{Enter}");
     expect(screen.getByText(/at least 3 characters/i)).toBeInTheDocument();
     expect(screen.getByText("Fix invalid fields to continue saving")).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
 
-    await user.type(screen.getByLabelText("title value"), "Edited title");
+    await user.clear(title);
+    await user.type(title, "Edited title{Enter}");
     await waitFor(() => expect(onSave).toHaveBeenCalledWith("Notes/invalid.md", { title: "Edited title", nullable: null }), { timeout: 1_500 });
-    expect(screen.getByLabelText("title value")).toHaveValue("Edited title");
+    expect(screen.getByRole("textbox", { name: "title" })).toHaveValue("Edited title");
     expect(screen.getByRole("complementary", { name: "Note properties" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "Null" })).not.toBeInTheDocument();
   });
 
   it("shows and saves the complete exact record source", async () => {
@@ -372,6 +391,17 @@ describe("typed note properties", () => {
     }, null, 2));
   });
 });
+
+/** Types a value into a field and leaves it, which is when the list hands the value over. */
+function commit(field: HTMLElement, value: string): void {
+  fireEvent.change(field, { target: { value } });
+  fireEvent.blur(field);
+}
+
+/** A field's date and time control, which has no role to ask for it by. */
+function moment(field: string): HTMLInputElement {
+  return screen.getByLabelText(field, { selector: 'input[type="datetime-local"]' });
+}
 
 const eventType: CollectionTypeDescriptor = {
   name: "event",

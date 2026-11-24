@@ -185,7 +185,7 @@ export async function registerDevice(
     if (row) await advertiseModeCapability(client, deviceId, body.capabilities);
     if (!row) {
       await client.query(
-        `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk, mode_switch_advertised)
+        `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk, mode_switch_v2_advertised)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
         [deviceId, connector.id, connector.user_id, kind, signPk, kemPk, noisePk, switchAware(body.capabilities)]
       );

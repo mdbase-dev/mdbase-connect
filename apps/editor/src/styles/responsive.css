@@ -680,12 +680,32 @@
   .properties-panel .mdbase-select, .type-inspector .mdbase-select,
   .settings-document .mdbase-select, .note-heading-properties .mdbase-select { min-width: 44px; min-height: 44px; }
   .properties-panel .inline-remove-button, .note-heading-properties .inline-remove-button { width: 44px; }
+  /* The shared property list: a row is as tall as a touch target, and so is each way to add to it or take it off. */
+  .properties-panel .mdbase-property,
+  .properties-panel .mdbase-property-value { min-height: 44px; }
+  .properties-panel .mdbase-property-name { height: 44px; }
+  .properties-panel .mdbase-property-clear,
+  .properties-panel .mdbase-property-more { top: 0; right: 0; width: 44px; height: 44px; opacity: 1; }
+  .properties-panel .mdbase-property-more:has(+ .mdbase-property-clear) { right: 44px; }
+  .properties-panel .mdbase-property:has(> .mdbase-property-clear),
+  .properties-panel .mdbase-property:has(> .mdbase-property-more) { padding-inline-end: 44px; }
+  .properties-panel .mdbase-property:has(> .mdbase-property-more + .mdbase-property-clear) { padding-inline-end: 88px; }
+  .properties-panel .mdbase-property-value:has(+ .mdbase-property-more) > .mdbase-property-fold { max-width: 100%; }
+  .properties-panel .mdbase-property-value { font-size: 16px; }
+  .properties-panel .mdbase-tokens:has(.mdbase-token > button:not(.mdbase-token-open)) { gap: 8px; }
+  .properties-panel .mdbase-token:has(> button:not(.mdbase-token-open)) { height: 36px; padding-inline-end: 0; }
+  .properties-panel .mdbase-token > .mdbase-token-open { height: 36px; min-height: 36px; line-height: 36px; }
+  .properties-panel .mdbase-token > button:not(.mdbase-token-open) { min-width: 44px; height: 44px; margin-block: -4px; }
+  .properties-panel .mdbase-token-add { width: 44px; height: 36px; min-height: 36px; }
+  .properties-panel .mdbase-tokens-input { min-height: 36px; font-size: 16px; }
+  .properties-panel .mdbase-property-input { font-size: 16px; }
   .properties-panel .property-row { padding-right: 44px; }
   .property-string-list > div { grid-template-columns: minmax(0, 1fr) 44px; }
   .schema-array-item { grid-template-columns: 18px minmax(0, 1fr) 44px; }
 
+  /* The close target runs to the panel's edge: its overhang matches the header's end padding. */
   .panel-header .icon-button {
-    margin: -8px -8px 0 0;
+    margin: -8px -6px 0 0;
   }
 
   .notice,

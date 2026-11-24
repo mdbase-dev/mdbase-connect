@@ -15,6 +15,14 @@ describe("library catalogue source", () => {
       expect(catalogue.messages).not.toHaveProperty("nzHlj8");
     }
   });
+  it("gives every new message a context, so its id cannot match an app's own message", async () => {
+    // Apps compose this catalogue with their own, and a context-less id is just a hash of the English text:
+    // a shared "Clear" would take over an app's "Clear" and its translations. Only the frozen legacy ids may omit one.
+    const { withoutContext } = JSON.parse(await readFile(new URL("../i18n-context-baseline.json", import.meta.url), "utf8")) as { withoutContext: string[] };
+    const entries = await formatter({}).parse(await readFile(new URL("./locales/en/messages.po", import.meta.url), "utf8"), { locale: "en", sourceLocale: "en", filename: "locales/en/messages.po" });
+    const missing = Object.entries(entries).filter(([id, entry]) => !entry.obsolete && !entry.context && !withoutContext.includes(id));
+    expect(missing.map(([id, entry]) => `${id} ${entry.message}`)).toEqual([]);
+  });
   it("does not activate a locale when a library chunk is loaded", async () => {
     const before = i18n.locale;
     await uiCatalogues.loadLocale("ja");

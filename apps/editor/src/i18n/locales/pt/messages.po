@@ -1158,6 +1158,7 @@ msgstr "Ainda não é possível anexar arquivos a esta coleção no mdbase edito
 msgid "Attachment progress for {0}"
 msgstr "Andamento do anexo de {0}"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
 msgstr "Automático"
@@ -1166,6 +1167,7 @@ msgstr "Automático"
 msgid "Automatic matching"
 msgstr "Correspondência automática"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
 msgstr "Propriedades automáticas"
@@ -3592,6 +3594,7 @@ msgstr "Nova nota do tipo {name}"
 
 #: src/code-editor-completions.ts
 #: src/LinkPropertyEditor.tsx
+#: src/property-records.tsx
 #: src/QuickCreateRecord.tsx
 msgid "New {typeLabel}"
 msgstr "Criar: {typeLabel}"
@@ -3605,6 +3608,7 @@ msgstr "Nova pasta"
 #: src/editor-commands.ts
 #: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
+#: src/property-records.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
 msgstr "Nova nota"
@@ -4492,6 +4496,7 @@ msgstr "Propriedade"
 msgid "Property options"
 msgstr "Opções da propriedade"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
 msgstr "Fornecido pelo tipo da nota; não é armazenado neste arquivo."

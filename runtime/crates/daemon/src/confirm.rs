@@ -118,10 +118,10 @@ impl Prompt {
                 format!("Let Obsidian on this computer use \"{collection}\"?")
             }
             Prompt::CollectionMode { collection, private: true } => format!(
-                "Make \"{collection}\" private?\n\nOnly your devices will read new content after the switch finishes. mdbase may still read older content."
+                "Make \"{collection}\" private?\n\nOnly your devices will read new content after the switch finishes. mdbase may still read older content.\n\nApps connected to this collection will need to be reconnected afterwards."
             ),
             Prompt::CollectionMode { collection, private: false } => format!(
-                "Turn on cloud copy for \"{collection}\"?\n\nmdbase will be able to read and serve this collection, including its existing history, even when your devices are off."
+                "Turn on cloud copy for \"{collection}\"?\n\nmdbase will be able to read and serve this collection, including its existing history, even when your devices are off.\n\nApps connected to this collection will need to be reconnected afterwards."
             ),
         }
     }
@@ -335,6 +335,23 @@ mod tests {
             })
         );
         assert!(prompt.message().contains("whole collection"));
+    }
+
+    #[test]
+    fn collection_mode_confirmation_warns_that_connected_apps_must_reconnect() {
+        for private in [true, false] {
+            let prompt = Prompt::CollectionMode {
+                collection: "Notes".into(),
+                private,
+            };
+            assert!(
+                prompt.message().contains(
+                    "Apps connected to this collection will need to be reconnected afterwards."
+                ),
+                "private={private}: {}",
+                prompt.message()
+            );
+        }
     }
 
     #[cfg(all(unix, not(target_os = "macos")))]

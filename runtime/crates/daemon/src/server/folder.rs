@@ -115,8 +115,8 @@ pub enum FolderClaim {
 
 /// Classify a folder by inspecting its `mdbase.yaml`.
 pub fn classify_folder(root: &std::path::Path) -> Result<FolderClaim, ControlError> {
-    let identity = read_config(root)?
-        .is_some_and(|(_, config)| config.contains_key(LEGACY_IDENTITY_KEY));
+    let identity =
+        read_config(root)?.is_some_and(|(_, config)| config.contains_key(LEGACY_IDENTITY_KEY));
     if identity {
         Ok(FolderClaim::OrphanedIdentity)
     } else {

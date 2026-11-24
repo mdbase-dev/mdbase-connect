@@ -1158,6 +1158,7 @@ msgstr "Attaching files is not available for this collection in mdbase editor ye
 msgid "Attachment progress for {0}"
 msgstr "Attachment progress for {0}"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
 msgstr "Automatic"
@@ -1166,6 +1167,7 @@ msgstr "Automatic"
 msgid "Automatic matching"
 msgstr "Automatic matching"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
 msgstr "Automatic properties"
@@ -3592,6 +3594,7 @@ msgstr "New {name}"
 
 #: src/code-editor-completions.ts
 #: src/LinkPropertyEditor.tsx
+#: src/property-records.tsx
 #: src/QuickCreateRecord.tsx
 msgid "New {typeLabel}"
 msgstr "New {typeLabel}"
@@ -3605,6 +3608,7 @@ msgstr "New folder"
 #: src/editor-commands.ts
 #: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
+#: src/property-records.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
 msgstr "New note"
@@ -4492,6 +4496,7 @@ msgstr "Property"
 msgid "Property options"
 msgstr "Property options"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
 msgstr "Provided by the note's type, not stored in this file."

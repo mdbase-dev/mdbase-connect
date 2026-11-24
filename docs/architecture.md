@@ -60,8 +60,8 @@ Every collection has a stable UUID and runs in one of three modes:
 
 Switching between Private and Cloud copy is an explicit owner-approved
 collection-mode transition documented in
-[collection-mode-api.md](collection-mode-api.md),
-[collection-mode-execution.md](collection-mode-execution.md), and
+[collection-mode-execution.md](collection-mode-execution.md),
+[collection-mode-switch-trust.md](collection-mode-switch-trust.md), and
 [private-cloud-handover.md](private-cloud-handover.md).
 
 ## Components

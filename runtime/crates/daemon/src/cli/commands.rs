@@ -345,31 +345,32 @@ pub(super) async fn run_command(
         Command::Sync(SyncCmd::Mode {
             collection,
             mode,
-            resume,
             cancel,
         }) => {
-            let target = match mode {
+            let col = resolve_collection(profile, &collection).await?;
+            let target = mode.map(|m| match m {
                 SyncKind::Private => "private",
                 SyncKind::CloudCopy => "cloud_copy",
-            };
-            simple(
-                profile,
-                out,
-                Method::COLLECTION_MODE,
-                &collection,
-                json!({"target_mode":target,"resume":resume,"cancel":cancel}),
-            )
-            .await
+            });
+            let mut params =
+                json!({"collection": col.id, "cancel": cancel, "include_local": !out.json});
+            if let Some(target) = target {
+                params["target_mode"] = json!(target);
+            }
+            let value = call(profile, Method::COLLECTION_MODE, params).await?;
+            print_mode(out, &col, &value, false);
+            Ok(ExitCode::SUCCESS)
         }
         Command::Sync(SyncCmd::ModeStatus { collection }) => {
-            simple(
+            let col = resolve_collection(profile, &collection).await?;
+            let value = call(
                 profile,
-                out,
                 Method::COLLECTION_MODE_STATUS,
-                &collection,
-                json!({}),
+                json!({"collection": col.id, "include_local": !out.json}),
             )
-            .await
+            .await?;
+            print_mode(out, &col, &value, true);
+            Ok(ExitCode::SUCCESS)
         }
         Command::Sync(SyncCmd::Files {
             collection,
@@ -397,9 +398,6 @@ pub(super) async fn run_command(
                 json!({ "include": include, "exclude": exclude, "max_size": max_size }),
             )
             .await
-        }
-        Command::Sync(SyncCmd::Disable { collection }) => {
-            simple(profile, out, Method::SYNC_DISABLE, &collection, json!({})).await
         }
         Command::Device(DeviceCmd::Pending { collection }) => {
             let collection = match collection {

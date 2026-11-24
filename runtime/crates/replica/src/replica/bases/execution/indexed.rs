@@ -147,6 +147,7 @@ impl<S: Store> Replica<S> {
         if let Some(window) = window {
             window.check()?;
         }
+        self.flush_query_index();
         let fence = self.bases_read_capture_fence()?;
         cancelled(check_cancelled)?;
         if !policies.inventory_ties {

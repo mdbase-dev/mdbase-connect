@@ -207,8 +207,8 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
             initialStatus={modeStatus}
             deviceNames={deviceNames}
             load={() => window.mdbaseConnect.collectionModeStatus(collection.id)}
-            change={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false)}
-            cancel={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, false, true)}
+            change={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target)}
+            cancel={(target) => window.mdbaseConnect.changeCollectionMode(collection.id, target, { cancel: true })}
             onStatusChange={setModeStatus}
             onModeChange={() => void onRefresh()}
           />

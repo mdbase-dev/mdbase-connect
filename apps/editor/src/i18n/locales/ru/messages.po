@@ -1158,6 +1158,7 @@ msgstr "В этой коллекции пока нельзя прикрепля�
 msgid "Attachment progress for {0}"
 msgstr "Ход прикрепления: {0}"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
 msgstr "Автоматически"
@@ -1166,6 +1167,7 @@ msgstr "Автоматически"
 msgid "Automatic matching"
 msgstr "Автоматическое сопоставление"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
 msgstr "Автоматические свойства"
@@ -3592,6 +3594,7 @@ msgstr "Новая заметка типа «{name}»"
 
 #: src/code-editor-completions.ts
 #: src/LinkPropertyEditor.tsx
+#: src/property-records.tsx
 #: src/QuickCreateRecord.tsx
 msgid "New {typeLabel}"
 msgstr "Создать: {typeLabel}"
@@ -3605,6 +3608,7 @@ msgstr "Новая папка"
 #: src/editor-commands.ts
 #: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
+#: src/property-records.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
 msgstr "Новая заметка"
@@ -4492,6 +4496,7 @@ msgstr "Свойство"
 msgid "Property options"
 msgstr "Варианты свойства"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
 msgstr "Задано типом заметки, не хранится в этом файле."

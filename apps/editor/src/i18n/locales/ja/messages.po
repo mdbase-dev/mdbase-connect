@@ -1158,6 +1158,7 @@ msgstr "このコレクションでは、mdbase editor からのファイル添�
 msgid "Attachment progress for {0}"
 msgstr "{0}の添付進行状況"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
 msgstr "自動"
@@ -1166,6 +1167,7 @@ msgstr "自動"
 msgid "Automatic matching"
 msgstr "自動照合"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
 msgstr "自動プロパティ"
@@ -3592,6 +3594,7 @@ msgstr "新しい{name}"
 
 #: src/code-editor-completions.ts
 #: src/LinkPropertyEditor.tsx
+#: src/property-records.tsx
 #: src/QuickCreateRecord.tsx
 msgid "New {typeLabel}"
 msgstr "新規: {typeLabel}"
@@ -3605,6 +3608,7 @@ msgstr "新しいフォルダー"
 #: src/editor-commands.ts
 #: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
+#: src/property-records.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
 msgstr "新しいノート"
@@ -4492,6 +4496,7 @@ msgstr "プロパティ"
 msgid "Property options"
 msgstr "プロパティの選択肢"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
 msgstr "ノートの型から提供され、このファイルには保存されません。"

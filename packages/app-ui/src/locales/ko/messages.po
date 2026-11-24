@@ -66,10 +66,12 @@ msgid "{app} stops showing it on this device. Nothing in the collection is delet
 msgstr "{app}에서 이 기기에 컬렉션을 표시하지 않습니다. 컬렉션의 항목은 삭제되지 않으며 {app}의 접근 권한도 유지됩니다. 접근을 종료하려면 ‘접근 관리’를 사용하세요."
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, other {빈 항목 #개}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, other {항목 #개}}"
 
@@ -83,22 +85,27 @@ msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, other {열린 댓글 #개}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# property} other {# properties}}"
 msgstr "{count, plural, other {속성 #개}}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, other {#개 선택됨}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{kind} “{title}”"
 msgstr "{kind} “{title}”"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{name} group"
 msgstr "“{name}” 그룹"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "A date, “tomorrow”, “fri” or “+3”"
 msgstr "날짜, “내일”, “금요” 또는 “+3”"
 
@@ -130,6 +137,7 @@ msgid "Add a collection…"
 msgstr "컬렉션 추가…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add a filter to this group"
 msgstr "이 그룹에 필터 추가"
 
@@ -144,26 +152,32 @@ msgid "Add column"
 msgstr "열 추가"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter"
 msgstr "필터 추가"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter to group"
 msgstr "그룹에 필터 추가"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item"
 msgstr "항목 추가"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "{property}에 항목 추가"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property"
 msgstr "속성 추가"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property to {property}"
 msgstr "{property}에 속성 추가"
 
@@ -173,10 +187,12 @@ msgid "Add row"
 msgstr "행 추가"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value"
 msgstr "값 추가"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value…"
 msgstr "값 추가…"
 
@@ -210,6 +226,7 @@ msgid "All"
 msgstr "모두"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "All views"
 msgstr "모든 보기"
 
@@ -224,14 +241,17 @@ msgid "Any"
 msgstr "하나 이상"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Any / All"
 msgstr "하나 이상 / 모두"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Applies to every view"
 msgstr "모든 보기에 적용됩니다"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Apply"
 msgstr "적용"
 
@@ -253,6 +273,7 @@ msgid "as {signer}"
 msgstr "{signer}(으)로"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "at least one"
 msgstr "하나 이상"
 
@@ -265,6 +286,7 @@ msgid "Attach screenshot"
 msgstr "스크린샷 첨부"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Back"
 msgstr "뒤로"
 
@@ -313,6 +335,7 @@ msgid "by {resolver}"
 msgstr "{resolver} 님이"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Calendar"
 msgstr "달력"
 
@@ -355,14 +378,17 @@ msgid "Cancel switch"
 msgstr "전환 취소"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL · Shift+Enter for a new line"
 msgstr "CEL · Shift+Enter로 줄바꿈"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL expression"
 msgstr "CEL 표현식"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Change operator"
 msgstr "연산자 변경"
 
@@ -413,6 +439,7 @@ msgid "Choose or create a collection there."
 msgstr "그곳에서 컬렉션을 선택하거나 만드세요."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Choose value"
 msgstr "값 선택"
 
@@ -421,6 +448,7 @@ msgid "Claude, ChatGPT and Codex"
 msgstr "Claude, ChatGPT 및 Codex"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Clear"
 msgstr "지우기"
 
@@ -495,6 +523,7 @@ msgid "Comments could not be loaded: {problem}"
 msgstr "댓글을 불러오지 못했습니다: {problem}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Compare with {expr}"
 msgstr "{expr}와(과) 비교"
 
@@ -539,6 +568,7 @@ msgid "Continue without connecting"
 msgstr "연결하지 않고 계속"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Convert to filter"
 msgstr "필터로 변환"
 
@@ -573,6 +603,7 @@ msgid "Current"
 msgstr "현재"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Custom expression"
 msgstr "사용자 지정 표현식"
 
@@ -674,6 +705,7 @@ msgid "does not contain"
 msgstr "포함하지 않음"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Done"
 msgstr "완료"
 
@@ -691,6 +723,7 @@ msgid "Edit"
 msgstr "편집"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit as expression"
 msgstr "표현식으로 편집"
 
@@ -699,10 +732,12 @@ msgid "Edit diagram source"
 msgstr "다이어그램 소스 편집"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit expression"
 msgstr "표현식 편집"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit value"
 msgstr "값 편집"
 
@@ -712,6 +747,7 @@ msgid "Empty"
 msgstr "비어 있음"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Empty expression"
 msgstr "빈 표현식"
 
@@ -725,6 +761,7 @@ msgid "Esc"
 msgstr "Esc"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "every filter"
 msgstr "모든 필터"
 
@@ -743,6 +780,7 @@ msgid "Example"
 msgstr "예시"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Exclude"
 msgstr "제외"
 
@@ -761,14 +799,17 @@ msgid "Expected to finish in about {minutes, plural, one {# minute} other {# min
 msgstr "약 {minutes, plural, other {#분}} 후({time}경)에 완료될 예정입니다."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "expression"
 msgstr "표현식"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Expression {text}"
 msgstr "표현식 {text}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "False"
 msgstr "거짓"
 
@@ -786,30 +827,37 @@ msgid "Feedback type"
 msgstr "피드백 유형"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Fields"
 msgstr "필드"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter"
 msgstr "필터"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by field"
 msgstr "필드로 필터링"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by…"
 msgstr "필터 기준…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter group"
 msgstr "필터 그룹"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter options"
 msgstr "필터 옵션"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filters"
 msgstr "필터"
 
@@ -819,14 +867,17 @@ msgid "Find a collection"
 msgstr "컬렉션 찾기"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property, or name a new one…"
 msgstr "속성을 찾거나 새 이름 입력…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property…"
 msgstr "속성 찾기…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a record…"
 msgstr "레코드 찾기…"
 
@@ -850,6 +901,7 @@ msgid "Give {app} access to this collection?"
 msgstr "{app}에 이 컬렉션 접근을 허용하시겠습니까?"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Hide empty"
 msgstr "빈 항목 숨기기"
 
@@ -858,10 +910,12 @@ msgid "Highlight"
 msgstr "강조 표시"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How the filters combine"
 msgstr "필터 결합 방식"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How these filters combine"
 msgstr "이 필터들의 결합 방식"
 
@@ -973,6 +1027,7 @@ msgid "Light"
 msgstr "밝게"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Link a record in {property}"
 msgstr "{property}에 레코드 연결"
 
@@ -986,6 +1041,7 @@ msgid "Loading the collection snapshot…"
 msgstr "컬렉션 스냅샷 불러오는 중…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Local time ({zone})"
 msgstr "현지 시간({zone})"
 
@@ -1021,14 +1077,17 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "표시 내용을 버렸습니다. 스크린샷은 제외되었습니다."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match"
 msgstr "일치 조건"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match all"
 msgstr "모두 일치"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match any"
 msgstr "하나 이상 일치"
 
@@ -1075,10 +1134,12 @@ msgid "Move row up"
 msgstr "행을 위로 이동"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to shared"
 msgstr "공유로 이동"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to this view"
 msgstr "이 보기로 이동"
 
@@ -1096,6 +1157,7 @@ msgid "New comment"
 msgstr "새 댓글"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "New property"
 msgstr "새 속성"
 
@@ -1108,6 +1170,7 @@ msgid "New since your last visit"
 msgstr "마지막 방문 이후 새 항목"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Next month"
 msgstr "다음 달"
 
@@ -1127,10 +1190,12 @@ msgid "No collections match “{query}”."
 msgstr "“{query}”와 일치하는 컬렉션이 없습니다."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "no filter"
 msgstr "어떤 필터도 아님"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No matching fields"
 msgstr "일치하는 필드 없음"
 
@@ -1143,6 +1208,7 @@ msgid "No open comments"
 msgstr "열린 댓글이 없습니다"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "No properties."
 msgstr "속성이 없습니다."
 
@@ -1151,6 +1217,7 @@ msgid "No screenshot taken. You can still send feedback."
 msgstr "스크린샷을 찍지 않았습니다. 그래도 피드백을 보낼 수 있습니다."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No values to choose from."
 msgstr "선택할 값이 없습니다."
 
@@ -1160,6 +1227,7 @@ msgid "None"
 msgstr "없음"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Not a number"
 msgstr "숫자가 아닙니다"
 
@@ -1178,6 +1246,7 @@ msgid "Nothing matches"
 msgstr "일치하는 항목 없음"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Nothing matches."
 msgstr "일치하는 항목이 없습니다."
 
@@ -1186,6 +1255,7 @@ msgid "Nothing resolved yet."
 msgstr "아직 해결된 항목이 없습니다."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Number"
 msgstr "숫자"
 
@@ -1266,6 +1336,7 @@ msgid "Opens in a new tab"
 msgstr "새 탭에서 열립니다"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Operator"
 msgstr "연산자"
 
@@ -1274,6 +1345,7 @@ msgid "Optional"
 msgstr "선택 사항"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "또는 Enter 키"
 
@@ -1283,6 +1355,7 @@ msgid "Owner"
 msgstr "소유자"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Pick one or more"
 msgstr "하나 이상 선택"
 
@@ -1301,6 +1374,7 @@ msgid "Preparing your offline copy…"
 msgstr "오프라인 사본 준비 중…"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Previous month"
 msgstr "이전 달"
 
@@ -1364,12 +1438,16 @@ msgid "Reload to continue."
 msgstr "계속하려면 새로고침하세요."
 
 #: src/Feedback.tsx
-#: src/filter-builder/labels.ts
 msgid "Remove"
 msgstr "삭제"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Remove"
+msgstr "삭제"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove"
 msgstr "삭제"
 
@@ -1379,14 +1457,17 @@ msgid "Remove {collection} from this list?"
 msgstr "이 목록에서 {collection}을(를) 삭제하시겠습니까?"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {name}"
 msgstr "{name} 삭제"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {value}"
 msgstr "{value} 삭제"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove filter"
 msgstr "필터 삭제"
 
@@ -1396,10 +1477,12 @@ msgid "Remove from this list"
 msgstr "이 목록에서 삭제"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove group"
 msgstr "그룹 삭제"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove item {place} from {property}"
 msgstr "{property}에서 항목 {place} 삭제"
 
@@ -1586,6 +1669,7 @@ msgid "Shared"
 msgstr "공유"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Shared: {name}"
 msgstr "공유: {name}"
 
@@ -1854,6 +1938,7 @@ msgid "The diagram could not be shown. Check your connection and reopen the note
 msgstr "다이어그램을 표시하지 못했습니다. 연결을 확인하고 노트를 다시 여세요."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "The filter on {field} cannot be removed here"
 msgstr "{field} 필터는 여기서 삭제할 수 없습니다"
 
@@ -1950,6 +2035,7 @@ msgid "This switch has already started publishing and can no longer be cancelled
 msgstr "이 전환은 이미 게시가 시작되어 더 이상 취소할 수 없습니다."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "This view"
 msgstr "이 보기"
 
@@ -1971,6 +2057,7 @@ msgid "to run"
 msgstr "실행"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Today"
 msgstr "오늘"
 
@@ -1980,10 +2067,12 @@ msgid "Todo"
 msgstr "할 일"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Tomorrow"
 msgstr "내일"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "True"
 msgstr "참"
 
@@ -2049,6 +2138,7 @@ msgid "Use a device that holds this collection’s key to switch its storage mod
 msgstr "저장 모드를 전환하려면 이 컬렉션의 키를 보유한 기기를 사용하세요."
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Use letters, digits, - and _, starting with a letter."
 msgstr "영문자, 숫자, -, _를 사용하고 영문자로 시작하세요."
 
@@ -2058,14 +2148,17 @@ msgid "Use this only if the device that started the switch is lost and can’t f
 msgstr "전환을 시작한 기기를 분실하여 완료할 수 없는 경우에만 사용하세요. 컬렉션은 현재 키로 비공개 상태를 유지하며, 분실한 기기를 해지하면 다른 소유자 기기들이 자동으로 키를 교체합니다."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Value"
 msgstr "값"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values"
 msgstr "값"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values to compare with"
 msgstr "비교할 값"
 
@@ -2142,6 +2235,7 @@ msgid "Working…"
 msgstr "처리 중…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Wrap in “any” group"
 msgstr "“하나 이상” 그룹으로 묶기"
 
@@ -2155,6 +2249,7 @@ msgid "year is"
 msgstr "연도가"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Year, e.g. 2026"
 msgstr "연도(예: 2026)"
 
@@ -2164,6 +2259,7 @@ msgid "yes"
 msgstr "예"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Yesterday"
 msgstr "어제"
 

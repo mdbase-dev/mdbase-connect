@@ -263,6 +263,7 @@ impl<S: Store> Replica<S> {
         }
         if self.head.seq >= self.head_known {
             self.head_known = self.head.seq;
+            self.flush_query_index();
         }
         // A restored revocation clears its latch (and may let planning resume);
         // a restored orphan clears too.

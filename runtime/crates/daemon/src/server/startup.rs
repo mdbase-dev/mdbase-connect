@@ -55,6 +55,7 @@ pub async fn run_with(
         tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
+        mode_driver: Default::default(),
         inner: Mutex::new(Inner {
             registry: Registry::default(),
             access: AccessList::default(),
@@ -75,6 +76,7 @@ pub async fn run_with(
     daemon.spawn(wait_for_signal(daemon.clone()));
     daemon.spawn(daemon.clone().strict_witness_reports());
     daemon.spawn(daemon.clone().account_key_reconcile());
+    daemon.spawn(daemon.clone().collection_mode_drive());
     daemon.spawn(daemon.clone().device_approval_requests());
     daemon.spawn(daemon.clone().watch_sync_recovery());
     daemon.spawn(daemon.clone().publish_status());

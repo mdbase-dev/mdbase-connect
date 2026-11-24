@@ -168,10 +168,9 @@ interface Window {
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<unknown>;
     enableSync(collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<unknown>;
     collectionModeStatus(collectionId: string): Promise<unknown>;
-    changeCollectionMode(collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean, cancel?: boolean): Promise<unknown>;
+    changeCollectionMode(collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }): Promise<unknown>;
     syncFiles(collectionId: string): Promise<SyncFiles>;
     setSyncFiles(collectionId: string, files: SyncFiles): Promise<SyncFiles>;
-    disableSync(collectionId: string): Promise<unknown>;
     listHolds(collectionId: string): Promise<HoldSummary[]>;
     resolveHold(collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete"): Promise<unknown>;
     openCollectionFolder(collectionId: string): Promise<void>;

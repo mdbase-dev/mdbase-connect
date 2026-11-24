@@ -11,7 +11,7 @@ use tokio::io::AsyncReadExt;
 
 use super::*;
 
-pub(super) const CP_LABEL: &str = "conformance";
+pub(in crate::server) const CP_LABEL: &str = "conformance";
 const ACCOUNT: &str = "11111111-1111-4111-8111-111111111111";
 const CONNECTOR: &str = "22222222-2222-4222-8222-222222222222";
 const HOSTED: &str = "44444444-4444-4444-8444-444444444444";
@@ -39,7 +39,7 @@ fn hex32(h: &str) -> [u8; 32] {
 }
 
 /// A device log token from the test control plane's issuer, bound to `sign_pk`.
-pub(super) fn device_token(
+pub(in crate::server) fn device_token(
     device: [u8; 16],
     sign_pk: [u8; 32],
     collection: [u8; 16],
@@ -192,7 +192,7 @@ impl GrantSource for NoGrants {
 }
 
 /// Create the collection's log with the control plane's own credential.
-pub(super) async fn create_log(log: &str, cp: &ControlPlane, c: Uuid, genesis: Vec<u8>) {
+pub(in crate::server) async fn create_log(log: &str, cp: &ControlPlane, c: Uuid, genesis: Vec<u8>) {
     use mdbn_wire::cbor::Cbor;
     use mdbn_wire::schema::Wire;
     admin_log_rpc(
@@ -208,7 +208,7 @@ pub(super) async fn create_log(log: &str, cp: &ControlPlane, c: Uuid, genesis: V
     .await;
 }
 
-pub(super) async fn admin_log_rpc(
+pub(in crate::server) async fn admin_log_rpc(
     log: &str,
     cp: &ControlPlane,
     c: Uuid,
