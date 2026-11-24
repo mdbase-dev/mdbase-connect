@@ -213,8 +213,17 @@ fn private_grant_appended_while_waiting_is_found_on_the_head_push() {
     assert_eq!(incident_reason(&b).as_deref(), Some("no_grant"));
     assert_eq!(b.doc(1), None);
     member_grant(&mut a, B, B_KEYS.1);
-    // An advancing head push schedules a read immediately instead of waiting
-    // out the backoff deadline.
+    // An advancing head push brings the read forward to HINT_MS after the
+    // last probe instead of waiting out the backoff deadline.
+    settle(&mut [&mut b]);
+    assert_eq!(waiting_at(&b), Some(entry));
+    let now = i64::try_from(b.clock.get()).unwrap();
+    let hinted = b.r.next_wakeup().expect("the push schedules a read");
+    assert!(
+        hinted < now + 1_000,
+        "sooner than the backoff: {hinted} at {now}"
+    );
+    b.clock.set(u64::try_from(hinted).unwrap());
     settle(&mut [&mut b]);
     assert_eq!(b.doc(1).as_deref(), Some("written before B joined"));
     assert!(b.r.stalled.is_none());
