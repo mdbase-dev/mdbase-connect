@@ -255,6 +255,11 @@ msgstr "해당 위치에 \"{0}\" 폴더가 이미 있습니다. 다른 이름을
 msgid "a Private collection"
 msgstr "비공개 컬렉션"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "저장 모드 전환이 이 컴퓨터에서의 확인을 기다리고 있습니다."
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Access: {access}"
@@ -601,6 +606,10 @@ msgstr "이 컬렉션이 모든 기기에서 동기화할 파일을 선택하세
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "필터 지우기"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "닫기"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -1242,8 +1251,8 @@ msgstr "mdbase는 암호화된 변경 내용만 저장합니다. 웹 앱과 에�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase가 기존 기록을 포함한 컬렉션을 읽고, 기기가 꺼져 있을 때도 접근을 제공할 수 있게 됩니다."
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase가 기존 기록을 포함해 컬렉션을 읽고 기기가 꺼져 있는 동안에도 제공할 수 있게 됩니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1404,8 +1413,8 @@ msgstr "이 코드가 {who}의 코드와 일치하는 경우에만 허용하세�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "전환이 완료되면 사용자의 기기만 새 콘텐츠를 읽을 수 있습니다. 이전 콘텐츠는 mdbase가 여전히 읽을 수 있습니다."
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "전환이 완료된 후에는 내 기기에서만 새 콘텐츠를 읽을 수 있습니다. mdbase는 이전 콘텐츠를 계속 읽을 수 있습니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1603,6 +1612,11 @@ msgstr "{0, plural, other {파일 #개 검토}}"
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "{0} 검토"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "전환 검토"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1811,6 +1825,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "이 컬렉션의 스토리지가 가득 차서 일부 파일이 동기화되지 않았습니다. 동기화하려면 공간을 확보하세요. 내 컬렉션이고 Free 요금제를 사용 중이라면 Plus로 업그레이드해 스토리지를 늘릴 수 있습니다."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "저장 모드"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "저장 모드 전환 중…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1967,6 +1991,11 @@ msgstr "서버에서 이 컴퓨터의 이전 mdbase Connect 사용 종료를 아
 #: src/renderer/daemon-view.mts
 msgid "The sign-in request expired. Start again."
 msgstr "로그인 요청이 만료되었습니다. 처음부터 다시 시작하세요."
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "비공개로 전환이 중단되어 확인이 필요합니다."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2249,6 +2278,11 @@ msgstr "버전 {version}이(가) 설치의 {percentage}%에 배포되고 있습�
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "동영상"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "진행 상황 보기"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

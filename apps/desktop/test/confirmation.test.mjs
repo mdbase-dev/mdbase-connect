@@ -31,7 +31,9 @@ test("each prompt names the action, the app and the collection, with Deny and Al
   assert.deepEqual([app.deny, app.allow], ["Deny", "Allow"]);
   const mode = (isPrivate) => describeConfirmation({ v: 1, kind: "collection_mode", collection: "Notes", private: isPrivate, title: "", message: "" });
   assert.equal(mode(false).message, "Turn on Cloud copy for Notes?");
+  assert.match(mode(false).detail, /Apps connected to this collection will need to be reconnected afterwards\./);
   assert.equal(mode(true).message, "Make Notes private?");
+  assert.match(mode(true).detail, /Apps connected to this collection will need to be reconnected afterwards\./);
   assert.equal(describeConfirmation({ v: 1, kind: "link_obsidian", collection: "Notes", title: "", message: "" }).message,
     "Let Obsidian on this computer use Notes?");
   assert.equal(describeConfirmation({ v: 1, kind: "disable_approval", title: "", message: "" }).title, "Turn off approval");
