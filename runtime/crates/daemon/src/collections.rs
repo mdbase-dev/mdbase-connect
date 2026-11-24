@@ -765,7 +765,7 @@ impl CollectionHost {
     }
 
     /// State and reason now, following a background open.
-    fn current(&self) -> (CollectionState, Option<String>) {
+    pub(crate) fn current(&self) -> (CollectionState, Option<String>) {
         match (self.state, self.runtime.opener().map(|o| o.slot.get())) {
             (CollectionState::Opening, Some(Some(Ok(_)))) if self.entry.mode == SyncMode::Local => {
                 (CollectionState::Ready, None)

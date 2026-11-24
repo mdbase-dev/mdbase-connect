@@ -7,7 +7,7 @@ use crate::cloud::CloudError;
 use crate::control::{CollectionState, ControlError, Notice};
 use crate::runtime::{AccountKeyGuard, PrivateSwitchOp};
 use mdbn_replica::crypto::proof::ModeProof;
-use mdbn_wire::common::B16;
+use mdbn_wire::common::{B16, B32};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -17,25 +17,6 @@ use std::time::Duration;
 use tokio::time::Instant;
 
 const FILE: &str = "mode-request.json";
-const MAX_DEVICE_NAME_LOOKUPS: usize = 16;
-
-#[cfg(not(test))]
-const INITIAL_BACKOFF: Duration = Duration::from_secs(2);
-#[cfg(test)]
-const INITIAL_BACKOFF: Duration = Duration::from_millis(20);
-
-#[cfg(not(test))]
-const MAX_BACKOFF: Duration = Duration::from_secs(30);
-#[cfg(test)]
-const MAX_BACKOFF: Duration = Duration::from_millis(200);
-
-#[cfg(not(test))]
-const RETRY_AT_PAD: Duration = Duration::from_millis(250);
-#[cfg(test)]
-const RETRY_AT_PAD: Duration = Duration::from_millis(20);
-
-const MAX_RATE_LIMIT_WAIT: Duration = Duration::from_secs(300);
-
 #[cfg(test)]
 #[path = "collection_mode_tests.rs"]
 mod tests;
@@ -47,7 +28,9 @@ struct Request {
     account: String,
     device: String,
     genesis: String,
-    generation: String,
+    generation: Option<String>,
+    #[serde(default)]
+    confirmed: bool,
     request: String,
     target: String,
     cancel_requested: bool,
@@ -79,12 +62,15 @@ impl Request {
         ]
         .iter()
         .any(|id| crate::attest::uuid_bytes(id).is_none_or(|id| id == [0; 16]))
-            || [&value.genesis, &value.generation].iter().any(|hash| {
-                hash.len() != 64
-                    || !hash
-                        .bytes()
-                        .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
-            })
+            || std::iter::once(&value.genesis)
+                .chain(value.generation.as_ref())
+                .any(|hash| {
+                    hash.len() != 64
+                        || !hash
+                            .bytes()
+                            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+                })
+            || (value.confirmed && value.generation.is_none())
             || !matches!(value.target.as_str(), "private" | "cloud_copy")
         {
             return Err(invalid());
@@ -119,358 +105,305 @@ pub(super) struct ChangeMode {
     target_mode: Option<String>,
     #[serde(default)]
     cancel: bool,
+    #[serde(default)]
+    include_local: bool,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum DriverState {
-    InProgress {
-        phase: String,
-        retry_at: Option<String>,
-    },
-    WaitingForDevices {
-        devices: Vec<String>,
-        device_names: BTreeMap<String, String>,
-    },
-    NeedsKeyedOwner,
-    WaitingForDevice,
-    Attention {
-        code: String,
-        message: String,
-        wake_on_sign_in: bool,
-        wake_on_resume: bool,
-    },
+#[derive(Deserialize)]
+pub(super) struct ModeStatus {
+    pub(super) collection: String,
+    #[serde(default)]
+    pub(super) include_local: bool,
 }
 
-struct DriverEntry {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Blocker {
+    SignIn,
+    Resume,
+    Confirmation,
+    Owner,
+    Devices,
+    Attention,
+}
+
+#[derive(Clone, Copy)]
+enum Schedule {
+    Due(Instant),
+    Parked(Blocker),
+}
+
+#[derive(Clone)]
+struct Slot {
     request: String,
-    target: String,
-    state: DriverState,
-    attempts: u32,
-    next_attempt: Option<Instant>,
+    schedule: Schedule,
+    backoff: u32,
+    notice: Option<Notice>,
 }
 
-/// RAM-only scheduler and status-notice state for the background mode-switch driver.
 #[derive(Default)]
 pub(crate) struct ModeDriver {
     wake: tokio::sync::Notify,
-    entries: Mutex<BTreeMap<String, DriverEntry>>,
+    slots: Mutex<BTreeMap<String, Slot>>,
 }
 
 impl ModeDriver {
+    fn slot(&self, id: &str) -> Option<Slot> {
+        self.slots.lock().unwrap().get(id).cloned()
+    }
+
+    fn set(&self, id: &str, slot: Slot) -> bool {
+        let mut slots = self.slots.lock().unwrap();
+        let changed = slots
+            .get(id)
+            .is_none_or(|old| old.request != slot.request || old.notice != slot.notice);
+        slots.insert(id.into(), slot);
+        changed
+    }
+
+    pub(crate) fn clear(&self, id: &str) -> bool {
+        self.slots.lock().unwrap().remove(id).is_some()
+    }
+
     pub(crate) fn wake(&self) {
         self.wake.notify_one();
     }
 
-    pub(crate) fn clear(&self, id: &str) -> bool {
-        self.entries
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(id)
-            .is_some()
+    pub(crate) fn wake_on_sign_in(&self) {
+        self.unpark(None, Blocker::SignIn);
     }
 
     pub(crate) fn wake_collection(&self, id: &str) {
-        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(entry) = entries.get_mut(id)
-            && matches!(
-                entry.state,
-                DriverState::Attention {
-                    wake_on_resume: true,
-                    ..
-                }
+        self.unpark(Some(id), Blocker::Resume);
+    }
+
+    fn unpark(&self, collection: Option<&str>, blocker: Blocker) {
+        for (id, slot) in self.slots.lock().unwrap().iter_mut() {
+            if collection.is_none_or(|collection| collection == id)
+                && matches!(slot.schedule, Schedule::Parked(current) if current == blocker)
+            {
+                slot.schedule = Schedule::Due(Instant::now());
+            }
+        }
+        self.wake();
+    }
+
+    pub(crate) fn notices(&self, id: &str) -> Vec<Notice> {
+        self.slot(id)
+            .and_then(|slot| slot.notice)
+            .into_iter()
+            .collect()
+    }
+
+    fn attach(&self, id: &str, reply: &mut Value, status: bool) {
+        let record = if status { &reply["change"] } else { &*reply };
+        if let Some(slot) = self.slot(id)
+            && record["request_id"].as_str() == Some(slot.request.as_str())
+            && !matches!(
+                record["phase"].as_str(),
+                Some("complete" | "cancelled" | "abandoned")
             )
         {
-            entry.attempts = 0;
-            entry.next_attempt = Some(Instant::now());
+            reply["local"] = json!(slot.notice);
         }
-        drop(entries);
-        self.wake();
     }
 
-    pub(crate) fn wake_on_sign_in(&self) {
-        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        for entry in entries.values_mut() {
-            if matches!(
-                entry.state,
-                DriverState::Attention {
-                    wake_on_sign_in: true,
-                    ..
-                }
-            ) {
-                entry.attempts = 0;
-                entry.next_attempt = Some(Instant::now());
-            }
+    fn due(&self, now: Instant) -> Vec<(String, String)> {
+        self.slots
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, slot)| matches!(slot.schedule, Schedule::Due(at) if at <= now))
+            .map(|(id, slot)| (id.clone(), slot.request.clone()))
+            .collect()
+    }
+
+    fn next(&self) -> Option<Instant> {
+        self.slots
+            .lock()
+            .unwrap()
+            .values()
+            .filter_map(|slot| match slot.schedule {
+                Schedule::Due(at) => Some(at),
+                Schedule::Parked(_) => None,
+            })
+            .min()
+    }
+}
+
+enum Next {
+    Terminal,
+    Retry(Option<Duration>),
+    Park(Blocker),
+}
+
+struct Outcome {
+    next: Next,
+    reply: Result<Value, ControlError>,
+    notice: Option<Notice>,
+}
+
+impl Outcome {
+    fn retry(reply: Result<Value, ControlError>, delay: Option<Duration>) -> Self {
+        Self {
+            next: Next::Retry(delay),
+            reply,
+            notice: None,
         }
-        drop(entries);
-        self.wake();
     }
 
-    fn schedule_in_progress(
-        &self,
-        id: &str,
-        request: &str,
-        target: &str,
-        phase: &str,
-        retry_at: Option<String>,
-        explicit_delay: Option<Duration>,
-    ) {
-        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let same_phase = entries.get(id).is_some_and(|e| {
-            e.request == request
-                && matches!(&e.state, DriverState::InProgress { phase: p, .. } if p == phase)
-        });
-        let attempts = if explicit_delay.is_some() {
-            0
-        } else if same_phase {
-            entries.get(id).map_or(1, |e| e.attempts.saturating_add(1))
-        } else {
-            1
-        };
-        let delay = explicit_delay.unwrap_or_else(|| backoff_delay(attempts));
-        entries.insert(
-            id.to_string(),
-            DriverEntry {
-                request: request.to_string(),
-                target: target.to_string(),
-                state: DriverState::InProgress {
-                    phase: phase.to_string(),
-                    retry_at,
-                },
-                attempts,
-                next_attempt: Some(Instant::now() + delay),
-            },
-        );
-        drop(entries);
-        self.wake();
+    fn park(
+        blocker: Blocker,
+        code: &str,
+        message: impl Into<String>,
+        reply: Result<Value, ControlError>,
+    ) -> Self {
+        Self {
+            next: Next::Park(blocker),
+            reply,
+            notice: Some(notice(code, message)),
+        }
     }
 
-    fn schedule_retry_error(
-        &self,
-        id: &str,
-        request: &str,
-        target: &str,
-        fallback_phase: &str,
-        explicit_delay: Option<Duration>,
-    ) {
-        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let prev = entries.get(id).filter(|e| e.request == request);
-        let (phase, retry_at, attempts) = match prev {
-            Some(DriverEntry {
-                state: DriverState::InProgress { phase, retry_at },
-                attempts,
-                ..
-            }) => (phase.clone(), retry_at.clone(), attempts.saturating_add(1)),
-            _ => (fallback_phase.to_string(), None, 1),
-        };
-        let delay = explicit_delay.unwrap_or_else(|| backoff_delay(attempts));
-        entries.insert(
-            id.to_string(),
-            DriverEntry {
-                request: request.to_string(),
-                target: target.to_string(),
-                state: DriverState::InProgress { phase, retry_at },
-                attempts,
-                next_attempt: Some(Instant::now() + delay),
-            },
-        );
-        drop(entries);
-        self.wake();
-    }
-
-    fn stop(&self, id: &str, request: &str, target: &str, state: DriverState) {
-        let mut entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        entries.insert(
-            id.to_string(),
-            DriverEntry {
-                request: request.to_string(),
-                target: target.to_string(),
-                state,
-                attempts: 0,
-                next_attempt: None,
-            },
-        );
-    }
-
-    /// Collection-level notices surfaced in `status` and `collection.list`.
-    pub(crate) fn notices(&self, id: &str) -> Vec<Notice> {
-        let entries = self.entries.lock().unwrap_or_else(|p| p.into_inner());
-        let Some(entry) = entries.get(id) else {
-            return Vec::new();
-        };
-        let target = mode_label(&entry.target);
-        let notice = match &entry.state {
-            DriverState::InProgress { phase, retry_at } => {
-                let message = match phase.as_str() {
-                    "waiting_for_token_expiry" => {
-                        let wait = retry_at.as_deref().and_then(|raw| {
-                            format_wait_phrase(raw, crate::fsutil::now_ms() as u64)
-                        });
-                        match wait {
-                            Some(wait) => format!(
-                                "Switching to {target}: waiting {wait} for older app connections to expire."
-                            ),
-                            None => format!(
-                                "Switching to {target}: waiting for older app connections to expire."
-                            ),
-                        }
-                    }
-                    "publishing_policy" => {
-                        format!("Switching to {target}: publishing the mode change.")
-                    }
-                    _ => format!("Switching to {target} in the background."),
-                };
-                Notice {
-                    path: None,
-                    code: "mode_switch_in_progress".into(),
-                    message,
-                }
+    fn local(error: ControlError) -> Self {
+        let (blocker, code) = match error.reason.as_deref() {
+            Some("not_signed_in" | "account_changed") => {
+                (Blocker::SignIn, "mode_switch_sign_in_required")
             }
-            DriverState::WaitingForDevices {
-                devices,
-                device_names,
-            } => {
-                let list = devices
-                    .iter()
-                    .map(|dev| match device_names.get(dev) {
-                        Some(name) => format!("{name} ({})", short_device_id(dev)),
-                        None => short_device_id(dev).to_string(),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                Notice {
-                    path: None,
-                    code: "mode_switch_devices_need_update".into(),
-                    message: format!(
-                        "Switch to {target} is paused: update or remove older devices ({list}), then try again."
-                    ),
-                }
-            }
-            DriverState::NeedsKeyedOwner => Notice {
-                path: None,
-                code: "mode_switch_keyed_owner_required".into(),
-                message: format!(
-                    "Switch to {target} needs an owner device holding this collection's trusted key."
-                ),
-            },
-            DriverState::WaitingForDevice => Notice {
-                path: None,
-                code: "mode_switch_waiting_for_device".into(),
-                message: format!("Switch to {target} is waiting for an owner device to continue."),
-            },
-            DriverState::Attention { code, message, .. } => Notice {
-                path: None,
-                code: code.clone(),
-                message: message.clone(),
-            },
+            Some("not_serving") => (Blocker::Resume, "mode_switch_paused"),
+            Some("keyed_owner_required") => (Blocker::Owner, "mode_switch_keyed_owner_required"),
+            Some(
+                "mode_journal_invalid"
+                | "sync_config_invalid"
+                | "trust_missing"
+                | "not_registered"
+                | "device_identity_missing",
+            ) => (Blocker::Attention, "mode_switch_attention"),
+            _ => return Self::retry(Err(error), None),
         };
-        vec![notice]
+        Self::park(blocker, code, error.message.clone(), Err(error))
+    }
+
+    fn cloud(error: CloudError) -> Self {
+        let delay = match &error {
+            CloudError::RateLimited(seconds) => seconds.map(|s| Duration::from_secs(s.max(1))),
+            CloudError::Network(_) | CloudError::Server(500..=599 | 200..=299, _) => None,
+            CloudError::Unauthenticated | CloudError::Local(_) => {
+                return Self::local(mode_refusal(error));
+            }
+            CloudError::Server(409, code) if code == "keyed_owner_required" => {
+                return Self::local(mode_refusal(error));
+            }
+            _ => {
+                let error = mode_refusal(error);
+                return Self::park(
+                    Blocker::Attention,
+                    "mode_switch_attention",
+                    error.message.clone(),
+                    Err(error),
+                );
+            }
+        };
+        Self::retry(Err(mode_refusal(error)), delay)
     }
 }
 
-/// Plain-language name for a wire mode string.
-pub(crate) fn mode_label(mode: &str) -> &str {
-    match mode {
-        "private" => "Private",
-        "cloud_copy" => "Cloud copy",
-        other => other,
+fn notice(code: &str, message: impl Into<String>) -> Notice {
+    Notice {
+        path: None,
+        code: code.into(),
+        message: message.into(),
     }
 }
 
-/// Short human-readable identifier for a device UUID when no name is known.
-pub(crate) fn short_device_id(id: &str) -> &str {
-    id.split('-')
-        .next()
-        .filter(|prefix| !prefix.is_empty())
-        .unwrap_or(id)
+fn in_progress_notice() -> Notice {
+    notice(
+        "mode_switch_in_progress",
+        "This computer is continuing the mode switch.",
+    )
 }
 
-/// Parse an ISO-8601 / RFC 3339 timestamp (such as `retry_at`) into Unix milliseconds.
-pub(crate) fn parse_rfc3339_ms(raw: &str) -> Option<u64> {
-    let dt =
-        time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339).ok()?;
-    let ms = dt.unix_timestamp_nanos() / 1_000_000;
-    u64::try_from(ms).ok()
-}
-
-/// Plain relative wait phrase for a future RFC 3339 timestamp (`None` if already due).
-pub(crate) fn format_wait_phrase(retry_at: &str, now_ms: u64) -> Option<String> {
-    let target_ms = parse_rfc3339_ms(retry_at)?;
-    if target_ms <= now_ms {
-        return None;
-    }
-    let secs = (target_ms - now_ms).div_ceil(1000);
-    if secs >= 90 {
-        Some(format!("about {} min", secs.div_ceil(60)))
-    } else if secs >= 45 {
-        Some("about 1 min".into())
-    } else {
-        Some(format!("about {secs} s"))
-    }
-}
-
-fn backoff_delay(attempts: u32) -> Duration {
-    let shift = attempts.saturating_sub(1).min(4);
-    let ms = INITIAL_BACKOFF.as_millis().saturating_mul(1u128 << shift);
-    Duration::from_millis(ms.min(MAX_BACKOFF.as_millis()) as u64)
-}
-
-fn rate_limit_delay(retry_after: Option<u64>, attempts: u32) -> Duration {
-    match retry_after {
-        #[cfg(test)]
-        Some(0) => INITIAL_BACKOFF,
-        Some(secs) => Duration::from_secs(secs.clamp(1, MAX_RATE_LIMIT_WAIT.as_secs())),
-        None => backoff_delay(attempts),
-    }
-}
-
-/// Delay until `retry_at` if it is still in the future; `None` if already due
-/// (e.g. local clock ahead of server clock, where the caller falls back to backoff).
-fn retry_at_delay(retry_at: Option<&str>, now_ms: u64) -> Option<Duration> {
-    let target_ms = retry_at.and_then(parse_rfc3339_ms)?;
-    if target_ms > now_ms {
-        Some(Duration::from_millis(target_ms - now_ms) + RETRY_AT_PAD)
-    } else {
-        None
-    }
-}
-
-/// Whether a refusal from `POST /v1/next/collections/:id/mode/:requestId/{prepare,finish}`
-/// is definitively terminal BEFORE policy publication and may be auto-cancelled.
-///
-/// Enumerated directly from:
-/// - `services/server/src/features/next/collection-mode-execution.ts`
-/// - `services/server/src/features/next/collection-mode-capability.ts`
-/// - `services/server/src/features/next/collection-mode-routes.ts`
-/// - `services/server/src/features/next/bootstrap-common.ts`
-/// - `services/server/src/features/next/policy-outbox.ts`
-///
-/// Explicitly EXCLUDES:
-/// - anything during `/finish` (`finish == true`: policy is already published)
-/// - `CloudError::RateLimited` (HTTP 429) — retryable
-/// - `(409, "mode_source_changed")` (`policy-outbox.ts:595`) — retryable with fresh preflight
-/// - `(409, "mode_devices_need_update")` (`collection-mode-capability.ts:32`) — person-needed
-/// - `(409, "keyed_owner_required")` (`collection-mode-execution.ts:179`, `collection-mode-capability.ts:28`) — person-needed
-/// - `(409, "mode_abandoned")` (`collection-mode-execution.ts:33`) — post-publication terminal
-/// - unknown/future 4xx codes
-pub(crate) fn is_terminal_pre_publication_refusal(finish: bool, error: &CloudError) -> bool {
-    if finish {
-        return false;
-    }
+fn mode_refusal(error: CloudError) -> ControlError {
     match error {
-        CloudError::Server(400, code) => code == "invalid_request",
-        CloudError::Server(404, code) => code == "not_found",
-        CloudError::Server(409, code) => matches!(
-            code.as_str(),
-            "mode_cancelled" | "mode_changed" | "not_current" | "not_member" | "device_revoked"
-        ),
-        _ => false,
+        CloudError::Server(status, code) => {
+            ControlError::unavailable(&code, format!("Mode switch refused ({status} {code})."))
+        }
+        CloudError::Local(_) => {
+            ControlError::unavailable("account_changed", "Account changed during the mode switch.")
+        }
+        other => cloud_refusal(other),
     }
+}
+
+type Current<'a> = &'a (dyn Fn() -> Result<(), String> + Send + Sync);
+
+struct ModeLink {
+    ctx: crate::collections::SyncCtx,
+    source: crate::authority::CollectionAuthority,
+    collection: [u8; 16],
+}
+
+impl ModeLink {
+    fn current(&self) -> Result<(), String> {
+        self.source
+            .current_synced()
+            .map_err(|_| "account_changed".into())
+    }
+}
+
+struct ModeContext {
+    link: ModeLink,
+    entry: crate::registry::Entry,
+    runtime: Arc<crate::runtime::Runtime>,
+    dir: std::path::PathBuf,
+    genesis: String,
+    guard: AccountKeyGuard,
+}
+
+impl ModeContext {
+    fn validate(&self, op: &Request) -> Result<(), ControlError> {
+        if op.collection == self.entry.id
+            && Some(op.account.as_str()) == self.entry.owner_account.as_deref()
+            && Some(op.device.as_str()) == self.entry.device.as_deref()
+            && op.genesis == self.genesis
+        {
+            return Ok(());
+        }
+        Err(ControlError::unavailable(
+            "mode_journal_invalid",
+            "Mode request identity differs; retained.",
+        ))
+    }
+
+    async fn confirm(&self, daemon: &Daemon, op: &mut Request) -> Result<(), ControlError> {
+        daemon
+            .confirm(&crate::confirm::Prompt::CollectionMode {
+                collection: self.entry.name.clone(),
+                private: op.target == "private",
+            })
+            .await?;
+        let generation = self
+            .runtime
+            .mode_generation(self.guard.clone())
+            .await
+            .ok_or_else(|| {
+                ControlError::unavailable("not_ready", "Native privacy state is unavailable")
+            })?;
+        op.generation = Some(crate::secrets::hex(&generation.0));
+        op.confirmed = true;
+        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Action {
+    Reserve,
+    Read,
+    Prepare,
+    Finish,
+    Delete,
 }
 
 impl Daemon {
-    /// Background driver: advances every confirmed, retained `mode-request.json`
-    /// on creation, daemon startup, `retry_at`, and bounded backoff, stopping on
-    /// terminal or person-needed phases.
     pub(super) async fn collection_mode_drive(self: Arc<Self>) {
         let mut stop = self.shutdown.subscribe();
         let mut ready = self.readiness.subscribe();
@@ -478,409 +411,185 @@ impl Daemon {
             _ = stop.wait_for(|s| *s) => return,
             _ = ready.wait_for(|r| r.ready) => {}
         }
+        self.load_mode_requests().await;
         loop {
-            let next_sleep = tokio::select! {
-                _ = stop.wait_for(|s| *s) => break,
-                delay = self.collection_mode_pass() => delay,
-            };
-            match next_sleep {
-                Some(delay) => {
-                    tokio::select! {
-                        _ = stop.wait_for(|s| *s) => break,
-                        _ = self.mode_driver.wake.notified() => {}
-                        _ = tokio::time::sleep(delay) => {}
-                    }
+            for (id, request) in self.mode_driver.due(Instant::now()) {
+                tokio::select! {
+                    _ = stop.wait_for(|s| *s) => return,
+                    _ = self.drive_mode_request(&id, &request) => {}
                 }
-                None => {
-                    tokio::select! {
-                        _ = stop.wait_for(|s| *s) => break,
-                        _ = self.mode_driver.wake.notified() => {}
+            }
+            let next = self.mode_driver.next();
+            tokio::select! {
+                _ = stop.wait_for(|s| *s) => return,
+                _ = self.mode_driver.wake.notified() => {}
+                _ = async {
+                    match next {
+                        Some(at) => tokio::time::sleep_until(at).await,
+                        None => std::future::pending().await,
                     }
-                }
+                } => {}
             }
         }
     }
 
-    async fn collection_mode_pass(&self) -> Option<Duration> {
-        let ids: Vec<String> = {
-            let inner = self.inner.lock().await;
-            inner
-                .registry
-                .collections
-                .iter()
-                .map(|e| e.id.clone())
-                .collect()
-        };
-        // Prune stale driver state for collections no longer registered.
-        {
-            let mut entries = self
-                .mode_driver
-                .entries
-                .lock()
-                .unwrap_or_else(|p| p.into_inner());
-            let before = entries.len();
-            entries.retain(|id, _| ids.iter().any(|registered| registered == id));
-            if entries.len() != before {
-                drop(entries);
-                self.bump();
-            }
-        }
-        let mut earliest: Option<Instant> = None;
+    async fn load_mode_requests(&self) {
+        let _gate = self.account_gate.lock().await;
+        let ids: Vec<_> = self
+            .inner
+            .lock()
+            .await
+            .registry
+            .collections
+            .iter()
+            .map(|e| e.id.clone())
+            .collect();
         for id in ids {
-            let dir = self.profile.collection_dir(&id);
-            let op = match Request::load(&dir) {
-                Ok(Some(op)) => op,
-                Ok(None) => {
-                    if self.mode_driver.clear(&id) {
+            if self.mode_driver.slot(&id).is_some() {
+                continue;
+            }
+            match Request::load(&self.profile.collection_dir(&id)) {
+                Ok(Some(op)) => {
+                    self.track_mode_request(&id, &op);
+                }
+                Ok(None) => {}
+                Err(error) => {
+                    if self.mode_driver.set(
+                        &id,
+                        Slot {
+                            request: String::new(),
+                            schedule: Schedule::Parked(Blocker::Attention),
+                            backoff: 0,
+                            notice: Some(notice("mode_switch_journal_invalid", error.message)),
+                        },
+                    ) {
                         self.bump();
                     }
-                    continue;
                 }
-                Err(error) => {
-                    self.mode_driver.stop(
-                        &id,
-                        "",
-                        "",
-                        DriverState::Attention {
-                            code: "mode_switch_journal_invalid".into(),
-                            message: error.message,
-                            wake_on_sign_in: false,
-                            wake_on_resume: false,
-                        },
-                    );
-                    self.bump();
-                    continue;
-                }
-            };
-            let now = Instant::now();
-            let scheduled = {
-                let entries = self
-                    .mode_driver
-                    .entries
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner());
-                entries
-                    .get(&id)
-                    .filter(|e| e.request == op.request)
-                    .map(|e| e.next_attempt)
-            };
-            match scheduled {
-                Some(None) if !op.cancel_requested => {
-                    // Stopped on a person-needed or terminal attention state.
-                    continue;
-                }
-                Some(Some(at)) if at > now => {
-                    earliest = Some(earliest.map_or(at, |cur| cur.min(at)));
-                    continue;
-                }
-                _ => {}
-            }
-            self.drive_one_collection(&id).await;
-            let next = {
-                let entries = self
-                    .mode_driver
-                    .entries
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner());
-                entries.get(&id).and_then(|e| e.next_attempt)
-            };
-            if let Some(at) = next {
-                earliest = Some(earliest.map_or(at, |cur| cur.min(at)));
             }
         }
-        earliest.map(|at| at.saturating_duration_since(Instant::now()))
     }
 
-    async fn drive_one_collection(&self, id: &str) {
-        let Some(col) = crate::attest::uuid_bytes(id) else {
+    fn track_mode_request(&self, id: &str, op: &Request) -> Slot {
+        let slot = Slot {
+            request: op.request.clone(),
+            schedule: Schedule::Due(Instant::now()),
+            backoff: 0,
+            notice: Some(in_progress_notice()),
+        };
+        if self.mode_driver.set(id, slot.clone()) {
+            self.bump();
+        }
+        self.mode_driver.wake();
+        slot
+    }
+
+    async fn drive_mode_request(&self, id: &str, request: &str) {
+        let _gate = self.account_gate.lock().await;
+        let Some(slot) = self.mode_driver.slot(id).filter(|slot| {
+            slot.request == request
+                && matches!(slot.schedule, Schedule::Due(at) if at <= Instant::now())
+        }) else {
             return;
         };
-        let _gate = self.account_gate.lock().await;
-        let dir = self.profile.collection_dir(id);
-        let op = match Request::load(&dir) {
-            Ok(Some(op)) => op,
-            Ok(None) => {
+        match Request::load(&self.profile.collection_dir(id)) {
+            Ok(Some(op)) if op.request == request => {
+                let context = self.mode_context(id).await;
+                let _ = self.run_mode_step(id, op, &slot, context).await;
+            }
+            Ok(_) => {
                 if self.mode_driver.clear(id) {
                     self.bump();
                 }
-                return;
             }
             Err(error) => {
-                self.mode_driver.stop(
-                    id,
-                    "",
-                    "",
-                    DriverState::Attention {
-                        code: "mode_switch_journal_invalid".into(),
-                        message: error.message,
-                        wake_on_sign_in: false,
-                        wake_on_resume: false,
-                    },
-                );
-                self.bump();
-                return;
+                let _ = self.apply_mode_outcome(id, &slot, Outcome::local(error));
             }
-        };
-        let (ctx, _) = match self.sync_parts() {
-            Ok(parts) => parts,
-            Err(_) => {
-                self.mode_driver.stop(
-                    id,
-                    &op.request,
-                    &op.target,
-                    DriverState::Attention {
-                        code: "mode_switch_sign_in_required".into(),
-                        message: format!(
-                            "Switch to {} is paused until this computer is signed in.",
-                            mode_label(&op.target)
-                        ),
-                        wake_on_sign_in: true,
-                        wake_on_resume: false,
-                    },
-                );
-                self.bump();
-                return;
-            }
-        };
-        let Ok(source) = self.authority.source(B16(col)) else {
-            self.mode_driver.stop(
-                id,
-                &op.request,
-                &op.target,
-                DriverState::Attention {
-                    code: "mode_switch_sign_in_required".into(),
-                    message: format!(
-                        "Switch to {} is paused until this computer is signed in.",
-                        mode_label(&op.target)
-                    ),
-                    wake_on_sign_in: true,
-                    wake_on_resume: false,
-                },
-            );
-            self.bump();
-            return;
-        };
-        if source.current_synced().is_err() {
-            let state = {
-                let inner = self.inner.lock().await;
-                inner
-                    .hosts
-                    .iter()
-                    .find(|h| h.entry().id == id)
-                    .map(|h| h.state())
-            };
-            if state == Some(CollectionState::Paused) {
-                self.mode_driver.stop(
-                    id,
-                    &op.request,
-                    &op.target,
-                    DriverState::Attention {
-                        code: "mode_switch_paused".into(),
-                        message: format!(
-                            "Switch to {} is paused while this collection is paused. Resume the collection to continue.",
-                            mode_label(&op.target)
-                        ),
-                        wake_on_sign_in: false,
-                        wake_on_resume: true,
-                    },
-                );
-            } else {
-                self.mode_driver.stop(
-                    id,
-                    &op.request,
-                    &op.target,
-                    DriverState::Attention {
-                        code: "mode_switch_sign_in_required".into(),
-                        message: format!(
-                            "Switch to {} is paused until this computer is signed in.",
-                            mode_label(&op.target)
-                        ),
-                        wake_on_sign_in: true,
-                        wake_on_resume: false,
-                    },
-                );
-            }
-            self.bump();
-            return;
-        }
-        let host_info = {
-            let inner = self.inner.lock().await;
-            inner
-                .hosts
-                .iter()
-                .find(|h| h.entry().id == id)
-                .map(|h| (h.entry().clone(), h.state(), h.runtime()))
-        };
-        let Some((entry, state, runtime)) = host_info else {
-            self.mode_driver.clear(id);
-            return;
-        };
-        let Some(runtime) = runtime else {
-            match state {
-                CollectionState::Opening | CollectionState::Unavailable => {
-                    self.mode_driver.schedule_retry_error(
-                        id,
-                        &op.request,
-                        &op.target,
-                        "finishing",
-                        None,
-                    );
-                }
-                CollectionState::Paused => {
-                    self.mode_driver.stop(
-                        id,
-                        &op.request,
-                        &op.target,
-                        DriverState::Attention {
-                            code: "mode_switch_paused".into(),
-                            message: format!(
-                                "Switch to {} is paused while this collection is paused. Resume the collection to continue.",
-                                mode_label(&op.target)
-                            ),
-                            wake_on_sign_in: false,
-                            wake_on_resume: true,
-                        },
-                    );
-                    self.bump();
-                }
-                _ => {
-                    self.mode_driver.stop(
-                        id,
-                        &op.request,
-                        &op.target,
-                        DriverState::Attention {
-                            code: "mode_switch_paused".into(),
-                            message: format!(
-                                "Switch to {} is paused because this collection is not serving.",
-                                mode_label(&op.target)
-                            ),
-                            wake_on_sign_in: false,
-                            wake_on_resume: true,
-                        },
-                    );
-                    self.bump();
-                }
-            }
-            return;
-        };
-        let cfg = match crate::sync::SyncConfig::load(&dir.join(crate::sync::FILE)) {
-            Ok(Some(cfg)) => cfg,
-            _ => {
-                self.mode_driver.stop(
-                    id,
-                    &op.request,
-                    &op.target,
-                    DriverState::Attention {
-                        code: "mode_switch_attention".into(),
-                        message: "Sync link missing; mode switch paused.".into(),
-                        wake_on_sign_in: false,
-                        wake_on_resume: true,
-                    },
-                );
-                self.bump();
-                return;
-            }
-        };
-        if !identity_matches(&op, &entry, &cfg) {
-            self.mode_driver.stop(
-                id,
-                &op.request,
-                &op.target,
-                DriverState::Attention {
-                    code: "mode_switch_journal_invalid".into(),
-                    message: "Mode request identity differs; retained.".into(),
-                    wake_on_sign_in: false,
-                    wake_on_resume: false,
-                },
-            );
-            self.bump();
-            return;
-        }
-        let current = || {
-            source
-                .current_synced()
-                .map(|_| ())
-                .map_err(|_| "account_changed".to_string())
-        };
-        let fenced = source.clone();
-        let guard: AccountKeyGuard = Arc::new(move || fenced.current_synced().is_ok());
-        if let Err(error) = self
-            .advance_mode_step(&ctx, col, &entry, &runtime, &dir, &current, guard, op)
-            .await
-        {
-            tracing::debug!(
-                collection = %id,
-                reason = ?error.reason,
-                message = %error.message,
-                "mode switch driver step did not complete yet"
-            );
         }
     }
 
-    pub(super) async fn collection_mode_status(&self, id: &str) -> Result<Value, ControlError> {
-        self.reconcile_private_choices().await;
-        let col = crate::attest::uuid_bytes(id)
+    fn mode_link(&self, id: &str) -> Result<ModeLink, ControlError> {
+        let collection = crate::attest::uuid_bytes(id)
             .ok_or_else(|| ControlError::invalid("collection", "collection UUID required"))?;
-        let (ctx, _) = self.sync_parts()?;
-        let source = self.authority.source(B16(col)).map_err(|_| {
-            ControlError::unavailable("not_ready", "current synced collection required")
+        let source = self.authority.source(B16(collection)).map_err(|_| {
+            ControlError::unavailable("not_signed_in", "Sign this computer in to continue.")
         })?;
-        let current = || {
-            source
-                .current_synced()
-                .map(|_| ())
-                .map_err(|_| "account_changed".to_string())
+        let (ctx, _) = self.sync_parts()?;
+        let link = ModeLink {
+            ctx,
+            source,
+            collection,
         };
-        if let Some(op) = Request::load(&self.profile.collection_dir(id))? {
-            let terminal = ctx
-                .cloud
-                .collection_mode_request_status(id, &op.request, &current)
-                .await
-                .ok();
-            let terminal_phase = terminal
-                .as_ref()
-                .and_then(|v| v.get("phase"))
-                .and_then(Value::as_str);
-            let abandoned = terminal_phase == Some("abandoned");
-            let cancelled =
-                !abandoned && (op.cancel_requested || terminal_phase == Some("cancelled"));
-            if abandoned || (!cancelled && terminal_phase == Some("complete")) {
-                let _gate = self.account_gate.lock().await;
-                let inner = self.inner.lock().await;
-                if let Some(entry) = inner.registry.get(id) {
-                    let cfg = crate::sync::SyncConfig::load(
-                        &self.profile.collection_dir(id).join(crate::sync::FILE),
-                    )
-                    .map_err(|e| ControlError::internal(e.0))?;
-                    if Request::load(&self.profile.collection_dir(id))?
-                        .is_some_and(|current| current.request == op.request)
-                        && current().is_ok()
-                        && op.collection == id
-                        && entry.owner_account.as_deref() == Some(&op.account)
-                        && entry.device.as_deref() == Some(&op.device)
-                        && cfg.is_some_and(|c| c.genesis_hash == op.genesis)
-                    {
-                        Request::clear(&self.profile.collection_dir(id))?;
-                        self.mode_driver.clear(id);
-                    }
-                }
-            }
-            if cancelled {
-                self.change_collection_mode(ChangeMode {
-                    collection: id.into(),
-                    target_mode: Some(op.target),
-                    cancel: true,
-                })
-                .await?;
-            }
+        link.current().map_err(|_| {
+            ControlError::unavailable("not_serving", "Resume the synced collection to continue.")
+        })?;
+        Ok(link)
+    }
+
+    async fn mode_context(&self, id: &str) -> Result<ModeContext, ControlError> {
+        let (entry, (state, reason), runtime) = {
+            let inner = self.inner.lock().await;
+            let host = inner
+                .hosts
+                .iter()
+                .find(|h| h.entry().id == id)
+                .ok_or_else(|| {
+                    ControlError::unavailable("not_registered", "Collection not registered.")
+                })?;
+            (host.entry().clone(), host.current(), host.runtime())
+        };
+        if state == CollectionState::Paused {
+            return Err(ControlError::unavailable(
+                "not_serving",
+                "Resume the collection to continue.",
+            ));
         }
-        // The server's answer, as-is: this computer's registration may lag it.
-        let result = ctx
+        let link = self.mode_link(id)?;
+        let runtime = runtime.ok_or_else(|| {
+            if state == CollectionState::Opening
+                || matches!(
+                    reason.as_deref(),
+                    Some("runtime_pending" | "sync_unreachable")
+                )
+            {
+                ControlError::unavailable("not_ready", "Waiting for the collection to open.")
+            } else {
+                ControlError::unavailable("not_serving", "Resume the collection to continue.")
+            }
+        })?;
+        let dir = self.profile.collection_dir(id);
+        let cfg = crate::sync::SyncConfig::load(&dir.join(crate::sync::FILE))
+            .map_err(|e| ControlError::internal(e.0))?
+            .ok_or_else(|| {
+                ControlError::unavailable("sync_config_invalid", "Sync link missing.")
+            })?;
+        let fence = link.source.clone();
+        let guard: AccountKeyGuard = Arc::new(move || fence.current_synced().is_ok());
+        Ok(ModeContext {
+            link,
+            entry,
+            runtime,
+            dir,
+            genesis: cfg.genesis_hash,
+            guard,
+        })
+    }
+
+    pub(super) async fn collection_mode_status(
+        &self,
+        id: &str,
+        include_local: bool,
+    ) -> Result<Value, ControlError> {
+        let link = self.mode_link(id)?;
+        let mut result = link
+            .ctx
             .cloud
-            .collection_mode_status(id, &current)
+            .collection_mode_status(id, &|| link.current())
             .await
-            .map_err(cloud_refusal)?;
-        current().map_err(|_| ControlError::unavailable("account_changed", "account changed"))?;
+            .map_err(mode_refusal)?;
+        if include_local {
+            self.mode_driver.attach(id, &mut result, true);
+        }
         Ok(result)
     }
 
@@ -888,559 +597,564 @@ impl Daemon {
         &self,
         p: ChangeMode,
     ) -> Result<Value, ControlError> {
-        if let Some(target) = p.target_mode.as_deref() {
-            if !matches!(target, "private" | "cloud_copy") {
-                return Err(ControlError::invalid(
-                    "target_mode",
-                    "choose private or cloud_copy",
-                ));
-            }
-        } else if !p.cancel {
+        let id = &p.collection;
+        let valid_target = match p.target_mode.as_deref() {
+            Some("private" | "cloud_copy") => true,
+            None => p.cancel,
+            _ => false,
+        };
+        if !valid_target {
             return Err(ControlError::invalid(
                 "target_mode",
                 "choose private or cloud_copy",
             ));
         }
-        let col = crate::attest::uuid_bytes(&p.collection)
-            .ok_or_else(|| ControlError::invalid("collection", "collection UUID required"))?;
-        self.reconcile_private_choices().await;
-        let _gate = self.account_gate.lock().await;
-        let (ctx, _) = self.sync_parts()?;
-        let source = self.authority.source(B16(col)).map_err(|_| {
-            ControlError::unavailable("not_ready", "current synced collection required")
-        })?;
-        let current = || {
-            source
-                .current_synced()
-                .map(|_| ())
-                .map_err(|_| "account_changed".to_string())
-        };
-        current().map_err(|_| ControlError::unavailable("account_changed", "account changed"))?;
-        let fenced = source.clone();
-        let guard: AccountKeyGuard = Arc::new(move || fenced.current_synced().is_ok());
-        let (entry, runtime) = {
-            let inner = self.inner.lock().await;
-            let host = inner
-                .hosts
-                .iter()
-                .find(|h| h.entry().id == p.collection)
-                .ok_or_else(|| {
-                    ControlError::unavailable("not_registered", "collection not registered")
-                })?;
-            (
-                host.entry().clone(),
-                host.runtime().ok_or_else(|| {
-                    ControlError::unavailable("not_serving", "resume this collection first")
-                })?,
-            )
-        };
-        let dir = self.profile.collection_dir(&p.collection);
-        let cfg = crate::sync::SyncConfig::load(&dir.join(crate::sync::FILE))
-            .map_err(|e| ControlError::internal(e.0))?
-            .ok_or_else(|| ControlError::unavailable("not_ready", "sync link missing"))?;
-        let mut operation = Request::load(&dir)?;
-        if let Some(op) = &operation {
-            if !identity_matches(op, &entry, &cfg) {
-                return Err(ControlError::unavailable(
-                    "mode_journal_invalid",
-                    "Mode request identity differs; retained",
-                ));
-            }
-            if let Some(requested_target) = p.target_mode.as_deref()
-                && op.target != requested_target
-            {
-                return Err(ControlError::invalid(
-                    "mode_change_in_progress",
-                    format!(
-                        "a switch to {} is already in progress; finish or cancel it first",
-                        mode_label(&op.target)
-                    ),
-                ));
-            }
+        if crate::attest::uuid_bytes(id).is_none() {
+            return Err(ControlError::invalid(
+                "collection",
+                "collection UUID required",
+            ));
         }
-        if operation.is_none() {
-            let status = ctx
-                .cloud
-                .collection_mode_status(&p.collection, &current)
-                .await
-                .map_err(cloud_refusal)?;
-            let active = status.get("change").filter(|v| !v.is_null());
-            if p.cancel {
-                if active
-                    .is_some_and(|v| v.get("phase").and_then(Value::as_str) == Some("abandoned"))
-                {
-                    let target = active
-                        .and_then(|v| v.get("target_mode"))
-                        .and_then(Value::as_str)
-                        .or(p.target_mode.as_deref())
-                        .unwrap_or("private");
-                    return Ok(json!({"phase": "abandoned", "target_mode": target}));
-                }
-                let Some(active) = active else {
-                    let mut reply = json!({"phase": "cancelled"});
-                    if let Some(target) = p.target_mode.as_deref() {
-                        reply["target_mode"] = json!(target);
+        let _gate = self.account_gate.lock().await;
+        let retained = Request::load(&self.profile.collection_dir(id))?;
+        let new_request = retained.is_none();
+        let ctx = self.mode_context(id).await?;
+        let mut op = match retained {
+            Some(op) => {
+                ctx.validate(&op)?;
+                check_target(p.target_mode.as_deref(), &op.target)?;
+                op
+            }
+            None => {
+                let status = ctx
+                    .link
+                    .ctx
+                    .cloud
+                    .collection_mode_status(id, &|| ctx.link.current())
+                    .await
+                    .map_err(mode_refusal)?;
+                let active = status.get("change").filter(|change| !change.is_null());
+                if let Some(active) = active {
+                    if active["phase"] == "abandoned" {
+                        return Ok(active.clone());
                     }
-                    return Ok(reply);
+                    check_target(p.target_mode.as_deref(), required_target(active)?)?;
+                } else if p.cancel {
+                    return Ok(json!({"phase":"cancelled"}));
+                }
+                let target = match active {
+                    Some(active) => required_target(active)?,
+                    None => p.target_mode.as_deref().expect("validated target"),
                 };
-                let active_target = active
-                    .get("target_mode")
-                    .and_then(Value::as_str)
-                    .filter(|t| matches!(*t, "private" | "cloud_copy"))
-                    .ok_or_else(|| ControlError::internal("active switch target missing"))?;
-                if let Some(requested_target) = p.target_mode.as_deref()
-                    && requested_target != active_target
-                {
-                    return Err(ControlError::invalid(
-                        "mode_change_in_progress",
-                        format!(
-                            "a switch to {} is in progress, not {}",
-                            mode_label(active_target),
-                            mode_label(requested_target)
-                        ),
-                    ));
-                }
-                let request = active
-                    .get("request_id")
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .ok_or_else(|| ControlError::internal("active switch request missing"))?;
-                let op = self
-                    .new_request(
-                        &entry,
-                        &runtime,
-                        guard.clone(),
-                        cfg.genesis_hash,
-                        request,
-                        active_target.to_string(),
-                        true,
-                    )
-                    .await?;
-                op.save(&dir)?;
-                operation = Some(op);
-            } else {
-                let target_mode = p.target_mode.as_deref().expect("validated above");
-                let private = target_mode == "private";
-                // An abandoned Private switch is reported until an excluding rekey
-                // follows it. Native policy runs that rekey; leaving e2e first would
-                // consume every switch-set device's exception, so neither direction starts.
-                if active
-                    .is_some_and(|v| v.get("phase").and_then(Value::as_str) == Some("abandoned"))
-                {
-                    return Ok(json!({"phase": "abandoned", "target_mode": target_mode}));
-                }
-                if active.is_some_and(|v| {
-                    v.get("target_mode").and_then(Value::as_str) != Some(target_mode)
-                }) {
-                    let in_flight = active
-                        .and_then(|v| v.get("target_mode"))
-                        .and_then(Value::as_str)
-                        .map(mode_label);
-                    let message = match in_flight {
-                        Some(mode) => format!(
-                            "a switch to {mode} is already in progress; finish or cancel it first"
-                        ),
-                        None => "finish the current switch first".into(),
-                    };
-                    return Err(ControlError::invalid("mode_change_in_progress", message));
-                }
-                if active.is_none()
-                    && status.get("current_mode").and_then(Value::as_str) == Some(target_mode)
-                {
-                    let selected = if private {
-                        runtime
-                            .mode_source(true, true, guard.clone())
+                if active.is_none() && status["current_mode"] == target {
+                    let selected = if target == "private" {
+                        ctx.runtime
+                            .mode_source(true, true, ctx.guard.clone())
                             .await
                             .is_some()
                     } else {
-                        runtime
-                            .private_switch(PrivateSwitchOp::CloudSelected, guard.clone())
-                            .await
-                            .is_some_and(|v| matches!(v, Ok(Some(_))))
+                        matches!(
+                            ctx.runtime
+                                .private_switch(PrivateSwitchOp::CloudSelected, ctx.guard.clone())
+                                .await,
+                            Some(Ok(Some(_)))
+                        )
                     };
-                    return Ok(json!({
-                        "phase": if selected { "complete" } else { "waiting_for_device" },
-                        "target_mode": target_mode
-                    }));
+                    return Ok(
+                        json!({"phase": if selected { "complete" } else { "waiting_for_device" }, "target_mode":target}),
+                    );
                 }
-                // Ask only for a switch that can run: without the server's executor
-                // the confirmed switch could only be rolled back.
-                if status.get("execution_available") != Some(&Value::Bool(true)) {
+                if !p.cancel && status["execution_available"] != true {
                     return Err(ControlError::unavailable(
                         "mode_switch_unavailable",
                         "Switching this collection isn't available yet.",
                     ));
                 }
-                self.confirm(&crate::confirm::Prompt::CollectionMode {
-                    collection: entry.name.clone(),
-                    private,
-                })
-                .await?;
-                let request = active
-                    .and_then(|v| v.get("request_id"))
-                    .and_then(Value::as_str)
-                    .map(str::to_owned)
-                    .unwrap_or(
-                        crate::secrets::new_uuid()
-                            .map_err(|e| ControlError::internal(e.to_string()))?,
-                    );
-                let op = self
-                    .new_request(
-                        &entry,
-                        &runtime,
-                        guard.clone(),
-                        cfg.genesis_hash,
-                        request,
-                        target_mode.to_string(),
-                        false,
-                    )
-                    .await?;
-                op.save(&dir)?;
-                operation = Some(op);
-            }
-        }
-        let mut op = operation.expect("created above");
-        if p.cancel && !op.cancel_requested {
-            op.cancel_requested = true;
-            op.save(&dir)?;
-        }
-        self.advance_mode_step(&ctx, col, &entry, &runtime, &dir, &current, guard, op)
-            .await
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn new_request(
-        &self,
-        entry: &crate::registry::Entry,
-        runtime: &crate::runtime::Runtime,
-        guard: AccountKeyGuard,
-        genesis: String,
-        request: String,
-        target: String,
-        cancel_requested: bool,
-    ) -> Result<Request, ControlError> {
-        Ok(Request {
-            collection: entry.id.clone(),
-            account: entry
-                .owner_account
-                .clone()
-                .ok_or_else(|| ControlError::unavailable("not_ready", "account missing"))?,
-            device: entry
-                .device
-                .clone()
-                .ok_or_else(|| ControlError::unavailable("not_ready", "device missing"))?,
-            genesis,
-            generation: crate::secrets::hex(
-                &runtime
-                    .mode_generation(guard)
-                    .await
-                    .ok_or_else(|| {
-                        ControlError::unavailable(
-                            "not_ready",
-                            "Native privacy state is unavailable",
-                        )
-                    })?
-                    .0,
-            ),
-            request,
-            target,
-            cancel_requested,
-            native_started: false,
-        })
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn advance_mode_step(
-        &self,
-        ctx: &crate::collections::SyncCtx,
-        col: [u8; 16],
-        entry: &crate::registry::Entry,
-        runtime: &crate::runtime::Runtime,
-        dir: &Path,
-        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
-        guard: AccountKeyGuard,
-        mut op: Request,
-    ) -> Result<Value, ControlError> {
-        let private = op.target == "private";
-        // Reserve idempotently before native mutation (and before cancel so a
-        // cancellation tombstone exists even if an original POST reply was lost).
-        // Once native_started is set, read the request status instead of
-        // re-posting intent so driver retries never burn POST /mode's 10/min limit.
-        let reserved = if !op.native_started || op.cancel_requested {
-            match ctx
-                .cloud
-                .collection_mode_intent(&entry.id, &op.request, private, current)
-                .await
-            {
-                Ok(value) => value,
-                Err(error) => {
-                    // Intent alone cannot publish. A definite 4xx refusal before any
-                    // native mutation must not strand a new local request.
-                    if !op.native_started
-                        && matches!(&error, CloudError::Server(status, _) if (400..500).contains(status))
-                    {
-                        Request::clear(dir)?;
-                        self.mode_driver.clear(&entry.id);
-                        self.bump();
-                        if op.cancel_requested {
-                            return Ok(json!({
-                                "phase": "cancelled",
-                                "request_id": op.request,
-                                "target_mode": op.target,
-                            }));
-                        }
-                        if matches!(&error, CloudError::Server(409, code) if code == "mode_abandoned")
-                        {
-                            return Ok(json!({
-                                "phase": "abandoned",
-                                "request_id": op.request,
-                                "target_mode": op.target,
-                            }));
-                        }
-                    } else {
-                        self.schedule_driver_for_error(
-                            &entry.id,
-                            &op,
-                            "waiting_for_device",
-                            &error,
-                        );
-                    }
-                    return Err(cloud_refusal(error));
-                }
-            }
-        } else {
-            match ctx
-                .cloud
-                .collection_mode_request_status(&entry.id, &op.request, current)
-                .await
-            {
-                Ok(value) => value,
-                Err(error) => {
-                    self.schedule_driver_for_error(&entry.id, &op, "finishing", &error);
-                    return Err(cloud_refusal(error));
+                let request = match active {
+                    Some(active) => active["request_id"]
+                        .as_str()
+                        .filter(|id| crate::attest::uuid_bytes(id).is_some_and(|id| id != [0; 16]))
+                        .ok_or_else(|| ControlError::internal("active switch request missing"))?
+                        .to_owned(),
+                    None => crate::secrets::new_uuid()
+                        .map_err(|e| ControlError::internal(e.to_string()))?,
+                };
+                Request {
+                    collection: id.clone(),
+                    account: ctx.entry.owner_account.clone().ok_or_else(|| {
+                        ControlError::unavailable("not_ready", "Account missing.")
+                    })?,
+                    device: ctx
+                        .entry
+                        .device
+                        .clone()
+                        .ok_or_else(|| ControlError::unavailable("not_ready", "Device missing."))?,
+                    genesis: ctx.genesis.clone(),
+                    generation: None,
+                    request,
+                    target: target.into(),
+                    confirmed: false,
+                    cancel_requested: p.cancel,
+                    native_started: false,
                 }
             }
         };
-
-        if reserved.get("phase").and_then(Value::as_str) == Some("abandoned") {
-            Request::clear(dir)?;
-            self.mode_driver.clear(&entry.id);
-            self.bump();
-            return Ok(json!({
-                "phase": "abandoned",
-                "request_id": op.request,
-                "target_mode": op.target,
-            }));
-        }
-
-        if reserved.get("phase").and_then(Value::as_str) == Some("complete") {
-            Request::clear(dir)?;
-            self.mode_driver.clear(&entry.id);
-            self.reconcile_private_choices_locked().await;
-            if private {
-                self.account_keys.wake();
-            }
-            self.bump();
-            if op.cancel_requested {
-                return Err(cloud_refusal(CloudError::Server(
-                    409,
-                    "mode_already_published".into(),
-                )));
-            }
-            return Ok(json!({
-                "phase": "complete",
-                "request_id": op.request,
-                "target_mode": op.target,
-            }));
-        }
-
-        if op.cancel_requested || reserved.get("phase").and_then(Value::as_str) == Some("cancelled")
-        {
+        let new_cancel = p.cancel && !op.cancel_requested;
+        if new_cancel {
             op.cancel_requested = true;
-            op.save(dir)?;
-            if let Err(error) = ctx
-                .cloud
-                .collection_mode_cancel(&entry.id, &op.request, current)
-                .await
-            {
-                if matches!(&error, CloudError::Server(409, code) if code == "mode_already_published")
-                {
-                    op.cancel_requested = false;
-                    op.save(dir)?;
-                    self.mode_driver.schedule_in_progress(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        "finishing",
-                        None,
-                        Some(Duration::ZERO),
-                    );
-                } else {
-                    self.schedule_driver_for_error(&entry.id, &op, "waiting_for_device", &error);
-                }
-                return Err(cloud_refusal(error));
-            }
-            self.cancel_local_switch(&entry.id, runtime, private, guard.clone())
-                .await?;
-            current()
-                .map_err(|_| ControlError::unavailable("account_changed", "account changed"))?;
-            Request::clear(dir)?;
-            self.mode_driver.clear(&entry.id);
-            self.bump();
-            return Ok(json!({
-                "phase": "cancelled",
-                "request_id": op.request,
-                "target_mode": op.target,
-            }));
+            op.save(&ctx.dir)?;
         }
+        let slot = self
+            .mode_driver
+            .slot(id)
+            .filter(|slot| slot.request == op.request);
+        // Explicit cancellation may end token drain early. HTTP backoff and
+        // Retry-After still apply to the same request.
+        if slot.as_ref().is_some_and(|slot| {
+            matches!(slot.schedule, Schedule::Due(at) if at > Instant::now())
+                && !(new_cancel
+                    && slot
+                        .notice
+                        .as_ref()
+                        .is_some_and(|n| n.code == "mode_switch_token_drain"))
+        }) {
+            let mut reply =
+                json!({"request_id":op.request, "target_mode":op.target, "retry_scheduled":true});
+            if p.include_local {
+                self.mode_driver.attach(id, &mut reply, false);
+            }
+            return Ok(reply);
+        }
+        let needs_confirmation = !p.cancel && !op.confirmed && !op.cancel_requested;
+        if needs_confirmation {
+            ctx.confirm(self, &mut op).await?;
+        }
+        if new_request || needs_confirmation {
+            op.save(&ctx.dir)?;
+        }
+        let slot = slot.unwrap_or_else(|| self.track_mode_request(id, &op));
+        let mut reply = self.run_mode_step(id, op, &slot, Ok(ctx)).await?;
+        if p.include_local {
+            self.mode_driver.attach(id, &mut reply, false);
+        }
+        Ok(reply)
+    }
 
-        let receipt = runtime.mode_source(private, true, guard.clone()).await;
-        let intent = runtime.mode_source(private, false, guard.clone()).await;
-        if receipt.is_none() && intent.is_none() {
-            op.native_started = true;
-            op.save(dir)?;
-            if private {
-                let requested = runtime
-                    .private_switch(PrivateSwitchOp::Request, guard.clone())
-                    .await
-                    .ok_or_else(|| ControlError::unavailable("not_ready", "collection stopped"))?;
-                if requested.is_err() {
-                    self.mode_driver.stop(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        DriverState::NeedsKeyedOwner,
-                    );
-                    self.bump();
-                    return Err(ControlError::unavailable(
-                        "keyed_owner_required",
-                        "use an owner device holding this collection’s trusted key",
+    async fn run_mode_step(
+        &self,
+        id: &str,
+        op: Request,
+        slot: &Slot,
+        ctx: Result<ModeContext, ControlError>,
+    ) -> Result<Value, ControlError> {
+        let outcome = match ctx {
+            Ok(ctx) => self
+                .mode_step(&ctx, op, slot)
+                .await
+                .unwrap_or_else(Outcome::local),
+            Err(error) => Outcome::local(error),
+        };
+        self.apply_mode_outcome(id, slot, outcome)
+    }
+
+    fn apply_mode_outcome(
+        &self,
+        id: &str,
+        slot: &Slot,
+        outcome: Outcome,
+    ) -> Result<Value, ControlError> {
+        let mut next_slot = slot.clone();
+        next_slot.notice = outcome.notice;
+        let changed = match outcome.next {
+            Next::Terminal => self.mode_driver.clear(id),
+            Next::Park(blocker) => {
+                next_slot.schedule = Schedule::Parked(blocker);
+                next_slot.backoff = 0;
+                self.mode_driver.set(id, next_slot)
+            }
+            Next::Retry(delay) => {
+                next_slot.backoff = (slot.backoff + 1).min(5);
+                let delay = delay.unwrap_or_else(|| backoff_delay(next_slot.backoff));
+                if let Some(at) = Instant::now().checked_add(delay) {
+                    next_slot.schedule = Schedule::Due(at);
+                    next_slot.notice.get_or_insert_with(in_progress_notice);
+                } else {
+                    next_slot.schedule = Schedule::Parked(Blocker::Attention);
+                    next_slot.notice = Some(notice(
+                        "mode_switch_attention",
+                        "The server's retry deadline is out of range.",
                     ));
                 }
-            } else if let Err(error) = self
-                .choose_cloud_copy_locally(
-                    &entry.id,
-                    runtime,
-                    guard.clone(),
-                    mdbn_wire::common::B32(
-                        crate::secrets::hex_decode(&op.generation)
-                            .ok()
-                            .and_then(|bytes| bytes.try_into().ok())
-                            .ok_or_else(|| {
-                                ControlError::unavailable(
-                                    "mode_journal_invalid",
-                                    "Privacy generation is invalid",
-                                )
-                            })?,
-                    ),
-                )
-                .await
-            {
-                if error.reason.as_deref() == Some("keyed_owner_required") {
-                    self.mode_driver.stop(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        DriverState::NeedsKeyedOwner,
-                    );
-                    self.bump();
-                } else {
-                    self.mode_driver.schedule_retry_error(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        "waiting_for_device",
-                        None,
-                    );
-                }
-                return Err(error);
+                self.mode_driver.set(id, next_slot)
             }
-        } else if !op.native_started {
-            op.native_started = true;
-            op.save(dir)?;
-        }
-
-        let server_phase = reserved.get("phase").and_then(Value::as_str);
-        if server_phase == Some("waiting_for_token_expiry") {
-            let retry_at = reserved
-                .get("retry_at")
-                .and_then(Value::as_str)
-                .map(str::to_owned);
-            if let Some(delay) = retry_at_delay(retry_at.as_deref(), crate::fsutil::now_ms() as u64)
-            {
-                self.mode_driver.schedule_in_progress(
-                    &entry.id,
-                    &op.request,
-                    &op.target,
-                    "waiting_for_token_expiry",
-                    retry_at,
-                    Some(delay),
-                );
-                self.bump();
-                return Ok(reserved);
-            }
-        }
-
-        let receipt = runtime.mode_source(private, true, guard.clone()).await;
-        if server_phase == Some("finishing") && receipt.is_none() {
-            // Policy is already appended; wait for this replica to apply it (and
-            // write its CloudCopyOff rekey when switching to Private) before /finish.
-            if private {
-                self.reconcile_private_choices_locked().await;
-            }
-            self.mode_driver.schedule_in_progress(
-                &entry.id,
-                &op.request,
-                &op.target,
-                "finishing",
-                None,
-                None,
-            );
-            self.bump();
-            return Ok(reserved);
-        }
-
-        let (finish, epoch, head, members) = if let Some((epoch, head, members)) = receipt {
-            (true, epoch, head, members)
-        } else {
-            let Some((epoch, head, members)) =
-                runtime.mode_source(private, false, guard.clone()).await
-            else {
-                if matches!(server_phase, Some("publishing_policy" | "finishing")) {
-                    // Partial keyring rebuild may still be running; keep polling.
-                    self.mode_driver.schedule_in_progress(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        server_phase.unwrap_or("finishing"),
-                        None,
-                        None,
-                    );
-                    self.bump();
-                    return Ok(reserved);
-                }
-                self.mode_driver.stop(
-                    &entry.id,
-                    &op.request,
-                    &op.target,
-                    DriverState::WaitingForDevice,
-                );
-                self.bump();
-                return Ok(json!({
-                    "phase": "waiting_for_device",
-                    "request_id": op.request,
-                    "target_mode": op.target,
-                }));
-            };
-            (false, epoch, head, members)
         };
+        if changed {
+            self.bump();
+        }
+        self.mode_driver.wake();
+        outcome.reply
+    }
 
+    async fn mode_step(
+        &self,
+        ctx: &ModeContext,
+        mut op: Request,
+        slot: &Slot,
+    ) -> Result<Outcome, ControlError> {
+        ctx.validate(&op)?;
+        let id = ctx.entry.id.as_str();
+        let cloud = &ctx.link.ctx.cloud;
+        let current: Current<'_> = &|| ctx.link.current();
+        let private = op.target == "private";
+        let expected = B16(crate::attest::uuid_bytes(&op.request).expect("validated request UUID"));
+        let mut action = if op.confirmed && !op.native_started && !op.cancel_requested {
+            Action::Reserve
+        } else {
+            Action::Read
+        };
+        let mut result = match action {
+            Action::Reserve => {
+                cloud
+                    .collection_mode_intent(id, &op.request, private, current)
+                    .await
+            }
+            _ => {
+                cloud
+                    .collection_mode_request_status(id, &op.request, current)
+                    .await
+            }
+        };
+        // A confirmed request may have lost its reservation reply. Establish its
+        // exact row before deleting it, even if cancellation arrived before POST.
+        if action == Action::Read
+            && op.confirmed
+            && !op.native_started
+            && op.cancel_requested
+            && matches!(&result, Err(CloudError::Server(404, code)) if code == "not_found")
+        {
+            action = Action::Reserve;
+            result = cloud
+                .collection_mode_intent(id, &op.request, private, current)
+                .await;
+        }
+        let cancel_refusal =
+            || mode_refusal(CloudError::Server(409, "mode_already_published".into()));
+        let mut cancel_refused = false;
+        let mut prepare_refusal = None;
+        let mut prepare_phase = "waiting_for_device";
+        loop {
+            let mut reply = match result {
+                Ok(reply)
+                    if reply["request_id"]
+                        .as_str()
+                        .and_then(crate::attest::uuid_bytes)
+                        == Some(expected.0)
+                        && reply
+                            .get("target_mode")
+                            .is_none_or(|value| value == &op.target)
+                        && reply.get("collection_id").is_none_or(|value| value == id) =>
+                {
+                    reply
+                }
+                Ok(_) => {
+                    return Err(ControlError::internal(
+                        "Mode reply did not identify the retained request.",
+                    ));
+                }
+                Err(CloudError::Server(409, code))
+                    if action == Action::Delete && code == "mode_already_published" =>
+                {
+                    cancel_refused = true;
+                    action = Action::Read;
+                    result = cloud
+                        .collection_mode_request_status(id, &op.request, current)
+                        .await;
+                    continue;
+                }
+                Err(CloudError::Server(409, code))
+                    if matches!(action, Action::Prepare | Action::Finish)
+                        && code == "mode_abandoned" =>
+                {
+                    return Ok(Outcome::retry(
+                        Err(mode_refusal(CloudError::Server(409, code))),
+                        None,
+                    ));
+                }
+                Err(CloudError::Server(503, code))
+                    if action == Action::Finish && code == "not_ready" =>
+                {
+                    return Ok(Outcome::retry(
+                        Ok(
+                            json!({"request_id":op.request, "target_mode":op.target, "phase":"finishing"}),
+                        ),
+                        None,
+                    ));
+                }
+                Err(CloudError::Server(409, code))
+                    if action == Action::Prepare && code == "mode_source_changed" =>
+                {
+                    let mut outcome = Outcome::retry(
+                        Ok(
+                            json!({"request_id":op.request, "target_mode":op.target, "phase":prepare_phase}),
+                        ),
+                        None,
+                    );
+                    outcome.notice = Some(notice(
+                        "mode_switch_refreshing",
+                        "This computer is refreshing the replica before retrying.",
+                    ));
+                    return Ok(outcome);
+                }
+                Err(CloudError::Server(409, code))
+                    if action == Action::Reserve
+                        && matches!(
+                            code.as_str(),
+                            "mode_abandoned"
+                                | "mode_request_conflict"
+                                | "mode_change_in_progress"
+                                | "mode_already_current"
+                        ) =>
+                {
+                    Request::clear(&ctx.dir)?;
+                    return Ok(Outcome {
+                        next: Next::Terminal,
+                        reply: Err(mode_refusal(CloudError::Server(409, code))),
+                        notice: None,
+                    });
+                }
+                Err(error)
+                    if action == Action::Prepare
+                        && prepare_phase != "publishing_policy"
+                        && is_terminal_pre_publication_refusal(false, &error) =>
+                {
+                    op.cancel_requested = true;
+                    op.save(&ctx.dir)?;
+                    prepare_refusal = Some(mode_refusal(error));
+                    action = Action::Delete;
+                    result = cloud.collection_mode_cancel(id, &op.request, current).await;
+                    continue;
+                }
+                Err(error) => return Ok(Outcome::cloud(error)),
+            };
+            reply["target_mode"] = json!(op.target);
+            let phase = reply["phase"].as_str().unwrap_or("");
+            match phase {
+                "cancelled" | "abandoned" | "complete" => {
+                    let terminal_error = if op.cancel_requested && phase == "complete" {
+                        Some(cancel_refusal())
+                    } else {
+                        prepare_refusal
+                    };
+                    return self
+                        .finish_mode_request(ctx, &op, reply, terminal_error)
+                        .await;
+                }
+                _ if action == Action::Delete => {
+                    return Err(ControlError::internal(
+                        "DELETE did not return a terminal mode phase.",
+                    ));
+                }
+                "publishing_policy" | "finishing"
+                    if op.cancel_requested && (cancel_refused || phase == "finishing") =>
+                {
+                    if !op.confirmed {
+                        Request::clear(&ctx.dir)?;
+                        return Ok(Outcome {
+                            next: Next::Terminal,
+                            reply: Err(cancel_refusal()),
+                            notice: None,
+                        });
+                    }
+                    op.cancel_requested = false;
+                    op.save(&ctx.dir)?;
+                    return Ok(Outcome::retry(Err(cancel_refusal()), None));
+                }
+                "waiting_for_device"
+                | "waiting_for_devices"
+                | "waiting_for_token_expiry"
+                | "publishing_policy"
+                    if op.cancel_requested && !cancel_refused =>
+                {
+                    action = Action::Delete;
+                    result = cloud.collection_mode_cancel(id, &op.request, current).await;
+                    continue;
+                }
+                _ if cancel_refused => return Ok(Outcome::retry(Err(cancel_refusal()), None)),
+                _ if !op.confirmed => {
+                    // Old journals encoded a refused cancel and a confirmed
+                    // switch identically, even after setting native_started.
+                    return Ok(Outcome::park(
+                        Blocker::Confirmation,
+                        "mode_switch_confirmation_required",
+                        "Run the mode command to confirm this switch on this computer.",
+                        Ok(reply),
+                    ));
+                }
+                "publishing_policy"
+                    if private && matches!(action, Action::Read | Action::Reserve) =>
+                {
+                    // A deferred Private outbox row can still hold a stale
+                    // source head. The executor accepts a refreshed proof only
+                    // while the row is unassigned. Use existing intent here.
+                    let Some(source) = ctx
+                        .runtime
+                        .mode_source(private, false, ctx.guard.clone())
+                        .await
+                    else {
+                        return Ok(Outcome::retry(Ok(reply), None));
+                    };
+                    prepare_phase = "publishing_policy";
+                    action = Action::Prepare;
+                    result = self
+                        .post_mode_proof(ctx, expected, private, false, source)
+                        .await?;
+                }
+                "publishing_policy" => return Ok(Outcome::retry(Ok(reply), None)),
+                "finishing" if matches!(action, Action::Prepare | Action::Finish) => {
+                    return Ok(Outcome::retry(Ok(reply), None));
+                }
+                "finishing" => {
+                    let Some(source) = ctx
+                        .runtime
+                        .mode_source(private, true, ctx.guard.clone())
+                        .await
+                    else {
+                        return Ok(Outcome::retry(Ok(reply), None));
+                    };
+                    action = Action::Finish;
+                    result = self
+                        .post_mode_proof(ctx, expected, private, true, source)
+                        .await?;
+                }
+                "waiting_for_devices" => {
+                    let list = format_mode_devices(&reply);
+                    let message =
+                        format!("Update or remove older devices before continuing: {list}.");
+                    let mut error =
+                        ControlError::unavailable("mode_devices_need_update", message.clone());
+                    error.details = Some(reply);
+                    return Ok(Outcome::park(
+                        Blocker::Devices,
+                        "mode_switch_devices_need_update",
+                        message,
+                        Err(error),
+                    ));
+                }
+                "waiting_for_device" | "waiting_for_token_expiry" => {
+                    let delay = reply["retry_at"]
+                        .as_str()
+                        .and_then(|raw| retry_at_delay(Some(raw), crate::fsutil::now_ms() as u64));
+                    if action == Action::Prepare || delay.is_some() {
+                        let mut outcome = Outcome::retry(Ok(reply), delay);
+                        if delay.is_some() {
+                            outcome.notice = Some(notice(
+                                "mode_switch_token_drain",
+                                "This computer will continue after older app connections expire.",
+                            ));
+                        }
+                        return Ok(outcome);
+                    }
+                    let mut source = ctx
+                        .runtime
+                        .mode_source(private, false, ctx.guard.clone())
+                        .await;
+                    if source.is_none()
+                        && slot
+                            .notice
+                            .as_ref()
+                            .is_some_and(|notice| notice.code == "mode_switch_refreshing")
+                        && slot.backoff < 5
+                    {
+                        let mut outcome = Outcome::retry(Ok(reply), None);
+                        outcome.notice = slot.notice.clone();
+                        return Ok(outcome);
+                    }
+                    if !op.native_started {
+                        // Fence the reservation and the exact consent generation
+                        // before invoking a native action that can survive a crash.
+                        op.native_started = true;
+                        op.save(&ctx.dir)?;
+                    }
+                    if source.is_none() {
+                        self.begin_native_mode(ctx, &op, private).await?;
+                        source = ctx
+                            .runtime
+                            .mode_source(private, false, ctx.guard.clone())
+                            .await;
+                    }
+                    let Some(source) = source else {
+                        return Ok(Outcome::park(
+                            Blocker::Owner,
+                            "mode_switch_waiting_for_device",
+                            "Use an owner device holding this collection’s trusted key.",
+                            Ok(reply),
+                        ));
+                    };
+                    prepare_phase = if phase == "waiting_for_token_expiry" {
+                        "waiting_for_token_expiry"
+                    } else {
+                        "waiting_for_device"
+                    };
+                    action = Action::Prepare;
+                    result = self
+                        .post_mode_proof(ctx, expected, private, false, source)
+                        .await?;
+                }
+                _ => {
+                    return Err(ControlError::internal(
+                        "Mode reply had an unexpected phase.",
+                    ));
+                }
+            }
+        }
+    }
+
+    async fn begin_native_mode(
+        &self,
+        ctx: &ModeContext,
+        op: &Request,
+        private: bool,
+    ) -> Result<(), ControlError> {
+        if private {
+            ctx.runtime
+                .private_switch(PrivateSwitchOp::Request, ctx.guard.clone())
+                .await
+                .ok_or_else(|| ControlError::unavailable("not_ready", "Collection stopped."))?
+                .map_err(|_| {
+                    ControlError::unavailable(
+                        "keyed_owner_required",
+                        "Use an owner device holding this collection’s trusted key.",
+                    )
+                })?;
+        } else {
+            let generation = op
+                .generation
+                .as_deref()
+                .and_then(|value| crate::secrets::hex_decode(value).ok())
+                .and_then(|bytes| bytes.try_into().ok())
+                .expect("confirmed request has a validated generation");
+            self.choose_cloud_copy_locally(
+                &ctx.entry.id,
+                &ctx.runtime,
+                ctx.guard.clone(),
+                B32(generation),
+            )
+            .await?;
+        }
+        Ok(())
+    }
+
+    async fn post_mode_proof(
+        &self,
+        ctx: &ModeContext,
+        request: B16,
+        private: bool,
+        finish: bool,
+        (epoch, head, members): (u64, mdbn_replica::store::Head, Vec<B16>),
+    ) -> Result<Result<Value, CloudError>, ControlError> {
         let identity = self.identity.get().ok_or_else(|| {
-            ControlError::unavailable("device_identity_missing", "device key unavailable")
+            ControlError::unavailable("device_identity_missing", "Device key unavailable.")
         })?;
-        let request = B16(crate::attest::uuid_bytes(&op.request).ok_or_else(|| {
-            ControlError::unavailable("mode_journal_invalid", "request UUID invalid")
-        })?);
         let proof = ModeProof {
             request,
             private,
@@ -1450,370 +1164,163 @@ impl Daemon {
             chain: head.chain,
             members,
         };
-        let result = ctx
+        Ok(ctx
+            .link
+            .ctx
             .cloud
-            .collection_mode_post(&ctx.connector_id, &col, &proof, &identity, current)
-            .await;
-
-        match result {
-            Ok(mut answer) => {
-                if answer.get("target_mode").is_none() {
-                    answer["target_mode"] = json!(op.target);
-                }
-                let phase = answer
-                    .get("phase")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                match phase.as_str() {
-                    "complete" => {
-                        Request::clear(dir)?;
-                        self.mode_driver.clear(&entry.id);
-                        self.reconcile_private_choices_locked().await;
-                        if private {
-                            self.account_keys.wake();
-                        }
-                        self.bump();
-                    }
-                    "abandoned" => {
-                        Request::clear(dir)?;
-                        self.mode_driver.clear(&entry.id);
-                        self.bump();
-                    }
-                    "cancelled" => {
-                        self.cancel_local_switch(&entry.id, runtime, private, guard.clone())
-                            .await?;
-                        Request::clear(dir)?;
-                        self.mode_driver.clear(&entry.id);
-                        self.bump();
-                    }
-                    "waiting_for_devices" => {
-                        let devices: Vec<String> = answer
-                            .get("devices")
-                            .and_then(Value::as_array)
-                            .into_iter()
-                            .flatten()
-                            .filter_map(Value::as_str)
-                            .map(str::to_owned)
-                            .collect();
-                        let device_names = resolve_device_names(ctx, &devices, current).await;
-                        if !device_names.is_empty() {
-                            answer["device_names"] = json!(device_names);
-                        }
-                        self.mode_driver.stop(
-                            &entry.id,
-                            &op.request,
-                            &op.target,
-                            DriverState::WaitingForDevices {
-                                devices,
-                                device_names,
-                            },
-                        );
-                        self.bump();
-                    }
-                    "waiting_for_token_expiry" => {
-                        let retry_at = answer
-                            .get("retry_at")
-                            .and_then(Value::as_str)
-                            .map(str::to_owned);
-                        let delay =
-                            retry_at_delay(retry_at.as_deref(), crate::fsutil::now_ms() as u64);
-                        self.mode_driver.schedule_in_progress(
-                            &entry.id,
-                            &op.request,
-                            &op.target,
-                            "waiting_for_token_expiry",
-                            retry_at,
-                            delay,
-                        );
-                        self.bump();
-                    }
-                    "publishing_policy" | "finishing" => {
-                        if private {
-                            self.reconcile_private_choices_locked().await;
-                        }
-                        self.mode_driver.schedule_in_progress(
-                            &entry.id,
-                            &op.request,
-                            &op.target,
-                            &phase,
-                            None,
-                            None,
-                        );
-                        self.bump();
-                    }
-                    _ => {
-                        self.mode_driver.stop(
-                            &entry.id,
-                            &op.request,
-                            &op.target,
-                            DriverState::WaitingForDevice,
-                        );
-                        self.bump();
-                    }
-                }
-                Ok(answer)
-            }
-            Err(error) => {
-                // `/finish` returning 503 not_ready while Workers catch up is a
-                // normal in-progress state, not a failure or cancellation.
-                if finish && matches!(&error, CloudError::Server(503, code) if code == "not_ready")
-                {
-                    self.mode_driver.schedule_in_progress(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        "finishing",
-                        None,
-                        None,
-                    );
-                    self.bump();
-                    return Ok(json!({
-                        "collection_id": entry.id,
-                        "request_id": op.request,
-                        "target_mode": op.target,
-                        "phase": "finishing",
-                    }));
-                }
-                // `409 mode_source_changed` during `/prepare` means the log head
-                // moved concurrently; keep the request and retry with a fresh
-                // native preflight once the replica catches up.
-                if !finish
-                    && matches!(&error, CloudError::Server(409, code) if code == "mode_source_changed")
-                {
-                    self.mode_driver.schedule_in_progress(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        "publishing_policy",
-                        None,
-                        None,
-                    );
-                    self.bump();
-                    return Ok(json!({
-                        "collection_id": entry.id,
-                        "request_id": op.request,
-                        "target_mode": op.target,
-                        "phase": "publishing_policy",
-                    }));
-                }
-                // An abandoned switch is post-publication terminal: clear the
-                // local request without cancelling on the server or rolling back.
-                if matches!(&error, CloudError::Server(409, code) if code == "mode_abandoned") {
-                    Request::clear(dir)?;
-                    self.mode_driver.clear(&entry.id);
-                    self.bump();
-                    return Ok(json!({
-                        "collection_id": entry.id,
-                        "request_id": op.request,
-                        "target_mode": op.target,
-                        "phase": "abandoned",
-                    }));
-                }
-                // `keyed_owner_required` needs a keyed owner device; stop the
-                // driver and surface a notice without cancelling the switch.
-                if matches!(&error, CloudError::Server(409, code) if code == "keyed_owner_required")
-                {
-                    self.mode_driver.stop(
-                        &entry.id,
-                        &op.request,
-                        &op.target,
-                        DriverState::NeedsKeyedOwner,
-                    );
-                    self.bump();
-                    return Err(ControlError::unavailable(
-                        "keyed_owner_required",
-                        "use an owner device holding this collection’s trusted key",
-                    ));
-                }
-                // Auto-cancel ONLY on explicitly enumerated terminal
-                // pre-publication refusals. An assigned/unknown batch refuses
-                // cancellation (`mode_already_published`), so its intent stays.
-                if is_terminal_pre_publication_refusal(finish, &error) {
-                    match ctx
-                        .cloud
-                        .collection_mode_cancel(&entry.id, &op.request, current)
-                        .await
-                    {
-                        Ok(_) => {
-                            op.cancel_requested = true;
-                            op.save(dir)?;
-                            self.cancel_local_switch(&entry.id, runtime, private, guard.clone())
-                                .await?;
-                            Request::clear(dir)?;
-                            self.mode_driver.clear(&entry.id);
-                            self.bump();
-                        }
-                        Err(CloudError::Server(409, ref code))
-                            if code == "mode_already_published" =>
-                        {
-                            self.mode_driver.schedule_in_progress(
-                                &entry.id,
-                                &op.request,
-                                &op.target,
-                                "finishing",
-                                None,
-                                None,
-                            );
-                            self.bump();
-                        }
-                        Err(_) => {
-                            self.mode_driver.stop(
-                                &entry.id,
-                                &op.request,
-                                &op.target,
-                                DriverState::Attention {
-                                    code: "mode_switch_attention".into(),
-                                    message: format!(
-                                        "Switch to {} stopped ({}).",
-                                        mode_label(&op.target),
-                                        error
-                                    ),
-                                    wake_on_sign_in: false,
-                                    wake_on_resume: false,
-                                },
-                            );
-                            self.bump();
-                        }
-                    }
-                    return Err(cloud_refusal(error));
-                }
-                self.schedule_driver_for_error(
-                    &entry.id,
-                    &op,
-                    if finish {
-                        "finishing"
-                    } else {
-                        "publishing_policy"
-                    },
-                    &error,
-                );
-                Err(cloud_refusal(error))
-            }
-        }
+            .collection_mode_post(
+                &ctx.link.ctx.connector_id,
+                &ctx.link.collection,
+                &proof,
+                &identity,
+                &|| ctx.link.current(),
+            )
+            .await)
     }
 
-    async fn cancel_local_switch(
+    async fn finish_mode_request(
         &self,
-        id: &str,
-        runtime: &crate::runtime::Runtime,
-        private: bool,
-        guard: AccountKeyGuard,
-    ) -> Result<(), ControlError> {
-        if private {
-            runtime
-                .private_switch(PrivateSwitchOp::Cancel, guard)
-                .await
-                .ok_or_else(|| ControlError::unavailable("not_ready", "collection stopped"))?
-                .map_err(|_| {
-                    ControlError::unavailable(
-                        "mode_cancel_pending",
-                        "Native policy must confirm cancellation",
-                    )
-                })?;
-        } else {
-            self.project_cancelled_cloud(id, runtime, guard).await?;
-        }
-        Ok(())
-    }
-
-    fn schedule_driver_for_error(
-        &self,
-        id: &str,
+        ctx: &ModeContext,
         op: &Request,
-        fallback_phase: &str,
-        error: &CloudError,
-    ) {
-        match error {
-            CloudError::RateLimited(retry_after) => {
-                let attempts = self
-                    .mode_driver
-                    .entries
-                    .lock()
-                    .unwrap_or_else(|p| p.into_inner())
-                    .get(id)
-                    .map_or(1, |e| e.attempts.saturating_add(1));
-                self.mode_driver.schedule_retry_error(
-                    id,
-                    &op.request,
-                    &op.target,
-                    fallback_phase,
-                    Some(rate_limit_delay(*retry_after, attempts)),
-                );
+        reply: Value,
+        error: Option<ControlError>,
+    ) -> Result<Outcome, ControlError> {
+        let kind = match reply["phase"].as_str() {
+            Some("cancelled") => {
+                if op.confirmed && op.native_started {
+                    if op.target == "private" {
+                        ctx.runtime
+                            .private_switch(PrivateSwitchOp::Cancel, ctx.guard.clone())
+                            .await
+                            .ok_or_else(|| {
+                                ControlError::unavailable("not_ready", "Collection stopped.")
+                            })?
+                            .map_err(|_| {
+                                ControlError::unavailable(
+                                    "mode_cancel_pending",
+                                    "Native policy must confirm cancellation.",
+                                )
+                            })?;
+                    } else {
+                        self.project_cancelled_cloud(
+                            &ctx.entry.id,
+                            &ctx.runtime,
+                            ctx.guard.clone(),
+                        )
+                        .await?;
+                    }
+                }
+                Some("collection_mode_cancelled")
             }
-            CloudError::Network(_) | CloudError::Server(500..=599, _) => {
-                self.mode_driver.schedule_retry_error(
-                    id,
-                    &op.request,
-                    &op.target,
-                    fallback_phase,
-                    None,
-                );
+            Some("complete") if op.confirmed => {
+                if op.target == "private" {
+                    self.account_keys.wake();
+                }
+                Some("collection_mode_changed")
             }
-            CloudError::Unauthenticated => {
-                self.mode_driver.stop(
-                    id,
-                    &op.request,
-                    &op.target,
-                    DriverState::Attention {
-                        code: "mode_switch_sign_in_required".into(),
-                        message: format!(
-                            "Switch to {} is paused until this computer is signed in.",
-                            mode_label(&op.target)
-                        ),
-                        wake_on_sign_in: true,
-                        wake_on_resume: false,
-                    },
-                );
-                self.bump();
-            }
-            CloudError::Local(_) => {}
-            CloudError::Server(_, code) => {
-                self.mode_driver.stop(
-                    id,
-                    &op.request,
-                    &op.target,
-                    DriverState::Attention {
-                        code: "mode_switch_attention".into(),
-                        message: format!(
-                            "Switch to {} needs attention ({code}).",
-                            mode_label(&op.target)
-                        ),
-                        wake_on_sign_in: false,
-                        wake_on_resume: false,
-                    },
-                );
-                self.bump();
-            }
-        }
-    }
-}
-
-fn identity_matches(
-    op: &Request,
-    entry: &crate::registry::Entry,
-    cfg: &crate::sync::SyncConfig,
-) -> bool {
-    op.collection == entry.id
-        && Some(op.account.as_str()) == entry.owner_account.as_deref()
-        && Some(op.device.as_str()) == entry.device.as_deref()
-        && op.genesis == cfg.genesis_hash
-        && crate::attest::uuid_bytes(&op.request).is_some()
-}
-
-async fn resolve_device_names(
-    ctx: &crate::collections::SyncCtx,
-    devices: &[String],
-    current: &(dyn Fn() -> Result<(), String> + Send + Sync),
-) -> BTreeMap<String, String> {
-    let mut names = BTreeMap::new();
-    for id in devices.iter().take(MAX_DEVICE_NAME_LOOKUPS) {
-        let Some(bytes) = crate::attest::uuid_bytes(id) else {
-            continue;
+            _ => None,
         };
-        if let Ok(Some(name)) = ctx.cloud.computer_name(&bytes, current).await {
-            names.insert(id.clone(), name);
+        ctx.link
+            .current()
+            .map_err(|_| ControlError::unavailable("account_changed", "Account changed."))?;
+        Request::clear(&ctx.dir)?;
+        if let Some(kind) = kind {
+            let mut entry = crate::activity::ActivityEntry::now(kind);
+            entry.collection = Some(ctx.entry.id.clone());
+            entry.collection_name = Some(ctx.entry.name.clone());
+            entry.detail = Some(op.target.clone());
+            self.activity.record(entry);
         }
+        if kind == Some("collection_mode_changed") {
+            self.reconcile_private_choices_locked().await;
+        }
+        Ok(Outcome {
+            next: Next::Terminal,
+            reply: error.map_or(Ok(reply), Err),
+            notice: None,
+        })
     }
-    names
+}
+
+fn required_target(record: &Value) -> Result<&str, ControlError> {
+    record["target_mode"]
+        .as_str()
+        .filter(|target| matches!(*target, "private" | "cloud_copy"))
+        .ok_or_else(|| ControlError::internal("Active switch target missing."))
+}
+
+fn check_target(requested: Option<&str>, active: &str) -> Result<(), ControlError> {
+    if requested.is_some_and(|target| target != active) {
+        return Err(ControlError::invalid(
+            "mode_change_in_progress",
+            format!(
+                "A switch to {} is already in progress. Finish or cancel it first.",
+                mode_label(active)
+            ),
+        ));
+    }
+    Ok(())
+}
+
+pub(crate) fn mode_label(mode: &str) -> &str {
+    match mode {
+        "private" => "Private",
+        "cloud_copy" => "Cloud copy",
+        _ => "Unknown mode",
+    }
+}
+
+pub(crate) fn format_mode_devices(record: &Value) -> String {
+    record["devices"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(|id| {
+            let short = id.split('-').next().unwrap_or(id);
+            match record["device_names"][id].as_str() {
+                Some(name) => format!("{name} ({short})"),
+                None => short.to_owned(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+pub(crate) fn format_wait_phrase(retry_at: &str, now_ms: u64) -> Option<String> {
+    let secs = (parse_rfc3339_ms(retry_at)?.checked_sub(now_ms)?).div_ceil(1000);
+    match secs {
+        0 => None,
+        1..=44 => Some(format!("about {secs} s")),
+        45..=89 => Some("about 1 min".into()),
+        _ => Some(format!("about {} min", secs.div_ceil(60))),
+    }
+}
+
+fn parse_rfc3339_ms(raw: &str) -> Option<u64> {
+    let dt =
+        time::OffsetDateTime::parse(raw, &time::format_description::well_known::Rfc3339).ok()?;
+    u64::try_from(dt.unix_timestamp_nanos() / 1_000_000).ok()
+}
+
+fn retry_at_delay(retry_at: Option<&str>, now_ms: u64) -> Option<Duration> {
+    let ms = parse_rfc3339_ms(retry_at?)?.checked_sub(now_ms)?;
+    (ms > 0).then(|| Duration::from_millis(ms) + Duration::from_millis(250))
+}
+
+fn backoff_delay(attempt: u32) -> Duration {
+    Duration::from_secs((2 << attempt.saturating_sub(1).min(4)).min(30))
+}
+
+fn is_terminal_pre_publication_refusal(finish: bool, error: &CloudError) -> bool {
+    !finish
+        && match error {
+            CloudError::Server(400, code) => code == "invalid_request",
+            CloudError::Server(404, code) => code == "not_found",
+            CloudError::Server(409, code) => matches!(
+                code.as_str(),
+                "mode_cancelled" | "mode_changed" | "not_current" | "not_member" | "device_revoked"
+            ),
+            _ => false,
+        }
 }

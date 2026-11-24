@@ -72,11 +72,6 @@ pub fn for_control_call(
         Method::COLLECTION_PAUSE => "collection_paused",
         Method::COLLECTION_RESUME => "collection_resumed",
         Method::COLLECTION_JOIN => "collection_joined",
-        Method::COLLECTION_MODE => match s(result, "phase").as_deref() {
-            Some("cancelled") => "collection_mode_cancelled",
-            Some("abandoned") => return None,
-            _ => "collection_mode_changed",
-        },
         Method::SYNC_ENABLE => "sync_enabled",
         Method::ACCESS_APPROVE => "app_approved",
         Method::ACCESS_DENY => "app_declined",
@@ -99,8 +94,6 @@ pub fn for_control_call(
             e.collection_name = s(result, "name").or(prior_name);
             if method == Method::SYNC_ENABLE {
                 e.detail = s(result, "mode");
-            } else if method == Method::COLLECTION_MODE {
-                e.detail = s(result, "target_mode").or_else(|| s(params, "target_mode"));
             }
         }
     }
@@ -223,45 +216,5 @@ mod tests {
         let enabled = for_control_call(Method::SYNC_ENABLE, &json!({}), &status, None).unwrap();
         assert_eq!(enabled.detail.as_deref(), Some("synced_e2e"));
         assert!(!serde_json::to_string(&enabled).unwrap().contains("/home/u"));
-        let switched = for_control_call(
-            Method::COLLECTION_MODE,
-            &json!({"collection": "c1", "target_mode": "private"}),
-            &json!({"phase": "waiting_for_token_expiry", "target_mode": "private"}),
-            Some("Notes".into()),
-        )
-        .unwrap();
-        assert_eq!(
-            (
-                switched.kind.as_str(),
-                switched.collection.as_deref(),
-                switched.collection_name.as_deref(),
-                switched.detail.as_deref(),
-            ),
-            (
-                "collection_mode_changed",
-                Some("c1"),
-                Some("Notes"),
-                Some("private")
-            )
-        );
-        let cancelled = for_control_call(
-            Method::COLLECTION_MODE,
-            &json!({"collection": "c1", "cancel": true}),
-            &json!({"phase": "cancelled", "target_mode": "private"}),
-            Some("Notes".into()),
-        )
-        .unwrap();
-        assert_eq!(cancelled.kind, "collection_mode_cancelled");
-        assert_eq!(cancelled.detail.as_deref(), Some("private"));
-        assert!(
-            for_control_call(
-                Method::COLLECTION_MODE,
-                &json!({"collection": "c1", "target_mode": "private"}),
-                &json!({"phase": "abandoned", "target_mode": "private"}),
-                Some("Notes".into()),
-            )
-            .is_none()
-        );
-        assert!(for_control_call(Method::COLLECTION_LIST, &json!({}), &json!([]), None).is_none());
     }
 }

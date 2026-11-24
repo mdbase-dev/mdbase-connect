@@ -106,8 +106,9 @@ impl Daemon {
             }
             Method::COLLECTION_MODE => self.change_collection_mode(params(req)?).await,
             Method::COLLECTION_MODE_STATUS => {
-                let p: CollectionRef = params(req)?;
-                self.collection_mode_status(&p.collection).await
+                let p: super::collection_mode::ModeStatus = params(req)?;
+                self.collection_mode_status(&p.collection, p.include_local)
+                    .await
             }
             Method::COLLECTION_DELETE => self.delete_collection(params(req)?).await,
             Method::COLLECTION_UPDATE => {

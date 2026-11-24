@@ -22,11 +22,11 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   enableSync: (collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean) =>
     ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode, acceptTakeoverHolds }),
   collectionModeStatus: (collectionId: string) => ipcRenderer.invoke("connect:collections:mode-status", collectionId),
-  changeCollectionMode: (collectionId: string, targetMode?: "private" | "cloud_copy", cancel = false) =>
+  changeCollectionMode: (collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }) =>
     ipcRenderer.invoke("connect:collections:mode-change", {
       collectionId,
       ...(targetMode === undefined ? {} : { targetMode }),
-      cancel
+      options
     }),
   syncFiles: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-files", collectionId),
   setSyncFiles: (collectionId: string, files: { include: string[]; exclude: string[]; max_size?: number }) =>

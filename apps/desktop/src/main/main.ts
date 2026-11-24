@@ -375,10 +375,11 @@ function registerIpc(): void {
   ipcMain.handle("connect:collections:mode-change", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid mode input.");
-    const cancel = value.cancel === true;
+    const options = value.options === undefined ? {} : asObject(value.options, "Invalid mode options.");
+    const cancel = options.cancel === true;
     const targetMode = value.targetMode;
     if (
-      (value.cancel !== undefined && typeof value.cancel !== "boolean")
+      (options.cancel !== undefined && typeof options.cancel !== "boolean")
       || (targetMode !== undefined && targetMode !== "private" && targetMode !== "cloud_copy")
       || (!cancel && targetMode === undefined)
     ) throw new Error("Invalid mode input.");

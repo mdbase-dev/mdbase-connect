@@ -1,5 +1,6 @@
 //! Collection mode changes: status, intent, cancel and the signed native prepare/finish.
 
+use super::transport::{decode_response, response_code};
 use super::*;
 
 impl Cloud {
@@ -8,7 +9,7 @@ impl Cloud {
         collection: &str,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.send_current(
+        self.send_mode_request(
             self.http
                 .get(format!(
                     "{}/v1/next/collections/{collection}/mode",
@@ -26,9 +27,10 @@ impl Cloud {
         private: bool,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.post_current(
-            &format!("/v1/next/collections/{collection}/mode"),
-            &json!({"request_id":request,"target_mode":if private {"private"} else {"cloud_copy"}}),
+        self.send_mode_request(
+            self.http.post(format!("{}/v1/next/collections/{collection}/mode", self.server))
+                .bearer_auth(self.token.as_str())
+                .json(&json!({"request_id":request,"target_mode":if private {"private"} else {"cloud_copy"}})),
             current,
         )
         .await
@@ -40,7 +42,7 @@ impl Cloud {
         request: &str,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.send_current(
+        self.send_mode_request(
             self.http
                 .get(format!(
                     "{}/v1/next/collections/{collection}/mode/{request}",
@@ -57,7 +59,7 @@ impl Cloud {
         request: &str,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.send_current(
+        self.send_mode_request(
             self.http
                 .delete(format!(
                     "{}/v1/next/collections/{collection}/mode/{request}",
@@ -67,6 +69,17 @@ impl Cloud {
             current,
         )
         .await
+    }
+
+    // A 403 from a mode endpoint can be a current account without collection
+    // permission (e.g. not_enrolled); only 401 requires signing in again.
+    async fn send_mode_request(
+        &self,
+        request: reqwest::RequestBuilder,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Value, CloudError> {
+        let (status, bytes) = self.read_current_raw_status(request, current, None).await?;
+        decode_response(status, &bytes)
     }
 
     /// Native mode prepare/finish. Fields are derived from the live replica, not
@@ -80,7 +93,28 @@ impl Cloud {
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
         current().map_err(CloudError::Local)?;
-        let challenge = self.challenge(current).await?;
+        let challenge = self
+            .send_mode_request(
+                self.http
+                    .post(format!("{}/v1/next/devices/challenge", self.server))
+                    .bearer_auth(self.token.as_str())
+                    .json(&json!({})),
+                current,
+            )
+            .await
+            .map_err(|error| match error {
+                // These refusals happened before the signed mode request was sent.
+                CloudError::Server(status @ (400 | 404 | 409), _) => {
+                    CloudError::Server(status, "mode_challenge_refused".into())
+                }
+                other => other,
+            })?;
+        let challenge: [u8; 32] = challenge["challenge"]
+            .as_str()
+            .filter(|hex| hex.len() == 64)
+            .and_then(|hex| secrets::hex_decode(hex).ok())
+            .and_then(|bytes| bytes.try_into().ok())
+            .ok_or_else(|| CloudError::Server(200, "malformed".into()))?;
         current().map_err(CloudError::Local)?;
         let connector = crate::attest::uuid_bytes(connector_id)
             .ok_or_else(|| CloudError::Local("connector UUID".into()))?;
@@ -113,33 +147,31 @@ impl Cloud {
             .post(format!("{}{path}", self.server))
             .bearer_auth(self.token.as_str())
             .json(&body);
-        let (status, bytes) = self.send_current_raw_status(request, current, None).await?;
+        let (status, bytes) = self.read_current_raw_status(request, current, None).await?;
         let value: Value = serde_json::from_slice(&bytes)
             .map_err(|_| CloudError::Server(status, "malformed".into()))?;
         if status == 409
             && mode.private
             && !mode.finish
-            && value.pointer("/error/code").and_then(Value::as_str)
-                == Some("mode_devices_need_update")
+            && response_code(&value) == "mode_devices_need_update"
         {
             let devices = mode_missing_devices(&value, &mode.members)
                 .ok_or_else(|| CloudError::Server(status, "malformed".into()))?;
             current().map_err(CloudError::Local)?;
-            return Ok(
-                json!({"collection_id": B16(*collection).to_uuid_string(), "request_id": mode.request.to_uuid_string(), "target_mode":"private", "phase":"waiting_for_devices", "devices":devices.iter().map(secrets::uuid_string).collect::<Vec<_>>()}),
-            );
+            let devices: Vec<_> = devices.iter().map(secrets::uuid_string).collect();
+            let device_names = mode_device_names(&value, &devices);
+            let mut reply = json!({
+                "collection_id": B16(*collection).to_uuid_string(),
+                "request_id": mode.request.to_uuid_string(),
+                "target_mode": "private", "phase": "waiting_for_devices", "devices": devices,
+            });
+            if !device_names.is_empty() {
+                reply["device_names"] = json!(device_names);
+            }
+            return Ok(reply);
         }
         if status >= 400 {
-            let code = value
-                .pointer("/error/code")
-                .and_then(Value::as_str)
-                .filter(|s| {
-                    s.len() <= 64
-                        && s.bytes()
-                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-                })
-                .unwrap_or("error");
-            return Err(CloudError::Server(status, code.into()));
+            return Err(CloudError::Server(status, response_code(&value).into()));
         }
         current().map_err(CloudError::Local)?;
         Ok(value)
@@ -160,6 +192,19 @@ fn mode_missing_devices(value: &Value, members: &[B16]) -> Option<Vec<[u8; 16]>>
         })
         .collect::<Option<Vec<_>>>()?;
     (ids.iter().collect::<std::collections::BTreeSet<_>>().len() == ids.len()).then_some(ids)
+}
+
+fn mode_device_names<'a>(
+    value: &'a Value,
+    devices: &'a [String],
+) -> std::collections::BTreeMap<&'a str, &'a str> {
+    devices.iter().filter_map(|id| {
+        let name = value["names"][id].as_str()?.trim();
+        // Control and bidirectional formatting characters can spoof display text.
+        (!name.is_empty() && name.chars().count() <= 80 && !name.chars().any(|c|
+            c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        )).then_some((id.as_str(), name))
+    }).collect()
 }
 
 #[cfg(test)]
@@ -184,6 +229,19 @@ mod tests {
         ] {
             assert!(mode_missing_devices(&value, &[member]).is_none());
         }
+    }
+
+    #[test]
+    fn mode_device_names_are_limited_to_validated_ids_and_display_text() {
+        let devices = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        let value = json!({"names": {
+            "a": "  ThinkPad  ", "b": "x".repeat(81), "c": "fake\nmode",
+            "d": 42, "e": "fake\u{202e}mode", "unknown": "Other",
+        }});
+        assert_eq!(
+            mode_device_names(&value, &devices),
+            [("a", "ThinkPad")].into()
+        );
     }
 
     #[tokio::test]

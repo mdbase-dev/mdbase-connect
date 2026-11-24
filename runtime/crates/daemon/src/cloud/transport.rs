@@ -191,26 +191,27 @@ impl Cloud {
         let (status, bytes) = self
             .send_current_raw_status(request, current, expected_status)
             .await?;
-        let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| CloudError::Server(status, "malformed".into()))?;
-        if status >= 400 {
-            let code = value
-                .pointer("/error/code")
-                .and_then(Value::as_str)
-                .filter(|s| {
-                    s.len() <= 64
-                        && s.bytes()
-                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-                })
-                .unwrap_or("error");
-            return Err(CloudError::Server(status, code.into()));
-        }
-        Ok(value)
+        decode_response(status, &bytes)
     }
 
     // Keep raw bytes available to strict typed decoders: decoding to Value first
     // would discard duplicate JSON keys. Same bounded/current transport for all.
     pub(super) async fn send_current_raw_status(
+        &self,
+        request: reqwest::RequestBuilder,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+        expected_status: Option<u16>,
+    ) -> Result<(u16, Zeroizing<Vec<u8>>), CloudError> {
+        let (status, bytes) = self
+            .read_current_raw_status(request, current, expected_status)
+            .await?;
+        if status == 403 {
+            return Err(CloudError::Unauthenticated);
+        }
+        Ok((status, bytes))
+    }
+
+    pub(super) async fn read_current_raw_status(
         &self,
         request: reqwest::RequestBuilder,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
@@ -250,7 +251,7 @@ impl Cloud {
             }
             bytes.extend_from_slice(&chunk);
         }
-        if status == 401 || status == 403 {
+        if status == 401 {
             return Err(CloudError::Unauthenticated);
         }
         Ok((status, bytes))
@@ -271,6 +272,28 @@ impl Cloud {
             .and_then(|b| <[u8; 32]>::try_from(b).ok())
             .ok_or_else(|| CloudError::Server(200, "malformed".into()))
     }
+}
+
+pub(super) fn decode_response(status: u16, bytes: &[u8]) -> Result<Value, CloudError> {
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|_| CloudError::Server(status, "malformed".into()))?;
+    if status >= 400 {
+        return Err(CloudError::Server(status, response_code(&value).into()));
+    }
+    Ok(value)
+}
+
+pub(super) fn response_code(value: &Value) -> &str {
+    value
+        .pointer("/error/code")
+        .or_else(|| value.get("error"))
+        .and_then(Value::as_str)
+        .filter(|s| {
+            s.len() <= 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        })
+        .unwrap_or("error")
 }
 
 #[cfg(test)]
