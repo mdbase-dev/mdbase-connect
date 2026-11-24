@@ -3,7 +3,6 @@ import { t } from "@lingui/core/macro";
 import type { CollectionTypeDescriptor, JsonObject } from "./connect-types";
 import type { EditableNote, NoteDocument, NoteSummary, TitleSource } from "./model";
 import {
-  collectionDisplayField,
   fieldReferencePath,
   fieldReferencePatch,
   readFieldReference,
@@ -24,10 +23,6 @@ export function typeNameInSentence(name: string): string {
 /** The icon a note's type declares, if any. */
 export function noteTypeIcon(note: NoteSummary, types: CollectionTypeDescriptor[]): string | undefined {
   return recordDisplayField(note.types, types, "icon");
-}
-
-export function collectionDeclaresTypeIcons(types: CollectionTypeDescriptor[]): boolean {
-  return types.some((type) => collectionDisplayField(type, "icon"));
 }
 
 export function summaryFromDocument(document: NoteDocument): NoteSummary {

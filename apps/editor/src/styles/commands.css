@@ -1,5 +1,7 @@
+/* A key hint is no use without a keyboard. */
 @media (pointer: coarse) {
-  .search-field .quick-open-trigger { display: none; }
+  .collection-rail nav kbd,
+  .search-shortcut { display: none; }
 }
 .unlinked-mentions { margin-top: var(--space-4); color: var(--color-text-soft); font-size: var(--font-size-ui); }
 .unlinked-mentions > summary { cursor: pointer; padding: var(--space-3) 0; }

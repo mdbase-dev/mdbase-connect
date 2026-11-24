@@ -1307,11 +1307,6 @@ msgstr "资源目录来源"
 msgid "Catalog unavailable"
 msgstr "资源目录不可用"
 
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Change note text without changing the surrounding interface."
-msgstr "调整笔记文字大小，不改变周围的界面。"
-
 #: direct/DirectEditor.tsx
 msgid "Change server"
 msgstr "更换服务器"
@@ -1653,18 +1648,13 @@ msgid "Comfortable"
 msgstr "舒适"
 
 #: src/editor-commands.ts
+#: src/EditorRail.tsx
 msgid "Commands"
 msgstr "命令"
 
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0}"
-msgstr "命令 · {0}"
-
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0} outside text"
-msgstr "命令 · 在文本外按 {0}"
+#: src/EditorRail.tsx
+msgid "Commands · {key} outside text"
+msgstr "命令 · 在文本外按 {key}"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -2219,10 +2209,6 @@ msgstr "描述字段"
 msgid "Design"
 msgstr "设计"
 
-#: src/TypeBrowser.tsx
-msgid "Design the note shape or work with its complete YAML source."
-msgstr "设计笔记结构，或编辑完整的 YAML 源码。"
-
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Destination folder"
@@ -2578,6 +2564,7 @@ msgid "Field type"
 msgstr "字段类型"
 
 #: src/NoteListViewOptions.tsx
+#: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "字段"
@@ -2744,11 +2731,6 @@ msgstr "文件夹路径"
 #: src/CollectionRail.tsx
 msgid "Folders"
 msgstr "文件夹"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Follow the system appearance or keep a theme in this browser."
-msgstr "跟随系统外观，或在此浏览器中固定使用某个主题。"
 
 #: src/TypeBrowser.tsx
 msgid "For integrations and specialised setups"
@@ -3047,11 +3029,6 @@ msgstr "Journal/**/*.md"
 msgctxt "settings view"
 msgid "Keep a daily Markdown journal"
 msgstr "用 Markdown 记录每日日记"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Keep Markdown visible within the writing measure."
-msgstr "让 Markdown 始终显示在写作区域的宽度内。"
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
@@ -3604,6 +3581,11 @@ msgstr "嵌套字段"
 msgid "nested required fields"
 msgstr "嵌套必填字段"
 
+#: src/NoteList.tsx
+msgctxt "button that creates a note"
+msgid "New"
+msgstr "新建"
+
 #: src/App.tsx
 msgid "New {name}"
 msgstr "新建{name}"
@@ -4001,10 +3983,6 @@ msgstr "对象"
 msgctxt "property type"
 msgid "Object"
 msgstr "对象"
-
-#: src/TypeBrowser.tsx
-msgid "Objects and lists can contain fields at any depth."
-msgstr "对象和列表可以包含任意深度的字段。"
 
 #: src/CollectionRail.tsx
 msgid "Offline"
@@ -4577,10 +4555,6 @@ msgstr "正在读取集合文本…"
 #: src/FileViewer.tsx
 msgid "Reading file content…"
 msgstr "正在读取文件内容…"
-
-#: src/WorkspaceChrome.tsx
-msgid "Reading note content…"
-msgstr "正在读取笔记内容…"
 
 #: src/LoadingScreens.tsx
 #: src/NoteList.tsx
@@ -6623,11 +6597,6 @@ msgstr "使用最新版本"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
 msgstr "最多使用 {0} 项。"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr "在笔记编辑器中使用普通、插入、可视和命令模式。"
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"

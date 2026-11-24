@@ -119,15 +119,20 @@ export function BacklinksPanel({ id = "linked-from", notes, types, loading, erro
   </section>;
 }
 
+/** Bars standing in for text that is still loading. The caller names the wait for screen readers. */
+export function SkeletonLines({ count = 3 }: { count?: number }) {
+  return <span className="skeleton-lines" aria-hidden="true">{Array.from({ length: count }, (_, index) => <i key={index} />)}</span>;
+}
+
 export function NoteSkeleton({ leadingActions }: { leadingActions?: ReactNode }) {
   useLingui();
-  return <div className="note-skeleton" aria-label={t`Loading note`} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status"><Trans>Opening note…</Trans></span></div><div className="skeleton-document"><p><Trans>Reading note content…</Trans></p></div></div>;
+  return <div className="note-skeleton" aria-label={t`Loading note`} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status" className="sr-only"><Trans>Opening note…</Trans></span></div><div className="skeleton-document"><SkeletonLines count={6} /></div></div>;
 }
 
 export function PaneSkeleton({ label, leadingActions, variant = "document" }: { label: string; leadingActions?: ReactNode; variant?: "document" | "canvas" }) {
   useLingui();
   if (variant === "canvas") {
-    return <section role="group" className="editor-pane file-workspace" aria-label={label} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status">{label}…</span></div><div className="file-workspace-content" /></section>;
+    return <section role="group" className="editor-pane file-workspace" aria-label={label} aria-busy="true"><div className="skeleton-bar">{leadingActions}<span role="status" className="sr-only">{label}…</span></div><div className="file-workspace-content" /></section>;
   }
   return <section role="group" className="editor-pane" aria-label={label}><NoteSkeleton leadingActions={leadingActions} /></section>;
 }

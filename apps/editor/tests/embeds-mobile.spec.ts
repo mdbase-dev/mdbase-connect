@@ -70,7 +70,7 @@ for (const width of [360, 390, 430]) {
     await fitsViewport(page, ".writing-surface");
     await page.getByRole("button", { name: "Back to notes", exact: true }).click();
     await expect(page.locator(".note-unsaved")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "New note", exact: true })).toHaveText("New note");
+    await expect(page.getByRole("button", { name: "New note", exact: true })).toHaveText("New");
     await fitsViewport(page, ".note-list-pane");
     await page.getByRole("button", { name: "Collections", exact: true }).click();
     await page.getByRole("button", { name: "Types (1)" }).click();

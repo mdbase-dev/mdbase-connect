@@ -297,7 +297,7 @@ export function TypeInspector({ readOnly = false, type, availableTypes = [], con
       {reviewing ? <div className="type-source-context reviewing">
         <div className="type-source-intro"><h2><Trans>Review type changes</Trans></h2></div>
       </div> : <div className="type-source-context">
-          <div className="type-source-intro"><h2><Trans>Definition</Trans></h2><p><Trans>Design the note shape or work with its complete YAML source.</Trans></p></div>
+          <div className="type-source-intro"><h2><Trans>Definition</Trans></h2></div>
           {!readOnly && <><div className="type-view-switch" role="group" aria-label={t`Type editor view`}>
             <button className={view === "visual" ? "selected" : ""} aria-pressed={view === "visual"} onClick={() => { setView("visual"); setReviewing(false); }}><Trans>Design</Trans></button>
             <button className={view === "yaml" ? "selected" : ""} aria-pressed={view === "yaml"} onClick={() => { setView("yaml"); setReviewing(false); }}><Trans>YAML</Trans></button>
@@ -449,9 +449,7 @@ function VisualTypeEditor({ definition, source, impact, typeNames, contracts, ty
       <div className="visual-type-fields-heading">
         <div>
           <h3><Trans>Fields</Trans></h3>
-          <p>{linkedSchema
-            ? plural(linkedSchemaFields.length, { one: `# field is supplied by the installed schema.`, other: `# fields are supplied by the installed schema.` })
-            : t`Objects and lists can contain fields at any depth.`}</p>
+          {linkedSchema && <p>{plural(linkedSchemaFields.length, { one: `# field is supplied by the installed schema.`, other: `# fields are supplied by the installed schema.` })}</p>}
         </div>
         {linkedSchema
           ? <button className="mdbase-button is-tertiary" onClick={onOpenYaml}><FileCode2 aria-hidden="true" /><Trans>Edit reference</Trans></button>

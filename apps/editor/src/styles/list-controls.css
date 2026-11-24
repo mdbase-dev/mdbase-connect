@@ -9,19 +9,33 @@
 }
 
 .type-workspace-loading {
-  align-content: start;
-  gap: var(--space-4);
+  display: block;
+  padding: 25px 18px;
+}
+
+.type-workspace-loading > strong {
+  display: block;
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-section);
+}
+
+.type-workspace-loading.type-inspector {
+  padding: 76px clamp(28px, 7vw, 82px);
 }
 
 .list-header {
-  min-height: 70px;
+  height: var(--pane-bar);
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 14px 14px 10px 18px;
+  gap: var(--space-2);
+  padding: 0 var(--space-3) 0 18px;
+  border-bottom: 1px solid var(--line);
 }
 
-.list-header > div {
+/* A pane control leads the bar; it takes the title's inset so the title stays near the pane edge. */
+.list-header:has(> .desktop-pane-control:first-child) { padding-left: var(--space-3); }
+
+.list-header > div:not(.new-note-group) {
   min-width: 0;
   flex: 1;
 }
@@ -37,7 +51,7 @@
 }
 
 .list-header p {
-  margin: 2px 0 0;
+  margin: 1px 0 0;
   overflow: hidden;
   color: var(--faint);
   font-size: var(--font-size-caption);
@@ -104,7 +118,9 @@
   flex: 0 0 auto;
   display: inline-grid;
   place-items: center;
+  border-radius: var(--radius-sm);
   color: var(--muted);
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
 }
 
 .icon-button:hover,
@@ -210,9 +226,43 @@
   user-select: none;
 }
 
-.new-note {
-  color: var(--muted);
+/* The pane's one primary action. The type choice, when the collection has types, is the same button's second half. */
+.new-note-group {
+  flex: none;
+  display: inline-flex;
+  gap: 1px;
 }
+
+.new-note,
+.new-note-type {
+  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--color-on-accent);
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-medium);
+  transition: background-color var(--motion-fast) var(--ease-standard), transform var(--motion-press) var(--ease-out);
+}
+
+.new-note {
+  gap: 5px;
+  padding: 0 11px 0 8px;
+}
+
+.new-note-type { width: 24px; }
+.new-note:has(+ .new-note-type) { padding-right: 9px; border-radius: var(--radius-sm) 0 0 var(--radius-sm); }
+.new-note + .new-note-type { border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
+
+.new-note:hover,
+.new-note-type:hover { background: var(--accent-strong); }
+.new-note:active,
+.new-note-type:active { transform: translateY(0.5px); }
+
+.new-note svg { width: 14px; height: 14px; }
+.new-note-type svg { width: 11px; height: 11px; }
 
 .note-list-controls {
   min-width: 0;
@@ -220,7 +270,7 @@
   grid-template-columns: minmax(0, 1fr) 32px;
   align-items: flex-start;
   gap: var(--space-1);
-  margin: 0 var(--space-3) var(--space-2);
+  margin: var(--space-2) var(--space-3);
 }
 
 .note-list-controls .search-field {
@@ -229,19 +279,28 @@
 }
 
 .search-field {
-  height: 37px;
+  height: 34px;
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  margin: 0 var(--space-3) var(--space-2);
+  margin: var(--space-2) var(--space-3);
   padding: 0 9px;
   border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  transition: border-color var(--motion-fast) var(--ease-standard), box-shadow var(--motion-fast) var(--ease-standard);
 }
 
+.search-field:hover { border-color: var(--line-strong); }
+
 .search-field:focus-within {
-  border-color: var(--line-strong);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
   background: var(--white);
 }
+
+/* The field's own ring marks the focus; the input inside it adds no second one. */
+.search-field input:focus-visible { outline: 0; }
 
 .search-field.disabled {
   opacity: 0.72;
@@ -282,10 +341,16 @@
   height: 13px;
 }
 
-.search-field .quick-open-trigger {
-  width: auto;
-  min-width: 32px;
+/* The key that puts the caret here; it steps aside once the field has the focus. */
+.search-shortcut {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
 }
+
+.search-field:focus-within .search-shortcut { display: none; }
 
 .note-view-options {
   position: relative;
@@ -294,7 +359,7 @@
 
 .note-view-options-trigger {
   width: 32px;
-  height: 37px;
+  height: 34px;
   color: var(--faint);
 }
 

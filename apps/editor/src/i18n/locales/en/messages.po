@@ -1307,11 +1307,6 @@ msgstr "Catalog source"
 msgid "Catalog unavailable"
 msgstr "Catalog unavailable"
 
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Change note text without changing the surrounding interface."
-msgstr "Change note text without changing the surrounding interface."
-
 #: direct/DirectEditor.tsx
 msgid "Change server"
 msgstr "Change server"
@@ -1653,18 +1648,13 @@ msgid "Comfortable"
 msgstr "Comfortable"
 
 #: src/editor-commands.ts
+#: src/EditorRail.tsx
 msgid "Commands"
 msgstr "Commands"
 
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0}"
-msgstr "Commands · {0}"
-
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0} outside text"
-msgstr "Commands · {0} outside text"
+#: src/EditorRail.tsx
+msgid "Commands · {key} outside text"
+msgstr "Commands · {key} outside text"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -2219,10 +2209,6 @@ msgstr "Description field"
 msgid "Design"
 msgstr "Design"
 
-#: src/TypeBrowser.tsx
-msgid "Design the note shape or work with its complete YAML source."
-msgstr "Design the note shape or work with its complete YAML source."
-
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Destination folder"
@@ -2578,6 +2564,7 @@ msgid "Field type"
 msgstr "Field type"
 
 #: src/NoteListViewOptions.tsx
+#: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "Fields"
@@ -2744,11 +2731,6 @@ msgstr "folder path"
 #: src/CollectionRail.tsx
 msgid "Folders"
 msgstr "Folders"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Follow the system appearance or keep a theme in this browser."
-msgstr "Follow the system appearance or keep a theme in this browser."
 
 #: src/TypeBrowser.tsx
 msgid "For integrations and specialised setups"
@@ -3047,11 +3029,6 @@ msgstr "Journal/**/*.md"
 msgctxt "settings view"
 msgid "Keep a daily Markdown journal"
 msgstr "Keep a daily Markdown journal"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Keep Markdown visible within the writing measure."
-msgstr "Keep Markdown visible within the writing measure."
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
@@ -3604,6 +3581,11 @@ msgstr "Nested fields"
 msgid "nested required fields"
 msgstr "nested required fields"
 
+#: src/NoteList.tsx
+msgctxt "button that creates a note"
+msgid "New"
+msgstr "New"
+
 #: src/App.tsx
 msgid "New {name}"
 msgstr "New {name}"
@@ -4001,10 +3983,6 @@ msgstr "Object"
 msgctxt "property type"
 msgid "Object"
 msgstr "Object"
-
-#: src/TypeBrowser.tsx
-msgid "Objects and lists can contain fields at any depth."
-msgstr "Objects and lists can contain fields at any depth."
 
 #: src/CollectionRail.tsx
 msgid "Offline"
@@ -4577,10 +4555,6 @@ msgstr "Reading collection text…"
 #: src/FileViewer.tsx
 msgid "Reading file content…"
 msgstr "Reading file content…"
-
-#: src/WorkspaceChrome.tsx
-msgid "Reading note content…"
-msgstr "Reading note content…"
 
 #: src/LoadingScreens.tsx
 #: src/NoteList.tsx
@@ -6623,11 +6597,6 @@ msgstr "Use latest"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
 msgstr "Use no more than {0} items."
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr "Use normal, insert, visual, and command modes in the note editor."
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"

@@ -85,15 +85,6 @@ body {
   overflow: hidden;
 }
 
-.route-loading {
-  width: 100%;
-  height: 100%;
-  display: grid;
-  place-items: center;
-  background: var(--canvas);
-  color: var(--muted);
-}
-
 button,
 input,
 textarea,
@@ -159,7 +150,53 @@ select:focus-visible {
   overflow-y: auto;
   padding: var(--space-1);
   border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
   background: var(--white);
+  box-shadow: var(--elevation-low);
+  animation: popover-in var(--motion-fast) var(--ease-out);
+}
+
+@keyframes popover-in {
+  from { opacity: 0; transform: translateY(-3px); }
+}
+
+/* A block of text still on its way: quiet bars where the lines will be, after a beat so fast loads never flash them. */
+.skeleton-lines {
+  display: grid;
+  gap: var(--space-3);
+  animation: skeleton-in var(--motion-slow) 120ms both;
+}
+
+.skeleton-lines i {
+  display: block;
+  height: 11px;
+  border-radius: 4px;
+  background: var(--color-skeleton);
+  animation: skeleton-pulse var(--motion-pulse) var(--ease-standard) infinite alternate;
+}
+
+.skeleton-lines i:nth-child(3n + 1) { width: 94%; }
+.skeleton-lines i:nth-child(3n + 2) { width: 82%; animation-delay: 120ms; }
+.skeleton-lines i:nth-child(3n) { width: 58%; animation-delay: 240ms; }
+
+@keyframes skeleton-in { from { opacity: 0; } }
+@keyframes skeleton-pulse { to { opacity: 0.5; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .combobox-popover,
+  .skeleton-lines,
+  .skeleton-lines i { animation: none; }
+}
+
+/* Small waits name what is loading in plain text. */
+.type-workspace-loading p,
+.properties-panel-loading p,
+.contract-catalog-loading,
+.note-preview-loading {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
 }
 
 .combobox-popover.drop-up {

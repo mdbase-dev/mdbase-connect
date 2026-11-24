@@ -2537,6 +2537,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onCopyFacet={copyFacet}
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
+      onCommands={() => { setPaletteMode("commands"); setQuickOpen(true); }}
       connectionState={shownConnection}
       connectionIssue={connectionIssue}
       directAccess={connectionSummary?.directAccess}
@@ -2601,7 +2602,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         compact={layout.compactList}
         onCompact={(compactList) => setLayout((current) => ({ ...current, compactList }))}
         onClearScope={() => setNoteFilter(undefined)}
-        onQuickOpen={() => { setPaletteMode("commands"); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
         onRetrySearch={searchBudgetExceeded(bodySearchState.error) ? undefined : () => bodySearch.retry()}
         onRetryContent={() => void loadContentIndex()}

@@ -2,25 +2,24 @@ import { Trans } from "@lingui/react/macro";
 import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
-import { KeyboardIcon as Keyboard, MagnifyingGlassIcon as Search, TagIcon as Filters, XIcon as X } from "./icons";
+import { MagnifyingGlassIcon as Search, TagIcon as Filters, XIcon as X } from "./icons";
 import { noteFilterCommand, type NoteFilter, type SearchFacet } from "./note-list-view";
 import { shortcutLabel } from "@mdbase-dev/ui/command-palette";
-import { commandDefinitions, commandShortcuts, useShortcuts } from "./editor-commands";
+import { commandShortcuts, useShortcuts } from "./editor-commands";
 import "./styles/note-actions.css";
 
-export function NoteSearchField({ search, filter, tags, types, onSearch, onFilter, onQuickOpen, onResults }: {
+export function NoteSearchField({ search, filter, tags, types, onSearch, onFilter, onResults }: {
   search: string;
   filter?: NoteFilter;
   tags: SearchFacet[];
   types: SearchFacet[];
   onSearch: (value: string) => void;
   onFilter: (filter?: NoteFilter) => void;
-  onQuickOpen: () => void;
   onResults?: (first: boolean) => void;
 }) {
   useLingui();
   useShortcuts();
-  const paletteChord = commandShortcuts("command-palette")[0];
+  const searchChord = commandShortcuts("focus-search")[0];
   const input = useRef<HTMLInputElement>(null);
   const [browse, setBrowse] = useState(false);
   const [dismissed, setDismissed] = useState(false);
@@ -61,9 +60,7 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
         if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setActive((value) => (value + (event.key === "ArrowDown" ? 1 : -1) + suggestions.length) % suggestions.length); }
         if (event.key === "Enter") { event.preventDefault(); choose(suggestions[Math.min(active, suggestions.length - 1)].filter); }
       }} />
-      {search ? <button aria-label={t`Clear search`} onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && (paletteChord
-        ? <button className="quick-open-trigger" aria-label={t`Commands · ${shortcutLabel(paletteChord)}`} title={t`Commands · ${shortcutLabel(paletteChord)} outside text`} onClick={onQuickOpen}><kbd>{shortcutLabel(paletteChord)}</kbd></button>
-        : <button className="quick-open-trigger" aria-label={commandDefinitions["command-palette"].label} title={commandDefinitions["command-palette"].label} onClick={onQuickOpen}><Keyboard aria-hidden="true" /></button>)}
+      {search ? <button aria-label={t`Clear search`} onClick={() => onSearch("")}><X aria-hidden="true" /></button> : !filter && searchChord && <kbd className="search-shortcut" aria-hidden="true">{shortcutLabel(searchChord)}</kbd>}
       <button aria-label={t`Search filters`} aria-expanded={open} aria-controls={open ? "note-filter-suggestions" : undefined} onClick={() => { setBrowse((value) => !value); setDismissed(false); setActive(0); }}><Filters aria-hidden="true" /></button>
     </div>
     {open && <div id="note-filter-suggestions" className="search-filter-suggestions" role="listbox" aria-label={t`Search filters`}>

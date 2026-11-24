@@ -5,6 +5,8 @@
   --collection-display: var(--collection-track);
   --list-display: var(--list-track);
   --inspector-display: 0px;
+  /* Every pane opens with one bar of this height, so titles, actions and rules line up across them. */
+  --pane-bar: 52px;
   position: relative;
   width: 100%;
   height: 100%;

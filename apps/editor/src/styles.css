@@ -1,4 +1,4 @@
-/* Preserve source cascade order; late responsive and quiet rules intentionally win. */
+/* Preserve source cascade order; late responsive rules intentionally win. */
 @import "./styles/theme.css";
 @import "./styles/embeds.css";
 @import "./styles/base.css";
@@ -14,5 +14,4 @@
 @import "./styles/types.css";
 @import "./styles/settings.css";
 @import "./styles/responsive.css";
-@import "./styles/quiet-overrides.css";
 @import "./styles/commands.css";

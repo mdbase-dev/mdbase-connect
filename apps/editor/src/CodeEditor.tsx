@@ -835,13 +835,13 @@ function markdownFormatCommand(format: MarkdownFormat) {
   };
 }
 
-/** Live preview; missing links reuse the reference linter's verdict. */
+/** Live preview; missing links reuse the reference linter's verdict. It sizes headings by line, so
+ * the plain writer's per-token heading sizes stay out: both together scale a heading twice. */
 const livePreviewPresentation = [
   livePreview({
     linkMissing: (state, link) => missingReferenceStarts(state).has(link.from),
     refresh: (update) => update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(setDiagnosticsEffect)))
-  }),
-  syntaxHighlighting(writerHighlightStyle)
+  })
 ];
 
 const missingReferences = new WeakMap<EditorState, Set<number>>();

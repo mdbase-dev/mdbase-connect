@@ -17,7 +17,8 @@ for (const reducedMotion of ["no-preference", "reduce"] as const) {
         return { left: title.left, right: title.right, width: title.width, lineHeight: line.height, paneLeft: pane.left, paneWidth: pane.width, paneRight: pane.right };
       });
       const before = await measure();
-      expect(before.width).toBe(760);
+      // The measure is 36 times the 17px note text.
+      expect(before.width).toBe(612);
       await page.getByRole("button", { name: "Note properties", exact: true }).click();
       const panel = page.getByRole("complementary", { name: "Note properties" });
       await expect(panel.getByRole("button", { name: "Close properties" })).toBeVisible();

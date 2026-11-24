@@ -1,5 +1,6 @@
 .writing-surface {
-  --writing-measure: 760px;
+  /* About eighty characters of body text, whatever text size is chosen. */
+  --writing-measure: calc(var(--editor-font-size, 17px) * 36);
   /* The minimum side margin; wider panes centre the measure beyond it. */
   --writing-gutter: var(--space-6);
 }
@@ -38,10 +39,11 @@
   grid-template-rows: minmax(0, 1fr);
   overflow: hidden;
   margin: 0 auto 18px;
-  font-size: var(--font-size-title);
+  /* The note's name outranks any heading inside it, at every text size. */
+  font-size: calc(var(--editor-font-size, 17px) * 1.85);
   font-weight: var(--font-weight-semibold);
   line-height: 1.2;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.022em;
 }
 
 .note-title-measure,
@@ -101,7 +103,7 @@
 
 .code-editor-loading {
   box-sizing: border-box;
-  padding: 5px max(
+  padding: var(--space-3) max(
     var(--writing-gutter),
     calc((100% - var(--writing-measure)) / 2)
   ) 0;
@@ -156,27 +158,6 @@
 
 .code-editor-writer .cm-editor.cm-hovering-link .cm-content {
   cursor: pointer;
-}
-
-.code-editor-source .cm-scroller {
-  font-family: var(--mono);
-}
-
-.code-editor-source .cm-gutters {
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--font-size-caption);
-}
-
-.code-editor-source .cm-lineNumbers .cm-gutterElement {
-  min-width: 28px;
-  padding: 0 var(--space-2) 0 var(--space-1);
-}
-
-.code-editor-source .cm-lint-marker {
-  transform: scale(0.75);
 }
 
 .code-editor .cm-selectionBackground,
@@ -294,7 +275,7 @@
   min-height: 0;
   grid-row: 1 / -1;
   display: grid;
-  grid-template-rows: 52px minmax(0, 1fr);
+  grid-template-rows: var(--pane-bar) minmax(0, 1fr);
   background: var(--white);
 }
 
@@ -306,15 +287,17 @@
   border-bottom: 1px solid var(--line);
 }
 
-.skeleton-bar span {
-  display: block;
-  border-radius: var(--radius-sm);
-}
-
+/* The note's own shape while it is read: a title, then lines, on the writing measure. */
 .skeleton-document {
-  width: min(760px, calc(100% - clamp(28px, 8vw, 110px) * 2));
+  width: min(612px, calc(100% - 2 * var(--space-6)));
   padding: clamp(36px, 7vh, 78px) 0;
   margin: 0 auto;
+}
+
+.skeleton-document .skeleton-lines i:first-child {
+  width: 46%;
+  height: 26px;
+  margin-bottom: var(--space-4);
 }
 
 

@@ -21,6 +21,8 @@ export { GearSixIcon } from "@phosphor-icons/react/GearSix";
 export { HardDrivesIcon } from "@phosphor-icons/react/HardDrives";
 export { InfoIcon } from "@phosphor-icons/react/Info";
 export { ChatTextIcon } from "@phosphor-icons/react/ChatText";
+export { BugIcon } from "@phosphor-icons/react/Bug";
+export { CommandIcon } from "@phosphor-icons/react/Command";
 export { ClockCounterClockwiseIcon } from "@phosphor-icons/react/ClockCounterClockwise";
 export { KeyIcon } from "@phosphor-icons/react/Key";
 export { KeyboardIcon } from "@phosphor-icons/react/Keyboard";

@@ -246,12 +246,6 @@ export function PropertiesPanel({
       <button className="icon-button" aria-label={t`Close properties`} data-inspector-close onClick={closePanel}><X aria-hidden="true" /></button>
     </header>
 
-    <dl className="file-facts">
-      <div><dt><Trans>Words</Trans></dt><dd>{wordCount.toLocaleString(displayLocale())}</dd></div>
-      {note.file?.size !== undefined && <div><dt><Trans>Size</Trans></dt><dd>{formatBytes(note.file.size)}</dd></div>}
-      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt><Trans>Modified</Trans></dt><dd>{formatDate(note.file.mtime)}</dd></div>}
-    </dl>
-
     <div className="property-view-controls">
       <div className="panel-tabs" role="tablist" aria-label={t`Properties format`} onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -262,7 +256,7 @@ export function PropertiesPanel({
         setMode(next);
         document.getElementById(`properties-${next}-tab`)?.focus();
       }}>
-        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}><Trans>Properties</Trans></button>
+        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}><Trans>Fields</Trans></button>
         <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Trans>Advanced</Trans></button>
       </div>
       <div className="note-actions">
@@ -292,6 +286,12 @@ export function PropertiesPanel({
       <p><Trans>Exact Markdown source, including YAML frontmatter and body.</Trans></p>
       <CodeEditor value={source} onChange={(value) => { if (!readOnly) setSource(value); }} onBlur={() => { if (!readOnly) void saveSource(); }} label={t`Complete record source`} language="markdown" lineWrapping={false} readOnly={readOnly} />
     </div>}
+
+    <dl className="file-facts">
+      <div><dt><Trans>Words</Trans></dt><dd>{wordCount.toLocaleString(displayLocale())}</dd></div>
+      {note.file?.size !== undefined && <div><dt><Trans>Size</Trans></dt><dd>{formatBytes(note.file.size)}</dd></div>}
+      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt><Trans>Modified</Trans></dt><dd>{formatDate(note.file.mtime)}</dd></div>}
+    </dl>
 
     <div className="property-footer">
       {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save mdbase-button is-secondary" onClick={() => setRetry((value) => value + 1)}><Trans>Retry save</Trans></button>}</p>}

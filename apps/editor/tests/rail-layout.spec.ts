@@ -46,7 +46,11 @@ for (const width of [1440, 360, 390]) {
       await expect(target).toBeInViewport({ ratio: 1 });
       if (width <= 760) expect((await target.boundingBox())!.height).toBeGreaterThanOrEqual(44);
     }
-    await rail.getByRole("button", { name: "New folder", exact: true }).focus();
+    await expect(rail.getByRole("button", { name: "New folder", exact: true })).toBeVisible();
+    // The tools follow the last folder in the tab order.
+    await rail.locator(".folder-tree .rail-row-menu").last().focus();
+    await page.keyboard.press("Tab");
+    await expect(tools.getByRole("button", { name: /^Commands/ })).toBeFocused();
     await page.keyboard.press("Tab");
     await expect(tools.getByRole("button", { name: "Types (1)" })).toBeFocused();
     await page.keyboard.press("Tab");

@@ -15,7 +15,7 @@ if (initialScripts.length === 0 || styles.length === 0) {
 // reported, never failed. The CSS budget still applies.
 const limits = {
   // Includes @mdbase-dev/ui's tokens, controls, brand, screens and mark motion, shared with Reader and Writer.
-  initialCss: 42 * 1024
+  initialCss: 43 * 1024
 };
 
 const initialJavaScript = compressedBytes(initialScripts);
