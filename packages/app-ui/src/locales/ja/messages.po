@@ -66,10 +66,12 @@ msgid "{app} stops showing it on this device. Nothing in the collection is delet
 msgstr "このデバイスで{app}に表示されなくなります。コレクション内のデータは削除されず、{app}のアクセス権も維持されます。アクセスを終了するには「アクセスを管理」を使ってください。"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, other {空の項目 # 件}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, other {# 項目}}"
 
@@ -83,22 +85,27 @@ msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, other {未解決のコメント # 件}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# property} other {# properties}}"
 msgstr "{count, plural, other {プロパティ # 件}}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, other {# 件選択中}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{kind} “{title}”"
 msgstr "{kind}「{title}」"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{name} group"
 msgstr "「{name}」グループ"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "A date, “tomorrow”, “fri” or “+3”"
 msgstr "日付、「明日」「金曜」「+3」など"
 
@@ -130,6 +137,7 @@ msgid "Add a collection…"
 msgstr "コレクションを追加…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add a filter to this group"
 msgstr "このグループにフィルターを追加"
 
@@ -144,26 +152,32 @@ msgid "Add column"
 msgstr "列を追加"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter"
 msgstr "フィルターを追加"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter to group"
 msgstr "グループにフィルターを追加"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item"
 msgstr "項目を追加"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "{property} に項目を追加"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property"
 msgstr "プロパティを追加"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property to {property}"
 msgstr "{property} にプロパティを追加"
 
@@ -173,10 +187,12 @@ msgid "Add row"
 msgstr "行を追加"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value"
 msgstr "値を追加"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value…"
 msgstr "値を追加…"
 
@@ -210,6 +226,7 @@ msgid "All"
 msgstr "すべて"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "All views"
 msgstr "すべてのビュー"
 
@@ -219,14 +236,17 @@ msgid "Any"
 msgstr "いずれか"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Any / All"
 msgstr "いずれか / すべて"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Applies to every view"
 msgstr "すべてのビューに適用されます"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Apply"
 msgstr "適用"
 
@@ -248,6 +268,7 @@ msgid "as {signer}"
 msgstr "{signer} として"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "at least one"
 msgstr "少なくとも 1 つ"
 
@@ -260,6 +281,7 @@ msgid "Attach screenshot"
 msgstr "スクリーンショットを添付"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Back"
 msgstr "戻る"
 
@@ -308,6 +330,7 @@ msgid "by {resolver}"
 msgstr "{resolver} による"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Calendar"
 msgstr "カレンダー"
 
@@ -350,14 +373,17 @@ msgid "Cancel switch"
 msgstr "切り替えをキャンセル"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL · Shift+Enter for a new line"
 msgstr "CEL · Shift+Enter で改行"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL expression"
 msgstr "CEL 式"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Change operator"
 msgstr "演算子を変更"
 
@@ -408,6 +434,7 @@ msgid "Choose or create a collection there."
 msgstr "そこでコレクションを選択または作成してください。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Choose value"
 msgstr "値を選択"
 
@@ -416,6 +443,7 @@ msgid "Claude, ChatGPT and Codex"
 msgstr "Claude、ChatGPT、Codex"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Clear"
 msgstr "クリア"
 
@@ -490,6 +518,7 @@ msgid "Comments could not be loaded: {problem}"
 msgstr "コメントを読み込めませんでした: {problem}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Compare with {expr}"
 msgstr "{expr} と比較"
 
@@ -540,6 +569,7 @@ msgid "Continue without connecting"
 msgstr "接続せずに続ける"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Convert to filter"
 msgstr "フィルターに変換"
 
@@ -574,6 +604,7 @@ msgid "Current"
 msgstr "現在"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Custom expression"
 msgstr "カスタム式"
 
@@ -670,6 +701,7 @@ msgid "does not contain"
 msgstr "を含まない"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Done"
 msgstr "完了"
 
@@ -687,6 +719,7 @@ msgid "Edit"
 msgstr "編集"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit as expression"
 msgstr "式として編集"
 
@@ -695,10 +728,12 @@ msgid "Edit diagram source"
 msgstr "図のソースを編集"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit expression"
 msgstr "式を編集"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit value"
 msgstr "値を編集"
 
@@ -708,6 +743,7 @@ msgid "Empty"
 msgstr "空"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Empty expression"
 msgstr "空の式"
 
@@ -721,6 +757,7 @@ msgid "Esc"
 msgstr "Esc"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "every filter"
 msgstr "すべてのフィルター"
 
@@ -739,6 +776,7 @@ msgid "Example"
 msgstr "例"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Exclude"
 msgstr "除外"
 
@@ -747,14 +785,17 @@ msgid "Expand callout"
 msgstr "コールアウトを展開"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "expression"
 msgstr "式"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Expression {text}"
 msgstr "式 {text}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "False"
 msgstr "偽"
 
@@ -772,30 +813,37 @@ msgid "Feedback type"
 msgstr "フィードバックの種類"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Fields"
 msgstr "フィールド"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter"
 msgstr "フィルター"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by field"
 msgstr "フィールドで絞り込む"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by…"
 msgstr "絞り込み…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter group"
 msgstr "フィルターグループ"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter options"
 msgstr "フィルターのオプション"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filters"
 msgstr "フィルター"
 
@@ -805,14 +853,17 @@ msgid "Find a collection"
 msgstr "コレクションを検索"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property, or name a new one…"
 msgstr "プロパティを検索、または新しい名前を入力…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property…"
 msgstr "プロパティを検索…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a record…"
 msgstr "レコードを検索…"
 
@@ -841,6 +892,7 @@ msgid "Give {app} access to this collection?"
 msgstr "{app}にこのコレクションへのアクセスを許可しますか？"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Hide empty"
 msgstr "空の項目を隠す"
 
@@ -849,10 +901,12 @@ msgid "Highlight"
 msgstr "ハイライト"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How the filters combine"
 msgstr "フィルターの組み合わせ方"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How these filters combine"
 msgstr "これらのフィルターの組み合わせ方"
 
@@ -964,6 +1018,7 @@ msgid "Light"
 msgstr "ライト"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Link a record in {property}"
 msgstr "{property} にレコードをリンク"
 
@@ -977,6 +1032,7 @@ msgid "Loading the collection snapshot…"
 msgstr "コレクションのスナップショットを読み込んでいます…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Local time ({zone})"
 msgstr "現地時間（{zone}）"
 
@@ -1012,14 +1068,17 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "注釈を破棄しました。スクリーンショットは含まれません。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match"
 msgstr "一致条件"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match all"
 msgstr "すべてに一致"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match any"
 msgstr "いずれかに一致"
 
@@ -1066,10 +1125,12 @@ msgid "Move row up"
 msgstr "行を上へ移動"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to shared"
 msgstr "共有に移動"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to this view"
 msgstr "このビューに移動"
 
@@ -1087,6 +1148,7 @@ msgid "New comment"
 msgstr "新しいコメント"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "New property"
 msgstr "新しいプロパティ"
 
@@ -1099,6 +1161,7 @@ msgid "New since your last visit"
 msgstr "前回の訪問以降の新着"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Next month"
 msgstr "翌月"
 
@@ -1118,10 +1181,12 @@ msgid "No collections match “{query}”."
 msgstr "「{query}」に一致するコレクションはありません。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "no filter"
 msgstr "どのフィルターにも一致しない"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No matching fields"
 msgstr "一致するフィールドがありません"
 
@@ -1134,6 +1199,7 @@ msgid "No open comments"
 msgstr "未解決のコメントはありません"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "No properties."
 msgstr "プロパティはありません。"
 
@@ -1142,6 +1208,7 @@ msgid "No screenshot taken. You can still send feedback."
 msgstr "スクリーンショットは撮影されませんでした。フィードバックは送信できます。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No values to choose from."
 msgstr "選択できる値がありません。"
 
@@ -1151,6 +1218,7 @@ msgid "None"
 msgstr "なし"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Not a number"
 msgstr "数値ではありません"
 
@@ -1169,6 +1237,7 @@ msgid "Nothing matches"
 msgstr "一致する項目はありません"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Nothing matches."
 msgstr "一致するものがありません。"
 
@@ -1177,6 +1246,7 @@ msgid "Nothing resolved yet."
 msgstr "解決済みのものはまだありません。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Number"
 msgstr "数値"
 
@@ -1257,6 +1327,7 @@ msgid "Opens in a new tab"
 msgstr "新しいタブで開きます"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Operator"
 msgstr "演算子"
 
@@ -1265,6 +1336,7 @@ msgid "Optional"
 msgstr "任意"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "または Enter キー"
 
@@ -1274,6 +1346,7 @@ msgid "Owner"
 msgstr "所有者"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Pick one or more"
 msgstr "1 つ以上選択"
 
@@ -1292,6 +1365,7 @@ msgid "Preparing your offline copy…"
 msgstr "オフライン用のコピーを準備しています…"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Previous month"
 msgstr "前月"
 
@@ -1355,12 +1429,16 @@ msgid "Reload to continue."
 msgstr "続行するには再読み込みしてください。"
 
 #: src/Feedback.tsx
-#: src/filter-builder/labels.ts
 msgid "Remove"
 msgstr "削除"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Remove"
+msgstr "削除"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove"
 msgstr "削除"
 
@@ -1370,14 +1448,17 @@ msgid "Remove {collection} from this list?"
 msgstr "このリストから{collection}を削除しますか？"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {name}"
 msgstr "{name} を削除"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {value}"
 msgstr "{value} を削除"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove filter"
 msgstr "フィルターを削除"
 
@@ -1387,10 +1468,12 @@ msgid "Remove from this list"
 msgstr "このリストから削除"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove group"
 msgstr "グループを削除"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove item {place} from {property}"
 msgstr "{property} の項目 {place} を削除"
 
@@ -1577,6 +1660,7 @@ msgid "Shared"
 msgstr "共有"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Shared: {name}"
 msgstr "共有: {name}"
 
@@ -1760,6 +1844,7 @@ msgid "The diagram could not be shown. Check your connection and reopen the note
 msgstr "図を表示できませんでした。接続を確認して、ノートを開き直してください。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "The filter on {field} cannot be removed here"
 msgstr "{field} のフィルターはここでは削除できません"
 
@@ -1846,6 +1931,7 @@ msgid "This passage is no longer in the text"
 msgstr "この箇所はもう本文にありません"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "This view"
 msgstr "このビュー"
 
@@ -1867,6 +1953,7 @@ msgid "to run"
 msgstr "実行"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Today"
 msgstr "今日"
 
@@ -1876,10 +1963,12 @@ msgid "Todo"
 msgstr "タスク"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Tomorrow"
 msgstr "明日"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "True"
 msgstr "真"
 
@@ -1940,18 +2029,22 @@ msgid "Use {app}'s version"
 msgstr "{app}のバージョンを使用"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Use letters, digits, - and _, starting with a letter."
 msgstr "英字、数字、-、_ を使用し、英字で始めてください。"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Value"
 msgstr "値"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values"
 msgstr "値"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values to compare with"
 msgstr "比較に使える値"
 
@@ -2038,6 +2131,7 @@ msgid "Working…"
 msgstr "処理中…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Wrap in “any” group"
 msgstr "「いずれか」グループで囲む"
 
@@ -2051,6 +2145,7 @@ msgid "year is"
 msgstr "の年が"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Year, e.g. 2026"
 msgstr "年（例: 2026）"
 
@@ -2060,6 +2155,7 @@ msgid "yes"
 msgstr "はい"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Yesterday"
 msgstr "昨日"
 

@@ -66,10 +66,12 @@ msgid "{app} stops showing it on this device. Nothing in the collection is delet
 msgstr "{app} zeigt die Sammlung auf diesem Gerät nicht mehr an. In der Sammlung wird nichts gelöscht, und {app} behält den Zugriff. Um den Zugriff zu beenden, verwenden Sie „Zugriff verwalten“."
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, one {# leer} other {# leer}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, one {# Element} other {# Elemente}}"
 
@@ -83,22 +85,27 @@ msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, one {# offener Kommentar} other {# offene Kommentare}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{count, plural, one {# property} other {# properties}}"
 msgstr "{count, plural, one {# Eigenschaft} other {# Eigenschaften}}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, one {# ausgewählt} other {# ausgewählt}}"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "{kind} “{title}”"
 msgstr "{kind} „{title}“"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "{name} group"
 msgstr "Gruppe „{name}“"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "A date, “tomorrow”, “fri” or “+3”"
 msgstr "Ein Datum, „morgen“, „fr“ oder „+3“"
 
@@ -130,6 +137,7 @@ msgid "Add a collection…"
 msgstr "Sammlung hinzufügen…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add a filter to this group"
 msgstr "Dieser Gruppe einen Filter hinzufügen"
 
@@ -144,26 +152,32 @@ msgid "Add column"
 msgstr "Spalte hinzufügen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter"
 msgstr "Filter hinzufügen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add filter to group"
 msgstr "Filter zur Gruppe hinzufügen"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item"
 msgstr "Element hinzufügen"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "Element zu {property} hinzufügen"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property"
 msgstr "Eigenschaft hinzufügen"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Add property to {property}"
 msgstr "Eigenschaft zu {property} hinzufügen"
 
@@ -173,10 +187,12 @@ msgid "Add row"
 msgstr "Zeile hinzufügen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value"
 msgstr "Wert hinzufügen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Add value…"
 msgstr "Wert hinzufügen…"
 
@@ -210,6 +226,7 @@ msgid "All"
 msgstr "Alle"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "All views"
 msgstr "Alle Ansichten"
 
@@ -219,14 +236,17 @@ msgid "Any"
 msgstr "Beliebig"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Any / All"
 msgstr "Beliebig / Alle"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Applies to every view"
 msgstr "Gilt für jede Ansicht"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Apply"
 msgstr "Anwenden"
 
@@ -248,6 +268,7 @@ msgid "as {signer}"
 msgstr "als {signer}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "at least one"
 msgstr "mindestens einer"
 
@@ -260,6 +281,7 @@ msgid "Attach screenshot"
 msgstr "Screenshot anhängen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Back"
 msgstr "Zurück"
 
@@ -308,6 +330,7 @@ msgid "by {resolver}"
 msgstr "von {resolver}"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Calendar"
 msgstr "Kalender"
 
@@ -350,14 +373,17 @@ msgid "Cancel switch"
 msgstr "Umstellung abbrechen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL · Shift+Enter for a new line"
 msgstr "CEL · Umschalt+Eingabe für eine neue Zeile"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "CEL expression"
 msgstr "CEL-Ausdruck"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Change operator"
 msgstr "Operator ändern"
 
@@ -408,6 +434,7 @@ msgid "Choose or create a collection there."
 msgstr "Wählen oder erstellen Sie dort eine Sammlung."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Choose value"
 msgstr "Wert wählen"
 
@@ -416,6 +443,7 @@ msgid "Claude, ChatGPT and Codex"
 msgstr "Claude, ChatGPT und Codex"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Clear"
 msgstr "Löschen"
 
@@ -490,6 +518,7 @@ msgid "Comments could not be loaded: {problem}"
 msgstr "Kommentare konnten nicht geladen werden: {problem}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Compare with {expr}"
 msgstr "Mit {expr} vergleichen"
 
@@ -540,6 +569,7 @@ msgid "Continue without connecting"
 msgstr "Ohne Verbindung fortfahren"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Convert to filter"
 msgstr "In Filter umwandeln"
 
@@ -574,6 +604,7 @@ msgid "Current"
 msgstr "Aktuell"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Custom expression"
 msgstr "Eigener Ausdruck"
 
@@ -670,6 +701,7 @@ msgid "does not contain"
 msgstr "enthält nicht"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Done"
 msgstr "Fertig"
 
@@ -687,6 +719,7 @@ msgid "Edit"
 msgstr "Bearbeiten"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit as expression"
 msgstr "Als Ausdruck bearbeiten"
 
@@ -695,10 +728,12 @@ msgid "Edit diagram source"
 msgstr "Diagrammquelle bearbeiten"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit expression"
 msgstr "Ausdruck bearbeiten"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Edit value"
 msgstr "Wert bearbeiten"
 
@@ -708,6 +743,7 @@ msgid "Empty"
 msgstr "Leer"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Empty expression"
 msgstr "Leerer Ausdruck"
 
@@ -721,6 +757,7 @@ msgid "Esc"
 msgstr "Esc"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "every filter"
 msgstr "jeder Filter"
 
@@ -739,6 +776,7 @@ msgid "Example"
 msgstr "Beispiel"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Exclude"
 msgstr "Ausschließen"
 
@@ -747,14 +785,17 @@ msgid "Expand callout"
 msgstr "Hinweis ausklappen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "expression"
 msgstr "Ausdruck"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Expression {text}"
 msgstr "Ausdruck {text}"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "False"
 msgstr "Falsch"
 
@@ -772,30 +813,37 @@ msgid "Feedback type"
 msgstr "Art des Feedbacks"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Fields"
 msgstr "Felder"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter"
 msgstr "Filter"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by field"
 msgstr "Nach Feld filtern"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter by…"
 msgstr "Filtern nach…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter group"
 msgstr "Filtergruppe"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filter options"
 msgstr "Filteroptionen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Filters"
 msgstr "Filter"
 
@@ -805,14 +853,17 @@ msgid "Find a collection"
 msgstr "Sammlung suchen"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property, or name a new one…"
 msgstr "Eigenschaft suchen oder neue benennen…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a property…"
 msgstr "Eigenschaft suchen…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Find a record…"
 msgstr "Datensatz suchen…"
 
@@ -841,6 +892,7 @@ msgid "Give {app} access to this collection?"
 msgstr "{app} Zugriff auf diese Sammlung gewähren?"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Hide empty"
 msgstr "Leere ausblenden"
 
@@ -849,10 +901,12 @@ msgid "Highlight"
 msgstr "Hervorheben"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How the filters combine"
 msgstr "Wie die Filter kombiniert werden"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "How these filters combine"
 msgstr "Wie diese Filter kombiniert werden"
 
@@ -964,6 +1018,7 @@ msgid "Light"
 msgstr "Hell"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Link a record in {property}"
 msgstr "Datensatz in {property} verknüpfen"
 
@@ -977,6 +1032,7 @@ msgid "Loading the collection snapshot…"
 msgstr "Snapshot der Sammlung wird geladen…"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Local time ({zone})"
 msgstr "Ortszeit ({zone})"
 
@@ -1012,14 +1068,17 @@ msgid "Markup discarded. Screenshot excluded."
 msgstr "Markierungen verworfen. Der Screenshot wird nicht mitgesendet."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match"
 msgstr "Übereinstimmung"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match all"
 msgstr "Alle erfüllen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Match any"
 msgstr "Mindestens einen erfüllen"
 
@@ -1066,10 +1125,12 @@ msgid "Move row up"
 msgstr "Zeile nach oben verschieben"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to shared"
 msgstr "In gemeinsame Filter verschieben"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Move to this view"
 msgstr "In diese Ansicht verschieben"
 
@@ -1087,6 +1148,7 @@ msgid "New comment"
 msgstr "Neuer Kommentar"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "New property"
 msgstr "Neue Eigenschaft"
 
@@ -1099,6 +1161,7 @@ msgid "New since your last visit"
 msgstr "Neu seit Ihrem letzten Besuch"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Next month"
 msgstr "Nächster Monat"
 
@@ -1118,10 +1181,12 @@ msgid "No collections match “{query}”."
 msgstr "Keine Sammlungen für „{query}“ gefunden."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "no filter"
 msgstr "kein Filter"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No matching fields"
 msgstr "Keine passenden Felder"
 
@@ -1134,6 +1199,7 @@ msgid "No open comments"
 msgstr "Keine offenen Kommentare"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "No properties."
 msgstr "Keine Eigenschaften."
 
@@ -1142,6 +1208,7 @@ msgid "No screenshot taken. You can still send feedback."
 msgstr "Kein Screenshot aufgenommen. Sie können trotzdem Feedback senden."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "No values to choose from."
 msgstr "Keine Werte zur Auswahl."
 
@@ -1151,6 +1218,7 @@ msgid "None"
 msgstr "Keiner"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Not a number"
 msgstr "Keine Zahl"
 
@@ -1169,6 +1237,7 @@ msgid "Nothing matches"
 msgstr "Keine Treffer"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Nothing matches."
 msgstr "Keine Treffer."
 
@@ -1177,6 +1246,7 @@ msgid "Nothing resolved yet."
 msgstr "Noch nichts erledigt."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Number"
 msgstr "Zahl"
 
@@ -1257,6 +1327,7 @@ msgid "Opens in a new tab"
 msgstr "Wird in einem neuen Tab geöffnet"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Operator"
 msgstr "Operator"
 
@@ -1265,6 +1336,7 @@ msgid "Optional"
 msgstr "Optional"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "oder Eingabetaste drücken"
 
@@ -1274,6 +1346,7 @@ msgid "Owner"
 msgstr "Besitzer"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Pick one or more"
 msgstr "Einen oder mehrere wählen"
 
@@ -1292,6 +1365,7 @@ msgid "Preparing your offline copy…"
 msgstr "Deine Offline-Kopie wird vorbereitet…"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Previous month"
 msgstr "Vorheriger Monat"
 
@@ -1355,12 +1429,16 @@ msgid "Reload to continue."
 msgstr "Laden Sie die Seite neu, um fortzufahren."
 
 #: src/Feedback.tsx
-#: src/filter-builder/labels.ts
 msgid "Remove"
 msgstr "Entfernen"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
+msgid "Remove"
+msgstr "Entfernen"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove"
 msgstr "Entfernen"
 
@@ -1370,14 +1448,17 @@ msgid "Remove {collection} from this list?"
 msgstr "{collection} aus dieser Liste entfernen?"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {name}"
 msgstr "{name} entfernen"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove {value}"
 msgstr "{value} entfernen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove filter"
 msgstr "Filter entfernen"
 
@@ -1387,10 +1468,12 @@ msgid "Remove from this list"
 msgstr "Aus dieser Liste entfernen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Remove group"
 msgstr "Gruppe entfernen"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Remove item {place} from {property}"
 msgstr "Element {place} aus {property} entfernen"
 
@@ -1577,6 +1660,7 @@ msgid "Shared"
 msgstr "Gemeinsam"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Shared: {name}"
 msgstr "Gemeinsam: {name}"
 
@@ -1760,6 +1844,7 @@ msgid "The diagram could not be shown. Check your connection and reopen the note
 msgstr "Das Diagramm konnte nicht angezeigt werden. Prüfen Sie Ihre Verbindung und öffnen Sie die Notiz erneut."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "The filter on {field} cannot be removed here"
 msgstr "Der Filter für {field} kann hier nicht entfernt werden"
 
@@ -1846,6 +1931,7 @@ msgid "This passage is no longer in the text"
 msgstr "Diese Passage steht nicht mehr im Text"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "This view"
 msgstr "Diese Ansicht"
 
@@ -1867,6 +1953,7 @@ msgid "to run"
 msgstr "ausführen"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Today"
 msgstr "Heute"
 
@@ -1876,10 +1963,12 @@ msgid "Todo"
 msgstr "Aufgabe"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Tomorrow"
 msgstr "Morgen"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "True"
 msgstr "Wahr"
 
@@ -1940,18 +2029,22 @@ msgid "Use {app}'s version"
 msgstr "Version von {app} verwenden"
 
 #: src/properties/labels.ts
+msgctxt "Property list"
 msgid "Use letters, digits, - and _, starting with a letter."
 msgstr "Buchstaben, Ziffern, - und _ verwenden, beginnend mit einem Buchstaben."
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Value"
 msgstr "Wert"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values"
 msgstr "Werte"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Values to compare with"
 msgstr "Werte zum Vergleichen"
 
@@ -2038,6 +2131,7 @@ msgid "Working…"
 msgstr "Wird bearbeitet…"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Wrap in “any” group"
 msgstr "In „Beliebig“-Gruppe einschließen"
 
@@ -2051,6 +2145,7 @@ msgid "year is"
 msgstr "Jahr ist"
 
 #: src/filter-builder/labels.ts
+msgctxt "Filter builder"
 msgid "Year, e.g. 2026"
 msgstr "Jahr, z. B. 2026"
 
@@ -2060,6 +2155,7 @@ msgid "yes"
 msgstr "ja"
 
 #: src/DatePicker.tsx
+msgctxt "Date picker"
 msgid "Yesterday"
 msgstr "Gestern"
 
