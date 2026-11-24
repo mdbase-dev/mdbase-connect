@@ -90,6 +90,11 @@ msgstr "{0} · ID …{1}"
 msgid "{0} · suggested"
 msgstr "{0} · suggested"
 
+#. placeholder {0}: entry.application_name
+#: src/ConnectApp.tsx
+msgid "{0} (mobile)"
+msgstr "{0} (mobile)"
+
 #. placeholder {0}: words[0]
 #. placeholder {1}: words[1]
 #: src/ConnectApp.tsx

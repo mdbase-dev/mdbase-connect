@@ -259,6 +259,11 @@ msgstr "その場所には「{0}」というフォルダーがすでにありま
 msgid "a Private collection"
 msgstr "プライベートコレクション"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "保存モードの切り替えがこのコンピューターでの確認を待っています。"
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Access: {access}"
@@ -605,6 +610,10 @@ msgstr "このコレクションがすべてのデバイスで同期するファ
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "フィルターをクリア"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "閉じる"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -1246,8 +1255,8 @@ msgstr "mdbase は暗号化された変更だけを保存します。Web アプ�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase は既存の履歴を含むコレクションを読み取り、デバイスの電源がオフの間もアクセスを提供できるようになります。"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase は既存の履歴を含めてコレクションを読み取り、デバイスがオフの間も提供できるようになります。このコレクションに接続されているアプリは、切り替え後に再接続する必要があります。"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1408,8 +1417,8 @@ msgstr "このコードが{who}のコードと一致する場合のみ許可し�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "切り替えが完了すると、新しい内容を読み取れるのはお使いのデバイスだけになります。古い内容は引き続き mdbase が読み取れる場合があります。"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "切り替え完了後、新しいコンテンツを読み取れるのはお使いのデバイスのみになります。古いコンテンツは引き続き mdbase が読み取れる場合があります。このコレクションに接続されているアプリは、切り替え後に再接続する必要があります。"
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1607,6 +1616,11 @@ msgstr "{0, plural, other {# 件のファイルを確認}}"
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "{0} を確認"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "切り替えを確認"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1815,6 +1829,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "このコレクションのストレージがいっぱいのため、一部のファイルが同期されていません。同期するには空き容量を確保してください。自分のコレクションで Free プランをご利用の場合は、Plus にアップグレードするとストレージを増やせます。"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "保存モード"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "保存モードを切り替えています…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1971,6 +1995,11 @@ msgstr "このコンピューターの旧 mdbase Connect が終了したこと�
 #: src/renderer/daemon-view.mts
 msgid "The sign-in request expired. Start again."
 msgstr "サインインのリクエストが期限切れになりました。最初からやり直してください。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "プライベートへの切り替えが停止され、対応が必要です。"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2253,6 +2282,11 @@ msgstr "バージョン {version} はインストールの {percentage}% に展�
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "動画"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "進行状況を表示"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

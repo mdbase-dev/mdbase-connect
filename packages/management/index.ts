@@ -388,6 +388,10 @@ export class ConnectManagementClient {
     return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode/${encodeURIComponent(requestId)}`, {method:"DELETE"}, options);
   }
 
+  abandonCollectionMode(collectionId: string, requestId: string, options?: ManagementRequestOptions): Promise<{ request_id: string; phase: "abandoned" }> {
+    return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode/${encodeURIComponent(requestId)}/abandon`, { method: "POST" }, options);
+  }
+
   collectionModeRequest(collectionId: string, requestId: string, options?: ManagementRequestOptions): Promise<CollectionModeChange> {
     return this.request(`/v1/next/collections/${encodeURIComponent(collectionId)}/mode/${encodeURIComponent(requestId)}`, {}, options);
   }

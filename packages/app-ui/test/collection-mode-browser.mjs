@@ -1,44 +1,252 @@
 // Browser qualification of the real compiled shared control. Boundary responses
 // are synthetic; this is UI interruption/intent evidence, not conversion LAB E2E.
 import assert from 'node:assert/strict';
-import {createRequire} from 'node:module';
-import {fileURLToPath} from 'node:url';
-const req=createRequire(new URL('../../../package.json',import.meta.url));
-const {chromium}=req('@playwright/test');
-// Reuse the existing SDK fixture bundler; no new production dependency.
-const {build}=createRequire(new URL('../../../runtime/packages/sdk/package.json',import.meta.url))('esbuild');
-const {outputFiles}=await build({stdin:{contents:`import React from 'react';import {createRoot}from'react-dom/client';import {CollectionModeControl}from'./dist/CollectionModeControl.js';const api=async(path,body)=>{const r=await fetch(path,{method:body?'POST':'GET',headers:{'content-type':'application/json'},body:body&&JSON.stringify(body)});if(!r.ok)throw Error('unconfirmed');return r.json()};function App(){const[id,setId]=React.useState('one');window.fixtureSelect=setId;return React.createElement(CollectionModeControl,{collectionId:id,native:location.pathname==='/native',load:()=>api('/status/'+id),change:(target,request)=>api('/change',{target,request}),cancel:(target,request)=>api('/cancel',{target,request})})}createRoot(document.getElementById('root')).render(React.createElement(App));`,resolveDir:fileURLToPath(new URL('../',import.meta.url)),loader:'js'},bundle:true,format:'iife',platform:'browser',write:false});
-const bundle=outputFiles[0].text,browser=await chromium.launch({headless:true});
-const base=(mode='cloud_copy',change=null)=>({current_mode:mode,execution_available:true,change});
-try{for(const native of [false,true]){
- let state=base(),post=async()=>({phase:'waiting_for_device'}),calls=[];
- const page=await browser.newPage();
- await page.route('https://mode.fixture/**',async route=>{const url=new URL(route.request().url());let body;
-  if(url.pathname==='/fixture.js')return route.fulfill({contentType:'text/javascript',body:bundle});
-  if(['/native','/portal'].includes(url.pathname))return route.fulfill({contentType:'text/html',body:'<!doctype html><meta charset="utf-8"><div id="root"></div><script src="/fixture.js"></script>'});
-  if(url.pathname.startsWith('/status/'))body=state;
-  else if(url.pathname==='/change'){const input=route.request().postDataJSON();calls.push(input);const result=await post(input);if(result.error)return route.fulfill({status:503,body:'unknown'});body=result;}
-  else if(url.pathname==='/cancel'){state=base();body={phase:'cancelled'};}
-  else throw Error('unexpected fixture request');
-  return route.fulfill({contentType:'application/json',body:JSON.stringify(body)});
- });
- const open=()=>page.goto('https://mode.fixture/'+(native?'native':'portal'));
- state={...base(),execution_available:false};await open();await page.waitForTimeout(30);assert.equal(await page.getByRole('button').count(),0);
- state=base();await open();await page.getByRole('button',{name:'Make private',exact:true}).waitFor();
- post=async input=>{state=base('cloud_copy',{request_id:input.request,target_mode:input.target,phase:'waiting_for_device'});return{phase:'waiting_for_devices',devices:['[test] Older capability device: 99999999-9999-4999-8999-999999999999']}};
- await page.getByRole('button',{name:'Make private',exact:true}).click();await page.getByText(/Older capability device:/).waitFor();
- assert.equal(await page.getByRole('button',{name:'Continue on this device'}).count(),native?1:0);
- assert.equal(await page.getByText('Private',{exact:true}).count(),0,'blocker must not claim Private');
- await page.getByRole('button',{name:'Cancel switch'}).click();await page.getByRole('button',{name:'Make private',exact:true}).waitFor();
- // A lost intent reply cannot complete optimistically; exact request survives retry.
- calls=[];post=async()=>({error:true});await page.getByRole('button',{name:'Make private',exact:true}).click();await page.getByRole('alert').waitFor();
- post=async input=>{state=base('cloud_copy',{request_id:input.request,target_mode:input.target,phase:'waiting_for_token_expiry',retry_at:'2099-01-01T00:00:00Z'});return{phase:'waiting_for_token_expiry',retry_at:'2099-01-01T00:00:00Z'}};
- await page.getByRole('button',{name:'Make private',exact:true}).click();await page.locator('time').waitFor();assert.equal(calls[0].request,calls[1].request);
- const before=calls.length;await open();await page.locator('time').waitFor();assert.equal(calls.length,before,'reload records no source gesture');
- if(native){post=async()=>{state=base('private');return{phase:'complete'}};await page.getByRole('button',{name:'Continue on this device'}).click();}else{state=base('private');await page.getByRole('button',{name:'Refresh status'}).click();}
- await page.getByText('Private',{exact:true}).waitFor();
- post=async input=>{state=base('private',{request_id:input.request,target_mode:input.target,phase:'finishing'});return{phase:'finishing'}};
- await page.getByRole('button',{name:'Turn on Cloud copy',exact:true}).click();await page.getByRole('status').waitFor();assert.equal(await page.getByText('Cloud copy',{exact:true}).count(),0,'intent alone does not claim Cloud');
- if(native){post=async()=>{state=base();return{phase:'complete'}};await page.getByRole('button',{name:'Continue on this device'}).click();}else{state=base();await page.getByRole('button',{name:'Refresh status'}).click();}
- await page.getByRole('button',{name:'Make private',exact:true}).waitFor();await page.close();console.log('PASS:',native?'native adapter':'portal intent adapter','hidden executor, named blocker, cancellation, exact-id uncertain retry, reload, token drain and both direction completion');
-}}finally{await browser.close();}
+import { mkdir, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+
+const req = createRequire(new URL('../../../package.json', import.meta.url));
+const { chromium } = req('@playwright/test');
+// Reuse the existing workspace esbuild dependency; no new production dependency.
+const { build } = createRequire(new URL('../../../apps/desktop/package.json', import.meta.url))('esbuild');
+
+const packageDir = fileURLToPath(new URL('../', import.meta.url));
+const screenshotDir = fileURLToPath(new URL('../test-results/mode-switch/', import.meta.url));
+await mkdir(screenshotDir, { recursive: true });
+
+const [tokensCss, paletteCss, controlsCss] = await Promise.all([
+  readFile(new URL('../css/tokens.css', import.meta.url), 'utf8'),
+  readFile(new URL('../css/palette.css', import.meta.url), 'utf8'),
+  readFile(new URL('../css/controls.css', import.meta.url), 'utf8')
+]);
+const fixtureStyles = `${tokensCss}\n${paletteCss}\n${controlsCss}\nbody{margin:0;padding:24px;background:var(--paper,#fff);color:var(--ink,#111);font-family:var(--font-sans,system-ui,sans-serif);max-width:600px;}`;
+
+const { outputFiles } = await build({
+  stdin: {
+    contents: `
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { CollectionModeControl } from './dist/CollectionModeControl.js';
+
+      const api = async (path, body) => {
+        const r = await fetch(path, {
+          method: body ? 'POST' : 'GET',
+          headers: { 'content-type': 'application/json' },
+          body: body && JSON.stringify(body)
+        });
+        if (!r.ok) {
+          let payload = null;
+          try { payload = await r.json(); } catch {}
+          const err = new Error(payload?.error?.message ?? 'unconfirmed');
+          if (payload?.error?.code) err.details = { code: payload.error.code };
+          throw err;
+        }
+        return r.json();
+      };
+
+      const deviceNames = {
+        '99999999-9999-4999-8999-999999999999': 'MacBook Pro'
+      };
+
+      function App() {
+        const [id, setId] = React.useState('one');
+        const [refreshes, setRefreshes] = React.useState([]);
+        window.fixtureSelect = setId;
+        window.fixtureRefreshes = () => refreshes;
+        return React.createElement(CollectionModeControl, {
+          collectionId: id,
+          native: location.pathname === '/native',
+          deviceNames,
+          load: () => api('/status/' + id),
+          change: (target, request) => api('/change', { target, request }),
+          cancel: (target, request) => api('/cancel', { target, request }),
+          abandon: (request) => api('/abandon', { request }),
+          onModeChange: (mode) => setRefreshes((list) => [...list, mode])
+        });
+      }
+
+      createRoot(document.getElementById('root')).render(React.createElement(App));
+    `,
+    resolveDir: packageDir,
+    loader: 'js'
+  },
+  bundle: true,
+  format: 'iife',
+  platform: 'browser',
+  write: false
+});
+
+const bundle = outputFiles[0].text;
+const browser = await chromium.launch({ headless: true });
+const base = (mode = 'cloud_copy', change = null) => ({ current_mode: mode, execution_available: true, change });
+
+try {
+  for (const native of [false, true]) {
+    let state = base();
+    let post = async () => ({ phase: 'waiting_for_device' });
+    let abandonPost = async () => ({ phase: 'abandoned' });
+    let calls = [];
+    const page = await browser.newPage({ viewport: { width: 680, height: 520 } });
+    await page.clock.install({ time: new Date('2026-11-24T12:00:00Z') });
+
+    await page.route('https://mode.fixture/**', async (route) => {
+      const url = new URL(route.request().url());
+      if (url.pathname === '/fixture.js') return route.fulfill({ contentType: 'text/javascript', body: bundle });
+      if (url.pathname === '/fixture.css') return route.fulfill({ contentType: 'text/css', body: fixtureStyles });
+      if (['/native', '/portal'].includes(url.pathname)) {
+        return route.fulfill({
+          contentType: 'text/html',
+          body: '<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="/fixture.css"><div id="root"></div><script src="/fixture.js"></script>'
+        });
+      }
+      if (url.pathname.startsWith('/status/')) {
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(state) });
+      }
+      if (url.pathname === '/change') {
+        const input = route.request().postDataJSON();
+        calls.push(input);
+        const result = await post(input);
+        if (result.status && result.status >= 400) {
+          return route.fulfill({ status: result.status, contentType: 'application/json', body: JSON.stringify(result.body) });
+        }
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) });
+      }
+      if (url.pathname === '/cancel') {
+        state = base();
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ phase: 'cancelled' }) });
+      }
+      if (url.pathname === '/abandon') {
+        const input = route.request().postDataJSON();
+        const result = await abandonPost(input);
+        return route.fulfill({ contentType: 'application/json', body: JSON.stringify(result) });
+      }
+      throw Error(`unexpected fixture request: ${url.pathname}`);
+    });
+
+    const open = () => page.goto('https://mode.fixture/' + (native ? 'native' : 'portal'));
+
+    // Hidden when executor unavailable.
+    state = { ...base(), execution_available: false };
+    await open();
+    await page.waitForTimeout(30);
+    assert.equal(await page.getByRole('button').count(), 0);
+
+    // Idle with U1 app-reconnection warning.
+    state = base();
+    await open();
+    await page.getByRole('button', { name: 'Make private', exact: true }).waitFor();
+    await page.getByText(/Apps connected to this collection will need to be reconnected afterwards\./).waitFor();
+
+    // Declined confirmation (not_confirmed) -> no error, back to idle.
+    post = async () => ({ status: 403, body: { error: { code: 'not_confirmed', message: "not confirmed on this computer's screen" } } });
+    await page.getByRole('button', { name: 'Make private', exact: true }).click();
+    await page.waitForTimeout(50);
+    assert.equal(await page.getByRole('alert').count(), 0, 'declined confirmation must not show an alert');
+    assert.equal(await page.getByRole('button', { name: 'Make private', exact: true }).count(), 1);
+
+    // keyed_owner_required -> calm explanation, not interrupted-switch alert.
+    post = async () => ({ status: 409, body: { error: { code: 'keyed_owner_required', message: 'keyed owner required' } } });
+    await page.getByRole('button', { name: 'Make private', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: /holds this collection’s key/ }).waitFor();
+    assert.equal(await page.getByText(/interrupted switch/).count(), 0);
+
+    // Older-devices blocker with resolved name + short ID fallback, persists across refresh & reload.
+    const namedId = '99999999-9999-4999-8999-999999999999';
+    const unnamedId = '88888888-8888-4888-8888-888888888888';
+    post = async (input) => {
+      state = base('cloud_copy', { request_id: input.request, source_mode: 'cloud_copy', target_mode: input.target, phase: 'waiting_for_device' });
+      return { phase: 'waiting_for_devices', devices: [namedId, unnamedId] };
+    };
+    await page.getByRole('button', { name: 'Make private', exact: true }).click();
+    await page.getByText('MacBook Pro', { exact: true }).waitFor();
+    await page.getByText('Device 88888888', { exact: true }).waitFor();
+    assert.equal(await page.getByText(namedId).count(), 0, 'raw UUID must not appear');
+    assert.equal(await page.getByText(unnamedId).count(), 0, 'raw UUID must not appear');
+    assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), native ? 1 : 0);
+    if (native) await page.screenshot({ path: `${screenshotDir}older-devices-blocker.png` });
+
+    // Persists across Refresh status and page reload!
+    await page.getByRole('button', { name: 'Refresh status' }).click();
+    await page.getByText('MacBook Pro', { exact: true }).waitFor();
+    await open();
+    await page.getByText('MacBook Pro', { exact: true }).waitFor();
+    await page.getByText('Device 88888888', { exact: true }).waitFor();
+
+    // Cancel clears blocker and returns to idle.
+    await page.getByRole('button', { name: 'Cancel switch' }).click();
+    await page.getByRole('button', { name: 'Make private', exact: true }).waitFor();
+    assert.equal(await page.getByText('MacBook Pro').count(), 0);
+
+    // Unknown error preserves request ID and shows interrupted-switch warning.
+    calls = [];
+    post = async () => ({ status: 503, body: { error: { code: 'unknown', message: 'unconfirmed' } } });
+    await page.getByRole('button', { name: 'Make private', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: /An interrupted switch may already have started/ }).waitFor();
+
+    // Retry reaches waiting_for_token_expiry with countdown (~12 minutes) and NO Continue button.
+    const retryAt = '2026-11-24T12:12:00Z';
+    post = async (input) => {
+      state = base('cloud_copy', { request_id: input.request, source_mode: 'cloud_copy', target_mode: input.target, phase: 'waiting_for_token_expiry', retry_at: retryAt });
+      return { phase: 'waiting_for_token_expiry', retry_at: retryAt };
+    };
+    await page.getByRole('button', { name: 'Make private', exact: true }).click();
+    await page.locator('time').filter({ hasText: /12 minutes/ }).waitFor();
+    assert.equal(calls[0].request, calls[1].request, 'retry must preserve exact request ID');
+    assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), 0, 'daemon drives token expiry');
+    if (!native) await page.screenshot({ path: `${screenshotDir}waiting-for-token-expiry.png` });
+
+    // Cloud->Private finishing: shows source mode (Cloud copy), clears stale token-expiry time, offers confirmed Stop this switch (abandon).
+    state = base('cloud_copy', { request_id: calls[1].request, source_mode: 'cloud_copy', target_mode: 'private', phase: 'finishing' });
+    await page.clock.fastForward(10_000);
+    await page.getByRole('button', { name: 'Stop this switch', exact: true }).waitFor();
+    assert.equal(await page.locator('time').count(), 0, 'token-expiry countdown must clear once finishing');
+    assert.equal(await page.locator('.mdbase-collection-mode-current').innerText(), 'Cloud copy');
+    assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), 0);
+
+    await page.getByRole('button', { name: 'Stop this switch', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'Stop this switch to Private?' });
+    await dialog.waitFor();
+    if (!native) await page.screenshot({ path: `${screenshotDir}abandon-confirm-dialog.png` });
+
+    abandonPost = async (input) => {
+      state = base('private', { request_id: input.request, source_mode: 'cloud_copy', target_mode: 'private', phase: 'abandoned' });
+      return { request_id: input.request, phase: 'abandoned' };
+    };
+    await dialog.getByRole('button', { name: 'Stop this switch', exact: true }).click();
+    await dialog.waitFor({ state: 'detached' });
+    await page.getByRole('status').filter({ hasText: /The switch to Private was stopped/ }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Make private' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Turn on Cloud copy' }).count(), 0);
+    if (!native) await page.screenshot({ path: `${screenshotDir}abandoned-state.png` });
+
+    // Private->Cloud finishing: server flips current_mode to cloud_copy early, but UI keeps showing Private until complete!
+    state = base('private');
+    await page.getByRole('button', { name: 'Refresh status' }).click();
+    await page.getByRole('button', { name: 'Turn on Cloud copy', exact: true }).waitFor();
+
+    post = async (input) => {
+      // Simulate server flipping current_mode early at /prepare before Workers are keyed!
+      state = base('cloud_copy', { request_id: input.request, source_mode: 'private', target_mode: 'cloud_copy', phase: 'finishing' });
+      return { phase: 'finishing' };
+    };
+    await page.getByRole('button', { name: 'Turn on Cloud copy', exact: true }).click();
+    await page.getByRole('status').filter({ hasText: /Finishing the switch to Cloud copy/ }).waitFor();
+    assert.equal(await page.locator('.mdbase-collection-mode-current').innerText(), 'Private', 'must display source mode while finishing');
+    assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Stop this switch' }).count(), 0, 'abandon is only for Cloud->Private');
+    if (native) await page.screenshot({ path: `${screenshotDir}finishing-source-mode.png` });
+
+    // Auto-polling detects completion (3s interval) and invokes onModeChange!
+    state = base('cloud_copy', null);
+    await page.clock.fastForward(3_000);
+    await page.getByRole('button', { name: 'Make private', exact: true }).waitFor();
+    assert.equal(await page.locator('.mdbase-collection-mode-current').innerText(), 'Cloud copy');
+    const refreshes = await page.evaluate(() => window.fixtureRefreshes());
+    assert.ok(refreshes.includes('cloud_copy'), `expected onModeChange("cloud_copy"), got ${JSON.stringify(refreshes)}`);
+
+    await page.close();
+    console.log('PASS:', native ? 'native adapter' : 'portal adapter', 'declined, keyed_owner_required, named/short-id blocker + reload persistence, waiting_for_token_expiry countdown, abandon dialog + abandoned phase, finishing source-mode + auto-poll completion refresh');
+  }
+} finally {
+  await browser.close();
+}

@@ -359,7 +359,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     {selectedCollection && isCollectionView(activeView) && <section className="connect-nav-group" aria-label={selectedCollection.name}>
       <p>{selectedCollection.name}</p>
       <NavLink label={t(i18n)({ message: "Overview", context: "Connect interface" })} selected={activeView === "overview"} view="overview" collectionId={selectedCollection.id} navigate={navigate} />
-      <NavLink label={t(i18n)({ message: "Storage", context: "Connect interface" })} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} prefetch={() => { if (selectedCollection.kind === "native") prefetchMode(management, selectedCollection.id); }} />
+      <NavLink label={t(i18n)({ message: "Storage", context: "Connect interface" })} selected={activeView === "storage"} view="storage" collectionId={selectedCollection.id} navigate={navigate} prefetch={() => { if (selectedCollection.kind === "native" && selectedCollection.source.access.relationship === "owner") prefetchMode(management, selectedCollection.id); }} />
       <NavLink label={t(i18n)({ message: "Access", context: "Connect interface" })} selected={activeView === "access"} view="access" collectionId={selectedCollection.id} navigate={navigate} prefetch={() => { if (selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members) prefetchSharing(management, selectedCollection.id); }} />
     </section>}
     <section className="connect-nav-group">
@@ -393,7 +393,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {activeView === "overview" && (selectedCollection
         ? <CollectionOverview editorOrigin={editorOrigin} origins={environmentOrigins} collection={selectedCollection} applications={selectedApplications} />
         : <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
-      {activeView === "storage" && selectedCollection && <Storage error={mutationError} editorOrigin={editorOrigin} collection={selectedCollection} busy={busy} perform={perform} />}
+      {activeView === "storage" && selectedCollection && <Storage error={mutationError} editorOrigin={editorOrigin} collection={selectedCollection} data={data} busy={busy} perform={perform} onRefresh={() => void refresh()} />}
       {activeView === "access" && !refreshError && selectedCollection && <AppAccess error={mutationError} collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform}>
         <section><SectionTitle title={t(i18n)({ message: "Your person record", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Use an existing person or create a note</Trans></strong><small><Trans>Link your account to an editable record in this collection. Collection access is approved separately.</Trans></small></div>{editorOrigin && <a href={`${editorSurfaceUrls(selectedCollection.id, editorOrigin).settings}#your-person`}><Trans>Choose or create my person record</Trans></a>}</div></section>
         {selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members && <CollectionSharingPanel error={mutationError} key={selectedCollection.id} sharingAvailable={data.collection_sharing_available === true} seatLimit={seatLimit(data, selectedCollection.source.access.relationship)} navigate={navigate} collection={selectedCollection.source} busy={busy} perform={perform} />}
@@ -616,18 +616,39 @@ function CollectionSharingPanel({ error, collection, busy, perform, sharingAvail
   </section>;
 }
 
-function Storage({ error, collection, busy, perform, editorOrigin }: {
+function Storage({ error, collection, data, busy, perform, editorOrigin, onRefresh }: {
   editorOrigin?: string;
   collection: CollectionRow;
+  data: ManagementOverview;
   busy: BusyOperations;
   error?: string;
   perform: PerformOperation;
+  onRefresh(): void;
 }) {
   useLocaleRevision();
   if (collection.kind === "native") {
+    const isOwner = collection.source.access.relationship === "owner";
+    const deviceNames: Record<string, string> = {};
+    for (const connector of data.connectors) deviceNames[connector.id] = connector.name;
+    for (const entry of data.installation_access ?? []) {
+      const label = entry.device_kind === "mobile"
+        ? t(i18n)`${entry.application_name} (mobile)`
+        : entry.application_name;
+      deviceNames[entry.installation_id] = label;
+      if (!deviceNames[entry.connector_id]) deviceNames[entry.connector_id] = label;
+    }
     return <Page title={t(i18n)({ message: "Storage", context: "Connect interface" })} intro={collection.name}>
       <p>{collection.detail}</p>
-      <CollectionModeControl key={collection.id} collectionId={collection.id} load={() => takeModePrefetch(management, collection.id) ?? management.collectionModeStatus(collection.id)} change={(targetMode, requestId) => management.requestCollectionMode(collection.id, {targetMode, requestId})} cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)} />
+      {isOwner && <CollectionModeControl
+        key={collection.id}
+        collectionId={collection.id}
+        deviceNames={deviceNames}
+        load={() => takeModePrefetch(management, collection.id) ?? management.collectionModeStatus(collection.id)}
+        change={(targetMode, requestId) => management.requestCollectionMode(collection.id, { targetMode, requestId })}
+        cancel={(_target, requestId) => management.cancelCollectionMode(collection.id, requestId)}
+        abandon={(requestId) => management.abandonCollectionMode(collection.id, requestId)}
+        onModeChange={onRefresh}
+      />}
       <section><SectionTitle title={t(i18n)({ message: "Sync", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Collection copies</Trans></strong>{!!collection.source.computer_ids?.length && <small><Trans>Copies sync between your computers. App access is managed separately.</Trans></small>}</div></div></section>
     </Page>;
   }

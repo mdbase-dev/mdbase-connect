@@ -259,6 +259,11 @@ msgstr "Ya existe una carpeta llamada «{0}» ahí. Elige otro nombre o usa Aña
 msgid "a Private collection"
 msgstr "una colección privada"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "Un cambio de modo de almacenamiento espera confirmación en esta computadora."
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Access: {access}"
@@ -605,6 +610,10 @@ msgstr "Elige qué archivos sincroniza esta colección en todos los dispositivos
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Borrar filtro"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "Cerrar"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -1246,8 +1255,8 @@ msgstr "mdbase solo guarda cambios cifrados. Las aplicaciones web y los agentes 
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase podrá leer la colección, incluido su historial existente, y ofrecer acceso mientras tus dispositivos estén apagados."
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase podrá leer la colección, incluido su historial existente, y servirla mientras tus dispositivos estén apagados. Las aplicaciones conectadas a esta colección deberán volver a conectarse después."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1408,8 +1417,8 @@ msgstr "Permite el acceso solo si este código coincide con el de {who}"
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "Solo tus dispositivos podrán leer el contenido nuevo cuando finalice el cambio. Es posible que mdbase aún pueda leer contenido anterior."
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "Solo tus dispositivos podrán leer el contenido nuevo cuando finalice el cambio. Es posible que mdbase aún pueda leer contenido anterior. Las aplicaciones conectadas a esta colección deberán volver a conectarse después."
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1607,6 +1616,11 @@ msgstr "Revisar {0, plural, one {# archivo} other {# archivos}}"
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "Revisar {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "Revisar cambio"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1815,6 +1829,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "El almacenamiento de esta colección está lleno, así que algunos archivos no se han sincronizado. Libera espacio para sincronizarlos. Si es tu colección y tienes el plan Free, puedes mejorar a Plus para tener más almacenamiento."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "Modo de almacenamiento"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "Cambiando el modo de almacenamiento…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1971,6 +1995,11 @@ msgstr "El servidor no ha confirmado que el antiguo mdbase Connect de este orden
 #: src/renderer/daemon-view.mts
 msgid "The sign-in request expired. Start again."
 msgstr "La solicitud de inicio de sesión ha caducado. Empieza de nuevo."
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "Se detuvo el cambio a Privado y requiere atención."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2253,6 +2282,11 @@ msgstr "La versión {version} se está desplegando en el {percentage} % de las i
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "Vídeo"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "Ver progreso"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"
