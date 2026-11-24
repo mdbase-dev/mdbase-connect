@@ -641,6 +641,7 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
         .insert(1, vec!["i:pending".into(), "p:pending.md".into()]);
     let catalog = Arc::as_ptr(&n.r.catalog);
     let reindexed = n.r.stats.reindexed;
+    let written = n.r.store.data().borrow().records_written;
     let a = apply(&mut n.r, &c);
     assert_ne!(
         Arc::as_ptr(&n.r.catalog),
@@ -671,7 +672,10 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
         "the fixture is typed by the entry"
     );
     assert_eq!(a.after, want);
+    // Every record is visited; the entry writes its own record under the new
+    // catalog, and the reindex writes back only the two it retypes.
     assert_eq!(n.r.stats.reindexed - reindexed, 3);
+    assert_eq!(n.r.store.data().borrow().records_written - written, 3);
     assert_eq!(
         a.changed,
         keys(&[
