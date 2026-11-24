@@ -76,7 +76,7 @@ auditConfig:
 
 minimumReleaseAgeExclude:
   - '@mdbase-dev/panels@0.3.1'
-  - '@mdbase-dev/ui@0.2.6'
+  - '@mdbase-dev/ui@0.2.7'
 
 patchedDependencies:
   '@sigstore/core@3.2.1': patches/@sigstore__core@3.2.1.patch
