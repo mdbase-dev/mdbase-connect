@@ -1158,6 +1158,7 @@ msgstr "mdbase editor에서는 아직 이 컬렉션에 파일을 첨부할 수 �
 msgid "Attachment progress for {0}"
 msgstr "첨부 진행률: {0}"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
 msgstr "자동"
@@ -1166,6 +1167,7 @@ msgstr "자동"
 msgid "Automatic matching"
 msgstr "자동 매칭"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
 msgstr "자동 속성"
@@ -3592,6 +3594,7 @@ msgstr "새 {name}"
 
 #: src/code-editor-completions.ts
 #: src/LinkPropertyEditor.tsx
+#: src/property-records.tsx
 #: src/QuickCreateRecord.tsx
 msgid "New {typeLabel}"
 msgstr "새로 만들기: {typeLabel}"
@@ -3605,6 +3608,7 @@ msgstr "새 폴더"
 #: src/editor-commands.ts
 #: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
+#: src/property-records.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
 msgstr "새 노트"
@@ -4492,6 +4496,7 @@ msgstr "속성"
 msgid "Property options"
 msgstr "속성 옵션"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
 msgstr "노트 유형에서 제공되며 이 파일에는 저장되지 않습니다."

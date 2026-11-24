@@ -51,14 +51,13 @@ for (const width of [360, 390, 430]) {
     await expect(title).toHaveValue("Ideas for Sunday 12");
     await page.getByRole("button", { name: "More note actions" }).click();
     await page.getByRole("menuitem", { name: "Note properties" }).click();
-    await expect(page.getByLabel("tags value item 1")).toHaveValue("notes");
+    const removeTag = page.getByRole("button", { name: "Remove notes", exact: true });
+    await expect(removeTag).toBeVisible();
     await expect.poll(() => page.getByRole("dialog", { name: "Note properties" }).evaluate(element => element.getAnimations().length)).toBe(0);
     await fitsViewport(page, ".property-fields");
     const propertyFields = await page.locator(".property-fields").boundingBox();
-    const removeProperty = await page.getByRole("button", { name: "Remove tags property" }).boundingBox();
-    expect(removeProperty!.x + removeProperty!.width).toBeLessThanOrEqual(propertyFields!.x + propertyFields!.width);
-    const removeTag = page.getByRole("button", { name: "Remove tags item 1" });
     const target = await removeTag.boundingBox();
+    expect(target!.x + target!.width).toBeLessThanOrEqual(propertyFields!.x + propertyFields!.width);
     expect(target!.width).toBeGreaterThanOrEqual(44);
     expect(target!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("button", { name: "Close properties" }).click();

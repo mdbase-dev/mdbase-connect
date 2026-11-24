@@ -1158,6 +1158,7 @@ msgstr "mdbase editor 暂不支持为此集合添加附件。"
 msgid "Attachment progress for {0}"
 msgstr "{0} 的附件上传进度"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
 msgstr "自动"
@@ -1166,6 +1167,7 @@ msgstr "自动"
 msgid "Automatic matching"
 msgstr "自动匹配"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
 msgstr "自动属性"
@@ -3592,6 +3594,7 @@ msgstr "新建{name}"
 
 #: src/code-editor-completions.ts
 #: src/LinkPropertyEditor.tsx
+#: src/property-records.tsx
 #: src/QuickCreateRecord.tsx
 msgid "New {typeLabel}"
 msgstr "新建：{typeLabel}"
@@ -3605,6 +3608,7 @@ msgstr "新建文件夹"
 #: src/editor-commands.ts
 #: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
+#: src/property-records.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
 msgstr "新建笔记"
@@ -4492,6 +4496,7 @@ msgstr "属性"
 msgid "Property options"
 msgstr "属性选项"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
 msgstr "由笔记的类型提供，不存储在此文件中。"

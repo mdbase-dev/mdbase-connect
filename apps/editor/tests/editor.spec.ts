@@ -1047,7 +1047,7 @@ test("starts a note of a chosen type from the picker", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Notes/A typed note.md" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
   await page.getByRole("button", { name: "Note properties" }).click();
-  await expect(page.getByRole("complementary", { name: "Note properties" }).getByRole("textbox", { name: "title value" })).toHaveValue("A typed note");
+  await expect(page.getByRole("complementary", { name: "Note properties" }).getByRole("textbox", { name: "title", exact: true })).toHaveValue("A typed note");
 });
 
 test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
@@ -1172,8 +1172,8 @@ test("creates and edits a contact through its declared display field", async ({ 
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("button", { name: "Note properties" }).click();
   const panel = page.getByRole("complementary", { name: "Note properties" });
-  await expect(panel.getByRole("textbox", { name: "name value" })).toHaveValue("Augusta Ada King");
-  await expect(panel.getByRole("combobox", { name: "kind value" })).toHaveAttribute("data-value", 'string:"individual"');
+  await expect(panel.getByRole("textbox", { name: "name", exact: true })).toHaveValue("Augusta Ada King");
+  await expect(panel.getByRole("combobox", { name: "kind", exact: true })).toHaveText("individual");
 });
 
 test("inspects type definitions and persists editor settings", async ({ page }) => {
@@ -1259,13 +1259,22 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: /Grace Hopper\.md$/ })).toBeVisible();
   await page.getByRole("button", { name: "Note properties" }).click();
-  await page.getByRole("button", { name: "Add property" }).click();
-  await page.getByRole("searchbox", { name: "Find a property" }).fill("organizations");
-  await page.locator(".property-options button").filter({ hasText: "organizations" }).click();
-  const organizations = page.getByRole("group", { name: "organizations value" });
-  await expect(organizations.getByText("No entries yet.")).toBeVisible();
-  await expect(organizations.getByRole("button", { name: "Add entry" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "organizations JSON value" })).toHaveCount(0);
+  const fields = page.getByRole("complementary", { name: "Note properties" });
+  await fields.getByRole("button", { name: "Add property", exact: true }).click();
+  await page.keyboard.type("organizations");
+  await page.keyboard.press("Enter");
+  // A list of values with parts is added to item by item, not typed as JSON.
+  // A value with named entries takes a new one by name, not as typed JSON.
+  await expect(fields.getByRole("button", { name: "organizations: Empty" })).toBeVisible();
+  await fields.getByRole("button", { name: "Add property to organizations" }).click();
+  await page.keyboard.type("acme");
+  await page.keyboard.press("Enter");
+  await expect(fields.locator('[data-field="organizations.acme"]')).toBeVisible();
+  await fields.getByRole("button", { name: "Add property to organizations acme" }).click();
+  // The entry's type names the one part it may have.
+  await expect(page.getByRole("option", { name: "name", exact: true })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(fields.getByRole("textbox", { name: "organizations acme name" })).toBeFocused();
 
   await page.getByRole("button", { name: "Settings" }).click();
   const vim = page.getByRole("switch", { name: "Vim key bindings" });
@@ -1374,11 +1383,11 @@ test("links a property to typed notes, makes one while linking, and groups backl
   await page.getByRole("button", { name: /^All notes/ }).click();
   await page.locator(".note-row").filter({ hasText: "Ideas for Sunday 12" }).click();
   await page.getByRole("button", { name: "Note properties" }).click();
-  const tags = page.getByRole("group", { name: "tags", exact: true });
+  const tags = page.locator('.properties-panel [data-field="tags"]');
   // What was written before the field held links stays, named as it was typed.
   await expect(tags).toContainText("ideas");
-  await tags.getByRole("button", { name: "Add a link to tags" }).click();
-  await tags.getByRole("combobox").fill("Compilers");
+  await tags.getByRole("button", { name: "Link a record in tags" }).click();
+  await page.keyboard.type("Compilers");
   await page.getByRole("option", { name: "New note “Compilers”" }).click();
   // The link is written at once and names the note the collection then confirms.
   await expect(tags.getByRole("button", { name: "Compilers", exact: true })).toBeVisible();
@@ -1457,9 +1466,9 @@ test("fills in a required field when creating a linked record from the modal pro
 
   const inspector = page.getByRole("dialog", { name: "Note properties" });
   await expect(inspector).toBeVisible();
-  const tags = inspector.getByRole("group", { name: "tags", exact: true });
-  await tags.getByRole("button", { name: "Add a link to tags" }).click();
-  await tags.getByRole("combobox").fill("Octavia");
+  const tags = inspector.locator('[data-field="tags"]');
+  await tags.getByRole("button", { name: "Link a record in tags" }).click();
+  await page.keyboard.type("Octavia");
   await page.getByRole("option", { name: "New note “Octavia”" }).click();
 
   // At 1000px the properties panel is a modal <dialog>: the form must not be inert under it.
@@ -1472,8 +1481,8 @@ test("fills in a required field when creating a linked record from the modal pro
   await expect(form).toBeHidden();
   await expect(inspector).toBeVisible();
 
-  await tags.getByRole("button", { name: "Add a link to tags" }).click();
-  await tags.getByRole("combobox").fill("Octavia");
+  await tags.getByRole("button", { name: "Link a record in tags" }).click();
+  await page.keyboard.type("Octavia");
   await page.getByRole("option", { name: "New note “Octavia”" }).click();
   await expect(form).toBeVisible();
   await source.click();
@@ -1793,10 +1802,11 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
 
   const panel = page.getByRole("complementary", { name: "Note properties" });
   await expect(panel.getByRole("heading", { name: "Properties" })).toBeVisible();
-  const tags = panel.getByRole("group", { name: "tags" });
-  await expect(tags.getByRole("button", { name: "Add tag" })).toBeVisible();
-  await tags.getByRole("button", { name: "Add tag" }).click();
-  await tags.getByRole("textbox", { name: "tags value item 3" }).fill("nested editing");
+  // A list of short values is chips with a field to type the next into.
+  await expect(panel.getByRole("button", { name: "Remove notes", exact: true })).toBeVisible();
+  await panel.getByRole("textbox", { name: "tags", exact: true }).fill("nested editing");
+  await page.keyboard.press("Enter");
+  await expect(panel.getByRole("button", { name: "Remove nested editing" })).toBeVisible();
   const propertySaveState = panel.locator(".property-save-state");
   await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();
@@ -1813,11 +1823,11 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await page.getByRole("button", { name: "Note properties" }).click();
 
   const panel = page.getByRole("complementary", { name: "Note properties" });
-  await panel.getByRole("button", { name: "Add property" }).click();
-  await panel.getByRole("searchbox", { name: "Find a property" }).fill("title");
-  await panel.locator(".property-options button").filter({ hasText: "title" }).click();
-  await expect(panel.getByLabel("title property type")).toHaveCount(0);
-  await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
+  await panel.getByRole("button", { name: "Add property", exact: true }).click();
+  await page.keyboard.type("title");
+  await page.keyboard.press("Enter");
+  await panel.getByRole("textbox", { name: "title", exact: true }).fill("Source-backed title");
+  await page.keyboard.press("Enter");
   const propertySaveState = panel.locator(".property-save-state");
   await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();

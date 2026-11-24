@@ -213,7 +213,7 @@ describe("mdbase editor", () => {
     const saved = await gateway.read(first.path);
     expect(saved.body).toContain("A saved sentence.");
     await user.click(screen.getByRole("button", { name: "Note properties" }));
-    expect(await screen.findByRole("textbox", { name: "status value" })).toHaveValue("draft");
+    expect(await screen.findByRole("textbox", { name: "status" })).toHaveValue("draft");
 
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
@@ -947,10 +947,8 @@ describe("mdbase editor", () => {
     await gateway.updateStarted;
     await user.click(screen.getByRole("button", { name: "Note properties" }));
     await user.click(await screen.findByRole("button", { name: "Add property" }));
-    await user.click(screen.getByRole("button", { name: "Add a custom property…" }));
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "status");
-    await user.click(screen.getByRole("button", { name: "Add" }));
-    await user.type(screen.getByRole("textbox", { name: "status value" }), "draft");
+    await user.keyboard("status{Enter}");
+    await user.type(screen.getByRole("textbox", { name: "status" }), "draft{Enter}");
     expect(screen.queryByText("Changes save automatically")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
