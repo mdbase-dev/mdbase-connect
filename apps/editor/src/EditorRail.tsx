@@ -18,8 +18,14 @@ import { editorEnvironment } from "./environment";
 import { RailDropTarget, type RailDropActions } from "./RailDropTarget";
 
 /** The app menu opens the other mdbase apps deployed for this build's environment. */
-const { editorOrigin, readerOrigin, writerOrigin } = managedAppOrigins[editorEnvironment];
-const appUrls = { editor: editorOrigin, reader: readerOrigin, writer: writerOrigin };
+const { editorOrigin, readerOrigin, writerOrigin, journalOrigin, tasknotesOrigin } = managedAppOrigins[editorEnvironment];
+const appUrls = {
+  editor: editorOrigin,
+  reader: readerOrigin,
+  writer: writerOrigin,
+  journal: journalOrigin,
+  tasknotes: tasknotesOrigin
+};
 
 export type EditorRailSurface = "notes" | "types" | "settings";
 

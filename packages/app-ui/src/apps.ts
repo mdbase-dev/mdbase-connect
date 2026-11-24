@@ -89,12 +89,13 @@ export function withAppUrls<App extends OfficialApp = MdbaseApp>(
 const sharedParameters = ["collection", "server"] as const;
 
 /** A link that opens the current page's collection in another app. */
-export function mdbaseAppHref(appUrl: string, currentHref: string): string {
+export function mdbaseAppHref(appUrl: string, currentHref: string, collectionId?: string | null): string {
   const target = new URL(appUrl);
   const current = new URL(currentHref);
   for (const key of sharedParameters) {
     const value = current.searchParams.get(key);
     if (value) target.searchParams.set(key, value);
   }
+  if (collectionId) target.searchParams.set("collection", collectionId);
   return target.href;
 }

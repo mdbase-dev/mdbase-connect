@@ -30,6 +30,18 @@ describe("mdbaseAppHref", () => {
     expect(mdbaseAppHref("http://127.0.0.1:5320/lab/", "http://127.0.0.1:5173/?collection=c"))
       .toBe("http://127.0.0.1:5320/lab/?collection=c");
   });
+
+  it("applies an explicit collectionId when the current URL does not carry one", () => {
+    expect(mdbaseAppHref("https://editor.mdbase.dev/", "https://app.tasknotes.dev/views/today", "col_99"))
+      .toBe("https://editor.mdbase.dev/?collection=col_99");
+    expect(
+      mdbaseAppHref(
+        "https://journal.mdbase.dev/",
+        "https://app.tasknotes.dev/?server=https%3A%2F%2Fconnect.example.org",
+        "col_99"
+      )
+    ).toBe("https://journal.mdbase.dev/?server=https%3A%2F%2Fconnect.example.org&collection=col_99");
+  });
 });
 
 describe("mdbaseApps", () => {

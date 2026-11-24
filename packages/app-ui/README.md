@@ -47,9 +47,12 @@ applyThemePreference(loadThemePreference());
   collection in another app. Every deployment passes its own URLs to
   `withAppUrls` (or `AppSwitcher`'s `urls` prop, which accepts all official
   apps). Apps without a configured URL are omitted; shared metadata never falls
-  back to production origins. The switcher includes an AI clients (MCP) link by
-  default (pass `mcpUrl={null}` to omit on custom servers) and ends with a
-  "Build your own" link to the SDK guide.
+  back to production origins. `AppSwitcher` accepts any `OfficialAppId` as
+  `current`, optional `children`/`className`/`align` for apps with their own
+  trigger identity (such as TaskNotes), and an optional `collectionId` when the
+  app does not carry `?collection=` in `location.href`. The switcher includes an
+  AI clients (MCP) link by default (pass `mcpUrl={null}` to omit on custom
+  servers) and ends with a "Build your own" link to the SDK guide.
 
 ## Opening screen
 

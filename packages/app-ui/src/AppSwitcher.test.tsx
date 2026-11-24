@@ -127,4 +127,48 @@ describe("AppSwitcher", () => {
     expect(hidden.container.textContent).not.toContain("AI clients (MCP)");
     hidden.unmount();
   });
+
+  it("supports TaskNotes and Journal as current apps with custom trigger content and explicit collectionId", () => {
+    const { container, unmount } = openMenu(
+      <AppSwitcher
+        current="tasknotes"
+        className="wordmark"
+        collectionId="col_99"
+        urls={{
+          editor: "https://editor.example",
+          reader: "https://reader.example",
+          writer: "https://writer.example",
+          journal: "https://journal.example",
+          tasknotes: "https://tasks.example"
+        }}
+      >
+        <img alt="" src="/tasknotes-mark.svg" />
+        <span>TaskNotes</span>
+      </AppSwitcher>
+    );
+    const trigger = container.querySelector(".mdbase-app-switcher.wordmark")!;
+    expect(visibleLabel(trigger)).toBe("TaskNotes");
+    expect(accessibleName(trigger)).toContain("TaskNotes");
+
+    const menu = container.querySelector('[role="menu"]')!;
+    expect(menu.querySelector(".mdbase-menu-heading")?.textContent).toBe("Open this collection in");
+    const currentItem = menu.querySelector('[aria-current="page"]')!;
+    expect(currentItem.textContent).toContain("TaskNotes");
+    expect(currentItem.textContent).toContain("Current");
+
+    const items = [...menu.querySelectorAll<HTMLAnchorElement>('[role="menuitem"]:not([aria-disabled="true"])')];
+    expect(items.map((item) => item.getAttribute("href"))).toEqual([
+      "https://editor.example/?collection=col_99",
+      "https://reader.example/?collection=col_99",
+      "https://writer.example/?collection=col_99",
+      "https://journal.example/?collection=col_99",
+      mcpSetupUrl,
+      "https://mdbase.dev/sdk/"
+    ]);
+    unmount();
+
+    const journalMarkup = renderToStaticMarkup(<AppSwitcher current="journal" />);
+    expect(journalMarkup).toContain('class="mdbase-mark mdbase-app-mark is-journal wordmark-mark"');
+    expect(journalMarkup).toContain("Journal");
+  });
 });
