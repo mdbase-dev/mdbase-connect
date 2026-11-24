@@ -224,6 +224,11 @@ type VerificationCursor = { after: string; through?: string };
 /** Counts since the previous sweep; `tipBacklog` is the tip checks still queued when the new sweep is seeded. */
 interface PolicyVerificationSweep { recentCollections: number; tipProbes: number; historyProbes: number; tipBacklog: number }
 
+/** Foreground publish wake was deferred; the durable outbox row will publish. */
+export class PolicyPublicationDeferredError extends Error {
+  constructor() { super("policy publication deferred"); }
+}
+
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<number> | undefined;
@@ -290,14 +295,14 @@ export class PolicyEmitter {
     if (this.closed) return Promise.reject(new Error("policy emitter closed"));
     const existing = this.committedWork.get(collectionId);
     if (existing) return existing;
-    if (this.committedWork.size >= MAX_BACKGROUND_WAKES) return Promise.reject(new Error("policy publication deferred"));
+    if (this.committedWork.size >= MAX_BACKGROUND_WAKES) return Promise.reject(new PolicyPublicationDeferredError());
     const work = Promise.resolve().then(async () => {
       await this.drainCollection(collectionId);
       const pending = await this.db.query(
         `SELECT 1 FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id
          WHERE o.collection_id=$1 AND (o.batch_id IS NULL OR b.state<>'appended' OR b.lost_at IS NOT NULL) LIMIT 1`, [collectionId]
       );
-      if (pending.rows.length) throw new Error("policy publication deferred");
+      if (pending.rows.length) throw new PolicyPublicationDeferredError();
     }).finally(() => { if (this.committedWork.get(collectionId) === work) this.committedWork.delete(collectionId); });
     this.committedWork.set(collectionId, work);
     return work;

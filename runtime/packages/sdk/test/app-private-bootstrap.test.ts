@@ -30,7 +30,7 @@ describe("bounded fixed-purpose private HTTP host (mock receiver, not bootstrap 
  it.each(["create","enrol"] as const)("protects outcome before %s POST, exact scope and no token persistence",async purpose=>{
   const f=await fixture(purpose),host=f.create(),result=await host.bootstrap({signal:f.signal});
   expect(f.events).toEqual(purpose==="create"?["pending-create","bearer","challenge","post","completed"]:["pending-enrol","bearer","challenge","post","completed","ack"]);
-  const body=JSON.parse(f.fetch.mock.calls[1]![1]!.body as string);expect(body.device_id).toBe(f.session.deviceId);expect(body.challenge).toBe("11".repeat(32));expect(body.sig).toBe((purpose==="create"?"0c":"0d").repeat(64));
+  const body=JSON.parse(f.fetch.mock.calls[1]![1]!.body as string);expect(body.device_id).toBe(f.session.deviceId);expect(body.capabilities).toEqual(["collection_mode_switch_v2"]);expect(body.challenge).toBe("11".repeat(32));expect(body.sig).toBe((purpose==="create"?"0c":"0d").repeat(64));
   if(purpose==="enrol")expect(body.sas_commit).toBe("0b".repeat(32));else expect(body.collection_id).toBe(f.session.collection);
   const domain=Buffer.from("mdbase/v1/chain"),expected=createHash("sha256").update(Uint8Array.of(domain.length)).update(domain).update(Uint8Array.of(1)).digest("hex");expect(result.expectedGenesis).toBe(`sha256:${expected}`);expect(result.approval).toBe(purpose==="create"?"creator":"pending");
   expect(JSON.stringify(result)).not.toContain("token");expect(JSON.stringify(vi.mocked(f.persistence.completed).mock.calls)).not.toContain("private-log-token");

@@ -58,8 +58,7 @@ Git history is the archive for finished phases, campaigns and superseded designs
 - [native-management-discovery.md](native-management-discovery.md) — native collections in `/v1/me`.
 - [portal-add-collection.md](portal-add-collection.md) — the portal's Add collection entry.
 - [collection-sharing-policy.md](collection-sharing-policy.md) — sharing synced collections.
-- [collection-mode-api.md](collection-mode-api.md) — collection mode requests and status.
-- [collection-mode-execution.md](collection-mode-execution.md) — collection mode controller.
+- [collection-mode-execution.md](collection-mode-execution.md) — collection mode switching API, controller, and recovery.
 - [collection-mode-switch-trust.md](collection-mode-switch-trust.md) — Cloud copy to Private switch-set acceptance.
 - [private-cloud-handover.md](private-cloud-handover.md) — Private to Cloud copy owner handover.
 - [service-cloud-copy-bootstrap.md](service-cloud-copy-bootstrap.md) — service-created cloud copies.

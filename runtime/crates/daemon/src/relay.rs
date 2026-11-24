@@ -61,7 +61,7 @@ pub const CAPABILITIES: &[&str] = &[
     "policy-freshness-lease-v1",
     "application-declaration-evidence-v1",
     "next_device_v1",
-    "collection_mode_switch_v1",
+    "collection_mode_switch_v2",
     "next_account_v1",
     "noise_pipe_v1",
 ];
@@ -1093,6 +1093,8 @@ mod tests {
         );
         assert!(CAPABILITIES.contains(&"next_account_v1"));
         assert!(CAPABILITIES.contains(&"next_device_v1"));
+        assert!(CAPABILITIES.contains(&"collection_mode_switch_v2"));
+        assert!(!CAPABILITIES.contains(&"collection_mode_switch_v1"));
         assert!(CAPABILITIES.contains(&"policy-freshness-lease-v1"));
         assert!(!CAPABILITIES.contains(&"lease_v1"));
     }

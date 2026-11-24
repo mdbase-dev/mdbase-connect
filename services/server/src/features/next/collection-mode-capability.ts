@@ -4,7 +4,7 @@ import type { DatabaseQueryable } from "../../database-types.js";
 import { CreateError } from "./bootstrap-common.js";
 import { LOG_TOKEN_LIFETIME_MS } from "./log-service-client.js";
 
-export const MODE_SWITCH_CAPABILITY = "collection_mode_switch_v1";
+export const MODE_SWITCH_CAPABILITY = "collection_mode_switch_v2";
 export const modeCapabilitySchema = { type: "array", maxItems: 64, items: { type: "string", maxLength: 80 } };
 export const switchAware = (capabilities: unknown): boolean => Array.isArray(capabilities) && capabilities.includes(MODE_SWITCH_CAPABILITY);
 

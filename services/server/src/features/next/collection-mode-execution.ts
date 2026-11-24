@@ -11,9 +11,10 @@ import { authenticateOwner, isRekeyItem, ownedMode, type Owner, type Mode } from
 import { collectionModeDigest } from "./collection-mode-proof.js";
 import { generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
-import { serializeOps } from "./policy-outbox.js";
+import type { LogServiceClient } from "./log-service-client.js";
+import { PolicyPublicationDeferredError, serializeOps } from "./policy-outbox.js";
 import { pitrDeployments } from "./lab-pitr-config.js";
-import { chainHash, type PolicyOp } from "./policy-wire.js";
+import { chainHash, decodeCbor, type PolicyOp } from "./policy-wire.js";
 import { armModeFloor, ModeDevicesNeedUpdate } from "./collection-mode-capability.js";
 
 const uuid = z.uuid().transform(s => s.toLowerCase()).refine(s => s !== SERVICE_ACCOUNT);
@@ -62,14 +63,19 @@ async function services(options: CloudCopyBootstrapOptions, collection: string, 
     const url = new URL(`internal/v1/collection-mode/${operation}`, `${deployment.url.replace(/\/+$/u, "")}/`);
     if (deployment.token.length < 32 || (localBuild() ? !localDeployment("local", deployment.url) : url.protocol !== "https:")) throw new CreateError(503,"not_ready");
     const challenge = randomBytes(32).toString("hex");
-    const response = await (options.fetchImpl ?? fetch)(url, {
-      method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ collection, device: record.device_id, epoch, challenge }), signal: AbortSignal.timeout(30_000)
-    });
+    let response: Response;
+    try {
+      response = await (options.fetchImpl ?? fetch)(url, {
+        method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ collection, device: record.device_id, epoch, challenge }), signal: AbortSignal.timeout(30_000)
+      });
+    } catch { throw new CreateError(503, "not_ready"); }
     if (!response.ok) { await response.body?.cancel(); throw new CreateError(503, "not_ready"); }
     const reader = response.body?.getReader(); let size = 0; const parts: Uint8Array[] = [];
     if (!reader) throw new CreateError(503, "not_ready");
-    for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > 4096) { await reader.cancel(); throw new CreateError(503, "not_ready"); } parts.push(part.value); }
+    try {
+      for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > 4096) { await reader.cancel(); throw new CreateError(503, "not_ready"); } parts.push(part.value); }
+    } catch (error) { if (error instanceof CreateError) throw error; throw new CreateError(503, "not_ready"); }
     let answer: unknown; try { answer = JSON.parse(Buffer.concat(parts).toString()); } catch { throw new CreateError(503, "not_ready"); }
     const result = z.object({ collection: uuid, device: uuid, epoch: uint, challenge: hex32, ready: z.literal(true) }).strict().safeParse(answer);
     if (!result.success || result.data.collection !== collection || result.data.device !== record.device_id || result.data.epoch !== epoch || result.data.challenge !== challenge)
@@ -77,26 +83,77 @@ async function services(options: CloudCopyBootstrapOptions, collection: string, 
   }
 }
 
-/** Release gate only, never service readiness: an authenticated invalid request
- * must reach the existing mode handler before execution is advertised. */
-export async function collectionModeExecutionAvailable(next: CloudCopyBootstrapOptions["next"], fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  if (!next.collectionModeExecution || !next.privateBootstrap || !next.cloudCopyBootstrap) return false;
+/** Execution mounts directly from configuration when the flag and both bootstraps are on. */
+export const collectionModeExecutionEnabled = (next: CloudCopyBootstrapOptions["next"]): boolean =>
+  Boolean(next.collectionModeExecution && next.privateBootstrap && next.cloudCopyBootstrap);
+
+const REKEY_REASON_CLOUD_COPY_OFF = 3;
+const MAX_REKEY_SCAN_PAGES = 64;
+
+function cborUint(value: unknown): bigint | null {
+  if (typeof value === "bigint") return value >= 0n ? value : null;
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return BigInt(value);
+  return null;
+}
+
+/** Clear wire check for a Private switch rekey matching the replica's rule:
+ * kind = Rekey (3), RekeyPayload fmt = 1, from = source_epoch,
+ * epoch = source_epoch + 1, reason = CloudCopyOff (3). Native owns signatures,
+ * unwrap/commitment checks and the frozen-set rule. */
+function isQualifyingPrivateRekey(item: Uint8Array, fromEpoch: bigint, toEpoch: bigint): boolean {
   try {
-    for (const deployment of Object.values(next.cloudCopyBootstrap)) for (const operation of ["ready", "retire"]) {
-      const response = await fetchImpl(new URL(`internal/v1/collection-mode/${operation}`, `${deployment.url.replace(/\/+$/u, "")}/`), {
-        method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
-        body: "{}", signal: AbortSignal.timeout(5000),
-      });
-      if (response.status !== 503 || !response.body) { await response.body?.cancel(); return false; }
-      const reader = response.body.getReader(); let text = "";
-      for (;;) { const part = await reader.read(); if (part.done) break;
-        if (text.length + part.value.length > 128) { await reader.cancel(); return false; }
-        text += Buffer.from(part.value).toString("utf8");
-      }
-      if (JSON.parse(text).error !== "not_ready") return false;
-    }
-    return true;
+    const envelope = decodeCbor(item);
+    if (!(envelope instanceof Map) || envelope.get(1) !== 3) return false;
+    const body = envelope.get(11);
+    if (!(body instanceof Uint8Array)) return false;
+    const payload = decodeCbor(body);
+    if (!(payload instanceof Map) || payload.get(0) !== 1) return false;
+    return cborUint(payload.get(1)) === toEpoch
+      && cborUint(payload.get(2)) === fromEpoch
+      && payload.get(6) === REKEY_REASON_CLOUD_COPY_OFF;
   } catch { return false; }
+}
+
+/** Whether a Policy item sets collection-state to something other than e2e (0). */
+function policyLeavesE2e(item: Uint8Array): boolean {
+  try {
+    const envelope = decodeCbor(item);
+    if (!(envelope instanceof Map) || envelope.get(1) !== 2) return false;
+    const body = envelope.get(11);
+    if (!(body instanceof Uint8Array)) return false;
+    const payload = decodeCbor(body);
+    const ops = payload instanceof Map ? payload.get(3) : undefined;
+    return Array.isArray(ops) && ops.some(op => op instanceof Map && op.get(0) === 8 && op.get(1) !== 0);
+  } catch { return false; }
+}
+
+/** Locate the control item at `targetSeq`, verifying it is the first rekey
+ * after `policySeq` and no intervening policy item left e2e. */
+async function findPrivateRekey(
+  log: Pick<LogServiceClient, "controlItemsAfter" | "head">,
+  collection: string,
+  policySeq: number,
+  targetSeq: number
+): Promise<Uint8Array> {
+  let after = policySeq;
+  for (let page = 0; page < MAX_REKEY_SCAN_PAGES; page++) {
+    const { items, more } = await log.controlItemsAfter(collection, after, 64);
+    for (const entry of items) {
+      if (entry.seq < targetSeq) {
+        if (isRekeyItem(entry.item) || policyLeavesE2e(entry.item)) throw new CreateError(409, "private_receipt_mismatch");
+        continue;
+      }
+      if (entry.seq === targetSeq) return entry.item;
+      throw new CreateError(409, "private_receipt_mismatch");
+    }
+    if (!more || !items.length) {
+      const head = await log.head(collection);
+      if (head.seq >= targetSeq) throw new CreateError(409, "private_receipt_mismatch");
+      throw new CreateError(503, "not_ready");
+    }
+    after = items.at(-1)!.seq;
+  }
+  throw new CreateError(503, "not_ready");
 }
 
 export function registerCollectionModeRecovery(app: FastifyInstance, options: CloudCopyBootstrapOptions): void {
@@ -134,7 +191,7 @@ export function registerCollectionModeRecovery(app: FastifyInstance, options: Cl
   });
 }
 
-export function registerCollectionModeExecution(app: FastifyInstance, options: CloudCopyBootstrapOptions & { now?: () => number }): void {
+export function registerCollectionModeExecution(app: FastifyInstance, options: CloudCopyBootstrapOptions & { log: Pick<LogServiceClient, "controlItemAt" | "controlItemsAfter" | "head">; now?: () => number }): void {
   for (const finish of [false, true]) app.post(`/v1/next/collections/:id/mode/:requestId/${finish ? "finish" : "prepare"}`, {
     bodyLimit: 64 * 1024, config: { rateLimit: { max: 20, timeWindow: "1 minute" } }
   }, async (request: FastifyRequest, reply: FastifyReply) => {
@@ -206,16 +263,25 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
           return null;
         });
         if (waitUntil !== null) return reply.code(202).send({ request_id: requestId, phase: "waiting_for_token_expiry", retry_at: new Date(waitUntil).toISOString() });
-        await options.emitter.publishCommitted(collection);
+        try {
+          await options.emitter.publishCommitted(collection);
+        } catch (error) {
+          if (error instanceof PolicyPublicationDeferredError) return reply.code(202).send({ request_id: requestId, phase: "publishing_policy" });
+          throw error;
+        }
         return reply.code(202).send({ request_id: requestId, phase: "finishing" });
       }
       if (!initial.row.policy_outbox_id || !initial.row.source_epoch) throw new CreateError(409, "not_prepared");
       const policy = await batch(options, collection, initial.row.policy_outbox_id);
       const epoch = BigInt(initial.row.source_epoch);
       if (initial.row.target_mode === "private") {
-        if (BigInt(body.epoch) !== epoch + 1n || BigInt(body.seq!) !== BigInt(policy.seq) + 1n) throw new CreateError(409, "private_receipt_mismatch");
-        const rekey = await options.log.controlItemAt(collection, Number(body.seq));
-        if (!rekey || Buffer.from(chainHash(rekey)).toString("hex") !== body.chain) throw new CreateError(503, "not_ready");
+        const targetEpoch = epoch + 1n;
+        const targetSeq = Number(body.seq);
+        if (BigInt(body.epoch) !== targetEpoch || BigInt(body.seq) <= BigInt(policy.seq) || !Number.isSafeInteger(targetSeq))
+          throw new CreateError(409, "private_receipt_mismatch");
+        const rekey = await findPrivateRekey(options.log, collection, Number(policy.seq), targetSeq);
+        if (Buffer.from(chainHash(rekey)).toString("hex") !== body.chain) throw new CreateError(503, "not_ready");
+        if (!isQualifyingPrivateRekey(rekey, epoch, targetEpoch)) throw new CreateError(409, "private_receipt_mismatch");
         // Signature proves the current owner native device's committed acceptance;
         // it cannot be supplied by a browser, app or service. Native owns validity,
         // unwrap/commitment checks and the frozen-set rule, not a second JS replay.

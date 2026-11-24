@@ -1346,4 +1346,28 @@ describe("database migrations", () => {
     expect(access.rows[0]?.revoked_at).not.toBeNull();
     expect(refresh.rows[0]?.revoked_at).not.toBeNull();
   });
+
+  it("resets historical v1 mode_switch_advertised flags when applying migration 0110", async () => {
+    const db = await createDatabase("memory");
+    resources.push(() => db.end());
+    const userId = randomUUID();
+    const connectorId = randomUUID();
+    const deviceId = randomUUID();
+    await db.query("INSERT INTO users (id, email, name, account_backend) VALUES ($1, $2, 'Owner', 'next')", [userId, `${userId}@example.com`]);
+    await db.query("INSERT INTO connectors (id, user_id, name, token_hash) VALUES ($1, $2, 'Laptop', $3)", [connectorId, userId, randomUUID()]);
+    await db.query(
+      `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk, mode_switch_advertised)
+       VALUES ($1, $2, $3, 'desktop', $4, $5, $6, true)`,
+      [deviceId, connectorId, userId, Buffer.alloc(32, 1), Buffer.alloc(32, 2), Buffer.alloc(32, 3)]
+    );
+    await db.query("DELETE FROM schema_migrations WHERE id = '0110_next_collection_mode_capability_v2'");
+
+    await runControlPlaneMigrations(db);
+
+    const row = await db.query<{ mode_switch_advertised: boolean }>(
+      "SELECT mode_switch_advertised FROM next_devices WHERE id = $1",
+      [deviceId]
+    );
+    expect(row.rows).toEqual([{ mode_switch_advertised: false }]);
+  });
 });

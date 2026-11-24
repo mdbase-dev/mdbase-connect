@@ -14,8 +14,8 @@ import { registerCollectionModeExecution, registerCollectionModeRecovery } from 
 import { registerCollectionModeRoutes } from "./collection-mode-routes.js";
 import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
-import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
-import { decodeCbor, encodeCbor, type PolicyOp } from "./policy-wire.js";
+import { PolicyEmitter, PolicyPublicationDeferredError, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
+import { decodeCbor, encodeCbor, signPolicyItem, type PolicyOp } from "./policy-wire.js";
 import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { certify, FakeLogService, field } from "../../../test/policy-log.js";
@@ -25,6 +25,16 @@ const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APP
 const describePg = testUrl && approved ? describe : describe.skip;
 const hex = (b: Uint8Array) => Buffer.from(b).toString("hex");
 const rawX = () => (generateKeyPairSync("x25519").publicKey.export({ format: "der", type: "spki" }) as Buffer).subarray(-32);
+const rekeyItem = (collection: string, seq: number, prev: Uint8Array, signerId: string, fromEpoch: number, toEpoch: number, reason = 3) => {
+  const payload = encodeCbor({ struct: [
+    [0, 1], [1, toEpoch], [2, fromEpoch], [3, Buffer.alloc(32, 0xcc)], [4, []],
+    [5, { struct: [[0, Buffer.alloc(16, 1)], [1, Buffer.alloc(32, 2)]] }], [6, reason],
+  ] });
+  return Buffer.from(encodeCbor({ struct: [
+    [0, 1], [1, 3], [2, Buffer.from(collection.replaceAll("-", ""), "hex")], [3, seq], [4, prev],
+    [6, Buffer.from(signerId.replaceAll("-", ""), "hex")], [11, payload], [12, Buffer.alloc(64, 0xaa)],
+  ] }));
+};
 
 // Real PG, authenticated HTTP proofs, signed policy/outbox and conditional log
 // transport. Epoch/S are native proof fixtures; real key/trust behavior is tested
@@ -192,15 +202,56 @@ describePg("collection mode capability floor and token drain", () => {
     await emitter.publishCommitted(f.collection);expect((await log.head(f.collection)).seq).toBe(head.seq+1);
     expect((await mode()).change.phase).toBe("abandoned");
     wire.failNextRead=true;expect((await mode()).change.phase).toBe("abandoned");
-    // A later request cancelled before publication changes nothing.
-    const later=randomUUID();
-    const intent=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:later,target_mode:"cloud_copy"}});expect(intent.statusCode,intent.body).toBe(202);
-    expect((await app.inject({method:"DELETE",url:`/v1/next/collections/${f.collection}/mode/${later}`,headers:f.otherHeaders})).json().phase).toBe("cancelled");
-    expect((await mode()).change).toMatchObject({request_id:f.request,phase:"abandoned"});
-    // A surviving switch-set owner's excluding rekey follows the revocation.
+    // New mode switches are refused while an abandoned Private switch remains unrekeyed.
+    const refusedCloud=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:randomUUID(),target_mode:"cloud_copy"}});
+    expect(refusedCloud.statusCode,refusedCloud.body).toBe(409);expect(refusedCloud.json().error.code).toBe("mode_abandoned");
+    const refusedPrivate=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:randomUUID(),target_mode:"private"}});
+    expect(refusedPrivate.statusCode,refusedPrivate.body).toBe(409);expect(refusedPrivate.json().error.code).toBe("mode_abandoned");
+    // Unavailable log fails closed on POST /mode too and inserts no row.
+    wire.failNextRead=true;
+    const refusedUnavailable=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:randomUUID(),target_mode:"cloud_copy"}});
+    expect(refusedUnavailable.statusCode,refusedUnavailable.body).toBe(409);expect(refusedUnavailable.json().error.code).toBe("mode_abandoned");
+    expect((await db.query("SELECT count(*)::int AS n FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0].n).toBe(1);
+    // Retrying the abandoned request ID itself remains idempotent.
+    const retryAbandoned=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:f.request,target_mode:"private"}});
+    expect(retryAbandoned.statusCode,retryAbandoned.body).toBe(202);expect(retryAbandoned.json().phase).toBe("abandoned");
+    // A surviving switch-set owner's excluding rekey follows the revocation and unblocks new switches.
     const revoked=await log.head(f.collection);
-    wire.logs.get(f.collection.replaceAll("-",""))!.push(Buffer.from(encodeCbor({struct:[[0,1],[1,3],[2,Buffer.from(f.collection.replaceAll("-",""),"hex")],[3,revoked.seq+1],[4,revoked.chain],[5,2],[6,Buffer.from(f.b.replaceAll("-",""),"hex")],[11,Buffer.from("excluding rekey fixture")]]})));
+    wire.logs.get(f.collection.replaceAll("-",""))!.push(rekeyItem(f.collection,revoked.seq+1,revoked.chain,f.b,1,2,3));
     expect((await mode()).change).toBeNull();
+    const later=randomUUID();
+    const intent=await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:later,target_mode:"cloud_copy"}});
+    expect(intent.statusCode,intent.body).toBe(202);expect(intent.json().phase).toBe("waiting_for_device");
+  });
+
+  it("re-checks abandoned state after the out-of-lock log read so a concurrent newer abandon is still refused", async()=>{
+    const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;await prepare(f);
+    expect((await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${f.request}/abandon`,headers:f.otherHeaders})).statusCode).toBe(200);
+    const policyHead=await log.head(f.collection);
+    wire.logs.get(f.collection.replaceAll("-",""))!.push(rekeyItem(f.collection,policyHead.seq+1,policyHead.chain,f.b,1,2,3));
+    let injected=false;
+    const raceLog: Pick<LogServiceClient,"controlItemsAfter"> = {
+      controlItemsAfter: async (collection, after, limit) => {
+        const result=await log.controlItemsAfter(collection,after,limit);
+        if(!injected){
+          injected=true;
+          // Simulate a newer abandoned Private switch landing while rekeyFollows was outside DB locks.
+          const newerBatch=(await db.query<{id:string}>("INSERT INTO next_policy_batches(collection_id,seq,prev,item,issued_at,state,appended_at) VALUES($1,$2,$3,$4,$5,'appended',now()) RETURNING id",
+            [f.collection,policyHead.seq+2,Buffer.alloc(32),Buffer.from("newer switch fixture"),now])).rows[0]!.id;
+          const newerOutbox=(await db.query<{id:string}>("INSERT INTO next_policy_outbox(collection_id,ops,batch_id) VALUES($1,'{\"ops\":[]}',$2) RETURNING id",[f.collection,newerBatch])).rows[0]!.id;
+          await db.query(`INSERT INTO next_collection_mode_changes(collection_id,request_id,actor_id,source_mode,target_mode,policy_outbox_id,created_at,abandoned_at,policy_hold_released_at)
+            VALUES($1,$2,$3,'cloud_copy','private',$4,now()+interval '1 second',now(),now())`,[f.collection,randomUUID(),f.user,newerOutbox]);
+        }
+        return result;
+      }
+    };
+    const raceApp=Fastify();void raceApp.register(cookie);registerErrorHandler(raceApp);
+    registerCollectionModeRoutes(raceApp,db,raceLog);
+    try {
+      const response=await raceApp.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode`,headers:f.otherHeaders,payload:{request_id:randomUUID(),target_mode:"cloud_copy"}});
+      expect(response.statusCode,response.body).toBe(409);expect(response.json().error.code).toBe("mode_abandoned");
+      expect(injected).toBe(true);
+    } finally { await raceApp.close(); }
   });
 
   it("revokes cloud-copy app grants in the log when the collection becomes Private, once across retries", async()=>{
@@ -228,13 +279,13 @@ describePg("collection mode capability floor and token drain", () => {
     expect(await revocations()).toHaveLength(1);
   });
 
-  it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
+  it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready", "missing-handler"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
     const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;
     expect((await prepare(f)).json().phase).toBe("finishing");
     const policyHead=await log.head(f.collection);
     // Native acceptance is an authenticated proof fixture here, not a second
     // key/HPKE implementation. Real native receipt validity has Rust coverage.
-    const receipt=Buffer.from(encodeCbor({struct:[[0,1],[1,3],[2,Buffer.from(f.collection.replaceAll("-",""),"hex")],[3,policyHead.seq+1],[4,policyHead.chain],[5,2],[6,Buffer.from(f.a.replaceAll("-",""),"hex")],[11,Buffer.from("native committed receipt fixture")]]}));
+    const receipt=rekeyItem(f.collection,policyHead.seq+1,policyHead.chain,f.a,1,2,3);
     wire.logs.get(f.collection.replaceAll("-",""))!.push(receipt);
     const head=await log.head(f.collection),retired=new Set<string>();let calls=0,uncertain=true;
     serviceFetch=async(input,init)=>{
@@ -243,6 +294,7 @@ describePg("collection mode capability floor and token drain", () => {
       expect(body.collection).toBe(f.collection);expect(body.epoch).toBe("2");
       const escrow=new URL(String(input)).hostname.startsWith("escrow");
       if(uncertain&&escrow&&failure==="before-effect")throw new TypeError("synthetic pre-effect failure");
+      if(uncertain&&escrow&&failure==="missing-handler")return new Response("Not Found",{status:404});
       retired.add(body.device);
       if(uncertain&&escrow&&failure==="service-unready")return Response.json({error:"not_ready"},{status:503});
       if(uncertain&&escrow&&failure==="lost-ack")throw new TypeError("synthetic lost retirement acknowledgement");
@@ -254,8 +306,7 @@ describePg("collection mode capability floor and token drain", () => {
       const digest=collectionModeDigest({challenge:Buffer.from(issued.challenge,"hex"),connector:f.connector,device:f.a,collection:f.collection,request,target,finish:true,epoch:2n,seq:BigInt(proofHead.seq),chain:proofHead.chain,members:[]});
       return app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${request}/finish`,headers:f.headers,payload:{device_id:f.a,challenge:issued.challenge,sig:hex(sign(null,digest,f.key)),epoch:"2",seq:String(proofHead.seq),chain:hex(proofHead.chain),members:[]}});
     };
-    const failed=await finish();expect(failed.statusCode,failed.body).toBeGreaterThanOrEqual(500);
-    if(failure==="service-unready")expect(failed.statusCode,failed.body).toBe(503);
+    const failed=await finish();expect(failed.statusCode,failed.body).toBe(503);expect(failed.json().error.code).toBe("not_ready");
     const persisted=(await db.query("SELECT completed_at,rekey_verified_at,rekey_seq,policy_outbox_id FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0];
     expect(persisted.completed_at).toBeNull();expect(persisted.rekey_verified_at).not.toBeNull();expect(String(persisted.rekey_seq)).toBe(String(head.seq));
     expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1",[f.collection])).rows[0].sync).toBe("cloud_copy");
@@ -283,6 +334,7 @@ describePg("collection mode capability floor and token drain", () => {
       }
       calls++;expect(url.pathname).toBe("/internal/v1/collection-mode/ready");expect(body.epoch).toBe("2");
       if(uncertain&&kind==="escrow"&&failure==="before-effect")throw new TypeError("synthetic pre-observation failure");
+      if(uncertain&&kind==="escrow"&&failure==="missing-handler")return new Response("Not Found",{status:404});
       ready.add(body.device);
       if(uncertain&&kind==="escrow"&&failure==="service-unready")return Response.json({error:"not_ready"},{status:503});
       if(uncertain&&kind==="escrow"&&failure==="lost-ack")throw new TypeError("synthetic lost readiness acknowledgement");
@@ -298,8 +350,7 @@ describePg("collection mode capability floor and token drain", () => {
     expect(revoked).toMatchObject({state:"appended"});expect(BigInt(revoked!.id)).toBeLessThan(BigInt(modeOutbox));
     expect((await db.query("SELECT revoked_at FROM grants WHERE id=$1",[privateGrant.grant])).rows[0].revoked_at).not.toBeNull();
     const identities=(await db.query("SELECT device_id FROM next_service_devices WHERE collection_id=$1 ORDER BY device_id",[f.collection])).rows;
-    expect(factories).toBe(2);const unready=await finish();expect(unready.statusCode,unready.body).toBeGreaterThanOrEqual(500);
-    if(failure==="service-unready")expect(unready.statusCode,unready.body).toBe(503);
+    expect(factories).toBe(2);const unready=await finish();expect(unready.statusCode,unready.body).toBe(503);expect(unready.json().error.code).toBe("not_ready");
     expect((await db.query("SELECT completed_at FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2",[f.collection,request])).rows[0].completed_at).toBeNull();
     await app.close();app=server();uncertain=false;
     const cloud=await finish();expect(cloud.statusCode,cloud.body).toBe(200);expect(cloud.json().phase).toBe("complete");expect(ready.size).toBe(2);
@@ -308,8 +359,139 @@ describePg("collection mode capability floor and token drain", () => {
     const readyCalls=calls;expect((await finish()).json().phase).toBe("complete");expect(calls).toBe(readyCalls);
   });
 
-  it("a later advertisement unblocks the same request without resetting the floor", async () => {
+  it("accepts a qualifying non-adjacent CloudCopyOff rekey and rejects non-qualifying receipts", async () => {
+    const finishProof = async (f: Fixture, epoch: bigint, seq: number, chain: Uint8Array) => {
+      const issued = await issueDeviceChallenge(db, f.connector);
+      const digest = collectionModeDigest({ challenge: Buffer.from(issued.challenge, "hex"), connector: f.connector, device: f.a, collection: f.collection, request: f.request, target: "private", finish: true, epoch, seq: BigInt(seq), chain, members: [] });
+      return app.inject({ method: "POST", url: `/v1/next/collections/${f.collection}/mode/${f.request}/finish`, headers: f.headers, payload: { device_id: f.a, challenge: issued.challenge, sig: hex(sign(null, digest, f.key)), epoch: String(epoch), seq: String(seq), chain: hex(chain), members: [] } });
+    };
+    const okServices: typeof fetch = async (_input, init) => {
+      const body = JSON.parse(init!.body as string) as { collection: string; device: string; epoch: string; challenge: string };
+      return Response.json({ ...body, ready: true });
+    };
+
+    // 1. Non-adjacent qualifying CloudCopyOff rekey after Entry (kind 1), KeyGrant (kind 4), and Policy (kind 2 staying e2e).
+    const f = await fixture();
+    await prepare(f); now += LOG_TOKEN_LIFETIME_MS;
+    expect((await prepare(f)).json().phase).toBe("finishing");
+    const policyHead = await log.head(f.collection);
+    const items = wire.logs.get(f.collection.replaceAll("-", ""))!;
+    // Intervening data entry (kind=1)
+    items.push(Buffer.from(encodeCbor({ struct: [[0, 1], [1, 1], [2, Buffer.from(f.collection.replaceAll("-", ""), "hex")], [3, policyHead.seq + 1], [4, policyHead.chain], [5, 1], [6, Buffer.from(f.b.replaceAll("-", ""), "hex")], [11, Buffer.from("sealed-entry")]] })));
+    const entryHead = await log.head(f.collection);
+    // Intervening key grant (kind=4)
+    items.push(Buffer.from(encodeCbor({ struct: [[0, 1], [1, 4], [2, Buffer.from(f.collection.replaceAll("-", ""), "hex")], [3, entryHead.seq + 1], [4, entryHead.chain], [6, Buffer.from(f.b.replaceAll("-", ""), "hex")], [11, Buffer.from("key-grant")]] })));
+    const grantHead = await log.head(f.collection);
+    // Intervening policy item (kind=2) staying in e2e (device-revoke)
+    items.push(Buffer.from(signPolicyItem(signer, { collection: f.collection, seq: grantHead.seq + 1, prev: grantHead.chain, issuedAt: now + 1000, previousIssuedAt: now, ops: [{ op: "device-revoke", device: f.b }] })));
+    const revokeHead = await log.head(f.collection);
+    // Non-qualifying receipts checked against the live log before the qualifying rekey lands:
+    expect((await finishProof(f, 2n, policyHead.seq, policyHead.chain)).json().error.code).toBe("private_receipt_mismatch");
+    expect((await finishProof(f, 3n, revokeHead.seq + 1, Buffer.alloc(32, 9))).json().error.code).toBe("private_receipt_mismatch");
+    expect((await finishProof(f, 2n, entryHead.seq, entryHead.chain)).json().error.code).toBe("private_receipt_mismatch");
+    expect((await finishProof(f, 2n, grantHead.seq, grantHead.chain)).json().error.code).toBe("private_receipt_mismatch");
+    // Future seq not yet in log returns retryable 503 not_ready.
+    const notYet = await finishProof(f, 2n, revokeHead.seq + 1, Buffer.alloc(32, 9));
+    expect(notYet.statusCode).toBe(503); expect(notYet.json().error.code).toBe("not_ready");
+    // Now append the qualifying non-adjacent CloudCopyOff rekey.
+    items.push(rekeyItem(f.collection, revokeHead.seq + 1, revokeHead.chain, f.a, 1, 2, 3));
+    const rekeyHead = await log.head(f.collection);
+    // Chain mismatch returns retryable 503 not_ready and never verifies.
+    const wrongChain = await finishProof(f, 2n, rekeyHead.seq, Buffer.alloc(32, 7));
+    expect(wrongChain.statusCode).toBe(503); expect(wrongChain.json().error.code).toBe("not_ready");
+    serviceFetch = okServices;
+    const done = await finishProof(f, 2n, rekeyHead.seq, rekeyHead.chain);
+    expect(done.statusCode, done.body).toBe(200); expect(done.json().phase).toBe("complete");
+    const row = (await db.query("SELECT rekey_seq,completed_at FROM next_collection_mode_changes WHERE collection_id=$1", [f.collection])).rows[0];
+    expect(String(row.rekey_seq)).toBe(String(rekeyHead.seq)); expect(row.completed_at).not.toBeNull();
+
+    // 2. Non-qualifying reason (DeviceRevoked=1) and wrong payload from/epoch are rejected.
+    for (const bad of [{ from: 1, to: 2, reason: 1 }, { from: 2, to: 3, reason: 3 }]) {
+      const g = await fixture();
+      await prepare(g); now += LOG_TOKEN_LIFETIME_MS; await prepare(g);
+      const pHead = await log.head(g.collection);
+      wire.logs.get(g.collection.replaceAll("-", ""))!.push(rekeyItem(g.collection, pHead.seq + 1, pHead.chain, g.a, bad.from, bad.to, bad.reason));
+      const head = await log.head(g.collection);
+      const res = await finishProof(g, 2n, head.seq, head.chain);
+      expect(res.statusCode, res.body).toBe(409); expect(res.json().error.code).toBe("private_receipt_mismatch");
+    }
+
+    // 3. A second rekey after an earlier rekey is NOT the first rekey after the policy.
+    const h = await fixture();
+    await prepare(h); now += LOG_TOKEN_LIFETIME_MS; await prepare(h);
+    const hPolicy = await log.head(h.collection);
+    const hItems = wire.logs.get(h.collection.replaceAll("-", ""))!;
+    hItems.push(rekeyItem(h.collection, hPolicy.seq + 1, hPolicy.chain, h.b, 1, 2, 1)); // earlier rekey
+    const firstRekey = await log.head(h.collection);
+    hItems.push(rekeyItem(h.collection, firstRekey.seq + 1, firstRekey.chain, h.a, 1, 2, 3)); // later CloudCopyOff
+    const secondRekey = await log.head(h.collection);
+    const rejectedSecond = await finishProof(h, 2n, secondRekey.seq, secondRekey.chain);
+    expect(rejectedSecond.statusCode, rejectedSecond.body).toBe(409);
+    expect(rejectedSecond.json().error.code).toBe("private_receipt_mismatch");
+
+    // 4. An intervening policy item that leaves e2e (collection-state: cloud-copy) invalidates the switch.
+    const k = await fixture();
+    await prepare(k); now += LOG_TOKEN_LIFETIME_MS; await prepare(k);
+    const kPolicy = await log.head(k.collection);
+    const kItems = wire.logs.get(k.collection.replaceAll("-", ""))!;
+    kItems.push(Buffer.from(signPolicyItem(signer, { collection: k.collection, seq: kPolicy.seq + 1, prev: kPolicy.chain, issuedAt: now + 1000, previousIssuedAt: now, ops: [{ op: "collection-state", state: "cloud-copy" }] })));
+    const leftE2e = await log.head(k.collection);
+    kItems.push(rekeyItem(k.collection, leftE2e.seq + 1, leftE2e.chain, k.a, 1, 2, 3));
+    const afterLeave = await log.head(k.collection);
+    const rejectedAfterLeave = await finishProof(k, 2n, afterLeave.seq, afterLeave.chain);
+    expect(rejectedAfterLeave.statusCode, rejectedAfterLeave.body).toBe(409);
+    expect(rejectedAfterLeave.json().error.code).toBe("private_receipt_mismatch");
+  });
+
+  it("returns 202 publishing_policy when foreground publishCommitted defers, without masking unrelated errors", async () => {
+    // 1. Real PolicyPublicationDeferredError when the foreground wake slots (4) are saturated.
+    const f = await fixture();
+    await prepare(f); now += LOG_TOKEN_LIFETIME_MS;
+    const blockers = await Promise.all(Array.from({ length: 4 }, () => fixture()));
+    for (const b of blockers) await inTransaction(db, client => queueNextPolicy(client, b.collection, [{ op: "member-set", account: b.user, role: "owner" }]));
+    let release!: () => void;
+    const blocked = new Promise<void>(resolve => { release = resolve; });
+    let inAppend = 0;
+    let allEntered!: () => void;
+    const entered = new Promise<void>(resolve => { allEntered = resolve; });
+    wire.beforeAppend = async () => {
+      if (++inAppend === 4) allEntered();
+      await blocked;
+    };
+    const wakes = blockers.map(b => emitter.publishCommitted(b.collection));
+    try {
+      await entered;
+      const deferred = await prepare(f);
+      expect(deferred.statusCode, deferred.body).toBe(202);
+      expect(deferred.json()).toEqual({ request_id: f.request, phase: "publishing_policy" });
+      const status = await app.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode`, headers: f.headers });
+      expect(status.json().change.phase).toBe("publishing_policy");
+    } finally {
+      wire.beforeAppend = undefined;
+      release();
+      await Promise.all(wakes);
+    }
+    // Durable outbox publishes cleanly on the next emitter drain.
+    await emitter.drain();
+    const afterDrain = await app.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode`, headers: f.headers });
+    expect(afterDrain.json().change.phase).toBe("finishing");
+
+    // 2. Unrelated errors from publishCommitted are NOT masked as 202.
+    const g = await fixture();
+    await prepare(g); now += LOG_TOKEN_LIFETIME_MS;
+    wire.failNextAppend = true;
+    const err = await prepare(g);
+    expect(err.statusCode, err.body).toBe(500);
+    // Sanity check PolicyPublicationDeferredError type.
+    expect(new PolicyPublicationDeferredError().message).toBe("policy publication deferred");
+  });
+
+  it("a later v2 advertisement unblocks the same request without resetting the floor; v1 does not", async () => {
     const f=await fixture(false); expect((await prepare(f)).statusCode).toBe(409);
+    await advertiseModeCapability(db,f.b,["collection_mode_switch_v1"]);
+    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1",[f.b])).rows[0].mode_switch_advertised).toBe(false);
+    const stillBlocked=await prepare(f);
+    expect(stillBlocked.statusCode).toBe(409); expect(stillBlocked.json().devices).toEqual([f.b]);
     await advertiseModeCapability(db,f.b,[MODE_SWITCH_CAPABILITY]);
     expect((await prepare(f)).json().phase).toBe("waiting_for_token_expiry"); const first=await floor(f);
     await advertiseModeCapability(db,f.b,[]); expect(await floor(f)).toEqual(first);

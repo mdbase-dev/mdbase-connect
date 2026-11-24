@@ -93,7 +93,24 @@ async function status(client: DatabaseConnection, collection: string, current: M
     source_mode: change.source_mode, target_mode: change.target_mode, phase: change.abandoned_at ? "abandoned" : change.cancelled_at ? "cancelled" : phase, ...(retryAt ? { retry_at: retryAt } : {}) };
 }
 
-export const isRekeyItem = (item: Uint8Array): boolean => (decodeCbor(item) as Map<number, unknown>).get(1) === 3;
+export const isRekeyItem = (item: Uint8Array): boolean => {
+  try {
+    const decoded = decodeCbor(item);
+    return decoded instanceof Map && decoded.get(1) === 3;
+  } catch { return false; }
+};
+
+type AbandonedChange = Change & { seq: string };
+
+/** Latest abandoned Private switch with no subsequent completed change. */
+async function latestAbandoned(client: DatabaseConnection, collection: string): Promise<AbandonedChange | undefined> {
+  return (await client.query<AbandonedChange>(
+    `SELECT m.*,b.seq FROM next_collection_mode_changes m JOIN next_policy_outbox o ON o.id=m.policy_outbox_id
+     JOIN next_policy_batches b ON b.id=o.batch_id WHERE m.collection_id=$1 AND m.abandoned_at IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM next_collection_mode_changes c WHERE c.collection_id=$1
+       AND c.completed_at IS NOT NULL AND c.created_at>m.created_at)
+     ORDER BY m.created_at DESC LIMIT 1`, [collection])).rows[0];
+}
 
 /** Whether any rekey follows an abandoned switch's policy. Every rekey after it
  * moves off the epoch the services held; the native frozen-set rule decides its
@@ -125,23 +142,34 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
     if (!owner) return reply;
     const collection = params.data.id, { request_id: requestId, target_mode: target } = body.data;
     try {
-      const result = await inTransaction(db, async client => {
-        const current = await ownedMode(client, owner, collection);
-        const previous = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2", [collection, requestId])).rows[0];
-        if (previous) {
-          if (previous.target_mode !== target) throw new CreateError(409, "mode_request_conflict");
-          return status(client, collection, current, previous);
-        }
-        if ((await client.query("SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL AND abandoned_at IS NULL", [collection])).rows.length)
-          throw new CreateError(409, "mode_change_in_progress");
-        if (current === target) throw new CreateError(409, "mode_already_current");
-        const change = (await client.query<Change>(
-          `INSERT INTO next_collection_mode_changes(collection_id,request_id,actor_id,source_mode,target_mode)
-           VALUES($1,$2,$3,$4,$5) RETURNING *`, [collection, requestId, owner.account, current, target]
-        )).rows[0]!;
-        return status(client, collection, current, change);
-      });
-      return reply.code(202).send(result);
+      // Do the log check outside DB locks, then re-verify under the collection lock
+      // that no newer abandoned switch or competing intent landed meanwhile.
+      let verified: { requestId: string; seq: number } | undefined;
+      for (;;) {
+        const outcome = await inTransaction(db, async client => {
+          const current = await ownedMode(client, owner, collection);
+          const previous = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2", [collection, requestId])).rows[0];
+          if (previous) {
+            if (previous.target_mode !== target) throw new CreateError(409, "mode_request_conflict");
+            return { done: await status(client, collection, current, previous) };
+          }
+          if ((await client.query("SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL AND abandoned_at IS NULL", [collection])).rows.length)
+            throw new CreateError(409, "mode_change_in_progress");
+          const abandoned = await latestAbandoned(client, collection);
+          if (abandoned && (!verified || verified.requestId !== abandoned.request_id || verified.seq !== Number(abandoned.seq))) {
+            return { check: { requestId: abandoned.request_id, seq: Number(abandoned.seq) } };
+          }
+          if (current === target) throw new CreateError(409, "mode_already_current");
+          const change = (await client.query<Change>(
+            `INSERT INTO next_collection_mode_changes(collection_id,request_id,actor_id,source_mode,target_mode)
+             VALUES($1,$2,$3,$4,$5) RETURNING *`, [collection, requestId, owner.account, current, target]
+          )).rows[0]!;
+          return { done: await status(client, collection, current, change) };
+        });
+        if ("done" in outcome) return reply.code(202).send(outcome.done);
+        if (verified || !(await rekeyFollows(log, collection, outcome.check.seq))) throw new CreateError(409, "mode_abandoned");
+        verified = outcome.check;
+      }
     } catch (error) { return refuse(reply, error, "The switch could not be started. Try again."); }
   });
 
@@ -157,12 +185,7 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
         const change = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL AND abandoned_at IS NULL", [params.data.id])).rows[0];
         // An abandoned switch left Private on the services' epoch until a later
         // change completes; a cancelled request changes nothing.
-        const abandoned = change ? undefined : (await client.query<Change & { seq: string }>(
-          `SELECT m.*,b.seq FROM next_collection_mode_changes m JOIN next_policy_outbox o ON o.id=m.policy_outbox_id
-           JOIN next_policy_batches b ON b.id=o.batch_id WHERE m.collection_id=$1 AND m.abandoned_at IS NOT NULL
-           AND NOT EXISTS (SELECT 1 FROM next_collection_mode_changes c WHERE c.collection_id=$1
-             AND c.completed_at IS NOT NULL AND c.created_at>m.created_at)
-           ORDER BY m.created_at DESC LIMIT 1`, [params.data.id])).rows[0];
+        const abandoned = change ? undefined : await latestAbandoned(client, params.data.id);
         return { status: { collection_id: params.data.id, current_mode: current,
           execution_available: app.hasRoute({method:"POST",url:"/v1/next/collections/:id/mode/:requestId/prepare"}),
           change: change ? await status(client, params.data.id, current, change) : null },
