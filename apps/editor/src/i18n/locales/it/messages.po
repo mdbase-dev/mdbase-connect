@@ -1158,6 +1158,7 @@ msgstr "Allegare file non è ancora disponibile per questa raccolta nell'editor 
 msgid "Attachment progress for {0}"
 msgstr "Avanzamento dell'allegato per {0}"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic"
 msgstr "Automatico"
@@ -1166,6 +1167,7 @@ msgstr "Automatico"
 msgid "Automatic matching"
 msgstr "Abbinamento automatico"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Automatic properties"
 msgstr "Proprietà automatiche"
@@ -3592,6 +3594,7 @@ msgstr "Nuova nota di tipo {name}"
 
 #: src/code-editor-completions.ts
 #: src/LinkPropertyEditor.tsx
+#: src/property-records.tsx
 #: src/QuickCreateRecord.tsx
 msgid "New {typeLabel}"
 msgstr "Crea: {typeLabel}"
@@ -3605,6 +3608,7 @@ msgstr "Nuova cartella"
 #: src/editor-commands.ts
 #: src/LinkPropertyEditor.tsx
 #: src/NoteList.tsx
+#: src/property-records.tsx
 #: src/WorkspaceChrome.tsx
 msgid "New note"
 msgstr "Nuova nota"
@@ -4492,6 +4496,7 @@ msgstr "Proprietà"
 msgid "Property options"
 msgstr "Opzioni della proprietà"
 
+#: src/PropertiesPanel.tsx
 #: src/StructuredPropertiesEditor.tsx
 msgid "Provided by the note's type, not stored in this file."
 msgstr "Fornito dal tipo di nota, non archiviato in questo file."
