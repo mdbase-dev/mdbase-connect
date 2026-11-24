@@ -86,6 +86,18 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
         if (failure) throw new Error(failure);
         return null;
       },
+      collectionModeStatus: async (collectionId) => {
+        calls.push(["collectionModeStatus", collectionId]);
+        return typeof fixture.modeStatus === "function"
+          ? fixture.modeStatus(collectionId)
+          : fixture.modeStatus ?? { current_mode: "cloud_copy", execution_available: false, change: null };
+      },
+      changeCollectionMode: async (...args) => {
+        calls.push(["changeCollectionMode", ...args]);
+        return typeof fixture.changeMode === "function"
+          ? fixture.changeMode(...args)
+          : { phase: "finishing" };
+      },
       removeCollection: record("removeCollection"),
       syncFiles: async () => fixture.syncFiles ?? { include: ["image", "audio", "video", "pdf", "other"], exclude: [] },
       setSyncFiles: async (id, files) => { calls.push(["setSyncFiles", id, files]); fixture.syncFiles = files; return files; },
@@ -1296,6 +1308,64 @@ test("a view-only new file can be discarded without a synced version", async () 
     await confirmation.getByRole("button", { name: "Discard", exact: true }).click();
     await page.getByText("Nothing is waiting.", { exact: true }).waitFor();
     assert.deepEqual(await calls("resolveHold"), [["c-notes", "viewer:1", "take_theirs"]]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("storage mode lives in its own section, flags pending portal switches, and refreshes the badge on completion", async () => {
+  const { page, errors } = await desktop({ collections: [collection({ mode: "synced", log: "hosted" })] });
+  try {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.evaluate(() => {
+      window.fixture.modeStatus = {
+        current_mode: "cloud_copy",
+        execution_available: true,
+        change: { request_id: "req-portal", source_mode: "cloud_copy", target_mode: "private", phase: "waiting_for_device" }
+      };
+      window.fixture.changeMode = async () => {
+        window.fixture.modeStatus = {
+          current_mode: "cloud_copy",
+          execution_available: true,
+          change: { request_id: "req-portal", source_mode: "cloud_copy", target_mode: "private", phase: "finishing" }
+        };
+        return { phase: "finishing" };
+      };
+    });
+    await nav(page, "Collections").click();
+    const card = page.locator(".collection-card").filter({ hasText: "Notes" });
+    await card.getByText("A storage mode switch is waiting for confirmation on this computer.", { exact: true }).waitFor();
+    const flagAlignment = await card.evaluate((el) => ({
+      nameX: el.querySelector(".collection-card-main h3").getBoundingClientRect().x,
+      flagTextX: el.querySelector(".collection-mode-pending .collection-status-detail").getBoundingClientRect().x,
+      flagBtnX: el.querySelector(".collection-mode-pending .collection-mode-action").getBoundingClientRect().x
+    }));
+    assert.ok(Math.abs(flagAlignment.flagTextX - flagAlignment.nameX) < 1, `pending flag text must align with name column: ${JSON.stringify(flagAlignment)}`);
+    assert.ok(Math.abs(flagAlignment.flagBtnX - flagAlignment.nameX) < 1, `pending flag button must align with name column: ${JSON.stringify(flagAlignment)}`);
+    await screenshot(page, "desktop-pending-mode-flag");
+
+    // Details has only Name/Description — no Storage mode control or adjacent Cancel buttons.
+    await collectionAction(page, "Details", card);
+    const details = card.locator(".collection-details");
+    await details.getByRole("button", { name: "Save details", exact: true }).waitFor();
+    assert.equal(await details.locator(".mdbase-collection-mode").count(), 0, "Storage mode must stay out of Details");
+    assert.equal(await details.getByRole("button", { name: "Cancel switch" }).count(), 0);
+    await details.getByRole("button", { name: "Cancel", exact: true }).click();
+
+    // Clicking Review switch opens Storage mode in its own section.
+    await card.getByRole("button", { name: "Review switch", exact: true }).click();
+    const panel = card.locator(".collection-mode-panel");
+    await panel.getByRole("button", { name: "Continue on this device", exact: true }).waitFor();
+    await screenshot(page, "desktop-mode-panel");
+
+    // Confirm on this device -> enters finishing, then poll detects completion and refreshes collection badge.
+    await panel.getByRole("button", { name: "Continue on this device", exact: true }).click();
+    await panel.getByText(/Switching to Private — finishing/).waitFor();
+    await page.evaluate(() => {
+      window.fixture.collections[0].mode = "synced_e2e";
+      window.fixture.modeStatus = { current_mode: "private", execution_available: true, change: null };
+    });
+    await page.clock.fastForward(3_000);
+    await card.locator(".collection-card-status small").filter({ hasText: "Private sync (end-to-end encrypted)" }).waitFor();
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

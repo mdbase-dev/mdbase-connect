@@ -255,6 +255,11 @@ msgstr "此位置已有名为“{0}”的文件夹。请选择其他名称，或
 msgid "a Private collection"
 msgstr "一个私有集合"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "有一项存储模式切换正在等待此计算机确认。"
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Access: {access}"
@@ -601,6 +606,10 @@ msgstr "选择此收藏集在所有设备上同步哪些文件。笔记始终同
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "清除筛选"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "关闭"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -1242,8 +1251,8 @@ msgstr "mdbase 只存储加密后的更改。只有当你某台装有桌面应�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase 将能够读取此集合及其现有历史记录，并在你的设备关闭时提供访问。"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase 将能够读取该集合（包括其现有历史记录），并在您的设备关闭时提供服务。连接到此集合的应用随后需要重新连接。"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1404,8 +1413,8 @@ msgstr "仅在此代码与{who}上的代码一致时允许"
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "切换完成后，只有你的设备能够读取新内容。mdbase 可能仍能读取旧内容。"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "切换完成后，只有您的设备可以读取新内容。mdbase 可能仍可读取较早的内容。连接到此集合的应用随后需要重新连接。"
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1603,6 +1612,11 @@ msgstr "{0, plural, other {检查 # 个文件}}"
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "审核 {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "查看切换"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1811,6 +1825,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "此集合的存储空间已满，部分文件尚未同步。请释放空间以同步这些文件。如果这是你的集合且你使用的是 Free 方案，可以升级到 Plus 获取更多存储空间。"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "存储模式"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "正在切换存储模式…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1967,6 +1991,11 @@ msgstr "服务器尚未确认此电脑上的旧版 mdbase Connect 已停用。�
 #: src/renderer/daemon-view.mts
 msgid "The sign-in request expired. Start again."
 msgstr "登录请求已过期。请重新开始。"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "向私密模式的切换已停止，需要您处理。"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2249,6 +2278,11 @@ msgstr "版本 {version} 正在向 {percentage}% 的安装推送。"
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "视频"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "查看进度"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

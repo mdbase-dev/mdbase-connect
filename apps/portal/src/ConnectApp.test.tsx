@@ -361,6 +361,28 @@ describe("ConnectApp", () => {
     expect(change).not.toHaveBeenCalled();
   });
 
+  it("does not prefetch or mount storage mode controls for shared-with-me native collections", async () => {
+    history.replaceState(null, "", "/?collection=shared-native");
+    Object.assign(overview, {
+      native_collections: [{
+        id: "shared-native",
+        display_name: "Shared native notes",
+        sync: "cloud_copy",
+        access: { relationship: "member", role: "editor", can_manage_members: false }
+      }]
+    });
+    const mode = vi.spyOn(ConnectManagementClient.prototype, "collectionModeStatus");
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Shared native notes" });
+    const storage = screen.getByRole("link", { name: "Storage" });
+    await user.hover(storage);
+    await user.click(storage);
+    await screen.findByText("Collection copies");
+    expect(mode).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Storage mode" })).not.toBeInTheDocument();
+  });
+
   it("opens first-collection setup for a newly flipped next account without a computer", async () => {
     history.replaceState(null, "", "/");
     overview.collections = [];
