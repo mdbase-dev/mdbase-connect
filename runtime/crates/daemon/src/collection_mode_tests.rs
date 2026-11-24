@@ -1048,10 +1048,13 @@ mod driver {
             .expect("collection never became ready");
         }
 
+        /// Waits for the journal and the driver's slot: the driver clears the
+        /// journal before it applies the terminal outcome.
         async fn wait_request_cleared(&self) {
-            let path = self.daemon.profile.collection_dir(&self.id()).join(FILE);
+            let id = self.id();
+            let path = self.daemon.profile.collection_dir(&id).join(FILE);
             tokio::time::timeout(Duration::from_secs(45), async {
-                while path.exists() {
+                while path.exists() || self.daemon.mode_driver.slot(&id).is_some() {
                     tokio::time::sleep(Duration::from_millis(30)).await;
                 }
             })
