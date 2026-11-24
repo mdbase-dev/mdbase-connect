@@ -26,6 +26,41 @@ it("marks requested, approval and usable connection transitions without payloads
   ]);
 });
 
+it("marks each opening stage transition on the main thread with fixed stage names only",()=>{
+  const mark=vi.fn();vi.stubGlobal("performance",{mark});
+  const opening=(id:string,progress?:string|null,slow=false)=>({
+    selection:{requested:{collectionId:id,approved:true}},
+    phase:{kind:"opening",collectionId:id,displayName:"Secret Notes",slow,...(progress===undefined?{}:{progress})},
+  }) as unknown as Pick<MdbaseSnapshot,"selection"|"phase">;
+  const stages=["joining","opening_store","connecting_log","syncing","waiting_for_key","loading_snapshot","replaying","verifying_read","checking_setup"] as const;
+  let prev=opening("col-a");
+  markCollectionOpen(prev.selection,prev.phase);
+  for(const stage of stages){
+    const next=opening("col-a",stage);
+    markCollectionOpen(next.selection,next.phase,prev);
+    prev=next;
+  }
+  // Unchanged stage (e.g. slow flag toggling) does not re-emit; returning to a stage does.
+  const slowSame=opening("col-a","checking_setup",true);
+  markCollectionOpen(slowSame.selection,slowSame.phase,prev);
+  const revisit=opening("col-a","syncing");
+  markCollectionOpen(revisit.selection,revisit.phase,slowSame);
+  // Switching collections at the same stage marks the new collection's transition.
+  const other=opening("col-b","syncing");
+  markCollectionOpen(other.selection,other.phase,revisit);
+  // Non-allowlisted or absent progress never emits a mark.
+  for(const invalid of [null,undefined,"Secret Notes","/tmp/vault","11111111-1111-4111-8111-111111111111"]){
+    const bad=opening("col-b",invalid);
+    markCollectionOpen(bad.selection,bad.phase,other);
+  }
+  expect(mark.mock.calls).toEqual([
+    ["mdbase:open:requested"],["mdbase:open:approved"],
+    ...stages.map(stage=>[`mdbase:open:stage:${stage}`]),
+    ["mdbase:open:stage:syncing"],
+    ["mdbase:open:requested"],["mdbase:open:approved"],["mdbase:open:stage:syncing"],
+  ]);
+});
+
 it.each([false,true])("marks only the first successful query, including empty answers; no performance: %s",async absent=>{
   const mark=vi.fn();if(absent)vi.stubGlobal("performance",undefined);else vi.spyOn(performance,"mark").mockImplementation(mark);
   const client=await connect({connector:new MemoryReplica().connector(),app:{name:"timing-test",version:"0"},reconnect:false});
