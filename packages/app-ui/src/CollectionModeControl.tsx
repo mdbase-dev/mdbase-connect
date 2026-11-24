@@ -26,7 +26,7 @@ type ModeErrorKind =
   | "mode_rekey_observed"
   | "unknown";
 
-type BlockedEntry = { requestId?: string; devices: string[] };
+type BlockedEntry = { requestId?: string; devices: string[]; names?: Record<string, string> };
 
 const ACTIVE_POLL_MS = 3_000;
 const WAITING_POLL_MS = 10_000;
@@ -79,14 +79,25 @@ function readBlocked(collectionId: string): BlockedEntry | null {
   try {
     const raw = globalThis.sessionStorage?.getItem(`${BLOCKED_STORAGE_PREFIX}${collectionId}`);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as { requestId?: unknown; devices?: unknown } | null;
+    const parsed = JSON.parse(raw) as { requestId?: unknown; devices?: unknown; names?: unknown } | null;
     if (!parsed || !Array.isArray(parsed.devices)) return null;
     const devices = parsed.devices.filter((v): v is string => typeof v === "string" && v.length > 0);
     if (!devices.length) return null;
-    return { ...(typeof parsed.requestId === "string" ? { requestId: parsed.requestId } : {}), devices };
+    const names = blockedNames(parsed.names, devices);
+    return { ...(typeof parsed.requestId === "string" ? { requestId: parsed.requestId } : {}), devices, ...(names ? { names } : {}) };
   } catch {
     return null;
   }
+}
+
+/** Display names the daemon passed through from the server, limited to the blocked IDs. */
+function blockedNames(value: unknown, devices: readonly string[]): Record<string, string> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const names = Object.fromEntries(devices.flatMap((id) => {
+    const name = (value as Record<string, unknown>)[id];
+    return typeof name === "string" && name.trim() ? [[id, name.trim().slice(0, 80)]] : [];
+  }));
+  return Object.keys(names).length ? names : undefined;
 }
 
 function writeBlocked(collectionId: string, entry: BlockedEntry | null): void {
@@ -328,8 +339,9 @@ export function CollectionModeControl({
       const retry = typeof step?.retry_at === "string" ? step.retry_at : undefined;
       const next = read(await callbacks.current.load());
       if (active !== generation.current) return;
+      const names = blockedNames(step?.device_names, devices);
       const nextBlocked = devices.length > 0
-        ? { ...(next?.change?.request_id ? { requestId: next.change.request_id } : {}), devices }
+        ? { ...(next?.change?.request_id ? { requestId: next.change.request_id } : {}), devices, ...(names ? { names } : {}) }
         : null;
       setStepRetryAt(retry);
       applyStatus(next, nextBlocked);
@@ -505,7 +517,7 @@ export function CollectionModeControl({
     {blockedIds.length > 0 && <div className="mdbase-collection-mode-blocked" role="status">
       <p className="mdbase-collection-mode-note">{t(i18n)({ message: "Update mdbase on these devices or remove them before trying again:", context: "Collection storage mode" })}</p>
       <ul>{blockedIds.map((id) => {
-        const name = deviceNames?.[id];
+        const name = blocked?.names?.[id] ?? deviceNames?.[id];
         const shortId = shortDeviceId(id);
         return <li key={id} title={id}>{name ?? t(i18n)({ message: `Device ${shortId}`, context: "Collection storage mode" })}</li>;
       })}</ul>

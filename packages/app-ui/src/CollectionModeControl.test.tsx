@@ -201,12 +201,12 @@ it("resolves older-device names with short-ID fallback and keeps them visible ac
   const unknownId = "22222222-2222-4222-8222-222222222222";
   let value = state("cloud_copy", { request_id: "req-1", source_mode: "cloud_copy", target_mode: "private", phase: "waiting_for_device" });
   const load = vi.fn(async () => value);
-  const change = vi.fn(async () => ({ phase: "waiting_for_devices", devices: [namedId, unknownId] }));
+  // Names come from the server through the daemon; IDs without one fall back to a short ID.
+  const change = vi.fn(async () => ({ phase: "waiting_for_devices", devices: [namedId, unknownId], device_names: { [namedId]: "Work laptop", "33333333-3333-4333-8333-333333333333": "Not blocked" } }));
   await mount({
     load,
     change,
-    native: true,
-    deviceNames: { [namedId]: "Work laptop" }
+    native: true
   });
   await click("Continue on this device");
   expect(host.textContent).toContain("Update mdbase on these devices or remove them");
@@ -214,6 +214,7 @@ it("resolves older-device names with short-ID fallback and keeps them visible ac
   expect(host.textContent).toContain("Device 22222222");
   expect(host.textContent).not.toContain(namedId);
   expect(host.textContent).not.toContain(unknownId);
+  expect(host.textContent).not.toContain("Not blocked");
   expect(host.textContent).not.toContain("Refresh status");
 
   // Content-only fixture for batched real-browser light/dark/mobile layout checks.
