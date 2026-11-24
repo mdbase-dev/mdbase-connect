@@ -74,6 +74,8 @@ describe("collection rail regions", () => {
     // A test build is a development build, which belongs to LAB.
     expect(within(menu).getByRole("menuitem", { name: /Reader/ })).toHaveAttribute("href", "https://lab.mdbase-reader.pages.dev/");
     expect(within(menu).getByRole("menuitem", { name: /Writer/ })).toHaveAttribute("href", "https://lab.mdbase-writer.pages.dev/");
+    expect(within(menu).getByRole("menuitem", { name: /Journal/ })).toHaveAttribute("href", "https://lab.mdbase-journal-lab.pages.dev/");
+    expect(within(menu).getByRole("menuitem", { name: /TaskNotes/ })).toHaveAttribute("href", "https://lab.tasknotes-app.pages.dev/");
     expect(within(menu).getByRole("menuitem", { name: /Editor/ })).toHaveAttribute("aria-current", "page");
   });
 
