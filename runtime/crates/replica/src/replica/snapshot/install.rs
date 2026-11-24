@@ -811,18 +811,14 @@ impl<S: Store> Replica<S> {
         }
         self.reset_feed();
         self.query_context = None;
-        // The install replaced confirmed state; the derived query index follows.
-        // A failure leaves it unready (queries use the per-record path) and is
-        // reported, never swallowed.
-        let backfill = self.backfill_query_index();
         self.clear_incident(IncidentKind::Integrity);
         self.clear_incident(IncidentKind::WaitingForKey);
-        if let Err(e) = backfill {
-            self.query_context = None;
-            self.incident(
-                IncidentKind::Integrity,
-                Some(Value::Text(format!("store: query index backfill: {e}"))),
-            );
+        // The install replaced confirmed state; the derived query index follows,
+        // on a device once it has applied the tail it knows of. Until then
+        // queries use the per-record path.
+        self.query_index_deferred = true;
+        if self.is_hosted() || self.head.seq >= self.head_known {
+            self.flush_query_index();
         }
         let all: std::collections::BTreeSet<String> =
             self.pending_keys.values().flatten().cloned().collect();

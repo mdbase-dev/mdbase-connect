@@ -15,7 +15,9 @@ use std::time::{Duration, Instant};
 use mdbn_platform_native::SqliteIndex;
 use mdbn_replica::api::{ClientApi, SessionAuth, SessionId};
 use mdbn_replica::fake::{FakeLog, FakeLogService};
-use mdbn_replica::log::{EndpointId, pump};
+use mdbn_replica::log::{
+    EndpointId, LogClient, LogError, LogPort, LogPush, LogReply, LogRequest, pump,
+};
 use mdbn_replica::replica::{DeviceSecrets, Host, Replica, ReplicaConfig, UtcOnly};
 use mdbn_replica::seal::PlainSealer;
 use mdbn_replica::store::Store as _;
@@ -33,13 +35,16 @@ use mdbn_wire::intent::{Create, Op, ResourcePut};
 const COL: B16 = B16([7; 16]);
 
 /// SQLite with time and statement counts per statement kind. Profiling runs
-/// each statement of a transaction batch as its own transaction batch (a
-/// savepoint inside the apply's deferred window), so the split is per
-/// statement; the wall-clock runs leave batches whole and attribute each to its
-/// first statement.
+/// each statement of a transaction batch inside a deferred-sync window as its
+/// own transaction batch (a savepoint), so the split is per statement; batches
+/// outside a window, and every batch of the wall-clock runs, stay whole and are
+/// attributed to their first statement.
 struct Profiled {
     inner: SqliteIndex,
     split: bool,
+    /// A deferred-sync window is open: a split statement is a savepoint, not a
+    /// durable commit of its own.
+    window: bool,
     stats: Rc<RefCell<BTreeMap<String, (u32, Duration)>>>,
 }
 
@@ -50,6 +55,9 @@ fn kind(sql: &str) -> String {
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
         .find(|w| w.starts_with("st_"))
         .unwrap_or("-");
+    if sql.contains("'delete-all'") {
+        return format!("fts-delete-all:{table}");
+    }
     let verb = if sql.contains("ready=CASE") || sql.contains("ready=0 WHERE slot=0 AND (") {
         "coverage"
     } else if sql.starts_with("SELECT") || sql.starts_with("WITH") {
@@ -66,7 +74,11 @@ impl IndexStorage for Profiled {
         self.inner.info()
     }
     fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
-        if !self.split || batch.mode != BatchMode::Transaction || batch.stmts.len() < 2 {
+        if !self.split
+            || !self.window
+            || batch.mode != BatchMode::Transaction
+            || batch.stmts.len() < 2
+        {
             let start = Instant::now();
             let out = self.inner.run(batch)?;
             let key = batch.stmts.first().map_or("-".into(), |s| kind(&s.sql));
@@ -101,7 +113,9 @@ impl IndexStorage for Profiled {
         self.inner.reset()
     }
     fn defer_sync(&mut self, on: bool) -> Result<bool, IndexError> {
-        self.inner.defer_sync(on)
+        let deferred = self.inner.defer_sync(on)?;
+        self.window = on && deferred;
+        Ok(deferred)
     }
 }
 
@@ -125,10 +139,17 @@ fn store(name: &str, split: bool) -> (Store, Stats) {
     let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let _ = std::fs::remove_dir_all(&dir);
     std::fs::create_dir_all(&dir).unwrap();
+    reopen(name, split)
+}
+
+/// The store `store(name, ..)` created, as it was left.
+fn reopen(name: &str, split: bool) -> (Store, Stats) {
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     let stats = Stats::default();
     let index = Profiled {
         inner: SqliteIndex::open(dir.join("index.sqlite"), IndexDurability::Durable).unwrap(),
         split,
+        window: false,
         stats: stats.clone(),
     };
     (SqlStore::open(Rc::new(RefCell::new(index))).unwrap(), stats)
@@ -206,6 +227,27 @@ impl Node {
             }
         }
         panic!("did not catch up");
+    }
+
+    /// As after an outage: the pushes sent meanwhile are lost, the device
+    /// learns the log's head and reads everything after its own at once.
+    fn reconnect(&mut self, svc: &FakeLogService) {
+        drop(self.log.poll_pushes());
+        self.r.on_log_push(LogPush::Reconnected);
+        self.sync(svc);
+    }
+
+    /// Until a snapshot is installed, and no further: the tail read it asks
+    /// for is not answered yet.
+    fn install_only(&mut self) {
+        for _ in 0..10_000 {
+            pump(&mut self.r, &mut self.log, 1);
+            if self.r.stats.snapshots_installed > 0 {
+                return;
+            }
+            self.r.tick();
+        }
+        panic!("installed no snapshot");
     }
 
     fn submit(&mut self, ops: Vec<Op>) {
@@ -389,6 +431,353 @@ fn device_catch_up_catalog_changes_at_10k() {
     }
 }
 
+/// The writer seeds `count` tasks and compacts the log into a snapshot, then
+/// writes a tail of three runs of `run` task creates, the first two each
+/// followed by a catalog change: a new type over the tasks matching `glob`,
+/// then a schema-only change. The snapshot's seq.
+fn snapshot_then_tail(
+    svc: &FakeLogService,
+    writer: &mut Node,
+    count: u32,
+    run: u32,
+    glob: &str,
+) -> u64 {
+    seed(writer, svc, count);
+    writer.r.build_snapshot_now().unwrap();
+    writer.sync(svc);
+    let snapshot = writer.r.head().seq;
+    svc.compact(&COL, snapshot);
+    let mut next = count + 50;
+    for change in [Some(batch_type(glob)), Some(schema_only()), None] {
+        for _ in 0..run {
+            next += 1;
+            writer.submit(vec![Op::Create(Create {
+                id: id(next),
+                path: Some(format!("tasks/t{next:05}.md")),
+                type_name: None,
+                frontmatter: None,
+                body: None,
+                document: Some(Text::Inline(task(next))),
+            })]);
+            writer.sync(svc);
+        }
+        if let Some(op) = change {
+            writer.submit(vec![op]);
+            writer.sync(svc);
+        }
+    }
+    snapshot
+}
+
+/// A device opening a 10k collection for the first time: it installs a
+/// snapshot, then applies a tail holding two catalog changes (a new type over
+/// a tenth of the tasks, then a schema-only change) among ordinary entries.
+#[test]
+#[ignore = "manual release timing (#1648)"]
+fn device_cold_open_after_a_snapshot_at_10k() {
+    const TASKS: u32 = 10_000;
+    for split in [false, true] {
+        let svc = FakeLogService::new();
+        let (writer_store, _) = store(&format!("cold_open_writer_{split}"), false);
+        let mut writer = open(&svc, writer_store, 101);
+        let snapshot = snapshot_then_tail(&svc, &mut writer, TASKS, 10, "tasks/t01*.md");
+        eprintln!("snapshot at {snapshot}, tail to {}", writer.r.head().seq);
+        let (device_store, stats) = store(&format!("cold_open_device_{split}"), split);
+        let mut device = open(&svc, device_store, 102);
+        let started = Instant::now();
+        device.sync(&svc);
+        let elapsed = started.elapsed();
+        assert_eq!(device.r.stats.snapshots_installed, 1);
+        let mode = if split { "per statement" } else { "durable" };
+        report(&format!("cold open ({mode})"), elapsed, &stats);
+        {
+            let stats = stats.borrow();
+            let count = |k: &str| stats.get(k).map_or(0, |(n, _)| *n);
+            eprintln!(
+                "    st_qstate inserts {}, records projected {}, fts delete-all {}",
+                count("insert:st_qstate"),
+                count("insert:st_qrecord"),
+                count("fts-delete-all:st_qbody")
+            );
+            if let Some((n, d)) = stats.get("fts-delete-all:st_qbody") {
+                eprintln!(
+                    "    fts delete-all {n} stmts {:.1} ms",
+                    d.as_secs_f64() * 1e3
+                );
+            }
+        }
+        let state = device.r.store().query_index_state().unwrap().unwrap();
+        assert!(state.ready, "index ready after catching up");
+        let tasks = (TASKS + 30) as usize;
+        let started = Instant::now();
+        assert_eq!(
+            indexed_count(&mut device, "task").min(1000),
+            1000.min(tasks)
+        );
+        eprintln!("    indexed query {:?}", started.elapsed());
+        if !split {
+            // Between the install and the tail, queries take the per-record path.
+            let (late_store, _) = store("cold_open_deferred", false);
+            let mut late = open(&svc, late_store, 103);
+            late.install_only();
+            let started = Instant::now();
+            assert_eq!(per_record_count(&mut late, "task"), 1000);
+            eprintln!(
+                "    per-record query before the tail {:?}",
+                started.elapsed()
+            );
+            late.r.set_query_execution_profile(
+                mdbn_replica::QueryExecutionProfile::MemoryConstrained,
+            );
+            let answer = type_page(&mut late, "task", 50, None)
+                .map(|page| page.records.len())
+                .map_err(|e| e.problem().reason.clone());
+            eprintln!("    memory-constrained 50-record page before the tail: {answer:?}");
+        }
+    }
+}
+
+/// The log while the device is offline: nothing reaches the service.
+struct Offline;
+impl LogClient for Offline {
+    fn call(&mut self, _: LogRequest) -> LogReply {
+        Err(LogError::Offline)
+    }
+    fn poll_pushes(&mut self) -> Vec<LogPush> {
+        Vec::new()
+    }
+}
+
+/// Every record's stored metadata is the one the store's catalog derives,
+/// under the stamp that names it.
+fn assert_metadata_current(device: &Node) {
+    let store = device.r.store();
+    let catalog = mdbn_replica::plan::load_catalog(store).unwrap();
+    assert_eq!(
+        store
+            .meta(mdbn_replica::store::meta_keys::RECORD_META)
+            .unwrap(),
+        Some(mdbn_replica::plan::record_meta_stamp(&catalog))
+    );
+    for row in store
+        .records(mdbn_replica::store::Page {
+            after: None,
+            limit: 1000,
+        })
+        .unwrap()
+    {
+        assert_eq!(
+            row.meta,
+            mdbn_replica::plan::record_meta(&catalog, &row.path, &row.doc),
+            "{}",
+            row.path
+        );
+    }
+}
+
+/// The index is published, complete, at the device's head.
+fn assert_index_ready(device: &Node) {
+    let store = device.r.store();
+    let state = store.query_index_state().unwrap().unwrap();
+    assert!(state.ready);
+    assert_eq!(state.head, store.head().unwrap());
+    assert!(store.query_projection_state().unwrap().unwrap().ready);
+}
+
+fn assert_index_unready(device: &Node) {
+    let state = device.r.store().query_index_state().unwrap();
+    assert!(!state.is_some_and(|s| s.ready));
+}
+
+/// The writer with a snapshot of 400 tasks and a tail of 3 creates, a new
+/// type over 100 of the tasks, 3 creates, a schema-only change and 3 creates.
+const COLD_TASKS: u32 = 400;
+fn cold_writer(name: &str) -> (FakeLogService, Node, u64) {
+    let svc = FakeLogService::new();
+    let (writer_store, _) = store(&format!("{name}_writer"), false);
+    let mut writer = open(&svc, writer_store, 101);
+    let snapshot = snapshot_then_tail(&svc, &mut writer, COLD_TASKS, 3, "tasks/t001*.md");
+    (svc, writer, snapshot)
+}
+
+/// The caught-up device answers from a complete index: every task, including
+/// the tail's, and the new type's 100.
+fn assert_caught_up(svc: &FakeLogService, device: &mut Node) {
+    assert_eq!(device.r.head().seq, svc.head(&COL).0);
+    assert_index_ready(device);
+    assert_metadata_current(device);
+    assert_eq!(indexed_count(device, "task"), COLD_TASKS as usize + 9);
+    assert_eq!(indexed_count(device, "batch"), 100);
+}
+
+/// A device opening the collection installs the snapshot and applies a tail
+/// holding two catalog changes. It builds the query index once, after the
+/// tail; before that its queries take the per-record path.
+#[test]
+fn a_cold_open_builds_the_index_once_after_the_tail() {
+    let (svc, _writer, snapshot) = cold_writer("cold_once");
+    let (device_store, stats) = store("cold_once_device", true);
+    let mut device = open(&svc, device_store, 102);
+    device.install_only();
+    assert_eq!(device.r.head().seq, snapshot);
+    assert_index_unready(&device);
+    assert_eq!(per_record_count(&mut device, "task"), COLD_TASKS as usize);
+    stats.borrow_mut().clear();
+    device.sync(&svc);
+    let records = device.r.store().record_count().unwrap();
+    let projected = stats
+        .borrow()
+        .get("insert:st_qrecord")
+        .map_or(0, |(n, _)| *n);
+    assert_eq!(
+        u64::from(projected),
+        records,
+        "every record is projected once"
+    );
+    assert_caught_up(&svc, &mut device);
+}
+
+/// A device that stops between the install and the tail left the index
+/// unready; the next open builds it at the installed head.
+#[test]
+fn a_device_stopped_before_its_tail_builds_the_index_on_open() {
+    let (svc, _writer, snapshot) = cold_writer("cold_crash");
+    let (device_store, _) = store("cold_crash_device", false);
+    let mut device = open(&svc, device_store, 102);
+    device.install_only();
+    assert_index_unready(&device);
+    drop(device);
+    let (device_store, _) = reopen("cold_crash_device", false);
+    let mut device = open(&svc, device_store, 102);
+    assert_eq!(device.r.head().seq, snapshot);
+    assert_index_ready(&device);
+    assert_eq!(indexed_count(&mut device, "task"), COLD_TASKS as usize);
+    device.sync(&svc);
+    assert_caught_up(&svc, &mut device);
+}
+
+/// A device that installs and then goes offline does not wait for the tail:
+/// its next tick builds the index at the installed head.
+#[test]
+fn an_offline_device_builds_the_deferred_index_on_tick() {
+    let (svc, _writer, snapshot) = cold_writer("cold_offline");
+    let (device_store, _) = store("cold_offline_device", false);
+    let mut device = open(&svc, device_store, 102);
+    device.install_only();
+    pump(&mut device.r, &mut Offline, 10);
+    assert_eq!(device.r.head().seq, snapshot);
+    assert_index_unready(&device);
+    assert!(
+        device.r.next_wakeup().is_some(),
+        "the host is asked to tick"
+    );
+    device.r.tick();
+    assert_index_ready(&device);
+    assert_eq!(indexed_count(&mut device, "task"), COLD_TASKS as usize);
+    device.sync(&svc);
+    assert_caught_up(&svc, &mut device);
+}
+
+/// A cursor from before a catch-up across a catalog change is refused after
+/// it, as expired. While the index waits for the tail, pages carry no
+/// cursor; once it is built they do again.
+#[test]
+fn cursors_do_not_cross_a_deferred_rebuild() {
+    let (svc, mut writer, _) = cold_writer("cold_cursor");
+    let (device_store, _) = store("cold_cursor_device", false);
+    let mut device = open(&svc, device_store, 102);
+    device.sync(&svc);
+    let before = type_page(&mut device, "task", 10, None).unwrap();
+    let before = before.cursor.expect("a cursor");
+    writer.submit(vec![batch_type("tasks/t002*.md")]);
+    writer.sync(&svc);
+    writer.submit(vec![Op::Create(Create {
+        id: id(9_999),
+        path: Some("tasks/t09999.md".into()),
+        type_name: None,
+        frontmatter: None,
+        body: None,
+        document: Some(Text::Inline(task(9_999))),
+    })]);
+    writer.sync(&svc);
+    let projected = device.r.stats.reindexed;
+    device.reconnect(&svc);
+    assert!(
+        device.r.stats.reindexed > projected,
+        "the catalog change was applied"
+    );
+    // The rebuild drops every cursor, as a backfill always has.
+    let refused = type_page(&mut device, "task", 10, Some(&before)).unwrap_err();
+    assert_eq!(refused.problem().reason.as_deref(), Some("cursor_expired"));
+    assert_index_ready(&device);
+    assert_eq!(indexed_count(&mut device, "task"), COLD_TASKS as usize + 10);
+
+    let (late_store, _) = store("cold_cursor_late", false);
+    let mut late = open(&svc, late_store, 103);
+    late.install_only();
+    let during = type_page(&mut late, "task", 10, None).unwrap();
+    assert_eq!(during.records.len(), 10);
+    assert!(
+        during.cursor.is_none(),
+        "no continuation over an unready index"
+    );
+    late.sync(&svc);
+    assert!(
+        type_page(&mut late, "task", 10, None)
+            .unwrap()
+            .cursor
+            .is_some()
+    );
+    assert_eq!(indexed_count(&mut late, "task"), COLD_TASKS as usize + 10);
+}
+
+/// A caught-up 10k device that reads one catalog change (a new type over a
+/// tenth of the tasks) together with the 10 creates after it.
+#[test]
+#[ignore = "manual release timing (#1648)"]
+fn device_behind_one_catalog_change_at_10k() {
+    const TASKS: u32 = 10_000;
+    for split in [false, true] {
+        let svc = FakeLogService::new();
+        let (writer_store, _) = store(&format!("behind_one_writer_{split}"), false);
+        let mut writer = open(&svc, writer_store, 101);
+        seed(&mut writer, &svc, TASKS);
+        let (device_store, stats) = store(&format!("behind_one_device_{split}"), split);
+        let mut device = open(&svc, device_store, 102);
+        device.sync(&svc);
+        writer.submit(vec![batch_type("tasks/t01*.md")]);
+        writer.sync(&svc);
+        for n in 1..=10 {
+            let n = TASKS + 50 + n;
+            writer.submit(vec![Op::Create(Create {
+                id: id(n),
+                path: Some(format!("tasks/t{n:05}.md")),
+                type_name: None,
+                frontmatter: None,
+                body: None,
+                document: Some(Text::Inline(task(n))),
+            })]);
+            writer.sync(&svc);
+        }
+        stats.borrow_mut().clear();
+        let started = Instant::now();
+        device.reconnect(&svc);
+        let elapsed = started.elapsed();
+        let mode = if split { "per statement" } else { "durable" };
+        report(
+            &format!("behind one catalog change ({mode})"),
+            elapsed,
+            &stats,
+        );
+        let projected = stats
+            .borrow()
+            .get("insert:st_qrecord")
+            .map_or(0, |(n, _)| *n);
+        eprintln!("    records projected {projected}");
+        assert_index_ready(&device);
+    }
+}
+
 /// A writer with `count` tasks and a device caught up with it whose store
 /// counts statements one by one.
 fn pair(name: &str, count: u32) -> (FakeLogService, Node, Node, Stats) {
@@ -425,11 +814,15 @@ fn ran(stats: &BTreeMap<String, u32>, kind: &str) -> u32 {
     stats.get(kind).copied().unwrap_or(0)
 }
 
-/// How many records of `type_name` an indexed window returns.
-fn indexed_count(device: &mut Node, type_name: &str) -> usize {
+/// Up to `limit` records of `type_name` by priority, from `cursor` on.
+fn type_page(
+    device: &mut Node,
+    type_name: &str,
+    limit: i64,
+    cursor: Option<&str>,
+) -> Result<mdbn_wire::client::QueryResult, mdbn_replica::api::ApiError> {
     use mdbn_wire::common::Value;
-    let before = device.r.query_stats().indexed;
-    let query = Value::Map(vec![
+    let mut query = vec![
         (
             "types".into(),
             Value::List(vec![Value::Text(type_name.into())]),
@@ -441,17 +834,24 @@ fn indexed_count(device: &mut Node, type_name: &str) -> usize {
                 ("direction".into(), Value::Text("asc".into())),
             ])]),
         ),
-        ("limit".into(), Value::Int(1000)),
-    ]);
+        ("limit".into(), Value::Int(limit)),
+    ];
+    if let Some(cursor) = cursor {
+        query.push(("cursor".into(), Value::Text(cursor.into())));
+    }
     let include = mdbn_wire::client::Include {
         effective: None,
         body: None,
         document: None,
         diagnostics: None,
     };
-    let records = device
-        .r
-        .query(device.s, query, include)
+    device.r.query(device.s, Value::Map(query), include)
+}
+
+/// How many records of `type_name` an indexed window returns.
+fn indexed_count(device: &mut Node, type_name: &str) -> usize {
+    let before = device.r.query_stats().indexed;
+    let records = type_page(device, type_name, 1000, None)
         .expect("query")
         .records
         .len();
@@ -461,6 +861,20 @@ fn indexed_count(device: &mut Node, type_name: &str) -> usize {
         "the index answered: {:?}",
         device.r.query_stats().last_decline
     );
+    records
+}
+
+/// How many records of `type_name` a window the per-record path answers
+/// returns.
+fn per_record_count(device: &mut Node, type_name: &str) -> usize {
+    let before = device.r.query_stats();
+    let records = type_page(device, type_name, 1000, None)
+        .expect("query")
+        .records
+        .len();
+    let after = device.r.query_stats();
+    assert_eq!(after.indexed, before.indexed, "the index did not answer");
+    assert_eq!(after.declined, before.declined + 1);
     records
 }
 
@@ -507,28 +921,83 @@ fn a_catalog_change_writes_back_only_the_records_it_changes() {
     assert_eq!(ran(&stats, "insert:st_rec"), 100, "{stats:?}");
     assert_eq!(ran(&stats, "coverage:st_qstate"), 2, "{stats:?}");
     assert_eq!(device.r.stats.reindexed, u64::from(TASKS) + 50);
-    let store = device.r.store();
-    assert!(store.query_index_state().unwrap().unwrap().ready);
-    assert!(store.query_projection_state().unwrap().unwrap().ready);
-    let catalog = mdbn_replica::plan::load_catalog(store).unwrap();
-    assert_eq!(
-        store
-            .meta(mdbn_replica::store::meta_keys::RECORD_META)
-            .unwrap(),
-        Some(mdbn_replica::plan::record_meta_stamp(&catalog))
-    );
-    for row in store
-        .records(mdbn_replica::store::Page {
-            after: None,
-            limit: 1000,
-        })
-        .unwrap()
-    {
-        assert_eq!(
-            row.meta,
-            mdbn_replica::plan::record_meta(&catalog, &row.path, &row.doc)
-        );
-    }
+    assert_index_ready(&device);
+    assert_metadata_current(&device);
     assert_eq!(indexed_count(&mut device, "batch"), 100);
     assert_eq!(indexed_count(&mut device, "task"), TASKS as usize);
+}
+
+/// Ordinary entries never defer the index, behind or not: each is projected
+/// in its own commit and no rebuild follows.
+#[test]
+fn ordinary_entries_are_projected_as_they_apply() {
+    const TASKS: u32 = 400;
+    let (svc, mut writer, mut device, stats) = pair("catalog_reindex_ordinary", TASKS);
+    for n in [9_001, 9_002] {
+        writer.submit(vec![Op::Create(Create {
+            id: id(n),
+            path: Some(format!("tasks/t{n:05}.md")),
+            type_name: None,
+            frontmatter: None,
+            body: None,
+            document: Some(Text::Inline(task(n))),
+        })]);
+        writer.sync(&svc);
+    }
+    stats.borrow_mut().clear();
+    device.sync(&svc);
+    let projected = stats
+        .borrow()
+        .get("insert:st_qrecord")
+        .map_or(0, |(n, _)| *n);
+    assert_eq!(projected, 2, "one projection per created record");
+    assert_index_ready(&device);
+    assert_eq!(indexed_count(&mut device, "task"), TASKS as usize + 2);
+}
+
+/// A device back from an outage reads two catalog changes among ordinary
+/// entries at once: it rederives record metadata at each change and builds
+/// the query index once, after the last entry.
+#[test]
+fn a_device_behind_two_catalog_changes_builds_the_index_once() {
+    const TASKS: u32 = 400;
+    let (svc, mut writer, mut device, stats) = pair("catalog_reindex_behind", TASKS);
+    for op in [batch_type("tasks/t001*.md"), schema_only()] {
+        writer.submit(vec![op]);
+        writer.sync(&svc);
+        for _ in 0..3 {
+            let n = TASKS + 51 + writer.r.head().seq as u32;
+            writer.submit(vec![Op::Create(Create {
+                id: id(n),
+                path: Some(format!("tasks/t{n:05}.md")),
+                type_name: None,
+                frontmatter: None,
+                body: None,
+                document: Some(Text::Inline(task(n))),
+            })]);
+            writer.sync(&svc);
+        }
+    }
+    stats.borrow_mut().clear();
+    let reindexed = device.r.stats.reindexed;
+    device.reconnect(&svc);
+    assert_eq!(
+        device.r.stats.reindexed - reindexed,
+        u64::from(TASKS) + 50,
+        "the type change's metadata pass; the schema change has none"
+    );
+    let records = device.r.store().record_count().unwrap();
+    let projected = stats
+        .borrow()
+        .get("insert:st_qrecord")
+        .map_or(0, |(n, _)| *n);
+    assert_eq!(
+        u64::from(projected),
+        records,
+        "every record is projected once"
+    );
+    assert_index_ready(&device);
+    assert_metadata_current(&device);
+    assert_eq!(indexed_count(&mut device, "task"), TASKS as usize + 6);
+    assert_eq!(indexed_count(&mut device, "batch"), 100);
 }

@@ -60,7 +60,7 @@ impl<S: Store> Replica<S> {
         &self,
         tx: &mut Tx,
     ) -> StoreResult<Option<Arc<QueryProjectionContext>>> {
-        if self.is_hosted() && !self.store.query_index_supported() {
+        if self.query_index_deferred || (self.is_hosted() && !self.store.query_index_supported()) {
             return Ok(None);
         }
         let resources_changed =
@@ -221,6 +221,37 @@ pub(super) enum Reindex {
 }
 
 impl<S: Store> Replica<S> {
+    /// Build the index a catch-up deferred, at the current head. A failure
+    /// leaves it unready, so queries keep the per-record path, and is reported
+    /// as an integrity incident.
+    pub(super) fn flush_query_index(&mut self) {
+        if !self.query_index_flushable() {
+            return;
+        }
+        self.query_index_deferred = false;
+        if let Err(e) = self.backfill_query_index() {
+            self.query_context = None;
+            self.incident(
+                mdbn_wire::client::IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(format!(
+                    "store: query index backfill: {e}"
+                ))),
+            );
+        }
+    }
+
+    /// A deferred index waits for the tail only while it is being read: an
+    /// offline device, or one whose reading has stopped (stalled, waiting for
+    /// a source), builds it on its next tick.
+    pub(super) fn query_index_flush_due(&self) -> bool {
+        self.query_index_flushable()
+            && (!self.reading || self.connection == mdbn_wire::client::Connection::Offline)
+    }
+
+    fn query_index_flushable(&self) -> bool {
+        self.query_index_deferred && self.install.is_none() && self.apply_fault.is_none()
+    }
+
     pub(super) fn backfill_query_index_within_budget(&mut self) -> StoreResult<()> {
         match self.backfill_query_index() {
             Err(crate::store::StoreError::Full) => {
@@ -250,7 +281,10 @@ impl<S: Store> Replica<S> {
     /// another pass would end in the same unready state. It is still unready, so
     /// raw pages are never served for it.
     pub(crate) fn backfill_query_index(&mut self) -> StoreResult<()> {
-        if self.install.is_some() || !self.store.query_index_supported() {
+        if self.install.is_some()
+            || self.query_index_deferred
+            || !self.store.query_index_supported()
+        {
             return Ok(());
         }
         let resources = self.store.resources()?;
@@ -334,7 +368,10 @@ impl<S: Store> Replica<S> {
     /// (unsupported, installing) only metadata is written.
     pub(super) fn reindex(&mut self, rederive: Option<Reindex>) -> StoreResult<()> {
         self.with_deferred_durability(|r| {
-            let context = if r.install.is_some() || !r.store.query_index_supported() {
+            let context = if r.install.is_some()
+                || r.query_index_deferred
+                || !r.store.query_index_supported()
+            {
                 None
             } else {
                 capture(&r.store.resources()?, &r.query_index_excluded)

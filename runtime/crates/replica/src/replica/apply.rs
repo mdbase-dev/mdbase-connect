@@ -263,6 +263,7 @@ impl<S: Store> Replica<S> {
         }
         if self.head.seq >= self.head_known {
             self.head_known = self.head.seq;
+            self.flush_query_index();
         }
         // A restored revocation clears its latch (and may let planning resume);
         // a restored orphan clears too.
@@ -1931,6 +1932,12 @@ impl<S: Store> Replica<S> {
         self.capture_effects(&legacy_effects);
         self.policy.note_entry(p, payload.sem.major, instant);
         tx.meta.push(self.policy_meta());
+        // A device still behind the head it knows builds the index the new
+        // catalog needs once, when it catches up, not now and again for each
+        // later change.
+        if catalog_changed && !self.is_hosted() && p < self.head_known {
+            self.query_index_deferred = true;
+        }
         // Pure trusted projection observes EXACT post-resource effects and is
         // committed atomically with records/head/receipts. Optional failure
         // invalidates derived readiness; a genuine store error still fails apply.
