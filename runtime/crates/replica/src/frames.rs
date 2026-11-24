@@ -1080,7 +1080,7 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
         }
         "query_contract_v1" => {
             let m = m?;
-            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=5)))
+            if m.iter().any(|(key, _)| !matches!(key, Cbor::Uint(0..=6)))
                 || dec::<u64>(req(m, 0)?)? != 1
             {
                 return Err(bad("Unsupported contract query envelope."));
@@ -1090,6 +1090,14 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
             let limit = field(m, 3).map(u32_of).transpose()?.unwrap_or(128);
             let cursor = field(m, 4).map(dec::<String>).transpose()?;
             let where_ = field(m, 5).map(dec::<String>).transpose()?;
+            let order_by = field(m, 6)
+                .map(|v| {
+                    if !matches!(v, Cbor::Array(_)) {
+                        return Err(bad("`order_by` must be an array."));
+                    }
+                    dec::<Value>(v)
+                })
+                .transpose()?;
             Ok(api
                 .query_contract(
                     s,
@@ -1099,6 +1107,7 @@ fn dispatch(api: &mut dyn ClientApi, s: SessionId, method: &str, params: &Cbor) 
                         limit,
                         cursor,
                         where_,
+                        order_by,
                     },
                 )?
                 .to_cbor())

@@ -42,7 +42,7 @@ impl<S: Store> Replica<S> {
         check_cancelled: &dyn Fn() -> bool,
     ) -> ApiResult<BasesExecutionResult> {
         self.execute_indexed_bases_view_publish(
-            (selection, None),
+            (selection, None, None),
             property_types,
             timezone,
             policies,
@@ -61,7 +61,7 @@ impl<S: Store> Replica<S> {
         check_cancelled: &dyn Fn() -> bool,
     ) -> ApiResult<BasesExecutionResult> {
         self.execute_indexed_bases_view_publish(
-            (selection, Some(window)),
+            (selection, Some(window), None),
             property_types,
             timezone,
             reference_policies(),
@@ -90,6 +90,7 @@ impl<S: Store> Replica<S> {
                 property_types,
                 timezone,
                 window: None,
+                row_properties: None,
             },
             measure,
             encode,
@@ -106,7 +107,7 @@ impl<S: Store> Replica<S> {
     ) -> ApiResult<Vec<u8>> {
         self.authorize_bases_read(session)?;
         self.execute_indexed_bases_view_publish(
-            (request.selection, request.window),
+            (request.selection, request.window, request.row_properties),
             Some(request.property_types),
             Some(request.timezone),
             reference_policies(),
@@ -132,7 +133,11 @@ impl<S: Store> Replica<S> {
     }
     fn execute_indexed_bases_view_publish<T>(
         &mut self,
-        selection: (BasesViewSelection, Option<BasesExecutionWindow>),
+        selection: (
+            BasesViewSelection,
+            Option<BasesExecutionWindow>,
+            Option<&[String]>,
+        ),
         property_types: Option<&BTreeMap<String, String>>,
         timezone: Option<&str>,
         policies: BasesExecutionPolicies,
@@ -143,9 +148,12 @@ impl<S: Store> Replica<S> {
             &mut IncrementalBasesBudget,
         ) -> ApiResult<T>,
     ) -> ApiResult<T> {
-        let (selection, window) = selection;
+        let (selection, window, row_properties) = selection;
         if let Some(window) = window {
             window.check()?;
+        }
+        if let Some(props) = row_properties {
+            check_row_properties(props)?;
         }
         self.flush_query_index();
         let fence = self.bases_read_capture_fence()?;
@@ -372,6 +380,7 @@ impl<S: Store> Replica<S> {
                     bases_records: None,
                     fields: requirements.fields.clone(),
                     tags: requirements.tags,
+                    full_frontmatter: false,
                     after,
                     limit: 128,
                     max_bytes: 1 << 20,
@@ -450,6 +459,7 @@ impl<S: Store> Replica<S> {
                 id,
                 &requirements.fields,
                 requirements.tags,
+                false,
                 &mut ledger,
             )?
             else {
@@ -584,7 +594,12 @@ impl<S: Store> Replica<S> {
                     + plan.columns().len() as u64 * 2048,
             )
             .map_err(failure)?;
-        let (rows, groups, window_info) = if let Some(request) = window {
+        let window::RenderedWindow {
+            rows,
+            groups,
+            window: window_info,
+            row_properties: row_props,
+        } = if let Some(request) = window {
             window::render(
                 self,
                 window::Context {
@@ -596,6 +611,7 @@ impl<S: Store> Replica<S> {
                     snapshot: &snapshot,
                     fence: &fence,
                     links: &links,
+                    row_properties,
                 },
                 &mut staged,
                 order,
@@ -614,7 +630,25 @@ impl<S: Store> Replica<S> {
                     cells: std::mem::take(&mut projected.cells),
                 });
             }
-            (rows, groups, None)
+            let row_props = if let Some(requested) = row_properties {
+                Some(window::hydrate_row_properties(
+                    self,
+                    &rows,
+                    requested,
+                    &snapshot,
+                    &fence,
+                    &mut ledger,
+                    check_cancelled,
+                )?)
+            } else {
+                None
+            };
+            window::RenderedWindow {
+                rows,
+                groups,
+                window: None,
+                row_properties: row_props,
+            }
         };
         cancelled(check_cancelled)?;
         let output = publish(
@@ -629,6 +663,7 @@ impl<S: Store> Replica<S> {
                 rows,
                 groups,
                 summaries,
+                row_properties: row_props,
             },
             &mut ledger,
         )?;

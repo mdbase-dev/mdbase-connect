@@ -135,8 +135,8 @@ try {
   const write = method(3, "map_contract_write_v1", new Map([[0, 1], [1, "artifact.missing"], [2, "1.0.0"], [5, new Map()]]));
   assert.equal(write.get(3)?.get(0), "not_found", "map_contract_write_v1 actual native dispatch");
   assert.equal(write.get(3)?.get(3), "data_contract_not_found");
-  const filtered = method(4, "query_contract_v1", new Map([[0, 1], [1, "artifact.missing"], [2, "1.0.0"], [5, "true"]]));
-  assert.equal(filtered.get(3)?.get(0), "not_found", "query_contract_v1 where actual native dispatch");
+  const filtered = method(4, "query_contract_v1", new Map([[0, 1], [1, "artifact.missing"], [2, "1.0.0"], [3, 500], [5, "true"], [6, [new Map([["field", "date"], ["direction", "desc"]])]]]));
+  assert.equal(filtered.get(3)?.get(0), "not_found", "query_contract_v1 where/order_by actual native dispatch");
   assert.equal(filtered.get(3)?.get(3), "data_contract_not_found");
   const replace = method(5, "open_upload", new Map([[0, new Uint8Array(16).fill(9)], [1, "missing.bin"], [2, 0], [4, new Uint8Array(16).fill(10)]]));
   assert.equal(replace.get(3)?.get(0), "invalid_request", "file replacement requires the original revision");

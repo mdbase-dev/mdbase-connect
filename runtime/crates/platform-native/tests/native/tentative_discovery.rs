@@ -407,6 +407,7 @@ fn projection_request(app: &App) -> QueryProjectionRequest {
         max_bytes: 1 << 20,
         fields: vec![],
         tags: false,
+        full_frontmatter: false,
     }
 }
 

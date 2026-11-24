@@ -313,6 +313,7 @@ fn attachments_and_the_query_index_pass_through() {
         max_bytes: 4096,
         fields: Vec::new(),
         tags: false,
+        full_frontmatter: false,
     };
     assert_eq!(
         format!("{:?}", s.query_projection_page(&request)),

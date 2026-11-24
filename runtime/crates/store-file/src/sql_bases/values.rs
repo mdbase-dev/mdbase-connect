@@ -65,6 +65,25 @@ pub(super) fn fields(encoded: &[u8], names: &[String]) -> StoreResult<Vec<RawFie
     Ok(out)
 }
 
+pub(super) fn all_fields(encoded: &[u8], names: &[String]) -> StoreResult<(Vec<RawField>, Map)> {
+    let Cbor::Map(items) = cbor::decode(encoded).map_err(|_| corrupt())? else {
+        return Err(corrupt());
+    };
+    let mut out = vec![RawField::Missing; names.len()];
+    let mut full = Map::new();
+    for (key, item) in items {
+        let Cbor::Text(key) = key else {
+            return Err(corrupt());
+        };
+        let v = value(item, true)?.expect("retained value");
+        if let Ok(index) = names.binary_search(&key) {
+            out[index] = RawField::Present(v.clone());
+        }
+        full.insert(key, v);
+    }
+    Ok((out, full))
+}
+
 // `null`, an exact tag array, or a one-entry map holding a bound's array.
 pub(crate) fn encode_tags(tags: Option<&SourceTags>) -> Cbor {
     match tags {

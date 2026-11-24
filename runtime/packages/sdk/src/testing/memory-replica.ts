@@ -498,15 +498,27 @@ export class MemoryReplica {
     const value = (r: MemoryRecord, column: string): unknown =>
       column === "file.path" ? r.path : column === "file.name" ? r.path.slice(r.path.lastIndexOf("/") + 1)
         : toPlain(r.frontmatter.get(column.replace(/^(note|fm)\./, "")) ?? null);
-    const all = this.evalQuery(new Map([["types", view.types]]))
-      .map((r) => [uuidCodec.enc(r.id), r.path, hashCodec.enc(revision(r)), view.columns.map((c) => cell(value(r, c)))] as CborValue);
+    const allRecords = this.evalQuery(new Map([["types", view.types]]));
     const win = m.get(6) as Map<number, number> | undefined;
-    const offset = win?.get(0) ?? 0, rows = win ? all.slice(offset, offset + win.get(1)!) : all;
+    const offset = win?.get(0) ?? 0;
+    const selected = win ? allRecords.slice(offset, offset + win.get(1)!) : allRecords;
+    const rows = selected
+      .map((r) => [uuidCodec.enc(r.id), r.path, hashCodec.enc(revision(r)), view.columns.map((c) => cell(value(r, c)))] as CborValue);
     const out = new Map<number, CborValue>([
       [0, 1], [1, this.basesDescriptor(found.r, found.ordinal)], [2, new Map<number, CborValue>([[0, view.columns], [1, []]])],
       [3, rows], [4, []], [5, this.basesClock()], [6, this.basesRevision()],
     ]);
-    if (win) out.set(8, new Map<number, CborValue>([[0, offset], [1, win.get(1)!], [2, all.length], [3, []]]));
+    if (win) out.set(8, new Map<number, CborValue>([[0, offset], [1, win.get(1)!], [2, allRecords.length], [3, []]]));
+    const rowProperties = m.get(7) as string[] | undefined;
+    if (rowProperties !== undefined) {
+      out.set(10, selected.map((r) => {
+        const props = new Map<string, CborValue>();
+        for (const name of rowProperties) {
+          if (r.frontmatter.has(name)) props.set(name, r.frontmatter.get(name)!);
+        }
+        return [r.types, props];
+      }));
+    }
     return encode(out);
   }
 
@@ -592,7 +604,12 @@ export class MemoryReplica {
       collection: this.collection,
       grant,
       status: this.status(),
-      features: (p.features ?? []).filter((x) => x === "presence" || x === "fence" || this.opts.features?.includes(x)),
+      features: (p.features ?? []).filter((x) =>
+        x === "presence" || x === "fence"
+        || (this.opts.features !== undefined
+          ? this.opts.features.includes(x)
+          : x === "contract-query-order-v1" || x === "bases-row-properties-v1"),
+      ),
     };
     return w.clientFrame.enc({ kind: "response", id: f.id, result: w.helloResult.enc(result) });
   }
@@ -662,8 +679,21 @@ export class MemoryReplica {
       if (!impls.length) throw mdbaseError("not_found", "no such contract", "data_contract_not_found");
       const where = m.get(5) as string | undefined;
       if (where && !this.opts.where) throw mdbaseError("invalid_request", "MemoryReplica: pass a `where` evaluator to use where");
+      const order = m.get(6) as CborValue[] | undefined;
+      const orderKeys: { field: string; desc: boolean }[] = [];
+      if (order !== undefined) {
+        if (!Array.isArray(order) || !order.length || order.length > 8) throw mdbaseError("invalid_request", "invalid contract order_by", "invalid_query");
+        for (const o of order) {
+          if (!(o instanceof Map)) throw mdbaseError("invalid_request", "invalid contract order_by", "invalid_query");
+          const entry = o as Map<unknown, CborValue>;
+          const field = entry.get("field");
+          if (typeof field !== "string" || !field) throw mdbaseError("invalid_request", "invalid contract order_by", "invalid_query");
+          const dir = entry.get("direction");
+          if (dir !== undefined && dir !== "asc" && dir !== "desc") throw mdbaseError("invalid_request", "invalid contract order_by", "invalid_query");
+          orderKeys.push({ field, desc: dir === "desc" });
+        }
+      }
       const rows = [...this.records.values()]
-        .sort((a, b) => (a.path < b.path ? -1 : 1))
         .map((r) => ({
           r,
           implementations: impls
@@ -671,12 +701,33 @@ export class MemoryReplica {
             .map((c) => ({ typeName: c.type, fields: contractFields(c, r), issues: [] }))
             .filter((x) => !where || this.opts.where!(where, { ...r, frontmatter: x.fields })),
         }))
-        .filter((x) => x.implementations.length);
-      const start = this.pageStart(m.get(4));
+        .filter((x) => x.implementations.length)
+        .sort((a, b) => {
+          for (const k of orderKeys) {
+            const va = k.field === "file.path" ? a.r.path : a.implementations[0]!.fields.get(k.field) ?? null;
+            const vb = k.field === "file.path" ? b.r.path : b.implementations[0]!.fields.get(k.field) ?? null;
+            const aNull = va === null || va === undefined, bNull = vb === null || vb === undefined;
+            if (aNull !== bNull) return k.desc ? (aNull ? -1 : 1) : (aNull ? 1 : -1);
+            if (!aNull && !bNull) {
+              const sa = String(toPlain(va as CborValue)), sb = String(toPlain(vb as CborValue));
+              if (sa !== sb) return (sa < sb ? -1 : 1) * (k.desc ? -1 : 1);
+            }
+          }
+          return a.r.path < b.r.path ? -1 : a.r.path > b.r.path ? 1 : 0;
+        });
       const limit = (m.get(3) as number | undefined) ?? 128;
+      const fingerprint = JSON.stringify({ sel, where: where ?? null, order: orderKeys, limit });
+      const rawCursor = m.get(4) as string | undefined;
+      let start = 0;
+      if (rawCursor !== undefined) {
+        const expectedPrefix = `cq:${fingerprint}:`;
+        if (!rawCursor.startsWith(expectedPrefix)) throw mdbaseError("invalid_request", "cursor query changed", "invalid_query_cursor");
+        start = Number(rawCursor.slice(expectedPrefix.length));
+        if (!Number.isInteger(start) || start < 0) throw mdbaseError("invalid_request", "malformed cursor", "invalid_query_cursor");
+      }
       const slice = rows.slice(start, start + limit);
       const page: w.QueryResult = { records: slice.map((x) => this.view(x.r)), complete: true, asOf: this.viewVersion };
-      if (start + limit < rows.length) page.cursor = this.pageCursor(start + limit);
+      if (start + limit < rows.length) page.cursor = `cq:${fingerprint}:${start + limit}`;
       return contractQueryResult.enc({
         version: 1, page, contractDigest: contractDigest(impls[0]!),
         records: slice.map((x) => ({ id: x.r.id, implementations: x.implementations })),

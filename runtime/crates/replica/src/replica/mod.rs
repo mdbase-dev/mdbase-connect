@@ -40,9 +40,10 @@ mod collection_setup;
 pub use bases::{
     BasesDiscoveryHandle, BasesDiscoveryPage, BasesExecutionGroup, BasesExecutionPolicies,
     BasesExecutionResult, BasesExecutionRow, BasesExecutionWindow, BasesGroupPlacement,
-    BasesImplementationDescriptor, BasesReadRequest, BasesUnreadableSource, BasesViewDescriptor,
-    BasesViewSelection, BasesViewSource, BasesWindowInfo, CapturedBasesDiscovery,
-    CapturedBasesExecutionInputs, UnreadableSources,
+    BasesImplementationDescriptor, BasesReadRequest, BasesRowProperties, BasesUnreadableSource,
+    BasesViewDescriptor, BasesViewSelection, BasesViewSource, BasesWindowInfo,
+    CapturedBasesDiscovery, CapturedBasesExecutionInputs, MAX_ROW_PROPERTIES,
+    MAX_ROW_PROPERTY_BYTES, MAX_ROW_PROPERTY_NAME, UnreadableSources,
 };
 pub(crate) mod unindexed_apply;
 mod unindexed_blob_fetch;

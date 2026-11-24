@@ -35,6 +35,45 @@ pub struct BasesWindowInfo {
     /// Placement aligned with result.groups; absent for ungrouped views.
     pub groups: Vec<BasesGroupPlacement>,
 }
+/// Maximum distinct effective property names requested per Bases execution.
+pub const MAX_ROW_PROPERTIES: usize = 128;
+/// Maximum UTF-8 byte length of a single requested property name.
+pub const MAX_ROW_PROPERTY_NAME: usize = 256;
+/// Maximum total UTF-8 byte length of all requested property names combined.
+pub const MAX_ROW_PROPERTY_BYTES: usize = 16 * 1024;
+
+pub(crate) fn check_row_properties(names: &[String]) -> ApiResult<()> {
+    if names.len() > MAX_ROW_PROPERTIES {
+        return Err(ErrorCode::InvalidRequest.err_with_reason(
+            "invalid_bases_request",
+            "too many requested Bases row properties",
+        ));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut total = 0usize;
+    for name in names {
+        if name.is_empty() || name.len() > MAX_ROW_PROPERTY_NAME || !seen.insert(name.as_str()) {
+            return Err(ErrorCode::InvalidRequest.err_with_reason(
+                "invalid_bases_request",
+                "requested Bases row properties must be distinct, non-empty and bounded",
+            ));
+        }
+        total = total.checked_add(name.len()).ok_or_else(|| {
+            ErrorCode::InvalidRequest.err_with_reason(
+                "invalid_bases_request",
+                "requested Bases row properties exceed byte bound",
+            )
+        })?;
+        if total > MAX_ROW_PROPERTY_BYTES {
+            return Err(ErrorCode::InvalidRequest.err_with_reason(
+                "invalid_bases_request",
+                "requested Bases row properties exceed byte bound",
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Trusted native read producer inputs, not a caller source/clock/authority.
 pub struct BasesReadRequest<'a> {
     /// Exact record/source/ordinal selection.
@@ -45,4 +84,7 @@ pub struct BasesReadRequest<'a> {
     pub timezone: &'a str,
     /// Optional independent requested display window; absent means full result.
     pub window: Option<BasesExecutionWindow>,
+    /// Optional effective frontmatter property names to project (alongside record
+    /// catalog `types`) for every returned row; `None` omits row property output.
+    pub row_properties: Option<&'a [String]>,
 }

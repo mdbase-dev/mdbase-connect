@@ -295,7 +295,8 @@ fn raw_publication_head_mismatch_never_certifies_or_recovers_from_retained_ids()
                     limit: 128,
                     max_bytes: 1 << 20,
                     fields: vec!["priority".into()],
-                    tags: false
+                    tags: false,
+                    full_frontmatter: false,
                 })
                 .is_err()
         );

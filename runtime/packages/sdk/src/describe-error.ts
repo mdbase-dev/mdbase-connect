@@ -259,7 +259,8 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   contract_records_unsupported: "update_required", record_links_unsupported: "update_required",
   backlinks_unsupported: "update_required", resolve_links_unsupported: "update_required",
   change_entity_unsupported: "update_required", timer_operation_recovery_unavailable: "update_required",
-  contract_query_version: "update_required", unsupported_push_version: "update_required",
+  contract_query_version: "update_required", contract_query_order_unsupported: "update_required",
+  bases_row_properties_unsupported: "update_required", unsupported_push_version: "update_required",
   // The SDK re-checks a concurrent change or an occupied step by itself.
   fenced: "busy", reconnecting: "busy", application_busy: "busy", application_fenced: "busy", application_entry_fenced: "busy",
   application_asset_fenced: "busy", application_connection_busy: "busy", application_connection_fenced: "busy",
@@ -328,7 +329,7 @@ export const INTERNAL_PROBLEM_CODES = [
   // Developer misuse (invalid_request / invalid_record carry the copy).
   "account_secret_length", "access_invalid", "access_no_collection", "application_sign_in_opener", "change_entity_unsupported",
   "click_target_cross_origin", "context_required", "context_type_mismatch", "cursor_expired", "file_upload_identity_mismatch",
-  "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_sas", "invalid_scope", "invalid_submit_response",
+  "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_query", "invalid_query_cursor", "invalid_sas", "invalid_scope", "invalid_submit_response",
   "invalid_timeout", "invalid_timer_response", "invalid_typing_response", "invalid_validation_result", "invalid_view",
   "key_id_changed", "query_cursor_required", "read_many_bounds", "read_many_identity_mismatch", "read_many_selection", "record_identity_mismatch",
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
@@ -338,8 +339,8 @@ export const INTERNAL_PROBLEM_CODES = [
   // The build does not match the app's registration: apps describe this in
   // their own words (describeError gives the "unknown" key so their copy wins).
   "application_registration_binding",
-  "view_not_found", "view_source_changed", "view_source_witness_required", "bases_read_backpressure",
-  "backlinks_unsupported", "resolve_links_unsupported", "contract_query_response", "contract_query_version", "contract_records_unsupported", "describe_definitions_unsupported",
+  "view_not_found", "view_source_changed", "view_source_witness_required", "bases_read_backpressure", "bases_row_properties_unsupported",
+  "backlinks_unsupported", "resolve_links_unsupported", "contract_query_response", "contract_query_version", "contract_query_order_unsupported", "contract_records_unsupported", "describe_definitions_unsupported",
   "prefix_response", "type_pack_contract_setups_unsupported", "type_packs_unsupported", "resource_setup_unavailable",
   "resource_setup_unsupported", "timer_operation_recovery_unavailable", "declared_setup_unsupported", "setup_outcome_unknown",
   // Storage probe (describes as `unavailable`).

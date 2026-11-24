@@ -7,12 +7,207 @@ use crate::api::{
 use crate::layer::LayerView;
 use crate::plan::StoreView;
 use crate::{Store, convert};
+use mdbn_core::query::{Direction, FieldRef, OrderTerm};
 use mdbn_core::state::StateView;
 use mdbn_wire::client::{Include, Issue, QueryResult, Severity};
 use mdbn_wire::common::Value;
 use std::collections::BTreeMap;
 
+const MAX_PAGE_SIZE: u32 = 1000;
+const MAX_ORDER_TERMS: usize = 8;
+const MAX_ORDER_FIELD_BYTES: usize = 256;
 const PROJECTION_BYTES: usize = 1024 * 1024;
+const RESPONSE_BYTES: usize = 2 * 1024 * 1024;
+
+fn invalid_order(message: impl Into<String>) -> crate::api::ApiError {
+    ErrorCode::InvalidRequest.err_with_reason("invalid_query", message)
+}
+
+fn direction_str(direction: Direction) -> &'static str {
+    match direction {
+        Direction::Asc => "asc",
+        Direction::Desc => "desc",
+    }
+}
+
+fn order_term_value(field: String, direction: Direction) -> Value {
+    Value::Map(vec![
+        ("field".into(), Value::Text(field)),
+        (
+            "direction".into(),
+            Value::Text(direction_str(direction).into()),
+        ),
+    ])
+}
+
+/// Validate and parse spec 11 `order_by` terms using Core's own parser.
+/// Returns the parsed terms and a canonical wire value for cursor binding.
+fn parse_contract_order(raw: &Value) -> ApiResult<(Vec<OrderTerm>, Value)> {
+    let Value::List(entries) = raw else {
+        return Err(invalid_order(
+            "`order_by` must be a non-empty list of order terms.",
+        ));
+    };
+    if entries.is_empty() || entries.len() > MAX_ORDER_TERMS {
+        return Err(invalid_order(format!(
+            "`order_by` must contain 1..={MAX_ORDER_TERMS} terms."
+        )));
+    }
+    for entry in entries {
+        let Value::Map(fields) = entry else {
+            return Err(invalid_order("each `order_by` term must be a map."));
+        };
+        let mut seen_field = false;
+        let mut seen_direction = false;
+        for (key, value) in fields {
+            match key.as_str() {
+                "field" if !seen_field => {
+                    seen_field = true;
+                    let Value::Text(name) = value else {
+                        return Err(invalid_order("`order_by[].field` must be a string."));
+                    };
+                    if name.is_empty() || name.len() > MAX_ORDER_FIELD_BYTES {
+                        return Err(invalid_order("`order_by[].field` is empty or too long."));
+                    }
+                }
+                "direction" if !seen_direction => {
+                    seen_direction = true;
+                    let Value::Text(dir) = value else {
+                        return Err(invalid_order("`order_by[].direction` must be asc or desc."));
+                    };
+                    if dir != "asc" && dir != "desc" {
+                        return Err(invalid_order("`order_by[].direction` must be asc or desc."));
+                    }
+                }
+                _ => {
+                    return Err(invalid_order(
+                        "unexpected or duplicate `order_by` term member.",
+                    ));
+                }
+            }
+        }
+        if !seen_field {
+            return Err(invalid_order("each `order_by` term requires `field`."));
+        }
+    }
+    let query_value = convert::value(&Value::Map(vec![("order_by".into(), raw.clone())]))
+        .map_err(|e| invalid_order(e.to_string()))?;
+    let parsed = mdbn_core::query::Query::from_value(&query_value)
+        .map_err(|e| invalid_order(format!("{e:?}")))?;
+    if parsed.order_by.len() != entries.len() {
+        return Err(invalid_order("invalid `order_by` terms."));
+    }
+    let mut canonical = Vec::with_capacity(parsed.order_by.len());
+    for term in &parsed.order_by {
+        let canonical_field = match &term.field {
+            FieldRef::Path => "file.path".to_owned(),
+            FieldRef::File(name) => format!("file.{name}"),
+            FieldRef::Effective(parts) => parts.join("."),
+            FieldRef::Persisted(_) | FieldRef::Projection(_) | FieldRef::Types => {
+                return Err(invalid_order(
+                    "contract `order_by` supports contract fields and `file.*` only.",
+                ));
+            }
+        };
+        canonical.push(order_term_value(canonical_field, term.direction));
+    }
+    Ok((parsed.order_by, Value::List(canonical)))
+}
+
+fn ref_key_segments(reference: &str) -> Option<Vec<String>> {
+    let steps = mdbn_core::types::parse_field_ref(reference)?;
+    let mut keys = Vec::with_capacity(steps.len());
+    for step in steps {
+        match step {
+            mdbn_core::types::FieldStep::Key(k) if !k.is_empty() && !k.contains('.') => {
+                keys.push(k);
+            }
+            _ => return None,
+        }
+    }
+    (!keys.is_empty()).then_some(keys)
+}
+
+/// Map a contract field reference (spec 11 effective segments) through one
+/// implementation's `fields` mapping (JSON Pointers or dotted field refs).
+/// Returns `Ok(None)` when the field is unmapped on this implementation,
+/// `Ok(Some(dotted))` when it maps cleanly to a dotted record field path,
+/// or `Err(...)` when the mapping uses an array/index/non-dotted step that
+/// cannot be expressed in spec 11 `order_by`.
+fn map_contract_field(
+    implementation: &mdbn_core::contracts::Implementation,
+    contract_parts: &[String],
+) -> ApiResult<Option<String>> {
+    let mut best: Option<(usize, Vec<String>)> = None;
+    for (cf, rf) in &implementation.fields {
+        let Some(cf_keys) = ref_key_segments(cf) else {
+            continue;
+        };
+        if contract_parts.len() >= cf_keys.len()
+            && contract_parts[..cf_keys.len()] == cf_keys[..]
+            && best.as_ref().is_none_or(|(len, _)| cf_keys.len() > *len)
+        {
+            let Some(rf_keys) = ref_key_segments(rf) else {
+                return Err(ErrorCode::InvalidRequest.err_with_reason(
+                    "contract_order_unsupported",
+                    format!(
+                        "Contract order field `{}` maps to a non-orderable record reference `{rf}`.",
+                        contract_parts.join(".")
+                    ),
+                ));
+            };
+            let mut mapped = rf_keys;
+            mapped.extend_from_slice(&contract_parts[cf_keys.len()..]);
+            best = Some((cf_keys.len(), mapped));
+        }
+    }
+    Ok(best.map(|(_, keys)| keys.join(".")))
+}
+
+/// Resolve contract `order_by` terms into record-query `order_by` terms when
+/// every active implementation maps each ordered contract field identically.
+fn resolve_contract_order(
+    terms: &[OrderTerm],
+    implementations: &[&mdbn_core::contracts::Implementation],
+) -> ApiResult<Vec<Value>> {
+    let mut resolved = Vec::with_capacity(terms.len());
+    for term in terms {
+        match &term.field {
+            FieldRef::Path => resolved.push(order_term_value("file.path".into(), term.direction)),
+            FieldRef::File(name) => {
+                resolved.push(order_term_value(format!("file.{name}"), term.direction))
+            }
+            FieldRef::Effective(parts) => {
+                let mut first: Option<Option<String>> = None;
+                for imp in implementations {
+                    let mapped = map_contract_field(imp, parts)?;
+                    match &first {
+                        None => first = Some(mapped),
+                        Some(prev) if *prev != mapped => {
+                            return Err(ErrorCode::InvalidRequest.err_with_reason(
+                                "contract_order_unsupported",
+                                format!(
+                                    "Contract order field `{}` maps differently across implementing types.",
+                                    parts.join(".")
+                                ),
+                            ));
+                        }
+                        Some(_) => {}
+                    }
+                }
+                if let Some(Some(record_field)) = first {
+                    resolved.push(order_term_value(record_field, term.direction));
+                }
+            }
+            FieldRef::Persisted(_) | FieldRef::Projection(_) | FieldRef::Types => {
+                return Err(invalid_order(
+                    "contract `order_by` supports contract fields and `file.*` only.",
+                ));
+            }
+        }
+    }
+    Ok(resolved)
+}
 
 impl<S: Store> Replica<S> {
     pub(super) fn inspect_contract_page(
@@ -21,7 +216,7 @@ impl<S: Store> Replica<S> {
         request: ContractQuery,
     ) -> ApiResult<ContractQueryResult> {
         self.require(session, crate::policy::capability::READ)?;
-        if !(1..=128).contains(&request.limit)
+        if !(1..=MAX_PAGE_SIZE).contains(&request.limit)
             || request.contract.len() > 1024
             || request.version.len() > 128
             || request.cursor.as_ref().is_some_and(|c| c.len() > 4096)
@@ -35,6 +230,11 @@ impl<S: Store> Replica<S> {
         let version = mdbn_core::contracts::Version::parse(&request.version).ok_or_else(|| {
             ErrorCode::InvalidRequest.err("An exact contract version is required.")
         })?;
+        let parsed_order = request
+            .order_by
+            .as_ref()
+            .map(parse_contract_order)
+            .transpose()?;
         // Admission, selection and projection use the same actual local view
         // as ordinary reads, including pending definition changes.
         let catalog = {
@@ -116,8 +316,23 @@ impl<S: Store> Replica<S> {
                 contract_digest: digest,
             });
         }
+        let resolved_order = parsed_order
+            .as_ref()
+            .map(|(terms, _)| resolve_contract_order(terms, &implementations))
+            .transpose()?;
         // The ordinary cursor fingerprints context too: callers cannot reuse a
-        // continuation for another contract/version even with identical types.
+        // continuation for another contract/version/filter/order even with identical types.
+        let mut context_entries = vec![
+            ("contract".into(), Value::Text(request.contract)),
+            ("version".into(), Value::Text(request.version)),
+            ("digest".into(), Value::Text(digest.to_hex())),
+        ];
+        if let Some(where_) = request.where_.clone() {
+            context_entries.push(("where".into(), Value::Text(where_)));
+        }
+        if let Some((_, canonical_order)) = parsed_order {
+            context_entries.push(("order_by".into(), canonical_order));
+        }
         let mut query = vec![
             (
                 "types".into(),
@@ -129,25 +344,13 @@ impl<S: Store> Replica<S> {
                 ),
             ),
             ("limit".into(), Value::Int(i64::from(request.limit))),
-            (
-                "context".into(),
-                Value::Map(
-                    [
-                        ("contract".into(), Value::Text(request.contract)),
-                        ("version".into(), Value::Text(request.version)),
-                        ("digest".into(), Value::Text(digest.to_hex())),
-                    ]
-                    .into_iter()
-                    .chain(
-                        request
-                            .where_
-                            .clone()
-                            .map(|w| ("where".into(), Value::Text(w))),
-                    )
-                    .collect(),
-                ),
-            ),
+            ("context".into(), Value::Map(context_entries)),
         ];
+        if let Some(order_terms) = resolved_order
+            && !order_terms.is_empty()
+        {
+            query.push(("order_by".into(), Value::List(order_terms)));
+        }
         if let Some(cursor) = request.cursor {
             query.push(("cursor".into(), Value::Text(cursor)));
         }
@@ -269,7 +472,7 @@ impl<S: Store> Replica<S> {
         if mdbn_wire::cbor::encode(&result.to_cbor())
             .map_err(|_| ErrorCode::Internal.err("Contract page encoding failed."))?
             .len()
-            > PROJECTION_BYTES
+            > RESPONSE_BYTES
         {
             return Err(ErrorCode::TooLarge.err_with_reason(
                 "contract_projection_budget",

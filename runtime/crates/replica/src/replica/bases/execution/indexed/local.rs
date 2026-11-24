@@ -32,6 +32,7 @@ impl<S: Store> Replica<S> {
         id: Uuid,
         fields: &[String],
         tags: bool,
+        full_frontmatter: bool,
         ledger: &mut IncrementalBasesBudget,
     ) -> ApiResult<Option<QueryProjectionRow>> {
         let Some(record) = self
@@ -89,6 +90,7 @@ impl<S: Store> Replica<S> {
                 } else {
                     None
                 };
+                let raw_frontmatter = full_frontmatter.then(|| document.frontmatter().clone());
                 Ok(Some(QueryProjectionRow {
                     id,
                     path: record.path.clone(),
@@ -96,6 +98,7 @@ impl<S: Store> Replica<S> {
                     source_bytes: bytes,
                     fields: values,
                     tags: qualified_tags,
+                    raw_frontmatter,
                 }))
             })
             .map_err(failure)

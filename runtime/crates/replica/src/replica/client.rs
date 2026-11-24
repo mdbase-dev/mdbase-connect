@@ -761,7 +761,11 @@ impl<S: Store> Replica<S> {
     }
 }
 
-const LOCAL_WEB_FEATURES: &[&str] = &["bases-discovery-unreadable-v1"];
+const LOCAL_WEB_FEATURES: &[&str] = &[
+    "bases-discovery-unreadable-v1",
+    "bases-row-properties-v1",
+    "contract-query-order-v1",
+];
 
 /// `hello` features this build grants when asked (`replica-client-api.md` §2).
 /// `attachment-v1` is bare codec support only (`intent.md` §3.11); the
@@ -773,6 +777,10 @@ const GRANTABLE_FEATURES: &[&str] = &[
     "validate-page-v1",
     // Bases discovery request version 2 names unreadable records.
     "bases-discovery-unreadable-v1",
+    // Bases execution key 7 requests projected row properties + types (key 10).
+    "bases-row-properties-v1",
+    // Contract query key 6 (`order_by`) and page sizes up to 1000.
+    "contract-query-order-v1",
 ];
 
 impl<S: Store> Replica<S> {

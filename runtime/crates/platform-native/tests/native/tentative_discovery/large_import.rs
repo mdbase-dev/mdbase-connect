@@ -90,6 +90,7 @@ fn a_large_import_keeps_views_and_typed_cursor_pages_available_without_reopen() 
             property_types: &Default::default(),
             timezone: "UTC",
             window: None,
+            row_properties: None,
         },
         |result| {
             assert_eq!(
@@ -152,6 +153,7 @@ fn a_large_import_keeps_views_and_typed_cursor_pages_available_without_reopen() 
                             limit: 128,
                             cursor,
                             where_: None,
+                            order_by: None,
                         },
                     )
                     .unwrap();

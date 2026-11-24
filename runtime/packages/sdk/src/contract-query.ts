@@ -4,6 +4,8 @@ import { fmMap, issue, queryResult, type FmMap, type Issue, type QueryResult as 
 import type { JsonObject, QueryResult } from "./plain.js";
 
 export interface ContractRef { id: string; version: string }
+/** One spec 11 `order_by` term reusing the record query's ordering grammar. */
+export interface ContractOrderTerm { field: string; direction?: "asc" | "desc" }
 /** One implementing type's view of a record: contract fields by contract field name. */
 export interface ContractProjection { typeName: string; fields: JsonObject; issues: Issue[] }
 export interface ContractQueryRecord { id: Uuid; implementations: ContractProjection[] }
@@ -21,6 +23,10 @@ export interface ContractQueryOptions {
    * projections and records are dropped, so a page may hold fewer than `pageSize`
    * records while `cursor` continues; `totalCount` is absent. Bound to the cursor. */
   where?: string;
+  /** Spec 11 `order_by` terms over contract fields (resolved through implementing
+   * types' mappings) and `file.*`, reusing the record query's ordering grammar
+   * and semantics (1..8 terms). Bound to the cursor. */
+  orderBy?: readonly ContractOrderTerm[];
 }
 
 export const contractQueryResult = struct<ContractQueryWire>("contract-query-v1", [
