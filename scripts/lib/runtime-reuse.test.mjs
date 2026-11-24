@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, posix, resolve } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import {
   NATIVE_SHARDS,
   RUNTIME_CI_JOBS,
@@ -16,10 +17,12 @@ import {
   findReusableRuntimeRun,
   nativeArtifactName,
   runtimeArtifactName,
+  validateNativeReceipt,
   verifyJobsSucceeded
 } from "../ci/runtime-reuse.mjs";
 
 const REPO = "mdbase-dev/mdbase-connect";
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
 function createGitFixture(t) {
   const dir = mkdtempSync(join(tmpdir(), "runtime-reuse-"));
@@ -34,6 +37,8 @@ function createGitFixture(t) {
       write("runtime/crates/core/src/lib.rs", "pub fn ok() {}\n");
     } else if (path === "config/next-trust") {
       write("config/next-trust/production.json", "{\"environment\":\"production\"}\n");
+    } else if (path === ".github/actions/post-performance") {
+      write(".github/actions/post-performance/action.yml", "name: Post performance\n");
     } else {
       write(path, `// ${path}\n`);
     }
@@ -277,4 +282,348 @@ test("findReusableRuntimeRun accepts exact-inputs Runtime CI runs and rejects ta
     const result = findReusableRuntimeRun({ repo: REPO, inputs, ...makeRuntimeFixture(inputs, override) });
     assert.equal(result, null, `expected rejection #${index}`);
   }
+});
+
+// Minimal indentation-aware parser for GitHub Actions workflow jobs, defaults,
+// and step fields (`uses`, `working-directory`, `run`, `with`).
+function parseWorkflowJobs(yamlText) {
+  const lines = yamlText.replace(/\r\n/g, "\n").split("\n");
+  const indentOf = (line) => line.length - line.trimStart().length;
+  const unquote = (value) => {
+    const trimmed = value.trim();
+    if ((trimmed.startsWith("'") && trimmed.endsWith("'"))
+        || (trimmed.startsWith('"') && trimmed.endsWith('"'))) {
+      return trimmed.slice(1, -1);
+    }
+    return trimmed.replace(/\s+#.*$/, "").trim();
+  };
+  const readBlock = (startIndex, baseIndent) => {
+    const block = [];
+    let i = startIndex;
+    while (i + 1 < lines.length) {
+      const next = lines[i + 1];
+      if (!next.trim()) { block.push(""); i += 1; continue; }
+      if (indentOf(next) <= baseIndent) break;
+      block.push(next);
+      i += 1;
+    }
+    const minIndent = block.filter((l) => l.trim()).reduce((min, l) => Math.min(min, indentOf(l)), Infinity);
+    const dedented = block.map((l) => (l.trim() ? l.slice(minIndent) : "")).join("\n");
+    return { text: dedented, endIndex: i };
+  };
+
+  let workflowDefaultCwd = ".";
+  const topDefaultsMatch = yamlText.match(/^defaults:\n  run:\n    working-directory:\s*(.+)$/m);
+  if (topDefaultsMatch) workflowDefaultCwd = unquote(topDefaultsMatch[1]);
+
+  const jobsStart = lines.findIndex((line) => line === "jobs:");
+  assert.notEqual(jobsStart, -1, "workflow missing jobs: section");
+
+  const jobs = {};
+  let currentJob = null;
+  let inSteps = false;
+  let currentStep = null;
+  let inWith = false;
+  let stepBaseIndent = 0;
+
+  for (let i = jobsStart + 1; i < lines.length; i += 1) {
+    const line = lines[i];
+    if (!line.trim() || line.trimStart().startsWith("#")) continue;
+    const ind = indentOf(line);
+    if (ind === 0) break;
+
+    if (ind === 2 && /^  ([A-Za-z0-9_-]+):\s*$/.test(line)) {
+      const jobId = line.trim().slice(0, -1);
+      currentJob = { id: jobId, defaultCwd: workflowDefaultCwd, uses: null, steps: [] };
+      jobs[jobId] = currentJob;
+      inSteps = false;
+      currentStep = null;
+      inWith = false;
+      continue;
+    }
+    if (!currentJob) continue;
+
+    if (ind === 4 && line.startsWith("    uses:")) {
+      currentJob.uses = unquote(line.slice("    uses:".length));
+      continue;
+    }
+    if (ind === 8 && !inSteps && line.startsWith("        working-directory:")) {
+      currentJob.defaultCwd = unquote(line.slice("        working-directory:".length));
+      continue;
+    }
+    if (ind === 4 && line.trim() === "steps:") {
+      inSteps = true;
+      currentStep = null;
+      inWith = false;
+      continue;
+    }
+    if (!inSteps) continue;
+
+    const stepItem = /^(\s+)-\s+(.*)$/.exec(line);
+    if (stepItem && stepItem[1].length === 6) {
+      currentStep = { uses: null, workingDirectory: null, run: null, with: {} };
+      currentJob.steps.push(currentStep);
+      stepBaseIndent = 6;
+      inWith = false;
+      const rest = stepItem[2];
+      const kv = /^([A-Za-z0-9_-]+):(.*)$/.exec(rest);
+      if (kv) {
+        const [, key, rawVal] = kv;
+        const val = rawVal.trim();
+        if (key === "uses") currentStep.uses = unquote(val);
+        else if (key === "working-directory") currentStep.workingDirectory = unquote(val);
+        else if (key === "run") {
+          if (/^[|>][-+]?$/.test(val)) {
+            const { text, endIndex } = readBlock(i, stepBaseIndent);
+            currentStep.run = val.startsWith(">") ? text.replace(/\n+/g, " ") : text;
+            i = endIndex;
+          } else {
+            currentStep.run = unquote(val);
+          }
+        }
+      }
+      continue;
+    }
+
+    if (!currentStep) continue;
+    if (ind === 8) {
+      inWith = false;
+      const kv = /^\s+([A-Za-z0-9_-]+):(.*)$/.exec(line);
+      if (!kv) continue;
+      const [, key, rawVal] = kv;
+      const val = rawVal.trim();
+      if (key === "uses") currentStep.uses = unquote(val);
+      else if (key === "working-directory") currentStep.workingDirectory = unquote(val);
+      else if (key === "with") inWith = true;
+      else if (key === "run") {
+        if (/^[|>][-+]?$/.test(val)) {
+          const { text, endIndex } = readBlock(i, 8);
+          currentStep.run = val.startsWith(">") ? text.replace(/\n+/g, " ") : text;
+          i = endIndex;
+        } else {
+          currentStep.run = unquote(val);
+        }
+      }
+    } else if (inWith && ind === 10) {
+      const kv = /^\s+([A-Za-z0-9_-]+):(.*)$/.exec(line);
+      if (!kv) continue;
+      const [, key, rawVal] = kv;
+      const val = rawVal.trim();
+      if (/^[|>][-+]?$/.test(val)) {
+        const { text, endIndex } = readBlock(i, 10);
+        currentStep.with[key] = text;
+        i = endIndex;
+      } else {
+        currentStep.with[key] = unquote(val);
+      }
+    }
+  }
+  return jobs;
+}
+
+function normalizeRepoPath(baseCwd, rawPath) {
+  let cleaned = rawPath.replace(/^\$\{\{\s*github\.workspace\s*\}\}\/?/, "");
+  if (rawPath.startsWith("${{")) {
+    return posix.normalize(cleaned || ".");
+  }
+  const base = baseCwd === "." ? "" : baseCwd;
+  return posix.normalize(base ? `${base}/${cleaned}` : cleaned);
+}
+
+function isCoveredByRuntimeInputs(repoRelativePath) {
+  const normalized = posix.normalize(repoRelativePath).replace(/\/+$/, "");
+  return RUNTIME_INPUT_PATHS.some((entry) => normalized === entry || normalized.startsWith(`${entry}/`));
+}
+
+function collectTransitiveLocalImports(repoRelativeFile, seen = new Set()) {
+  if (seen.has(repoRelativeFile)) return seen;
+  seen.add(repoRelativeFile);
+  if (!/\.[cm]?[jt]s$/.test(repoRelativeFile)) return seen;
+  const fullPath = join(REPO_ROOT, repoRelativeFile);
+  if (!existsSync(fullPath)) return seen;
+  const source = readFileSync(fullPath, "utf8");
+  const patterns = [
+    /(?:import|export)\s+(?:[^'"]*?\s+from\s+)?["'](\.[^"']+)["']/g,
+    /\bimport\(\s*["'](\.[^"']+)["']\s*\)/g,
+    /\brequire\(\s*["'](\.[^"']+)["']\s*\)/g
+  ];
+  for (const pattern of patterns) {
+    for (const match of source.matchAll(pattern)) {
+      const target = posix.normalize(posix.join(posix.dirname(repoRelativeFile), match[1]));
+      if (existsSync(join(REPO_ROOT, target))) {
+        collectTransitiveLocalImports(target, seen);
+      }
+    }
+  }
+  return seen;
+}
+
+test("guard: every path outside runtime/ read by runtime-ci.yml is covered by RUNTIME_INPUT_PATHS", () => {
+  const runtimeYaml = readFileSync(join(REPO_ROOT, ".github/workflows/runtime-ci.yml"), "utf8");
+  const jobs = parseWorkflowJobs(runtimeYaml);
+
+  // Sanity check that the parser found all expected jobs.
+  assert.deepEqual(
+    Object.keys(jobs).sort(),
+    ["classify", "conformance", "hosted-worker", "native", "obsidian", "publication", "record-qualification", "sdk", "wasm"]
+  );
+  // Only `native` delegates to runtime-native-tests.yml (keyed on full HEAD^{tree}).
+  assert.equal(jobs.native.uses, "./.github/workflows/runtime-native-tests.yml");
+
+  const referencedOutsideRuntime = new Map();
+  const record = (repoPath, source) => {
+    const normalized = posix.normalize(repoPath).replace(/\/+$/, "");
+    if (!normalized || normalized === "." || normalized.startsWith("..") || normalized.startsWith("/")) return;
+    if (normalized === "runtime" || normalized.startsWith("runtime/")) return;
+    if (!referencedOutsideRuntime.has(normalized)) referencedOutsideRuntime.set(normalized, source);
+  };
+
+  for (const job of Object.values(jobs)) {
+    if (job.id === "native") continue;
+    assert.equal(job.uses, null, `unexpected workflow_call on non-native job ${job.id}`);
+
+    for (const [stepIndex, step] of job.steps.entries()) {
+      const label = `${job.id}[${stepIndex}]`;
+      const effectiveCwd = step.workingDirectory
+        ? normalizeRepoPath(".", step.workingDirectory)
+        : normalizeRepoPath(".", job.defaultCwd);
+
+      // 1. Local composite actions (`uses: ./...`).
+      if (step.uses?.startsWith("./")) {
+        record(step.uses.slice(2), `${label} uses:${step.uses}`);
+      }
+
+      // 2. `hashFiles(...)` expressions anywhere in `with` or `run`.
+      const exprTexts = [...Object.values(step.with), step.run ?? ""];
+      for (const text of exprTexts) {
+        for (const match of text.matchAll(/hashFiles\(([^)]+)\)/g)) {
+          for (const arg of match[1].matchAll(/['"]([^'"]+)['"]/g)) {
+            const pattern = arg[1].replace(/^!/, "");
+            const staticRoot = pattern.split(/[*?[\]]/)[0].replace(/\/+$/, "");
+            if (staticRoot) record(staticRoot, `${label} hashFiles(${pattern})`);
+          }
+        }
+      }
+
+      // 3. Cache / workspace paths in `with`.
+      if (step.with["cache-dependency-path"]) {
+        for (const line of step.with["cache-dependency-path"].split("\n")) {
+          const entry = line.trim();
+          if (entry) record(entry, `${label} cache-dependency-path`);
+        }
+      }
+      if (step.with.workspaces) {
+        for (const line of step.with.workspaces.split("\n")) {
+          const [ws] = line.split("->").map((part) => part.trim());
+          if (ws) record(ws, `${label} workspaces`);
+        }
+      }
+      if (step.uses?.startsWith("actions/cache@") && step.with.path) {
+        for (const line of step.with.path.split("\n")) {
+          const entry = line.trim();
+          if (entry && !entry.startsWith("~") && !entry.startsWith("$")) {
+            record(entry, `${label} cache path`);
+          }
+        }
+      }
+
+      // 4. `run:` commands: resolve every existing repo path token against effectiveStepCwd,
+      //    and forbid root-level toolchain/package-manager invocations outside runtime/.
+      if (step.run) {
+        if (effectiveCwd === ".") {
+          assert.doesNotMatch(
+            step.run,
+            /(?:^|[;&|\n]\s*)(?:rustup|cargo|pnpm|npm)\b/,
+            `${label} runs toolchain/package manager at repo root; update RUNTIME_INPUT_PATHS and this guard`
+          );
+        }
+        const tokens = step.run
+          .replace(/['"`]/g, " ")
+          .split(/\s+/)
+          .map((token) => token.replace(/^[;|&()]+|[;|&()]+$/g, ""))
+          .filter(Boolean);
+        for (const token of tokens) {
+          if (token.startsWith("-") || token.startsWith("$") || token.includes("://") || token.includes("${{")) {
+            continue;
+          }
+          // Skip flag=value prefixes except path values like `--wasm name=path`.
+          const candidate = token.includes("=") ? token.slice(token.indexOf("=") + 1) : token;
+          if (!candidate || candidate.startsWith("/") || candidate.startsWith("$")) continue;
+          const resolved = normalizeRepoPath(effectiveCwd, candidate);
+          if (resolved !== "." && !resolved.startsWith("..") && existsSync(join(REPO_ROOT, resolved))) {
+            record(resolved, `${label} run token ${candidate} (cwd=${effectiveCwd})`);
+          }
+        }
+      }
+    }
+  }
+
+  // Expand transitive static JS/MJS imports for every discovered file outside runtime/.
+  for (const [filePath, source] of [...referencedOutsideRuntime.entries()]) {
+    for (const imported of collectTransitiveLocalImports(filePath)) {
+      record(imported, `transitive import of ${filePath} (from ${source})`);
+    }
+  }
+
+  // Verify the guard actually discovered concrete external inputs (not vacuously empty).
+  assert.ok(referencedOutsideRuntime.has("scripts/performance-report.mjs"), "guard must discover performance-report.mjs");
+  assert.ok(referencedOutsideRuntime.has("apps/editor/scripts/bundle-assets.mjs"), "guard must discover transitive bundle-assets.mjs");
+  assert.ok(referencedOutsideRuntime.has(".github/actions/post-performance"), "guard must discover post-performance action");
+  assert.ok(referencedOutsideRuntime.has("scripts/sdk-publication.mjs"), "guard must discover sdk-publication.mjs");
+  assert.ok(referencedOutsideRuntime.has("scripts/release-workers.test.mjs"), "guard must discover release-workers.test.mjs");
+
+  const uncovered = [...referencedOutsideRuntime.entries()]
+    .filter(([filePath]) => !isCoveredByRuntimeInputs(filePath));
+  assert.deepEqual(
+    uncovered,
+    [],
+    `runtime-ci.yml reads paths outside runtime/ missing from RUNTIME_INPUT_PATHS: ${JSON.stringify(uncovered)}`
+  );
+});
+
+test("guard: runtime-native-tests.yml touches paths outside runtime/ and its receipt stays keyed on full HEAD^{tree}", (t) => {
+  const nativeYaml = readFileSync(join(REPO_ROOT, ".github/workflows/runtime-native-tests.yml"), "utf8");
+  const jobs = parseWorkflowJobs(nativeYaml);
+
+  assert.deepEqual(Object.keys(jobs).sort(), ["native", "receipt"]);
+  // Confirm daemon shard runs root pnpm + test/system/run.mjs (outside runtime/),
+  // which is why native reuse MUST key on the full repo Git tree (`HEAD^{tree}`).
+  const daemonRootStep = jobs.native.steps.find(
+    (step) => step.workingDirectory === "." && step.run?.includes("test/system/run.mjs")
+  );
+  assert.ok(daemonRootStep, "expected daemon shard to exercise root test/system/run.mjs");
+  assert.match(daemonRootStep.run, /pnpm install --frozen-lockfile/);
+
+  // Confirm receipt job writes the tree-keyed native receipt (not runtime-inputs receipt).
+  assert.ok(
+    jobs.receipt.steps.some((step) => step.run?.includes("node scripts/ci/runtime-reuse.mjs write-native-receipt")),
+    "receipt job must invoke write-native-receipt"
+  );
+
+  // Confirm native receipt and lookup are strictly bound to full HEAD^{tree}.
+  const { dir, write, git } = createGitFixture(t);
+  const before = computeRuntimeInputs(dir);
+  write("apps/editor/src/App.tsx", "export const App = () => 'changed-outside-runtime';\n");
+  git("add", ".");
+  git("commit", "-q", "-m", "unrelated root change");
+  const after = computeRuntimeInputs(dir);
+
+  assert.equal(after.runtimeInputsSha256, before.runtimeInputsSha256);
+  assert.notEqual(after.tree, before.tree);
+  assert.notEqual(nativeArtifactName(after.tree), nativeArtifactName(before.tree));
+
+  const receipt = buildNativeReceipt(before, {
+    GITHUB_REPOSITORY: REPO,
+    GITHUB_EVENT_NAME: "pull_request",
+    GITHUB_SHA: before.commit,
+    GITHUB_RUN_ID: "501",
+    GITHUB_RUN_ATTEMPT: "1"
+  });
+  assert.equal(receipt.tree, before.tree);
+  assert.equal("runtime_inputs_sha256" in receipt, false);
+  assert.equal(
+    validateNativeReceipt(receipt, { repo: REPO, inputs: after, run: { id: 501, run_attempt: 1 } }),
+    false,
+    "native receipt for an earlier HEAD^{tree} must not validate after any repo change"
+  );
 });

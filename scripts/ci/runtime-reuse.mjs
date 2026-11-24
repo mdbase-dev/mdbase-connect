@@ -34,9 +34,11 @@ export const RUNTIME_CI_JOBS = Object.freeze([
 // obsidian, hosted-worker, conformance). Directory paths hash their entire Git
 // subtree OID via `git rev-parse HEAD:<path>`.
 export const RUNTIME_INPUT_PATHS = Object.freeze([
+  ".github/actions/post-performance",
   ".github/workflows/release-workers.yml",
   ".github/workflows/runtime-ci.yml",
   ".github/workflows/runtime-native-tests.yml",
+  "apps/editor/scripts/bundle-assets.mjs",
   "config/next-trust",
   "config/release-components.json",
   "runtime",
@@ -44,6 +46,7 @@ export const RUNTIME_INPUT_PATHS = Object.freeze([
   "scripts/ci/runtime-reuse.mjs",
   "scripts/lib/github-release-download.mjs",
   "scripts/lib/sdk-publication.mjs",
+  "scripts/performance-report.mjs",
   "scripts/release-workers.mjs",
   "scripts/release-workers.test.mjs",
   "scripts/sdk-publication.mjs"

@@ -31,7 +31,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          fetch-depth: ${{ github.event_name == 'pull_request' && 0 || 1 }}
+          fetch-depth: ${{ github.event_name != 'pull_request' && 1 || 0 }}
           persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
@@ -57,6 +57,7 @@ jobs:
         name: Select qualification depth and merge-queue reuse
         env:
           GH_TOKEN: ${{ github.token }}
+          PLAN_FALLBACK_FULL: ${{ steps.plan.outputs.fallback_full }}
           PLAN_CONTAINER: ${{ steps.plan.outputs.container }}
           PLAN_LOG_POSTGRES: ${{ steps.plan.outputs.log_postgres }}
           PLAN_LOG_DO: ${{ steps.plan.outputs.log_do }}
@@ -75,6 +76,16 @@ jobs:
                 echo 'log_do=true'
                 echo 'has_system_suites=true'
                 echo "system_suites_matrix=$FULL_SYSTEM_SUITES_MATRIX"
+                echo 'upstream_run_id='
+              } >>"$GITHUB_OUTPUT"
+            elif [[ "$PLAN_FALLBACK_FULL" == true ]]; then
+              {
+                echo 'run_full=true'
+                echo 'container=true'
+                echo 'log_postgres=true'
+                echo 'log_do=true'
+                echo 'has_system_suites=true'
+                echo "system_suites_matrix=$PLAN_SYSTEM_SUITES_MATRIX"
                 echo 'upstream_run_id='
               } >>"$GITHUB_OUTPUT"
             else

@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { bundledImporterOnlyChange, desktopTestPlan } from "../ci/desktop-test-plan.mjs";
 import { serverTestPlan } from "../ci/server-test-plan.mjs";
 
@@ -168,10 +172,31 @@ test("pull requests select only the Server CI suites touched by their diff", () 
     assert.deepEqual(serverTestPlan(["docs/readme.md", path]), all, path);
   }
   const classify = workflow("server-ci").split("  classify:\n")[1].split("  node:\n")[0];
+  assert.match(classify, /fetch-depth: \$\{\{ github\.event_name != 'pull_request' && 1 \|\| 0 \}\}/);
   assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs "\$BASE" "\$HEAD"/);
   assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs --full/);
   assert.match(classify, /node scripts\/ci\/runtime-reuse\.mjs classify-native/);
+  assert.match(classify, /elif \[\[ "\$PLAN_FALLBACK_FULL" == true \]\]; then[\s\S]+?echo 'run_full=true'/);
   assert.doesNotMatch(classify, /NATIVE_CHANGES == true/);
+});
+
+test("server-test-plan fails safe to full qualification if git diff fails", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "server-test-plan-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const outputPath = join(dir, "github-output");
+  const script = fileURLToPath(new URL("../ci/server-test-plan.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, [script, "0".repeat(40), "f".repeat(40)], {
+    env: { ...process.env, GITHUB_OUTPUT: outputPath },
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const outputs = readFileSync(outputPath, "utf8");
+  assert.match(outputs, /^fallback_full=true$/m);
+  assert.match(outputs, /^container=true$/m);
+  assert.match(outputs, /^log_postgres=true$/m);
+  assert.match(outputs, /^log_do=true$/m);
+  assert.match(outputs, /^has_system_suites=true$/m);
+  assert.match(outputs, /^system_suites_matrix=\{"include":\[.*relay.*linux-packages.*\]\}$/m);
 });
 
 test("protocol-only packaging selection leaves Node and full merge-queue qualification intact", () => {

@@ -125,10 +125,11 @@ export function serverTestPlan(paths) {
   };
 }
 
-function formatOutputs(plan) {
+function formatOutputs(plan, fallbackFull = false) {
   const suites = selectedSystemSuites(plan);
   return {
     ...plan,
+    fallback_full: fallbackFull,
     has_system_suites: suites.length > 0,
     system_suites_matrix: JSON.stringify({ include: suites })
   };
@@ -138,18 +139,29 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const [first, second] = process.argv.slice(2);
   let plan;
   let paths = [];
+  let fallbackFull = false;
   if (first === "--full") {
     plan = fullServerTestPlan();
+  } else if (!first || !second) {
+    console.error("server-test-plan: missing base or head revision; falling back to full qualification");
+    plan = fullServerTestPlan();
+    fallbackFull = true;
   } else {
-    if (!first || !second) throw new Error("Expected --full or base and head revisions");
-    // --no-renames includes both sides of moves so suite inputs cannot disappear.
-    paths = execFileSync("git", ["diff", "--no-renames", "--name-only", "-z", `${first}...${second}`], {
-      encoding: "utf8"
-    }).split("\0").filter(Boolean);
-    plan = serverTestPlan(paths);
+    try {
+      // --no-renames includes both sides of moves so suite inputs cannot disappear.
+      paths = execFileSync("git", ["diff", "--no-renames", "--name-only", "-z", `${first}...${second}`], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"]
+      }).split("\0").filter(Boolean);
+      plan = serverTestPlan(paths);
+    } catch (error) {
+      console.error(`server-test-plan: git diff failed (${error.message}); falling back to full qualification`);
+      plan = fullServerTestPlan();
+      fallbackFull = true;
+    }
   }
-  const outputs = formatOutputs(plan);
-  console.log(JSON.stringify({ paths, ...plan, system_suites: selectedSystemSuites(plan) }, null, 2));
+  const outputs = formatOutputs(plan, fallbackFull);
+  console.log(JSON.stringify({ paths, fallback_full: fallbackFull, ...plan, system_suites: selectedSystemSuites(plan) }, null, 2));
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, Object.entries(outputs)
       .map(([key, value]) => `${key}=${value}\n`).join(""));
