@@ -199,4 +199,18 @@ describe("Private collection setup",()=>{
     expect(plan.changes.map(c => c.target)).toEqual(["_contracts/org.example.reader.source.md", "_contracts/org.example.comment/1.0.0.md", "_types/reader-source.md", "schemas/org.example.comment/1.0.0.schema.json", "include", "record extensions", "internal setting"]);
     expect(plan.changes.map(c => c.message).join(" ")).not.toMatch(/reader|comment|Internal\/|include setting|record extensions setting|internal setting/i);
   });
+  it("routes non-installed_newer conflicts into setup_required while keeping newer major versions incompatible", async () => {
+    const f = await nativeSetupFixture(JOURNAL);
+    f.state.conflict = "adoptable";
+    expect(await f.setup.assess()).toBe("setup_required");
+    const conflictPlan = await f.setup.plan();
+    expect(conflictPlan).toMatchObject({ status: "conflict", canApply: false, refusal: { code: "setup_conflict" }, adoptable: { "_types/task.md": `sha256:${"ab".repeat(32)}` } });
+    await expect(f.setup.apply(conflictPlan)).rejects.toMatchObject({ code: "conflict", reason: "setup_conflict" });
+
+    f.state.conflict = "installed_newer";
+    expect(await f.setup.assess()).toBe("incompatible");
+    const newerPlan = await f.setup.plan();
+    expect(newerPlan).toMatchObject({ status: "conflict", canApply: false, refusal: { code: "installed_newer" } });
+    await expect(f.setup.apply(newerPlan)).rejects.toMatchObject({ code: "upgrade_required", reason: "installed_newer" });
+  });
 });

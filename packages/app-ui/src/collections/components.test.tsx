@@ -447,18 +447,20 @@ describe("setup review without a way forward", () => {
     expect(mdbase.setup.plan).toHaveBeenCalledTimes(2);
   });
 
-  it("offers Try again beside a refusal whose own control is setup itself", async () => {
+  it("offers Try again beside a refusal whose own control is setup itself, naming the conflicting target path", async () => {
     const { mdbase, entry } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
     mdbase.setup.plan.mockResolvedValue({ ...base, status: "conflict", canApply: false, summary: "Some items can't be set up automatically.",
-      conflicts: [{ target: "_types/task.md", message: "The note type for this app was changed outside this app." }],
+      conflicts: [{ target: "_contracts/org.example.task/1.0.0.md", message: "The shared format for this app's notes was changed after this app set it up, so it can't be updated automatically." }],
       refusal: { code: "setup_conflict", message: "Some items can't be set up automatically." } } as never);
     render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
     await flush();
-    expect(container.textContent).toContain("The note type for this app was changed outside this app.");
+    expect(container.textContent).toContain("The shared format for this app's notes was changed after this app set it up");
+    expect(container.querySelector(".mdbase-collections-setup-target")?.textContent).toBe("_contracts/org.example.task/1.0.0.md");
     expect(button("Try again")).toBeTruthy();
+    expect(button("Choose a different collection")).toBeTruthy();
   });
 
-  it("offers the app's version for a starter note type no upgrade applies to, never only Try again", async () => {
+  it("offers the app's version for a starter note type no upgrade applies to, showing the target path and never only Try again", async () => {
     const { mdbase, entry } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
     const live = `sha256:${"ab".repeat(32)}`;
     const message = "One item differs from what this app needs. Choose whether to use this app's version to continue.";
@@ -471,6 +473,7 @@ describe("setup review without a way forward", () => {
     render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
     await flush();
     expect(container.textContent).toContain("can't be combined with the version this app needs");
+    expect(container.querySelector(".mdbase-collections-setup-target")?.textContent).toBe("_types/task.md");
     expect(() => button("Try again")).toThrow();
     expect(() => button("Set up")).toThrow();
     act(() => button("Use TaskNotes's version").click());
@@ -478,6 +481,33 @@ describe("setup review without a way forward", () => {
     expect(mdbase.setup.plan).toHaveBeenLastCalledWith(expect.objectContaining({ adopt: { "_types/task.md": live } }));
     expect(container.textContent).toContain("Yours isn't kept.");
     expect(button("Set up")).toBeTruthy();
+  });
+
+  it("handles mixed adoptable and non-adoptable setup conflicts, showing each target path", async () => {
+    const { mdbase, entry } = fakeMdbase(needsSetup, { status: "setup_required", selectedCollectionId: A });
+    const live = `sha256:${"cd".repeat(32)}`;
+    const message = "Some items can't be set up automatically. Resolve them, then try again.";
+    mdbase.setup.plan.mockResolvedValueOnce({ ...base, status: "conflict", canApply: false, summary: message, adoptable: { "_types/task.md": live },
+      conflicts: [
+        { target: "_types/task.md", adoptable: { digest: live }, message: "This collection already has a note type for this app that differs from the one this app needs. You can replace it with this app's version." },
+        { target: "_contracts/org.example.task/1.0.0.md", message: "The shared format for this app's notes was changed after this app set it up, so it can't be updated automatically." },
+      ],
+      refusal: { code: "setup_conflict", message } } as never).mockResolvedValueOnce({ ...base, status: "conflict", canApply: false, summary: message, adoptable: {},
+      changes: [{ kind: "adopt", target: "_types/task.md", message: "Replace the note type for this app with this app's version. Yours isn't kept." }],
+      conflicts: [
+        { target: "_contracts/org.example.task/1.0.0.md", message: "The shared format for this app's notes was changed after this app set it up, so it can't be updated automatically." },
+      ],
+      refusal: { code: "setup_conflict", message } } as never);
+    render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>);
+    await flush();
+    expect([...container.querySelectorAll(".mdbase-collections-setup-target")].map((el) => el.textContent))
+      .toEqual(["_types/task.md", "_contracts/org.example.task/1.0.0.md"]);
+    act(() => button("Use TaskNotes's version").click());
+    await flush();
+    expect(mdbase.setup.plan).toHaveBeenLastCalledWith(expect.objectContaining({ adopt: { "_types/task.md": live } }));
+    expect([...container.querySelectorAll(".mdbase-collections-setup-target")].map((el) => el.textContent))
+      .toEqual(["_contracts/org.example.task/1.0.0.md"]);
+    expect(button("Try again")).toBeTruthy();
   });
 
   it("plans again quietly when readiness settles after a change, keeping the review on screen", async () => {

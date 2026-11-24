@@ -376,11 +376,14 @@ export function createApplicationConfiguration(source: ApplicationConfigurationI
       check(signal, session);
       if (assessed.status !== "current" || !hash.test(assessed.assessmentDigest)) throw failure("recovery_required");
     }
-    // A pack installed at a newer major is not a conflict to resolve: update the app.
-    const code = assessed.status === "conflict" ? (chosen.newer.major.length ? "installed_newer" : "configuration_conflict") : null;
+    // Only a newer major pack is incompatible (update the app). Other setup
+    // conflicts enter setup_required so setup.plan() can show the conflicting
+    // targets and offer adoptable replacements.
+    const newerMajor = assessed.status === "conflict" && chosen.newer.major.length > 0;
+    const code = assessed.status === "conflict" ? (newerMajor ? "installed_newer" : "setup_conflict") : null;
     const problem = code ? Object.freeze({ code }) : null;
     const assessment = Object.freeze({ status: assessed.status === "current" ? "ready" as const
-      : assessed.status === "conflict" ? "incompatible" as const : "setup_required" as const, problem });
+      : newerMajor ? "incompatible" as const : "setup_required" as const, problem });
     assessedSession = session; assessedCatalog = catalog;
     const result = Object.freeze({ checking: false, assessment, problem });
     // Changed while assessed: keep checking; the scheduled re-assessment publishes.

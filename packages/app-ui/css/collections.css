@@ -653,6 +653,14 @@
   overflow-wrap: anywhere;
 }
 
+.mdbase-collections-setup-target {
+  display: block;
+  margin-top: 2px;
+  color: var(--_text-soft);
+  font-family: var(--mdbase-collections-font-mono, var(--mono, ui-monospace, monospace));
+  font-size: var(--_font-size-caption);
+}
+
 /* Switcher trigger: the name wraps to two lines, and only a longer one is cut
  * short; the full name is always in the trigger's label and title. */
 .mdbase-collections-switcher {
