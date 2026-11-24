@@ -1,3 +1,3 @@
 ## Changed
 
-- Large collections open faster after an app sets up or changes its types: a device now rewrites only the notes a type change affects (none for a schema-only change) and rebuilds the query index in the same single pass.
+- When an app sets up or changes its types, a device catching up on a collection now does less work: it rewrites only the notes the change affects (none for a schema-only change) and rebuilds the query index in a single pass.
