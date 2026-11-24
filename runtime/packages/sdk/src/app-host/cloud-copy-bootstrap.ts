@@ -661,7 +661,7 @@ export class AppCpCloudCopyBootstrap {
                     bearer,
                     JSON.stringify({
                         device_id: this.scope.deviceId,
-                        capabilities: ["collection_mode_switch_v1"],
+                        capabilities: ["collection_mode_switch_v2"],
                         challenge: challenge.challenge,
                         sig: hex(signature),
                         ...(create

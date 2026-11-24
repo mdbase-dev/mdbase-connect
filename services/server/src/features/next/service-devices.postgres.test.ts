@@ -92,7 +92,9 @@ describePostgres("service devices", () => {
     const {collection, device, mint} = await freshCurrent();
     await db.query("UPDATE next_collections SET mode_floor_raised_at=$2 WHERE collection_id=$1", [collection, new Date(NOW)]);
     expect((await mint()).statusCode).toBe(409);
-    const supported = await app.inject({method:"POST",url:`/internal/v1/next/service-devices/${device.device_id}/log-token`,headers:{authorization:`Bearer ${hosted}`},payload:{collection,capabilities:["collection_mode_switch_v1"]}});
+    const v1 = await app.inject({method:"POST",url:`/internal/v1/next/service-devices/${device.device_id}/log-token`,headers:{authorization:`Bearer ${hosted}`},payload:{collection,capabilities:["collection_mode_switch_v1"]}});
+    expect(v1.statusCode, v1.body).toBe(409);
+    const supported = await app.inject({method:"POST",url:`/internal/v1/next/service-devices/${device.device_id}/log-token`,headers:{authorization:`Bearer ${hosted}`},payload:{collection,capabilities:["collection_mode_switch_v2"]}});
     expect(supported.statusCode, supported.body).toBe(200);
     expect((await mint()).statusCode).toBe(409);
   });
