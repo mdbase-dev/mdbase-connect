@@ -118,11 +118,14 @@ fn fixture(doc: &str, source: &[u8]) -> (Node, rt::ManifestPayload, Hash, Object
 }
 fn start(a: &Node, m: &rt::ManifestPayload, h: Hash, objects: &Objects) -> Node {
     let mut b = receiver(a, m, h);
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        size: objects[&h].len() as u64,
-        checksum: h,
-        bytes: objects[&h].clone(),
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            size: objects[&h].len() as u64,
+            checksum: h,
+            bytes: objects[&h].clone(),
+        }),
+    );
     b
 }
 fn finish(b: &mut Node, objects: &Objects, corrupt: bool) {

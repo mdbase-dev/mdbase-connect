@@ -852,7 +852,11 @@ fn retained_void_and_read_ahead_control_keep_exact_head_bytes() {
     settle(&mut [&mut a]);
     let seq = crate::testkit::TestControlPlane::new(COL).revoke(&svc, B16([109; 16]));
     let raw = svc.items(&COL)[seq as usize - 1].clone();
-    a.r.evaluate_control_bytes(seq, &raw).unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq,
+        item: mdbn_wire::common::Bytes(raw.clone()),
+    }])
+    .unwrap();
     let before = a.r.head();
     assert!(a.r.policy.seq > before.seq);
     a.r.apply_items(vec![mdbn_wire::log_service::SeqItem {
@@ -1816,20 +1820,23 @@ fn failed_control_read_requires_reopen_without_staging_cleanup_commit() {
     let seq = crate::testkit::TestControlPlane::new(COL).revoke(&svc, B16([109; 16]));
     a.r.install = Some(crate::replica::TestInstall::Control);
     a.r.store().fail_after_commit(1);
-    a.r.on_install_reply(Ok(crate::log::LogResponse::Read(
-        mdbn_wire::log_service::ReadResult {
-            items: vec![mdbn_wire::log_service::SeqItem {
-                seq,
-                item: mdbn_wire::common::Bytes(svc.items(&COL)[seq as usize - 1].clone()),
-            }],
-            head: seq,
-            head_chain: svc.head(&COL).1,
-            retained_from: 1,
-            behind: false,
-            snapshot: None,
-            more: false,
-        },
-    )));
+    a.r.on_install_reply(
+        crate::log::CallId(0),
+        Ok(crate::log::LogResponse::Read(
+            mdbn_wire::log_service::ReadResult {
+                items: vec![mdbn_wire::log_service::SeqItem {
+                    seq,
+                    item: mdbn_wire::common::Bytes(svc.items(&COL)[seq as usize - 1].clone()),
+                }],
+                head: seq,
+                head_chain: svc.head(&COL).1,
+                retained_from: 1,
+                behind: false,
+                snapshot: None,
+                more: false,
+            },
+        )),
+    );
     assert!(a.r.requires_reopen());
     assert_eq!(a.r.head(), head);
     assert_eq!(
@@ -1893,7 +1900,10 @@ fn failed_staging_discard_blocks_install_until_retry() {
     // An aborted install A fails to discard its staged rows.
     b.r.install = Some(crate::replica::TestInstall::Pointer);
     b.r.store().fail_commits(1);
-    b.r.on_install_reply(Ok(crate::log::LogResponse::GetSnapshot(vec![])));
+    b.r.on_install_reply(
+        crate::log::CallId(0),
+        Ok(crate::log::LogResponse::GetSnapshot(vec![])),
+    );
     assert_eq!(b.r.store().staged_rows(), 1);
     assert_eq!(b.r.head(), old_head);
     assert_eq!(b.r.confirmed_records().unwrap(), old_records);
@@ -4177,7 +4187,13 @@ fn control_read_ahead_metadata_failure_restores_policy_before_retry() {
     let seq = crate::testkit::TestControlPlane::new(COL).revoke(&svc, revoked);
     let raw = svc.items(&COL)[seq as usize - 1].clone();
     a.r.store().fail_commits(1);
-    assert!(a.r.evaluate_control_bytes(seq, &raw).is_err());
+    assert!(
+        a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq,
+            item: mdbn_wire::common::Bytes(raw.clone()),
+        }])
+        .is_err()
+    );
     assert!(a.r.policy.devices[&revoked].active);
     assert_eq!(a.r.head(), before);
     assert!(a.r.apply_fault.is_none(), "known abort may retry");
@@ -4185,7 +4201,11 @@ fn control_read_ahead_metadata_failure_restores_policy_before_retry() {
         a.r.status(a.s).unwrap_err().code(),
         Some(ErrorCode::Unavailable)
     );
-    a.r.evaluate_control_bytes(seq, &raw).unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq,
+        item: mdbn_wire::common::Bytes(raw.clone()),
+    }])
+    .unwrap();
     assert!(!a.r.requires_reopen());
     assert_eq!(
         a.r.status(a.s).unwrap_err().problem().reason.as_deref(),
@@ -4699,8 +4719,11 @@ fn read_ahead_failure_barrier_survives_a_successful_lower_prefix() {
     let raw = svc.items(&COL);
     a.r.store().fail_commits(1);
     assert!(
-        a.r.evaluate_control_bytes(target, &raw[target as usize - 1])
-            .is_err()
+        a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq: target,
+            item: mdbn_wire::common::Bytes(raw[target as usize - 1].clone()),
+        }])
+        .is_err()
     );
     a.r.apply_items(vec![mdbn_wire::log_service::SeqItem {
         seq: prefix,
@@ -4724,8 +4747,11 @@ fn read_ahead_failure_barrier_survives_a_successful_lower_prefix() {
             .iter()
             .all(|(_, p)| matches!(p, Push::Closed(_)))
     );
-    a.r.evaluate_control_bytes(target, &raw[target as usize - 1])
-        .unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq: target,
+        item: mdbn_wire::common::Bytes(raw[target as usize - 1].clone()),
+    }])
+    .unwrap();
     assert!(
         a.r.is_apply_recovering(),
         "policy read-ahead is not an applied prefix"
@@ -5930,7 +5956,11 @@ fn pinned_genesis_guards_the_install_path() {
         Some(genesis),
     );
     assert!(
-        d.r.evaluate_control_bytes(2, &raw[1]).is_err(),
+        d.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq: 2,
+            item: mdbn_wire::common::Bytes(raw[1].clone()),
+        }])
+        .is_err(),
         "seq 1 first"
     );
     assert!(d.r.requires_reopen());
@@ -5942,8 +5972,17 @@ fn pinned_genesis_guards_the_install_path() {
         None,
         Some(genesis),
     );
-    e.r.evaluate_control_bytes(1, &raw[0]).unwrap();
-    e.r.evaluate_control_bytes(2, &raw[1]).unwrap();
+    e.r.evaluate_control_page(&[
+        mdbn_wire::log_service::SeqItem {
+            seq: 1,
+            item: mdbn_wire::common::Bytes(raw[0].clone()),
+        },
+        mdbn_wire::log_service::SeqItem {
+            seq: 2,
+            item: mdbn_wire::common::Bytes(raw[1].clone()),
+        },
+    ])
+    .unwrap();
 }
 
 /// The genesis marker is part of the apply checkpoint: an aborted seq 1 leaves no
@@ -5968,14 +6007,24 @@ fn pinned_genesis_marker_follows_the_apply_checkpoint() {
         Some(genesis),
     );
     a.r.store().fail_commits(1);
-    assert!(a.r.evaluate_control_bytes(1, &raw[0]).is_err());
+    assert!(
+        a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq: 1,
+            item: mdbn_wire::common::Bytes(raw[0].clone()),
+        }])
+        .is_err()
+    );
     assert_eq!(a.r.genesis, None);
     assert_eq!(
         crate::store::Store::meta(a.r.store(), crate::store::meta_keys::GENESIS).unwrap(),
         None
     );
     assert!(!a.r.requires_reopen(), "known abort may retry");
-    a.r.evaluate_control_bytes(1, &raw[0]).unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq: 1,
+        item: mdbn_wire::common::Bytes(raw[0].clone()),
+    }])
+    .unwrap();
     assert_eq!(a.r.genesis, Some(genesis));
 
     // An outer known abort after the inner seq-1 commit restores the prior marker.

@@ -80,6 +80,7 @@ struct Plan {
     at: Option<u64>,
     seen: u64,
     kinds: BTreeMap<&'static str, u64>,
+    trace: Vec<&'static str>,
     /// The point's kind, once killed.
     killed: Option<&'static str>,
     /// Refuse the call at `at` instead, before it reaches the database, and
@@ -115,6 +116,7 @@ impl Killable {
         }
         plan.seen += 1;
         *plan.kinds.entry(kind).or_default() += 1;
+        plan.trace.push(kind);
         if plan.at != Some(plan.seen) {
             return false;
         }
@@ -409,4 +411,300 @@ fn the_app_store_fenced_inside_a_window_still_closes_it() {
     assert!(plan.refused && plan.killed.is_none());
     assert!(reopened_at.is_some_and(|head| head < reference.head));
     assert_eq!(outcome, reference);
+}
+
+/// A compacted log with 20 control items (2 pages under `Paged`) and enough
+/// record bytes to split the snapshot into multiple waves of 6 chunks.
+fn compacted_snapshot_log(dir: &Path) -> (r::fake::FakeLogService, u64) {
+    let svc = r::fake::FakeLogService::new();
+    let mut cp = r::testkit::TestControlPlane::signed(COL);
+    cp.genesis_with_keys(&svc, w::policy::CState::E2e, DEV, &SIGN, &KEM);
+    for b in 1..=18u8 {
+        cp.append(
+            &svc,
+            vec![w::policy::PolicyOp::DeviceEnrol(w::policy::DeviceEnrol {
+                device: w::common::B16([b.wrapping_add(50); 16]),
+                account: r::testkit::TEST_OWNER,
+                kind: w::policy::DeviceKind::Desktop,
+                sign_pk: w::common::B32([b; 32]),
+                kem_pk: w::common::B32([b.wrapping_add(1); 32]),
+                noise_pk: w::common::B32([b.wrapping_add(2); 32]),
+                sas_commit: None,
+                local_root: None,
+            })],
+        );
+    }
+    let store = mdbn_store_file::SqlStore::open(Rc::new(RefCell::new(
+        SqliteIndex::open(dir.join("writer.db"), IndexDurability::Durable).unwrap(),
+    )))
+    .unwrap();
+    let mut writer = open(store, 1);
+    let mut client = svc.client(DEV);
+    settle(&mut writer, &mut client);
+    let session = host_session(&mut writer);
+    let pad = "x".repeat(48 * 1024);
+    for batch in 0..4u16 {
+        let ops = (0..10u16)
+            .map(|j| {
+                let n = batch * 10 + j;
+                let mut id = [9u8; 16];
+                id[..2].copy_from_slice(&n.to_be_bytes());
+                w::intent::Op::Create(w::intent::Create {
+                    id: w::common::B16(id),
+                    path: Some(format!("note-{n:03}.md")),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(w::common::Text::Inline(format!("note {n}\n{pad}\n"))),
+                })
+            })
+            .collect();
+        writer
+            .submit(
+                session,
+                w::client::SubmitParams {
+                    ops,
+                    mutation_id: None,
+                    conflict_mode: None,
+                    timezone: None,
+                    allow_partial: None,
+                    mutation_ids: None,
+                    dry_run: None,
+                    include: None,
+                    wait: None,
+                    validation: None,
+                },
+            )
+            .unwrap();
+        settle(&mut writer, &mut client);
+    }
+    writer.build_snapshot_now().unwrap();
+    settle(&mut writer, &mut client);
+    assert_eq!(writer.stats.snapshots_built, 1);
+    let head = writer.head().seq;
+    svc.compact(&COL, head);
+    (svc, head)
+}
+
+#[test]
+fn the_app_store_batches_snapshot_install_control_pages_and_chunk_waves() {
+    let dir = scratch("app-snapshot-install-counts");
+    let (svc, head) = compacted_snapshot_log(&dir);
+
+    let install = |name: &str, windows: bool| -> (Commits, u64, u64) {
+        let commits = Rc::new(Cell::new(Commits::default()));
+        let index = Rc::new(RefCell::new(Counted {
+            inner: SqliteIndex::open(dir.join(format!("{name}.db")), IndexDurability::Durable)
+                .unwrap(),
+            windows,
+            open: false,
+            commits: commits.clone(),
+        }));
+        let store = TentativeStore::open(index.clone(), SqlStoreLimits::MOBILE).unwrap();
+        let mut reader = open(store, 2);
+        let opened = commits.get();
+        let mut client = Paged(svc.client(DEV));
+        let mut control_pages = 0u64;
+        let mut control_commits = 0u64;
+        for _ in 0..40 {
+            for _ in 0..200 {
+                let calls = reader.take_log_calls();
+                if calls.is_empty() {
+                    break;
+                }
+                for call in calls {
+                    let is_ctl = matches!(
+                        call.request,
+                        r::log::LogRequest::Read(ref p)
+                            if p.kinds == Some(w::log_service::ReadKinds::Control)
+                    );
+                    let before = commits.get();
+                    let reply = r::log::LogClient::call(&mut client, call.request);
+                    reader.on_log_reply(call.id, reply);
+                    assert!(
+                        !index.borrow().open,
+                        "no window outlives a snapshot-install reply"
+                    );
+                    if is_ctl {
+                        control_pages += 1;
+                        control_commits += commits.get().since(before).synced();
+                    }
+                }
+            }
+            reader.tick();
+        }
+        assert_eq!(reader.head().seq, head);
+        assert_eq!(reader.stats.snapshots_installed, 1);
+        assert_eq!(reader.confirmed_records().unwrap().len(), 40);
+        assert!(reader.sync_status().incidents.is_empty());
+        (commits.get().since(opened), control_pages, control_commits)
+    };
+
+    let (off, ctl_pages_off, ctl_commits_off) = install("off", false);
+    let (on, ctl_pages_on, ctl_commits_on) = install("on", true);
+    eprintln!(
+        "app-snapshot-install: 20 control items in {ctl_pages_on} pages ({ctl_commits_on} commits); \
+         {off:?} without chunk windows, {on:?} with"
+    );
+    assert_eq!(ctl_pages_off, 2);
+    assert_eq!(ctl_pages_on, 2);
+    // 20 control items over 2 pages = 2 synced commits total, not 20.
+    assert_eq!(ctl_commits_off, 2);
+    assert_eq!(ctl_commits_on, 2);
+    // Multiple chunk waves each hold multiple chunk Stage::Put commits in one window.
+    assert_eq!((off.windows, off.in_window), (0, 0));
+    assert!(on.windows >= 2, "expected >= 2 chunk waves, got {on:?}");
+    assert!(
+        on.in_window > on.windows,
+        "chunk waves must batch multiple Stage::Put writes per window: {on:?}"
+    );
+    assert_eq!(on.in_window, off.alone - on.alone);
+    assert!(on.synced() < off.synced());
+}
+
+#[test]
+fn snapshot_install_killed_during_chunk_staging_restarts_cleanly_on_sqlite() {
+    let root = scratch("sqlite-snapshot-install-kill");
+    let (svc, head) = compacted_snapshot_log(&root);
+
+    let run_once = |tag: &str, at: Option<u64>, swap_point: Option<u64>| -> (Outcome, Plan) {
+        let dir = root.join(format!("{tag}-db"));
+        let image = root.join(format!("{tag}-img"));
+        fs::create_dir_all(&dir).unwrap();
+        let plan = Rc::new(RefCell::new(Plan {
+            at,
+            ..Plan::default()
+        }));
+        let open_sql = |path: &Path, p: &Rc<RefCell<Plan>>| {
+            let index = Killable {
+                inner: SqliteIndex::open(path.join("replica.db"), IndexDurability::Durable)
+                    .unwrap(),
+                dir: path.to_path_buf(),
+                image: image.clone(),
+                plan: p.clone(),
+                open: false,
+            };
+            let store = mdbn_store_file::SqlStore::open(Rc::new(RefCell::new(index))).unwrap();
+            open(store, 2)
+        };
+
+        let mut reader = open_sql(&dir, &plan);
+        let mut client = Paged(svc.client(DEV));
+        'install: for _ in 0..40 {
+            for _ in 0..200 {
+                let calls = reader.take_log_calls();
+                if calls.is_empty() {
+                    break;
+                }
+                let in_chunks = reader.install_status().is_some_and(|(_, total)| total > 0);
+                if in_chunks {
+                    plan.borrow_mut().armed = true;
+                }
+                for call in calls {
+                    let reply = r::log::LogClient::call(&mut client, call.request);
+                    reader.on_log_reply(call.id, reply);
+                    if plan.borrow().killed.is_some() {
+                        break 'install;
+                    }
+                }
+                if in_chunks && reader.install_status().is_none() {
+                    plan.borrow_mut().armed = false;
+                }
+            }
+            reader.tick();
+            if plan.borrow().killed.is_some() {
+                break;
+            }
+        }
+        plan.borrow_mut().armed = false;
+        let mut expected_installed = 1;
+        if let Some(kind) = plan.borrow().killed {
+            drop(reader);
+            let unarmed = Rc::new(RefCell::new(Plan::default()));
+            reader = open_sql(&image, &unarmed);
+            let point = at.unwrap();
+            if point <= swap_point.unwrap() {
+                // Killed during chunk staging (inside a wave window, at window
+                // closing/closed, or right before Stage::Swap): confirmed state
+                // is completely untouched and reopen re-installs cleanly.
+                assert_eq!(
+                    reader.head().seq,
+                    0,
+                    "{tag} ({kind}): confirmed head untouched before swap"
+                );
+                assert!(
+                    reader.confirmed_records().unwrap().is_empty(),
+                    "{tag} ({kind}): confirmed records untouched before swap"
+                );
+            } else {
+                // Killed after Stage::Swap landed (during post-swap query-index
+                // backfill): confirmed state is already at the snapshot head.
+                assert_eq!(reader.head().seq, head, "{tag} ({kind}): post-swap head");
+                expected_installed = 0;
+            }
+            settle(&mut reader, &mut client);
+        }
+        assert_eq!(reader.head().seq, head, "{tag}");
+        assert_eq!(
+            reader.stats.snapshots_installed, expected_installed,
+            "{tag}"
+        );
+        assert!(reader.sync_status().incidents.is_empty(), "{tag}");
+        let mut records: Vec<(String, String)> = reader
+            .confirmed_records()
+            .unwrap()
+            .into_iter()
+            .map(|row| (row.path, row.doc))
+            .collect();
+        records.sort();
+        let outcome = Outcome {
+            head: reader.head().seq,
+            log_items: svc.items(&COL).len(),
+            records,
+            pending: reader.sync_status().pending,
+        };
+        let plan = std::mem::take(&mut *plan.borrow_mut());
+        (outcome, plan)
+    };
+
+    let (reference, plan) = run_once("ref", None, None);
+    // First non-window write after chunk staging starts is `Stage::Swap`.
+    let swap_point = plan
+        .trace
+        .iter()
+        .position(|k| *k == "write")
+        .map(|i| i as u64 + 1)
+        .expect("Stage::Swap write point");
+    let before_swap = &plan.trace[..(swap_point as usize - 1)];
+    assert!(
+        before_swap
+            .iter()
+            .filter(|k| **k == "write in a window")
+            .count()
+            >= 6,
+        "expected >= 6 chunk staging writes before swap: {before_swap:?}"
+    );
+    assert!(
+        before_swap
+            .iter()
+            .filter(|k| **k == "window closing")
+            .count()
+            >= 2,
+        "expected >= 2 chunk staging windows before swap: {before_swap:?}"
+    );
+    assert_eq!(
+        before_swap
+            .iter()
+            .filter(|k| **k == "window closing")
+            .count(),
+        before_swap
+            .iter()
+            .filter(|k| **k == "window closed")
+            .count(),
+    );
+    for point in 1..=plan.seen {
+        let (outcome, run) = run_once(&format!("kill-{point}"), Some(point), Some(swap_point));
+        assert!(run.killed.is_some(), "point {point} must kill");
+        assert_eq!(outcome, reference, "point {point} ({:?})", run.killed);
+    }
 }

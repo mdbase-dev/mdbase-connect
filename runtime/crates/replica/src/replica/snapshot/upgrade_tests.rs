@@ -138,7 +138,7 @@ fn manifest_reply(r: &mut Replica<MemStore>, payload: &Cbor) {
         created_at: 0,
         endorsed: true,
     }));
-    r.on_install_reply(response(bytes));
+    r.on_install_reply(CallId(0), response(bytes));
 }
 fn chunk_reply(r: &mut Replica<MemStore>, payload: &Cbor) {
     chunk_reply_kind(r, payload, SectionKind::Legacy(L::Records));
@@ -153,12 +153,16 @@ fn chunk_reply_kind(r: &mut Replica<MemStore>, payload: &Cbor, kind: SectionKind
         bucket: 0,
         plain_size: plain.len() as u64,
     };
-    r.install = Some(Install::Chunks {
+    r.install = Some(Install::Chunks(ChunkInstall {
         manifest: Box::new(manifest()),
         queue: vec![(kind, cref)],
         next: 0,
-    });
-    r.on_install_reply(response(bytes));
+        next_fetch: 1,
+        in_flight: BTreeMap::from([(CallId(1), 0)]),
+        ready: BTreeMap::new(),
+        retry: BTreeSet::new(),
+    }));
+    r.on_install_reply(CallId(1), response(bytes));
 }
 pub(super) fn assert_prior(r: &Replica<MemStore>, kind: IncidentKind, cleaned: bool) {
     assert!(r.install.is_none());
@@ -406,7 +410,7 @@ fn ref_indices_resolve_before_the_chain_check_or_refuse_the_install() {
     // Verified index: the complete set is kept and the chain check follows.
     let mut r = replica();
     ref_index_state(&mut r, &index);
-    r.on_install_reply(response(index.clone()));
+    r.on_install_reply(CallId(0), response(index.clone()));
     assert!(matches!(r.install, Some(Install::Chain(..))));
     assert_eq!(r.install_refs, Some(BTreeSet::from([member])));
     // Bytes that are not the named index refuse the install, prior state kept.
@@ -414,7 +418,7 @@ fn ref_indices_resolve_before_the_chain_check_or_refuse_the_install() {
     *tampered.last_mut().unwrap() ^= 1;
     let mut r = replica();
     ref_index_state(&mut r, &index);
-    r.on_install_reply(response(tampered));
+    r.on_install_reply(CallId(0), response(tampered));
     assert!(r.install_refs.is_none());
     assert_prior(&r, IncidentKind::Integrity, true);
 }

@@ -448,7 +448,7 @@ impl ChunkRows {
 
 impl<S: Store> Replica<S> {
     /// Stage rows: in the store's staging area when it has one, so memory holds
-    /// one chunk plus the index.
+    /// at most one in-flight chunk batch ([`CHUNKS_IN_FLIGHT`]) plus the index.
     fn stage_rows(&mut self, mut tx: Tx, what: &str) -> Result<(), String> {
         if self.store.stages() {
             tx.stage = crate::store::Stage::Put;

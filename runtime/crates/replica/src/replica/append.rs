@@ -1851,7 +1851,7 @@ impl<S: Store> Replica<S> {
             Inflight::SnapPut => self.on_snap_put(&reply),
             Inflight::AdoptPut => self.on_adopt_put(&reply),
             Inflight::SnapRegister => self.on_snap_registered(&reply),
-            Inflight::Install => self.on_install_reply(reply),
+            Inflight::Install => self.on_install_reply(id, reply),
             Inflight::InstallNative => self.on_native_install_reply(id, reply),
             Inflight::InstallText => self.on_snapshot_text_reply(id, reply),
             Inflight::Endorse => self.on_endorse_pointers(reply),

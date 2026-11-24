@@ -42,15 +42,15 @@ pub(super) const PAGE: u64 = 16;
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) struct Commits {
     /// Write batches committed and synced on their own.
-    alone: u64,
+    pub(super) alone: u64,
     /// Windows closed: one synced commit each.
-    windows: u64,
+    pub(super) windows: u64,
     /// Write batches held by a window.
-    in_window: u64,
+    pub(super) in_window: u64,
 }
 impl Commits {
     /// Commits SQLite synced.
-    fn synced(self) -> u64 {
+    pub(super) fn synced(self) -> u64 {
         self.alone + self.windows
     }
     pub(super) fn since(self, earlier: Self) -> Self {

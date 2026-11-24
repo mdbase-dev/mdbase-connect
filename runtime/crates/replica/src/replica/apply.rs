@@ -786,54 +786,119 @@ impl<S: Store> Replica<S> {
         Ok(r)
     }
 
-    /// A control item read during a snapshot install (`snapshot.md` §8 step 1):
-    /// evaluated into policy and keys and persisted; the head is set by the install.
-    pub(crate) fn evaluate_control_bytes(&mut self, p: u64, raw: &[u8]) -> Result<(), String> {
+    /// Roll back in-memory mutations from earlier items in a control page when
+    /// a later item in the same page fails before the page commits.
+    fn rollback_control_page(
+        &mut self,
+        checkpoint: super::apply_checkpoint::Checkpoint,
+        mutated: bool,
+        why: String,
+    ) -> String {
+        self.discard_staged_key_grants();
+        if mutated && let Err(reason) = checkpoint.restore(self, true) {
+            self.terminal_store_fault(&format!("{reason}: {why}"));
+        }
+        why
+    }
+
+    /// A page of control items read during a snapshot install (`snapshot.md` §8
+    /// step 1): evaluated in memory into policy and keys, then persisted in one
+    /// commit. The head is set by the install.
+    ///
+    /// Returns the policy snapshot after each newly evaluated item so the
+    /// manifest can be verified at its own position. On any error before or
+    /// during commit, no half-applied state from the page remains in memory or
+    /// in the store.
+    pub(crate) fn evaluate_control_page(
+        &mut self,
+        items: &[SeqItem],
+    ) -> Result<Vec<super::snapshot::ControlPoint>, String> {
         // Read-ahead has no settled applied prefix. Its persisted policy/hints
         // cannot recreate an original observation, even after a typed abort.
         self.original_history.invalidate();
         if self.apply_fault.is_some() {
             return Err("apply state is faulted; reopen required".into());
         }
-        if let Err(why) = self.check_genesis(p, raw) {
-            let why = format!("control {why}");
-            self.genesis_fault(why.clone());
-            return Err(why);
-        }
-        let item = Item::from_bytes(raw).map_err(|e| format!("control item {p}: {e}"))?;
-        if item.seq != Some(p) || item.collection != self.cfg.collection || !item.kind.is_control()
-        {
-            return Err(format!("control item {p}: position, collection or kind"));
-        }
-        let chain = mdbn_wire::hash::chain_hash(raw);
         let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
         self.discard_staged_key_grants();
-        if let Err(e) = self.evaluate_control(p, &chain, &item, raw, false) {
-            self.discard_staged_key_grants();
-            return Err(e);
+        let mut points = Vec::new();
+        let mut genesis_head = None;
+        let mut last_seq = None;
+        for it in items {
+            let p = it.seq;
+            if p <= self.policy.seq {
+                continue;
+            }
+            let raw = &it.item.0;
+            if let Err(why) = self.check_genesis(p, raw) {
+                let why = self.rollback_control_page(
+                    checkpoint,
+                    last_seq.is_some(),
+                    format!("control {why}"),
+                );
+                self.genesis_fault(why.clone());
+                return Err(why);
+            }
+            let item = match Item::from_bytes(raw) {
+                Ok(item) => item,
+                Err(e) => {
+                    return Err(self.rollback_control_page(
+                        checkpoint,
+                        last_seq.is_some(),
+                        format!("control item {p}: {e}"),
+                    ));
+                }
+            };
+            if item.seq != Some(p)
+                || item.collection != self.cfg.collection
+                || !item.kind.is_control()
+            {
+                return Err(self.rollback_control_page(
+                    checkpoint,
+                    last_seq.is_some(),
+                    format!("control item {p}: position, collection or kind"),
+                ));
+            }
+            let chain = mdbn_wire::hash::chain_hash(raw);
+            if let Err(e) = self.evaluate_control(p, &chain, &item, raw, false) {
+                return Err(self.rollback_control_page(checkpoint, last_seq.is_some(), e));
+            }
+            let at = Head { seq: p, chain };
+            if p == 1 {
+                genesis_head = Some(at);
+                self.note_genesis(at);
+            }
+            last_seq = Some(p);
+            points.push(super::snapshot::ControlPoint {
+                seq: p,
+                policy: self.policy.clone(),
+            });
         }
-        let at = Head { seq: p, chain };
-        let mut meta = vec![self.policy_meta(), self.account_key_meta()];
-        meta.extend(self.keyring_meta());
-        meta.extend(self.genesis_meta(at));
         // Read-ahead (snapshot install) persists policy but restores no applied
         // prefix: an own approval grant seen here never counts as Applied. The
         // pending grant stays Sent and resolves conservatively later (refused or
         // cancelled once the device is keyed in the applied policy).
         self.discard_staged_key_grants();
+        let Some(last_seq) = last_seq else {
+            return Ok(points);
+        };
+        let mut meta = vec![self.policy_meta(), self.account_key_meta()];
+        meta.extend(self.keyring_meta());
+        if let Some(at) = genesis_head {
+            meta.extend(self.genesis_meta(at));
+        }
         if let Err(e) = self.store.commit(Tx {
             meta,
             ..Tx::default()
         }) {
             self.failed_apply(
                 checkpoint,
-                p,
+                last_seq,
                 matches!(&e, StoreError::CommitAborted(_)),
                 &e,
             );
             return Err(format!("store: {e}"));
         }
-        self.note_genesis(at);
         // Persisted read-ahead policy alone does not restore the applied prefix.
         if self
             .apply_blocked
@@ -841,7 +906,7 @@ impl<S: Store> Replica<S> {
         {
             self.apply_blocked = None;
         }
-        Ok(())
+        Ok(points)
     }
 
     /// A sealed `grant_approval` (`policy.md` §5.1).
