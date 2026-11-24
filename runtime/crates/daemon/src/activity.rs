@@ -216,5 +216,7 @@ mod tests {
         let enabled = for_control_call(Method::SYNC_ENABLE, &json!({}), &status, None).unwrap();
         assert_eq!(enabled.detail.as_deref(), Some("synced_e2e"));
         assert!(!serde_json::to_string(&enabled).unwrap().contains("/home/u"));
+        assert!(for_control_call(Method::COLLECTION_LIST, &json!({}), &json!([]), None).is_none());
+        assert!(for_control_call(Method::COLLECTION_MODE, &json!({}), &json!({}), None).is_none());
     }
 }

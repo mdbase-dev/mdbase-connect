@@ -38,6 +38,15 @@ fn corrupt_or_unbound_journals_fail_closed_and_are_retained() {
         assert!(Request::load(disk.path()).is_err(), "{field}");
         assert!(disk.path().join(FILE).exists());
     }
+    let mut missing_generation = request();
+    missing_generation.generation = None;
+    missing_generation.save(disk.path()).unwrap();
+    assert_eq!(
+        Request::load(disk.path()).err().unwrap().reason.as_deref(),
+        Some("mode_journal_invalid")
+    );
+    assert!(disk.path().join(FILE).exists());
+
     crate::fsutil::write_atomic(&disk.path().join(FILE), b"{").unwrap();
     assert!(Request::load(disk.path()).is_err());
     assert!(disk.path().join(FILE).exists());
@@ -56,12 +65,8 @@ fn terminal_pre_publication_refusals_are_explicitly_enumerated() {
     ];
     for err in &terminal {
         assert!(
-            is_terminal_pre_publication_refusal(false, err),
+            is_terminal_pre_publication_refusal(err),
             "expected terminal before publication: {err:?}"
-        );
-        assert!(
-            !is_terminal_pre_publication_refusal(true, err),
-            "must never auto-cancel during /finish: {err:?}"
         );
     }
 
@@ -83,12 +88,8 @@ fn terminal_pre_publication_refusals_are_explicitly_enumerated() {
     ];
     for err in &non_terminal {
         assert!(
-            !is_terminal_pre_publication_refusal(false, err),
+            !is_terminal_pre_publication_refusal(err),
             "must not auto-cancel on {err:?}"
-        );
-        assert!(
-            !is_terminal_pre_publication_refusal(true, err),
-            "must not auto-cancel during finish on {err:?}"
         );
     }
 }
@@ -181,6 +182,7 @@ mod driver {
     enum PrepareAction {
         PublishAndFinish,
         Defer(Arc<Barrier>),
+        Drop(Arc<Barrier>),
         WaitForTokenExpiry(u64),
         Raw {
             status: u16,
@@ -191,7 +193,7 @@ mod driver {
 
     enum FinishAction {
         Complete,
-        NotReady,
+        Refuse(u16, &'static str),
     }
 
     #[derive(Default)]
@@ -210,6 +212,8 @@ mod driver {
     enum Fault {
         RateLimit(u64),
         DropReply,
+        DropBeforeCommit,
+        Refuse(u16, &'static str),
         Abandon,
     }
 
@@ -225,7 +229,6 @@ mod driver {
         finish_queue: VecDeque<FinishAction>,
         status_gate: Option<Arc<Barrier>>,
         reserve_gate: Option<Arc<Barrier>>,
-        challenge_gate: Option<Arc<Barrier>>,
         reserve_fault: Option<Fault>,
         delete_fault: Option<Fault>,
         intent_ids: Vec<String>,
@@ -253,7 +256,6 @@ mod driver {
                 finish_queue: VecDeque::new(),
                 status_gate: None,
                 reserve_gate: None,
-                challenge_gate: None,
                 reserve_fault: None,
                 delete_fault: None,
                 intent_ids: Vec::new(),
@@ -417,11 +419,7 @@ mod driver {
                 let state = {
                     let collections = plane.collections.lock().unwrap();
                     if challenge {
-                        collections
-                            .values()
-                            .find(|state| state.lock().unwrap().challenge_gate.is_some())
-                            .or_else(|| collections.values().next())
-                            .cloned()
+                        collections.values().next().cloned()
                     } else {
                         id.and_then(|id| collections.get(id)).cloned()
                     }
@@ -436,11 +434,7 @@ mod driver {
                     .await;
                     return;
                 };
-                if method == "POST" && path == "/v1/next/devices/challenge" {
-                    let gate = state.lock().unwrap().challenge_gate.take();
-                    if let Some(gate) = gate {
-                        gate.wait().await;
-                    }
+                if challenge {
                     write_http(
                         &mut socket,
                         200,
@@ -510,7 +504,7 @@ mod driver {
                         s.intent_calls += 1;
                         s.intent_ids.push(req.clone());
                         let fault = s.reserve_fault.take();
-                        if !matches!(fault, Some(Fault::RateLimit(_)))
+                        if !matches!(fault, Some(Fault::RateLimit(_) | Fault::Refuse(..)))
                             && s.active_request.as_deref() != Some(req.as_str())
                         {
                             s.active_request = Some(req.clone());
@@ -539,6 +533,10 @@ mod driver {
                                 &json!({"error":{"code":"rate_limited"}}),
                             )
                             .await
+                        }
+                        Some(Fault::Refuse(status, code)) => {
+                            write_http(&mut socket, status, None, &json!({"error":{"code":code}}))
+                                .await
                         }
                         Some(Fault::DropReply) => {}
                         _ => write_http(&mut socket, 202, None, &reply).await,
@@ -593,7 +591,8 @@ mod driver {
                         } else if s.published {
                             (409, json!({"error":{"code":"mode_already_published"}}))
                         } else {
-                            if !matches!(fault, Some(Fault::RateLimit(_))) {
+                            if !matches!(fault, Some(Fault::RateLimit(_) | Fault::DropBeforeCommit))
+                            {
                                 s.phase = if matches!(fault, Some(Fault::Abandon)) {
                                     "abandoned"
                                 } else {
@@ -619,7 +618,7 @@ mod driver {
                             )
                             .await
                         }
-                        Some(Fault::DropReply) => {}
+                        Some(Fault::DropReply | Fault::DropBeforeCommit) => {}
                         _ => write_http(&mut socket, resp.0, None, &resp.1).await,
                     }
                     return;
@@ -700,6 +699,7 @@ mod driver {
                             gate.wait().await;
                             publish.await;
                         }
+                        PrepareAction::Drop(gate) => gate.wait().await,
                         PrepareAction::WaitForTokenExpiry(delay_ms) => {
                             let retry_at =
                                 format_rfc3339_ms(crate::fsutil::now_ms() as u64 + delay_ms);
@@ -757,12 +757,15 @@ mod driver {
                             )
                             .await;
                         }
-                        FinishAction::NotReady => {
+                        FinishAction::Refuse(status, code) => {
+                            if code == "mode_abandoned" {
+                                state.lock().unwrap().phase = "abandoned".into();
+                            }
                             write_http(
                                 &mut socket,
-                                503,
+                                status,
                                 None,
-                                &json!({"error": {"code": "not_ready"}}),
+                                &json!({"error": {"code": code}}),
                             )
                             .await;
                         }
@@ -917,6 +920,25 @@ mod driver {
         }
     }
 
+    async fn pair_account(daemon: &Arc<Daemon>, trust: &crate::trust::Trust, account: B16) {
+        let epoch = daemon.begin_pairing().await.unwrap();
+        daemon
+            .publish_pairing(
+                epoch,
+                crate::cloud::CloudConfig {
+                    schema_version: 1,
+                    account_epoch: epoch,
+                    connector_id: Some(B16(new_uuid_v7()).to_uuid_string()),
+                    server_url: trust.cp_origin.clone(),
+                    ..Default::default()
+                },
+                &account.to_uuid_string(),
+                b"con_hermetic_fixture",
+            )
+            .await
+            .unwrap();
+    }
+
     impl DriverFixture {
         async fn start(tag: &str, initial_private: bool) -> Self {
             let cp = ControlPlane::new(CP_LABEL);
@@ -956,22 +978,7 @@ mod driver {
             assert!(daemon.self_weak.set(Arc::downgrade(&daemon)).is_ok());
             let asked = Arc::new(Accepts::default());
             daemon.set_confirmer(asked.clone());
-            let epoch = daemon.begin_pairing().await.unwrap();
-            daemon
-                .publish_pairing(
-                    epoch,
-                    crate::cloud::CloudConfig {
-                        schema_version: 1,
-                        account_epoch: epoch,
-                        connector_id: Some(B16(new_uuid_v7()).to_uuid_string()),
-                        server_url: trust.cp_origin.clone(),
-                        ..Default::default()
-                    },
-                    &owner.to_uuid_string(),
-                    b"con_hermetic_fixture",
-                )
-                .await
-                .unwrap();
+            pair_account(&daemon, &trust, owner).await;
 
             let identity = daemon.identity.get().unwrap();
             let public = identity.public();
@@ -1089,6 +1096,22 @@ mod driver {
                 .await
         }
 
+        async fn wait_for_cloud_receipt(&self) {
+            let ctx = self.daemon.mode_context(&self.id()).await.unwrap();
+            tokio::time::timeout(Duration::from_secs(10), async {
+                while ctx
+                    .runtime
+                    .mode_source(false, true, ctx.guard.clone())
+                    .await
+                    .is_none()
+                {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                }
+            })
+            .await
+            .expect("replica observed policy receipt");
+        }
+
         async fn step(&self) {
             let request = self.journal().request;
             self.daemon.drive_mode_request(&self.id(), &request).await;
@@ -1150,8 +1173,10 @@ mod driver {
         {
             let mut s = f.state.lock().unwrap();
             s.prepare_queue.push_back(PrepareAction::PublishAndFinish);
-            s.finish_queue.push_back(FinishAction::NotReady);
-            s.finish_queue.push_back(FinishAction::NotReady);
+            s.finish_queue
+                .push_back(FinishAction::Refuse(503, "not_ready"));
+            s.finish_queue
+                .push_back(FinishAction::Refuse(503, "not_ready"));
             s.finish_queue.push_back(FinishAction::Complete);
         }
         let first = f
@@ -1370,14 +1395,12 @@ mod driver {
                 }),
             });
         }
-        let error = f.change("private", false).await.unwrap_err();
-        assert_eq!(error.reason.as_deref(), Some("mode_devices_need_update"));
-        let reply = error.details.unwrap();
+        let reply = f.change("private", false).await.unwrap();
         assert_eq!(reply["phase"], "waiting_for_devices");
         assert_eq!(reply["device_names"][&owner_device], "Old ThinkPad");
         assert!(matches!(
             f.daemon.mode_driver.slot(&f.id()).unwrap().schedule,
-            Schedule::Parked(Blocker::Devices)
+            Schedule::Parked(Blocker::Manual)
         ));
         assert_eq!(f.state.lock().unwrap().prepare_calls, 1);
         assert_eq!(f.state.lock().unwrap().delete_calls, 0);
@@ -1436,6 +1459,7 @@ mod driver {
             let result = f.change("cloud_copy", cancel).await.unwrap();
             assert_eq!(result["request_id"], original.request);
             assert_eq!(result["retry_scheduled"], true);
+            assert_eq!(result["cancel_requested"].as_bool(), cancel.then_some(true));
             f.step().await; // A previously selected background job must recheck under the gate.
             assert_eq!(f.calls(), expected);
             assert_eq!(f.journal().generation, original.generation);
@@ -1468,35 +1492,45 @@ mod driver {
     }
 
     #[tokio::test]
-    async fn lost_delete_reply_reconciles_only_the_exact_cancelled_row() {
-        let mut f = DriverFixture::start("mode-delete", true).await;
-        f.stop_driver().await;
-        {
-            let mut s = f.state.lock().unwrap();
-            s.prepare_queue.push_back(refusal(409, "mode_changed"));
-            s.delete_fault = Some(Fault::DropReply);
+    async fn lost_delete_reply_retries_only_when_the_exact_row_is_still_active() {
+        for (fault, committed) in [(Fault::DropReply, true), (Fault::DropBeforeCommit, false)] {
+            let mut f = DriverFixture::start("mode-delete", true).await;
+            f.stop_driver().await;
+            {
+                let mut s = f.state.lock().unwrap();
+                s.prepare_queue.push_back(refusal(409, "mode_changed"));
+                s.delete_fault = Some(fault);
+            }
+            assert_eq!(
+                f.change("cloud_copy", false)
+                    .await
+                    .unwrap_err()
+                    .reason
+                    .as_deref(),
+                Some("sync_unreachable")
+            );
+            let op = f.journal();
+            assert!(op.confirmed && op.native_started && op.cancel_requested);
+            assert!(f.cloud_opted_in());
+            assert_eq!(
+                f.state.lock().unwrap().delete_ids.as_slice(),
+                std::slice::from_ref(&op.request)
+            );
+            assert_eq!(f.state.lock().unwrap().phase == "cancelled", committed);
+            f.step().await;
+            assert_eq!(f.calls(), (1, 1, 0, 1));
+            elapse(3).await;
+            f.step().await;
+            let expected_deletes = if committed { 1 } else { 2 };
+            assert_eq!(f.calls(), (1, 1, 0, expected_deletes));
+            assert_eq!(
+                f.state.lock().unwrap().delete_ids,
+                vec![op.request; expected_deletes]
+            );
+            assert!(Request::load(&f.dir()).unwrap().is_none());
+            assert!(!f.cloud_opted_in());
+            f.close().await;
         }
-        assert_eq!(
-            f.change("cloud_copy", false)
-                .await
-                .unwrap_err()
-                .reason
-                .as_deref(),
-            Some("sync_unreachable")
-        );
-        let op = f.journal();
-        assert!(op.confirmed && op.native_started && op.cancel_requested);
-        assert!(f.cloud_opted_in());
-        assert_eq!(f.state.lock().unwrap().delete_ids, [op.request]);
-        assert_eq!(f.state.lock().unwrap().phase, "cancelled");
-        f.step().await;
-        assert_eq!(f.calls(), (1, 1, 0, 1));
-        elapse(3).await;
-        f.step().await;
-        assert_eq!(f.calls(), (1, 1, 0, 1));
-        assert!(Request::load(&f.dir()).unwrap().is_none());
-        assert!(!f.cloud_opted_in());
-        f.close().await;
     }
 
     #[tokio::test]
@@ -1572,13 +1606,11 @@ mod driver {
         assert!(!f.cloud_opted_in());
         assert_eq!(f.calls(), (0, 0, 0, 2));
 
-        let mut legacy = serde_json::to_value(op).unwrap();
-        legacy.as_object_mut().unwrap().remove("confirmed");
-        legacy["generation"] = json!("ab".repeat(32));
-        legacy["native_started"] = json!(true);
-        legacy["cancel_requested"] = json!(false);
-        crate::fsutil::write_atomic(&f.dir().join(FILE), &serde_json::to_vec(&legacy).unwrap())
-            .unwrap();
+        let mut op = op;
+        op.generation = Some("ab".repeat(32));
+        op.native_started = true;
+        op.cancel_requested = false;
+        save_legacy(&f.dir(), op);
         {
             let mut s = f.state.lock().unwrap();
             s.phase = "waiting_for_device".into();
@@ -1588,11 +1620,133 @@ mod driver {
         f.step().await;
         assert!(matches!(
             f.daemon.mode_driver.slot(&f.id()).unwrap().schedule,
-            Schedule::Parked(Blocker::Confirmation)
+            Schedule::Parked(Blocker::Manual)
         ));
+        assert_eq!(
+            f.daemon.mode_driver.notices(&f.id())[0].code,
+            "mode_switch_confirmation_required"
+        );
         assert!(!f.cloud_opted_in());
         assert_eq!(f.asked.0.load(Ordering::SeqCst), 0);
         assert_eq!(f.calls(), (0, 0, 0, 2));
+        assert_eq!(
+            f.change("cloud_copy", false).await.unwrap()["phase"],
+            "finishing"
+        );
+        assert!(f.journal().confirmed);
+        assert!(f.cloud_opted_in());
+        assert_eq!(f.asked.0.load(Ordering::SeqCst), 1);
+        f.close().await;
+    }
+
+    fn save_legacy(dir: &std::path::Path, op: Request) {
+        let mut legacy = serde_json::to_value(op).unwrap();
+        legacy.as_object_mut().unwrap().remove("confirmed");
+        crate::fsutil::write_atomic(&dir.join(FILE), &serde_json::to_vec(&legacy).unwrap())
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn cancelling_legacy_journals_revokes_native_intent_in_both_directions() {
+        for target in ["cloud_copy", "private"] {
+            let private = target == "private";
+            let mut f = DriverFixture::start("mode-legacy-rollback", !private).await;
+            f.stop_driver().await;
+            f.state
+                .lock()
+                .unwrap()
+                .prepare_queue
+                .push_back(PrepareAction::WaitForTokenExpiry(60_000));
+            assert_eq!(
+                f.change(target, false).await.unwrap()["phase"],
+                "waiting_for_token_expiry"
+            );
+            let op = f.journal();
+            assert!(op.native_started);
+            let ctx = f.daemon.mode_context(&f.id()).await.unwrap();
+            assert!(
+                ctx.runtime
+                    .mode_source(private, false, ctx.guard.clone())
+                    .await
+                    .is_some()
+            );
+            if !private {
+                assert!(f.cloud_opted_in());
+            }
+
+            save_legacy(&f.dir(), op);
+            assert!(!f.journal().confirmed);
+            assert_eq!(f.change(target, true).await.unwrap()["phase"], "cancelled");
+            assert!(Request::load(&f.dir()).unwrap().is_none());
+            assert_eq!(f.calls(), (1, 1, 0, 1));
+            assert!(
+                ctx.runtime
+                    .mode_source(private, false, ctx.guard.clone())
+                    .await
+                    .is_none()
+            );
+            if !private {
+                assert!(!f.cloud_opted_in());
+            }
+            assert_eq!(f.asked.0.load(Ordering::SeqCst), 1);
+            f.close().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn definite_reserve_refusals_and_missing_cancel_requests_clear_the_journal() {
+        let mut f = DriverFixture::start("mode-missing", true).await;
+        f.stop_driver().await;
+        for (status, code) in [
+            (400, "invalid_request"),
+            (403, "not_enrolled"),
+            (404, "not_found"),
+        ] {
+            f.state.lock().unwrap().reserve_fault = Some(Fault::Refuse(status, code));
+            assert_eq!(
+                f.change("cloud_copy", false)
+                    .await
+                    .unwrap_err()
+                    .reason
+                    .as_deref(),
+                Some(code)
+            );
+            assert!(Request::load(&f.dir()).unwrap().is_none());
+            assert!(f.daemon.mode_driver.slot(&f.id()).is_none());
+        }
+        let ctx = f.daemon.mode_context(&f.id()).await.unwrap();
+        let mut op = request();
+        op.collection = f.id();
+        op.account = ctx.entry.owner_account.unwrap();
+        op.device = ctx.entry.device.unwrap();
+        op.genesis = ctx.genesis;
+        op.confirmed = false;
+        op.generation = None;
+        op.cancel_requested = true;
+        op.save(&f.dir()).unwrap();
+        assert_eq!(
+            f.change("cloud_copy", true).await.unwrap(),
+            json!({"phase":"cancelled"})
+        );
+        assert!(Request::load(&f.dir()).unwrap().is_none());
+        assert_eq!(f.calls(), (3, 0, 0, 0));
+        assert!(!f.cloud_opted_in());
+
+        f.state
+            .lock()
+            .unwrap()
+            .prepare_queue
+            .push_back(refusal(403, "not_enrolled"));
+        f.change("cloud_copy", false).await.unwrap_err();
+        assert!(f.journal().native_started && f.cloud_opted_in());
+        f.state.lock().unwrap().active_request = None;
+        assert_eq!(
+            f.change("cloud_copy", true).await.unwrap()["phase"],
+            "cancelled"
+        );
+        assert!(Request::load(&f.dir()).unwrap().is_none());
+        assert!(!f.cloud_opted_in());
+        assert_eq!(f.calls(), (4, 1, 0, 0));
         f.close().await;
     }
 
@@ -1630,11 +1784,12 @@ mod driver {
         let mut f = DriverFixture::start("mode-checkpoint", true).await;
         f.stop_driver().await;
         let reserve = Arc::new(Barrier::default());
-        let challenge = Arc::new(Barrier::default());
+        let prepare = Arc::new(Barrier::default());
         {
             let mut s = f.state.lock().unwrap();
             s.reserve_gate = Some(reserve.clone());
-            s.challenge_gate = Some(challenge.clone());
+            s.prepare_queue
+                .push_back(PrepareAction::Drop(prepare.clone()));
         }
         let change = |f: &DriverFixture| {
             let daemon = f.daemon.clone();
@@ -1662,7 +1817,7 @@ mod driver {
 
         elapse(3).await;
         let before_prepare = change(&f);
-        challenge.reached.notified().await;
+        prepare.reached.notified().await;
         let later = f.journal();
         assert!(later.native_started);
         assert_eq!(later.generation, prior.generation);
@@ -1670,15 +1825,212 @@ mod driver {
         assert!(f.cloud_opted_in());
         before_prepare.abort();
         let _ = before_prepare.await;
-        challenge.release.notify_one();
+        prepare.release.notify_one();
 
         f.step().await;
         assert_eq!(
             f.state.lock().unwrap().intent_ids,
             [prior.request.clone(), prior.request]
         );
+        assert_eq!(f.calls(), (2, 2, 0, 0));
+        assert_eq!(f.asked.0.load(Ordering::SeqCst), 1);
+        f.close().await;
+    }
+
+    #[tokio::test]
+    async fn confirmed_switch_resumes_after_delete_refusal_and_finish_4xx_keeps_the_journal() {
+        let mut f = DriverFixture::start("mode-published", true).await;
+        f.stop_driver().await;
+        assert_eq!(
+            f.change("cloud_copy", false).await.unwrap()["phase"],
+            "finishing"
+        );
+        f.wait_for_cloud_receipt().await;
+        let op = f.journal();
+        assert!(op.confirmed && op.native_started);
+        {
+            // An assigned outbox batch already rejects DELETE while status
+            // can still report publishing_policy.
+            let mut s = f.state.lock().unwrap();
+            s.phase = "publishing_policy".into();
+            s.finish_queue
+                .push_back(FinishAction::Refuse(404, "not_found"));
+        }
+        let reads = f.state.lock().unwrap().request_status_calls;
+        elapse(3).await;
+        assert_eq!(
+            f.change("cloud_copy", true)
+                .await
+                .unwrap_err()
+                .reason
+                .as_deref(),
+            Some("mode_already_published")
+        );
+        assert_eq!(f.state.lock().unwrap().request_status_calls, reads + 2);
+        assert_eq!(f.journal().request, op.request);
+        assert!(!f.journal().cancel_requested);
+        assert_eq!(f.calls(), (1, 1, 0, 1));
+
+        f.state.lock().unwrap().phase = "finishing".into();
+        elapse(5).await;
+        assert_eq!(
+            f.change("cloud_copy", false)
+                .await
+                .unwrap_err()
+                .reason
+                .as_deref(),
+            Some("not_found")
+        );
+        assert_eq!(f.journal().request, op.request);
+        assert!(!f.journal().cancel_requested);
+        assert!(f.cloud_opted_in());
+        assert_eq!(f.calls(), (1, 1, 1, 1));
+
+        assert_eq!(
+            f.change("cloud_copy", false).await.unwrap()["phase"],
+            "complete"
+        );
+        assert!(Request::load(&f.dir()).unwrap().is_none());
+        assert_eq!(f.calls(), (1, 1, 2, 1));
+        assert_eq!(f.asked.0.load(Ordering::SeqCst), 1);
+        f.close().await;
+    }
+
+    #[tokio::test]
+    async fn finish_refused_as_abandoned_reads_and_clears_the_exact_row_immediately() {
+        let mut f = DriverFixture::start("mode-finish-abandoned", true).await;
+        f.stop_driver().await;
+        let first = f.change("cloud_copy", false).await.unwrap();
+        f.wait_for_cloud_receipt().await;
+        f.state
+            .lock()
+            .unwrap()
+            .finish_queue
+            .push_back(FinishAction::Refuse(409, "mode_abandoned"));
+        let reads = f.state.lock().unwrap().request_status_calls;
+        elapse(3).await;
+        let reply = f.change("cloud_copy", false).await.unwrap();
+        assert_eq!(reply["phase"], "abandoned");
+        assert_eq!(reply["request_id"], first["request_id"]);
+        assert_eq!(f.state.lock().unwrap().request_status_calls, reads + 2);
+        assert_eq!(f.calls(), (1, 1, 1, 0));
+        assert!(f.cloud_opted_in());
+        assert!(Request::load(&f.dir()).unwrap().is_none());
+        f.close().await;
+    }
+
+    #[tokio::test]
+    async fn a_switch_parked_for_the_wrong_account_wakes_when_the_owner_signs_in() {
+        let mut f = DriverFixture::start("mode-account-mismatch", true).await;
+        f.stop_driver().await;
+        f.state.lock().unwrap().reserve_fault = Some(Fault::RateLimit(1));
+        assert_eq!(
+            f.change("cloud_copy", false).await.unwrap_err().code,
+            "rate_limited"
+        );
+        let original = f.journal();
+        pair_account(&f.daemon, &f.trust, B16(new_uuid_v7())).await;
+        elapse(2).await;
+        f.step().await;
+        let slot = f.daemon.mode_driver.slot(&f.id()).unwrap();
+        assert!(matches!(slot.schedule, Schedule::Parked(Blocker::SignIn)));
+        assert_eq!(slot.notice.unwrap().code, "mode_switch_sign_in_required");
+        assert_eq!(f.calls(), (1, 0, 0, 0));
+
+        pair_account(&f.daemon, &f.trust, f.plane.owner).await;
+        f.wait_ready().await;
+        f.step().await;
+        assert_eq!(
+            f.state.lock().unwrap().intent_ids,
+            [original.request.clone(), original.request]
+        );
         assert_eq!(f.calls(), (2, 1, 0, 0));
         assert_eq!(f.asked.0.load(Ordering::SeqCst), 1);
+        f.close().await;
+    }
+
+    #[tokio::test]
+    async fn legacy_journal_observes_remote_completion_after_cancellation_is_refused() {
+        let mut f = DriverFixture::start("mode-legacy-complete", true).await;
+        f.stop_driver().await;
+        assert_eq!(
+            f.change("cloud_copy", false).await.unwrap()["phase"],
+            "finishing"
+        );
+        save_legacy(&f.dir(), f.journal());
+        elapse(3).await;
+        assert_eq!(
+            f.change("cloud_copy", true)
+                .await
+                .unwrap_err()
+                .reason
+                .as_deref(),
+            Some("mode_already_published")
+        );
+        assert!(!f.journal().cancel_requested);
+        elapse(5).await;
+        f.step().await;
+        assert!(matches!(
+            f.daemon.mode_driver.slot(&f.id()).unwrap().schedule,
+            Schedule::Due(_)
+        ));
+        f.state.lock().unwrap().phase = "complete".into();
+        elapse(30).await;
+        f.step().await;
+        assert!(Request::load(&f.dir()).unwrap().is_none());
+        assert!(f.cloud_opted_in());
+        assert_eq!(f.calls(), (1, 1, 0, 0));
+        assert!(
+            f.daemon
+                .activity
+                .list(10)
+                .iter()
+                .any(|entry| entry.kind == "collection_mode_changed")
+        );
+        f.close().await;
+    }
+
+    #[tokio::test]
+    async fn refresh_catch_up_has_budget_after_prior_rate_limits() {
+        let mut f = DriverFixture::start("mode-refresh-budget", false).await;
+        f.stop_driver().await;
+        for _ in 0..5 {
+            f.state.lock().unwrap().reserve_fault = Some(Fault::RateLimit(1));
+            assert_eq!(
+                f.change("private", false).await.unwrap_err().code,
+                "rate_limited"
+            );
+            elapse(2).await;
+        }
+        assert_eq!(f.daemon.mode_driver.slot(&f.id()).unwrap().backoff, 5);
+        f.state
+            .lock()
+            .unwrap()
+            .prepare_queue
+            .push_back(refusal(409, "mode_source_changed"));
+        assert_eq!(
+            f.change("private", false).await.unwrap()["local"]["code"],
+            "mode_switch_refreshing"
+        );
+
+        // Make the replica's source temporarily unavailable during catch-up.
+        let ctx = f.daemon.mode_context(&f.id()).await.unwrap();
+        ctx.runtime
+            .private_switch(PrivateSwitchOp::Cancel, ctx.guard.clone())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            ctx.runtime
+                .mode_source(true, false, ctx.guard.clone())
+                .await
+                .is_none()
+        );
+        elapse(3).await;
+        let retry = f.change("private", false).await.unwrap();
+        assert_eq!(retry["phase"], "waiting_for_device");
+        assert_eq!(retry["local"]["code"], "mode_switch_refreshing");
+        assert_eq!(f.calls(), (6, 1, 0, 0));
         f.close().await;
     }
 
@@ -1696,7 +2048,7 @@ mod driver {
             .lock()
             .unwrap()
             .finish_queue
-            .push_back(FinishAction::NotReady);
+            .push_back(FinishAction::Refuse(503, "not_ready"));
         let first = f.change("cloud_copy", false).await.unwrap();
         assert_eq!(first["phase"], "publishing_policy");
         gate.reached.notified().await;
@@ -1742,19 +2094,7 @@ mod driver {
         assert_eq!(f.calls(), (1, 1, 0, 0));
 
         gate.release.notify_one();
-        let ctx = f.daemon.mode_context(&f.id()).await.unwrap();
-        tokio::time::timeout(Duration::from_secs(10), async {
-            while ctx
-                .runtime
-                .mode_source(false, true, ctx.guard.clone())
-                .await
-                .is_none()
-            {
-                tokio::time::sleep(Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("replica observed policy receipt");
+        f.wait_for_cloud_receipt().await;
         elapse(30).await;
         f.step().await;
         assert_eq!(f.calls(), (1, 1, 1, 0));

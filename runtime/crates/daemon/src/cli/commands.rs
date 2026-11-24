@@ -357,17 +357,7 @@ pub(super) async fn run_command(
             if let Some(target) = target {
                 params["target_mode"] = json!(target);
             }
-            let value = match call(profile, Method::COLLECTION_MODE, params).await {
-                Err(ClientError::Remote(mut error))
-                    if error.reason.as_deref() == Some("mode_devices_need_update") =>
-                {
-                    match error.details.take() {
-                        Some(record) => record,
-                        None => return Err(ClientError::Remote(error)),
-                    }
-                }
-                result => result?,
-            };
+            let value = call(profile, Method::COLLECTION_MODE, params).await?;
             print_mode(out, &col, &value, false);
             Ok(ExitCode::SUCCESS)
         }

@@ -256,7 +256,6 @@ pub(super) async fn initialize(d: Arc<Daemon>) {
     resume_relay(&d).await;
     d.reopen_hosts().await;
     d.readiness.send_replace(readiness(true, None));
-    d.mode_driver.wake();
     d.bump();
     tracing::info!("daemon ready");
     if let Some(identity) = d.identity.get() {

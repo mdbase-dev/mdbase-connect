@@ -40,19 +40,16 @@ struct Request {
 impl Request {
     fn load(dir: &Path) -> Result<Option<Self>, ControlError> {
         let path = dir.join(FILE);
-        let Some(bytes) = crate::fsutil::read_optional(&path)
-            .map_err(|e| ControlError::internal(e.to_string()))?
-        else {
-            return Ok(None);
-        };
-        crate::fsutil::verify_owner_only(&path)
-            .map_err(|e| ControlError::internal(e.to_string()))?;
         let invalid = || {
             ControlError::unavailable(
                 "mode_journal_invalid",
                 "Mode request journal is unreadable; retained",
             )
         };
+        let Some(bytes) = crate::fsutil::read_optional(&path).map_err(|_| invalid())? else {
+            return Ok(None);
+        };
+        crate::fsutil::verify_owner_only(&path).map_err(|_| invalid())?;
         let value: Self = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
         if [
             &value.collection,
@@ -120,10 +117,7 @@ pub(super) struct ModeStatus {
 enum Blocker {
     SignIn,
     Resume,
-    Confirmation,
-    Owner,
-    Devices,
-    Attention,
+    Manual,
 }
 
 #[derive(Clone, Copy)]
@@ -138,6 +132,17 @@ struct Slot {
     schedule: Schedule,
     backoff: u32,
     notice: Option<Notice>,
+}
+
+impl Slot {
+    fn due(request: String) -> Self {
+        Self {
+            request,
+            schedule: Schedule::Due(Instant::now()),
+            backoff: 0,
+            notice: Some(in_progress_notice()),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -243,6 +248,14 @@ struct Outcome {
 }
 
 impl Outcome {
+    fn terminal(reply: Result<Value, ControlError>) -> Self {
+        Self {
+            next: Next::Terminal,
+            reply,
+            notice: None,
+        }
+    }
+
     fn retry(reply: Result<Value, ControlError>, delay: Option<Duration>) -> Self {
         Self {
             next: Next::Retry(delay),
@@ -266,18 +279,18 @@ impl Outcome {
 
     fn local(error: ControlError) -> Self {
         let (blocker, code) = match error.reason.as_deref() {
-            Some("not_signed_in" | "account_changed") => {
+            Some("not_signed_in" | "account_changed" | "collection_account_mismatch") => {
                 (Blocker::SignIn, "mode_switch_sign_in_required")
             }
             Some("not_serving") => (Blocker::Resume, "mode_switch_paused"),
-            Some("keyed_owner_required") => (Blocker::Owner, "mode_switch_keyed_owner_required"),
+            Some("keyed_owner_required") => (Blocker::Manual, "mode_switch_keyed_owner_required"),
             Some(
                 "mode_journal_invalid"
                 | "sync_config_invalid"
                 | "trust_missing"
                 | "not_registered"
                 | "device_identity_missing",
-            ) => (Blocker::Attention, "mode_switch_attention"),
+            ) => (Blocker::Manual, "mode_switch_attention"),
             _ => return Self::retry(Err(error), None),
         };
         Self::park(blocker, code, error.message.clone(), Err(error))
@@ -296,7 +309,7 @@ impl Outcome {
             _ => {
                 let error = mode_refusal(error);
                 return Self::park(
-                    Blocker::Attention,
+                    Blocker::Manual,
                     "mode_switch_attention",
                     error.message.clone(),
                     Err(error),
@@ -398,6 +411,7 @@ impl ModeContext {
 enum Action {
     Reserve,
     Read,
+    ReadAfterAbandon,
     Prepare,
     Finish,
     Delete,
@@ -454,29 +468,18 @@ impl Daemon {
                 }
                 Ok(None) => {}
                 Err(error) => {
-                    if self.mode_driver.set(
+                    let _ = self.apply_mode_outcome(
                         &id,
-                        Slot {
-                            request: String::new(),
-                            schedule: Schedule::Parked(Blocker::Attention),
-                            backoff: 0,
-                            notice: Some(notice("mode_switch_journal_invalid", error.message)),
-                        },
-                    ) {
-                        self.bump();
-                    }
+                        &Slot::due(String::new()),
+                        Outcome::local(error),
+                    );
                 }
             }
         }
     }
 
     fn track_mode_request(&self, id: &str, op: &Request) -> Slot {
-        let slot = Slot {
-            request: op.request.clone(),
-            schedule: Schedule::Due(Instant::now()),
-            backoff: 0,
-            notice: Some(in_progress_notice()),
-        };
+        let slot = Slot::due(op.request.clone());
         if self.mode_driver.set(id, slot.clone()) {
             self.bump();
         }
@@ -545,23 +548,29 @@ impl Daemon {
             ));
         }
         let link = self.mode_link(id)?;
-        let runtime = runtime.ok_or_else(|| {
-            if state == CollectionState::Opening
-                || matches!(
-                    reason.as_deref(),
-                    Some("runtime_pending" | "sync_unreachable")
-                )
+        let runtime = runtime.ok_or_else(|| match reason.as_deref() {
+            Some("collection_account_mismatch") => ControlError::unavailable(
+                "collection_account_mismatch",
+                "Sign in with the account that owns this collection.",
+            ),
+            Some("sync_config_invalid") => ControlError::unavailable(
+                "sync_config_invalid",
+                "Check the collection’s sync configuration.",
+            ),
+            reason
+                if state == CollectionState::Opening
+                    || matches!(reason, Some("runtime_pending" | "sync_unreachable")) =>
             {
                 ControlError::unavailable("not_ready", "Waiting for the collection to open.")
-            } else {
-                ControlError::unavailable("not_serving", "Resume the collection to continue.")
             }
+            _ => ControlError::unavailable("not_serving", "Resume the collection to continue."),
         })?;
         let dir = self.profile.collection_dir(id);
         let cfg = crate::sync::SyncConfig::load(&dir.join(crate::sync::FILE))
-            .map_err(|e| ControlError::internal(e.0))?
+            .ok()
+            .flatten()
             .ok_or_else(|| {
-                ControlError::unavailable("sync_config_invalid", "Sync link missing.")
+                ControlError::unavailable("sync_config_invalid", "Sync link is missing or invalid.")
             })?;
         let fence = link.source.clone();
         let guard: AccountKeyGuard = Arc::new(move || fence.current_synced().is_ok());
@@ -634,17 +643,17 @@ impl Daemon {
                     .await
                     .map_err(mode_refusal)?;
                 let active = status.get("change").filter(|change| !change.is_null());
-                if let Some(active) = active {
-                    if active["phase"] == "abandoned" {
+                let target = match (active, p.cancel) {
+                    (Some(active), _) if active["phase"] == "abandoned" => {
                         return Ok(active.clone());
                     }
-                    check_target(p.target_mode.as_deref(), required_target(active)?)?;
-                } else if p.cancel {
-                    return Ok(json!({"phase":"cancelled"}));
-                }
-                let target = match active {
-                    Some(active) => required_target(active)?,
-                    None => p.target_mode.as_deref().expect("validated target"),
+                    (Some(active), _) => {
+                        let target = required_target(active)?;
+                        check_target(p.target_mode.as_deref(), target)?;
+                        target
+                    }
+                    (None, true) => return Ok(json!({"phase":"cancelled"})),
+                    (None, false) => p.target_mode.as_deref().expect("validated target"),
                 };
                 if active.is_none() && status["current_mode"] == target {
                     let selected = if target == "private" {
@@ -720,6 +729,9 @@ impl Daemon {
         }) {
             let mut reply =
                 json!({"request_id":op.request, "target_mode":op.target, "retry_scheduled":true});
+            if op.cancel_requested {
+                reply["cancel_requested"] = json!(true);
+            }
             if p.include_local {
                 self.mode_driver.attach(id, &mut reply, false);
             }
@@ -773,13 +785,17 @@ impl Daemon {
                 self.mode_driver.set(id, next_slot)
             }
             Next::Retry(delay) => {
-                next_slot.backoff = (slot.backoff + 1).min(5);
+                next_slot.notice.get_or_insert_with(in_progress_notice);
+                next_slot.backoff = if next_slot.notice == slot.notice {
+                    (slot.backoff + 1).min(5)
+                } else {
+                    1
+                };
                 let delay = delay.unwrap_or_else(|| backoff_delay(next_slot.backoff));
                 if let Some(at) = Instant::now().checked_add(delay) {
                     next_slot.schedule = Schedule::Due(at);
-                    next_slot.notice.get_or_insert_with(in_progress_notice);
                 } else {
-                    next_slot.schedule = Schedule::Parked(Blocker::Attention);
+                    next_slot.schedule = Schedule::Parked(Blocker::Manual);
                     next_slot.notice = Some(notice(
                         "mode_switch_attention",
                         "The server's retry deadline is out of range.",
@@ -875,10 +891,11 @@ impl Daemon {
                     if matches!(action, Action::Prepare | Action::Finish)
                         && code == "mode_abandoned" =>
                 {
-                    return Ok(Outcome::retry(
-                        Err(mode_refusal(CloudError::Server(409, code))),
-                        None,
-                    ));
+                    action = Action::ReadAfterAbandon;
+                    result = cloud
+                        .collection_mode_request_status(id, &op.request, current)
+                        .await;
+                    continue;
                 }
                 Err(CloudError::Server(503, code))
                     if action == Action::Finish && code == "not_ready" =>
@@ -905,6 +922,26 @@ impl Daemon {
                     ));
                     return Ok(outcome);
                 }
+                Err(CloudError::Server(404, code))
+                    if op.cancel_requested
+                        && matches!(action, Action::Read | Action::Reserve | Action::Delete)
+                        && code == "not_found" =>
+                {
+                    if op.native_started {
+                        let gone = json!({"phase":"cancelled", "request_id":op.request, "target_mode":op.target});
+                        return self
+                            .finish_mode_request(ctx, &op, gone, prepare_refusal)
+                            .await;
+                    }
+                    Request::clear(&ctx.dir)?;
+                    return Ok(Outcome::terminal(Ok(json!({"phase":"cancelled"}))));
+                }
+                Err(error @ CloudError::Server(400 | 403 | 404, _))
+                    if action == Action::Reserve =>
+                {
+                    Request::clear(&ctx.dir)?;
+                    return Ok(Outcome::terminal(Err(mode_refusal(error))));
+                }
                 Err(CloudError::Server(409, code))
                     if action == Action::Reserve
                         && matches!(
@@ -916,16 +953,14 @@ impl Daemon {
                         ) =>
                 {
                     Request::clear(&ctx.dir)?;
-                    return Ok(Outcome {
-                        next: Next::Terminal,
-                        reply: Err(mode_refusal(CloudError::Server(409, code))),
-                        notice: None,
-                    });
+                    return Ok(Outcome::terminal(Err(mode_refusal(CloudError::Server(
+                        409, code,
+                    )))));
                 }
                 Err(error)
                     if action == Action::Prepare
                         && prepare_phase != "publishing_policy"
-                        && is_terminal_pre_publication_refusal(false, &error) =>
+                        && is_terminal_pre_publication_refusal(&error) =>
                 {
                     op.cancel_requested = true;
                     op.save(&ctx.dir)?;
@@ -954,16 +989,15 @@ impl Daemon {
                         "DELETE did not return a terminal mode phase.",
                     ));
                 }
+                _ if action == Action::ReadAfterAbandon => {
+                    return Ok(Outcome::retry(Ok(reply), None));
+                }
                 "publishing_policy" | "finishing"
                     if op.cancel_requested && (cancel_refused || phase == "finishing") =>
                 {
-                    if !op.confirmed {
+                    if !op.confirmed && !op.native_started {
                         Request::clear(&ctx.dir)?;
-                        return Ok(Outcome {
-                            next: Next::Terminal,
-                            reply: Err(cancel_refusal()),
-                            notice: None,
-                        });
+                        return Ok(Outcome::terminal(Err(cancel_refusal())));
                     }
                     op.cancel_requested = false;
                     op.save(&ctx.dir)?;
@@ -983,12 +1017,21 @@ impl Daemon {
                 _ if !op.confirmed => {
                     // Old journals encoded a refused cancel and a confirmed
                     // switch identically, even after setting native_started.
-                    return Ok(Outcome::park(
-                        Blocker::Confirmation,
-                        "mode_switch_confirmation_required",
-                        "Run the mode command to confirm this switch on this computer.",
-                        Ok(reply),
-                    ));
+                    let next = if op.native_started
+                        && matches!(phase, "publishing_policy" | "finishing")
+                    {
+                        Next::Retry(None)
+                    } else {
+                        Next::Park(Blocker::Manual)
+                    };
+                    return Ok(Outcome {
+                        next,
+                        reply: Ok(reply),
+                        notice: Some(notice(
+                            "mode_switch_confirmation_required",
+                            "Run the mode command to confirm this switch on this computer.",
+                        )),
+                    });
                 }
                 "publishing_policy"
                     if private && matches!(action, Action::Read | Action::Reserve) =>
@@ -1030,14 +1073,11 @@ impl Daemon {
                     let list = format_mode_devices(&reply);
                     let message =
                         format!("Update or remove older devices before continuing: {list}.");
-                    let mut error =
-                        ControlError::unavailable("mode_devices_need_update", message.clone());
-                    error.details = Some(reply);
                     return Ok(Outcome::park(
-                        Blocker::Devices,
+                        Blocker::Manual,
                         "mode_switch_devices_need_update",
                         message,
-                        Err(error),
+                        Ok(reply),
                     ));
                 }
                 "waiting_for_device" | "waiting_for_token_expiry" => {
@@ -1084,7 +1124,7 @@ impl Daemon {
                     }
                     let Some(source) = source else {
                         return Ok(Outcome::park(
-                            Blocker::Owner,
+                            Blocker::Manual,
                             "mode_switch_waiting_for_device",
                             "Use an owner device holding this collection’s trusted key.",
                             Ok(reply),
@@ -1187,7 +1227,7 @@ impl Daemon {
     ) -> Result<Outcome, ControlError> {
         let kind = match reply["phase"].as_str() {
             Some("cancelled") => {
-                if op.confirmed && op.native_started {
+                if op.native_started {
                     if op.target == "private" {
                         ctx.runtime
                             .private_switch(PrivateSwitchOp::Cancel, ctx.guard.clone())
@@ -1212,12 +1252,7 @@ impl Daemon {
                 }
                 Some("collection_mode_cancelled")
             }
-            Some("complete") if op.confirmed => {
-                if op.target == "private" {
-                    self.account_keys.wake();
-                }
-                Some("collection_mode_changed")
-            }
+            Some("complete") if op.generation.is_some() => Some("collection_mode_changed"),
             _ => None,
         };
         ctx.link
@@ -1233,12 +1268,11 @@ impl Daemon {
         }
         if kind == Some("collection_mode_changed") {
             self.reconcile_private_choices_locked().await;
+            if op.target == "private" {
+                self.account_keys.wake();
+            }
         }
-        Ok(Outcome {
-            next: Next::Terminal,
-            reply: error.map_or(Ok(reply), Err),
-            notice: None,
-        })
+        Ok(Outcome::terminal(error.map_or(Ok(reply), Err)))
     }
 }
 
@@ -1312,15 +1346,14 @@ fn backoff_delay(attempt: u32) -> Duration {
     Duration::from_secs((2 << attempt.saturating_sub(1).min(4)).min(30))
 }
 
-fn is_terminal_pre_publication_refusal(finish: bool, error: &CloudError) -> bool {
-    !finish
-        && match error {
-            CloudError::Server(400, code) => code == "invalid_request",
-            CloudError::Server(404, code) => code == "not_found",
-            CloudError::Server(409, code) => matches!(
-                code.as_str(),
-                "mode_cancelled" | "mode_changed" | "not_current" | "not_member" | "device_revoked"
-            ),
-            _ => false,
-        }
+fn is_terminal_pre_publication_refusal(error: &CloudError) -> bool {
+    match error {
+        CloudError::Server(400, code) => code == "invalid_request",
+        CloudError::Server(404, code) => code == "not_found",
+        CloudError::Server(409, code) => matches!(
+            code.as_str(),
+            "mode_cancelled" | "mode_changed" | "not_current" | "not_member" | "device_revoked"
+        ),
+        _ => false,
+    }
 }

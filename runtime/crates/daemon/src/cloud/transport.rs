@@ -265,13 +265,17 @@ impl Cloud {
         let c = self
             .post_current("/v1/next/devices/challenge", &json!({}), current)
             .await?;
-        c.get("challenge")
-            .and_then(Value::as_str)
-            .filter(|h| h.len() == 64)
-            .and_then(|h| secrets::hex_decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok())
-            .ok_or_else(|| CloudError::Server(200, "malformed".into()))
+        decode_challenge(&c)
     }
+}
+
+pub(super) fn decode_challenge(value: &Value) -> Result<[u8; 32], CloudError> {
+    value["challenge"]
+        .as_str()
+        .filter(|hex| hex.len() == 64)
+        .and_then(|hex| secrets::hex_decode(hex).ok())
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or_else(|| CloudError::Server(200, "malformed".into()))
 }
 
 pub(super) fn decode_response(status: u16, bytes: &[u8]) -> Result<Value, CloudError> {
