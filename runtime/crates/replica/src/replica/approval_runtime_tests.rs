@@ -1045,7 +1045,8 @@ fn snapshot_read_ahead_never_publishes_applied() {
     let (mut r, s, mut n, _, _) = fixture();
     let (intent, bytes) = sent_grant(&mut r, s, &mut n);
     let seq = r.head.seq + 1;
-    r.evaluate_control_bytes(seq, &bytes.0).unwrap();
+    r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem { seq, item: bytes }])
+        .unwrap();
     assert!(r.policy.devices[&NEW].keyed, "read ahead into policy");
     assert_eq!(r.approval.dispositions[&intent], ApprovalDisposition::Sent);
     assert!(r.approval.pending_grant.is_some());
@@ -1055,7 +1056,10 @@ fn snapshot_read_ahead_never_publishes_applied() {
     let (intent, bytes) = sent_grant(&mut r, s, &mut n);
     let seq = r.head.seq + 1;
     r.store().fail_commits(1);
-    assert!(r.evaluate_control_bytes(seq, &bytes.0).is_err());
+    assert!(
+        r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem { seq, item: bytes }])
+            .is_err()
+    );
     assert_eq!(r.approval.dispositions[&intent], ApprovalDisposition::Sent);
     assert!(r.approval.staged_applied.is_empty());
 }
@@ -1298,7 +1302,11 @@ fn denial_conflicts_after_sent_grant_restart_before_replay() {
     assert_eq!(error.0.reason.as_deref(), Some("approval_already_granted"));
     assert!(r.store.meta(&rejection_marker(COL, NEW)).unwrap().is_none());
     // The delayed grant remains valid; denial must not have promised revocation.
-    r.evaluate_control_bytes(r.head.seq + 1, &bytes.0).unwrap();
+    r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq: r.head.seq + 1,
+        item: bytes,
+    }])
+    .unwrap();
     assert!(r.policy.devices[&NEW].keyed);
 }
 
@@ -1309,7 +1317,8 @@ fn denial_conflicts_after_a_grant_is_sent_or_applied() {
         let (intent, bytes) = sent_grant(&mut r, s, &mut n);
         if applied {
             let seq = r.head.seq + 1;
-            r.evaluate_control_bytes(seq, &bytes.0).unwrap();
+            r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem { seq, item: bytes }])
+                .unwrap();
             r.note_private_key_grant_applied(Some(ME), NEW, seq);
             assert!(r.approval.pending_grant.is_none());
         } else {

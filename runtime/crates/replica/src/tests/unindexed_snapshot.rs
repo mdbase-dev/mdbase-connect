@@ -190,7 +190,7 @@ pub(super) fn reply_install(
     match kind {
         Inflight::InstallNative => b.r.on_native_install_reply(call.id, reply),
         Inflight::InstallText => b.r.on_snapshot_text_reply(call.id, reply),
-        Inflight::Install => b.r.test_on_native_snapshot_reply(reply),
+        Inflight::Install => b.r.test_on_native_snapshot_reply(call.id, reply),
         _ => panic!("unexpected install call"),
     };
     b.r.retry_install();
@@ -255,11 +255,14 @@ fn source_authentication_requests_complete_objects_not_upper_bound_ranges() {
     for attachment in [false, true] {
         let (a, m, h, objects) = build(attachment);
         let mut b = receiver(&a, &m, h);
-        b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-            bytes: objects[&h].clone(),
-            size: objects[&h].len() as u64,
-            checksum: h,
-        }));
+        b.r.test_on_native_snapshot_reply(
+            crate::log::CallId(0),
+            Ok(LogResponse::GetObject {
+                bytes: objects[&h].clone(),
+                size: objects[&h].len() as u64,
+                checksum: h,
+            }),
+        );
         let call = reach_sources(&mut b, &objects);
         // A ciphertext size bound is not an exact encoded byte range. The real
         // HTTP/direct transport refuses ranges extending past the actual EOF;
@@ -286,11 +289,14 @@ fn sections12_13_cv6_full_sources_before_atomic_swap_and_local_proofs_excluded()
                 .any(|s| s.kind == rt::SectionKind::UnindexedMarkdownTombstones)
         );
         let mut b = receiver(&a, &m, h);
-        b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-            bytes: objects[&h].clone(),
-            size: objects[&h].len() as u64,
-            checksum: h,
-        }));
+        b.r.test_on_native_snapshot_reply(
+            crate::log::CallId(0),
+            Ok(LogResponse::GetObject {
+                bytes: objects[&h].clone(),
+                size: objects[&h].len() as u64,
+                checksum: h,
+            }),
+        );
         let source = reach_sources(&mut b, &objects);
         let old = b.r.store.head().unwrap();
         assert_eq!(old.seq, 1);
@@ -347,11 +353,14 @@ fn over_bound_whole_source_reply_never_swaps_or_publishes_proofs() {
     let (a, m, h, mut objects) = build(false);
     let mut b = receiver(&a, &m, h);
     let old = b.r.store.head().unwrap();
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        bytes: objects[&h].clone(),
-        size: objects[&h].len() as u64,
-        checksum: h,
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            bytes: objects[&h].clone(),
+            size: objects[&h].len() as u64,
+            checksum: h,
+        }),
+    );
     let source = reach_sources(&mut b, &objects);
     let LogRequest::GetObject {
         address,
@@ -381,11 +390,14 @@ fn source_corruption_cleans_staging_and_keeps_confirmed_prefix_and_cache() {
     let (a, m, h, objects) = build(false);
     let mut b = receiver(&a, &m, h);
     let old = b.r.store.head().unwrap();
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        bytes: objects[&h].clone(),
-        size: objects[&h].len() as u64,
-        checksum: h,
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            bytes: objects[&h].clone(),
+            size: objects[&h].len() as u64,
+            checksum: h,
+        }),
+    );
     let source = reach_sources(&mut b, &objects);
     reply_install(&mut b, source, &objects, true);
     assert!(!b.r.installing());
@@ -405,11 +417,14 @@ fn a_source_object_the_service_lacks_refuses_the_snapshot() {
     let (a, m, h, objects) = build(false);
     let mut b = receiver(&a, &m, h);
     let old = b.r.store.head().unwrap();
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        bytes: objects[&h].clone(),
-        size: objects[&h].len() as u64,
-        checksum: h,
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            bytes: objects[&h].clone(),
+            size: objects[&h].len() as u64,
+            checksum: h,
+        }),
+    );
     let source = reach_sources(&mut b, &objects);
     b.r.inflight.remove(&source.id).unwrap();
     b.r.on_native_install_reply(source.id, Err(LogError::code(LogErrorCode::Unavailable)));
@@ -454,11 +469,14 @@ fn signed_manifest_missing_source_ref_is_refused_before_plain_source_fetch() {
     objects.insert(h, raw.clone());
     let mut b = receiver(&a, &m, h);
     let before = b.r.head();
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        size: raw.len() as u64,
-        checksum: h,
-        bytes: raw,
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            size: raw.len() as u64,
+            checksum: h,
+            bytes: raw,
+        }),
+    );
     for _ in 0..64 {
         if !b.r.installing() {
             break;
@@ -487,11 +505,14 @@ fn authenticated_invalid_utf8_never_creates_snapshot_byte_proof_or_holder() {
     let (a, m, h, objects) = build_source(false, &plain);
     let mut b = receiver(&a, &m, h);
     let old = b.r.head();
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        bytes: objects[&h].clone(),
-        size: objects[&h].len() as u64,
-        checksum: h,
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            bytes: objects[&h].clone(),
+            size: objects[&h].len() as u64,
+            checksum: h,
+        }),
+    );
     for _ in 0..64 {
         if !b.r.installing() {
             break;
@@ -515,11 +536,14 @@ fn authenticated_invalid_utf8_never_creates_snapshot_byte_proof_or_holder() {
 fn unknown_swap_outcome_is_terminal_and_never_issues_cleanup_or_retry() {
     let (a, m, h, objects) = build(false);
     let mut b = receiver(&a, &m, h);
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        bytes: objects[&h].clone(),
-        size: objects[&h].len() as u64,
-        checksum: h,
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            bytes: objects[&h].clone(),
+            size: objects[&h].len() as u64,
+            checksum: h,
+        }),
+    );
     let source = reach_sources(&mut b, &objects);
     b.r.store.fail_after_head_commit(m.seq);
     reply_install(&mut b, source, &objects, false);
@@ -553,11 +577,14 @@ fn late_generation_source_response_never_swaps_a_new_context() {
     let (a, m, h, objects) = build(false);
     let mut b = receiver(&a, &m, h);
     let old = b.r.store.head().unwrap();
-    b.r.test_on_native_snapshot_reply(Ok(LogResponse::GetObject {
-        bytes: objects[&h].clone(),
-        size: objects[&h].len() as u64,
-        checksum: h,
-    }));
+    b.r.test_on_native_snapshot_reply(
+        crate::log::CallId(0),
+        Ok(LogResponse::GetObject {
+            bytes: objects[&h].clone(),
+            size: objects[&h].len() as u64,
+            checksum: h,
+        }),
+    );
     let source = reach_sources(&mut b, &objects);
     b.r.store_generation += 1;
     reply_install(&mut b, source, &objects, false);

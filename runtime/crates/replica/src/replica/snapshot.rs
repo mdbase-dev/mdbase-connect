@@ -13,16 +13,18 @@
 //! registers the pointer.
 //!
 //! **Install** (§8). `get_snapshot` → fetch and open the manifest → check its chain
-//! against the item after it (or the head) → clear confirmed state → fetch, verify
-//! (`address`, `plain_hash`) and commit chunks one at a time, resources first → check
-//! the state digest → set the head and read the tail. Queries answer over what is
-//! installed with `complete: false` meanwhile. Pending mutations stay; those already
-//! in the installed receipts resolve as confirmed in the append loop.
+//! against the item after it (or the head) → clear staging → fetch chunks in bounded
+//! waves of up to [`CHUNKS_IN_FLIGHT`], verify (`address`, `plain_hash`) and stage
+//! completed batches in manifest order inside one deferred-durability window,
+//! resources first → check the state digest → swap in and set the head, then read
+//! the tail. Queries answer over what is installed with `complete: false` meanwhile.
+//! Pending mutations stay; those already in the installed receipts resolve as
+//! confirmed in the append loop.
 //!
 //! Open items: manifest signature verification and the control-chain commitment
 //! need policy wiring; the build holds one snapshot's chunks in memory.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use mdbn_wire::attachment::{
     AttachmentContentV1, AttachmentFileRowV1, AttachmentTombstoneRowV1, FileContent,
@@ -54,7 +56,7 @@ use super::{
     attachment_runtime, live, mirror_install, ref_index, snapshot_text, unindexed_inventory,
     unindexed_snapshot,
 };
-use crate::log::{LogRequest, LogResponse};
+use crate::log::{CallId, LogRequest, LogResponse};
 use crate::plan::record_meta;
 use crate::store::{
     AliasRow, ConflictRow, FileLocal, FileRow, Head, Page, ReceiptRow, RecordRow, Store,
@@ -81,6 +83,10 @@ pub(crate) use install_chunk::ChunkRows;
 
 /// Target plaintext per records chunk.
 pub(super) const TARGET_CHUNK: u64 = 512 << 10;
+/// Snapshot chunks fetched in parallel during an install. Matches the browser
+/// log pump's `MAX_CONCURRENT` so one pump turn fetches a wave of chunks and
+/// stages them in manifest order inside one deferred-durability window.
+pub(crate) const CHUNKS_IN_FLIGHT: usize = 6;
 /// Unbucketed sections split at this plaintext size.
 const MAX_CHUNK: usize = 4 << 20;
 /// Record text a hosted build may hold: it keeps the rows, their encoded copies
@@ -182,6 +188,27 @@ pub(crate) struct Offer {
     pub(crate) refused: Option<(IncidentKind, String)>,
 }
 
+/// Bounded in-flight chunk fetching and manifest-ordered staging state.
+///
+/// Invariant: every index in `next..next_fetch` is in exactly one of
+/// `in_flight.values()`, `ready.keys()`, or `retry`, and
+/// `next_fetch - next <= CHUNKS_IN_FLIGHT`.
+#[derive(Debug, Clone)]
+pub(crate) struct ChunkInstall {
+    pub(crate) manifest: Box<ManifestPayload>,
+    pub(crate) queue: Vec<(SectionKind, ChunkRef)>,
+    /// Next chunk index in `queue` to stage into the store.
+    pub(crate) next: usize,
+    /// Next chunk index in `queue` not yet requested.
+    pub(crate) next_fetch: usize,
+    /// Outstanding `GetObject` calls: call ID -> chunk index in `queue`.
+    pub(crate) in_flight: BTreeMap<CallId, usize>,
+    /// Address-verified chunk bytes waiting for manifest-order staging.
+    pub(crate) ready: BTreeMap<usize, Vec<u8>>,
+    /// Chunk indices whose fetch failed transiently and must be retried.
+    pub(crate) retry: BTreeSet<usize>,
+}
+
 /// An install in flight.
 #[derive(Debug, Clone)]
 pub(crate) enum Install {
@@ -206,12 +233,8 @@ pub(crate) enum Install {
     Reset(Box<ManifestPayload>),
     /// Streaming authentication of every native source before the atomic swap.
     Sources(Box<ManifestPayload>),
-    /// Fetching chunks: the queue and the next index.
-    Chunks {
-        manifest: Box<ManifestPayload>,
-        queue: Vec<(SectionKind, ChunkRef)>,
-        next: usize,
-    },
+    /// Fetching and staging chunks in bounded waves of [`CHUNKS_IN_FLIGHT`].
+    Chunks(ChunkInstall),
 }
 
 impl Install {
@@ -220,7 +243,7 @@ impl Install {
         match self {
             Install::Manifest(_) => Some("the manifest"),
             Install::RefIndices { .. } => Some("a ref index"),
-            Install::Chunks { .. } => Some("a chunk"),
+            Install::Chunks(_) => Some("a chunk"),
             Install::Control
             | Install::Pointer
             | Install::Chain(..)
@@ -250,9 +273,10 @@ pub(crate) enum Endorse {
 /// Whether an install may stage rows in memory, for a store without a staging
 /// area. Tests and the simulator only: in a shipped build, install is reachable
 /// only over a store with persistent staging ([`Store::stages`]), so memory holds
-/// one chunk plus the row index, never the whole snapshot under the bounded
-/// staging condition; signature and authorization, the control chain, chunk
-/// checks and row validation are in.
+/// at most one in-flight batch of chunks ([`CHUNKS_IN_FLIGHT`]) plus the row
+/// index, never the whole snapshot under the bounded staging condition;
+/// signature and authorization, the control chain, chunk checks and row
+/// validation are in.
 pub(crate) const IN_MEMORY_INSTALL: bool = cfg!(any(test, feature = "testing"));
 
 /// Whether the lost-tail rollback may run through install. It remains
