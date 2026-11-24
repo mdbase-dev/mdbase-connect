@@ -51,14 +51,18 @@
   color: var(--color-text-faint);
 }
 
-/* A part of a value that has parts: the property, then the part. */
-.mdbase-property-name i {
+/* Beside a property the record is not valid without. */
+.mdbase-property-required {
+  flex: none;
   color: var(--color-text-faint);
-  font-style: normal;
+  text-decoration: none;
+  cursor: default;
 }
 
-.mdbase-property-name i::before {
-  content: "› ";
+/* A value of a list is named by its place in it. */
+.mdbase-property-name[data-counted] > span {
+  color: var(--color-text-faint);
+  font-variant-numeric: tabular-nums;
 }
 
 /* A property that holds nothing is quieter than one that does. */
@@ -83,6 +87,83 @@
 
 .mdbase-property-static.is-empty {
   color: var(--color-text-faint);
+}
+
+/* Opens and folds a value that has parts of its own, and says how many it holds. */
+.mdbase-property-fold {
+  max-width: 100%;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 7px;
+  border: 0;
+  border-radius: var(--control-radius);
+  color: var(--color-text-faint);
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}
+
+.mdbase-property-fold > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The row's own actions sit over the end of the value: the fold stops short of them. */
+.mdbase-property-value:has(+ .mdbase-property-more) > .mdbase-property-fold {
+  max-width: calc(100% - 26px);
+}
+
+.mdbase-property-value:has(+ .mdbase-property-more + .mdbase-property-clear) > .mdbase-property-fold {
+  max-width: calc(100% - 48px);
+}
+
+.mdbase-property-fold > svg {
+  flex: none;
+}
+
+.mdbase-property-fold:hover {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-property-fold:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: -1px;
+}
+
+/* The parts of a value, set in under its name beside a rule that runs their length. */
+.mdbase-property-parts {
+  display: flex;
+  flex-direction: column;
+  margin-inline-start: 12px;
+  padding-inline-start: 5px;
+  border-inline-start: 1px solid var(--color-border);
+}
+
+.mdbase-property-parts:empty {
+  display: none;
+}
+
+.mdbase-property-parts > .mdbase-property-add {
+  margin-inline-end: 0;
+}
+
+/* What is wrong with a value, under it. */
+.mdbase-property-error {
+  grid-column: 2;
+  margin: 0;
+  padding: 0 7px 5px;
+  color: var(--color-danger);
+  font-size: var(--font-size-caption);
+  line-height: 1.35;
+}
+
+.mdbase-property[data-invalid] > .mdbase-property-name {
+  color: var(--color-danger);
 }
 
 /* A field that reads as text until it is pointed at or typed in. */
@@ -181,6 +262,38 @@ textarea.mdbase-property-input {
 .mdbase-property:hover > .mdbase-property-clear,
 .mdbase-property-clear:focus-visible {
   opacity: 1;
+}
+
+/* Adds a part to a value that has parts, or a value to a list: beside the way to take the value off. */
+.mdbase-property-more {
+  position: absolute;
+  top: 5px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  color: var(--color-text-muted);
+  background: var(--color-canvas);
+  opacity: 0;
+  cursor: pointer;
+}
+
+.mdbase-property-more:has(+ .mdbase-property-clear) {
+  right: 26px;
+}
+
+.mdbase-property:hover > .mdbase-property-more,
+.mdbase-property-more:focus-visible {
+  opacity: 1;
+}
+
+.mdbase-property-more:hover {
+  color: var(--color-text);
+  background: var(--color-surface-subtle);
 }
 
 .mdbase-property-clear:hover {
@@ -357,6 +470,24 @@ textarea.mdbase-property-input {
   background: var(--color-surface-subtle);
 }
 
+/* A property that links nothing yet reads as an empty value until it is pressed. */
+.mdbase-token-add.is-first {
+  width: auto;
+  padding: 0 2px;
+  color: var(--color-text-faint);
+  font: inherit;
+}
+
+.mdbase-token-icon {
+  margin-inline-end: 4px;
+}
+
+.mdbase-token-icon > svg {
+  width: 12px;
+  height: 12px;
+  vertical-align: -2px;
+}
+
 .mdbase-property-link-picker {
   flex: 1 1 100%;
 }
@@ -367,13 +498,18 @@ textarea.mdbase-property-input {
 
 @media (pointer: coarse) {
   /* Nothing to point at with: the way to take a property off is always there. */
-  .mdbase-property-clear {
+  .mdbase-property-clear,
+  .mdbase-property-more {
     top: 10px;
     opacity: 1;
   }
 
   .mdbase-property {
     padding-inline-end: 28px;
+  }
+
+  .mdbase-property:has(> .mdbase-property-more + .mdbase-property-clear) {
+    padding-inline-end: 50px;
   }
 
   .mdbase-property,
@@ -385,8 +521,41 @@ textarea.mdbase-property-input {
     height: 40px;
   }
 
-  .mdbase-properties-action {
+  .mdbase-properties-action,
+  .mdbase-property-fold {
     height: 40px;
+  }
+
+  /* The row keeps room for its actions here, so the fold has the whole value. */
+  .mdbase-property-value:has(+ .mdbase-property-more) > .mdbase-property-fold,
+  .mdbase-property-value:has(+ .mdbase-property-more + .mdbase-property-clear) > .mdbase-property-fold {
+    max-width: 100%;
+  }
+
+  /* A value's way off a list is a full touch target: the chip is taller, and spaced so no two targets overlap. */
+  .mdbase-tokens:has(.mdbase-token > button:not(.mdbase-token-open)) {
+    gap: 8px;
+  }
+
+  .mdbase-token:has(> button:not(.mdbase-token-open)) {
+    height: 36px;
+    padding-inline-end: 0;
+  }
+
+  .mdbase-token:has(> button:not(.mdbase-token-open)) > .mdbase-token-open {
+    height: 36px;
+    line-height: 36px;
+  }
+
+  .mdbase-token > button:not(.mdbase-token-open) {
+    min-width: 44px;
+    height: 44px;
+    margin-block: -4px;
+  }
+
+  .mdbase-token-add {
+    width: 44px;
+    height: 36px;
   }
 
   /* Below 16px, iOS zooms the page when a field takes the focus. */

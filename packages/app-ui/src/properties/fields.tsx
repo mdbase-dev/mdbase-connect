@@ -8,6 +8,11 @@ export function CommitInput(props: {
   readonly autoFocus?: boolean | undefined;
   readonly className: string;
   readonly inputMode?: "decimal" | "text" | undefined;
+  /** A date and time in the reader's own zone, picked with the browser's control, in place of text. */
+  readonly moment?: boolean | undefined;
+  readonly title?: string | undefined;
+  /** The text is how a value of another kind reads: Enter hands it over as typed though nothing was changed. */
+  readonly restate?: boolean | undefined;
   readonly onCommit: (value: string) => void;
   readonly onDone?: (() => void) | undefined;
 }): JSX.Element {
@@ -27,7 +32,9 @@ export function CommitInput(props: {
       ref={ref}
       className={props.className}
       data-autofocus={props.autoFocus ? "" : undefined}
-      type="text"
+      type={props.moment ? "datetime-local" : "text"}
+      step={props.moment ? 1 : undefined}
+      title={props.title}
       inputMode={props.inputMode}
       value={text}
       placeholder={props.placeholder}
@@ -45,6 +52,8 @@ export function CommitInput(props: {
         if (event.key === "Escape") {
           cancelled.current = true;
           setText(props.value);
+        } else if (props.restate && text === props.value) {
+          props.onCommit(text);
         }
         event.currentTarget.blur();
       }}

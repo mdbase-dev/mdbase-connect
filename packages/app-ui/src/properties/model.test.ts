@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  describeProperty, filterFieldsFromProperties, inferProperty, isEmptyValue, isPropertyName, linkLabel, linkToPath, parseValue, pathToLink,
-  propertiesInUse, propertyKind, valueLine,
+  blankValue, describeProperty, filterFieldsFromProperties, inferProperty, isEmptyValue, isPropertyName, linkLabel, linkToPath, localMoment, parseValue, pathToLink,
+  propertiesInUse, propertyKind, storedMoment, valueCount, valueLine, type PropertyInfo,
 } from "./model.js";
 
 describe("isEmptyValue", () => {
@@ -34,8 +34,27 @@ describe("propertyKind", () => {
     expect(propertyKind("[[notes/one]]", undefined)).toBe("links");
     expect(propertyKind(["[[notes/one]]", "[[notes/two|Two]]"], undefined)).toBe("links");
     expect(propertyKind("one\ntwo", undefined)).toBe("long");
-    expect(propertyKind({ status: "reading" }, undefined)).toBe("other");
-    expect(propertyKind([{ a: 1 }], undefined)).toBe("other");
+    expect(propertyKind({ status: "reading" }, undefined)).toBe("group");
+    expect(propertyKind([{ a: 1 }], undefined)).toBe("items");
+    expect(propertyKind([true, null], undefined)).toBe("items");
+  });
+
+  it("shows a declared group or list of groups as one before it holds anything", () => {
+    expect(propertyKind(undefined, { name: "progress", kind: "group" })).toBe("group");
+    expect(propertyKind(undefined, { name: "steps", kind: "list", items: { name: "", kind: "group" } })).toBe("items");
+    expect(propertyKind([], { name: "steps", kind: "list", items: { name: "", kind: "group" } })).toBe("items");
+    expect(propertyKind([], { name: "sizes", kind: "list", items: { name: "", kind: "number" } })).toBe("tags");
+  });
+
+  it("takes a declared link for one however its value is written", () => {
+    const one: PropertyInfo = { name: "author", kind: "text", link: { many: false } };
+    const several: PropertyInfo = { name: "editors", kind: "list", link: { many: true } };
+    expect(propertyKind(undefined, one)).toBe("links");
+    expect(propertyKind("[Ada](</people/ada.md>)", one)).toBe("links");
+    expect(propertyKind([], several)).toBe("links");
+    expect(propertyKind(["/people/ada.md"], several)).toBe("links");
+    // A value the rule does not fit is seen and repaired as the text its type says it is.
+    expect(propertyKind(4, one)).toBe("text");
   });
 
   it("goes by what is known of the property when there is nothing to go by", () => {
@@ -180,5 +199,72 @@ describe("isPropertyName", () => {
   it("takes letters, digits, - _ and :, not starting with a digit", () => {
     expect(["pages", "date_created", "dc:title", "_x", "a-b"].every(isPropertyName)).toBe(true);
     expect(["2 much", "2nd", "a b", "", "é"].some(isPropertyName)).toBe(false);
+  });
+});
+
+describe("a value that is not what its type says", () => {
+  it("is edited as its type has it", () => {
+    expect(propertyKind("7", { name: "count", kind: "number" })).toBe("number");
+    expect(propertyKind(49, { name: "rating", kind: "text" })).toBe("text");
+    expect(propertyKind("original", { name: "tags", kind: "list" })).toBe("tags");
+    expect(propertyKind(3, { name: "sizes", kind: "list", items: { name: "", kind: "number" } })).toBe("tags");
+    // A list of values with parts has no one value to stand in for it.
+    expect(propertyKind("original", { name: "steps", kind: "list", items: { name: "", kind: "group" } })).toBe("text");
+    // Nothing declared: a value is what it looks like.
+    expect(propertyKind(49, undefined)).toBe("number");
+  });
+});
+
+describe("a declared moment", () => {
+  it("is edited as a date and time in the reader's zone and stored in UTC", () => {
+    const info: PropertyInfo = { name: "starts", kind: "text", format: "date-time" };
+    expect(propertyKind("2026-07-21T05:15:30.000Z", info)).toBe("datetime");
+    expect(propertyKind(undefined, info)).toBe("datetime");
+    // Text that is no moment is still text to put right, and nothing undeclared is rewritten.
+    expect(propertyKind("next week", info)).toBe("text");
+    expect(propertyKind("2026-07-21T05:15:30.000Z", undefined)).toBe("text");
+    const local = localMoment("2026-07-21T05:15:30.000Z");
+    expect(local).toMatch(/^2026-07-2[01]T\d{2}:\d{2}:30$/u);
+    expect(storedMoment(local)).toBe("2026-07-21T05:15:30.000Z");
+    expect(storedMoment("")).toBeNull();
+    expect(localMoment("soon")).toBe("");
+  });
+});
+
+describe("blankValue", () => {
+  it("gives a group the parts it must have, each as blank as its kind allows", () => {
+    const step: PropertyInfo = {
+      name: "",
+      kind: "group",
+      parts: [
+        { name: "title", kind: "text", required: true },
+        { name: "done", kind: "boolean", required: true },
+        { name: "minutes", kind: "number", required: true },
+        { name: "state", kind: "text", options: ["open", "done"], required: true },
+        { name: "notes", kind: "list", required: true },
+        { name: "owner", kind: "text" },
+      ],
+    };
+    // A number or a choice has no blank: it is left to be filled in.
+    expect(blankValue(step)).toEqual({ title: "", done: false, notes: [] });
+    expect(blankValue({ name: "sizes", kind: "list" })).toEqual([]);
+    expect(blankValue({ name: "due", kind: "text", format: "date" })).toBeNull();
+    expect(blankValue(undefined)).toBeNull();
+  });
+});
+
+describe("valueCount", () => {
+  it("counts the values inside lists and groups, no further than it is asked to", () => {
+    expect(valueCount("one")).toBe(1);
+    expect(valueCount({ a: 1, b: [1, 2, { c: 3 }] })).toBe(4);
+    expect(valueCount({})).toBe(0);
+    expect(valueCount(Array.from({ length: 100 }, () => 1), 9)).toBe(9);
+  });
+});
+
+describe("describeProperty", () => {
+  it("describes a part a group does not name by what the group says of such parts", () => {
+    expect(describeProperty("pages", [], [], { name: "", kind: "number" })).toEqual({ info: { name: "pages", kind: "number" }, suggestions: undefined, own: false });
+    expect(describeProperty("pages", [], [], false).info).toBeUndefined();
   });
 });

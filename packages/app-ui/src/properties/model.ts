@@ -6,15 +6,31 @@ export type PropertyScalar = string | number | boolean | null;
 /** What is known about a property: what a type declares for it, or what records hold for it. */
 export interface PropertyInfo {
   readonly name: string;
-  readonly kind: "text" | "number" | "boolean" | "list" | "other";
+  /** `group` is a value with named parts of its own; `list` is several values. */
+  readonly kind: "text" | "number" | "boolean" | "list" | "group" | "other";
   /** The values the property may take, when they are listed. */
   readonly options?: readonly PropertyScalar[] | undefined;
   /** `date` or `date-time`, when that is known. */
   readonly format?: string | undefined;
+  /** The record is not valid without it: its row is always shown and it cannot be taken off. */
+  readonly required?: boolean | undefined;
+  /** What the property is for, in the type's words. */
+  readonly description?: string | undefined;
+  /** The parts a group names, in the type's order. */
+  readonly parts?: readonly PropertyInfo[] | undefined;
+  /** What a part the group does not name holds, or false when it may hold no such part. */
+  readonly rest?: PropertyInfo | false | undefined;
+  /** What each value of a list is, when that is known. Its name is not used. */
+  readonly items?: PropertyInfo | undefined;
+  /** The property links to other records: to one, or to several. */
+  readonly link?: { readonly many: boolean } | undefined;
 }
 
-/** How a property is shown and edited. */
-export type PropertyKind = "choice" | "boolean" | "date" | "number" | "tags" | "links" | "text" | "long" | "other";
+/**
+ * How a property is shown and edited. A `group` and a list of `items` are shown part by part,
+ * each part with the control its own value calls for.
+ */
+export type PropertyKind = "choice" | "boolean" | "date" | "datetime" | "number" | "tags" | "links" | "text" | "long" | "group" | "items" | "other";
 
 const wholeLink = /^!?\[\[[^\]]+\]\]$/u;
 const day = /^\d{4}-\d{2}-\d{2}$/u;
@@ -51,30 +67,97 @@ export function parseValue(text: string): PropertyScalar {
 /** What a value is, going by what it holds first and by what is known of the property when it holds nothing. */
 export function propertyKind(value: unknown, info: PropertyInfo | undefined): PropertyKind {
   const unset = value === undefined || value === null || value === "";
+  // A property declared as a link is one whenever its value has the shape links are written in.
+  if (info?.link && (unset || typeof value === "string" || (Array.isArray(value) && value.every((item) => typeof item === "string")))) return "links";
   if (Array.isArray(value) ? value.length > 0 && value.every(isLink) : isLink(value)) return "links";
+  if (isGroup(value)) return "group";
   if (info?.options?.length && (unset || isScalar(value))) return "choice";
   if (typeof value === "boolean" || (unset && info?.kind === "boolean")) return "boolean";
-  if (Array.isArray(value)) return value.every((item) => typeof item === "string" || typeof item === "number") ? "tags" : "other";
-  if (unset && info?.kind === "list") return "tags";
+  if (Array.isArray(value)) return !partedItems(info) && value.every((item) => typeof item === "string" || typeof item === "number") ? "tags" : "items";
+  // One value where the type says a list of short ones is that list's first.
+  if (!unset && info?.kind === "list" && !partedItems(info) && (typeof value === "string" || typeof value === "number")) return "tags";
+  if (unset && info?.kind === "list") return partedItems(info) ? "items" : "tags";
+  if (unset && info?.kind === "group") return "group";
+  // Text where the type says a number, or the other way about, is edited as the type says: what is typed puts it right.
+  if (typeof value === "string" && info?.kind === "number") return "number";
+  if (typeof value === "number" && info?.kind === "text") return "text";
   if (typeof value === "number" || (unset && info?.kind === "number")) return "number";
   if (typeof value === "string") {
     if (info?.format === "date" ? day.test(value) : !info && day.test(value)) return "date";
+    // Only a declared moment is edited as one: writing it back puts it in UTC, which a type that says so expects.
+    if (info?.format === "date-time" && localMoment(value)) return "datetime";
     return value.includes("\n") || value.length > 90 ? "long" : "text";
   }
-  if (unset) return info?.format === "date" ? "date" : "text";
+  if (unset) return info?.format === "date" ? "date" : info?.format === "date-time" ? "datetime" : "text";
   return "other";
 }
 
-/** What is known about a property: what the record's type declares, or failing that what other records hold for it. */
+/** A moment as a `datetime-local` field holds it: the reader's own date and time, to the second. Empty when the text is not a moment. */
+export function localMoment(value: unknown): string {
+  if (typeof value !== "string" || !instant.test(value)) return "";
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "";
+  return new Date(at.getTime() - at.getTimezoneOffset() * 60_000).toISOString().slice(0, 19);
+}
+
+/** The moment a `datetime-local` field holds, as it is stored: in UTC. Null when the field holds none. */
+export function storedMoment(local: string): string | null {
+  const at = new Date(local);
+  return local === "" || Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+/** Whether a list's values are known to be more than short text or numbers: they are then shown one by one. */
+function partedItems(info: PropertyInfo | undefined): boolean {
+  const kind = info?.items?.kind;
+  return kind !== undefined && kind !== "text" && kind !== "number";
+}
+
+/**
+ * What a property holds when it is first given a place: nothing, or for a value with parts the
+ * parts it must have, each as blank as its kind allows.
+ */
+export function blankValue(info: PropertyInfo | undefined): unknown {
+  if (!info || info.options?.length || info.link) return null;
+  if (info.kind === "group") {
+    const parts: [string, unknown][] = [];
+    for (const part of info.parts ?? []) {
+      const blank = part.required ? blankValue(part) : null;
+      if (blank !== null) parts.push([part.name, blank]);
+    }
+    return Object.fromEntries(parts);
+  }
+  if (info.kind === "list") return [];
+  if (info.kind === "boolean") return false;
+  return info.kind === "text" && !info.format ? "" : null;
+}
+
+/** How many values a value holds once its lists and groups are opened up, counted no further than `limit`. */
+export function valueCount(value: unknown, limit = 64): number {
+  if (Array.isArray(value) || isGroup(value)) {
+    let count = 0;
+    for (const inner of Array.isArray(value) ? value : Object.values(value)) {
+      count += valueCount(inner, limit - count);
+      if (count >= limit) return limit;
+    }
+    return count;
+  }
+  return 1;
+}
+
+/**
+ * What is known about a property: what the record's type declares, or failing that what other
+ * records hold for it, or what a group says of the parts it does not name.
+ */
 export function describeProperty(
   property: string,
   declared: readonly PropertyInfo[],
   inUse: readonly PropertyInfo[],
+  unnamed?: PropertyInfo | false | undefined,
 ): { info: PropertyInfo | undefined; suggestions: readonly string[] | undefined; own: boolean } {
   const own = declared.find((field) => field.name === property);
   if (own) return { info: own, suggestions: undefined, own: true };
   const seen = inUse.find((field) => field.name === property);
-  if (!seen) return { info: undefined, suggestions: undefined, own: false };
+  if (!seen) return { info: unnamed ? { ...unnamed, name: property } : undefined, suggestions: undefined, own: false };
   // Values other records happen to hold are worth offering, but they are not all the property may hold.
   const { options, ...rest } = seen;
   return { info: rest, suggestions: options?.filter((option): option is string => typeof option === "string"), own: false };
@@ -106,6 +189,18 @@ export function linkLabel(value: string): string {
     const [target = "", alias] = inner.split("|");
     return (alias ?? pathStem(target.split("#")[0]!)).trim();
   });
+}
+
+/**
+ * What a link is called while its record is not known: the name it gives, or failing that the
+ * last part of where it leads. Reads a wikilink, a Markdown link and a bare path.
+ */
+export function linkName(link: string): string {
+  const text = link.trim();
+  if (wholeLink.test(text)) return linkLabel(text);
+  const markdown = /^!?\[([^\]]*)\]\(<?([^)>]*)>?\)$/u.exec(text);
+  if (markdown) return markdown[1]!.trim() || pathStem(markdown[2]!);
+  return pathStem(text) || text;
 }
 
 /** A value as one short line of text, or undefined when it does not fit on one. */

@@ -377,10 +377,47 @@ a date. `inUse` is what other records hold, offered when a property is added;
 `propertiesInUse` works that out from their values. Properties that hold
 nothing stay out of the way until one is added by name or all are shown.
 `onChange` receives null for a value that was cleared or a property that was
-removed; without it the properties are only shown. `records` looks other
-records up for properties that link to them. `PropertyValue` is one value's
-control on its own, and `filterFieldsFromProperties` turns the same descriptions
-into the filter builder's fields.
+removed; without it the properties are only shown. `PropertyValue` is one
+value's control on its own, and `filterFieldsFromProperties` turns the same
+descriptions into the filter builder's fields.
+
+A value with parts of its own is shown part by part under its name, each part
+with the control its value calls for, and a list of such values one under
+another by place. Either folds away, and starts folded when it holds more than
+a few values. `onChange` still receives the whole value of the top-level
+property. A declared `group` names its `parts` and says with `rest` what a part
+it does not name holds, or `false` when it takes no others; a declared `list`
+says with `items` what each value is.
+
+A declared property with `required` always has a row, is marked, and cannot be
+taken off. `errors` shows what is wrong with a value under it, keyed by the
+value's path: `due`, `progress.page`, `steps.0.title`. A property declared with
+the `date-time` format is edited as a date and time in the reader's own zone and
+stored in UTC.
+
+```tsx
+<PropertyList
+  values={record.frontmatter}
+  declared={[
+    { name: "title", kind: "text", required: true },
+    { name: "progress", kind: "group", rest: false, parts: [{ name: "page", kind: "number" }, { name: "of", kind: "number" }] },
+    { name: "steps", kind: "list", items: { name: "", kind: "group", parts: [{ name: "title", kind: "text", required: true }] } },
+    { name: "author", kind: "text", link: { many: false } },
+  ]}
+  errors={{ "progress.page": "Must be at least 1." }}
+  records={records}
+  onChange={change}
+/>
+```
+
+`records` looks other records up for properties that link to them: `describe`
+names a record and `search` finds records for what was typed. A property
+declared with `link` holds one link or several whatever its value looks like;
+without a declaration, a value that is a whole wikilink is taken for one. A host
+whose collection resolves links passes `resolve`, and `link` to write a link in
+the collection's own form. `creates` lists the kinds of record a property's
+picker can make and `create` makes one, then links it through the
+`PropertyLinkCreation` it is handed.
 
 ## Live preview
 

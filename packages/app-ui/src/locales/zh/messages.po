@@ -69,6 +69,10 @@ msgstr "{app} 将不再在此设备上显示该集合。集合内容不会被删
 msgid "{count, plural, one {# empty} other {# empty}}"
 msgstr "{count, plural, other {# 项为空}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# item} other {# items}}"
+msgstr "{count, plural, other {# 项}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -78,9 +82,17 @@ msgstr "{count, plural, other {已应用 # 处标记。}}"
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, other {# 条未解决的评论}}"
 
+#: src/properties/labels.ts
+msgid "{count, plural, one {# property} other {# properties}}"
+msgstr "{count, plural, other {# 个属性}}"
+
 #: src/filter-builder/labels.ts
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, other {已选 # 项}}"
+
+#: src/properties/labels.ts
+msgid "{kind} “{title}”"
+msgstr "{kind}“{title}”"
 
 #: src/filter-builder/labels.ts
 msgid "{name} group"
@@ -140,8 +152,20 @@ msgid "Add filter to group"
 msgstr "向组添加筛选条件"
 
 #: src/properties/labels.ts
+msgid "Add item"
+msgstr "添加条目"
+
+#: src/properties/labels.ts
+msgid "Add item to {property}"
+msgstr "向 {property} 添加条目"
+
+#: src/properties/labels.ts
 msgid "Add property"
 msgstr "添加属性"
+
+#: src/properties/labels.ts
+msgid "Add property to {property}"
+msgstr "向 {property} 添加属性"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -785,6 +809,10 @@ msgid "Find a property, or name a new one…"
 msgstr "查找属性，或输入新名称…"
 
 #: src/properties/labels.ts
+msgid "Find a property…"
+msgstr "查找属性…"
+
+#: src/properties/labels.ts
 msgid "Find a record…"
 msgstr "查找记录…"
 
@@ -947,6 +975,10 @@ msgstr "正在加载评论…"
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "正在加载集合快照…"
+
+#: src/properties/labels.ts
+msgid "Local time ({zone})"
+msgstr "本地时间（{zone}）"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -1358,6 +1390,10 @@ msgstr "从此列表中移除"
 msgid "Remove group"
 msgstr "移除组"
 
+#: src/properties/labels.ts
+msgid "Remove item {place} from {property}"
+msgstr "从 {property} 移除第 {place} 项"
+
 #: src/CommentsPanel.tsx
 msgid "Reopen"
 msgstr "重新打开"
@@ -1386,6 +1422,11 @@ msgstr "回复邮箱"
 #: src/Feedback.tsx
 msgid "Report a problem"
 msgstr "报告问题"
+
+#: src/properties/labels.ts
+msgctxt "A property a record must have"
+msgid "Required"
+msgstr "必填"
 
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"

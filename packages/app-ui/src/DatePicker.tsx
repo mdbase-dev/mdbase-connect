@@ -38,7 +38,7 @@ export function dateLabels(): DateLabels {
  * The locale dates are written in: the language of the interface, in the browser's own variant
  * of it when it has one, since that says which day starts the week and how a date is ordered.
  */
-function displayLocale(): string {
+export function displayLocale(): string {
   const language = i18n.locale || "en";
   const browser = typeof navigator === "undefined" ? undefined : navigator.language;
   if (browser && browser.toLowerCase().split("-")[0] === language) return browser;
