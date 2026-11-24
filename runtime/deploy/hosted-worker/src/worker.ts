@@ -308,16 +308,19 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   /** Open (or return) the engine for this wake, rebuilt from the log. */
-  private async ready(collection: string, diagnose?: (value: ReadyDiagnostic) => void): Promise<Engine> {
+  private async ready(collection: string, { diagnose, onColdSync }: {
+    diagnose?: (value: ReadyDiagnostic) => void;
+    onColdSync?: (generation: number) => void;
+  } = {}): Promise<Engine> {
     const trace: ReadyTrace = { stage: "background_guard" };
-    try { return await this.readyTraced(collection, trace); }
+    try { return await this.readyTraced(collection, trace, onColdSync); }
     catch (error) {
       diagnose?.(readyDiagnostic(trace.opening?.stage ?? trace.stage, error));
       throw error; // Preserve error/PinParked identity for all non-migration callers.
     }
   }
 
-  private async readyTraced(collection: string, trace: ReadyTrace): Promise<Engine> {
+  private async readyTraced(collection: string, trace: ReadyTrace, onColdSync?: (generation: number) => void): Promise<Engine> {
     await this.requireBackground();
     trace.stage = "physical_collection_guard";
     this.requirePhysicalCollection(collection);
@@ -424,12 +427,13 @@ export class HostedCollection extends DurableObject<Env> {
       this.lastRefresh = Date.now();
       openingTrace.stage = "sync";
       const gen = this.logGen;
-      const next = await this.withSyncTurn(() => this.sync(engine, calls));
+      const poll = await this.withSyncTurn(() => this.sync(engine, calls));
       openingTrace.stage = "pin_parked_guard";
       if (this.pinParked) throw new PinParked();
       openingTrace.stage = "timing_snapshot";
       const tDone = Date.now();
       const per = Object.fromEntries([...calls].map(([m, v]) => [m, v]));
+      const serving = engine.serving();
       this.timings = {
         key_setup_ms: tKeys - t0,
         wasm_init_ms: tWasm - tKeys,
@@ -437,7 +441,7 @@ export class HostedCollection extends DurableObject<Env> {
         head_fetch_ms: calls.get("head")?.firstMs ?? null,
         rebuild_ms: tDone - tOpen,
         total_ms: tDone - t0,
-        serving: engine.serving(),
+        serving,
         log_calls: per,
       };
       if (this.env.LAB === "1") {
@@ -448,13 +452,15 @@ export class HostedCollection extends DurableObject<Env> {
       await this.checkCache(engine, true);
       // All open checks succeeded. Until here, a post-sync failure must still
       // have the earlier retry. Never replace a different pending wake.
-      if (next !== undefined) {
+      if (poll) {
         openingTrace.stage = "open_retry_schedule";
-        await this.alarms.schedule(next, () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine, retry ?? undefined);
+        await this.alarms.schedule(poll.at, () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine, retry ?? undefined);
       }
       openingTrace.stage = "open_failure_clear";
       if (openFailures) await this.ctx.storage.delete(OPEN_FAILURES_KEY);
       await this.ctx.storage.delete(OPEN_UNFINISHED_KEY);
+      // Only the request that started this opening can credit its cold sync.
+      if (serving && poll?.logDrained) onColdSync?.(gen);
       return engine;
     })().catch(async (error: unknown) => {
       if (openFailures === undefined) throw error; // No attempt reserved (including parked opens).
@@ -714,7 +720,7 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   /** Move log traffic until quiet, deliver output, schedule the next wakeup. */
-  private async sync(engine: Engine, openingTimings?: CallTimings): Promise<number | undefined> {
+  private async sync(engine: Engine, openingTimings?: CallTimings): Promise<{ at: number; logDrained: boolean } | undefined> {
     if (this.pitrClosed) { this.closePitrResources(); return; }
     const gen = this.logGen;
     const current = () => !this.pitrClosed && this.alarms.current && this.logGen === gen && this.engine === engine;
@@ -792,7 +798,7 @@ export class HostedCollection extends DurableObject<Env> {
     const at = Math.min(probe ?? poll, poll);
     // During open, only the opener installs the poll, after its final native checks.
     if (!openingTimings) await this.alarms.schedule(at, current);
-    return at;
+    return { at, logDrained: report.drained && report.failed === 0 };
   }
 
   private releaseAttachment(engine: Engine, session?: number): void {
@@ -1023,7 +1029,7 @@ export class HostedCollection extends DurableObject<Env> {
         return modeUnavailable();
       };
       try {
-        const engine = await this.ready(collection, value => { diagnostic = value; });
+        const engine = await this.ready(collection, { diagnose: value => { diagnostic = value; } });
         const generation = this.logGen;
         // CP enrolment activation can open this actor before the owner's grants
         // arrive. A warm cached open is not a fresh readiness observation.
@@ -1088,8 +1094,9 @@ export class HostedCollection extends DurableObject<Env> {
       // fresh token against current eligibility, and poll at the base rate again.
       if (this.collection === collection) this.dropLogToken();
       this.noteActivity();
+      let coldSyncGeneration: number | undefined;
       let engine: Engine;
-      try { engine = await this.ready(collection); }
+      try { engine = await this.ready(collection, { onColdSync: generation => { coldSyncGeneration = generation; } }); }
       catch (error) {
         // A lasting verdict (deleted, left sync, not this deployment's) is an
         // answer, not a failure: ready() already retired the actor. The CP keeps
@@ -1099,11 +1106,13 @@ export class HostedCollection extends DurableObject<Env> {
       }
       const generation = this.logGen;
       try {
-        await this.withSyncTurn(async () => {
-          if (this.engine !== engine || this.logGen !== generation) return;
-          engine.refresh();
-          await this.sync(engine);
-        });
+        if (coldSyncGeneration !== generation) {
+          await this.withSyncTurn(async () => {
+            if (this.engine !== engine || this.logGen !== generation) return;
+            engine.refresh();
+            await this.sync(engine);
+          });
+        }
       }
       catch (error) {
         // A warm engine learns of the verdict through its fresh log token (the

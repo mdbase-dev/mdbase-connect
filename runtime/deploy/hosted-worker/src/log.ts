@@ -336,6 +336,8 @@ const QUIET_METHODS = new Set(["subscribe", "head", "unsubscribe"]);
 
 /** What one pump did, for the caller's idle back-off. */
 export class PumpReport {
+  /** The bound session reached the end of its queue within the round budget. */
+  drained = false;
   /** Calls other than head checks (reads, appends, objects, snapshots...). */
   work = 0;
   /** Successful reads, a subset of work. A fully rebuilt native engine with
@@ -379,7 +381,10 @@ export async function pumpLog(
     if (!fence()) return;
     // A bound session with nothing queued needs no token: quiet.
     let calls = engine.logBound ? engine.logCalls() : [];
-    if (engine.logBound && !calls.length) return;
+    if (engine.logBound && !calls.length) {
+      if (hooks.report) hooks.report.drained = true;
+      return;
+    }
     let started = Date.now();
     const t = await token();
     note(timings, "token", started);

@@ -94,7 +94,7 @@ const compiled = await build({
               }
             }
           }
-          refresh() { this.logRetire(); }
+          refresh() { this.f.refreshes++; this.logRetire(); }
           tick() {
             // tick_timers (append.rs:1646) resumes paused KeyRebuild.
             if (this.keyRebuild) this.queueKeyRebuild();
@@ -162,7 +162,7 @@ function activateRequest() {
 function createFixture({ cachedHead, logHead, pendingEnrolments, onRpc }) {
   const data = new Map([["service-collection", collection]]);
   let alarm = null;
-  const f = { cachedHead, logHead, pendingEnrolments, grantsEmitted: 0 };
+  const f = { cachedHead, logHead, pendingEnrolments, grantsEmitted: 0, refreshes: 0 };
   const storage = {
     fixture: f,
     get: async (k) => Array.isArray(k) ? new Map(k.filter((x) => data.has(x)).map((x) => [x, data.get(x)])) : data.get(k),
@@ -220,6 +220,35 @@ function createFixture({ cachedHead, logHead, pendingEnrolments, onRpc }) {
   return { o, f, alarm: () => alarm };
 }
 
+test("a completed cold activation skips its second sync and a warm activation still refreshes", async () => {
+  const { o, f } = createFixture({ cachedHead: 5, logHead: 6, pendingEnrolments: 1 });
+  assert.equal((await o.fetch(activateRequest())).status, 200);
+  assert.equal(f.grantsEmitted, 1);
+  assert.equal(f.refreshes, 0);
+
+  f.logHead = 7;
+  f.pendingEnrolments = 2;
+  assert.equal((await o.fetch(activateRequest())).status, 200);
+  assert.equal(f.grantsEmitted, 2);
+  assert.equal(f.refreshes, 1);
+});
+
+test("a cold activation still refreshes after a failed log call", async () => {
+  let failed = false;
+  const { o, f } = createFixture({
+    cachedHead: 0, logHead: 1, pendingEnrolments: 0,
+    onRpc: () => {
+      if (!failed) {
+        failed = true;
+        throw new Error("synthetic log outage");
+      }
+    },
+  });
+  assert.equal((await o.fetch(activateRequest())).status, 200);
+  assert.equal(o.engine.appliedHead(), "1");
+  assert.equal(f.refreshes, 1);
+});
+
 test("concurrent /v1/hosted/activate during cold open KeyRebuild does not abort KeyRebuild and delay the grant until REFRESH_MS", async (ctx) => {
   ctx.mock.method(Date, "now", () => start);
   ctx.mock.method(Math, "random", () => 0);
@@ -245,11 +274,15 @@ test("concurrent /v1/hosted/activate during cold open KeyRebuild does not abort 
   const wake1 = o.fetch(activateRequest());
   await firstRpcStarted.promise;
 
-  // While KeyRebuild is in flight, a second /v1/hosted/activate arrives (e.g., from the 2s poller).
+  // Hold KeyRebuild until the second activation has entered the ready path.
+  const secondReady = Promise.withResolvers();
+  const put = o.ctx.storage.put;
+  o.ctx.storage.put = async (key, value) => {
+    await put(key, value);
+    if (key === "service-collection") secondReady.resolve();
+  };
   const wake2 = o.fetch(activateRequest());
-  // Yield a few turns so wake2 reaches ready() while wake1's KeyRebuild RPC is still pending.
-  for (let i = 0; i < 10; i++) await Promise.resolve();
-
+  await secondReady.promise;
   releaseFirstRpc();
   const [r1, r2] = await Promise.all([wake1, wake2]);
   assert.equal(r1.status, 200);
@@ -257,6 +290,7 @@ test("concurrent /v1/hosted/activate during cold open KeyRebuild does not abort 
   // Without awaiting this.opening in ready(), wake2 retired KeyRebuild and both wakes returned 200
   // with zero grants emitted, leaving the device waiting 30s for alarm() -> tick().
   assert.equal(f.grantsEmitted, 1);
+  assert.equal(f.refreshes, 1, "only the request that starts the cold open can skip the refresh");
 });
 
 test("warm /v1/hosted/activate arriving while an earlier sync is in flight still observes a new enrolment and emits its grant before returning 200", async (ctx) => {
