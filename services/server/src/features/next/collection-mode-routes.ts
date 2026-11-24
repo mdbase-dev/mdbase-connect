@@ -18,6 +18,7 @@ export type Owner = { account: string } & ({ session: string } | { connector: Co
 type Change = {
   request_id: string; source_mode: Mode; target_mode: Mode;
   policy_outbox_id: string | null; completed_at: Date | null; cancelled_at: Date | null; abandoned_at: Date | null;
+  abandon_scanned_seq: string | number | null; abandon_rekey_seq: string | number | null;
 };
 
 export async function authenticateOwner(request: FastifyRequest, reply: FastifyReply, db: DatabasePool): Promise<Owner | null> {
@@ -93,25 +94,108 @@ async function status(client: DatabaseConnection, collection: string, current: M
     source_mode: change.source_mode, target_mode: change.target_mode, phase: change.abandoned_at ? "abandoned" : change.cancelled_at ? "cancelled" : phase, ...(retryAt ? { retry_at: retryAt } : {}) };
 }
 
-export const isRekeyItem = (item: Uint8Array): boolean => (decodeCbor(item) as Map<number, unknown>).get(1) === 3;
+const REKEY_SCAN_PAGES = 4;
+const REKEY_SCAN_LIMIT = 64;
 
-/** Whether any rekey follows an abandoned switch's policy. Every rekey after it
- * moves off the epoch the services held; the native frozen-set rule decides its
- * trust. Bounded; an unavailable or longer log reads as not yet observed. */
-async function rekeyFollows(log: ControlLog, collection: string, policySeq: number): Promise<boolean> {
-  let after = policySeq;
+const isRekeyItem = (item: Uint8Array): boolean => {
   try {
-    for (let page = 0; page < 4; page++) {
-      const { items, more } = await log.controlItemsAfter(collection, after, 64);
-      if (items.some(({ item }) => isRekeyItem(item))) return true;
-      if (!more || !items.length) return false;
-      after = items.at(-1)!.seq;
-    }
-  } catch { /* Status stays conservative; abandon and policy routes are unaffected. */ }
-  return false;
+    const decoded = decodeCbor(item);
+    return decoded instanceof Map && decoded.get(1) === 3;
+  } catch { return false; }
+};
+
+type AbandonedChange = Change & { seq: string };
+export type ControlLog = Pick<LogServiceClient, "controlItemsAfter">;
+
+/** Latest abandoned Private switch with no subsequent completed change and no
+ * observed post-policy rekey. Once `abandon_rekey_seq` is recorded, the row is
+ * resolved and requires no further log reads. */
+async function latestAbandoned(client: DatabaseConnection, collection: string): Promise<AbandonedChange | undefined> {
+  const row = (await client.query<AbandonedChange>(
+    `SELECT m.*,b.seq FROM next_collection_mode_changes m JOIN next_policy_outbox o ON o.id=m.policy_outbox_id
+     JOIN next_policy_batches b ON b.id=o.batch_id WHERE m.collection_id=$1 AND m.abandoned_at IS NOT NULL
+     AND NOT EXISTS (SELECT 1 FROM next_collection_mode_changes c WHERE c.collection_id=$1
+       AND c.completed_at IS NOT NULL AND c.created_at>m.created_at)
+     ORDER BY m.created_at DESC LIMIT 1`, [collection])).rows[0];
+  return row && row.abandon_rekey_seq === null ? row : undefined;
 }
 
-type ControlLog = Pick<LogServiceClient, "controlItemsAfter">;
+/** Bounded cumulative scan for any rekey control item after a switch policy
+ * (transport evidence only; native replicas own rekey qualification). Persists
+ * monotonic `abandon_scanned_seq` progress and `abandon_rekey_seq` when found. */
+export async function scanRekeyAfterPolicy(
+  db: DatabasePool,
+  log: ControlLog,
+  collection: string,
+  requestId: string,
+  policySeq: number,
+  scannedSeq: string | number | null
+): Promise<{ observed: boolean; exhausted: boolean }> {
+  const scanned = scannedSeq === null ? policySeq : Number(scannedSeq);
+  const startAfter = Math.max(policySeq, scanned);
+  if (!Number.isSafeInteger(policySeq) || !Number.isSafeInteger(startAfter)) return { observed: false, exhausted: false };
+  let after = startAfter;
+  let foundRekey: number | undefined;
+  let exhausted = false;
+  let readError: unknown;
+  try {
+    for (let page = 0; page < REKEY_SCAN_PAGES; page++) {
+      const { items, more } = await log.controlItemsAfter(collection, after, REKEY_SCAN_LIMIT);
+      let advanced = false;
+      for (const entry of items) {
+        if (entry.seq <= after) continue;
+        if (isRekeyItem(entry.item)) {
+          foundRekey = entry.seq;
+          break;
+        }
+        after = entry.seq;
+        advanced = true;
+      }
+      if (foundRekey !== undefined) break;
+      if (!more || !advanced) {
+        exhausted = !more;
+        break;
+      }
+    }
+  } catch (error) {
+    readError = error;
+  }
+  if (foundRekey !== undefined) {
+    await db.query(
+      `UPDATE next_collection_mode_changes SET abandon_rekey_seq=$3
+       WHERE collection_id=$1 AND request_id=$2 AND abandon_rekey_seq IS NULL`,
+      [collection, requestId, foundRekey]
+    );
+    return { observed: true, exhausted: true };
+  }
+  if (after > startAfter) {
+    await db.query(
+      `UPDATE next_collection_mode_changes SET abandon_scanned_seq=$3
+       WHERE collection_id=$1 AND request_id=$2
+         AND abandon_rekey_seq IS NULL
+         AND (abandon_scanned_seq IS NULL OR abandon_scanned_seq<$3)`,
+      [collection, requestId, after]
+    ).catch(error => { if (!readError) throw error; });
+  }
+  if (readError !== undefined) throw readError;
+  return { observed: false, exhausted };
+}
+
+/** Whether any rekey follows an abandoned switch's policy. Bounded per request
+ * and cumulative across requests; an unavailable log reads as not yet observed. */
+async function rekeyFollows(
+  db: DatabasePool,
+  log: ControlLog,
+  collection: string,
+  abandoned: { requestId: string; seq: number; scannedSeq: string | number | null }
+): Promise<boolean> {
+  try {
+    return (await scanRekeyAfterPolicy(db, log, collection, abandoned.requestId, abandoned.seq, abandoned.scannedSeq)).observed;
+  } catch {
+    /* Status and POST stay conservative when the log is unavailable. */
+    return false;
+  }
+}
 
 export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabasePool, log: ControlLog): void {
   app.post("/v1/next/collections/:id/mode", {
@@ -125,23 +209,34 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
     if (!owner) return reply;
     const collection = params.data.id, { request_id: requestId, target_mode: target } = body.data;
     try {
-      const result = await inTransaction(db, async client => {
-        const current = await ownedMode(client, owner, collection);
-        const previous = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2", [collection, requestId])).rows[0];
-        if (previous) {
-          if (previous.target_mode !== target) throw new CreateError(409, "mode_request_conflict");
-          return status(client, collection, current, previous);
-        }
-        if ((await client.query("SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL AND abandoned_at IS NULL", [collection])).rows.length)
-          throw new CreateError(409, "mode_change_in_progress");
-        if (current === target) throw new CreateError(409, "mode_already_current");
-        const change = (await client.query<Change>(
-          `INSERT INTO next_collection_mode_changes(collection_id,request_id,actor_id,source_mode,target_mode)
-           VALUES($1,$2,$3,$4,$5) RETURNING *`, [collection, requestId, owner.account, current, target]
-        )).rows[0]!;
-        return status(client, collection, current, change);
-      });
-      return reply.code(202).send(result);
+      // Do the log check outside DB locks, then re-verify under the collection lock
+      // that no newer abandoned switch or competing intent landed meanwhile.
+      let verified: { requestId: string; seq: number } | undefined;
+      for (;;) {
+        const outcome = await inTransaction(db, async client => {
+          const current = await ownedMode(client, owner, collection);
+          const previous = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2", [collection, requestId])).rows[0];
+          if (previous) {
+            if (previous.target_mode !== target) throw new CreateError(409, "mode_request_conflict");
+            return { done: await status(client, collection, current, previous) };
+          }
+          if ((await client.query("SELECT 1 FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL AND abandoned_at IS NULL", [collection])).rows.length)
+            throw new CreateError(409, "mode_change_in_progress");
+          const abandoned = await latestAbandoned(client, collection);
+          if (abandoned && (!verified || verified.requestId !== abandoned.request_id || verified.seq !== Number(abandoned.seq))) {
+            return { check: { requestId: abandoned.request_id, seq: Number(abandoned.seq), scannedSeq: abandoned.abandon_scanned_seq } };
+          }
+          if (current === target) throw new CreateError(409, "mode_already_current");
+          const change = (await client.query<Change>(
+            `INSERT INTO next_collection_mode_changes(collection_id,request_id,actor_id,source_mode,target_mode)
+             VALUES($1,$2,$3,$4,$5) RETURNING *`, [collection, requestId, owner.account, current, target]
+          )).rows[0]!;
+          return { done: await status(client, collection, current, change) };
+        });
+        if ("done" in outcome) return reply.code(202).send(outcome.done);
+        if (verified || !(await rekeyFollows(db, log, collection, outcome.check))) throw new CreateError(409, "mode_abandoned");
+        verified = { requestId: outcome.check.requestId, seq: outcome.check.seq };
+      }
     } catch (error) { return refuse(reply, error, "The switch could not be started. Try again."); }
   });
 
@@ -156,20 +251,20 @@ export function registerCollectionModeRoutes(app: FastifyInstance, db: DatabaseP
         const current = await ownedMode(client, owner, params.data.id);
         const change = (await client.query<Change>("SELECT * FROM next_collection_mode_changes WHERE collection_id=$1 AND completed_at IS NULL AND cancelled_at IS NULL AND abandoned_at IS NULL", [params.data.id])).rows[0];
         // An abandoned switch left Private on the services' epoch until a later
-        // change completes; a cancelled request changes nothing.
-        const abandoned = change ? undefined : (await client.query<Change & { seq: string }>(
-          `SELECT m.*,b.seq FROM next_collection_mode_changes m JOIN next_policy_outbox o ON o.id=m.policy_outbox_id
-           JOIN next_policy_batches b ON b.id=o.batch_id WHERE m.collection_id=$1 AND m.abandoned_at IS NOT NULL
-           AND NOT EXISTS (SELECT 1 FROM next_collection_mode_changes c WHERE c.collection_id=$1
-             AND c.completed_at IS NOT NULL AND c.created_at>m.created_at)
-           ORDER BY m.created_at DESC LIMIT 1`, [params.data.id])).rows[0];
+        // change completes or a post-policy rekey is observed; cancelled changes nothing.
+        const abandoned = change ? undefined : await latestAbandoned(client, params.data.id);
         return { status: { collection_id: params.data.id, current_mode: current,
           execution_available: app.hasRoute({method:"POST",url:"/v1/next/collections/:id/mode/:requestId/prepare"}),
           change: change ? await status(client, params.data.id, current, change) : null },
-          abandoned: abandoned && { seq: Number(abandoned.seq), change: await status(client, params.data.id, current, abandoned) } };
+          abandoned: abandoned && {
+            requestId: abandoned.request_id,
+            seq: Number(abandoned.seq),
+            scannedSeq: abandoned.abandon_scanned_seq,
+            change: await status(client, params.data.id, current, abandoned)
+          } };
       });
       // Network reads never hold the collection lock.
-      if (result.abandoned && !(await rekeyFollows(log, params.data.id, result.abandoned.seq))) result.status.change = result.abandoned.change;
+      if (result.abandoned && !(await rekeyFollows(db, log, params.data.id, result.abandoned))) result.status.change = result.abandoned.change;
       return result.status;
     } catch (error) { return refuse(reply, error, "The switch status is unavailable. Try again."); }
   });

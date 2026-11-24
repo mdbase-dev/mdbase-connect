@@ -548,6 +548,7 @@ describe("first-party cloud-copy CP bootstrap (protocol/native/persistence stand
             );
             const body = JSON.parse(request!.body as string);
             expect(body.device_id).toBe(f.source.deviceId);
+            expect(body.capabilities).toEqual(["collection_mode_switch_v2"]);
             expect(body.challenge).toBe("11".repeat(32));
             expect(body.sig).toBe(
                 (purpose === "create" ? "07" : "08").repeat(64),
