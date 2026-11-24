@@ -498,11 +498,6 @@ msgstr "댓글을 불러오지 못했습니다: {problem}"
 msgid "Compare with {expr}"
 msgstr "{expr}와(과) 비교"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Confirm on this computer to start the switch."
-msgstr "전환을 시작하려면 이 컴퓨터에서 확인하세요."
-
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -835,16 +830,6 @@ msgstr "속성 찾기…"
 msgid "Find a record…"
 msgstr "레코드 찾기…"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch to Cloud copy. This usually finishes within seconds."
-msgstr "클라우드 사본으로의 전환을 마무리하고 있습니다. 보통 몇 초 안에 완료됩니다."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch to Private and updating your collection key. This finishes automatically while an owner device is online."
-msgstr "비공개로 전환을 마무리하고 컬렉션 키를 업데이트하고 있습니다. 소유자 기기가 온라인 상태인 동안 자동으로 완료됩니다."
-
 #: src/live-preview/math.ts
 msgid "Formulas could not be shown. Check your connection and reopen the note."
 msgstr "수식을 표시할 수 없습니다. 연결을 확인하고 노트를 다시 여세요."
@@ -1053,8 +1038,8 @@ msgstr "mdbase 앱"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
-msgstr "mdbase가 기존 기록을 포함해 컬렉션을 읽고 기기가 꺼져 있는 동안에도 제공할 수 있게 됩니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
+msgid "mdbase keeps a copy it can read, so web apps and agents work while your devices are off."
+msgstr "mdbase가 읽을 수 있는 사본을 보관하므로 기기가 꺼져 있는 동안에도 웹 앱과 에이전트가 작동합니다."
 
 #: src/shortcuts.ts
 msgid "Menu"
@@ -1221,8 +1206,8 @@ msgstr "이전"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
-msgstr "전환이 완료된 후에는 내 기기에서만 새 콘텐츠를 읽을 수 있습니다. mdbase는 이전 콘텐츠를 계속 읽을 수 있습니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
+msgid "Only your devices can read it. Web apps work only while one of your devices is online."
+msgstr "내 기기에서만 읽을 수 있습니다. 웹 앱은 내 기기 중 하나가 온라인 상태일 때만 작동합니다."
 
 #: src/CommentsPanel.tsx
 msgctxt "Comment status"
@@ -1236,11 +1221,6 @@ msgstr "파일 열기"
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
 msgstr "다른 mdbase 앱에서 열기"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Open mdbase connect on one of your computers to confirm and start the switch."
-msgstr "컴퓨터 중 하나에서 mdbase connect를 열어 전환을 확인하고 시작하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1337,11 +1317,6 @@ msgstr "비공개"
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
 msgstr "mdbase 팀에 비공개로 전달되는 피드백입니다."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Publishing the new storage mode. This finishes automatically."
-msgstr "새 저장 모드를 게시하고 있습니다. 자동으로 완료됩니다."
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -1773,6 +1748,76 @@ msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
 msgstr "컬렉션 전환, 현재: {collection}"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — confirm on this computer to start."
+msgstr "클라우드 사본으로 전환 중 — 시작하려면 이 컴퓨터에서 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — finishing. This usually takes a few seconds."
+msgstr "클라우드 사본으로 전환 중 — 마무리하고 있습니다. 보통 몇 초 걸립니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — open mdbase connect on one of your computers to confirm."
+msgstr "클라우드 사본으로 전환 중 — 컴퓨터 중 하나에서 mdbase connect를 열어 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — publishing the new storage mode."
+msgstr "클라우드 사본으로 전환 중 — 새 저장 모드를 게시하고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older app connections to expire."
+msgstr "클라우드 사본으로 전환 중 — 이전 앱 연결이 만료되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older devices to update."
+msgstr "클라우드 사본으로 전환 중 — 이전 기기들이 업데이트되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy: mdbase will be able to read the collection, including its history. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "클라우드 사본으로 전환: mdbase가 기록을 포함해 컬렉션을 읽을 수 있게 됩니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — confirm on this computer to start."
+msgstr "비공개로 전환 중 — 시작하려면 이 컴퓨터에서 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — finishing and updating your collection key. This finishes automatically while an owner device is online."
+msgstr "비공개로 전환 중 — 마무리하고 컬렉션 키를 업데이트하고 있습니다. 소유자 기기가 온라인 상태인 동안 자동으로 완료됩니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — open mdbase connect on one of your computers to confirm."
+msgstr "비공개로 전환 중 — 컴퓨터 중 하나에서 mdbase connect를 열어 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — publishing the new storage mode."
+msgstr "비공개로 전환 중 — 새 저장 모드를 게시하고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older app connections to expire."
+msgstr "비공개로 전환 중 — 이전 앱 연결이 만료되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older devices to update."
+msgstr "비공개로 전환 중 — 이전 기기들이 업데이트되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private: only your devices can read new content; mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "비공개로 전환: 내 기기에서만 새 콘텐츠를 읽을 수 있으며, mdbase는 이전 콘텐츠를 계속 읽을 수 있습니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
@@ -2031,16 +2076,6 @@ msgstr "인증을 완료하지 못했습니다. 다시 시도하세요."
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
 msgstr "인증을 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older app connections to expire. Cloud copy stays on until the switch finishes automatically."
-msgstr "이전 앱 연결이 만료되기를 기다리고 있습니다. 전환이 자동으로 완료될 때까지 클라우드 사본이 유지됩니다."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older devices to update."
-msgstr "이전 기기들이 업데이트되기를 기다리고 있습니다."
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"

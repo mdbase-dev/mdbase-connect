@@ -19,7 +19,7 @@ const [tokensCss, paletteCss, controlsCss] = await Promise.all([
   readFile(new URL('../css/palette.css', import.meta.url), 'utf8'),
   readFile(new URL('../css/controls.css', import.meta.url), 'utf8')
 ]);
-const fixtureStyles = `${tokensCss}\n${paletteCss}\n${controlsCss}\nbody{margin:0;padding:24px;background:var(--paper,#fff);color:var(--ink,#111);font-family:var(--font-sans,system-ui,sans-serif);max-width:600px;}`;
+const fixtureStyles = `${tokensCss}\n${paletteCss}\n${controlsCss}\nbody{margin:0;padding:24px;background:var(--color-canvas);color:var(--color-text);font-family:var(--sans);max-width:600px;}`;
 
 const { outputFiles } = await build({
   stdin: {
@@ -124,6 +124,10 @@ try {
     });
 
     const open = () => page.goto('https://mode.fixture/' + (native ? 'native' : 'portal'));
+    const shot = async (name) => {
+      await page.mouse.move(1, 1);
+      await page.screenshot({ path: `${screenshotDir}${name}`, animations: 'disabled' });
+    };
 
     // Hidden when executor unavailable.
     state = { ...base(), execution_available: false };
@@ -131,11 +135,14 @@ try {
     await page.waitForTimeout(30);
     assert.equal(await page.getByRole('button').count(), 0);
 
-    // Idle with U1 app-reconnection warning.
+    // Idle Cloud copy with current-mode summary, switching-to-Private note, and no Refresh status.
     state = base();
     await open();
     await page.getByRole('button', { name: 'Make private', exact: true }).waitFor();
-    await page.getByText(/Apps connected to this collection will need to be reconnected afterwards\./).waitFor();
+    await page.getByText(/mdbase keeps a copy it can read/).waitFor();
+    await page.getByText(/Switching to Private:.*Apps connected to this collection will need to be reconnected afterwards\./).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Refresh status' }).count(), 0, 'Refresh status must not show when idle');
+    if (!native) await shot('idle-cloud-copy.png');
 
     // Declined confirmation (not_confirmed) -> no error, back to idle.
     post = async () => ({ status: 403, body: { error: { code: 'not_confirmed', message: "not confirmed on this computer's screen" } } });
@@ -150,7 +157,7 @@ try {
     await page.getByRole('alert').filter({ hasText: /holds this collection’s key/ }).waitFor();
     assert.equal(await page.getByText(/interrupted switch/).count(), 0);
 
-    // Older-devices blocker with resolved name + short ID fallback, persists across refresh & reload.
+    // Older-devices blocker with resolved name + short ID fallback, persists across polling & reload.
     const namedId = '99999999-9999-4999-8999-999999999999';
     const unnamedId = '88888888-8888-4888-8888-888888888888';
     post = async (input) => {
@@ -163,10 +170,12 @@ try {
     assert.equal(await page.getByText(namedId).count(), 0, 'raw UUID must not appear');
     assert.equal(await page.getByText(unnamedId).count(), 0, 'raw UUID must not appear');
     assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), native ? 1 : 0);
-    if (native) await page.screenshot({ path: `${screenshotDir}older-devices-blocker.png` });
+    assert.equal(await page.getByRole('button', { name: 'Refresh status' }).count(), 0, 'Refresh status must not show without error');
+    assert.equal(await page.getByText(/Apps connected to this collection will need to be reconnected afterwards\./).count(), 0, 'idle note must hide while pending');
+    if (native) await shot('older-devices-blocker.png');
 
-    // Persists across Refresh status and page reload!
-    await page.getByRole('button', { name: 'Refresh status' }).click();
+    // Persists across background poll and page reload!
+    await page.clock.fastForward(10_000);
     await page.getByText('MacBook Pro', { exact: true }).waitFor();
     await open();
     await page.getByText('MacBook Pro', { exact: true }).waitFor();
@@ -177,36 +186,48 @@ try {
     await page.getByRole('button', { name: 'Make private', exact: true }).waitFor();
     assert.equal(await page.getByText('MacBook Pro').count(), 0);
 
-    // Unknown error preserves request ID and shows interrupted-switch warning.
+    // Unknown error preserves request ID, shows interrupted-switch warning, and reveals Refresh status retry.
     calls = [];
     post = async () => ({ status: 503, body: { error: { code: 'unknown', message: 'unconfirmed' } } });
     await page.getByRole('button', { name: 'Make private', exact: true }).click();
     await page.getByRole('alert').filter({ hasText: /An interrupted switch may already have started/ }).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'Refresh status', exact: true }).count(), 1, 'Refresh status appears after status/unknown error');
 
-    // Retry reaches waiting_for_token_expiry with countdown (~12 minutes) and NO Continue button.
+    // Retry reaches waiting_for_token_expiry with countdown (~12 minutes) and NO Continue or Refresh button.
     const retryAt = '2026-11-24T12:12:00Z';
     post = async (input) => {
       state = base('cloud_copy', { request_id: input.request, source_mode: 'cloud_copy', target_mode: input.target, phase: 'waiting_for_token_expiry', retry_at: retryAt });
       return { phase: 'waiting_for_token_expiry', retry_at: retryAt };
     };
     await page.getByRole('button', { name: 'Make private', exact: true }).click();
-    await page.locator('time').filter({ hasText: /12 minutes/ }).waitFor();
+    await page.locator('.mdbase-collection-mode-note time').filter({ hasText: /12 minutes/ }).waitFor();
     assert.equal(calls[0].request, calls[1].request, 'retry must preserve exact request ID');
     assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), 0, 'daemon drives token expiry');
-    if (!native) await page.screenshot({ path: `${screenshotDir}waiting-for-token-expiry.png` });
+    assert.equal(await page.getByRole('button', { name: 'Refresh status' }).count(), 0);
+    // Verify typography scale: status text is not larger than h3/body, and caption is smaller than status text.
+    const sizes = await page.evaluate(() => {
+      const h3 = parseFloat(getComputedStyle(document.querySelector('.mdbase-collection-mode h3')).fontSize);
+      const current = parseFloat(getComputedStyle(document.querySelector('.mdbase-collection-mode-current')).fontSize);
+      const status = parseFloat(getComputedStyle(document.querySelector('.mdbase-collection-mode [role="status"]')).fontSize);
+      const caption = parseFloat(getComputedStyle(document.querySelector('.mdbase-collection-mode-note')).fontSize);
+      return { h3, current, status, caption };
+    });
+    assert.ok(sizes.status <= sizes.h3 && sizes.status === sizes.current && sizes.caption < sizes.status, `unexpected type scale: ${JSON.stringify(sizes)}`);
+    if (!native) await shot('waiting-for-token-expiry.png');
 
     // Cloud->Private finishing: shows source mode (Cloud copy), clears stale token-expiry time, offers confirmed Stop this switch (abandon).
     state = base('cloud_copy', { request_id: calls[1].request, source_mode: 'cloud_copy', target_mode: 'private', phase: 'finishing' });
     await page.clock.fastForward(10_000);
     await page.getByRole('button', { name: 'Stop this switch', exact: true }).waitFor();
     assert.equal(await page.locator('time').count(), 0, 'token-expiry countdown must clear once finishing');
-    assert.equal(await page.locator('.mdbase-collection-mode-current').innerText(), 'Cloud copy');
+    assert.equal(await page.locator('.mdbase-collection-mode-current strong').innerText(), 'Cloud copy');
     assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Refresh status' }).count(), 0);
 
     await page.getByRole('button', { name: 'Stop this switch', exact: true }).click();
     const dialog = page.getByRole('dialog', { name: 'Stop this switch to Private?' });
     await dialog.waitFor();
-    if (!native) await page.screenshot({ path: `${screenshotDir}abandon-confirm-dialog.png` });
+    if (!native) await shot('abandon-confirm-dialog.png');
 
     abandonPost = async (input) => {
       state = base('private', { request_id: input.request, source_mode: 'cloud_copy', target_mode: 'private', phase: 'abandoned' });
@@ -215,14 +236,15 @@ try {
     await dialog.getByRole('button', { name: 'Stop this switch', exact: true }).click();
     await dialog.waitFor({ state: 'detached' });
     await page.getByRole('status').filter({ hasText: /The switch to Private was stopped/ }).waitFor();
-    assert.equal(await page.getByRole('button', { name: 'Make private' }).count(), 0);
-    assert.equal(await page.getByRole('button', { name: 'Turn on Cloud copy' }).count(), 0);
-    if (!native) await page.screenshot({ path: `${screenshotDir}abandoned-state.png` });
+    assert.equal(await page.getByRole('button').count(), 0, 'abandoned state offers no buttons');
+    if (!native) await shot('abandoned-state.png');
 
-    // Private->Cloud finishing: server flips current_mode to cloud_copy early, but UI keeps showing Private until complete!
+    // Idle Private -> screenshot, then Private->Cloud finishing: server flips current_mode to cloud_copy early, but UI keeps showing Private until complete!
     state = base('private');
-    await page.getByRole('button', { name: 'Refresh status' }).click();
+    await open();
     await page.getByRole('button', { name: 'Turn on Cloud copy', exact: true }).waitFor();
+    await page.getByText(/Only your devices can read it\./).waitFor();
+    if (!native) await shot('idle-private.png');
 
     post = async (input) => {
       // Simulate server flipping current_mode early at /prepare before Workers are keyed!
@@ -230,17 +252,16 @@ try {
       return { phase: 'finishing' };
     };
     await page.getByRole('button', { name: 'Turn on Cloud copy', exact: true }).click();
-    await page.getByRole('status').filter({ hasText: /Finishing the switch to Cloud copy/ }).waitFor();
-    assert.equal(await page.locator('.mdbase-collection-mode-current').innerText(), 'Private', 'must display source mode while finishing');
-    assert.equal(await page.getByRole('button', { name: 'Continue on this device' }).count(), 0);
-    assert.equal(await page.getByRole('button', { name: 'Stop this switch' }).count(), 0, 'abandon is only for Cloud->Private');
-    if (native) await page.screenshot({ path: `${screenshotDir}finishing-source-mode.png` });
+    await page.getByRole('status').filter({ hasText: /Switching to Cloud copy — finishing/ }).waitFor();
+    assert.equal(await page.locator('.mdbase-collection-mode-current strong').innerText(), 'Private', 'must display source mode while finishing');
+    assert.equal(await page.getByRole('button').count(), 0, 'no buttons during Private->Cloud finishing');
+    if (native) await shot('finishing-source-mode.png');
 
     // Auto-polling detects completion (3s interval) and invokes onModeChange!
     state = base('cloud_copy', null);
     await page.clock.fastForward(3_000);
     await page.getByRole('button', { name: 'Make private', exact: true }).waitFor();
-    assert.equal(await page.locator('.mdbase-collection-mode-current').innerText(), 'Cloud copy');
+    assert.equal(await page.locator('.mdbase-collection-mode-current strong').innerText(), 'Cloud copy');
     const refreshes = await page.evaluate(() => window.fixtureRefreshes());
     assert.ok(refreshes.includes('cloud_copy'), `expected onModeChange("cloud_copy"), got ${JSON.stringify(refreshes)}`);
 

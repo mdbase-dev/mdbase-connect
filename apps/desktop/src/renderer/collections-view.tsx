@@ -155,7 +155,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
       </button>
       {view.detail && <p className="collection-status-detail">{view.detail}</p>}
       {view.canResume && <button className="mdbase-button collection-resume" disabled={busy} onClick={() => void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, true))}>{t(i18n)({ message: "Resume", context: "Local collection management" })}</button>}
-      {isSynced && !modeOpen && pendingMode && <>
+      {isSynced && !modeOpen && pendingMode && <div className="collection-mode-pending">
         <p className="collection-status-detail" role="status">
           {modeNeedsDevice
             ? t(i18n)({ message: "A storage mode switch is waiting for confirmation on this computer.", context: "Local collection management" })
@@ -168,7 +168,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
             ? t(i18n)({ message: "Review switch", context: "Local collection management" })
             : t(i18n)({ message: "View progress", context: "Local collection management" })}
         </button>
-      </>}
+      </div>}
       {storageFull && <p className="collection-status-detail">{t(i18n)({ message: "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage.", context: "Local collection management" })}</p>}
       {storageFull && <button className="mdbase-button collection-account" onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>}
       {collection.approval_code && <div className="approval-check" aria-live="polite">

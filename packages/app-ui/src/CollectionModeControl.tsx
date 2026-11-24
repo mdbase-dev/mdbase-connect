@@ -178,6 +178,7 @@ export function CollectionModeControl({
   const [status, setStatus] = useState<CollectionModeStatus | null>(() => read(initialStatus));
   const [busy, setBusy] = useState(false);
   const [errorKind, setErrorKind] = useState<Exclude<ModeErrorKind, "not_confirmed" | "mode_switch_unavailable"> | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [blocked, setBlocked] = useState<BlockedEntry | null>(() => readBlocked(collectionId));
   const [stepRetryAt, setStepRetryAt] = useState<string | undefined>(undefined);
   const [abandonOpen, setAbandonOpen] = useState(false);
@@ -227,6 +228,7 @@ export function CollectionModeControl({
     const seeded = read(initialStatus);
     setStatus(seeded);
     setErrorKind(null);
+    setLoadFailed(false);
     setBusy(false);
     setStepRetryAt(undefined);
     setAbandonOpen(false);
@@ -239,8 +241,17 @@ export function CollectionModeControl({
     hadPending.current = Boolean(seeded?.change && seeded.change.phase !== "abandoned");
     void callbacks.current.load().then((value) => {
       if (generation.current !== active) return;
+      setLoadFailed(false);
       applyStatus(read(value));
-    }).catch(() => { /* Older servers/non-owners expose no controls. */ });
+    }).catch((error) => {
+      if (generation.current !== active || !seeded) return;
+      const kind = classifyModeError(error);
+      if (kind === "mode_switch_unavailable") applyStatus(null, null);
+      else if (kind !== "not_confirmed") {
+        setLoadFailed(true);
+        setErrorKind(kind);
+      }
+    });
     return () => { ++generation.current; };
   }, [collectionId]);
 
@@ -280,6 +291,7 @@ export function CollectionModeControl({
     const active = generation.current;
     setBusy(true);
     setErrorKind(null);
+    setLoadFailed(false);
     try {
       const next = read(await callbacks.current.load());
       if (active !== generation.current) return;
@@ -288,7 +300,10 @@ export function CollectionModeControl({
       if (active !== generation.current) return;
       const kind = classifyModeError(error);
       if (kind === "mode_switch_unavailable") applyStatus(null, null);
-      else if (kind !== "not_confirmed") setErrorKind(kind);
+      else if (kind !== "not_confirmed") {
+        setLoadFailed(true);
+        setErrorKind(kind);
+      }
     } finally {
       if (active === generation.current) setBusy(false);
     }
@@ -299,6 +314,7 @@ export function CollectionModeControl({
     if (intent.current?.target !== target) intent.current = { target, id: crypto.randomUUID() };
     setBusy(true);
     setErrorKind(null);
+    setLoadFailed(false);
     setBlocked(null);
     writeBlocked(collectionId, null);
     setStepRetryAt(undefined);
@@ -433,39 +449,61 @@ export function CollectionModeControl({
   const canAbandon = Boolean(
     abandon && pending?.request_id && pending.target_mode === "private" && pending.phase === "finishing"
   );
+  const canRefresh = Boolean(loadFailed || errorKind === "unknown" || errorKind === "mode_rekey_observed");
+  const showPrimaryAction = !abandoned && (!pending || needsNativeConsent);
+  const hasActions = showPrimaryAction || canCancel || canAbandon || canRefresh;
 
   let progressLine: string | null = null;
   if (pending) {
+    const toPrivate = pending.target_mode === "private";
     if (blockedIds.length > 0 || pending.phase === "waiting_for_devices") {
-      progressLine = t(i18n)({ message: "Waiting for older devices to update.", context: "Collection storage mode" });
+      progressLine = toPrivate
+        ? t(i18n)({ message: "Switching to Private — waiting for older devices to update.", context: "Collection storage mode" })
+        : t(i18n)({ message: "Switching to Cloud copy — waiting for older devices to update.", context: "Collection storage mode" });
     } else if (pending.phase === "waiting_for_token_expiry") {
-      progressLine = t(i18n)({ message: "Waiting for older app connections to expire. Cloud copy stays on until the switch finishes automatically.", context: "Collection storage mode" });
+      progressLine = toPrivate
+        ? t(i18n)({ message: "Switching to Private — waiting for older app connections to expire.", context: "Collection storage mode" })
+        : t(i18n)({ message: "Switching to Cloud copy — waiting for older app connections to expire.", context: "Collection storage mode" });
     } else if (pending.phase === "waiting_for_device") {
       progressLine = native
-        ? t(i18n)({ message: "Confirm on this computer to start the switch.", context: "Collection storage mode" })
-        : t(i18n)({ message: "Open mdbase connect on one of your computers to confirm and start the switch.", context: "Collection storage mode" });
+        ? (toPrivate
+          ? t(i18n)({ message: "Switching to Private — confirm on this computer to start.", context: "Collection storage mode" })
+          : t(i18n)({ message: "Switching to Cloud copy — confirm on this computer to start.", context: "Collection storage mode" }))
+        : (toPrivate
+          ? t(i18n)({ message: "Switching to Private — open mdbase connect on one of your computers to confirm.", context: "Collection storage mode" })
+          : t(i18n)({ message: "Switching to Cloud copy — open mdbase connect on one of your computers to confirm.", context: "Collection storage mode" }));
     } else if (pending.phase === "publishing_policy") {
-      progressLine = t(i18n)({ message: "Publishing the new storage mode. This finishes automatically.", context: "Collection storage mode" });
-    } else if (pending.target_mode === "private") {
-      progressLine = t(i18n)({ message: "Finishing the switch to Private and updating your collection key. This finishes automatically while an owner device is online.", context: "Collection storage mode" });
+      progressLine = toPrivate
+        ? t(i18n)({ message: "Switching to Private — publishing the new storage mode.", context: "Collection storage mode" })
+        : t(i18n)({ message: "Switching to Cloud copy — publishing the new storage mode.", context: "Collection storage mode" });
+    } else if (toPrivate) {
+      progressLine = t(i18n)({ message: "Switching to Private — finishing and updating your collection key. This finishes automatically while an owner device is online.", context: "Collection storage mode" });
     } else {
-      progressLine = t(i18n)({ message: "Finishing the switch to Cloud copy. This usually finishes within seconds.", context: "Collection storage mode" });
+      progressLine = t(i18n)({ message: "Switching to Cloud copy — finishing. This usually takes a few seconds.", context: "Collection storage mode" });
     }
   }
 
   return <section className="mdbase-collection-mode" aria-label={t(i18n)({ message: "Collection storage mode", context: "Collection storage mode" })} aria-busy={busy}>
     <h3>{t(i18n)({ message: "Storage mode", context: "Collection storage mode" })}</h3>
-    <p className="mdbase-collection-mode-current">{displayedMode === "private"
-      ? t(i18n)({ message: "Private", context: "Collection storage mode" })
-      : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })}</p>
-    {!abandoned && <p className="mdbase-collection-mode-note">{target === "private"
-      ? t(i18n)({ message: "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards.", context: "Collection storage mode" })
-      : t(i18n)({ message: "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards.", context: "Collection storage mode" })}</p>}
+    <p className="mdbase-collection-mode-current">
+      <strong>{displayedMode === "private"
+        ? t(i18n)({ message: "Private", context: "Collection storage mode" })
+        : t(i18n)({ message: "Cloud copy", context: "Collection storage mode" })}</strong>
+      {" — "}
+      {displayedMode === "private"
+        ? t(i18n)({ message: "Only your devices can read it. Web apps work only while one of your devices is online.", context: "Collection storage mode" })
+        : t(i18n)({ message: "mdbase keeps a copy it can read, so web apps and agents work while your devices are off.", context: "Collection storage mode" })}
+    </p>
+    {!abandoned && !pending && <p className="mdbase-collection-mode-note">{target === "private"
+      ? t(i18n)({ message: "Switching to Private: only your devices can read new content; mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards.", context: "Collection storage mode" })
+      : t(i18n)({ message: "Switching to Cloud copy: mdbase will be able to read the collection, including its history. Apps connected to this collection will need to be reconnected afterwards.", context: "Collection storage mode" })}</p>}
     {abandoned && <p role="status">{t(i18n)({ message: "The switch to Private was stopped. This collection is Private on its previous key. Revoke the device that started the switch so your other owner devices replace the key automatically.", context: "Collection storage mode" })}</p>}
-    {progressLine && <p role="status">{progressLine}</p>}
-    {retryAt && finishLine && <p><time dateTime={retryAt}>{finishLine}</time></p>}
+    {progressLine && <div className="mdbase-collection-mode-status">
+      <p role="status">{progressLine}</p>
+      {retryAt && finishLine && <p className="mdbase-collection-mode-note"><time dateTime={retryAt}>{finishLine}</time></p>}
+    </div>}
     {blockedIds.length > 0 && <div className="mdbase-collection-mode-blocked" role="status">
-      <p>{t(i18n)({ message: "Update mdbase on these devices or remove them before trying again:", context: "Collection storage mode" })}</p>
+      <p className="mdbase-collection-mode-note">{t(i18n)({ message: "Update mdbase on these devices or remove them before trying again:", context: "Collection storage mode" })}</p>
       <ul>{blockedIds.map((id) => {
         const name = deviceNames?.[id];
         const shortId = shortDeviceId(id);
@@ -473,8 +511,8 @@ export function CollectionModeControl({
       })}</ul>
     </div>}
     {errorKind && <p role="alert">{errorText(errorKind)}</p>}
-    <div className="mdbase-collection-mode-actions">
-      {!abandoned && (!pending || needsNativeConsent) && <button type="button" className="mdbase-button" disabled={busy} onClick={() => void commit(target)}>
+    {hasActions && <div className="mdbase-collection-mode-actions">
+      {showPrimaryAction && <button type="button" className="mdbase-button" disabled={busy} onClick={() => void commit(target)}>
         {busy
           ? t(i18n)({ message: "Working…", context: "Collection storage mode" })
           : needsNativeConsent
@@ -489,10 +527,10 @@ export function CollectionModeControl({
       {canAbandon && <button ref={abandonTrigger} type="button" className="mdbase-button is-tertiary is-danger" disabled={busy} onClick={() => { setAbandonError(null); setAbandonOpen(true); }}>
         {t(i18n)({ message: "Stop this switch", context: "Collection storage mode" })}
       </button>}
-      <button type="button" className="mdbase-button is-tertiary" disabled={busy} onClick={() => void refresh()}>
+      {canRefresh && <button type="button" className="mdbase-button is-tertiary" disabled={busy} onClick={() => void refresh()}>
         {t(i18n)({ message: "Refresh status", context: "Collection storage mode" })}
-      </button>
-    </div>
+      </button>}
+    </div>}
     {canAbandon && <ConfirmDialog
       open={abandonOpen}
       returnFocusRef={abandonTrigger}

@@ -27,6 +27,7 @@ async function mount(options: {
   native?: boolean;
   id?: string;
   deviceNames?: Readonly<Record<string, string>>;
+  initialStatus?: unknown;
   onModeChange?: (mode: "private" | "cloud_copy") => void;
 }) {
   const change = options.change ?? vi.fn(async () => ({}));
@@ -42,6 +43,7 @@ async function mount(options: {
         abandon={options.abandon}
         native={options.native ?? false}
         deviceNames={options.deviceNames}
+        initialStatus={options.initialStatus}
         onModeChange={options.onModeChange}
       />
     </I18nProvider>
@@ -78,16 +80,24 @@ it("hides controls for older/unregistered executors, malformed status and non-ow
   }
 });
 
-it("warns before confirming in both directions that connected apps must be reconnected", async () => {
+it("describes the current mode and warns before confirming in both directions without showing Refresh status", async () => {
   await mount({ load: async () => state("cloud_copy") });
+  expect(host.querySelector(".mdbase-collection-mode-current strong")?.textContent).toBe("Cloud copy");
+  expect(host.querySelector(".mdbase-collection-mode-current")?.textContent).toContain("mdbase keeps a copy it can read");
+  expect(host.querySelector(".mdbase-collection-mode-note")?.textContent).toContain("Switching to Private:");
   expect(host.textContent).toContain("Apps connected to this collection will need to be reconnected afterwards.");
+  expect([...host.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Make private"]);
   act(() => root!.unmount());
   root = undefined;
   await mount({ load: async () => state("private") });
+  expect(host.querySelector(".mdbase-collection-mode-current strong")?.textContent).toBe("Private");
+  expect(host.querySelector(".mdbase-collection-mode-current")?.textContent).toContain("Only your devices can read it.");
+  expect(host.querySelector(".mdbase-collection-mode-note")?.textContent).toContain("Switching to Cloud copy:");
   expect(host.textContent).toContain("Apps connected to this collection will need to be reconnected afterwards.");
+  expect([...host.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Turn on Cloud copy"]);
 });
 
-it("records portal intent without claiming completion or offering native consent", async () => {
+it("records portal intent without claiming completion, hides idle note and Refresh status, and does not offer native consent", async () => {
   let value = state();
   const load = vi.fn(async () => value);
   const change = vi.fn(async () => {
@@ -97,9 +107,11 @@ it("records portal intent without claiming completion or offering native consent
   await mount({ load, change });
   await click("Make private");
   expect(change).toHaveBeenCalledWith("private", expect.any(String));
-  expect(host.textContent).toContain("Open mdbase connect on one of your computers");
+  expect(host.querySelector('[role="status"]')?.textContent).toContain("Switching to Private — open mdbase connect on one of your computers");
+  expect(host.textContent).not.toContain("Apps connected to this collection will need to be reconnected afterwards.");
   expect(host.textContent).not.toContain("Continue on this device");
-  expect(host.textContent).toContain("Cloud copy");
+  expect(host.textContent).not.toContain("Refresh status");
+  expect(host.querySelector(".mdbase-collection-mode-current strong")?.textContent).toBe("Cloud copy");
 });
 
 it("distinguishes declined confirmation, keyed_owner_required, mode_abandoned, mode_switch_unavailable and unknown errors", async () => {
@@ -140,13 +152,35 @@ it("distinguishes declined confirmation, keyed_owner_required, mode_abandoned, m
   await click("Make private");
   expect(host.textContent).toBe("");
 
-  // Unknown/network error -> keeps "interrupted switch" copy and preserves request ID.
+  // Unknown/network error -> keeps "interrupted switch" copy, preserves request ID, and offers Refresh status retry.
   const lost = vi.fn(async () => { throw Error("lost response"); });
-  await mount({ load: async () => state(), change: lost, id: "five" });
+  const reload = vi.fn(async () => state());
+  await mount({ load: reload, change: lost, id: "five" });
+  expect(host.textContent).not.toContain("Refresh status");
   await click("Make private");
   await click("Make private");
   expect(lost.mock.calls[0]).toEqual(lost.mock.calls[1]);
   expect(host.querySelector('[role="alert"]')?.textContent).toContain("An interrupted switch may already have started.");
+  expect(host.textContent).toContain("Refresh status");
+  await click("Refresh status");
+  expect(reload).toHaveBeenCalledTimes(2);
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.textContent).not.toContain("Refresh status");
+
+  // Status load error with seeded status -> offers Refresh status as retry and clears once load succeeds.
+  let failLoad = true;
+  const flakyLoad = vi.fn(async () => {
+    if (failLoad) throw Error("network down");
+    return state("private");
+  });
+  await mount({ load: flakyLoad, initialStatus: state("cloud_copy"), id: "six" });
+  expect(host.querySelector('[role="alert"]')?.textContent).toContain("couldn’t confirm progress");
+  expect(host.textContent).toContain("Refresh status");
+  failLoad = false;
+  await click("Refresh status");
+  expect(host.querySelector('[role="alert"]')).toBeNull();
+  expect(host.textContent).not.toContain("Refresh status");
+  expect(host.querySelector(".mdbase-collection-mode-current strong")?.textContent).toBe("Private");
 });
 
 it("uses a fresh request on the next direction, not a completed operation", async () => {
@@ -161,13 +195,15 @@ it("uses a fresh request on the next direction, not a completed operation", asyn
   expect(change.mock.calls[0]?.[1]).not.toEqual(change.mock.calls[1]?.[1]);
 });
 
-it("resolves older-device names with short-ID fallback and keeps them visible across refresh and remount until next attempt", async () => {
+it("resolves older-device names with short-ID fallback and keeps them visible across polling and remount until next attempt", async () => {
+  vi.useFakeTimers();
   const namedId = "11111111-1111-4111-8111-111111111111";
   const unknownId = "22222222-2222-4222-8222-222222222222";
   let value = state("cloud_copy", { request_id: "req-1", source_mode: "cloud_copy", target_mode: "private", phase: "waiting_for_device" });
+  const load = vi.fn(async () => value);
   const change = vi.fn(async () => ({ phase: "waiting_for_devices", devices: [namedId, unknownId] }));
   await mount({
-    load: async () => value,
+    load,
     change,
     native: true,
     deviceNames: { [namedId]: "Work laptop" }
@@ -178,13 +214,16 @@ it("resolves older-device names with short-ID fallback and keeps them visible ac
   expect(host.textContent).toContain("Device 22222222");
   expect(host.textContent).not.toContain(namedId);
   expect(host.textContent).not.toContain(unknownId);
+  expect(host.textContent).not.toContain("Refresh status");
 
   // Content-only fixture for batched real-browser light/dark/mobile layout checks.
   await mkdir("test-results", { recursive: true });
   await writeFile("test-results/mode-control.html", host.innerHTML);
 
-  // Survives clicking Refresh status.
-  await click("Refresh status");
+  // Survives background status poll.
+  const callsBeforePoll = load.mock.calls.length;
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000); });
+  expect(load.mock.calls.length).toBeGreaterThan(callsBeforePoll);
   expect(host.textContent).toContain("Work laptop");
   expect(host.textContent).toContain("Device 22222222");
 
@@ -209,7 +248,7 @@ it("resolves older-device names with short-ID fallback and keeps them visible ac
   expect(host.querySelector("time")?.dateTime).toBe("2099-01-01T00:00:00Z");
 });
 
-it("shows source mode during finishing, hides Continue on daemon-driven phases, polls, and calls onModeChange on completion", async () => {
+it("shows source mode during finishing, hides idle note and buttons on daemon-driven phases, polls, and calls onModeChange on completion", async () => {
   vi.useFakeTimers();
   // Simulate server flipping current_mode to cloud_copy at Private->Cloud /prepare while phase is still finishing.
   let value: CollectionModeStatus = state("cloud_copy", {
@@ -222,16 +261,19 @@ it("shows source mode during finishing, hides Continue on daemon-driven phases, 
   const onModeChange = vi.fn();
   await mount({ load, native: true, onModeChange });
 
-  expect(host.querySelector(".mdbase-collection-mode-current")?.textContent).toBe("Private");
-  expect(host.textContent).not.toContain("Continue on this device");
-  expect(host.textContent).not.toContain("Stop this switch");
+  expect(host.querySelector(".mdbase-collection-mode-current strong")?.textContent).toBe("Private");
+  expect(host.querySelector(".mdbase-collection-mode-current")?.textContent).toContain("Only your devices can read it.");
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("Switching to Cloud copy — finishing. This usually takes a few seconds.");
+  expect(host.textContent).not.toContain("Apps connected to this collection will need to be reconnected afterwards.");
+  expect([...host.querySelectorAll("button")]).toEqual([]);
   expect(load).toHaveBeenCalledTimes(1);
 
   // Advance 3s -> finishing poll triggers and completes.
   value = state("cloud_copy", null);
   await act(async () => { await vi.advanceTimersByTimeAsync(3_000); });
   expect(load).toHaveBeenCalledTimes(2);
-  expect(host.querySelector(".mdbase-collection-mode-current")?.textContent).toBe("Cloud copy");
+  expect(host.querySelector(".mdbase-collection-mode-current strong")?.textContent).toBe("Cloud copy");
+  expect(host.textContent).toContain("Apps connected to this collection will need to be reconnected afterwards.");
   expect(onModeChange).toHaveBeenCalledWith("cloud_copy");
 
   // Once terminal, polling stops.
@@ -239,7 +281,7 @@ it("shows source mode during finishing, hides Continue on daemon-driven phases, 
   expect(load).toHaveBeenCalledTimes(2);
 });
 
-it("shows expected finish countdown during waiting_for_token_expiry without Continue on this device", async () => {
+it("shows expected finish countdown as a caption during waiting_for_token_expiry without Continue or Refresh status", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-11-24T12:00:00Z"));
   const retryAt = "2026-11-24T12:12:00Z";
@@ -253,10 +295,11 @@ it("shows expected finish countdown during waiting_for_token_expiry without Cont
   const cancel = vi.fn(async () => ({ phase: "cancelled" }));
   await mount({ load: async () => value, native: true, cancel });
 
-  expect(host.querySelector("time")?.dateTime).toBe(retryAt);
+  expect(host.querySelector('[role="status"]')?.textContent).toBe("Switching to Private — waiting for older app connections to expire.");
+  expect(host.querySelector(".mdbase-collection-mode-note time")?.getAttribute("datetime")).toBe(retryAt);
   expect(host.querySelector("time")?.textContent).toContain("12 minutes");
-  expect(host.textContent).not.toContain("Continue on this device");
-  expect(host.textContent).toContain("Cancel switch");
+  expect(host.textContent).not.toContain("Apps connected to this collection will need to be reconnected afterwards.");
+  expect([...host.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Cancel switch"]);
 });
 
 it("offers confirmed Stop this switch during Cloud->Private finishing and displays abandoned state calmly", async () => {
@@ -295,7 +338,7 @@ it("offers confirmed Stop this switch during Cloud->Private finishing and displa
   expect(onModeChange).toHaveBeenCalledWith("private");
   expect(host.querySelector('[role="status"]')?.textContent).toContain("The switch to Private was stopped");
   expect(host.querySelector('[role="alert"]')).toBeNull();
-  expect([...host.querySelectorAll("button")].map((b) => b.textContent?.trim())).toEqual(["Refresh status"]);
+  expect([...host.querySelectorAll("button")]).toEqual([]);
 });
 
 it("cancels pending intent without an optimistic mode change and restores a fresh retry", async () => {

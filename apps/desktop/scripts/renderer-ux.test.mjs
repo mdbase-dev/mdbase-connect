@@ -1315,6 +1315,7 @@ test("a view-only new file can be discarded without a synced version", async () 
 test("storage mode lives in its own section, flags pending portal switches, and refreshes the badge on completion", async () => {
   const { page, errors } = await desktop({ collections: [collection({ mode: "synced", log: "hosted" })] });
   try {
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await page.evaluate(() => {
       window.fixture.modeStatus = {
         current_mode: "cloud_copy",
@@ -1333,6 +1334,13 @@ test("storage mode lives in its own section, flags pending portal switches, and 
     await nav(page, "Collections").click();
     const card = page.locator(".collection-card").filter({ hasText: "Notes" });
     await card.getByText("A storage mode switch is waiting for confirmation on this computer.", { exact: true }).waitFor();
+    const flagAlignment = await card.evaluate((el) => ({
+      nameX: el.querySelector(".collection-card-main h3").getBoundingClientRect().x,
+      flagTextX: el.querySelector(".collection-mode-pending .collection-status-detail").getBoundingClientRect().x,
+      flagBtnX: el.querySelector(".collection-mode-pending .collection-mode-action").getBoundingClientRect().x
+    }));
+    assert.ok(Math.abs(flagAlignment.flagTextX - flagAlignment.nameX) < 1, `pending flag text must align with name column: ${JSON.stringify(flagAlignment)}`);
+    assert.ok(Math.abs(flagAlignment.flagBtnX - flagAlignment.nameX) < 1, `pending flag button must align with name column: ${JSON.stringify(flagAlignment)}`);
     await screenshot(page, "desktop-pending-mode-flag");
 
     // Details has only Name/Description — no Storage mode control or adjacent Cancel buttons.
@@ -1351,7 +1359,7 @@ test("storage mode lives in its own section, flags pending portal switches, and 
 
     // Confirm on this device -> enters finishing, then poll detects completion and refreshes collection badge.
     await panel.getByRole("button", { name: "Continue on this device", exact: true }).click();
-    await panel.getByText(/Finishing the switch to Private/).waitFor();
+    await panel.getByText(/Switching to Private — finishing/).waitFor();
     await page.evaluate(() => {
       window.fixture.collections[0].mode = "synced_e2e";
       window.fixture.modeStatus = { current_mode: "private", execution_available: true, change: null };

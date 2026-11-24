@@ -1362,8 +1362,10 @@ textarea.mdbase-field {
 /* Mode changes stay inline; progress is text, never an optimistic toggle. */
 .mdbase-collection-mode {
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-2);
   min-inline-size: 0;
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
 }
 
 .mdbase-collection-mode :is(h3, p, ul) {
@@ -1371,34 +1373,60 @@ textarea.mdbase-field {
 }
 
 .mdbase-collection-mode h3 {
+  color: var(--muted, var(--color-text-muted));
   font-size: var(--font-size-section);
   font-weight: var(--font-weight-medium);
 }
 
-.mdbase-collection-mode > div:last-child,
-.mdbase-collection-mode-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
+.mdbase-collection-mode p {
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
 }
 
 .mdbase-collection-mode-current {
-  font-weight: var(--font-weight-medium);
+  color: var(--muted, var(--color-text-muted));
 }
 
-.mdbase-collection-mode-note {
-  color: var(--muted);
+.mdbase-collection-mode-current strong {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.mdbase-collection-mode p.mdbase-collection-mode-note {
+  color: var(--muted, var(--color-text-muted));
   font-size: var(--font-size-caption);
   line-height: 1.5;
 }
 
+.mdbase-collection-mode-status {
+  display: grid;
+  gap: var(--space-1);
+}
+
 .mdbase-collection-mode-blocked {
   display: grid;
-  gap: var(--space-2);
+  gap: var(--space-1);
 }
 
 .mdbase-collection-mode-blocked ul {
+  display: grid;
+  gap: 2px;
   padding-inline-start: var(--space-4);
+}
+
+.mdbase-collection-mode [role="alert"] {
+  color: var(--color-danger);
+}
+
+.mdbase-collection-mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-1);
+}
+
+.mdbase-collection-mode-actions > .mdbase-button.is-tertiary:first-child {
+  margin-inline-start: -10px;
 }
 
 .mdbase-collection-mode code {

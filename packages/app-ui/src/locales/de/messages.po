@@ -498,11 +498,6 @@ msgstr "Kommentare konnten nicht geladen werden: {problem}"
 msgid "Compare with {expr}"
 msgstr "Mit {expr} vergleichen"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Confirm on this computer to start the switch."
-msgstr "Bestätigen Sie auf diesem Computer, um die Umstellung zu starten."
-
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -835,16 +830,6 @@ msgstr "Eigenschaft suchen…"
 msgid "Find a record…"
 msgstr "Datensatz suchen…"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch to Cloud copy. This usually finishes within seconds."
-msgstr "Die Umstellung auf Cloud-Kopie wird abgeschlossen. Dies dauert normalerweise nur wenige Sekunden."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch to Private and updating your collection key. This finishes automatically while an owner device is online."
-msgstr "Die Umstellung auf Privat wird abgeschlossen und Ihr Sammlungsschlüssel wird aktualisiert. Dies erfolgt automatisch, während ein Gerät des Eigentümers online ist."
-
 #: src/live-preview/math.ts
 msgid "Formulas could not be shown. Check your connection and reopen the note."
 msgstr "Formeln konnten nicht angezeigt werden. Prüfen Sie Ihre Verbindung und öffnen Sie die Notiz erneut."
@@ -1053,8 +1038,8 @@ msgstr "mdbase-Apps"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
-msgstr "mdbase kann die Sammlung einschließlich des vorhandenen Verlaufs lesen und bereitstellen, während Ihre Geräte ausgeschaltet sind. Apps, die mit dieser Sammlung verbunden sind, müssen danach erneut verbunden werden."
+msgid "mdbase keeps a copy it can read, so web apps and agents work while your devices are off."
+msgstr "mdbase speichert eine lesbare Kopie, sodass Web-Apps und Agents auch funktionieren, wenn Ihre Geräte ausgeschaltet sind."
 
 #: src/shortcuts.ts
 msgid "Menu"
@@ -1221,8 +1206,8 @@ msgstr "am oder vor dem"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
-msgstr "Nach Abschluss der Umstellung können nur Ihre Geräte neue Inhalte lesen. mdbase kann möglicherweise weiterhin ältere Inhalte lesen. Apps, die mit dieser Sammlung verbunden sind, müssen danach erneut verbunden werden."
+msgid "Only your devices can read it. Web apps work only while one of your devices is online."
+msgstr "Nur Ihre Geräte können sie lesen. Web-Apps funktionieren nur, während eines Ihrer Geräte online ist."
 
 #: src/CommentsPanel.tsx
 msgctxt "Comment status"
@@ -1236,11 +1221,6 @@ msgstr "Datei öffnen"
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
 msgstr "In einer anderen mdbase-App öffnen"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Open mdbase connect on one of your computers to confirm and start the switch."
-msgstr "Öffnen Sie mdbase connect auf einem Ihrer Computer, um die Umstellung zu bestätigen und zu starten."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1337,11 +1317,6 @@ msgstr "Privat"
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
 msgstr "Privates Feedback an das mdbase-Team."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Publishing the new storage mode. This finishes automatically."
-msgstr "Der neue Speichermodus wird veröffentlicht. Dies wird automatisch abgeschlossen."
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -1773,6 +1748,76 @@ msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
 msgstr "Sammlung wechseln, aktuell: {collection}"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — confirm on this computer to start."
+msgstr "Umstellung auf Cloud-Kopie — auf diesem Computer bestätigen, um zu starten."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — finishing. This usually takes a few seconds."
+msgstr "Umstellung auf Cloud-Kopie — wird abgeschlossen. Dies dauert normalerweise nur wenige Sekunden."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — open mdbase connect on one of your computers to confirm."
+msgstr "Umstellung auf Cloud-Kopie — öffnen Sie mdbase connect auf einem Ihrer Computer zum Bestätigen."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — publishing the new storage mode."
+msgstr "Umstellung auf Cloud-Kopie — neuer Speichermodus wird veröffentlicht."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older app connections to expire."
+msgstr "Umstellung auf Cloud-Kopie — warten, bis ältere App-Verbindungen ablaufen."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older devices to update."
+msgstr "Umstellung auf Cloud-Kopie — warten auf die Aktualisierung älterer Geräte."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy: mdbase will be able to read the collection, including its history. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "Umstellung auf Cloud-Kopie: mdbase kann die Sammlung einschließlich ihres Verlaufs lesen. Apps, die mit dieser Sammlung verbunden sind, müssen danach erneut verbunden werden."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — confirm on this computer to start."
+msgstr "Umstellung auf Privat — auf diesem Computer bestätigen, um zu starten."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — finishing and updating your collection key. This finishes automatically while an owner device is online."
+msgstr "Umstellung auf Privat — wird abgeschlossen und Ihr Sammlungsschlüssel wird aktualisiert. Dies erfolgt automatisch, während ein Eigentümergerät online ist."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — open mdbase connect on one of your computers to confirm."
+msgstr "Umstellung auf Privat — öffnen Sie mdbase connect auf einem Ihrer Computer zum Bestätigen."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — publishing the new storage mode."
+msgstr "Umstellung auf Privat — neuer Speichermodus wird veröffentlicht."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older app connections to expire."
+msgstr "Umstellung auf Privat — warten, bis ältere App-Verbindungen ablaufen."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older devices to update."
+msgstr "Umstellung auf Privat — warten auf die Aktualisierung älterer Geräte."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private: only your devices can read new content; mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "Umstellung auf Privat: Nur Ihre Geräte können neue Inhalte lesen; mdbase kann möglicherweise weiterhin ältere Inhalte lesen. Apps, die mit dieser Sammlung verbunden sind, müssen danach erneut verbunden werden."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
@@ -2031,16 +2076,6 @@ msgstr "Die Überprüfung konnte nicht abgeschlossen werden. Versuchen Sie es er
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
 msgstr "Die Überprüfung konnte nicht geladen werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older app connections to expire. Cloud copy stays on until the switch finishes automatically."
-msgstr "Es wird gewartet, bis ältere App-Verbindungen ablaufen. Die Cloud-Kopie bleibt aktiv, bis die Umstellung automatisch abgeschlossen ist."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older devices to update."
-msgstr "Es wird auf die Aktualisierung älterer Geräte gewartet."
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"

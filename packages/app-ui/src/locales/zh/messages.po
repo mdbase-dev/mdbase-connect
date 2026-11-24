@@ -498,11 +498,6 @@ msgstr "无法加载评论：{problem}"
 msgid "Compare with {expr}"
 msgstr "与 {expr} 比较"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Confirm on this computer to start the switch."
-msgstr "请在此计算机上确认以开始切换。"
-
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -835,16 +830,6 @@ msgstr "查找属性…"
 msgid "Find a record…"
 msgstr "查找记录…"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch to Cloud copy. This usually finishes within seconds."
-msgstr "正在完成切换到云端副本。这通常会在几秒内完成。"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch to Private and updating your collection key. This finishes automatically while an owner device is online."
-msgstr "正在完成切换到私密模式并更新您的集合密钥。只要有所有者设备在线，这将自动完成。"
-
 #: src/live-preview/math.ts
 msgid "Formulas could not be shown. Check your connection and reopen the note."
 msgstr "无法显示公式。请检查网络连接，然后重新打开笔记。"
@@ -1053,8 +1038,8 @@ msgstr "mdbase 应用"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
-msgstr "mdbase 将能够读取该集合（包括其现有历史记录），并在您的设备关闭时提供服务。连接到此集合的应用随后需要重新连接。"
+msgid "mdbase keeps a copy it can read, so web apps and agents work while your devices are off."
+msgstr "mdbase 会保留一份可读副本，因此即使您的设备已关闭，Web 应用和智能体也能正常工作。"
 
 #: src/shortcuts.ts
 msgid "Menu"
@@ -1221,8 +1206,8 @@ msgstr "不晚于"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
-msgstr "切换完成后，只有您的设备可以读取新内容。mdbase 可能仍可读取较早的内容。连接到此集合的应用随后需要重新连接。"
+msgid "Only your devices can read it. Web apps work only while one of your devices is online."
+msgstr "只有您的设备可以读取。Web 应用仅在您的至少一台设备在线时可用。"
 
 #: src/CommentsPanel.tsx
 msgctxt "Comment status"
@@ -1236,11 +1221,6 @@ msgstr "打开文件"
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
 msgstr "在其他 mdbase 应用中打开"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Open mdbase connect on one of your computers to confirm and start the switch."
-msgstr "请在您的任一计算机上打开 mdbase connect，以确认并开始切换。"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1337,11 +1317,6 @@ msgstr "私有"
 #: src/Feedback.tsx
 msgid "Private feedback to the mdbase team."
 msgstr "发送给 mdbase 团队的私密反馈。"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Publishing the new storage mode. This finishes automatically."
-msgstr "正在发布新的存储模式。这将自动完成。"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -1773,6 +1748,76 @@ msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
 msgstr "切换集合，当前：{collection}"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — confirm on this computer to start."
+msgstr "正在切换到云端副本 — 请在此计算机上确认以开始。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — finishing. This usually takes a few seconds."
+msgstr "正在切换到云端副本 — 即将完成。这通常只需要几秒钟。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — open mdbase connect on one of your computers to confirm."
+msgstr "正在切换到云端副本 — 请在您的任一计算机上打开 mdbase connect 进行确认。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — publishing the new storage mode."
+msgstr "正在切换到云端副本 — 正在发布新的存储模式。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older app connections to expire."
+msgstr "正在切换到云端副本 — 正在等待旧的应用连接过期。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older devices to update."
+msgstr "正在切换到云端副本 — 正在等待较旧的设备更新。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy: mdbase will be able to read the collection, including its history. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "切换到云端副本：mdbase 将能够读取该集合（包括其历史记录）。连接到此集合的应用随后需要重新连接。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — confirm on this computer to start."
+msgstr "正在切换到私有 — 请在此计算机上确认以开始。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — finishing and updating your collection key. This finishes automatically while an owner device is online."
+msgstr "正在切换到私有 — 正在完成切换并更新您的集合密钥。只要有所有者设备在线，这将自动完成。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — open mdbase connect on one of your computers to confirm."
+msgstr "正在切换到私有 — 请在您的任一计算机上打开 mdbase connect 进行确认。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — publishing the new storage mode."
+msgstr "正在切换到私有 — 正在发布新的存储模式。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older app connections to expire."
+msgstr "正在切换到私有 — 正在等待旧的应用连接过期。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older devices to update."
+msgstr "正在切换到私有 — 正在等待较旧的设备更新。"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private: only your devices can read new content; mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "切换到私有：只有您的设备可以读取新内容；mdbase 可能仍可读取较早的内容。连接到此集合的应用随后需要重新连接。"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
@@ -2031,16 +2076,6 @@ msgstr "无法完成验证。请重试。"
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
 msgstr "无法加载验证。请检查网络连接后重试。"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older app connections to expire. Cloud copy stays on until the switch finishes automatically."
-msgstr "正在等待旧的应用连接过期。在切换自动完成前，云端副本将保持开启。"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older devices to update."
-msgstr "正在等待较旧的设备更新。"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
