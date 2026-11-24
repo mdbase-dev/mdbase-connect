@@ -38,6 +38,7 @@ for (const width of [360, 390, 430]) {
     await page.getByRole("button", { name: "More note actions" }).click();
     await page.getByRole("menuitem", { name: "Note properties" }).click();
     await expect(page.getByRole("complementary", { name: "Note properties" })).toBeVisible();
+    await expect.poll(() => page.getByRole("dialog", { name: "Note properties" }).evaluate(element => element.getAnimations().length)).toBe(0);
     await fitsViewport(page, ".properties-panel");
     await page.getByRole("button", { name: "Close properties" }).click();
 
