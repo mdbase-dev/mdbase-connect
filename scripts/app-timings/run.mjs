@@ -39,7 +39,7 @@ async function revision(page) {
 
 async function instrument(page, selector) {
   await page.addInitScript(({selector}) => {
-    const sample = {firstRecords: null, lcp: null, setupRequired: false, opening: []};
+    const sample = {firstRecords: null, lcp: null, setupRequired: false};
     const visible = element => {
       const rect = element.getBoundingClientRect(), style = getComputedStyle(element);
       return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.top < innerHeight && style.visibility === 'visible' && style.display !== 'none';
@@ -54,9 +54,6 @@ async function instrument(page, selector) {
       requestAnimationFrame(() => requestAnimationFrame(() => {
         checking = false;
         sample.setupRequired = [...document.querySelectorAll('.mdbase-collections-gate[data-phase="needs_setup"]')].some(visible);
-        const text = document.querySelector('.mdbase-opening small')?.textContent ?? '';
-        const name = text.includes('Preparing secure access') ? 'key_wait' : text.includes('Loading the collection snapshot') ? 'snapshot' : text.includes('Applying collection updates') ? 'apply' : null;
-        if (sample.opening.at(-1)?.name !== name) sample.opening.push({name, at: performance.now()});
         if ([...document.querySelectorAll(selector)].some(visible)) {sample.firstRecords = performance.now(); observer.disconnect();}
       }));
     });
@@ -104,11 +101,14 @@ async function visit(page, app, collection, cold, collectionName, timeout) {
       const marks = Object.fromEntries(['requested', 'approved', 'ready'].map(name => [name,
         performance.getEntriesByName(`mdbase:open:${name}`, 'mark')[0]?.startTime]));
       const query = performance.getEntriesByName('mdbase:query:first-result', 'mark').find(entry => entry.startTime >= marks.requested);
+      const opening = performance.getEntriesByType('mark')
+        .filter(entry => entry.name.startsWith('mdbase:open:stage:'))
+        .map(entry => ({stage: entry.name.slice('mdbase:open:stage:'.length), at: entry.startTime}));
       return {
         ...window.appTimings, timeOrigin: performance.timeOrigin, endedAt: performance.now(),
         ttfb: nav.responseStart - nav.requestStart,
         fcp: performance.getEntriesByName('first-contentful-paint')[0]?.startTime,
-        marks, firstQuery: query?.startTime,
+        marks, firstQuery: query?.startTime, opening,
       };
     });
     const stages = measuredStages(observation, approvalEpoch);

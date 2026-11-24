@@ -82,10 +82,12 @@ seconds and a 10k one about six minutes; in an on-disk profile they took about
 21 and 72–81 seconds, so the cold series steps down at that change. All cells and visits are
 sequential, including on one collection.
 
-The same observer accumulates time under fixed opening status text as
-`key_wait`, `snapshot` and `apply`. It stores only those fixed names and
-monotonic timestamps, never UI text. Repeated phases add to the same stage;
-these UI observations can omit intervals and are not a complete SDK trace. TTFB
+Opening stage durations (`joining`, `opening_store`, `connecting_log`, `syncing`,
+`key_wait`, `snapshot`, `apply`, `verifying_read` and `checking_setup`) are
+computed from the SDK's main-thread `mdbase:open:stage:<stage>` performance
+marks, clipped to approval start and to `open:ready` / first records, summing
+repeated visits to a stage. Only those fixed stage names and monotonic
+timestamps are used. TTFB
 is navigation `responseStart - requestStart`. FCP and buffered LCP are read at
 the first-records observation (or timeout); LCP is therefore **LCP at first
 records**, not an eventual page-lifetime LCP. JS heap uses Chromium's

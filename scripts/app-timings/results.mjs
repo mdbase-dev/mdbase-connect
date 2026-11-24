@@ -5,6 +5,17 @@ export const apps = {
 };
 export const sizes = ['100', '1k', '10k'];
 export const token = /^[a-z0-9][a-z0-9_.-]{0,63}$/;
+const openingStages = {
+  joining: 'joining',
+  opening_store: 'opening_store',
+  connecting_log: 'connecting_log',
+  syncing: 'syncing',
+  loading_snapshot: 'snapshot',
+  replaying: 'apply',
+  waiting_for_key: 'key_wait',
+  verifying_read: 'verifying_read',
+  checking_setup: 'checking_setup',
+};
 export function median(values) {
   const sorted = [...values].sort((a, b) => a - b), middle = Math.floor(sorted.length / 2);
   return Math.round(sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2);
@@ -19,11 +30,14 @@ export function measuredStages(observation, approvalEpoch) {
   if (Number.isFinite(firstRecords)) stages.first_records = firstRecords - start;
   if (fcp !== undefined) stages.fcp = fcp;
   if (lcp !== null) stages.lcp = lcp;
-  for (let index = 0; index < opening.length; index++) {
-    const current = opening[index];
-    if (current.name === null) continue;
-    const end = Math.min(opening[index + 1]?.at ?? endedAt, firstRecords ?? endedAt);
-    stages[current.name] = (stages[current.name] ?? 0) + Math.max(0, end - Math.max(start, current.at));
+  const openingMarks = opening.filter(entry => Object.hasOwn(openingStages, entry.stage));
+  const openingEnd = Math.min(marks.ready ?? endedAt, firstRecords ?? endedAt);
+  for (let index = 0; index < openingMarks.length; index++) {
+    const current = openingMarks[index];
+    const end = Math.min(openingMarks[index + 1]?.at ?? openingEnd, openingEnd);
+    if (end < start || current.at > openingEnd) continue;
+    const name = openingStages[current.stage];
+    stages[name] = (stages[name] ?? 0) + Math.max(0, end - Math.max(start, current.at));
   }
   if (marks.requested !== undefined) {
     if (Number.isFinite(firstRecords)) stages.open_first_records = firstRecords - marks.requested;
