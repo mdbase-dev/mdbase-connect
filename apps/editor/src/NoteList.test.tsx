@@ -19,7 +19,7 @@ vi.mock("@tanstack/react-virtual", () => ({
 }));
 
 describe("NoteList search presentation", () => {
-  it("draws a declared type icon and keeps an aligned slot for notes without one", async () => {
+  it("draws a declared type icon in the type chip and none for notes without a type", async () => {
     const task: NoteSummary = { path: "tasks/write.md", frontmatter: {}, effectiveFrontmatter: {}, types: ["task"], body: "", file: {} };
     const plain: NoteSummary = { path: "notes/plain.md", frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: {} };
     const noop = () => {};
@@ -30,13 +30,13 @@ describe("NoteList search presentation", () => {
       search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
       collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
       searchPending={false}
-      onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
+      onSearch={noop} onSort={noop} onClearScope={noop}
       onRetryStructure={noop} onRetrySearch={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
       onSelectFile={noop} onCollections={noop}
     />);
     const [taskRow, plainRow] = screen.getAllByRole("option");
-    expect(await vi.waitFor(() => taskRow.querySelector(".note-type-icon .ph-check-circle") ?? Promise.reject(new Error("icon pending")))).toBeTruthy();
-    expect(plainRow.querySelector(".note-type-icon")).toBeEmptyDOMElement();
+    expect(await vi.waitFor(() => taskRow.querySelector(".note-type-badge .note-type-icon .ph-check-circle") ?? Promise.reject(new Error("icon pending")))).toBeTruthy();
+    expect(plainRow.querySelector(".note-type-icon, .note-type-badge")).toBeNull();
   });
 
   it("keeps undated rows aligned, names empty notes and types readably, and offers title-only rows", () => {
@@ -51,7 +51,7 @@ describe("NoteList search presentation", () => {
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       searchPending: false,
-      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onSearch: noop, onSort: noop, onClearScope: noop,
       onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop,
       onSelectFile: noop, onCollections: noop, onCompact
     };
@@ -84,7 +84,7 @@ describe("NoteList search presentation", () => {
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       searchPending: false,
-      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onSearch: noop, onSort: noop, onClearScope: noop,
       onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelection, onSelectFile: noop, onCollections: noop
     };
@@ -116,7 +116,7 @@ describe("NoteList search presentation", () => {
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       searchPending: false,
-      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onSearch: noop, onSort: noop, onClearScope: noop,
       onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelectFile: noop, onPeek: peek, onCollections: noop
     };
@@ -168,7 +168,7 @@ describe("NoteList search presentation", () => {
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       searchPending: false,
-      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onSearch: noop, onSort: noop, onClearScope: noop,
       onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelectFile: vi.fn(), onCollections: noop
     };
@@ -188,7 +188,7 @@ describe("NoteList search presentation", () => {
       search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
       collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
       searchPending={false}
-      onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
+      onSearch={noop} onSort={noop} onClearScope={noop}
       onRetryStructure={noop} onRetrySearch={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
       onSelectFile={noop} onCollections={noop}
       drafts={drafts} onOpenDraft={openDraft} onCreate={create} onCreateOfType={createOfType}
@@ -229,7 +229,7 @@ describe("NoteList search presentation", () => {
       search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
       collectionName="Test" loading={false} structureLoading={false} filesLoading={false}
       searchPending={false}
-      onSearch={noop} onSort={noop} onClearScope={noop} onQuickOpen={noop}
+      onSearch={noop} onSort={noop} onClearScope={noop}
       onRetryStructure={noop} onRetrySearch={noop} onRetryContent={noop} onRetryFiles={noop} onSelect={noop}
       onSelectFile={noop} onCollections={noop}
     />);
@@ -251,7 +251,7 @@ describe("NoteList search presentation", () => {
       search: "", searchQuery: "", searchContexts: new Map(), sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       structureError: "Third page unavailable", searchPending: false,
-      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onSearch: noop, onSort: noop, onClearScope: noop,
       onRetryStructure: retry, onRetrySearch: vi.fn(), onRetryContent: vi.fn(), onRetryFiles: noop, onSelect: noop,
       onSelectFile: noop, onCollections: noop, onCreate: noop
     };
@@ -304,7 +304,7 @@ describe("NoteList search presentation", () => {
       search: "needle", searchQuery: "needle", searchContexts, sort: { key: "path", direction: "asc" } as const, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       searchPending: false,
-      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onSearch: noop, onSort: noop, onClearScope: noop,
       onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: noop, onSelectFile: noop,
       onCreate: noop, onCollections: noop
     };
@@ -333,7 +333,7 @@ describe("NoteList touch selection", () => {
       search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
       collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
       searchPending: false,
-      onSearch: noop, onSort: noop, onClearScope: noop, onQuickOpen: noop,
+      onSearch: noop, onSort: noop, onClearScope: noop,
       onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop, onSelect: vi.fn(),
       onSelection: vi.fn(), onStartSelecting: vi.fn(), onSelectFile: noop, onCollections: noop,
       noteActions: () => []

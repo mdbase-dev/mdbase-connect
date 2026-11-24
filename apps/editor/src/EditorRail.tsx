@@ -6,11 +6,15 @@ import type { ReactNode } from "react";
 import {
   ArrowLeftIcon as ArrowLeft,
   BracketsCurlyIcon as Braces,
+  BugIcon as Bug,
+  CommandIcon as Command,
   GearSixIcon as Settings,
   NotebookIcon as Notebook,
   SidebarSimpleIcon as PanelLeftClose
 } from "./icons";
 import { AppSwitcher } from "@mdbase-dev/ui/app-switcher";
+import { shortcutLabel } from "@mdbase-dev/ui/command-palette";
+import { commandShortcuts, useShortcuts } from "./editor-commands";
 import { useFeedback } from "@mdbase-dev/ui/feedback";
 import "@mdbase-dev/ui/feedback.css";
 import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
@@ -45,6 +49,7 @@ export function EditorRail({
   mobileReturn,
   switcher,
   onCollapse,
+  onCommands,
   onMoveNotes,
   onMoveFolder,
   notesSelected,
@@ -62,6 +67,8 @@ export function EditorRail({
   /** The shared collection switcher; without one the header just names the collection. */
   switcher?: ReactNode;
   onCollapse?: () => void;
+  /** Opens the command palette. */
+  onCommands?: () => void;
   children?: ReactNode;
   footer: ReactNode;
   notesSelected?: boolean;
@@ -76,6 +83,7 @@ export function EditorRail({
         {children}
       </div>
       <div className="rail-bottom-group" role="group" aria-label={t`Collection tools`}>
+        {onCommands && <RailCommands onClick={onCommands} />}
         <RailLink destination={types} selected={surface === "types"} label={t`Types`} ariaLabel={typeCount === undefined ? t`Types` : t`Types (${typeCount})`} icon={<Braces aria-hidden="true" />} count={typeCount} />
         <RailLink destination={settings} selected={surface === "settings"} label={t`Settings`} icon={<Settings aria-hidden="true" />} />
         <RailFeedback />
@@ -108,7 +116,19 @@ function RailFeedback() {
   const feedback = useFeedback();
   if (!feedback.enabled) return null;
   return <button type="button" className="mdbase-feedback-trigger rail-feedback" onClick={() => feedback.open()}>
-    <span className="rail-row-label"><Trans>Send feedback</Trans></span>
+    <span><Bug aria-hidden="true" /><span className="rail-row-label"><Trans>Send feedback</Trans></span></span>
+  </button>;
+}
+
+/** The command palette's visible entry. Its name is what the row shows: the label, then the key. */
+function RailCommands({ onClick }: { onClick: () => void }) {
+  useLingui();
+  useShortcuts();
+  const chord = commandShortcuts("command-palette")[0];
+  const key = chord ? shortcutLabel(chord) : undefined;
+  return <button className="quick-open-trigger" title={key ? t`Commands · ${key} outside text` : t`Commands`} onClick={onClick}>
+    <span><Command aria-hidden="true" /><span className="rail-row-label"><Trans>Commands</Trans></span></span>
+    {key && <>{" "}<kbd>{key}</kbd></>}
   </button>;
 }
 

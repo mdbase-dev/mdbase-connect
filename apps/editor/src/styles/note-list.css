@@ -1,5 +1,7 @@
 .note-list-pane {
   grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  /* Rows are inset from the pane edges, like the rail's, so both mark a selection the same way. */
+  --row-inset: 6px;
 }
 
 /* New notes that are not in the collection yet sit above the list they will join. */
@@ -8,11 +10,13 @@
 }
 
 .note-draft {
-  width: 100%;
+  width: calc(100% - 2 * var(--row-inset));
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding: var(--space-2) var(--space-4) var(--space-2) 18px;
+  margin: 1px var(--row-inset);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
   text-align: left;
   transition: background var(--motion-fast) var(--ease-standard);
 }
@@ -33,7 +37,6 @@
 .note-scroll {
   min-height: 0;
   overflow: auto;
-  border-top: 1px solid var(--line);
 }
 
 /* The selected row is the keyboard focus indicator for the composite listbox. */
@@ -102,6 +105,7 @@
 .note-row-context > .note-row {
   position: static;
   height: 100%;
+  margin: 0 var(--row-inset);
 }
 
 .note-group-header {
@@ -110,8 +114,8 @@
   left: 0;
   width: 100%;
   display: flex;
-  align-items: center;
-  padding: 0 18px;
+  align-items: flex-end;
+  padding: 0 18px 6px;
   background: var(--white);
   /* The next group's heading slides over the stuck one rather than under it. */
   z-index: 2;
@@ -125,35 +129,46 @@
 
 .note-group-header span {
   color: var(--faint);
-  font-size: var(--font-size-ui);
+  font-size: var(--font-size-caption);
   font-weight: var(--font-weight-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* The virtualizer sets each row's slot height. A clear 1px edge above and below keeps the fill inside
+   the slot, so neighbouring selections read as separate rows. */
 .note-row {
   position: absolute;
   top: 0;
-  left: 0;
-  width: 100%;
+  left: var(--row-inset);
+  width: calc(100% - 2 * var(--row-inset));
   display: flex;
   flex-direction: column;
   align-items: stretch;
   justify-content: center;
-  gap: 3px;
-  padding: var(--space-2) var(--space-4) var(--space-2) 18px;
+  gap: 2px;
+  padding: 0 var(--space-3);
+  border: solid transparent;
+  border-width: 1px 0;
+  border-radius: var(--radius-md);
+  background-clip: padding-box;
   text-align: left;
-  transition: background var(--motion-fast) var(--ease-standard);
+  transition: background-color var(--motion-fast) var(--ease-standard);
 }
 
-/* Flex shrinking clips glyphs even when the outer row stays at 76px. */
+/* Flex shrinking clips glyphs even when the outer row keeps its height. */
 .note-row > span {
   flex-shrink: 0;
 }
 
 .note-row:hover {
   background: var(--hover);
+}
+
+.note-scroll .note-row.selected {
+  background: var(--selected);
+  color: var(--ink);
 }
 
 .note-row-arrival { animation: remote-change-fade 900ms var(--ease-out); }
@@ -169,17 +184,19 @@
   cursor: default;
 }
 
+/* Line one: the title, with when it last changed at the far end. */
 .note-title-line {
   min-width: 0;
   display: flex;
-  align-items: center;
-  gap: 7px;
+  align-items: baseline;
+  gap: var(--space-2);
   font-size: var(--font-size-ui);
-  line-height: 1.3;
+  line-height: 1.4;
 }
 
 .note-title {
   min-width: 0;
+  flex: 1;
   overflow: hidden;
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-medium);
@@ -187,93 +204,82 @@
   white-space: nowrap;
 }
 
-.note-detail {
-  display: flex;
-  gap: var(--space-2);
-  overflow: hidden;
+.note-title-line time {
+  flex: 0 0 auto;
   color: var(--faint);
   font-size: var(--font-size-caption);
-  line-height: 1.3;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.note-detail time {
-  flex: 0 0 auto;
-  color: var(--muted);
   font-variant-numeric: tabular-nums;
 }
 
-.note-detail .note-folder {
+/* Line two: where the note is, how it starts, and its type. */
+.note-detail {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.note-excerpt {
-  display: block;
-  overflow: hidden;
-  color: var(--muted);
-  font-size: var(--font-size-ui);
-  line-height: 1.4;
-  text-overflow: ellipsis;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
   white-space: nowrap;
 }
 
-.note-search-context {
-  display: block;
-}
-
-.note-search-context.path,
-.note-search-context.metadata {
-  font-size: var(--font-size-caption);
-}
-
-/* With type icons, every note row's text starts past one icon gutter, so the icon hangs beside the title. */
-.note-scroll.type-icons .note-row:not(.file-row) {
-  padding-left: calc(18px + 15px + var(--space-2));
-}
-
-.note-scroll.type-icons .note-title-line {
-  position: relative;
-}
-
-.note-type-icon {
-  position: absolute;
-  left: calc(-15px - var(--space-2));
-  width: 15px;
-  height: 15px;
-  display: grid;
-  place-items: center;
+.note-detail .note-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
   color: var(--muted);
-  font-size: var(--font-size-prose);
+  text-overflow: ellipsis;
 }
 
-.note-row.selected .note-type-icon {
-  color: var(--ink);
-}
-
-.note-excerpt-empty {
+.note-detail .note-folder + .note-excerpt::before {
+  content: "·";
+  margin-right: 5px;
   color: var(--faint);
 }
 
-/* A type is a declared schema, not a location: a filled chip sets it apart from the folder in the meta line. */
-.note-type-badge {
-  flex: 0 1 auto;
+.note-excerpt {
   min-width: 0;
-  max-width: 50%;
-  margin-left: auto;
-  padding: 1px 6px;
+  flex: 1 1 0;
   overflow: hidden;
-  border-radius: var(--radius-sm);
-  background: var(--line);
-  color: var(--muted);
-  font-size: var(--font-size-caption);
-  line-height: 1.3;
+  color: var(--faint);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
+/* A search hit quotes the text that matched, so it reads at the title's strength. */
+.note-search-context { color: var(--muted); }
+
+.note-type-icon {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-size: var(--font-size-caption);
+}
+
+/* A type is a declared schema, not a location: one filled chip, with the type's icon when it has one. */
+.note-type-badge {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 45%;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-left: auto;
+  padding: 0 6px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--hover);
+  color: var(--muted);
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.note-row:hover .note-type-badge,
 .note-row.selected .note-type-badge {
   background: var(--line-strong);
 }
@@ -323,6 +329,8 @@
   overflow: hidden;
   padding: 15px var(--space-4) 14px;
   border: 1px solid var(--line-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--elevation-low);
   background: var(--white);
   color: var(--ink);
   pointer-events: none;
@@ -535,3 +543,18 @@
 .note-peek .read-only-markdown-body { white-space: normal; }
 .note-peek > header { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
 .note-peek > header h2 { margin: 0; font-size: var(--font-size-heading); overflow-wrap: anywhere; }
+
+/* The list while its notes are read: rows where the notes will be. */
+.list-loading {
+  padding: var(--space-4) 18px;
+}
+
+.list-loading .skeleton-lines { gap: 10px; }
+.list-loading .skeleton-lines i:nth-child(odd) { width: 62%; height: 12px; margin-top: var(--space-3); }
+.list-loading .skeleton-lines i:nth-child(even) { width: 90%; height: 9px; }
+
+.note-preview-loading {
+  min-height: 72px;
+  display: flex;
+  align-items: center;
+}

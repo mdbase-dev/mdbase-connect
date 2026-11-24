@@ -1,6 +1,5 @@
 .mobile-back,
-.mobile-collections,
-.mobile-label {
+.mobile-collections {
   display: none;
 }
 
@@ -204,8 +203,10 @@
   }
 
   .list-header {
+    height: auto;
     min-height: 62px;
     padding-top: max(10px, env(safe-area-inset-top));
+    padding-bottom: 10px;
   }
 
   .editor-pane { grid-template-rows: auto auto auto minmax(0, 1fr); }
@@ -242,7 +243,7 @@
 
   .mobile-note-path {
     margin: 0;
-    font-family: var(--mono);
+    color: var(--faint);
     overflow-wrap: anywhere;
   }
 
@@ -253,23 +254,14 @@
   .note-provenance .cancel-operation { min-height: 44px; }
   .note-provenance .note-opening-status { display: block; max-width: 100%; }
 
-  .mobile-label { display: inline; }
-  .list-header .new-note {
-    width: auto;
-    flex: none;
-    display: inline-flex;
-    gap: 6px;
-    padding-inline: 10px;
-    border-radius: var(--radius-sm);
-    background: var(--accent);
-    color: var(--color-on-accent);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-medium);
-  }
+  .list-header .new-note,
+  .list-header .new-note-type { height: 44px; }
+  .list-header .new-note { padding-inline: 12px 14px; }
+  .list-header .new-note-type { width: 36px; }
 
   .note-title-field {
     min-height: 45px;
-    font-size: var(--font-size-heading);
+    font-size: calc(var(--editor-font-size, 17px) * 1.5);
   }
 
   .body-editor .cm-content {
@@ -285,16 +277,17 @@
   }
 
   .properties-panel {
-    padding: max(20px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom));
+    padding: env(safe-area-inset-top) 18px max(20px, env(safe-area-inset-bottom));
     border: 0;
+  }
+
+  .panel-header {
+    margin-inline: -18px;
+    padding-inline: 18px 6px;
   }
 
   .note-skeleton {
     grid-template-rows: 54px minmax(0, 1fr);
-  }
-
-  .skeleton-bar span {
-    margin-left: 26px;
   }
 
   .skeleton-document {
@@ -782,7 +775,8 @@
  * least the root size so search, Quick open and forms never zoom. */
 @media (pointer: coarse) {
   input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
-  textarea,
+  /* The note title is already larger than the root size, and keeps its own. */
+  textarea:not(.title-input),
   select {
     font-size: max(1rem, var(--font-size-ui)) !important;
   }

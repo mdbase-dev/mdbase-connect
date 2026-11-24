@@ -1307,11 +1307,6 @@ msgstr "카탈로그 소스"
 msgid "Catalog unavailable"
 msgstr "카탈로그를 사용할 수 없음"
 
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Change note text without changing the surrounding interface."
-msgstr "주변 인터페이스는 그대로 두고 노트 텍스트만 변경합니다."
-
 #: direct/DirectEditor.tsx
 msgid "Change server"
 msgstr "서버 변경"
@@ -1653,18 +1648,13 @@ msgid "Comfortable"
 msgstr "편안하게"
 
 #: src/editor-commands.ts
+#: src/EditorRail.tsx
 msgid "Commands"
 msgstr "명령"
 
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0}"
-msgstr "명령 · {0}"
-
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0} outside text"
-msgstr "명령 · 텍스트 밖에서 {0}"
+#: src/EditorRail.tsx
+msgid "Commands · {key} outside text"
+msgstr "명령 · 텍스트 밖에서 {key}"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -2219,10 +2209,6 @@ msgstr "설명 필드"
 msgid "Design"
 msgstr "디자인"
 
-#: src/TypeBrowser.tsx
-msgid "Design the note shape or work with its complete YAML source."
-msgstr "노트 구조를 디자인하거나 전체 YAML 원본을 편집하세요."
-
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Destination folder"
@@ -2578,6 +2564,7 @@ msgid "Field type"
 msgstr "필드 유형"
 
 #: src/NoteListViewOptions.tsx
+#: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "필드"
@@ -2744,11 +2731,6 @@ msgstr "폴더 경로"
 #: src/CollectionRail.tsx
 msgid "Folders"
 msgstr "폴더"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Follow the system appearance or keep a theme in this browser."
-msgstr "시스템 모양을 따르거나 이 브라우저에서 테마를 선택하세요."
 
 #: src/TypeBrowser.tsx
 msgid "For integrations and specialised setups"
@@ -3047,11 +3029,6 @@ msgstr "Journal/**/*.md"
 msgctxt "settings view"
 msgid "Keep a daily Markdown journal"
 msgstr "매일 마크다운 일지 작성"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Keep Markdown visible within the writing measure."
-msgstr "작성 영역 안에서 Markdown이 계속 보이도록 합니다."
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
@@ -3604,6 +3581,11 @@ msgstr "중첩 필드"
 msgid "nested required fields"
 msgstr "중첩 필수 필드"
 
+#: src/NoteList.tsx
+msgctxt "button that creates a note"
+msgid "New"
+msgstr "새 노트"
+
 #: src/App.tsx
 msgid "New {name}"
 msgstr "새 {name}"
@@ -4001,10 +3983,6 @@ msgstr "객체"
 msgctxt "property type"
 msgid "Object"
 msgstr "객체"
-
-#: src/TypeBrowser.tsx
-msgid "Objects and lists can contain fields at any depth."
-msgstr "객체와 목록에는 어떤 깊이로든 필드를 포함할 수 있습니다."
 
 #: src/CollectionRail.tsx
 msgid "Offline"
@@ -4577,10 +4555,6 @@ msgstr "컬렉션 텍스트 읽는 중…"
 #: src/FileViewer.tsx
 msgid "Reading file content…"
 msgstr "파일 콘텐츠 읽는 중…"
-
-#: src/WorkspaceChrome.tsx
-msgid "Reading note content…"
-msgstr "노트 콘텐츠 읽는 중…"
 
 #: src/LoadingScreens.tsx
 #: src/NoteList.tsx
@@ -6623,11 +6597,6 @@ msgstr "최신 버전 사용"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
 msgstr "항목을 최대 {0}개까지 사용하세요."
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr "노트 편집기에서 일반, 삽입, 비주얼 및 명령 모드를 사용하세요."
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"

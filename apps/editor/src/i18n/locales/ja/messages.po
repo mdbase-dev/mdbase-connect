@@ -1307,11 +1307,6 @@ msgstr "カタログの提供元"
 msgid "Catalog unavailable"
 msgstr "カタログを利用できません"
 
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Change note text without changing the surrounding interface."
-msgstr "周囲の画面を変えずにノート本文を編集します。"
-
 #: direct/DirectEditor.tsx
 msgid "Change server"
 msgstr "サーバーを変更"
@@ -1653,18 +1648,13 @@ msgid "Comfortable"
 msgstr "標準"
 
 #: src/editor-commands.ts
+#: src/EditorRail.tsx
 msgid "Commands"
 msgstr "コマンド"
 
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0}"
-msgstr "コマンド · {0}"
-
-#. placeholder {0}: shortcutLabel(paletteChord)
-#: src/NoteSearchField.tsx
-msgid "Commands · {0} outside text"
-msgstr "コマンド · テキスト外で {0}"
+#: src/EditorRail.tsx
+msgid "Commands · {key} outside text"
+msgstr "コマンド · テキスト外で {key}"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -2219,10 +2209,6 @@ msgstr "説明フィールド"
 msgid "Design"
 msgstr "デザイン"
 
-#: src/TypeBrowser.tsx
-msgid "Design the note shape or work with its complete YAML source."
-msgstr "ノートの構造を設計するか、完全な YAML ソースを操作します。"
-
 #: src/FolderChangeDialog.tsx
 #: src/MoveNoteDialog.tsx
 msgid "Destination folder"
@@ -2578,6 +2564,7 @@ msgid "Field type"
 msgstr "フィールド型"
 
 #: src/NoteListViewOptions.tsx
+#: src/PropertiesPanel.tsx
 #: src/TypeBrowser.tsx
 msgid "Fields"
 msgstr "フィールド"
@@ -2744,11 +2731,6 @@ msgstr "フォルダーパス"
 #: src/CollectionRail.tsx
 msgid "Folders"
 msgstr "フォルダー"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Follow the system appearance or keep a theme in this browser."
-msgstr "システムの外観に合わせるか、このブラウザーでテーマを固定します。"
 
 #: src/TypeBrowser.tsx
 msgid "For integrations and specialised setups"
@@ -3047,11 +3029,6 @@ msgstr "Journal/**/*.md"
 msgctxt "settings view"
 msgid "Keep a daily Markdown journal"
 msgstr "Markdown で日々のジャーナルを記録"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Keep Markdown visible within the writing measure."
-msgstr "Markdown を執筆領域内に表示します。"
 
 #: src/ConflictResolver.tsx
 msgid "Keep my edits"
@@ -3604,6 +3581,11 @@ msgstr "入れ子のフィールド"
 msgid "nested required fields"
 msgstr "入れ子の必須フィールド"
 
+#: src/NoteList.tsx
+msgctxt "button that creates a note"
+msgid "New"
+msgstr "新規"
+
 #: src/App.tsx
 msgid "New {name}"
 msgstr "新しい{name}"
@@ -4001,10 +3983,6 @@ msgstr "オブジェクト"
 msgctxt "property type"
 msgid "Object"
 msgstr "オブジェクト"
-
-#: src/TypeBrowser.tsx
-msgid "Objects and lists can contain fields at any depth."
-msgstr "オブジェクトとリストには任意の深さまでフィールドを含められます。"
 
 #: src/CollectionRail.tsx
 msgid "Offline"
@@ -4577,10 +4555,6 @@ msgstr "コレクションのテキストを読み込み中…"
 #: src/FileViewer.tsx
 msgid "Reading file content…"
 msgstr "ファイルの内容を読み込み中…"
-
-#: src/WorkspaceChrome.tsx
-msgid "Reading note content…"
-msgstr "ノートの内容を読み込み中…"
 
 #: src/LoadingScreens.tsx
 #: src/NoteList.tsx
@@ -6623,11 +6597,6 @@ msgstr "最新版を使用"
 #: src/StructuredPropertiesEditor.tsx
 msgid "Use no more than {0} items."
 msgstr "項目は{0}件以内にしてください。"
-
-#: src/settings/SettingsView.tsx
-msgctxt "settings view"
-msgid "Use normal, insert, visual, and command modes in the note editor."
-msgstr "ノートエディターで通常、挿入、ビジュアル、コマンドの各モードを使用します。"
 
 #: src/ConnectionScreens.tsx
 msgid "use the editor"

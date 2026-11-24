@@ -4,7 +4,7 @@
   position: relative;
   min-width: 0;
   display: grid;
-  grid-template-rows: 52px auto auto minmax(0, 1fr);
+  grid-template-rows: var(--pane-bar) auto auto minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -135,7 +135,6 @@
   border-radius: var(--radius-sm);
   color: var(--faint);
   background: transparent;
-  font-family: var(--mono);
   font-size: var(--font-size-ui);
   line-height: 1.4;
   text-overflow: ellipsis;
@@ -164,10 +163,12 @@
   white-space: nowrap;
 }
 
+/* Where the note is kept is quiet; its own file name is the part worth reading. */
 .path-filename {
   flex: 0 0 auto;
   max-width: 100%;
   overflow: hidden;
+  color: var(--muted);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -180,8 +181,12 @@
   transition: opacity var(--motion-quick) var(--ease-out);
 }
 
-.path-button:hover {
-  border-color: var(--line);
+.path-button {
+  transition: background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.path-button:hover:not(:disabled) {
+  background: var(--hover);
   color: var(--muted);
 }
 
@@ -210,6 +215,7 @@
 
 .path-input {
   width: min(100%, 560px);
+  font-family: var(--mono);
   border-color: var(--line-strong);
   outline: 0;
   color: var(--ink);

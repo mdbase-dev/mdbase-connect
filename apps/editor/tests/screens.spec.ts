@@ -34,7 +34,7 @@ for (const width of [1440, 390]) {
     });
     expect(geometry.stacked).toBe(true);
     expect(geometry.facts.filter((height) => height > 0).every((height) => height === 44)).toBe(true);
-    expect(geometry.preferences.every((height) => height >= 64)).toBe(true);
+    expect(geometry.preferences.every((height) => height >= 52)).toBe(true);
     const vim = page.getByRole("switch", { name: "Vim key bindings" });
     await vim.focus();
     await page.keyboard.press("Space");
@@ -160,7 +160,7 @@ test.describe("responsive themed view readiness", () => {
         await expect(page.getByRole("complementary", { name: "Note properties" })).toBeVisible();
         await expect(page.getByRole("dialog", { name: "Note properties" })).toHaveCount(0);
       }
-      await expect(page.getByRole("tab", { name: "Properties", exact: true })).toBeVisible();
+      await expect(page.getByRole("tab", { name: "Fields", exact: true })).toBeVisible();
       await checkView("Properties");
 
       await openDemoForLayout(page);

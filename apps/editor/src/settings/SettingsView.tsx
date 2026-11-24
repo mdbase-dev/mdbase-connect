@@ -64,10 +64,10 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       <header><h1><Trans context="settings view">Settings</Trans></h1></header>
       <section>
         <div className="settings-intro"><h2><Trans context="settings view">Editing</Trans></h2><p><Trans context="settings view">Preferences stay in this browser.</Trans></p></div>
-        <SettingRow title={t({ message: "Vim key bindings", context: "settings view" })} description={t({ message: "Use normal, insert, visual, and command modes in the note editor.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Vim key bindings", context: "settings view" })}>
           <Toggle checked={preferences.vim} label={t({ message: "Vim key bindings", context: "settings view" })} onChange={(vim) => onChange({ ...preferences, vim })} />
         </SettingRow>
-        <SettingRow title={t({ message: "Wrap long lines", context: "settings view" })} description={t({ message: "Keep Markdown visible within the writing measure.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Wrap long lines", context: "settings view" })}>
           <Toggle checked={preferences.lineWrapping} label={t({ message: "Wrap long lines", context: "settings view" })} onChange={(lineWrapping) => onChange({ ...preferences, lineWrapping })} />
         </SettingRow>
         <SettingRow title={t({ message: "Quiet Markdown", context: "settings view" })} description={t({ message: "Soften punctuation away from the active line and make tasks checkable.", context: "settings view" })}>
@@ -76,10 +76,10 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <SettingRow title={t({ message: "Typewriter scrolling", context: "settings view" })} description={t({ message: "Keep the caret line centred while writing in focus mode.", context: "settings view" })}>
           <Toggle checked={preferences.typewriterScrolling} label={t({ message: "Typewriter scrolling", context: "settings view" })} onChange={(typewriterScrolling) => onChange({ ...preferences, typewriterScrolling })} />
         </SettingRow>
-        <SettingRow title={t({ message: "Text size", context: "settings view" })} description={t({ message: "Change note text without changing the surrounding interface.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Text size", context: "settings view" })}>
           <Select aria-label={t({ message: "Editor text size", context: "settings view" })} value={String(preferences.fontSize)} options={[{ value: "16", label: t({ message: "Compact", context: "editor text size" }) }, { value: "17", label: t({ message: "Comfortable", context: "editor text size" }) }, { value: "19", label: t({ message: "Large", context: "editor text size" }) }]} onChange={(next) => onChange({ ...preferences, fontSize: Number(next) as EditorPreferences["fontSize"] })} />
         </SettingRow>
-        <SettingRow title={t({ message: "Color theme", context: "settings view" })} description={t({ message: "Follow the system appearance or keep a theme in this browser.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Color theme", context: "settings view" })}>
           <ThemePreferenceSetting />
         </SettingRow>
         <LanguageSetting />
@@ -233,8 +233,9 @@ function ThemePreferenceSetting() {
   }} />;
 }
 
-function SettingRow({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return <div className="setting-row"><div><h3>{title}</h3><p>{description}</p></div><div>{children}</div></div>;
+/** A description is for a setting whose name does not already say what it does. */
+function SettingRow({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return <div className="setting-row"><div><h3>{title}</h3>{description && <p>{description}</p>}</div><div>{children}</div></div>;
 }
 
 function FactRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
