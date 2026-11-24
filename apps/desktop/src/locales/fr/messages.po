@@ -150,10 +150,6 @@ msgid "{collection} now syncs{0}"
 msgstr "{collection} se synchronise maintenant{0}"
 
 #: src/renderer/daemon-view.mts
-msgid "{collection} stopped syncing"
-msgstr "La synchronisation de {collection} s’est arrêtée"
-
-#: src/renderer/daemon-view.mts
 msgid "{collection} was added"
 msgstr "{collection} a été ajoutée"
 

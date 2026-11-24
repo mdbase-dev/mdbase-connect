@@ -79,10 +79,9 @@ impl Daemon {
                 .hosts
                 .iter()
                 .map(|h| {
-                    (
-                        h.observation(),
-                        access_notices(&inner.access, &h.entry().id),
-                    )
+                    let mut notices = access_notices(&inner.access, &h.entry().id);
+                    notices.extend(self.mode_driver.notices(&h.entry().id));
+                    (h.observation(), notices)
                 })
                 .unzip()
         };

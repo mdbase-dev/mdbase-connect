@@ -184,6 +184,160 @@ pub(super) fn account_problem(reason: &str) -> &'static str {
     }
 }
 
+pub(super) fn print_mode(out: &Output, collection: &CollectionStatus, value: &Value, status: bool) {
+    if out.json {
+        out.value(value);
+    } else {
+        println!(
+            "{}",
+            format_mode(
+                &collection.id,
+                &collection.name,
+                value,
+                status,
+                crate::fsutil::now_ms() as u64
+            )
+        );
+    }
+}
+
+fn format_mode(id: &str, name: &str, value: &Value, status: bool, now_ms: u64) -> String {
+    use crate::control::terminal_text;
+    use crate::server::{format_mode_devices, format_wait_phrase, mode_label};
+
+    let name = terminal_text(name);
+    let mut lines = Vec::new();
+    let record = if status {
+        let current = mode_label(value["current_mode"].as_str().unwrap_or_default());
+        lines.push(format!("{name}: {current}."));
+        if value["change"].is_null() {
+            lines.push(if value["execution_available"] == false {
+                "Switching modes is unavailable.".into()
+            } else {
+                "No switch in progress.".into()
+            });
+            return lines.join("\n");
+        }
+        &value["change"]
+    } else {
+        value
+    };
+    let target = record["target_mode"].as_str().unwrap_or_default();
+    let label = mode_label(target);
+    let mode_arg = if target == "cloud_copy" {
+        "cloud-copy"
+    } else {
+        "private"
+    };
+    let retry = format!("Run `mdbase sync mode {id} {mode_arg}` to continue.");
+    let check = format!("Run `mdbase sync mode-status {id}` for progress.");
+    let local = &value["local"];
+    let code = local["code"].as_str().unwrap_or_default();
+    let message = local["message"].as_str().map(terminal_text);
+    let phase = record["phase"].as_str().unwrap_or_default();
+    let (progress, action) = match (phase, code) {
+        ("complete", _) => (
+            format!("{name} is set to {label}."),
+            record["request_id"]
+                .as_str()
+                .map(|_| "Reconnect apps that need access to this collection.".into()),
+        ),
+        ("cancelled", _) if record["request_id"].is_null() => {
+            ("There is no active mode switch to cancel.".into(), None)
+        }
+        ("cancelled", _) => ("The mode switch was cancelled.".into(), None),
+        ("abandoned", _) => (
+            "The mode switch was abandoned. A keyed owner device must finish rotating the keys."
+                .into(),
+            None,
+        ),
+        ("waiting_for_devices", _) => (
+            format!(
+                "Update or remove older devices before continuing: {}.",
+                terminal_text(&format_mode_devices(record))
+            ),
+            Some(retry),
+        ),
+        (
+            _,
+            "mode_switch_devices_need_update"
+            | "mode_switch_confirmation_required"
+            | "mode_switch_keyed_owner_required"
+            | "mode_switch_waiting_for_device"
+            | "mode_switch_paused"
+            | "mode_switch_sign_in_required"
+            | "mode_switch_attention",
+        ) => {
+            let action = match code {
+                "mode_switch_sign_in_required" => "Run `mdbase account sign-in`.".into(),
+                "mode_switch_paused" => format!("Run `mdbase collection resume {id}`."),
+                _ => retry,
+            };
+            (message.unwrap_or_default().into_owned(), Some(action))
+        }
+        (_, "mode_switch_refreshing") => (message.unwrap_or_default().into_owned(), Some(check)),
+        ("waiting_for_token_expiry", _) => {
+            let wait = record["retry_at"]
+                .as_str()
+                .and_then(|raw| format_wait_phrase(raw, now_ms))
+                .map(|wait| format!(" {wait}"))
+                .unwrap_or_default();
+            (
+                format!("Switching to {label}. Waiting{wait} for older app connections to expire."),
+                Some(check),
+            )
+        }
+        ("publishing_policy", _) => (format!("Publishing the switch to {label}."), Some(check)),
+        ("finishing", _) => (format!("Finishing the switch to {label}."), Some(check)),
+        ("waiting_for_device", "") => (
+            format!("The switch to {label} is waiting for a keyed owner device."),
+            Some(retry),
+        ),
+        _ if record["retry_scheduled"] == true => (
+            format!("A retry for the switch to {label} is scheduled."),
+            Some(check),
+        ),
+        _ => (
+            format!("The switch to {label} is in progress."),
+            Some(check),
+        ),
+    };
+    lines.push(progress);
+    if matches!(
+        phase,
+        "waiting_for_token_expiry" | "publishing_policy" | "finishing"
+    ) && code == "mode_switch_in_progress"
+    {
+        lines.push("This computer is continuing the switch.".into());
+    }
+    lines.extend(action);
+    lines.join("\n")
+}
+
+#[cfg(test)]
+#[test]
+fn mode_renderer_uses_request_bound_progress_and_device_names() {
+    let request = "11111111-1111-4111-8111-111111111111";
+    let device = "22222222-2222-4222-8222-222222222222";
+    let mut status = json!({
+        "current_mode":"cloud_copy",
+        "change":{"request_id":request,"target_mode":"private","phase":"finishing"}
+    });
+    let remote = format_mode(request, "Notes", &status, true, 0);
+    assert!(remote.contains("Finishing the switch to Private"));
+    assert!(!remote.contains("This computer"));
+    status["local"] = json!({"code":"mode_switch_in_progress"});
+    assert!(format_mode(request, "Notes", &status, true, 0).contains("This computer"));
+
+    let refused = json!({
+        "request_id":request, "target_mode":"private", "phase":"waiting_for_devices",
+        "devices":[device], "device_names": {device:"ThinkPad"}
+    });
+    let out = format_mode(request, "Notes", &refused, false, 0);
+    assert!(out.contains("ThinkPad (22222222)"));
+    assert!(out.contains(&format!("sync mode {request} private")));
+}
+
 #[cfg(test)]
 mod device_cli_tests {
     use super::*;

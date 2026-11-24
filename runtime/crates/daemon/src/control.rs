@@ -26,7 +26,7 @@
 //!
 //! **Methods** (see [`Method`]): `ping`, `status`, `status.subscribe`,
 //! `shutdown`, `collection.list|add|remove|delete|pause|resume|holds|conflicts`,
-//! `sync.enable|disable`, `device.pending|approve|reject`,
+//! `sync.enable`, `device.pending|approve|reject`,
 //! `recovery.status|create|import`, `access.list|revoke|approve|deny|ack`,
 //! `account.sign_in|sign_out|rename|applications`, `activity.list`,
 //! `settings.get|set`, `doctor`.
@@ -133,6 +133,9 @@ pub struct ControlError {
     /// Finer cause, snake_case.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub reason: Option<String>,
+    /// Structured data for a refusal that needs user action.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub details: Option<Value>,
 }
 
 impl ControlError {
@@ -142,6 +145,7 @@ impl ControlError {
             code: code.to_string(),
             message: message.into(),
             reason: Some(reason.to_string()),
+            details: None,
         }
     }
 
@@ -227,7 +231,7 @@ impl Method {
     /// Files and other devices are untouched; a local collection's new name reaches
     /// the account with the next inventory.
     pub const COLLECTION_UPDATE: &'static str = "collection.update";
-    /// `{collection,target_mode}`: one resumable native mode-switch step.
+    /// `{collection,target_mode?,cancel?}`: start, inspect or cancel a native mode switch.
     pub const COLLECTION_MODE: &'static str = "collection.mode";
     /// `{collection}`: authoritative server progress, never conversion authority.
     pub const COLLECTION_MODE_STATUS: &'static str = "collection.mode_status";
@@ -253,9 +257,6 @@ impl Method {
     pub const COLLECTION_JOIN: &'static str = "collection.join";
     /// [`EnableSync`] → [`CollectionStatus`]: adopt the folder and start syncing.
     pub const SYNC_ENABLE: &'static str = "sync.enable";
-    /// `{collection}` → [`CollectionStatus`]: stop syncing; the folder stays here
-    /// as a local collection.
-    pub const SYNC_DISABLE: &'static str = "sync.disable";
     /// [`DevicePending`] → `[PendingDevice]`: other computers waiting to open a
     /// private collection here.
     pub const DEVICE_PENDING: &'static str = "device.pending";
@@ -439,7 +440,7 @@ pub enum CollectionState {
     /// only in observed status (see [`CollectionState::observed`]); serving
     /// decisions never see it.
     Syncing,
-    /// Serving, with a log move (sync enable/disable) in progress.
+    /// Serving, with a log move (sync enable) in progress.
     Moving,
     /// Not served; see `reason` (for example `runtime_pending`, `folder_missing`).
     Unavailable,

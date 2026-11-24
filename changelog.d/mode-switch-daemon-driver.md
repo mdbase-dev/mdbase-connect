@@ -1,0 +1,5 @@
+## Changed
+
+- The daemon now drives confirmed collection mode switches to completion in the background across restarts, `retry_at` token-drain windows, `503 not_ready` finishing retries, `409 mode_source_changed` preflight retries, and HTTP 429 rate limits. It surfaces person-needed states as collection notices. Cancellation is tied to the exact request and requires a confirmed server cancellation before reverting local switch intent.
+- `mdbase sync mode` and `mdbase sync mode-status` print concise plain-language status by default (keeping `--json` unchanged), make the target mode optional with `--cancel`, remove `--resume`, and note in the confirmation prompt that connected apps will need to be reconnected.
+- Removed the dead `mdbase sync disable` command and its daemon/desktop IPC path, recorded mode switches in daemon activity, pointed `mdbase sync enable` on already-synced collections to `mdbase sync mode`, and replaced the raw device UUID in the cloud-copy-enabled notice with plain wording.

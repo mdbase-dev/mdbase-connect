@@ -528,6 +528,7 @@ impl Daemon {
         inner.registry = next;
         self.authority.publish_registry(&inner.registry);
         inner.hosts.retain(|h| h.entry().id != id);
+        self.mode_driver.clear(id);
         self.forget_removed_grants(&mut inner, id)?;
         drop(inner);
         self.bump();
@@ -704,6 +705,7 @@ impl Daemon {
         if let Some(b) = barrier {
             let _ = tokio::time::timeout(RESUME_WAIT, b.wait()).await;
         }
+        self.mode_driver.wake_collection(id);
         to_value(&self.settled_status(id, RESUME_WAIT).await?)
     }
 }

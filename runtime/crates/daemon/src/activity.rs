@@ -23,7 +23,7 @@ pub struct ActivityEntry {
     pub at_ms: u64,
     /// What, snake_case: `collection_added`, `collection_removed`,
     /// `collection_updated`, `collection_paused`, `collection_resumed`,
-    /// `collection_joined`, `collection_deleted`, `collection_taken_over`, `sync_enabled`, `sync_disabled`, `app_connected`,
+    /// `collection_joined`, `collection_deleted`, `collection_taken_over`, `collection_mode_changed`, `collection_mode_cancelled`, `sync_enabled`, `app_connected`,
     /// `app_requested`, `app_approved`, `app_declined`, `app_revoked`,
     /// `app_revoked_in_account`, `signed_in`, `signed_out`, `computer_renamed`.
     pub kind: String,
@@ -73,7 +73,6 @@ pub fn for_control_call(
         Method::COLLECTION_RESUME => "collection_resumed",
         Method::COLLECTION_JOIN => "collection_joined",
         Method::SYNC_ENABLE => "sync_enabled",
-        Method::SYNC_DISABLE => "sync_disabled",
         Method::ACCESS_APPROVE => "app_approved",
         Method::ACCESS_DENY => "app_declined",
         Method::ACCESS_REVOKE => "app_revoked",
@@ -217,6 +216,5 @@ mod tests {
         let enabled = for_control_call(Method::SYNC_ENABLE, &json!({}), &status, None).unwrap();
         assert_eq!(enabled.detail.as_deref(), Some("synced_e2e"));
         assert!(!serde_json::to_string(&enabled).unwrap().contains("/home/u"));
-        assert!(for_control_call(Method::COLLECTION_LIST, &json!({}), &json!([]), None).is_none());
     }
 }

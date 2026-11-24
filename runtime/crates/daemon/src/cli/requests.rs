@@ -120,8 +120,16 @@ pub(crate) async fn collections(profile: &Profile) -> Result<Vec<CollectionStatu
 }
 
 /// Resolve a collection argument: exact ID, unique ID prefix, or exact name.
+pub(super) async fn resolve_collection(
+    profile: &Profile,
+    arg: &str,
+) -> Result<CollectionStatus, ClientError> {
+    Ok(pick(&collections(profile).await?, arg)?.clone())
+}
+
+/// Resolve a collection argument to its ID.
 pub(super) async fn resolve(profile: &Profile, arg: &str) -> Result<String, ClientError> {
-    Ok(pick(&collections(profile).await?, arg)?.id.clone())
+    Ok(resolve_collection(profile, arg).await?.id)
 }
 
 /// The collection `arg` names: exact ID, unique ID prefix, or exact name.
@@ -246,21 +254,13 @@ mod mode_cli_tests {
         assert_eq!(max_size, Some(10));
     }
     #[test]
-    fn mode_commands_preserve_explicit_target_and_resume() {
-        let cli = Cli::try_parse_from([
-            "mdbase",
-            "sync",
-            "mode",
-            "collection",
-            "private",
-            "--resume",
-        ])
-        .unwrap();
+    fn mode_commands_accept_target_and_cancel_without_resume() {
+        let cli = Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "private"]).unwrap();
         assert!(matches!(
             cli.command,
             Command::Sync(SyncCmd::Mode {
-                mode: SyncKind::Private,
-                resume: true,
+                mode: Some(SyncKind::Private),
+                cancel: false,
                 ..
             })
         ));
@@ -269,11 +269,50 @@ mod mode_cli_tests {
         assert!(matches!(
             cli.command,
             Command::Sync(SyncCmd::Mode {
-                mode: SyncKind::CloudCopy,
-                resume: false,
+                mode: Some(SyncKind::CloudCopy),
+                cancel: false,
                 ..
             })
         ));
+        let cli =
+            Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "--cancel"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Mode {
+                mode: None,
+                cancel: true,
+                ..
+            })
+        ));
+        let cli = Cli::try_parse_from([
+            "mdbase",
+            "sync",
+            "mode",
+            "collection",
+            "private",
+            "--cancel",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Mode {
+                mode: Some(SyncKind::Private),
+                cancel: true,
+                ..
+            })
+        ));
+        assert!(Cli::try_parse_from(["mdbase", "sync", "mode", "collection"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "mdbase",
+                "sync",
+                "mode",
+                "collection",
+                "private",
+                "--resume"
+            ])
+            .is_err()
+        );
         assert!(Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "public"]).is_err());
         assert!(Cli::try_parse_from(["mdbase", "sync", "mode-status", "collection"]).is_ok());
     }

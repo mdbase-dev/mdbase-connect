@@ -837,6 +837,7 @@ fn problem(p: &Problem) -> ControlError {
         code: p.code.clone(),
         message: p.message.clone(),
         reason: p.reason.clone(),
+        details: None,
     }
 }
 
