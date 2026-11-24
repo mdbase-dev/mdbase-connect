@@ -16,6 +16,8 @@ interface ShellMessageEvent extends ShellEvent { data: unknown; source: ShellCli
 interface ShellWorker {
   location: { origin: string };
   clients: { claim(): Promise<void>; matchAll(options: { type: "window"; includeUncontrolled: boolean }): Promise<readonly ShellClient[]> };
+  /** A release installing or waiting behind this one owns one of the other caches. */
+  registration: { readonly installing: unknown; readonly waiting: unknown };
   skipWaiting(): Promise<void>;
   addEventListener(type: "message", listener: (event: ShellMessageEvent) => void): void;
   addEventListener(type: "install" | "activate", listener: (event: ShellEvent) => void): void;
@@ -45,7 +47,9 @@ export function installOfflineShell(worker: ShellWorker, manifest: OfflineShellM
   const otherClients = async (except: readonly (string | undefined)[]) =>
     (await worker.clients.matchAll({ type: "window", includeUncontrolled: true }))
       .some(client => client.url.startsWith(root.href) && !except.includes(client.id));
+  /** Retire older releases' caches, never a newer one that is installing or waiting. */
   const clean = async () => {
+    if (worker.registration.installing || worker.registration.waiting) return;
     for (const key of await caches.keys()) if (key.startsWith(prefix) && key !== name) await caches.delete(key);
   };
   worker.addEventListener("message", event => {

@@ -52,7 +52,8 @@ test("shell worker installs only pinned public files; offline navigation works w
   let claimed = false;
   let windows = [];
   let activated = false;
-  const worker = { location: { origin }, clients: { claim: async () => { claimed = true; }, matchAll: async () => windows }, skipWaiting: async () => { activated = true; }, addEventListener: (type, handler) => { handlers[type] = handler; } };
+  const registration = { installing: null, waiting: null };
+  const worker = { location: { origin }, registration, clients: { claim: async () => { claimed = true; }, matchAll: async () => windows }, skipWaiting: async () => { activated = true; }, addEventListener: (type, handler) => { handlers[type] = handler; } };
   const run = async type => { let promise; handlers[type]({ waitUntil: p => { promise = p; } }); await promise; };
   const response = async request => { let promise; handlers.fetch({ request, respondWith: p => { promise = p; } }); return promise; };
   try {
@@ -100,8 +101,18 @@ test("shell worker installs only pinned public files; offline navigation works w
     await run("activate");
     assert.equal(stores.has("mdbase-shell:/:older"), true);
     assert.equal(await (await response({ url: origin + "/assets/older.js", method: "GET", destination: "script" })).text(), "older import");
-    // Once the older tab leaves, the new pinned offline navigation can retire its cache.
+    // Once the older tab leaves, a navigation retires its cache, but never while a
+    // newer release is waiting: its cache is one of the others.
     windows = [{ id: "saved", url: origin + "/" }];
+    stores.set("mdbase-shell:/:newer", new Map());
+    registration.waiting = {};
+    let held;
+    handlers.fetch({ clientId: "saved", request: { url: origin + "/", method: "GET", mode: "navigate" }, respondWith: p => { held = p; } });
+    assert.equal(await (await held).text(), publicBytes);
+    assert.equal(stores.has("mdbase-shell:/:older"), true);
+    assert.equal(stores.has("mdbase-shell:/:newer"), true);
+    registration.waiting = null;
+    stores.delete("mdbase-shell:/:newer");
     let navigation;
     handlers.fetch({ clientId: "saved", request: { url: origin + "/", method: "GET", mode: "navigate" }, respondWith: p => { navigation = p; } });
     assert.equal(await (await navigation).text(), publicBytes);
