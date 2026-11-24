@@ -91,14 +91,14 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
     assess(options={}){return exclusive(async()=>{
       const p=await plan(options),bound=plans.get(p);
       if(bound){release=cancel(bound.session,bound.review.ticket);await fence(bound.session,options.signal);}
-      return p.status==="current"?"ready":p.status==="conflict"?"incompatible":"setup_required";
+      return p.status==="current"?"ready":p.refusal?.code==="installed_newer"?"incompatible":"setup_required";
     });},
     plan(options={}){return exclusive(()=>plan(options));},
     async apply(plan,options={}){return exclusive(async()=>{
       if(noops.has(plan)){await fence(undefined,options.signal);return "ready" as const;}
       let bound=plans.get(plan);if(!bound)throw new TypeError("setup.apply needs the original plan returned by setup.plan");
       if(bound.consumed)throw changed();
-      if(plan.refusal)throw mdbaseError(plan.refusal.code==="setup_conflict"?"conflict":"forbidden",plan.refusal.message,plan.refusal.code);
+      if(plan.refusal)throw mdbaseError(plan.refusal.code==="setup_conflict"?"conflict":plan.refusal.code==="installed_newer"?"upgrade_required":"forbidden",plan.refusal.message,plan.refusal.code);
       if(plan.status==="current"){await fence(bound.session,options.signal);const after=await native({signal:options.signal});await cancel(after.s,after.review.ticket);if(after.review.assessment.status!=="current")throw changed();return "ready" as const;}
       bound.consumed=true;
       for(let retry=0;;retry++){

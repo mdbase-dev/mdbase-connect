@@ -136,7 +136,10 @@ export function SetupReview({ ui, layout = "panel" }: { readonly ui: CollectionU
     </section>}
     {plan.conflicts.length > 0 && <section className="mdbase-collections-setup-section">
       <Heading>{ui.copy.setupConflicts}</Heading>
-      <ul className="mdbase-collections-setup-list">{plan.conflicts.map((conflict) => <li key={conflict.target}>{conflict.message}</li>)}</ul>
+      <ul className="mdbase-collections-setup-list">{plan.conflicts.map((conflict) => <li key={conflict.target}>
+        {conflict.message}
+        {conflict.target && <code className="mdbase-collections-setup-target">{conflict.target}</code>}
+      </li>)}</ul>
     </section>}
     <div className="mdbase-collections-actions">
       {applicable && <ActionButton tone="primary" progress={applying ? ui.copy.setupApplying : null} onClick={() => apply(plan)}>

@@ -129,6 +129,16 @@ describe("SDK singleton original lifecycle",()=>{
   const done=await f.app.applySetup({} as never);
   expect(statuses).toContain("opening");expect(statuses).not.toContain("blocked");expect(done.status).toBe("ready");expect(error).not.toHaveBeenCalled();
  });
+ it("publishes setup_required (not blocked) for setup_conflict, and blocked for installed_newer",()=>{
+  const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;publish():void;raw:unknown};
+  const facets=f.app.getSnapshot().readiness.facets,error=vi.spyOn(console,"error").mockImplementation(()=>{});
+  app.scope.getReadiness=()=>({checking:false,assessment:{status:"setup_required",problem:{code:"setup_conflict"}},problem:{code:"setup_conflict"},facets});
+  app.raw={...snapshot,status:"ready",selectedCollectionId:"33333333-3333-4333-8333-333333333333"};app.publish();
+  expect(f.app.getSnapshot().status).toBe("setup_required");expect(f.app.getSnapshot().problem).toBeNull();expect(error).not.toHaveBeenCalled();
+  app.scope.getReadiness=()=>({checking:false,assessment:{status:"incompatible",problem:{code:"installed_newer"}},problem:{code:"installed_newer"},facets});
+  app.publish();
+  expect(f.app.getSnapshot().status).toBe("blocked");expect(f.app.getSnapshot().problem).toBe("installed_newer");
+ });
  it("retains enclosing singleton action after caller abort until original Worker reply drains",async()=>{
   const f=fixture(),caller=new AbortController(),pending=f.app.start({signal:caller.signal}),refused=expect(pending).rejects.toMatchObject({code:"application_worker_fenced"});await f.entered.promise;caller.abort();await new Promise(r=>setTimeout(r,10));await expect(f.app.start()).rejects.toMatchObject({code:"application_busy"});expect(f.requests).toHaveLength(1);f.send("reply",1,{ok:true,snapshot});await refused;
  });

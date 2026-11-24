@@ -54,8 +54,9 @@ setup has nothing it may write: a type the app seeded was removed. The person
 restores it in the collection; readiness re-checks and the next `plan` reflects it.
 
 `configure()` is plan and apply in one step, for collections with nothing to
-review. A conflict leaves the configuration facet `incompatible`; use
-`setup.plan()` to show it.
+review. A conflict leaves the configuration facet `setup_required` (with
+problem `setup_conflict`), except a newer major version (`incompatible` /
+`installed_newer`); use `setup.plan()` to show it.
 
 ## Deleting a collection
 

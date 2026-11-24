@@ -200,10 +200,22 @@ describe("scoped application configuration phase", () => {
       expect(await f.journal.load(f.controller.signal)).toBeNull();
     } finally { await f.close(); }
   });
-  it("conflict is scoped incompatible evidence, not success or a mutation attempt", async () => {
+  it("non-installed_newer conflict enters setup_required (setup_conflict) without mutating, so setup.plan() can review it", async () => {
     const f = await fixture(); f.status("conflict");
-    try { expect((await f.helper.configure()).assessment?.status).toBe("incompatible"); expect(f.port.apply).not.toHaveBeenCalled(); }
-    finally { await f.close(); }
+    try {
+      const configured = await f.helper.configure();
+      expect(configured.assessment).toEqual({ status: "setup_required", problem: { code: "setup_conflict" } });
+      expect(configured.problem).toEqual({ code: "setup_conflict" });
+      expect(describeError(configured)).toMatchObject({ key: "setup_conflict", action: "set_up" });
+      expect(f.port.apply).not.toHaveBeenCalled();
+      // Background re-assessment after a ready collection develops a conflict also
+      // moves into setup_required rather than trapping on configuration_conflict.
+      f.status("current");
+      expect((await f.helper.assess()).assessment?.status).toBe("ready");
+      f.status("conflict"); f.catalogChanged();
+      await (await f.client.submit([{ kind: "create", id: crypto.randomUUID(), path: "notes/conflict-appeared.md", document: "x" }], { wait: "confirmed" })).confirmed;
+      await vi.waitFor(() => expect(f.helper.getSnapshot().assessment).toEqual({ status: "setup_required", problem: { code: "setup_conflict" } }), { timeout: 3000 });
+    } finally { await f.close(); }
   });
   it("a seed Core kept without an upgrade baseline blocks setup until the person chooses the app's version", () => {
     const kept = { target: "_types/task.md", kind: "type", mode: "seed" as const, action: "preserve" as const, installed: true,

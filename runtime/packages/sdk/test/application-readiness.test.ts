@@ -175,4 +175,28 @@ describe("SDK current aggregate readiness",()=>{
     const narrow=await fixture({configuration:source(),people:source(),files:createApplicationFileReadiness({declaration:required,scope:"collection",grant:()=>({actions:["list","read"],scope:{kind:"collection"}}),isCurrent})},{} as never);
     expect((await narrow.assess.refresh()).assessment).toMatchObject({status:"incompatible",problem:{code:"files_access_missing"}});
   });
+  it("routes setup_conflict and contract_mismatch backed by setup_required to setup_required, while keeping real incompatibilities incompatible",async()=>{
+    let nativeAssessment:{status:"ready"|"setup_required"|"incompatible";problem:{reason:"contract_mismatch"|"catalog_invalid"}|null}={status:"ready",problem:null};
+    vi.spyOn(CollectionReadiness,"createAppCollectionReadiness").mockImplementation((_client,_declared,binding)=>({start:async()=>{},close:async()=>{},subscribe:()=>()=>{},
+      getSnapshot:()=>({checking:false,problem:nativeAssessment.problem,assessment:{...nativeAssessment,witness:{collection:binding.collection,generation:binding.generation,resources:[]}}})}) as unknown as CollectionReadiness.AppCollectionReadiness);
+    const setupConflict:MdbaseApplicationFacetSnapshot={checking:false,assessment:{status:"setup_required",problem:{code:"setup_conflict"}},problem:{code:"setup_conflict"}};
+    // Configuration setup_conflict alone -> setup_required (setup review), never incompatible.
+    const conflictOnly=await fixture({configuration:source(setupConflict),files:source()},{} as never);
+    expect((await conflictOnly.assess.refresh()).assessment).toEqual({status:"setup_required",problem:{code:"setup_conflict"}});
+    // Unmanaged/modified _contracts/... file: native sees contract_mismatch while configuration sees setup_conflict -> setup_required.
+    nativeAssessment={status:"incompatible",problem:{reason:"contract_mismatch"}};
+    const contractConflict=await fixture({configuration:source(setupConflict),files:source()},{} as never);
+    expect((await contractConflict.assess.refresh()).assessment).toEqual({status:"setup_required",problem:{code:"setup_conflict"}});
+    // Without configuration setup work, contract_mismatch remains incompatible.
+    const unfixableContract=await fixture({configuration:source(),files:source()},{} as never);
+    expect((await unfixableContract.assess.refresh()).assessment).toEqual({status:"incompatible",problem:{code:"readiness_contract_mismatch"}});
+    // Other native incompatibilities (e.g. catalog_invalid) and newer-major packs stay incompatible even alongside setup_required.
+    nativeAssessment={status:"incompatible",problem:{reason:"catalog_invalid"}};
+    const brokenCatalog=await fixture({configuration:source(setupConflict),files:source()},{} as never);
+    expect((await brokenCatalog.assess.refresh()).assessment).toEqual({status:"incompatible",problem:{code:"readiness_catalog_invalid"}});
+    nativeAssessment={status:"ready",problem:null};
+    const installedNewer:MdbaseApplicationFacetSnapshot={checking:false,assessment:{status:"incompatible",problem:{code:"installed_newer"}},problem:{code:"installed_newer"}};
+    const newerMajor=await fixture({configuration:source(installedNewer),files:source()},{} as never);
+    expect((await newerMajor.assess.refresh()).assessment).toEqual({status:"incompatible",problem:{code:"installed_newer"}});
+  });
 });
