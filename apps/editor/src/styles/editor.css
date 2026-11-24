@@ -160,27 +160,6 @@
   cursor: pointer;
 }
 
-.code-editor-source .cm-scroller {
-  font-family: var(--mono);
-}
-
-.code-editor-source .cm-gutters {
-  border: 0;
-  background: transparent;
-  color: var(--faint);
-  font-family: var(--mono);
-  font-size: var(--font-size-caption);
-}
-
-.code-editor-source .cm-lineNumbers .cm-gutterElement {
-  min-width: 28px;
-  padding: 0 var(--space-2) 0 var(--space-1);
-}
-
-.code-editor-source .cm-lint-marker {
-  transform: scale(0.75);
-}
-
 .code-editor .cm-selectionBackground,
 .code-editor .cm-content ::selection {
   background: var(--accent-soft) !important;

@@ -428,7 +428,6 @@
   }
 
   .collection-default-row,
-  .collection-link-primary,
   .collection-unique-rule,
   .collection-unique-rule:not(.has-path) {
     grid-template-columns: minmax(0, 1fr) 44px;
@@ -436,22 +435,15 @@
   }
 
   .collection-default-row > label:nth-of-type(2),
-  .collection-link-primary > label:not(:first-child),
   .collection-unique-rule > label:not(:first-child),
   .collection-advanced-inline {
     grid-column: 1 / -1;
   }
 
   .collection-default-row .collection-rule-remove,
-  .collection-link-primary .collection-rule-remove,
   .collection-unique-rule .collection-rule-remove {
     grid-column: 2;
     grid-row: 1;
-  }
-
-  .collection-link-rule > .string-list-editor {
-    max-width: none;
-    margin-right: 0;
   }
 
   .visual-field-row {
@@ -744,10 +736,6 @@
 
   .collection-rail nav .rail-tree-row {
     grid-template-columns: 18px minmax(0, 1fr) 24px;
-  }
-
-  .collection-rail nav .rail-facet-row {
-    grid-template-columns: minmax(0, 1fr) 24px;
   }
 
   .collection-rail nav .context-menu-target .rail-row-menu {
