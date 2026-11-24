@@ -814,8 +814,8 @@ impl<S: Store> Replica<S> {
         self.clear_incident(IncidentKind::Integrity);
         self.clear_incident(IncidentKind::WaitingForKey);
         // The install replaced confirmed state; the derived query index follows,
-        // on a device once it has applied the tail it knows of. Until then
-        // queries use the per-record path.
+        // on a device once it has applied the tail it knows of, or sooner when
+        // a query needs it (`flush_query_index`).
         self.query_index_deferred = true;
         if self.is_hosted() || self.head.seq >= self.head_known {
             self.flush_query_index();
