@@ -152,11 +152,6 @@ impl Daemon {
                 self.account_keys.wake();
                 out
             }
-            Method::SYNC_DISABLE => {
-                let p: CollectionRef = params(req)?;
-                self.serving(&p.collection).await?;
-                Err(ControlError::not_implemented("disabling sync"))
-            }
             Method::DEVICE_PENDING => self.device_pending(params(req)?).await,
             Method::DEVICE_APPROVE => self.device_approve(params(req)?).await,
             Method::DEVICE_REJECT => self.device_reject(params(req)?).await,

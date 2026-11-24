@@ -1180,11 +1180,13 @@ impl Observation {
         }
         if let Ok(Some((counters, notices))) = telemetry {
             status.notices.extend(notices);
-            if let Ok(Some(Ok(Some(owner)))) = read_owner {
+            if let Ok(Some(Ok(Some(_owner)))) = read_owner {
                 status.notices.push(Notice {
                     path: None,
                     code: "cloud_copy_turned_on".into(),
-                    message: format!("Cloud copy turned on by {}", owner.to_uuid_string()),
+                    message:
+                        "Cloud copy was turned on for this collection from another owner device."
+                            .into(),
                 });
             }
             status.state = status.state.observed(status.mode, Some(&counters));

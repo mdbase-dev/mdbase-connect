@@ -147,6 +147,8 @@ pub struct Daemon {
     online: std::sync::atomic::AtomicBool,
     /// AK1: per-collection account-key keying (background pass, status).
     account_keys: private_key::AccountKeys,
+    /// Background mode-switch driver state and collection notices (RAM only).
+    mode_driver: collection_mode::ModeDriver,
     /// This build's verified environment trust (`None`: synced collections report
     /// `trust_missing`). Embedded only; no file, flag or environment override.
     trust: Option<Arc<crate::trust::Trust>>,
@@ -487,6 +489,8 @@ impl Daemon {
         })
     }
 }
+
+pub(crate) use collection_mode::{format_wait_phrase, mode_label, short_device_id};
 
 #[path = "collection_mode.rs"]
 mod collection_mode;

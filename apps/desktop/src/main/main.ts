@@ -375,9 +375,18 @@ function registerIpc(): void {
   ipcMain.handle("connect:collections:mode-change", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid mode input.");
-    if ((value.targetMode !== "private" && value.targetMode !== "cloud_copy") || typeof value.resume !== "boolean" || (value.cancel !== undefined && typeof value.cancel !== "boolean")) throw new Error("Invalid mode input.");
+    const cancel = value.cancel === true;
+    const targetMode = value.targetMode;
+    if (
+      (value.cancel !== undefined && typeof value.cancel !== "boolean")
+      || (targetMode !== undefined && targetMode !== "private" && targetMode !== "cloud_copy")
+      || (!cancel && targetMode === undefined)
+    ) throw new Error("Invalid mode input.");
+    const args = ["sync", "mode", collectionIdOf(value.collectionId)];
+    if (targetMode !== undefined) args.push(targetMode === "private" ? "private" : "cloud-copy");
+    if (cancel) args.push("--cancel");
     // Outlasts the CLI's own bound: the on-screen confirmation, then the switch's requests.
-    return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 300_000));
+    return bootGate.request(() => daemonCli().run(args, 300_000));
   });
   ipcMain.handle("connect:collections:sync-files", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -400,10 +409,6 @@ function registerIpc(): void {
       ...exclude.map((folder) => `--exclude=${folder}`),
       ...(maxSize === undefined ? [] : [`--max-size=${maxSize}`])
     ], 120_000));
-  });
-  ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    return requestReadyAgent("sync.disable", { collection: collectionIdOf(collectionId) }, 600_000);
   });
   ipcMain.handle("connect:collections:holds", async (event, collectionId: unknown) => {
     trustedIpc(event);

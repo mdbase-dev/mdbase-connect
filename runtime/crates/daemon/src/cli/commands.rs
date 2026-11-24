@@ -2,6 +2,11 @@
 
 use super::*;
 
+/// How long human `mdbase sync mode` waits inline during fast phases before
+/// handing off to the background driver.
+const MODE_FAST_WAIT: Duration = Duration::from_secs(15);
+const MODE_POLL_INTERVAL: Duration = Duration::from_millis(750);
+
 pub(super) async fn dispatch(cmd: Command, profile: &Profile, out: &Output) -> ExitCode {
     let result = run_command(cmd, profile, out).await;
     match result {
@@ -345,31 +350,115 @@ pub(super) async fn run_command(
         Command::Sync(SyncCmd::Mode {
             collection,
             mode,
-            resume,
             cancel,
         }) => {
-            let target = match mode {
+            let col = resolve_collection(profile, &collection).await?;
+            let target = mode.map(|m| match m {
                 SyncKind::Private => "private",
                 SyncKind::CloudCopy => "cloud_copy",
+            });
+            let mut params = json!({ "collection": col.id, "cancel": cancel });
+            if let Some(target) = target {
+                params["target_mode"] = json!(target);
+            }
+            let mut v = call(profile, Method::COLLECTION_MODE, params).await?;
+            if out.json {
+                out.value(&v);
+                return Ok(ExitCode::SUCCESS);
+            }
+            if !cancel
+                && matches!(
+                    v.get("phase").and_then(Value::as_str),
+                    Some("publishing_policy" | "finishing")
+                )
+            {
+                let expected_target = v
+                    .get("target_mode")
+                    .and_then(Value::as_str)
+                    .or(target)
+                    .map(str::to_owned);
+                let deadline = tokio::time::Instant::now() + MODE_FAST_WAIT;
+                while tokio::time::Instant::now() < deadline {
+                    tokio::time::sleep(MODE_POLL_INTERVAL).await;
+                    let Ok(status) = call(
+                        profile,
+                        Method::COLLECTION_MODE_STATUS,
+                        json!({ "collection": col.id }),
+                    )
+                    .await
+                    else {
+                        break;
+                    };
+                    if let Some(change) = status.get("change").filter(|c| !c.is_null()) {
+                        v = change.clone();
+                        if !matches!(
+                            v.get("phase").and_then(Value::as_str),
+                            Some("publishing_policy" | "finishing")
+                        ) {
+                            break;
+                        }
+                    } else {
+                        let current = status.get("current_mode").and_then(Value::as_str);
+                        let phase = if expected_target.as_deref() == current {
+                            "complete"
+                        } else {
+                            "cancelled"
+                        };
+                        v = json!({
+                            "phase": phase,
+                            "target_mode": expected_target,
+                        });
+                        break;
+                    }
+                }
+            }
+            let notices = if v.get("phase").and_then(Value::as_str) == Some("waiting_for_device") {
+                resolve_collection(profile, &col.id)
+                    .await
+                    .map(|c| c.notices)
+                    .unwrap_or(col.notices)
+            } else {
+                col.notices
             };
-            simple(
-                profile,
-                out,
-                Method::COLLECTION_MODE,
-                &collection,
-                json!({"target_mode":target,"resume":resume,"cancel":cancel}),
-            )
-            .await
+            println!(
+                "{}",
+                format_mode_change(
+                    &col.name,
+                    &collection,
+                    &v,
+                    &notices,
+                    crate::fsutil::now_ms() as u64,
+                )
+            );
+            Ok(ExitCode::SUCCESS)
         }
         Command::Sync(SyncCmd::ModeStatus { collection }) => {
-            simple(
+            let col = resolve_collection(profile, &collection).await?;
+            let v = call(
                 profile,
-                out,
                 Method::COLLECTION_MODE_STATUS,
-                &collection,
-                json!({}),
+                json!({ "collection": col.id }),
             )
-            .await
+            .await?;
+            if out.json {
+                out.value(&v);
+            } else {
+                let notices = resolve_collection(profile, &col.id)
+                    .await
+                    .map(|c| c.notices)
+                    .unwrap_or(col.notices);
+                println!(
+                    "{}",
+                    format_mode_status(
+                        &col.name,
+                        &collection,
+                        &v,
+                        &notices,
+                        crate::fsutil::now_ms() as u64,
+                    )
+                );
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Sync(SyncCmd::Files {
             collection,
@@ -397,9 +486,6 @@ pub(super) async fn run_command(
                 json!({ "include": include, "exclude": exclude, "max_size": max_size }),
             )
             .await
-        }
-        Command::Sync(SyncCmd::Disable { collection }) => {
-            simple(profile, out, Method::SYNC_DISABLE, &collection, json!({})).await
         }
         Command::Device(DeviceCmd::Pending { collection }) => {
             let collection = match collection {

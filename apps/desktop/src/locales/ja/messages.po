@@ -150,10 +150,6 @@ msgid "{collection} now syncs{0}"
 msgstr "{collection} を同期中です{0}"
 
 #: src/renderer/daemon-view.mts
-msgid "{collection} stopped syncing"
-msgstr "{collection} の同期を停止しました"
-
-#: src/renderer/daemon-view.mts
 msgid "{collection} was added"
 msgstr "{collection} を追加しました"
 
