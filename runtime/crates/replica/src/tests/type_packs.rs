@@ -60,9 +60,12 @@ fn request(adopt: Option<(&str, &str)>, expected: Option<Hash>) -> TypePackReque
     }
 }
 fn configured(existing: Option<&str>) -> (FakeLogService, Node) {
+    configured_with("spec_version: '0.3.0'\n", existing)
+}
+fn configured_with(config: &str, existing: Option<&str>) -> (FakeLogService, Node) {
     let service = FakeLogService::new();
     let mut store = MemStore::new();
-    let mut resources = vec![("mdbase.yaml".into(), "spec_version: '0.3.0'\n".into())];
+    let mut resources = vec![("mdbase.yaml".into(), config.into())];
     if let Some(doc) = existing {
         resources.push((TARGET.into(), doc.into()));
     }
@@ -273,4 +276,161 @@ fn type_pack_plan_reports_and_apply_refuses_missing_manage_and_folder_scope() {
             .code(),
         Some(ErrorCode::Forbidden)
     );
+}
+
+const CONTRACT: &str = "---\nkind: mdbase.contract\nid: example.note\nversion: 1.0.0\ncontract_type: record\nrecord_schema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+const CONTRACT_TARGET: &str = "_contracts/example.note/1.0.0.md";
+/// The hosted layout new collections are initialised with.
+const NESTED: &str = "spec_version: '0.3.0'\nsettings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n";
+
+/// A contract and a type at the canonical `_contracts/…` / `_types/…`
+/// targets, as the bundled packs declare them.
+fn canonical_request(target_overrides: Option<Value>, expected: Option<Hash>) -> TypePackRequest {
+    let resources = [
+        ("contract", CONTRACT_TARGET, CONTRACT),
+        ("type", TARGET, TYPE),
+    ];
+    let manifest = resources
+        .iter()
+        .map(|(kind, target, doc)| {
+            map(vec![
+                ("kind", text(kind)),
+                ("mode", text("managed")),
+                ("source", text(target)),
+                ("target", text(target)),
+                ("digest", text(&revision(doc).to_string())),
+            ])
+        })
+        .collect();
+    let sources = resources
+        .iter()
+        .map(|(_, target, doc)| map(vec![("source", text(target)), ("document", text(doc))]))
+        .collect();
+    TypePackRequest {
+        provision: map(vec![
+            (
+                "manifest",
+                map(vec![
+                    ("kind", text("mdbase.type-pack")),
+                    ("id", text("example.notes")),
+                    ("version", text("1.0.0")),
+                    ("resources", Value::List(manifest)),
+                ]),
+            ),
+            ("resources", Value::List(sources)),
+        ]),
+        target_overrides,
+        ..request(None, expected)
+    }
+}
+fn targets(plan: &TypePackPlan) -> Vec<String> {
+    let Value::List(rows) = get(&plan.assessment, "resources") else {
+        panic!()
+    };
+    rows.iter()
+        .map(|r| match get(r, "target") {
+            Value::Text(t) => t.clone(),
+            v => panic!("{v:?}"),
+        })
+        .collect()
+}
+
+#[test]
+fn type_pack_without_overrides_installs_into_configured_definition_folders() {
+    let (_, mut a) = configured_with(NESTED, None);
+    let s = a.s;
+    let plan =
+        a.r.plan_type_pack(s, canonical_request(None, None))
+            .unwrap();
+    assert_eq!(get(&plan.assessment, "status"), &text("install"));
+    assert_eq!(
+        get(&plan.assessment, "applicable"),
+        &Value::Bool(true),
+        "{:?}",
+        plan.assessment
+    );
+    assert_eq!(
+        targets(&plan),
+        [
+            "_mdbase/contracts/example.note/1.0.0.md",
+            "_mdbase/types/note.md"
+        ]
+    );
+    let writes =
+        a.r.plan_type_pack(s, canonical_request(None, Some(digest(&plan))))
+            .unwrap()
+            .writes
+            .unwrap();
+    let mut paths: Vec<_> = writes.iter().map(|w| w.path.clone()).collect();
+    paths.sort();
+    assert_eq!(
+        paths,
+        [
+            "_mdbase/contracts/example.note/1.0.0.md",
+            "_mdbase/types/note.md",
+            mdbn_core::types::LOCK_PATH,
+        ]
+    );
+    let r = submit(&mut a, writes);
+    assert_eq!(r.state, ReceiptState::Pending, "{:?}", r.problem);
+    assert_eq!(local(&a, "_mdbase/types/note.md").as_deref(), Some(TYPE));
+    assert!(local(&a, TARGET).is_none());
+    assert!(local(&a, CONTRACT_TARGET).is_none());
+
+    // Installed: the receipt's targets keep the pack current.
+    let again =
+        a.r.plan_type_pack(s, canonical_request(None, None))
+            .unwrap();
+    assert_eq!(get(&again.assessment, "status"), &text("current"));
+    assert_eq!(targets(&again), targets(&plan));
+}
+
+#[test]
+fn type_pack_explicit_overrides_are_used_as_given() {
+    let (_, mut a) = configured_with(NESTED, None);
+    let s = a.s;
+    // An explicit empty map keeps the canonical targets as given.
+    let canonical =
+        a.r.plan_type_pack(s, canonical_request(Some(map(vec![])), None))
+            .unwrap();
+    assert_eq!(targets(&canonical), [CONTRACT_TARGET, TARGET]);
+    let chosen = map(vec![
+        (CONTRACT_TARGET, text("_mdbase/contracts/chosen/1.0.0.md")),
+        (TARGET, text("_mdbase/types/chosen.md")),
+    ]);
+    let plan =
+        a.r.plan_type_pack(s, canonical_request(Some(chosen), None))
+            .unwrap();
+    assert_eq!(
+        targets(&plan),
+        [
+            "_mdbase/contracts/chosen/1.0.0.md",
+            "_mdbase/types/chosen.md"
+        ]
+    );
+}
+
+#[test]
+fn type_pack_root_layout_targets_are_unchanged() {
+    let (_, mut a) = configured(None);
+    let s = a.s;
+    let plan =
+        a.r.plan_type_pack(s, canonical_request(None, None))
+            .unwrap();
+    assert_eq!(get(&plan.assessment, "applicable"), &Value::Bool(true));
+    assert_eq!(targets(&plan), [CONTRACT_TARGET, TARGET]);
+    // The same assessment as an explicit "no overrides".
+    let explicit =
+        a.r.plan_type_pack(s, canonical_request(Some(map(vec![])), None))
+            .unwrap();
+    assert_eq!(digest(&plan), digest(&explicit));
+    let writes =
+        a.r.plan_type_pack(s, canonical_request(None, Some(digest(&plan))))
+            .unwrap()
+            .writes
+            .unwrap();
+    let r = submit(&mut a, writes);
+    assert_eq!(r.state, ReceiptState::Pending, "{:?}", r.problem);
+    assert_eq!(local(&a, TARGET).as_deref(), Some(TYPE));
+    assert_eq!(local(&a, CONTRACT_TARGET).as_deref(), Some(CONTRACT));
 }

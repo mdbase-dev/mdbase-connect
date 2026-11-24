@@ -1,6 +1,8 @@
 //! Type pack assessment and apply planning over the local view (Core `packs`).
 //! Nothing is written here: the caller submits the planned writes as one
 //! mutation, guarded by `definitions.manage` and each write's revision.
+//! Without caller target overrides, targets follow the setup installer's
+//! decision (Core `default_target_overrides`).
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::super::Replica;
@@ -18,7 +20,7 @@ use mdbn_core::intent::Op;
 use mdbn_core::intent::ResourcePut;
 use mdbn_core::packs::{
     Action, AssessOptions, Assessment, LockResource, Mode, Pack, PackStatus, Receipt,
-    apply_type_pack, assess_type_pack, load_pack,
+    apply_type_pack, assess_type_pack, default_target_overrides, load_pack,
 };
 use mdbn_core::types::LOCK_PATH;
 use mdbn_wire::common::Value;
@@ -349,12 +351,24 @@ impl<S: Store> Replica<S> {
         // The plan reads definitions like list_resources does.
         self.require_resource_inventory_read(session)?;
         let pack = pack(&request.provision)?;
-        let opts = options(&request)?;
+        let mut opts = options(&request)?;
         let base = StoreView::new(&self.store, self.catalog.clone());
         let local = LayerView {
             base: &base,
             layer: &self.layer,
         };
+        // Spec 05A keeps `target_overrides` a caller decision, so Core's
+        // assessment never infers it. A caller that makes none gets the setup
+        // installer's decision: the collection's configured folders for a new
+        // pack, the receipt's recorded targets for an installed one. Explicit
+        // overrides, even an empty map, are used as given.
+        if request.target_overrides.is_none() {
+            let defaults = default_target_overrides(&local, &pack);
+            if let Some(e) = base.error() {
+                return Err(store_err(e));
+            }
+            opts.target_overrides = defaults.map_err(issue)?;
+        }
         let manage = self.require(session, DEFINITIONS).is_ok();
         let planned = match &request.expected {
             None => assess_type_pack(&local, &pack, &opts).map(|a| (a, None)),
