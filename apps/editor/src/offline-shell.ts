@@ -7,10 +7,15 @@
  * Editor registers the same worker, with the same scope and module type, after
  * its first usable render, or after a fallback delay on screens that never
  * open a collection (sign-in, grant callback, errors).
+ *
+ * A release installed while an older one controls this tab waits; `start`
+ * activates it and reloads once, as the SDK's generated registration does, so
+ * a deploy applies on the next load. A first install never reloads.
  */
 
 interface OfflineShellEnvironment {
-  serviceWorker?: Pick<ServiceWorkerContainer, "register">;
+  serviceWorker?: Pick<ServiceWorkerContainer, "register" | "getRegistration" | "controller" | "addEventListener">;
+  reload?: () => void;
   requestIdle?: (callback: () => void, timeoutMs: number) => void;
   setTimer?: (callback: () => void, delayMs: number) => unknown;
   warn?: (message: string) => void;
@@ -44,8 +49,19 @@ export function offlineShellScheduler(base: string, environment: OfflineShellEnv
   return {
     /** The Editor has rendered something usable: register once it settles and the main thread is idle. */
     ready: () => schedule(SETTLE_DELAY_MS),
-    /** Screens that never become ready still get the offline shell, later. */
-    start: () => { environment.setTimer?.(() => schedule(0), FALLBACK_DELAY_MS); }
+    /** At startup: move onto a waiting release, then make sure screens that
+     * never become ready still get the offline shell, later. */
+    start: () => {
+      const shell = environment.serviceWorker;
+      if (shell?.controller) {
+        void shell.getRegistration(base).then(registration => {
+          if (!registration?.waiting) return;
+          shell.addEventListener("controllerchange", () => environment.reload?.(), { once: true });
+          registration.waiting.postMessage({ type: "mdbase-shell:activate" });
+        }).catch(() => {});
+      }
+      environment.setTimer?.(() => schedule(0), FALLBACK_DELAY_MS);
+    }
   };
 }
 
@@ -56,6 +72,7 @@ const browser: OfflineShellEnvironment = typeof window === "undefined" ? {} : {
     ? (callback, timeout) => { window.requestIdleCallback(callback, { timeout }); }
     : undefined,
   setTimer: (callback, delay) => window.setTimeout(callback, delay),
+  reload: () => window.location.reload(),
   warn: (message) => console.warn(message)
 };
 

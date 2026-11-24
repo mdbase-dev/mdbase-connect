@@ -33,6 +33,22 @@ const registrationFile = "mdbase-shell-register.js";
 const runtimeFile = "mdbase-shell-runtime.js";
 const hash = (bytes: string | Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
 
+/** The page script that registers the shell worker. A release installed since
+ * this tab's controller started waits; on app start it is activated and the page
+ * reloads once into it, so a deploy applies on the next load and never mixes
+ * releases. A first install (no controller yet) never reloads. */
+function offlineShellRegistration(worker: string, scope: string): string {
+  return `if ("serviceWorker" in navigator) {
+  const shell = navigator.serviceWorker, controlled = shell.controller !== null;
+  shell.register(${JSON.stringify(worker)}, {scope:${JSON.stringify(scope)},type:"module"}).then(registration => {
+    if (!controlled || !registration.waiting) return;
+    shell.addEventListener("controllerchange", () => location.reload(), {once:true});
+    registration.waiting.postMessage({type:"mdbase-shell:activate"});
+  }).catch(() => console.warn("Offline app support could not start."));
+}
+`;
+}
+
 /** Run after static routes/assets are generated, before publishing the directory.
  * Only shipped public files enter the cache, never runtime-fetched user data. */
 export async function buildOfflineShell(options: OfflineShellBuildOptions): Promise<OfflineShellManifest> {
@@ -45,7 +61,7 @@ export async function buildOfflineShell(options: OfflineShellBuildOptions): Prom
   const runtime = await readFile(new URL("./offline-shell-worker.js", import.meta.url), "utf8");
   await writeFile(join(directory, runtimeFile), runtime.replace(/\n\/\/# sourceMappingURL=.*$/m, ""));
   if (options.register !== false) {
-    await writeFile(join(directory, registrationFile), `if ("serviceWorker" in navigator) navigator.serviceWorker.register(${JSON.stringify(base + workerFile)}, {scope:${JSON.stringify(base)},type:"module"}).catch(() => console.warn("Offline app support could not start."));\n`);
+    await writeFile(join(directory, registrationFile), offlineShellRegistration(base + workerFile, base));
   }
   const paths: string[] = [];
   async function walk(path: string): Promise<void> {

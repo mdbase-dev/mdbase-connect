@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { runInNewContext } from "node:vm";
 import { buildOfflineShell } from "../dist/offline-shell-build.js";
 import { installOfflineShell } from "../dist/offline-shell-worker.js";
 
@@ -71,8 +72,18 @@ test("shell worker installs only pinned public files; offline navigation works w
     await run("activate");
     assert.equal(claimed, true);
     assert.deepEqual(deleted, ["mdbase-shell:/:old"]);
+    // A newer deployment's HTML never loads against this release's same-named assets.
+    const network = [];
+    globalThis.fetch = async request => { network.push(request.url); return new Response("newer deployment"); };
+    for (const path of ["/", "/?collection=abc", "/index.html?x=1", "/help/", "/help/?q=1", "/404"]) {
+      assert.equal(await (await response({ url: origin + path, method: "GET", mode: "navigate" })).text(), publicBytes, path);
+    }
+    assert.deepEqual(network, []);
+    // A route that names no pinned page is the host's to answer.
+    assert.equal(await (await response({ url: origin + "/note/123", method: "GET", mode: "navigate" })).text(), "newer deployment");
     globalThis.fetch = async () => { throw new Error("offline"); };
     assert.equal(await (await response({ url: origin + "/note/123?callback=sensitive", method: "GET", mode: "navigate" })).text(), publicBytes);
+    assert.equal(await (await response({ url: origin + "/", method: "GET", mode: "navigate" })).text(), publicBytes);
     assert.equal(await (await response(new Request(origin + "/assets/lazy.js"))).text(), publicBytes);
     assert.equal(await response(new Request(origin + "/v1/records")), undefined);
     assert.equal(await response(new Request(origin + "/assets/lazy.js?token=sensitive")), undefined);
@@ -117,4 +128,51 @@ test("shell worker installs only pinned public files; offline navigation works w
     assert.equal(stores.has("mdbase-shell:/:one"), true);
     assert.equal(stores.has("mdbase-shell:/:three"), false);
   } finally { globalThis.caches = original.caches; globalThis.fetch = original.fetch; }
+});
+
+async function registration(dir) {
+  await writeFile(`${dir}/index.html`, "<html><head></head><body></body></html>");
+  await buildOfflineShell({ directory: dir });
+  return readFile(`${dir}/mdbase-shell-register.js`, "utf8");
+}
+function page(script, { controlled, waiting }) {
+  const posted = [], listeners = [], registered = [];
+  let reloads = 0;
+  const waitingWorker = waiting ? { postMessage: message => posted.push(message) } : null;
+  const navigator = { serviceWorker: {
+    controller: controlled ? {} : null,
+    register: async (url, options) => { registered.push([url, options]); return { waiting: waitingWorker }; },
+    addEventListener: (type, listener, options) => listeners.push({ type, listener, options }),
+  } };
+  runInNewContext(script, { navigator, location: { reload: () => { reloads++; } }, console });
+  const settle = () => new Promise(resolve => setImmediate(resolve));
+  const controllerChange = () => { for (const l of listeners.filter(l => l.type === "controllerchange")) { l.listener(); } };
+  // Objects made inside the page context have its prototypes: compare as JSON.
+  const plain = value => JSON.parse(JSON.stringify(value));
+  return { posted: () => plain(posted), options: () => plain(listeners.map(l => l.options)), registered: () => plain(registered), settle, controllerChange, reloads: () => reloads };
+}
+
+test("a release waiting behind an older controller is activated on app start, with one reload", async () => {
+  const dir = await mkdtemp(fileURLToPath(new URL("../.offline-shell-test-", import.meta.url)));
+  try {
+    const script = await registration(dir);
+    const updated = page(script, { controlled: true, waiting: true });
+    await updated.settle();
+    assert.deepEqual(updated.registered(), [["/mdbase-shell-sw.js", { scope: "/", type: "module" }]]);
+    assert.deepEqual(updated.posted(), [{ type: "mdbase-shell:activate" }]);
+    assert.equal(updated.reloads(), 0);
+    updated.controllerChange();
+    assert.equal(updated.reloads(), 1);
+    assert.deepEqual(updated.options(), [{ once: true }]);
+    // First install: nothing to replace, so no activation and no reload.
+    const first = page(script, { controlled: false, waiting: true });
+    await first.settle();
+    assert.deepEqual(first.posted(), []);
+    assert.deepEqual(first.options(), []);
+    // Already current: nothing waits.
+    const current = page(script, { controlled: true, waiting: false });
+    await current.settle();
+    assert.deepEqual(current.posted(), []);
+    assert.deepEqual(current.options(), []);
+  } finally { await rm(dir, { recursive: true, force: true }); }
 });
