@@ -102,7 +102,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: Option<ConflictCmd>,
     },
-    /// Turn sync on or off (moves the collection's log).
+    /// Manage collection sync and switch sync mode.
     #[command(subcommand)]
     Sync(SyncCmd),
     /// Let another computer of yours open a private collection.
@@ -256,21 +256,22 @@ pub(super) enum SyncCmd {
         #[arg(long, value_enum)]
         mode: Option<SyncKind>,
     },
-    /// Switch an already synced collection; explicit source consent is required.
+    /// Switch a synced collection between Private and Cloud copy.
     Mode {
         /// Collection ID, ID prefix or name.
         collection: String,
-        #[arg(value_enum)]
-        mode: SyncKind,
-        /// Advance existing local consent without asking to create new consent.
+        /// Target mode (`private` or `cloud-copy`). Optional with `--cancel`.
+        #[arg(value_enum, required_unless_present = "cancel")]
+        mode: Option<SyncKind>,
+        /// Cancel an in-progress switch before policy is published.
         #[arg(long)]
-        resume: bool,
-        /// Cancel only if no switch policy can have been published.
-        #[arg(long, conflicts_with = "resume")]
         cancel: bool,
     },
-    /// Current collection-mode request and progress.
-    ModeStatus { collection: String },
+    /// Show a synced collection's current mode and any switch in progress.
+    ModeStatus {
+        /// Collection ID, ID prefix or name.
+        collection: String,
+    },
     /// Show which files the collection syncs, or replace that choice with `--set`
     /// for every device. Files already synced stay where they are.
     Files {
@@ -289,11 +290,6 @@ pub(super) enum SyncCmd {
         /// Leave out files larger than this many bytes.
         #[arg(long, requires = "set")]
         max_size: Option<u64>,
-    },
-    /// Move the log back to this device (local only).
-    Disable {
-        /// Collection ID, ID prefix or name.
-        collection: String,
     },
 }
 
@@ -453,9 +449,9 @@ mod takeover_cli_tests {
     }
 
     #[test]
-    fn sync_parses_enable_and_disable() {
+    fn sync_parses_enable_and_rejects_removed_disable() {
         assert!(Cli::try_parse_from(["mdbase", "sync", "enable", "Notes"]).is_ok());
-        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_ok());
+        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_err());
     }
 
     #[test]

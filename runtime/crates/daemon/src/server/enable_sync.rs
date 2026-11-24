@@ -45,7 +45,7 @@ impl Daemon {
             }
             return Err(ControlError::invalid(
                 "already_synced",
-                "this collection already syncs; sync enable cannot change an existing sync mode",
+                "this collection already syncs; use `mdbase sync mode` to change its mode",
             ));
         }
         let collection = crate::attest::uuid_bytes(&entry.id)
@@ -147,11 +147,8 @@ impl Daemon {
                     ));
                 }
             };
-            let refused = adopt_holds_refusal(
-                &entry.id,
-                Some((frozen.holds, frozen.unresolved)),
-            )
-            .err();
+            let refused =
+                adopt_holds_refusal(&entry.id, Some((frozen.holds, frozen.unresolved))).err();
             if let Some(e) = refused {
                 // A complete, known frozen capture was refused only for holds:
                 // unlike failed/unknown capture, serving may safely resume.

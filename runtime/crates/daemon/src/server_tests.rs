@@ -5,7 +5,7 @@ mod capture_stop_tests;
 mod conflict_tests;
 #[cfg(unix)]
 #[path = "server_mirror_join_tests.rs"]
-mod mirror_join_tests;
+pub(in crate::server) mod mirror_join_tests;
 #[cfg(unix)]
 #[path = "server_private_approval_tests.rs"]
 mod private_approval_tests;
@@ -130,6 +130,7 @@ pub(super) fn daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
         tasks: Default::default(),
         identity: Default::default(),
         account_keys: Default::default(),
+        mode_driver: Default::default(),
         inner: Mutex::new(Inner {
             registry: Registry {
                 collections: vec![crate::registry::Entry {

@@ -106,8 +106,9 @@ impl Daemon {
             }
             Method::COLLECTION_MODE => self.change_collection_mode(params(req)?).await,
             Method::COLLECTION_MODE_STATUS => {
-                let p: CollectionRef = params(req)?;
-                self.collection_mode_status(&p.collection).await
+                let p: super::collection_mode::ModeStatus = params(req)?;
+                self.collection_mode_status(&p.collection, p.include_local)
+                    .await
             }
             Method::COLLECTION_DELETE => self.delete_collection(params(req)?).await,
             Method::COLLECTION_UPDATE => {
@@ -151,11 +152,6 @@ impl Daemon {
                 let out = self.join(params(req)?).await;
                 self.account_keys.wake();
                 out
-            }
-            Method::SYNC_DISABLE => {
-                let p: CollectionRef = params(req)?;
-                self.serving(&p.collection).await?;
-                Err(ControlError::not_implemented("disabling sync"))
             }
             Method::DEVICE_PENDING => self.device_pending(params(req)?).await,
             Method::DEVICE_APPROVE => self.device_approve(params(req)?).await,

@@ -286,7 +286,6 @@ export function describeActivity(entry: ActivityLike): string {
     case "collection_joined": return t(i18n)`${collection} was joined from your account`;
     case "collection_taken_over": return t(i18n)`${collection} moved here from mdbase Connect (its files were not touched)`;
     case "sync_enabled": return t(i18n)`${collection} now syncs${entry.detail === "synced_e2e" ? " privately" : ""}`;
-    case "sync_disabled": return t(i18n)`${collection} stopped syncing`;
     case "app_connected": return t(i18n)`${app} can now use ${collection}`;
     case "app_requested": return t(i18n)`${app} asked to use ${collection}`;
     case "app_approved": return t(i18n)`You approved ${app} for ${collection}`;

@@ -404,7 +404,7 @@ fn the_app_store_fenced_inside_a_window_still_closes_it() {
     let (reference, plan, _) = run("app-fence-none", None, false);
     // The fifth entry of the first page: four are applied in the window.
     let at = 5;
-    assert!(u64::from(PAGE) > at && plan.kinds["write in a window"] > at);
+    assert!(PAGE > at && plan.kinds["write in a window"] > at);
     let (outcome, plan, reopened_at) = run("app-fence", Some(at), true);
     assert!(plan.refused && plan.killed.is_none());
     assert!(reopened_at.is_some_and(|head| head < reference.head));
