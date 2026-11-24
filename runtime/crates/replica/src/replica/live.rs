@@ -239,6 +239,7 @@ impl<S: Store> Replica<S> {
         {
             return;
         }
+        self.flush_query_index();
         let result = match self.run_query(&s.query, &s.include) {
             Ok(r) => r,
             Err(_) => {
@@ -360,6 +361,7 @@ impl<S: Store> Replica<S> {
             ));
         }
         // Validate first, so a bad query is an error, not a reset.
+        self.flush_query_index();
         self.run_query(&query, &include)?;
         self.live.next_sub += 1;
         let id = self.live.next_sub;

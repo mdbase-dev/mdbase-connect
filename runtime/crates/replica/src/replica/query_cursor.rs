@@ -592,6 +592,7 @@ impl<S: Store> Replica<S> {
     ) -> ApiResult<QueryResult> {
         self.trace_query("request_start");
         self.require(session, crate::policy::capability::READ)?;
+        self.flush_query_index();
         self.trace_query("read_before");
         let handle = supplied(query)?;
         let now = self.now();

@@ -1619,6 +1619,9 @@ impl<S: Store> Replica<S> {
         {
             self.terminal_store_fault("hosted_record_reindex_failed");
         }
+        if self.query_index_flush_due() {
+            self.flush_query_index();
+        }
         self.tick_timers();
     }
 
@@ -1719,6 +1722,7 @@ impl<S: Store> Replica<S> {
                             && self.head.seq < self.head_known)
                 }))
             .then(|| self.now().saturating_add(1000)),
+            self.query_index_flush_due().then(|| self.now()),
             grant,
             stall_probe,
             upload,
