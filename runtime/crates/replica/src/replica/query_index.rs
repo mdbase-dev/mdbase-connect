@@ -221,9 +221,11 @@ pub(super) enum Reindex {
 }
 
 impl<S: Store> Replica<S> {
-    /// Build the index a catch-up deferred, at the current head. A failure
-    /// leaves it unready, so queries keep the per-record path, and is reported
-    /// as an integrity incident.
+    /// Build the index a catch-up deferred, at the current head. Every query
+    /// (a page or its cursor, a live query, a Bases read) calls this first, so
+    /// none is answered without the index because of a deferral. A failure
+    /// leaves the index unready, so queries keep the per-record path, and is
+    /// reported as an integrity incident.
     pub(super) fn flush_query_index(&mut self) {
         if !self.query_index_flushable() {
             return;

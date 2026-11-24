@@ -479,9 +479,10 @@ pub struct Replica<S: Store> {
     pub(crate) conflict_label: Option<String>,
     /// Committed trusted derived-profile capture, never a serving permission.
     pub(crate) query_context: Option<Arc<crate::plan::QueryProjectionContext>>,
-    /// A device catching up leaves the query index unready and unprojected until
-    /// it reaches the known head, then builds it once (`flush_query_index`). In
-    /// memory only: a crash leaves the index unready, and the open path builds it.
+    /// After a snapshot install, a device leaves the query index unready and
+    /// unprojected while it applies the tail it knows of, then builds it once
+    /// (`flush_query_index`), or sooner when a query needs it. In memory only:
+    /// a crash leaves the index unready, and the open path builds it.
     pub(crate) query_index_deferred: bool,
     /// Declared fields left out of the maintained index because a record's value
     /// is longer than an index key. Queries naming one use the per-record path.

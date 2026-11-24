@@ -516,23 +516,20 @@ fn device_cold_open_after_a_snapshot_at_10k() {
         );
         eprintln!("    indexed query {:?}", started.elapsed());
         if !split {
-            // Between the install and the tail, queries take the per-record path.
+            // A query between the install and the tail builds the index first.
             let (late_store, _) = store("cold_open_deferred", false);
             let mut late = open(&svc, late_store, 103);
-            late.install_only();
-            let started = Instant::now();
-            assert_eq!(per_record_count(&mut late, "task"), 1000);
-            eprintln!(
-                "    per-record query before the tail {:?}",
-                started.elapsed()
-            );
             late.r.set_query_execution_profile(
                 mdbn_replica::QueryExecutionProfile::MemoryConstrained,
             );
-            let answer = type_page(&mut late, "task", 50, None)
-                .map(|page| page.records.len())
-                .map_err(|e| e.problem().reason.clone());
-            eprintln!("    memory-constrained 50-record page before the tail: {answer:?}");
+            late.install_only();
+            let started = Instant::now();
+            let page = type_page(&mut late, "task", 50, None).expect("served");
+            assert_eq!(page.records.len(), 50);
+            eprintln!(
+                "    memory-constrained 50-record page before the tail (builds the index) {:?}",
+                started.elapsed()
+            );
         }
     }
 }
@@ -611,8 +608,8 @@ fn assert_caught_up(svc: &FakeLogService, device: &mut Node) {
 }
 
 /// A device opening the collection installs the snapshot and applies a tail
-/// holding two catalog changes. It builds the query index once, after the
-/// tail; before that its queries take the per-record path.
+/// holding two catalog changes. With no query in between, it builds the query
+/// index once, after the tail.
 #[test]
 fn a_cold_open_builds_the_index_once_after_the_tail() {
     let (svc, _writer, snapshot) = cold_writer("cold_once");
@@ -621,7 +618,6 @@ fn a_cold_open_builds_the_index_once_after_the_tail() {
     device.install_only();
     assert_eq!(device.r.head().seq, snapshot);
     assert_index_unready(&device);
-    assert_eq!(per_record_count(&mut device, "task"), COLD_TASKS as usize);
     stats.borrow_mut().clear();
     device.sync(&svc);
     let records = device.r.store().record_count().unwrap();
@@ -678,16 +674,60 @@ fn an_offline_device_builds_the_deferred_index_on_tick() {
     assert_caught_up(&svc, &mut device);
 }
 
-/// A cursor from before a catch-up across a catalog change is refused after
-/// it, as expired. While the index waits for the tail, pages carry no
-/// cursor; once it is built they do again.
+/// A query while the index waits for the tail builds it and is answered from
+/// it, so a memory-constrained page over more records than the per-record
+/// budget allows is served, not refused. The tail then applies as usual.
 #[test]
-fn cursors_do_not_cross_a_deferred_rebuild() {
-    let (svc, mut writer, _) = cold_writer("cold_cursor");
-    let (device_store, _) = store("cold_cursor_device", false);
+fn a_query_while_deferred_builds_the_index_first() {
+    const TASKS: u32 = 600;
+    let svc = FakeLogService::new();
+    let (writer_store, _) = store("deferred_query_writer", false);
+    let mut writer = open(&svc, writer_store, 101);
+    let snapshot = snapshot_then_tail(&svc, &mut writer, TASKS, 1, "tasks/t001*.md");
+    let (device_store, _) = store("deferred_query_device", false);
     let mut device = open(&svc, device_store, 102);
+    device
+        .r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+    device.install_only();
+    assert_index_unready(&device);
+    let before = device.r.query_stats();
+    let page = type_page(&mut device, "task", 50, None).expect("served, not refused");
+    assert_eq!(page.records.len(), 50);
+    assert!(page.cursor.is_some());
+    let after = device.r.query_stats();
+    assert_eq!(
+        after.indexed,
+        before.indexed + 1,
+        "{:?}",
+        after.last_decline
+    );
+    assert_eq!(device.r.head().seq, snapshot);
+    assert_index_ready(&device);
     device.sync(&svc);
-    let before = type_page(&mut device, "task", 10, None).unwrap();
+    assert_eq!(device.r.head().seq, svc.head(&COL).0);
+    assert_index_ready(&device);
+    assert_metadata_current(&device);
+    assert_eq!(indexed_count(&mut device, "batch"), 100);
+}
+
+/// A cursor survives what a view change refuses as stale, never as expired:
+/// one from before a catalog change a device reads behind its known head,
+/// and one a query issued while the index waited for the tail.
+#[test]
+fn cursors_across_a_catch_up_are_refused_as_stale() {
+    let (svc, mut writer, _) = cold_writer("cold_cursor");
+    let (late_store, _) = store("cold_cursor_late", false);
+    let mut late = open(&svc, late_store, 103);
+    late.install_only();
+    let during = type_page(&mut late, "task", 10, None).unwrap();
+    let during = during.cursor.expect("a cursor from the built index");
+    assert!(type_page(&mut late, "task", 10, Some(&during)).is_ok());
+    late.sync(&svc);
+    let refused = type_page(&mut late, "task", 10, Some(&during)).unwrap_err();
+    assert_eq!(refused.problem().reason.as_deref(), Some("cursor_stale"));
+
+    let before = type_page(&mut late, "task", 10, None).unwrap();
     let before = before.cursor.expect("a cursor");
     writer.submit(vec![batch_type("tasks/t002*.md")]);
     writer.sync(&svc);
@@ -700,34 +740,10 @@ fn cursors_do_not_cross_a_deferred_rebuild() {
         document: Some(Text::Inline(task(9_999))),
     })]);
     writer.sync(&svc);
-    let projected = device.r.stats.reindexed;
-    device.reconnect(&svc);
-    assert!(
-        device.r.stats.reindexed > projected,
-        "the catalog change was applied"
-    );
-    // The rebuild drops every cursor, as a backfill always has.
-    let refused = type_page(&mut device, "task", 10, Some(&before)).unwrap_err();
-    assert_eq!(refused.problem().reason.as_deref(), Some("cursor_expired"));
-    assert_index_ready(&device);
-    assert_eq!(indexed_count(&mut device, "task"), COLD_TASKS as usize + 10);
-
-    let (late_store, _) = store("cold_cursor_late", false);
-    let mut late = open(&svc, late_store, 103);
-    late.install_only();
-    let during = type_page(&mut late, "task", 10, None).unwrap();
-    assert_eq!(during.records.len(), 10);
-    assert!(
-        during.cursor.is_none(),
-        "no continuation over an unready index"
-    );
-    late.sync(&svc);
-    assert!(
-        type_page(&mut late, "task", 10, None)
-            .unwrap()
-            .cursor
-            .is_some()
-    );
+    late.reconnect(&svc);
+    let refused = type_page(&mut late, "task", 10, Some(&before)).unwrap_err();
+    assert_eq!(refused.problem().reason.as_deref(), Some("cursor_stale"));
+    assert_index_ready(&late);
     assert_eq!(indexed_count(&mut late, "task"), COLD_TASKS as usize + 10);
 }
 
@@ -864,20 +880,6 @@ fn indexed_count(device: &mut Node, type_name: &str) -> usize {
     records
 }
 
-/// How many records of `type_name` a window the per-record path answers
-/// returns.
-fn per_record_count(device: &mut Node, type_name: &str) -> usize {
-    let before = device.r.query_stats();
-    let records = type_page(device, type_name, 1000, None)
-        .expect("query")
-        .records
-        .len();
-    let after = device.r.query_stats();
-    assert_eq!(after.indexed, before.indexed, "the index did not answer");
-    assert_eq!(after.declined, before.declined + 1);
-    records
-}
-
 /// A schema change leaves record metadata alone: the device writes no record
 /// and rebuilds the query index for its new generation in one pass, checking
 /// coverage once at the end rather than on every page.
@@ -955,49 +957,49 @@ fn ordinary_entries_are_projected_as_they_apply() {
     assert_eq!(indexed_count(&mut device, "task"), TASKS as usize + 2);
 }
 
-/// A device back from an outage reads two catalog changes among ordinary
-/// entries at once: it rederives record metadata at each change and builds
-/// the query index once, after the last entry.
+/// A device back from an outage, not deferred, reads a catalog change among
+/// ordinary entries: it applies the change in one combined pass, rederiving
+/// metadata and projecting each record together, then projects each later
+/// entry as it applies. Nothing is built a second time.
 #[test]
-fn a_device_behind_two_catalog_changes_builds_the_index_once() {
+fn a_device_not_deferred_applies_a_catalog_change_in_one_combined_pass() {
     const TASKS: u32 = 400;
     let (svc, mut writer, mut device, stats) = pair("catalog_reindex_behind", TASKS);
-    for op in [batch_type("tasks/t001*.md"), schema_only()] {
-        writer.submit(vec![op]);
+    writer.submit(vec![batch_type("tasks/t001*.md")]);
+    writer.sync(&svc);
+    for n in 1..=3 {
+        let n = TASKS + 50 + n;
+        writer.submit(vec![Op::Create(Create {
+            id: id(n),
+            path: Some(format!("tasks/t{n:05}.md")),
+            type_name: None,
+            frontmatter: None,
+            body: None,
+            document: Some(Text::Inline(task(n))),
+        })]);
         writer.sync(&svc);
-        for _ in 0..3 {
-            let n = TASKS + 51 + writer.r.head().seq as u32;
-            writer.submit(vec![Op::Create(Create {
-                id: id(n),
-                path: Some(format!("tasks/t{n:05}.md")),
-                type_name: None,
-                frontmatter: None,
-                body: None,
-                document: Some(Text::Inline(task(n))),
-            })]);
-            writer.sync(&svc);
-        }
     }
     stats.borrow_mut().clear();
     let reindexed = device.r.stats.reindexed;
     device.reconnect(&svc);
-    assert_eq!(
-        device.r.stats.reindexed - reindexed,
-        u64::from(TASKS) + 50,
-        "the type change's metadata pass; the schema change has none"
-    );
-    let records = device.r.store().record_count().unwrap();
-    let projected = stats
+    assert_eq!(device.r.stats.reindexed - reindexed, u64::from(TASKS) + 50);
+    let stats = stats
         .borrow()
-        .get("insert:st_qrecord")
-        .map_or(0, |(n, _)| *n);
+        .iter()
+        .map(|(k, (n, _))| (k.clone(), *n))
+        .collect::<BTreeMap<_, _>>();
+    // The combined pass projects the 450 records it rederives; the 3 creates
+    // are projected in their own commits.
     assert_eq!(
-        u64::from(projected),
-        records,
-        "every record is projected once"
+        ran(&stats, "insert:st_qrecord"),
+        TASKS + 50 + 3,
+        "{stats:?}"
     );
+    // Each entry's commit keeps the index current, and the pass publishes
+    // once: a deferred build would leave the creates' commits unprojected.
+    assert_eq!(ran(&stats, "coverage:st_qstate"), 4 + 1, "{stats:?}");
     assert_index_ready(&device);
     assert_metadata_current(&device);
-    assert_eq!(indexed_count(&mut device, "task"), TASKS as usize + 6);
+    assert_eq!(indexed_count(&mut device, "task"), TASKS as usize + 3);
     assert_eq!(indexed_count(&mut device, "batch"), 100);
 }
