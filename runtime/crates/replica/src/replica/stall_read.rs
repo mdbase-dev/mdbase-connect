@@ -1,17 +1,19 @@
 //! Bounded ordinary read probes while apply is stalled, of any kind.
 //! A deadline is scheduling state, never key or policy authority.
 //!
-//! A stalled entry is re-read only by these probes: a read reply, a push or a
-//! tick never re-reads it sooner. Waiting for a key resolves through a key
-//! event; every other stall (an unknown format, an unpinned key, a planner this
-//! build cannot verify) depends only on the log and this build's code and
-//! configuration, which change only on reopen. The probes keep a stalled
-//! replica hearing of the log (its head, a snapshot it has fallen behind).
+//! A stalled entry is re-read only by these probes: a read reply or a tick
+//! never re-reads it sooner than its backoff deadline. Waiting for a key
+//! resolves through a key event; every other stall (an unknown format, an
+//! unpinned key, a planner this build cannot verify) depends only on the log
+//! and this build's code and configuration, which change only on reopen. The
+//! probes keep a stalled replica hearing of the log (its head, a snapshot it
+//! has fallen behind).
 //!
 //! The probe interval doubles while nothing changes. A known head past the one
 //! the last probe saw (a push: entries were appended, perhaps this device's
-//! `key_grant`) brings the next probe forward, still at most one per
-//! `FIRST_MS`. The hint only schedules a read; the read is judged as ever.
+//! `key_grant`) brings the next probe forward to `now` immediately, while
+//! repeated identical or lower hints keep waiting on the backoff. The hint
+//! only schedules a read; the read is judged as ever.
 const FIRST_MS: i64 = 1_000;
 const MAX_MS: i64 = 30_000;
 
@@ -20,10 +22,8 @@ pub(super) struct ReadBackoff {
     position: Option<u64>,
     deadline: i64,
     interval: i64,
-    /// The known head when the last probe (or the stall) was read.
+    /// The highest log head the last probe (or the stall) has already seen.
     probed_head: u64,
-    /// When the last probe (or the stall) was read.
-    probed_at: i64,
 }
 impl ReadBackoff {
     pub(super) fn due(&mut self, position: u64, now: i64, head_known: u64) -> bool {
@@ -32,7 +32,6 @@ impl ReadBackoff {
             self.interval = FIRST_MS;
             self.deadline = now.saturating_add(FIRST_MS);
             self.probed_head = head_known;
-            self.probed_at = now;
             return false;
         }
         self.hint(head_known, now);
@@ -42,18 +41,23 @@ impl ReadBackoff {
         self.interval = self.interval.saturating_mul(2).min(MAX_MS);
         self.deadline = now.saturating_add(self.interval);
         self.probed_head = head_known;
-        self.probed_at = now;
         true
     }
-    /// The log grew past what the last probe saw: probe again soon (no sooner
-    /// than `FIRST_MS` after the last one), keeping the doubled interval.
+    /// The log grew past what the last probe saw: probe immediately, keeping
+    /// the doubled no-news interval.
     fn hint(&mut self, head_known: u64, now: i64) {
         if self.position.is_none() || head_known <= self.probed_head {
             return;
         }
         self.probed_head = head_known;
-        let at = self.probed_at.saturating_add(FIRST_MS).max(now);
-        self.deadline = self.deadline.min(at);
+        self.deadline = self.deadline.min(now);
+    }
+    /// Record the head reported by a completed read so the reply itself does
+    /// not look like a newer hint and bypass the backoff deadline.
+    pub(super) fn observe_head(&mut self, head: u64) {
+        if self.position.is_some() {
+            self.probed_head = self.probed_head.max(head);
+        }
     }
     pub(super) fn deadline(&self, position: u64) -> Option<i64> {
         (self.position == Some(position)).then_some(self.deadline)
@@ -103,25 +107,42 @@ mod tests {
         assert_eq!(state.deadline(5), Some(11_000));
     }
     #[test]
-    fn a_grown_head_brings_the_next_probe_forward_at_most_once_a_second() {
+    fn an_advancing_head_triggers_an_immediate_probe_while_identical_hints_keep_backoff() {
+        let mut state = ReadBackoff::default();
+        assert!(!state.due(4, 0, 9));
+        assert_eq!(state.deadline(4), Some(FIRST_MS));
+        // An advancing head right after stalling is due immediately, without
+        // waiting out FIRST_MS.
+        assert!(state.due(4, 50, 10));
+        assert_eq!(state.deadline(4), Some(50 + 2 * FIRST_MS));
+        // Repeated identical or lower hints do not schedule another probe.
+        assert!(!state.due(4, 50, 10));
+        assert!(!state.due(4, 100, 10));
+        assert!(!state.due(4, 100, 9));
+        assert_eq!(state.deadline(4), Some(50 + 2 * FIRST_MS));
+        // Without further hints, the doubled backoff governs the next probe.
+        assert!(!state.due(4, 50 + 2 * FIRST_MS - 1, 10));
+        assert!(state.due(4, 50 + 2 * FIRST_MS, 10));
+        assert_eq!(state.deadline(4), Some(50 + 6 * FIRST_MS));
+        // A later advancing head immediately triggers another probe, keeping
+        // the doubled no-news interval.
+        let at = 50 + 2 * FIRST_MS + 10;
+        assert!(state.due(4, at, 12));
+        assert_eq!(state.deadline(4), Some(at + 8 * FIRST_MS));
+        assert!(!state.due(4, at + 1, 12));
+    }
+    #[test]
+    fn observe_head_records_a_reply_head_without_bypassing_backoff() {
         let mut state = ReadBackoff::default();
         assert!(!state.due(4, 0, 9));
         assert!(state.due(4, FIRST_MS, 9));
-        assert!(state.due(4, 3 * FIRST_MS, 9));
-        assert_eq!(state.deadline(4), Some(7 * FIRST_MS));
-        // The same head schedules nothing new.
-        assert!(!state.due(4, 3 * FIRST_MS + 10, 9));
-        assert_eq!(state.deadline(4), Some(7 * FIRST_MS));
-        // Entries appended: the next probe is a second after the last one.
-        assert!(!state.due(4, 3 * FIRST_MS + 10, 12));
-        assert_eq!(state.deadline(4), Some(4 * FIRST_MS));
-        assert!(state.due(4, 4 * FIRST_MS, 12));
-        // Doubling continues from where it was; a later head again pulls it in.
-        assert_eq!(state.deadline(4), Some(12 * FIRST_MS));
-        assert!(
-            state.due(4, 9 * FIRST_MS, 13),
-            "a later head is due at once"
-        );
-        assert_eq!(state.deadline(4), Some(25 * FIRST_MS));
+        assert_eq!(state.deadline(4), Some(3 * FIRST_MS));
+        state.observe_head(100);
+        // The head reported by the reply itself does not trigger an immediate re-read.
+        assert!(!state.due(4, FIRST_MS, 100));
+        assert_eq!(state.deadline(4), Some(3 * FIRST_MS));
+        // A push past what the reply saw still triggers immediately.
+        assert!(state.due(4, FIRST_MS + 5, 101));
+        assert_eq!(state.deadline(4), Some(FIRST_MS + 5 + 4 * FIRST_MS));
     }
 }

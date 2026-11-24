@@ -28,8 +28,8 @@
 //!
 //! Scheduling: the scan starts when apply first stalls at `N`. It is extended only
 //! when a bounded key-wait probe re-stalls at `N` and the known head has
-//! grown. A head hint never starts a read by itself: it only brings the next
-//! bounded probe forward (at most one a second, `stall_read.rs`). Transport
+//! grown. A head hint never supplies authority: it only brings the next
+//! bounded probe forward (`stall_read.rs`). Transport
 //! failures pause the scan until the next probe. A void grant, an item ahead that ordered apply could
 //! not pass either, or the work bound leaves the replica in a typed
 //! `waiting_for_key` ([`KeyWaitReason`], also in the incident's details).
