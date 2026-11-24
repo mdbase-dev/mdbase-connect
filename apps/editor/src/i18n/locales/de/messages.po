@@ -148,6 +148,12 @@ msgid "{0} · {1} (Contact-only)"
 msgstr "{0} · {1} (nur Kontakt)"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
+#. placeholder {1}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/FileViewer.tsx
+msgid "{0} · HTML preview is limited to {1}. Use Open original to view this file."
+msgstr "{0} · Die HTML-Vorschau ist auf {1} begrenzt. Verwenden Sie „Original öffnen“, um diese Datei anzuzeigen."
+
+#. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
 msgstr "{0} · Vorschau nicht verfügbar. Verwenden Sie „Original öffnen“, um diese Datei anzuzeigen."
@@ -2902,6 +2908,24 @@ msgstr "So werden Notizen diesem Typ zugewiesen."
 msgid "How this type appears and behaves across compatible tools."
 msgstr "So erscheint und verhält sich dieser Typ in kompatiblen Werkzeugen."
 
+#: src/FileViewer.tsx
+msgid "HTML file view"
+msgstr "HTML-Dateiansicht"
+
+#. placeholder {0}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/code-editor-file-embeds.ts
+msgid "HTML preview is limited to {0}."
+msgstr "Die HTML-Vorschau ist auf {0} begrenzt."
+
+#: src/code-editor-file-embeds.ts
+#: src/FileViewer.tsx
+msgid "HTML preview, {filename}"
+msgstr "HTML-Vorschau, {filename}"
+
+#: src/FileViewer.tsx
+msgid "HTML source, {filename}"
+msgstr "HTML-Quellcode, {filename}"
+
 #: src/TypeBrowser.tsx
 msgid "Icon"
 msgstr "Symbol"
@@ -4400,6 +4424,11 @@ msgctxt "shortcut settings"
 msgid "Press keys…"
 msgstr "Tasten drücken …"
 
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Preview"
+msgstr "Vorschau"
+
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
@@ -4416,6 +4445,7 @@ msgstr "Die Vorschau ist auf {0} begrenzt. Laden Sie diese {1}-Datei herunter, u
 msgid "Preview of {0}"
 msgstr "Vorschau von {0}"
 
+#: src/FileViewer.tsx
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
 msgstr "Vorschau für die Anzeige gekürzt. Das vollständige geprüfte Original ist über „Original öffnen“ verfügbar."
@@ -5307,6 +5337,11 @@ msgstr "Satzzeichen außerhalb der aktiven Zeile abschwächen und Aufgaben abhak
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
 msgstr "Sortieren"
+
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Source"
+msgstr "Quellcode"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."

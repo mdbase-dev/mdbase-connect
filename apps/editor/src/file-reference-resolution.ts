@@ -1,5 +1,11 @@
 import type { CollectionFile } from "./model";
 
+/** Profile identity is authoritative; paths, MIME and media class are not. */
+export function isReadOnlyMarkdownFile(file: Pick<CollectionFile, "contentProfile">): boolean {
+  return file.contentProfile === "unindexed_markdown_blob"
+    || file.contentProfile === "unindexed_markdown_attachment_v1";
+}
+
 export function fileAssetKey(file: CollectionFile): string {
   // A digest alone is not selection identity: profiles and confirmations can
   // change without new bytes, and IDs may be reused at a different path.
@@ -9,10 +15,12 @@ export function fileAssetKey(file: CollectionFile): string {
 }
 
 export function isInlinePreviewable(file: CollectionFile): boolean {
+  const mediaType = file.mediaType?.split(";", 1)[0].trim().toLowerCase();
   return file.mediaClass === "image"
     || file.mediaClass === "pdf"
     || file.mediaClass === "audio"
     || file.mediaClass === "video"
+    || mediaType === "application/xhtml+xml"
     || isTextPreviewable(file);
 }
 

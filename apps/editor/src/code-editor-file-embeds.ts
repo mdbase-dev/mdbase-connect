@@ -6,7 +6,9 @@ import { isolateHistory } from "@codemirror/commands";
 import { attachmentUploadFailure, type AttachmentUploader, type AttachmentUploadFailure } from "./AttachmentUpload";
 import { Decoration, EditorView, ViewPlugin, WidgetType } from "@codemirror/view";
 import type { FileAssetSnapshot } from "./file-asset-store";
+import { formatFileSize } from "./collection-browser";
 import { fileAssetKey, isInlinePreviewable, isTextPreviewable } from "./file-reference-resolution";
+import { HTML_IFRAME_SANDBOX, isHtmlPreviewFile, MAX_HTML_PREVIEW_BYTES, prepareHtmlPreviewDocument } from "./html-preview";
 import type { ResolvedFileReference } from "./use-file-assets";
 import { embedActions, focusEmbedOnPointer } from "./embed-actions";
 import { embedPositions, visibleEmbeds } from "./code-editor-embed-positions";
@@ -37,7 +39,8 @@ class FileEmbedWidget extends BlockWidget {
       && current.file.fileId === next.file.fileId
       && current.file.revision === next.file.revision
       && current.status === next.status
-      && (current.status !== "ready" || next.status !== "ready" || current.url === next.url)
+      && (current.status !== "ready" || next.status !== "ready"
+        || (current.url === next.url && current.sourceText === next.sourceText))
       && this.reference.label === other.reference.label;
   }
 
@@ -88,6 +91,23 @@ class FileEmbedWidget extends BlockWidget {
           media.addEventListener("error", loaded);
         }
         preview.append(media);
+      } else if (isHtmlPreviewFile(asset.file)) {
+        if (asset.sourceText !== undefined) {
+          const frame = document.createElement("iframe");
+          frame.className = "cm-file-embed-html-frame";
+          frame.title = t`HTML preview, ${filename}`;
+          frame.setAttribute("sandbox", HTML_IFRAME_SANDBOX);
+          frame.setAttribute("referrerpolicy", "no-referrer");
+          frame.srcdoc = prepareHtmlPreviewDocument(asset.sourceText);
+          preview.append(frame);
+        } else {
+          const status = document.createElement("div");
+          status.className = "cm-file-embed-status";
+          status.textContent = asset.file.size > MAX_HTML_PREVIEW_BYTES
+            ? t`HTML preview is limited to ${formatFileSize(MAX_HTML_PREVIEW_BYTES)}.`
+            : t`No inline preview is available for ${filename}.`;
+          preview.append(status);
+        }
       } else if (isTextPreviewable(asset.file)) {
         const pre = document.createElement("pre");
         const code = document.createElement("code");

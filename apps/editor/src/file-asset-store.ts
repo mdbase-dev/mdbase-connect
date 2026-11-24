@@ -1,6 +1,9 @@
 import { t } from "@lingui/core/macro";
-import { fileAssetKey } from "./file-reference-resolution";
+import { fileAssetKey, isReadOnlyMarkdownFile } from "./file-reference-resolution";
+import { isHtmlPreviewFile, MAX_HTML_PREVIEW_BYTES } from "./html-preview";
 import type { CollectionFile, CollectionGateway } from "./model";
+
+export { isReadOnlyMarkdownFile };
 
 export type FileAssetSnapshot =
   | { status: "idle"; file: CollectionFile }
@@ -30,12 +33,6 @@ export interface FileAssetStoreOptions {
 const DEFAULT_MAX_PREVIEW_BYTES = 64 * 1024 * 1024;
 const DEFAULT_MAX_CACHE_BYTES = 96 * 1024 * 1024;
 const DEFAULT_MAX_ENTRIES = 24;
-
-/** Profile identity is authoritative; paths, MIME and media class are not. */
-export function isReadOnlyMarkdownFile(file: Pick<CollectionFile, "contentProfile">): boolean {
-  return file.contentProfile === "unindexed_markdown_blob"
-    || file.contentProfile === "unindexed_markdown_attachment_v1";
-}
 
 // Media types browsers render inertly, so "Open original" may show them at the
 // application origin.
@@ -193,6 +190,12 @@ export class FileAssetStore {
           const bytes = await blob.arrayBuffer();
           if (!this.ownsRequest(entry, controller)) return;
           sourceText = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+        } else if (isHtmlPreviewFile(entry.file) && entry.file.size <= MAX_HTML_PREVIEW_BYTES) {
+          const bytes = await blob.arrayBuffer();
+          if (!this.ownsRequest(entry, controller)) return;
+          if (bytes.byteLength <= MAX_HTML_PREVIEW_BYTES) {
+            sourceText = new TextDecoder("utf-8", { ignoreBOM: true }).decode(bytes);
+          }
         }
         if (!this.ownsRequest(entry, controller)) return;
         // Publish the original bytes, not a reserialization of the preview, under

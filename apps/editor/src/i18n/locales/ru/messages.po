@@ -148,6 +148,12 @@ msgid "{0} · {1} (Contact-only)"
 msgstr "{0} · {1} (только контакт)"
 
 #. placeholder {0}: formatFileSize(asset.file.size)
+#. placeholder {1}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/FileViewer.tsx
+msgid "{0} · HTML preview is limited to {1}. Use Open original to view this file."
+msgstr "{0} · Предпросмотр HTML ограничен {1}. Используйте «Открыть оригинал», чтобы просмотреть файл."
+
+#. placeholder {0}: formatFileSize(asset.file.size)
 #: src/FileViewer.tsx
 msgid "{0} · Preview unavailable. Use Open original to view this file."
 msgstr "{0} · Предпросмотр недоступен. Используйте «Открыть оригинал», чтобы просмотреть файл."
@@ -2902,6 +2908,24 @@ msgstr "Как заметки относятся к этому типу."
 msgid "How this type appears and behaves across compatible tools."
 msgstr "Как этот тип выглядит и работает в совместимых инструментах."
 
+#: src/FileViewer.tsx
+msgid "HTML file view"
+msgstr "Просмотр HTML-файла"
+
+#. placeholder {0}: formatFileSize(MAX_HTML_PREVIEW_BYTES)
+#: src/code-editor-file-embeds.ts
+msgid "HTML preview is limited to {0}."
+msgstr "Предпросмотр HTML ограничен {0}."
+
+#: src/code-editor-file-embeds.ts
+#: src/FileViewer.tsx
+msgid "HTML preview, {filename}"
+msgstr "Предпросмотр HTML, {filename}"
+
+#: src/FileViewer.tsx
+msgid "HTML source, {filename}"
+msgstr "Исходный код HTML, {filename}"
+
 #: src/TypeBrowser.tsx
 msgid "Icon"
 msgstr "Значок"
@@ -4400,6 +4424,11 @@ msgctxt "shortcut settings"
 msgid "Press keys…"
 msgstr "Нажмите клавиши…"
 
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Preview"
+msgstr "Предпросмотр"
+
 #: src/code-editor-file-embeds.ts
 #: src/FileViewer.tsx
 msgid "Preview {filename}"
@@ -4416,6 +4445,7 @@ msgstr "Предпросмотр ограничен размером {0}. Ска
 msgid "Preview of {0}"
 msgstr "Предпросмотр {0}"
 
+#: src/FileViewer.tsx
 #: src/read-only-markdown.tsx
 msgid "Preview truncated for display. The whole verified original is available using Open original."
 msgstr "Предпросмотр сокращён. Полный проверенный оригинал доступен через «Открыть оригинал»."
@@ -5307,6 +5337,11 @@ msgstr "Приглушать знаки препинания вне активн
 #: src/NoteListViewOptions.tsx
 msgid "Sort"
 msgstr "Сортировать"
+
+#: src/FileViewer.tsx
+msgctxt "HTML file view mode"
+msgid "Source"
+msgstr "Исходный код"
 
 #: src/PropertiesPanel.tsx
 msgid "Source could not be saved. Your edits are still here."
