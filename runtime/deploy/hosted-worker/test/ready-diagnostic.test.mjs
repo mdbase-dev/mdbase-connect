@@ -48,13 +48,13 @@ test("actual ready labels synthetic substep failures and cleanup bookkeeping", a
     "custody_open_sealer", "mode_device_persist", "engine_construct", "engine_open", "engine_noise_key", "pin_marker_read", "live_admission", "sync", "timing_snapshot", "engine_reset", "open_failure_clear"]) {
     const { o, events } = fixture(stage);
     let diag;
-    await assert.rejects(o.ready(collection, value => { diag = value; }));
+    await assert.rejects(o.ready(collection, { diagnose: value => { diag = value; } }));
     assert.deepEqual(diag, { stage, error_name: "Error", error_class: "error", error_code: "unknown" }, stage);
     if (["mode_device_persist", "engine_construct", "engine_open", "engine_noise_key"].includes(stage)) assert.ok(events.includes("custody_zeroize"), stage);
   }
   const { o } = fixture("engine_open", new Error("private open failure"), new TypeError("private cleanup"));
   let diag;
-  await assert.rejects(o.ready(collection, value => { diag = value; }));
+  await assert.rejects(o.ready(collection, { diagnose: value => { diag = value; } }));
   assert.deepEqual(diag, { stage: "custody_zeroize", error_name: "TypeError", error_class: "type_error", error_code: "unknown" });
 });
 
@@ -76,10 +76,10 @@ test("same cached-opening failure labels both waiters and rethrows original, not
   const pending = new Promise((_, reject) => { rejectOpen = reject; });
   o.custody.openSealer = () => { opened++; return pending; };
   const firstDetails = [], secondDetails = [];
-  const first = o.ready(collection, value => firstDetails.push(value));
+  const first = o.ready(collection, { diagnose: value => firstDetails.push(value) });
   for (let i = 0; i < 100 && !opened; i++) await Promise.resolve();
   assert.equal(opened, 1);
-  const second = o.ready(collection, value => secondDetails.push(value));
+  const second = o.ready(collection, { diagnose: value => secondDetails.push(value) });
   for (let i = 0; i < 100 && events.filter(value => value === "service_collection_persist").length < 2; i++) await Promise.resolve();
   assert.equal(events.filter(value => value === "service_collection_persist").length, 2);
   // Both waiters share the reservation as well as the exact cached opener.
@@ -96,11 +96,11 @@ test("same cached-opening failure labels both waiters and rethrows original, not
 test("PinParked remains its original class and primitive failures still have a stage", async () => {
   const { o } = fixture(); o.pinParked = true;
   let detail;
-  await assert.rejects(o.ready(collection, value => { detail = value; }), error => error.constructor.name === "PinParked");
+  await assert.rejects(o.ready(collection, { diagnose: value => { detail = value; } }), error => error.constructor.name === "PinParked");
   assert.equal(detail.stage, "collection_guard"); assert.equal(detail.error_code, "hosted_pin_parked");
   const primitive = fixture("custody_open_sealer", "private primitive");
   let primDiag;
-  await assert.rejects(primitive.o.ready(collection, value => { primDiag = value; }));
+  await assert.rejects(primitive.o.ready(collection, { diagnose: value => { primDiag = value; } }));
   assert.deepEqual(primDiag, { stage: "custody_open_sealer", error_name: "other", error_class: "other", error_code: "unknown" });
 });
 

@@ -123,10 +123,25 @@ test("wrong role, zero Noise, foreign ARN and malformed envelope never unwrap", 
   }
 });
 
-test("async record/identity change refuses handoff and clears secrets", async () => {
-  let reads = 0;
-  const {custody, plain} = setup({read: async () => ++reads === 1 ? record() : {...record(), deviceId: ROOT}});
-  await assert.rejects(custody.openSealer(COL, signal()), /custody_record_changed/);
+test("a service device replaced during KMS I/O is rejected by the post-KMS recheck", async () => {
+  let current = record();
+  const unwrapStarted = Promise.withResolvers<void>();
+  const unwrapReply = Promise.withResolvers<Uint8Array>();
+  const {custody, plain, counts} = setup({
+    read: async () => current,
+    unwrap: () => {
+      unwrapStarted.resolve();
+      return unwrapReply.promise;
+    },
+  });
+  const opening = custody.openSealer(COL, signal());
+  await unwrapStarted.promise;
+  assert.equal(counts().reads, 1);
+  current = {...current, deviceId: ROOT};
+  unwrapReply.resolve(plain);
+  await assert.rejects(opening, /custody_record_changed/);
+  assert.equal(counts().reads, 2);
+  assert.equal(counts().issues, 0);
   assert(plain.every(b => b === 0));
 });
 
