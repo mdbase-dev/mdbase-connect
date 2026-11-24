@@ -14,8 +14,8 @@ import { registerCollectionModeExecution, registerCollectionModeRecovery } from 
 import { registerCollectionModeRoutes } from "./collection-mode-routes.js";
 import { LOG_TOKEN_LIFETIME_MS, LogServiceClient } from "./log-service-client.js";
 import { ed25519RawPublicKey } from "./policy-keys.js";
-import { PolicyEmitter, PolicyPublicationDeferredError, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
-import { decodeCbor, encodeCbor, signPolicyItem, type PolicyOp } from "./policy-wire.js";
+import { PolicyEmitter, queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
+import { chainHash, decodeCbor, encodeCbor, signPolicyItem, type PolicyOp } from "./policy-wire.js";
 import { parseServiceDevice, storeServiceDevice } from "./service-devices.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { certify, FakeLogService, field } from "../../../test/policy-log.js";
@@ -85,7 +85,7 @@ describePg("collection mode capability floor and token drain", () => {
       sig: hex(sign(null, deviceRegistrationDigest({ challenge: Buffer.from(registration.challenge,"hex"), connectorId: connector, deviceId:a,signPk:keys.sign_pk,kemPk:keys.kem_pk,noisePk:keys.noise_pk }), key)) }, tokenHash(token));
     const other = randomUUID(), otherToken = randomUUID();
     await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'B',$3)", [other, user, tokenHash(otherToken)]);
-    await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk,mode_switch_advertised) VALUES($1,$2,$3,'desktop',$4,$5,$6,$7)", [b,other,user,keys.sign_pk,keys.kem_pk,keys.noise_pk,bAdvertised]);
+    await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk,mode_switch_v2_advertised) VALUES($1,$2,$3,'desktop',$4,$5,$6,$7)", [b,other,user,keys.sign_pk,keys.kem_pk,keys.noise_pk,bAdvertised]);
     const services = (["hosted","escrow"] as const).map((kind,i) => parseServiceDevice({kind,device_id:randomUUID(),sign_pk:Buffer.alloc(32,11+i).toString("hex"),kem_pk:hex(rawX()),noise_pk:hex(rawX()),wrapped_keys:Buffer.from(`synthetic-${kind}`).toString("base64"),kms_key_arn:`arn:aws:kms:eu-west-1:000000000000:key/${kind}`}));
     const enrol = (id: string, account: string, kind: "desktop"|"hosted"|"escrow", k = keys): PolicyOp => ({op:"device-enrol",device:id,account,kind,signPublicKey:k.sign_pk,kemPublicKey:k.kem_pk,noisePublicKey:k.noise_pk});
     await inTransaction(db, client => registerNextCollection(client, {collectionId:collection, ownerUserId:user,runtime:"next",sync:"cloud_copy",rootKeyId:signer.cert.root,
@@ -98,10 +98,9 @@ describePg("collection mode capability floor and token drain", () => {
     return {user,collection,connector,a,b,key,keys,request,headers,otherHeaders:{authorization:`Bearer ${otherToken}`}};
   }
   type Fixture = Awaited<ReturnType<typeof fixture>>;
-  async function prepare(f: Fixture, head?: Awaited<ReturnType<typeof log.head>>) {
+  async function prepare(f: Fixture, head?: Awaited<ReturnType<typeof log.head>>, members = [f.a, f.b].sort()) {
     head ??= await log.head(f.collection);
     const issued = await issueDeviceChallenge(db, f.connector);
-    const members = [f.a,f.b].sort();
     const digest = collectionModeDigest({challenge:Buffer.from(issued.challenge,"hex"),connector:f.connector,device:f.a,collection:f.collection,request:f.request,target:"private",finish:false,epoch:1n,seq:BigInt(head.seq),chain:head.chain,members});
     return app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${f.request}/prepare`,headers:f.headers,
       payload:{device_id:f.a,challenge:issued.challenge,sig:hex(sign(null,digest,f.key)),epoch:"1",seq:String(head.seq),chain:hex(head.chain),members}});
@@ -123,10 +122,30 @@ describePg("collection mode capability floor and token drain", () => {
   it("refuses the older-writer race at arm: names offline/unadvertised B and publishes no switch", async () => {
     const f = await fixture(false);
     const response = await prepare(f);
-    expect(response.statusCode,response.body).toBe(409); expect(response.json().devices).toEqual([f.b]);
+    expect(response.statusCode,response.body).toBe(409);
+    expect(response.json().devices).toEqual([f.b]);
+    expect(response.json().names).toEqual({ [f.b]: "B" });
     expect(response.json().error.code).toBe("mode_devices_need_update");
     expect(await floor(f)).toBeNull(); expect((await log.head(f.collection)).seq).toBe(1);
     expect((await db.query("SELECT policy_outbox_id FROM next_collection_mode_changes WHERE collection_id=$1",[f.collection])).rows[0].policy_outbox_id).toBeNull();
+
+    // Connector names are included only for blocking devices with non-empty
+    // names, truncated to 80 chars; advertised and unknown devices are omitted.
+    const blankConnector = randomUUID(), blankDevice = randomUUID();
+    const longConnector = randomUUID(), longDevice = randomUUID();
+    const unknownDevice = randomUUID();
+    const longName = `  ${"Laptop-".repeat(15)}end  `;
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,'   ',$3)", [blankConnector, f.user, tokenHash(randomUUID())]);
+    await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk,mode_switch_v2_advertised) VALUES($1,$2,$3,'desktop',$4,$5,$6,false)", [blankDevice, blankConnector, f.user, f.keys.sign_pk, f.keys.kem_pk, f.keys.noise_pk]);
+    await db.query("INSERT INTO connectors(id,user_id,name,token_hash) VALUES($1,$2,$3,$4)", [longConnector, f.user, longName, tokenHash(randomUUID())]);
+    await db.query("INSERT INTO next_devices(id,connector_id,user_id,kind,sign_pk,kem_pk,noise_pk,mode_switch_v2_advertised) VALUES($1,$2,$3,'desktop',$4,$5,$6,false)", [longDevice, longConnector, f.user, f.keys.sign_pk, f.keys.kem_pk, f.keys.noise_pk]);
+    const detailed = await prepare(f, undefined, [f.a, f.b, blankDevice, longDevice, unknownDevice].sort());
+    expect(detailed.statusCode, detailed.body).toBe(409);
+    expect(detailed.json().devices).toEqual([f.b, blankDevice, longDevice, unknownDevice].sort());
+    expect(detailed.json().names).toEqual({
+      [f.b]: "B",
+      [longDevice]: Array.from(longName.trim()).slice(0, 80).join("")
+    });
   });
 
   it("waits the maximum token TTL across restart, then publishes; the old cached token has expired", async () => {
@@ -224,6 +243,114 @@ describePg("collection mode capability floor and token drain", () => {
     expect(intent.statusCode,intent.body).toBe(202);expect(intent.json().phase).toBe("waiting_for_device");
   });
 
+  it("advances abandoned-rekey scanning cumulatively past the per-request window and skips log reads once observed", async () => {
+    const f = await fixture();
+    await prepare(f); now += LOG_TOKEN_LIFETIME_MS;
+    expect((await prepare(f)).json().phase).toBe("finishing");
+    const policyHead = await log.head(f.collection);
+    expect((await app.inject({ method: "POST", url: `/v1/next/collections/${f.collection}/mode/${f.request}/abandon`, headers: f.otherHeaders })).statusCode).toBe(200);
+
+    // Append 260 non-rekey control items (past the 4×64 = 256 per-request scan
+    // window) followed by a rekey at policyHead.seq + 261.
+    const items = wire.logs.get(f.collection.replaceAll("-", ""))!;
+    const collBytes = Buffer.from(f.collection.replaceAll("-", ""), "hex");
+    const signerBytes = Buffer.from(f.b.replaceAll("-", ""), "hex");
+    let seq = policyHead.seq;
+    let chain = policyHead.chain;
+    for (let i = 0; i < 260; i++) {
+      seq += 1;
+      const item = Buffer.from(encodeCbor({ struct: [[0, 1], [1, 4], [2, collBytes], [3, seq], [4, chain], [6, signerBytes], [11, Buffer.from(`grant-${i}`)]] }));
+      items.push(item);
+      chain = chainHash(item);
+    }
+    const rekeySeq = seq + 1;
+    items.push(rekeyItem(f.collection, rekeySeq, chain, f.b, 1, 2, 3));
+
+    // Request 1 (POST): bounded to 256 items, persists cursor progress, refuses 409.
+    const firstPost = await app.inject({ method: "POST", url: `/v1/next/collections/${f.collection}/mode`, headers: f.otherHeaders, payload: { request_id: randomUUID(), target_mode: "cloud_copy" } });
+    expect(firstPost.statusCode, firstPost.body).toBe(409);
+    expect(firstPost.json().error.code).toBe("mode_abandoned");
+    const afterFirst = (await db.query<{ abandon_scanned_seq: string | null; abandon_rekey_seq: string | null }>(
+      "SELECT abandon_scanned_seq, abandon_rekey_seq FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2",
+      [f.collection, f.request]
+    )).rows[0]!;
+    expect(afterFirst).toEqual({ abandon_scanned_seq: String(policyHead.seq + 256), abandon_rekey_seq: null });
+
+    // Request 2 (GET): resumes from abandon_scanned_seq, observes the rekey and persists it.
+    const secondGet = await app.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode`, headers: f.otherHeaders });
+    expect(secondGet.statusCode, secondGet.body).toBe(200);
+    expect(secondGet.json().change).toBeNull();
+    const afterSecond = (await db.query<{ abandon_scanned_seq: string | null; abandon_rekey_seq: string | null }>(
+      "SELECT abandon_scanned_seq, abandon_rekey_seq FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2",
+      [f.collection, f.request]
+    )).rows[0]!;
+    expect(afterSecond).toEqual({ abandon_scanned_seq: String(policyHead.seq + 256), abandon_rekey_seq: String(rekeySeq) });
+
+    // Subsequent GET and POST make zero log reads (failNextRead stays armed).
+    wire.failNextRead = true;
+    try {
+      const thirdGet = await app.inject({ method: "GET", url: `/v1/next/collections/${f.collection}/mode`, headers: f.otherHeaders });
+      expect(thirdGet.statusCode, thirdGet.body).toBe(200);
+      expect(thirdGet.json().change).toBeNull();
+      expect(wire.failNextRead).toBe(true);
+      const nextSwitch = await app.inject({ method: "POST", url: `/v1/next/collections/${f.collection}/mode`, headers: f.otherHeaders, payload: { request_id: randomUUID(), target_mode: "cloud_copy" } });
+      expect(nextSwitch.statusCode, nextSwitch.body).toBe(202);
+      expect(nextSwitch.json().phase).toBe("waiting_for_device");
+      expect(wire.failNextRead).toBe(true);
+    } finally {
+      wire.failNextRead = false;
+    }
+  });
+
+  it("refuses /abandon with 409 mode_rekey_observed when a non-adjacent rekey has already landed", async () => {
+    const f = await fixture();
+    await prepare(f); now += LOG_TOKEN_LIFETIME_MS;
+    expect((await prepare(f)).json().phase).toBe("finishing");
+    const policyHead = await log.head(f.collection);
+    const items = wire.logs.get(f.collection.replaceAll("-", ""))!;
+    // Intervening non-rekey control item occupies p + 1, then a late rekey lands at p + 2 before /finish.
+    items.push(Buffer.from(signPolicyItem(signer, { collection: f.collection, seq: policyHead.seq + 1, prev: policyHead.chain, issuedAt: now + 1000, previousIssuedAt: now, ops: [{ op: "device-revoke", device: f.b }] })));
+    await emitter.drain();
+    const revokeHead = await log.head(f.collection);
+    items.push(rekeyItem(f.collection, revokeHead.seq + 1, revokeHead.chain, f.a, 1, 2, 3));
+    const rekeyHead = await log.head(f.collection);
+
+    const url = `/v1/next/collections/${f.collection}/mode/${f.request}/abandon`;
+    const refused = await app.inject({ method: "POST", url, headers: f.headers });
+    expect(refused.statusCode, refused.body).toBe(409);
+    expect(refused.json().error.code).toBe("mode_rekey_observed");
+    const row = (await db.query<{ abandoned_at: Date | null; abandon_rekey_seq: string | null }>(
+      "SELECT abandoned_at, abandon_rekey_seq FROM next_collection_mode_changes WHERE collection_id=$1 AND request_id=$2",
+      [f.collection, f.request]
+    )).rows[0]!;
+    expect(row.abandoned_at).toBeNull();
+    expect(row.abandon_rekey_seq).toBe(String(rekeyHead.seq));
+    expect((await db.query("SELECT sync FROM next_collections WHERE collection_id=$1", [f.collection])).rows[0].sync).toBe("cloud_copy");
+    expect((await db.query("SELECT count(*)::int AS n FROM next_service_devices WHERE collection_id=$1", [f.collection])).rows[0].n).toBe(2);
+
+    // Repeating /abandon uses the persisted observation without touching the log.
+    wire.failNextRead = true;
+    try {
+      const repeat = await app.inject({ method: "POST", url, headers: f.headers });
+      expect(repeat.statusCode, repeat.body).toBe(409);
+      expect(repeat.json().error.code).toBe("mode_rekey_observed");
+      expect(wire.failNextRead).toBe(true);
+    } finally {
+      wire.failNextRead = false;
+    }
+
+    // /finish with the native late-rekey receipt still completes and retires Workers.
+    serviceFetch = async (_input, init) => {
+      const body = JSON.parse(init!.body as string) as { collection: string; device: string; epoch: string; challenge: string };
+      return Response.json({ ...body, ready: true });
+    };
+    const issued = await issueDeviceChallenge(db, f.connector);
+    const digest = collectionModeDigest({ challenge: Buffer.from(issued.challenge, "hex"), connector: f.connector, device: f.a, collection: f.collection, request: f.request, target: "private", finish: true, epoch: 2n, seq: BigInt(rekeyHead.seq), chain: rekeyHead.chain, members: [] });
+    const done = await app.inject({ method: "POST", url: `/v1/next/collections/${f.collection}/mode/${f.request}/finish`, headers: f.headers, payload: { device_id: f.a, challenge: issued.challenge, sig: hex(sign(null, digest, f.key)), epoch: "2", seq: String(rekeyHead.seq), chain: hex(rekeyHead.chain), members: [] } });
+    expect(done.statusCode, done.body).toBe(200);
+    expect(done.json().phase).toBe("complete");
+  });
+
   it("re-checks abandoned state after the out-of-lock log read so a concurrent newer abandon is still refused", async()=>{
     const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;await prepare(f);
     expect((await app.inject({method:"POST",url:`/v1/next/collections/${f.collection}/mode/${f.request}/abandon`,headers:f.otherHeaders})).statusCode).toBe(200);
@@ -279,7 +406,7 @@ describePg("collection mode capability floor and token drain", () => {
     expect(await revocations()).toHaveLength(1);
   });
 
-  it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready", "missing-handler"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
+  it.each(["before-effect", "lost-ack", "wrong-device", "wrong-challenge", "service-unready", "missing-handler", "erroring-non-2xx-body"])("service %s never completes early; both directions resume exact receipts after restart", async failure => {
     const f=await fixture();await prepare(f);now+=LOG_TOKEN_LIFETIME_MS;
     expect((await prepare(f)).json().phase).toBe("finishing");
     const policyHead=await log.head(f.collection);
@@ -288,6 +415,7 @@ describePg("collection mode capability floor and token drain", () => {
     const receipt=rekeyItem(f.collection,policyHead.seq+1,policyHead.chain,f.a,1,2,3);
     wire.logs.get(f.collection.replaceAll("-",""))!.push(receipt);
     const head=await log.head(f.collection),retired=new Set<string>();let calls=0,uncertain=true;
+    const erroringBodyResponse = () => new Response(new ReadableStream({ cancel() { return Promise.reject(new Error("synthetic body cancel failure")); } }), { status: 503 });
     serviceFetch=async(input,init)=>{
       calls++;const body=JSON.parse(init!.body as string) as {collection:string;device:string;epoch:string;challenge:string};
       expect(new URL(String(input)).pathname).toBe("/internal/v1/collection-mode/retire");
@@ -295,6 +423,7 @@ describePg("collection mode capability floor and token drain", () => {
       const escrow=new URL(String(input)).hostname.startsWith("escrow");
       if(uncertain&&escrow&&failure==="before-effect")throw new TypeError("synthetic pre-effect failure");
       if(uncertain&&escrow&&failure==="missing-handler")return new Response("Not Found",{status:404});
+      if(uncertain&&escrow&&failure==="erroring-non-2xx-body")return erroringBodyResponse();
       retired.add(body.device);
       if(uncertain&&escrow&&failure==="service-unready")return Response.json({error:"not_ready"},{status:503});
       if(uncertain&&escrow&&failure==="lost-ack")throw new TypeError("synthetic lost retirement acknowledgement");
@@ -335,6 +464,7 @@ describePg("collection mode capability floor and token drain", () => {
       calls++;expect(url.pathname).toBe("/internal/v1/collection-mode/ready");expect(body.epoch).toBe("2");
       if(uncertain&&kind==="escrow"&&failure==="before-effect")throw new TypeError("synthetic pre-observation failure");
       if(uncertain&&kind==="escrow"&&failure==="missing-handler")return new Response("Not Found",{status:404});
+      if(uncertain&&kind==="escrow"&&failure==="erroring-non-2xx-body")return erroringBodyResponse();
       ready.add(body.device);
       if(uncertain&&kind==="escrow"&&failure==="service-unready")return Response.json({error:"not_ready"},{status:503});
       if(uncertain&&kind==="escrow"&&failure==="lost-ack")throw new TypeError("synthetic lost readiness acknowledgement");
@@ -370,20 +500,14 @@ describePg("collection mode capability floor and token drain", () => {
       return Response.json({ ...body, ready: true });
     };
 
-    // Non-adjacent rekey after an entry, a key grant and a policy item staying e2e.
+    // Non-adjacent rekey after one intervening policy item staying e2e.
     const f = await fixture();
     await prepare(f); now += LOG_TOKEN_LIFETIME_MS;
     expect((await prepare(f)).json().phase).toBe("finishing");
     const policyHead = await log.head(f.collection);
     const items = wire.logs.get(f.collection.replaceAll("-", ""))!;
-    // Intervening data entry (kind=1)
-    items.push(Buffer.from(encodeCbor({ struct: [[0, 1], [1, 1], [2, Buffer.from(f.collection.replaceAll("-", ""), "hex")], [3, policyHead.seq + 1], [4, policyHead.chain], [5, 1], [6, Buffer.from(f.b.replaceAll("-", ""), "hex")], [11, Buffer.from("sealed-entry")]] })));
-    const entryHead = await log.head(f.collection);
-    // Intervening key grant (kind=4)
-    items.push(Buffer.from(encodeCbor({ struct: [[0, 1], [1, 4], [2, Buffer.from(f.collection.replaceAll("-", ""), "hex")], [3, entryHead.seq + 1], [4, entryHead.chain], [6, Buffer.from(f.b.replaceAll("-", ""), "hex")], [11, Buffer.from("key-grant")]] })));
-    const grantHead = await log.head(f.collection);
     // Intervening policy item (kind=2) staying in e2e (device-revoke)
-    items.push(Buffer.from(signPolicyItem(signer, { collection: f.collection, seq: grantHead.seq + 1, prev: grantHead.chain, issuedAt: now + 1000, previousIssuedAt: now, ops: [{ op: "device-revoke", device: f.b }] })));
+    items.push(Buffer.from(signPolicyItem(signer, { collection: f.collection, seq: policyHead.seq + 1, prev: policyHead.chain, issuedAt: now + 1000, previousIssuedAt: now, ops: [{ op: "device-revoke", device: f.b }] })));
     const revokeHead = await log.head(f.collection);
     // A receipt at or before the policy is never a switch rekey.
     expect((await finishProof(f, 2n, policyHead.seq, policyHead.chain)).json().error.code).toBe("private_receipt_mismatch");
@@ -444,19 +568,24 @@ describePg("collection mode capability floor and token drain", () => {
     wire.failNextAppend = true;
     const err = await prepare(g);
     expect(err.statusCode, err.body).toBe(500);
-    // Sanity check PolicyPublicationDeferredError type.
-    expect(new PolicyPublicationDeferredError().message).toBe("policy publication deferred");
   });
 
-  it("a later v2 advertisement unblocks the same request without resetting the floor; v1 does not", async () => {
+  it("a later v2 advertisement unblocks the same request without resetting the floor; v1 and legacy predecessor writes do not", async () => {
     const f=await fixture(false); expect((await prepare(f)).statusCode).toBe(409);
+    // A predecessor server writing the legacy v1 column after migration must not satisfy v2 arming.
+    await db.query("UPDATE next_devices SET mode_switch_advertised=true WHERE id=$1",[f.b]);
+    const afterLegacyWrite=await prepare(f);
+    expect(afterLegacyWrite.statusCode).toBe(409);
+    expect(afterLegacyWrite.json().devices).toEqual([f.b]);
+    expect(afterLegacyWrite.json().names).toEqual({ [f.b]: "B" });
+    expect((await db.query("SELECT mode_switch_v2_advertised FROM next_devices WHERE id=$1",[f.b])).rows[0].mode_switch_v2_advertised).toBe(false);
     await advertiseModeCapability(db,f.b,["collection_mode_switch_v1"]);
-    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1",[f.b])).rows[0].mode_switch_advertised).toBe(false);
+    expect((await db.query("SELECT mode_switch_v2_advertised FROM next_devices WHERE id=$1",[f.b])).rows[0].mode_switch_v2_advertised).toBe(false);
     const stillBlocked=await prepare(f);
     expect(stillBlocked.statusCode).toBe(409); expect(stillBlocked.json().devices).toEqual([f.b]);
     await advertiseModeCapability(db,f.b,[MODE_SWITCH_CAPABILITY]);
     expect((await prepare(f)).json().phase).toBe("waiting_for_token_expiry"); const first=await floor(f);
     await advertiseModeCapability(db,f.b,[]); expect(await floor(f)).toEqual(first);
-    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1",[f.b])).rows[0].mode_switch_advertised).toBe(true);
+    expect((await db.query("SELECT mode_switch_v2_advertised FROM next_devices WHERE id=$1",[f.b])).rows[0].mode_switch_v2_advertised).toBe(true);
   });
 });

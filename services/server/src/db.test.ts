@@ -1347,7 +1347,7 @@ describe("database migrations", () => {
     expect(refresh.rows[0]?.revoked_at).not.toBeNull();
   });
 
-  it("resets historical v1 mode_switch_advertised flags when applying migration 0110", async () => {
+  it("defaults next_devices.mode_switch_v2_advertised to false independently of legacy mode_switch_advertised and exposes abandon scan columns", async () => {
     const db = await createDatabase("memory");
     resources.push(() => db.end());
     const userId = randomUUID();
@@ -1355,19 +1355,27 @@ describe("database migrations", () => {
     const deviceId = randomUUID();
     await db.query("INSERT INTO users (id, email, name, account_backend) VALUES ($1, $2, 'Owner', 'next')", [userId, `${userId}@example.com`]);
     await db.query("INSERT INTO connectors (id, user_id, name, token_hash) VALUES ($1, $2, 'Laptop', $3)", [connectorId, userId, randomUUID()]);
+    // Predecessor servers insert/update only the legacy mode_switch_advertised column.
     await db.query(
       `INSERT INTO next_devices (id, connector_id, user_id, kind, sign_pk, kem_pk, noise_pk, mode_switch_advertised)
        VALUES ($1, $2, $3, 'desktop', $4, $5, $6, true)`,
       [deviceId, connectorId, userId, Buffer.alloc(32, 1), Buffer.alloc(32, 2), Buffer.alloc(32, 3)]
     );
-    await db.query("DELETE FROM schema_migrations WHERE id = '0110_next_collection_mode_capability_v2'");
 
-    await runControlPlaneMigrations(db);
-
-    const row = await db.query<{ mode_switch_advertised: boolean }>(
-      "SELECT mode_switch_advertised FROM next_devices WHERE id = $1",
+    const row = await db.query<{ mode_switch_advertised: boolean; mode_switch_v2_advertised: boolean }>(
+      "SELECT mode_switch_advertised, mode_switch_v2_advertised FROM next_devices WHERE id = $1",
       [deviceId]
     );
-    expect(row.rows).toEqual([{ mode_switch_advertised: false }]);
+    expect(row.rows).toEqual([{ mode_switch_advertised: true, mode_switch_v2_advertised: false }]);
+    const columns = await db.query<{ column_name: string }>(
+      `SELECT column_name FROM information_schema.columns
+       WHERE table_schema = current_schema() AND table_name = 'next_collection_mode_changes'
+         AND column_name IN ('abandon_scanned_seq', 'abandon_rekey_seq')
+       ORDER BY column_name`
+    );
+    expect(columns.rows).toEqual([
+      { column_name: "abandon_rekey_seq" },
+      { column_name: "abandon_scanned_seq" }
+    ]);
   });
 });

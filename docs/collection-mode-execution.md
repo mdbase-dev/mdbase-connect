@@ -13,14 +13,20 @@ mounts them directly from configuration, with no startup Worker HTTP probe.
 `GET /v1/next/collections/:id/mode` reports `execution_available` according to
 whether the execution routes are mounted.
 
-**Deploy ordering.** Hosted and escrow Workers carry
+**Deploy ordering and rollback.** Hosted and escrow Workers carry
 `/internal/v1/collection-mode/{ready,retire}` and advertise
 `collection_mode_switch_v2` on service log-token refresh. Deploy `v2`-capable
-Workers before enabling `MDBASE_NEXT_COLLECTION_MODE_EXECUTION=1`, and disable
-the server flag before rolling either Worker back to a build without those
-handlers. Calls from `/finish` to a Worker that lacks a handler or is
-temporarily unreachable fail with retryable `503 not_ready` rather than a
-terminal error.
+Workers before enabling `MDBASE_NEXT_COLLECTION_MODE_EXECUTION=1`. Calls from
+`/finish` to a Worker that lacks a handler or is temporarily unreachable fail
+with retryable `503 not_ready` rather than a terminal error. Because
+`next_collections.mode_floor_raised_at` is persistent and enforced on every user
+and service log-token mint regardless of `MDBASE_NEXT_COLLECTION_MODE_EXECUTION`,
+once any collection has raised a `v2` floor, Workers, clients, and Connect
+servers must not be rolled back to `v1`-only producers or predicates. Disabling
+`MDBASE_NEXT_COLLECTION_MODE_EXECUTION` unmounts `/prepare` and `/finish`,
+leaving any already-published in-flight switches waiting in `finishing` until
+execution is re-enabled (or until an owner abandons an unrekeyed Private
+switch).
 
 ## API and authorization
 
@@ -79,12 +85,17 @@ Operation phases: `waiting_for_device`, `waiting_for_devices`,
   registration/bootstrap/log-token refresh, and hosted/escrow Worker log-token
   refresh) advertise `collection_mode_switch_v2`.
 - The control plane records a monotonic historical bit
-  (`next_devices.mode_switch_advertised`) only for `v2` advertisements.
+  (`next_devices.mode_switch_v2_advertised`) only for `v2` advertisements; the
+  predecessor column `next_devices.mode_switch_advertised` is ignored by new
+  code so older servers serving during deploy cannot satisfy `v2` arming.
 - Cloud copy → Private arming requires every active keyed user device in the
   signed native preflight (including offline devices) to have advertised `v2`.
   Missing devices return `409 mode_devices_need_update` with
-  `devices: [uuid, ...]`; clients resolve device names from the account's
-  device listing so the owner can update or revoke them.
+  `devices: [uuid, ...]` and `names: { [uuid]: name }` (connector names
+  truncated to 80 characters, only for missing devices whose owning connector
+  has a non-empty name). Clients treat `names` as optional display data and may
+  also resolve device names from the account's device listing so the owner can
+  update or revoke them.
 - Once armed, `next_collections.mode_floor_raised_at` is recorded permanently
   and never reset. Every user and service role-0 log-token mint checks the
   presenting request's current capabilities (never the historical bit) and
@@ -136,11 +147,15 @@ next slot, the policy emitter holds ordinary policy mutations with
 `409 collection_mode_change_in_progress`. Observing any control item at `p + 1`
 releases the policy hold (position evidence only; never readiness or completion).
 
-If the starting owner device is lost after policy publication and before its
+If the starting owner device is lost after policy publication and before a
 rekey lands, an owner session (via Portal or Desktop) or surviving native owner
 can `POST /v1/next/collections/:id/mode/:requestId/abandon`. Abandonment:
 
-- fails with `409 mode_rekey_observed` if a rekey is already observed at `p + 1`;
+- fails with `409 mode_rekey_observed` if a rekey receipt is already recorded
+  (`rekey_verified_at`) or a rekey control item after the switch policy has
+  already been observed on the log (adjacent at `p + 1` or later), and returns
+  retryable `503 not_ready` if a bounded scan has not yet reached the end of
+  the control log;
 - marks the switch terminal as `abandoned`, releases the policy hold, removes
   `next_service_devices` rows, and sets `next_collections.sync = 'private'`
   without publishing a rekey or revoking history;
@@ -150,11 +165,19 @@ can `POST /v1/next/collections/:id/mode/:requestId/abandon`. Abandonment:
   automatically authors the excluding `CloudCopyOff` rekey (see
   [collection-mode-switch-trust.md](collection-mode-switch-trust.md)).
 
-Until a rekey follows the abandoned policy item (or a later change completes),
-`GET /v1/next/collections/:id/mode` reports `phase: "abandoned"` and
-`POST /v1/next/collections/:id/mode` refuses new switches with
-`409 mode_abandoned`. The control-plane log scan is bounded and fails closed as
-`abandoned` if the log is unavailable.
+Until a rekey control item is observed after the abandoned policy item (or a
+later change completes), `GET /v1/next/collections/:id/mode` reports
+`phase: "abandoned"` and `POST /v1/next/collections/:id/mode` refuses new
+switches with `409 mode_abandoned`. That check is observed log transport
+evidence (an `ItemKind::Rekey` envelope after the policy sequence), not native
+replica validation (replicas still enforce signer, frozen-set, unwrap, and
+commitment checks). Per-request log scanning is bounded (up to 4 × 64 control
+items per request) and persists cumulative cursor progress
+(`abandon_scanned_seq`) and the first observed rekey sequence
+(`abandon_rekey_seq`) on the change row, so successive requests advance through
+long control histories and stop reading the log once a rekey is observed. If
+the log is unavailable before a rekey is observed, `GET` and `POST` fail closed
+as `abandoned`.
 
 ## Known limits
 

@@ -153,13 +153,14 @@ describePg("collection log-token refresh", () => {
     const v1Refused = await refresh(who, c, { ...await proof(who, c), capabilities: ["collection_mode_switch_v1"] });
     expect(v1Refused.statusCode, v1Refused.body).toBe(409); expect(v1Refused.json().error.code).toBe("mode_update_required");
     expect(mintCalls).toBe(before);
-    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_advertised).toBe(false);
+    expect((await db.query("SELECT mode_switch_v2_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_v2_advertised).toBe(false);
     const other = await collection(who, "private", [who]);
     expect((await refresh(who, other, { ...await proof(who, other), capabilities: ["collection_mode_switch_v1"] })).statusCode).toBe(200);
-    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_advertised).toBe(false);
+    expect((await db.query("SELECT mode_switch_v2_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_v2_advertised).toBe(false);
     const supported = await refresh(who, c, { ...await proof(who, c), capabilities: [MODE_SWITCH_CAPABILITY] });
     expect(supported.statusCode, supported.body).toBe(200);
-    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_advertised).toBe(true);
+    expect((await db.query("SELECT mode_switch_v2_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_v2_advertised).toBe(true);
+    expect((await db.query("SELECT mode_switch_advertised FROM next_devices WHERE id=$1", [who.device])).rows[0].mode_switch_advertised).toBe(false);
     const after = mintCalls;
     const olderSession = await refresh(who, c, await proof(who, c));
     expect(olderSession.statusCode, olderSession.body).toBe(409);
