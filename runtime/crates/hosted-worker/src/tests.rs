@@ -7,6 +7,7 @@ mod mode_lifecycle;
 mod original_app;
 mod projected_queries;
 mod record_meta_repair;
+mod record_meta_repair_keying;
 mod signed_control_plain;
 mod sqlite;
 use signed_control_plain::SignedControlPlain;

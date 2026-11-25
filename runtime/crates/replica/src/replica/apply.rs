@@ -139,8 +139,14 @@ struct ChangeStage {
 
 impl<S: Store> Replica<S> {
     /// Apply items in log order, starting at the first one after the head.
+    ///
+    /// While a hosted record-metadata repair runs, only control items other than
+    /// a `base` apply: policy and keys do not depend on record metadata, so a
+    /// newly enrolled device is keyed without waiting for the repair's alarm
+    /// slices (connect#1850). Apply stops before the first entry until the
+    /// repair finishes.
     pub(crate) fn apply_items(&mut self, items: Vec<SeqItem>) {
-        if self.apply_fault.is_some() || self.hosted_reindex_pending() {
+        if self.apply_fault.is_some() {
             return;
         }
         self.discard_staged_key_grants();
@@ -153,6 +159,10 @@ impl<S: Store> Replica<S> {
         for it in items {
             if it.seq <= self.head.seq {
                 continue;
+            }
+            if self.hosted_reindex_pending() && !repair_independent(&it) {
+                self.hosted_reindex_hold();
+                break;
             }
             if let Some(hosted) = self.hosted.as_mut() {
                 if hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS {
@@ -256,7 +266,7 @@ impl<S: Store> Replica<S> {
                     break;
                 }
             }
-            if self.apply_fault.is_some() || self.hosted_reindex_pending() {
+            if self.apply_fault.is_some() {
                 break;
             }
         }
@@ -2088,6 +2098,7 @@ impl<S: Store> Replica<S> {
             self.catalog = catalog;
             if let Some(hosted) = self.hosted.as_mut() {
                 hosted.reindex_stamp = reindex_stamp;
+                hosted.reindex_hold = None;
             } else {
                 // Records whose metadata the catalog changes are written back
                 // with the projection the index's new generation needs.
@@ -2930,6 +2941,15 @@ fn is_unknown_deep(e: &SchemaError) -> bool {
 
 #[allow(dead_code)]
 fn _unused(_: B16) {}
+
+/// A control item that neither reads nor writes record metadata: everything
+/// but a `base`, which installs records.
+fn repair_independent(it: &SeqItem) -> bool {
+    use mdbn_wire::envelope::{Item, ItemKind};
+    use mdbn_wire::schema::Wire;
+    Item::from_bytes(&it.item.0)
+        .is_ok_and(|item| item.kind.is_control() && item.kind != ItemKind::Base)
+}
 
 #[cfg(test)]
 impl<S: Store> Replica<S> {
