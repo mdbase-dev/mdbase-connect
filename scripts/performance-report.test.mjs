@@ -5,7 +5,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { gzipSync } from "node:zlib";
-import { performanceReport, performanceSuite, runtimeMetrics, sizeMetrics } from "./performance-report.mjs";
+import { cpuSlug, performanceReport, performanceSuite, runtimeMetrics, sizeMetrics } from "./performance-report.mjs";
 
 test("independent WASM and SDK jobs cannot replace each other's reports in the same workflow run", () => {
   assert.equal(performanceSuite({ app: "apps/editor" }), "sizes");
@@ -67,6 +67,38 @@ test("provenance requires the exact main checkout and refuses PR execution", () 
   for (const patch of [{ GITHUB_EVENT_NAME: "pull_request" }, { GITHUB_SHA: "b".repeat(40) }, { GITHUB_RUN_ID: "0" }, { GITHUB_REF: "refs/pull/1/merge" }]) {
     assert.throws(() => performanceReport([], "sizes", source, { ...env, ...patch }));
   }
+});
+
+test("runtime performance reports distinguish runner hardware using ops-compatible CPU slugs", () => {
+  const BENCHMARK_WORD = /^[a-z0-9][a-z0-9._-]{0,119}$/;
+  const cases = [
+    ["AMD EPYC 9V74 80-Core Processor", "amd-epyc-9v74"],
+    ["AMD EPYC 7763 64-Core Processor", "amd-epyc-7763"],
+    ["Intel(R) Xeon(R) 6975P-C", "intel-xeon-6975p-c"],
+    ["Intel(R) Xeon(R) Platinum 8370C CPU @ 2.80GHz", "intel-xeon-platinum-8370c"],
+    ["Intel(R) Xeon(R) CPU E5-2673 v4 @ 2.30GHz", "intel-xeon-e5-2673-v4"],
+    ["Intel® Core™ i7-12700K CPU @ 3.60 GHz", "intel-core-i7-12700k"],
+    ["", null],
+    ["   CPU @ 2.40GHz  ", null],
+    [null, null],
+    [undefined, null],
+  ];
+  for (const [input, expected] of cases) assert.equal(cpuSlug(input), expected);
+
+  const commit = "a".repeat(40);
+  const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main", GITHUB_EVENT_NAME: "schedule",
+    GITHUB_SHA: commit, GITHUB_RUN_ID: "123", GITHUB_RUN_ATTEMPT: "1", RUNNER_OS: "Linux", RUNNER_ARCH: "X64" };
+  const amd = performanceReport([], "runtime-v1", { commit, commitAt: "2026-11-15T12:00:00Z", cpu: "AMD EPYC 9V74 80-Core Processor" }, env);
+  const intel = performanceReport([], "runtime-v1", { commit, commitAt: "2026-11-15T12:00:00Z", cpu: "Intel(R) Xeon(R) 6975P-C" }, env);
+  const fallback = performanceReport([], "runtime-v1", { commit, commitAt: "2026-11-15T12:00:00Z", cpu: "" }, env);
+  const sizes = performanceReport([], "sizes", { commit, commitAt: "2026-11-15T12:00:00Z" }, env);
+  const longCpu = performanceReport([], "runtime-v1", { commit, commitAt: "2026-11-15T12:00:00Z", cpu: `Intel(R) Xeon(R) ${"x".repeat(200)}` }, env);
+
+  assert.equal(amd.runner, "linux-x64.amd-epyc-9v74");
+  assert.equal(intel.runner, "linux-x64.intel-xeon-6975p-c");
+  assert.equal(fallback.runner, "linux-x64");
+  assert.equal(sizes.runner, "linux-x64");
+  for (const report of [amd, intel, fallback, sizes, longCpu]) assert.match(report.runner, BENCHMARK_WORD);
 });
 
 test("the uploader skips absent credentials, refuses PRs, and surfaces HTTP failures without echoing secrets", async () => {
