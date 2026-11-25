@@ -103,12 +103,22 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
     /// written, moved or removed): the effect must never be visible while the
     /// commits it follows could still be lost.
     pub(super) fn end_deferral(&mut self) -> StoreResult<()> {
+        if let Some(err) = &self.deferral_fault {
+            return Err(err.clone());
+        }
         if self.deferred {
-            // Closed even on error: the inner store fences an uncertain barrier.
+            // Closed even on error: keep the failure sticky so every later
+            // close, open, or commit learns the barrier outcome is unknown.
             self.deferred = false;
             // Commits first, then the acknowledgements of them.
-            self.inner.defer_durability(false)?;
-            self.db.defer_sync(false).map_err(db_err)?;
+            let result = self
+                .inner
+                .defer_durability(false)
+                .and_then(|()| self.db.defer_sync(false).map_err(db_err));
+            if let Err(err) = result {
+                self.deferral_fault = Some(err.clone());
+                return Err(err);
+            }
         }
         Ok(())
     }

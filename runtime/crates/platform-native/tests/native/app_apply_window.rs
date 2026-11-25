@@ -736,6 +736,15 @@ fn the_app_store_batches_control_items_in_one_window_and_survives_kill() {
     settle(&mut writer, &mut writer_client);
     let head = svc.head(&COL).0;
     assert_eq!(head, 26);
+    let writer_keys: Vec<(u64, [u8; 32])> = writer
+        .testing_epoch_keys()
+        .into_iter()
+        .map(|(epoch, key)| (epoch, *key))
+        .collect();
+    assert!(
+        writer_keys.iter().any(|(epoch, _)| *epoch == 1),
+        "writer must hold epoch 1 key after initial rekey"
+    );
 
     // Count synced commits on a full-page read of 26 control items: with
     // windows enabled, all 26 control items share ONE synced commit instead of 26.
@@ -772,9 +781,16 @@ fn the_app_store_batches_control_items_in_one_window_and_survives_kill() {
     assert_eq!(on.in_window, off.alone - on.alone);
     assert!(on.synced() + head - 1 == off.synced());
 
+    #[derive(Debug, PartialEq, Eq)]
+    struct ControlOutcome {
+        head: r::store::Head,
+        policy: r::policy::PolicyState,
+        epoch_keys: Vec<(u64, [u8; 32])>,
+    }
+
     // Kill at every write / window boundary of the control-item page and verify
-    // reopening replays cleanly to the identical head and policy state.
-    let kill_run = |tag: &str, at: Option<u64>| -> (u64, Plan) {
+    // reopening replays cleanly to the identical head, policy and key state.
+    let kill_run = |tag: &str, at: Option<u64>| -> (ControlOutcome, Plan) {
         let dir = root.join(format!("{tag}-db"));
         let image = root.join(format!("{tag}-img"));
         fs::create_dir_all(&dir).unwrap();
@@ -806,21 +822,53 @@ fn the_app_store_batches_control_items_in_one_window_and_survives_kill() {
                     0,
                     "{tag} ({kind}): uncommitted control window must roll back to 0"
                 );
+                assert_eq!(
+                    reader.store().meta(r::store::meta_keys::POLICY).unwrap(),
+                    None,
+                    "{tag} ({kind}): uncommitted policy must roll back with head"
+                );
+                assert!(
+                    reader.testing_epoch_keys().is_empty(),
+                    "{tag} ({kind}): uncommitted key state must not survive kill"
+                );
             }
             settle(&mut reader, &mut client);
         }
         assert_eq!(reader.head().seq, head, "{tag}");
         assert_eq!(reader.sync_status().incidents, vec![], "{tag}");
+        assert!(!reader.keyring_rebuilding(), "{tag}");
+        assert!(!reader.keyring_rebuild_failed(), "{tag}");
+        let policy_bytes = reader
+            .store()
+            .meta(r::store::meta_keys::POLICY)
+            .unwrap()
+            .expect("policy persisted");
+        let policy = r::policy::PolicyState::from_bytes(&policy_bytes).unwrap();
+        let epoch_keys: Vec<(u64, [u8; 32])> = reader
+            .testing_epoch_keys()
+            .into_iter()
+            .map(|(epoch, key)| (epoch, *key))
+            .collect();
+        let outcome = ControlOutcome {
+            head: reader.head(),
+            policy,
+            epoch_keys,
+        };
         let p = std::mem::take(&mut *plan.borrow_mut());
-        (reader.head().seq, p)
+        (outcome, p)
     };
-    let (ref_head, ref_plan) = kill_run("ref", None);
-    assert_eq!(ref_head, head);
+    let (ref_outcome, ref_plan) = kill_run("ref", None);
+    assert_eq!(ref_outcome.head.seq, head);
+    assert_eq!(ref_outcome.policy.seq, head);
+    assert_eq!(ref_outcome.policy.epoch, 1);
+    assert_eq!(ref_outcome.policy.devices.len(), 25);
+    assert!(ref_outcome.policy.devices[&DEV].keyed);
+    assert_eq!(ref_outcome.epoch_keys, writer_keys);
     assert!(ref_plan.kinds["write in a window"] >= head);
     assert_eq!(ref_plan.kinds["window closing"], 1);
     for point in 1..=ref_plan.seen {
-        let (h, run) = kill_run(&format!("kill-{point}"), Some(point));
+        let (outcome, run) = kill_run(&format!("kill-{point}"), Some(point));
         assert!(run.killed.is_some(), "point {point} must kill");
-        assert_eq!(h, head, "point {point} ({:?})", run.killed);
+        assert_eq!(outcome, ref_outcome, "point {point} ({:?})", run.killed);
     }
 }

@@ -2723,6 +2723,86 @@ fn unacknowledged_attachments_are_not_rehashed_until_they_change() {
     );
 }
 
+/// A store-internal barrier (such as attachment removal closing a deferred
+/// window) that fails to close makes the failure sticky: later closes, opens,
+/// reads and commits continue to fail instead of returning a false no-op `Ok`.
+#[test]
+fn failed_internal_deferral_barrier_is_sticky_on_subsequent_closes() {
+    struct FailCloseDb {
+        rows: MemDiskDb,
+        fail_close: Rc<Cell<bool>>,
+        closes: Rc<Cell<u32>>,
+    }
+    impl DiskDb for FailCloseDb {
+        fn load(&self) -> Result<Vec<crate::diskdb::Row>, crate::diskdb::DbError> {
+            self.rows.load()
+        }
+        fn apply(
+            &mut self,
+            changes: Vec<crate::diskdb::Change>,
+        ) -> Result<(), crate::diskdb::DbError> {
+            self.rows.apply(changes)
+        }
+        fn defer_sync(&mut self, on: bool) -> Result<bool, crate::diskdb::DbError> {
+            if !on {
+                self.closes.set(self.closes.get() + 1);
+                if self.fail_close.get() {
+                    return Err(crate::diskdb::DbError(
+                        "injected barrier close failure".into(),
+                    ));
+                }
+            }
+            Ok(true)
+        }
+    }
+
+    let w = World::new(ReplaceStrategy::Exchange, CaseSensitivity::Sensitive);
+    let fail_close = Rc::new(Cell::new(true));
+    let closes = Rc::new(Cell::new(0));
+    let mut s = FileStore::open(
+        w.p.clone(),
+        MemStore::shared(w.data.clone()),
+        FailCloseDb {
+            rows: w.db.clone(),
+            fail_close: fail_close.clone(),
+            closes: closes.clone(),
+        },
+        Box::new(w.clock.clone()),
+        Config::default(),
+    )
+    .unwrap();
+    w.p.fs.write_replace("media/a.bin", b"payload").unwrap();
+
+    s.defer_durability(true).unwrap();
+    assert!(s.durability_deferred());
+
+    // Internal barrier via `attachment_remove` fails to close the window.
+    let err = s
+        .attachment_remove(id(1), "media/a.bin", revision(b"payload"))
+        .unwrap_err();
+    assert!(err.to_string().contains("injected barrier close failure"));
+    assert!(!s.durability_deferred());
+    assert!(
+        w.p.fs.get("media/a.bin").is_some(),
+        "failed barrier must not unlink the attachment file"
+    );
+
+    // Even if the underlying db would succeed later, the failed barrier stays
+    // sticky for subsequent `defer_durability(false)`, `defer_durability(true)`,
+    // `head`, `meta`, and `commit`.
+    fail_close.set(false);
+    assert!(s.defer_durability(false).is_err());
+    assert!(s.defer_durability(true).is_err());
+    assert!(s.head().is_err());
+    assert!(s.meta("k").is_err());
+    assert!(s.commit(Tx::default()).is_err());
+    assert_eq!(
+        closes.get(),
+        1,
+        "sticky fault does not retry the failed close"
+    );
+}
+
 /// `SqlDiskDb` follows a window only when its index backend supports one: over
 /// a backend that keeps every transaction durable (wasm, DO, any default
 /// `IndexStorage`), no window opens and the inner store stays durable too.

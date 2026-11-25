@@ -145,6 +145,10 @@ impl<S: Store> Replica<S> {
         }
         self.discard_staged_key_grants();
         let mut changed: BTreeSet<String> = BTreeSet::new();
+        let mut revoked_sessions: std::collections::BTreeMap<
+            crate::api::SessionId,
+            mdbn_wire::client::Problem,
+        > = std::collections::BTreeMap::new();
         let mut any = false;
         for it in items {
             if it.seq <= self.head.seq {
@@ -170,7 +174,7 @@ impl<S: Store> Replica<S> {
                 item: it.item.0.clone(),
                 applied_at: self.now(),
             });
-            let result = self.apply_one(it.seq, &it.item, &mut changed);
+            let result = self.apply_one(it.seq, &it.item, &mut changed, &mut revoked_sessions);
             self.retaining = None;
             // Only an applied or void entry leaves the window open for the next
             // item. Every way of stopping here (a failed commit, a stall, a
@@ -262,6 +266,7 @@ impl<S: Store> Replica<S> {
         if self.close_apply_window().is_err() || !any {
             return;
         }
+        self.close_sessions_with_problems(revoked_sessions);
         self.close_revoked_sessions();
         if self.head.seq >= self.head_known {
             self.head_known = self.head.seq;
@@ -626,6 +631,10 @@ impl<S: Store> Replica<S> {
         p: u64,
         head: Head,
         item: &Item,
+        revoked_sessions: &mut std::collections::BTreeMap<
+            crate::api::SessionId,
+            mdbn_wire::client::Problem,
+        >,
     ) -> Result<Outcome, StoreError> {
         let staged_before = self.staged_key_grants_len();
         let outcome = match self.evaluate_control(p, &head.chain, item, &[], true) {
@@ -681,6 +690,7 @@ impl<S: Store> Replica<S> {
         }
         self.note_genesis(head);
         self.status_dirty = true;
+        self.collect_revoked_sessions(revoked_sessions);
         Ok(outcome)
     }
 
@@ -1031,6 +1041,10 @@ impl<S: Store> Replica<S> {
         p: u64,
         bytes: &Bytes,
         changed: &mut BTreeSet<String>,
+        revoked_sessions: &mut std::collections::BTreeMap<
+            crate::api::SessionId,
+            mdbn_wire::client::Problem,
+        >,
     ) -> Result<Outcome, StoreError> {
         // The host's genesis pin, on the raw bytes before anything is decoded.
         if let Err(why) = self.check_genesis(p, &bytes.0) {
@@ -1095,7 +1109,7 @@ impl<S: Store> Replica<S> {
         match item.kind {
             ItemKind::Entry => self.apply_entry(p, head, &item, &bytes.0, changed),
             ItemKind::Policy | ItemKind::Rekey | ItemKind::KeyGrant => {
-                self.apply_control_item(p, head, &item)
+                self.apply_control_item(p, head, &item, revoked_sessions)
             }
             ItemKind::GrantApproval => self.apply_grant_approval_item(p, head, &item, &bytes.0),
             ItemKind::Base => self.apply_base(p, head, &item, &bytes.0),

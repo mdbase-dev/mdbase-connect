@@ -6500,6 +6500,416 @@ fn a_grant_only_escrow_never_rekeys() {
     assert_eq!(escrow_rekeys(false), 1, "the protocol itself allows it");
 }
 
+/// Session invalidation must not depend on read-page boundaries: revoking the
+/// only keyed escrow in a Cloud Copy collection invalidates a session whose
+/// grant has no device approval, even if a rekey/key-grant to a replacement
+/// escrow restores the grant later in the same read page (both with and without
+/// deferred durability).
+#[test]
+fn session_invalidation_does_not_depend_on_read_page_boundaries() {
+    use crate::store::*;
+    use crate::testkit::TEST_OWNER;
+    use mdbn_wire::client::{Hold, Include, QueryResult};
+    use mdbn_wire::common::{Bytes, Hash, Uuid, Value};
+    use mdbn_wire::log_service::SeqItem;
+    use mdbn_wire::policy::{CState, DeviceKind, Grant, PolicyOp};
+    use mdbn_wire::schema::Wire;
+
+    /// Wraps `MemStore` with deferred durability disabled, proving the same
+    /// page-boundary invariance holds on stores without a deferred window.
+    struct NoDeferStore(MemStore);
+    impl Store for NoDeferStore {
+        fn head(&self) -> StoreResult<Head> {
+            self.0.head()
+        }
+        fn record(&self, id: &Uuid) -> StoreResult<Option<RecordRow>> {
+            self.0.record(id)
+        }
+        fn record_at(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.0.record_at(path_key)
+        }
+        fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>> {
+            self.0.records(page)
+        }
+        fn records_in_buckets(
+            &self,
+            range: std::ops::Range<u32>,
+            page: Page,
+        ) -> StoreResult<Vec<RecordRow>> {
+            self.0.records_in_buckets(range, page)
+        }
+        fn record_count(&self) -> StoreResult<u64> {
+            self.0.record_count()
+        }
+        fn file(&self, id: &Uuid) -> StoreResult<Option<FileRow>> {
+            self.0.file(id)
+        }
+        fn file_at(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.0.file_at(path_key)
+        }
+        fn files(&self, page: Page) -> StoreResult<Vec<FileRow>> {
+            self.0.files(page)
+        }
+        fn files_in_buckets(
+            &self,
+            range: std::ops::Range<u32>,
+            page: Page,
+        ) -> StoreResult<Vec<FileRow>> {
+            self.0.files_in_buckets(range, page)
+        }
+        fn resource(&self, path: &str) -> StoreResult<Option<String>> {
+            self.0.resource(path)
+        }
+        fn resources(&self) -> StoreResult<Vec<(String, String)>> {
+            self.0.resources()
+        }
+        fn settings(&self) -> StoreResult<Option<mdbn_wire::intent::FileInclusion>> {
+            self.0.settings()
+        }
+        fn tombstone(&self, id: &Uuid) -> StoreResult<Option<TombstoneRow>> {
+            self.0.tombstone(id)
+        }
+        fn tombstones_at(&self, path_key: &str) -> StoreResult<Vec<TombstoneRow>> {
+            self.0.tombstones_at(path_key)
+        }
+        fn tombstones(&self, page: Page) -> StoreResult<Vec<TombstoneRow>> {
+            self.0.tombstones(page)
+        }
+        fn alias(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.0.alias(path_key)
+        }
+        fn aliases(&self) -> StoreResult<Vec<AliasRow>> {
+            self.0.aliases()
+        }
+        fn conflicts(&self, of: Option<&Uuid>) -> StoreResult<Vec<ConflictRow>> {
+            self.0.conflicts(of)
+        }
+        fn conflict_count(&self) -> StoreResult<u64> {
+            self.0.conflict_count()
+        }
+        fn receipt(&self, mutation: &Uuid) -> StoreResult<Option<ReceiptRow>> {
+            self.0.receipt(mutation)
+        }
+        fn receipts(&self, after: Option<Uuid>, limit: u32) -> StoreResult<Vec<ReceiptRow>> {
+            self.0.receipts(after, limit)
+        }
+        fn referrers(&self, target_keys: &[String]) -> StoreResult<Vec<Uuid>> {
+            self.0.referrers(target_keys)
+        }
+        fn unique_holders(&self, field: &str, value_key: &str) -> StoreResult<Vec<Uuid>> {
+            self.0.unique_holders(field, value_key)
+        }
+        fn candidates(&self, q: &Candidate, page: Page) -> StoreResult<Vec<RecordRow>> {
+            self.0.candidates(q, page)
+        }
+        fn tail(&self, after: Seq, limit: u32) -> StoreResult<Vec<TailRow>> {
+            self.0.tail(after, limit)
+        }
+        fn tail_stats(&self) -> StoreResult<TailStats> {
+            self.0.tail_stats()
+        }
+        fn own_retained_stats(&self) -> StoreResult<TailStats> {
+            self.0.own_retained_stats()
+        }
+        fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
+            self.0.own_retained(after, limit)
+        }
+        fn pending(&self, after_order: Option<u64>, limit: u32) -> StoreResult<Vec<PendingRow>> {
+            self.0.pending(after_order, limit)
+        }
+        fn pending_get(&self, mutation: &Uuid) -> StoreResult<Option<PendingRow>> {
+            self.0.pending_get(mutation)
+        }
+        fn pending_count(&self) -> StoreResult<u64> {
+            self.0.pending_count()
+        }
+        fn local_receipt(&self, mutation: &Uuid) -> StoreResult<Option<LocalReceipt>> {
+            self.0.local_receipt(mutation)
+        }
+        fn holds(&self) -> StoreResult<Vec<Hold>> {
+            self.0.holds()
+        }
+        fn hold(&self, id: &Uuid) -> StoreResult<Option<Hold>> {
+            self.0.hold(id)
+        }
+        fn meta(&self, key: &str) -> StoreResult<Option<Vec<u8>>> {
+            self.0.meta(key)
+        }
+        fn transfer(&self, id: &Uuid) -> StoreResult<Option<TransferRow>> {
+            self.0.transfer(id)
+        }
+        fn transfer_chunk(&self, id: &Uuid, index: u64) -> StoreResult<Option<Vec<u8>>> {
+            self.0.transfer_chunk(id, index)
+        }
+        fn blob_size(&self, digest: &Hash) -> StoreResult<Option<u64>> {
+            self.0.blob_size(digest)
+        }
+        fn blob_read(&self, digest: &Hash, offset: u64, len: u64) -> StoreResult<Vec<u8>> {
+            self.0.blob_read(digest, offset, len)
+        }
+        fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+            self.0.commit(tx)
+        }
+    }
+
+    let svc = FakeLogService::new();
+    let mut cp = crate::testkit::TestControlPlane::new(COL);
+    let escrow1 = service(2, DeviceKind::Escrow);
+    let owner_dev = desktop(3);
+    cp.genesis(&svc, CState::CloudCopy, &[escrow1, owner_dev]);
+
+    let grant = B16([0x44; 16]);
+    let client_pk = [0x45u8; 32];
+    cp.append(
+        &svc,
+        vec![PolicyOp::Grant(Grant {
+            grant,
+            app_id: "app".into(),
+            account: TEST_OWNER,
+            capabilities: vec!["collection.read".into(), "records.create".into()],
+            client_pk: B32(client_pk),
+            file_folders: None,
+            folder_scoped: None,
+            installation: B16([0x46; 16]),
+        })],
+    );
+
+    let mut owner = node(&svc, 3, MemStore::new());
+    owner.r.cfg.user_enabled_cloud_copy = true;
+    settle(&mut [&mut owner]);
+    assert!(
+        !owner.r.policy.grant_approval_required(),
+        "cloud copy with keyed escrow1 makes the unapproved grant effective"
+    );
+    owner.create(1, "notes/before-1.md", "one\n");
+    owner.create(2, "notes/before-2.md", "two\n");
+    settle(&mut [&mut owner]);
+
+    let before_seq = owner.r.head().seq;
+    let prefix_items: Vec<SeqItem> = svc
+        .items(&COL)
+        .into_iter()
+        .enumerate()
+        .map(|(i, raw)| SeqItem {
+            seq: i as u64 + 1,
+            item: Bytes(raw),
+        })
+        .collect();
+
+    // Now produce the transition sequence on the log:
+    // 1. Revoke the only keyed escrow (grant loses effectiveness without approval).
+    // 2. Enrol a replacement escrow.
+    // 3. Rekey after revocation, then key_grant the replacement escrow (grant becomes effective again).
+    // 4. Write a note matching the client's live subscription.
+    cp.revoke(&svc, escrow1.device);
+    let escrow2 = service(5, DeviceKind::Escrow);
+    cp.enrol(&svc, escrow2);
+    settle(&mut [&mut owner]);
+    let kg = owner
+        .r
+        .sealer
+        .build_key_grant(
+            owner.r.policy.epoch,
+            &crate::crypto::keys::Recipient {
+                device: escrow2.device,
+                kem_pk: [0; 32],
+            },
+            &mut crate::crypto::TestEntropy::new(11),
+        )
+        .unwrap();
+    assert!(owner.r.append_control(
+        mdbn_wire::envelope::ItemKind::KeyGrant,
+        kg.to_bytes().unwrap()
+    ));
+    settle(&mut [&mut owner]);
+    assert!(
+        owner.r.policy.devices[&escrow2.device].keyed,
+        "key_grant must key replacement escrow2"
+    );
+    assert!(
+        !owner.r.policy.grant_approval_required(),
+        "grant is effective again at the end of the page"
+    );
+    owner.create(9, "notes/after-restore.md", "restored\n");
+    settle(&mut [&mut owner]);
+
+    let tail_items: Vec<SeqItem> = svc
+        .items(&COL)
+        .into_iter()
+        .enumerate()
+        .skip(before_seq as usize)
+        .map(|(i, raw)| SeqItem {
+            seq: i as u64 + 1,
+            item: Bytes(raw),
+        })
+        .collect();
+    assert!(tail_items.len() >= 4);
+
+    let hello = HelloParams {
+        versions: vec![Version { major: 1, minor: 0 }],
+        client_name: "app".into(),
+        client_version: "0".into(),
+        features: None,
+        timezone: None,
+    };
+
+    fn run_case<S: Store>(
+        store: S,
+        prefix_items: &[SeqItem],
+        tail_items: &[SeqItem],
+        split: bool,
+        grant: B16,
+        client_pk: [u8; 32],
+        hello: &HelloParams,
+    ) -> (bool, bool, Vec<Push>, bool) {
+        let mut r = Replica::open(
+            ReplicaConfig {
+                collection: COL,
+                replica_id: B16([4; 16]),
+                device_id: B16([103; 16]),
+                mode: mdbn_wire::client::SyncMode::Synced,
+                log_endpoint: EndpointId(1),
+                verify: true,
+                runtime_version: "test".into(),
+                trusted_roots: vec![crate::testkit::TEST_ROOT, crate::testkit::signed_root()],
+                trusted_signers: test_devices(),
+                e2e: false,
+                user_enabled_cloud_copy: true,
+                chosen_state: None,
+                expected_genesis: None,
+                key_grants_only: false,
+                policy_pins: None,
+            },
+            store,
+            Box::new(TestPlanner),
+            Box::new(crate::seal::PlainSealer::for_device(B16([103; 16]))),
+            Host {
+                clock: Box::new(mdbn_core::host::FixedClock(1_000)),
+                entropy: Box::new(crate::crypto::TestEntropy::new(4)),
+                zones: Box::new(UtcOnly),
+            },
+            DeviceSecrets {
+                sign_sk: [0; 32],
+                kem_sk: [0; 32],
+            },
+        )
+        .unwrap();
+        r.apply_items(prefix_items.to_vec());
+        let (session, _) = r
+            .hello(SessionAuth::Grant { grant, client_pk }, hello.clone())
+            .expect("grant effective while escrow1 is keyed");
+        let inc = Include {
+            body: None,
+            document: None,
+            effective: None,
+            diagnostics: None,
+        };
+        let _sub = r
+            .subscribe(session, Value::Map(vec![]), inc.clone())
+            .unwrap();
+        let feed = r.changes(session, None, None, true).unwrap();
+        let _ = r.take_pushes();
+
+        let mut session_pushes = Vec::new();
+        if split {
+            for item in tail_items {
+                r.apply_items(vec![item.clone()]);
+                for (s, p) in r.take_pushes() {
+                    if s == session {
+                        session_pushes.push(p);
+                    }
+                }
+            }
+        } else {
+            r.apply_items(tail_items.to_vec());
+            for (s, p) in r.take_pushes() {
+                if s == session {
+                    session_pushes.push(p);
+                }
+            }
+        }
+
+        let old_session_alive = r.query(session, Value::Map(vec![]), inc.clone()).is_ok();
+        let feed_alive = r.changes(session, Some(feed.cursor), None, false).is_ok();
+        let fresh_hello_ok: Result<(SessionId, _), _> =
+            r.hello(SessionAuth::Grant { grant, client_pk }, hello.clone());
+        let fresh_ok = fresh_hello_ok.is_ok_and(|(s2, _)| {
+            let qr: QueryResult = r.query(s2, Value::Map(vec![]), inc).unwrap();
+            qr.records.len() == 3
+        });
+        (old_session_alive, feed_alive, session_pushes, fresh_ok)
+    }
+
+    for (label, one, split) in [
+        (
+            "deferred store",
+            run_case(
+                MemStore::new(),
+                &prefix_items,
+                &tail_items,
+                false,
+                grant,
+                client_pk,
+                &hello,
+            ),
+            run_case(
+                MemStore::new(),
+                &prefix_items,
+                &tail_items,
+                true,
+                grant,
+                client_pk,
+                &hello,
+            ),
+        ),
+        (
+            "non-deferred store",
+            run_case(
+                NoDeferStore(MemStore::new()),
+                &prefix_items,
+                &tail_items,
+                false,
+                grant,
+                client_pk,
+                &hello,
+            ),
+            run_case(
+                NoDeferStore(MemStore::new()),
+                &prefix_items,
+                &tail_items,
+                true,
+                grant,
+                client_pk,
+                &hello,
+            ),
+        ),
+    ] {
+        assert_eq!(
+            one, split,
+            "{label}: one-page and split-page outcomes must match"
+        );
+        assert!(
+            !one.0 && !one.1,
+            "{label}: original session and cursor must close even when escrow2 restores the grant later in the page"
+        );
+        assert_eq!(
+            one.2.len(),
+            1,
+            "{label}: only Push::Closed may be emitted for the invalidated session: {:?}",
+            one.2
+        );
+        assert!(
+            matches!(one.2[0], Push::Closed(_)),
+            "{label}: expected Push::Closed, got {:?}",
+            one.2[0]
+        );
+        assert!(
+            one.3,
+            "{label}: a fresh session after the page succeeds under the restored grant"
+        );
+    }
+}
+
 /// A service that compacted through the lost positions cannot prove a prefix by
 /// presenting a forged item that merely links from this replica's chain: the
 /// observed item must carry a known signer's valid signature before it counts

@@ -287,6 +287,9 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
     }
 
     fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
+        if let Some(err) = &self.deferral_fault {
+            return Err(err.clone());
+        }
         if !on {
             return self.end_deferral();
         }
@@ -296,8 +299,13 @@ impl<P: FilePlatform + 'static, M: Store, D: DiskDb> Store for FileStore<P, M, D
             if !self.db.defer_sync(true).map_err(db_err)? {
                 return Ok(());
             }
+            if let Err(err) = self.inner.defer_durability(true) {
+                if let Err(db_err) = self.db.defer_sync(false).map_err(db_err) {
+                    self.deferral_fault = Some(db_err);
+                }
+                return Err(err);
+            }
             self.deferred = true;
-            self.inner.defer_durability(true)?;
         }
         Ok(())
     }

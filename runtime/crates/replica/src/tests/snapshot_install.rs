@@ -760,3 +760,173 @@ fn base_install_skips_chain_read_and_does_not_read_log_while_installing() {
         a.r.confirmed_records().unwrap()
     );
 }
+
+/// An ordinary snapshot installed on a control-only prefix leaves a positive
+/// `head.seq` without ordered apply having verified seq 1's `prev == 0…0`.
+/// When a generation-0 `base` arrives later, `request_install_chain()` must
+/// still enter `Install::Chain` to verify seq 1's predecessor, and must refuse
+/// the base if seq 1's `prev` is not zero.
+#[test]
+fn base_install_after_snapshot_derived_head_still_verifies_chain() {
+    use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
+    use mdbn_wire::envelope::Item;
+    use mdbn_wire::schema::Wire;
+
+    struct SmallAdopt(Vec<(B16, String, String)>);
+    impl AdoptSource for SmallAdopt {
+        fn records(&mut self) -> Result<AdoptRecords, String> {
+            Ok(AdoptRecords {
+                records: self.0.iter().map(|(id, p, _)| (*id, p.clone())).collect(),
+                resources: vec![],
+                settings: None,
+            })
+        }
+        fn read(&mut self, path: &str) -> Result<Option<String>, String> {
+            Ok(self
+                .0
+                .iter()
+                .find(|(_, p, _)| p == path)
+                .map(|(_, _, d)| d.clone()))
+        }
+    }
+
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let mut cp = TestControlPlane::new(COL);
+    cp.append(&svc, vec![enrol_op(30)]);
+    settle(&mut [&mut a]);
+    assert!(
+        !a.r.policy.content_seen,
+        "prefix before snapshot is control-only"
+    );
+
+    // Build an ordinary snapshot at the control-only head.
+    a.r.build_snapshot_now().unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.stats.snapshots_built, 1);
+    let snap_seq = a.r.head().seq;
+    assert!(snap_seq >= 1);
+
+    // Two cold readers install that ordinary snapshot so both reach a positive
+    // head via snapshot install rather than ordered apply from genesis.
+    let mut reader_ok = node(&svc, 2, MemStore::new());
+    let mut reader_bad = node(&svc, 3, MemStore::new());
+    reader_ok.r.begin_install();
+    reader_bad.r.begin_install();
+    settle(&mut [&mut reader_ok, &mut reader_bad]);
+    assert_eq!(reader_ok.r.head().seq, snap_seq);
+    assert_eq!(reader_bad.r.head().seq, snap_seq);
+    assert_eq!(reader_ok.r.stats.snapshots_installed, 1);
+    assert_eq!(reader_bad.r.stats.snapshots_installed, 1);
+
+    // Now a generation-0 `base` arrives after the control-only snapshot.
+    let docs = vec![(
+        B16([1; 16]),
+        "notes/n1.md".to_string(),
+        "note 1\n".to_string(),
+    )];
+    a.r.begin_adopt(Box::new(SmallAdopt(docs)));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+    let head = a.r.head().seq;
+    assert!(head > snap_seq);
+
+    // 1. Valid seq 1: reader_ok MUST enter Install::Chain (Read after=0 limit=1)
+    // and then finish the base install cleanly.
+    let mut saw_chain_state = false;
+    let mut saw_chain_read = false;
+    for _ in 0..80 {
+        for push in reader_ok.log.poll_pushes() {
+            reader_ok.r.on_log_push(push);
+        }
+        let calls = reader_ok.r.take_log_calls();
+        if calls.is_empty() {
+            reader_ok.r.tick();
+            if reader_ok.r.head().seq == head && !reader_ok.r.installing() {
+                break;
+            }
+            continue;
+        }
+        if matches!(reader_ok.r.install, Some(TestInstall::Chain(..))) {
+            saw_chain_state = true;
+        }
+        for call in calls {
+            if matches!(reader_ok.r.install, Some(TestInstall::Chain(..)))
+                && matches!(
+                    &call.request,
+                    LogRequest::Read(p) if p.after == 0 && p.limit == 1
+                )
+            {
+                saw_chain_read = true;
+            }
+            let reply = reader_ok.log.call(call.request);
+            reader_ok.r.on_log_reply(call.id, reply);
+            if matches!(reader_ok.r.install, Some(TestInstall::Chain(..))) {
+                saw_chain_state = true;
+            }
+        }
+    }
+    assert!(
+        saw_chain_state && saw_chain_read,
+        "snapshot-derived head must verify seq 1 via Install::Chain"
+    );
+    assert_eq!(reader_ok.r.head(), a.r.head());
+    assert_eq!(reader_ok.r.stats.snapshots_installed, 2);
+    assert_eq!(reader_ok.r.sync_status().incidents, vec![]);
+    assert_eq!(
+        reader_ok.r.confirmed_records().unwrap(),
+        a.r.confirmed_records().unwrap()
+    );
+
+    // 2. Tampered seq 1 (`prev != 0…0`): Install::Chain catches the mismatch
+    // and refuses the base install.
+    let mut tampered = Item::from_bytes(&svc.items(&COL)[0]).unwrap();
+    tampered.prev = Some(B32([9; 32]));
+    let tampered_bytes = Bytes(tampered.to_bytes().unwrap());
+    let mut intercepted = false;
+    'bad: for _ in 0..80 {
+        for push in reader_bad.log.poll_pushes() {
+            reader_bad.r.on_log_push(push);
+        }
+        let calls = reader_bad.r.take_log_calls();
+        if calls.is_empty() {
+            reader_bad.r.tick();
+            continue;
+        }
+        for call in calls {
+            let is_chain_read = matches!(reader_bad.r.install, Some(TestInstall::Chain(..)))
+                && matches!(
+                    &call.request,
+                    LogRequest::Read(p) if p.after == 0 && p.limit == 1
+                );
+            let mut reply = reader_bad.log.call(call.request);
+            if is_chain_read {
+                intercepted = true;
+                if let Ok(LogResponse::Read(r)) = &mut reply
+                    && let Some(first) = r.items.first_mut()
+                {
+                    first.item = tampered_bytes.clone();
+                }
+            }
+            reader_bad.r.on_log_reply(call.id, reply);
+            if is_chain_read {
+                break 'bad;
+            }
+        }
+    }
+    assert!(intercepted, "reader_bad must have issued the chain read");
+    assert_eq!(
+        reader_bad.r.head().seq,
+        snap_seq,
+        "refused base install must not advance head"
+    );
+    assert_eq!(reader_bad.r.stats.snapshots_installed, 1);
+    assert!(
+        reader_bad.r.sync_status().incidents.iter().any(|inc| {
+            inc.kind == IncidentKind::Integrity
+                && format!("{:?}", inc.details).contains("manifest chain does not match the log")
+        }),
+        "expected manifest chain mismatch incident, got {:?}",
+        reader_bad.r.sync_status().incidents
+    );
+}

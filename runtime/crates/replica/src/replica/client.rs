@@ -530,33 +530,51 @@ impl<S: Store> Replica<S> {
         );
     }
 
-    /// Close granted sessions whose grant is no longer effective (`policy.md` §7.4).
-    pub(crate) fn close_revoked_sessions(&mut self) {
-        let gone: Vec<_> = self
-            .sessions
-            .iter()
-            .filter_map(|(id, s)| match &s.auth {
-                SessionAuth::Grant { grant, client_pk } => match self
-                    .grant_for_client(grant, client_pk)
-                {
-                    Err(error) => Some((*id, *error.0)),
+    fn session_revoked_problem(&self, s: &Session) -> Option<mdbn_wire::client::Problem> {
+        match &s.auth {
+            SessionAuth::Grant { grant, client_pk } => {
+                match self.grant_for_client(grant, client_pk) {
+                    Err(error) => Some(*error.0),
                     Ok(current)
                         if self.local_only() && !self.serving_account_matches(&current.account) =>
                     {
-                        Some((
-                            *id,
-                            ErrorCode::Forbidden.problem_with_reason(
-                                "grant_account_mismatch",
-                                "grant account is not authorized here",
-                            ),
+                        Some(ErrorCode::Forbidden.problem_with_reason(
+                            "grant_account_mismatch",
+                            "grant account is not authorized here",
                         ))
                     }
                     Ok(_) => None,
-                },
-                SessionAuth::Host | SessionAuth::LocalWeb(_) => None,
-            })
-            .collect();
+                }
+            }
+            SessionAuth::Host | SessionAuth::LocalWeb(_) => None,
+        }
+    }
+
+    /// Record currently open granted sessions whose grant is ineffective at this
+    /// point, preserving the first invalidation problem for each session.
+    pub(crate) fn collect_revoked_sessions(
+        &self,
+        revoked: &mut std::collections::BTreeMap<SessionId, mdbn_wire::client::Problem>,
+    ) {
+        for (id, s) in &self.sessions {
+            if revoked.contains_key(id) {
+                continue;
+            }
+            if let Some(problem) = self.session_revoked_problem(s) {
+                revoked.insert(*id, problem);
+            }
+        }
+    }
+
+    /// Close the given sessions and discard any queued non-close pushes for them.
+    pub(crate) fn close_sessions_with_problems(
+        &mut self,
+        gone: impl IntoIterator<Item = (SessionId, mdbn_wire::client::Problem)>,
+    ) {
         for (id, problem) in gone {
+            if !self.sessions.contains_key(&id) {
+                continue;
+            }
             self.pushes
                 .retain(|(session, p)| *session != id || matches!(p, Push::Closed(_)));
             self.pushes.push((id, Push::Closed(problem)));
@@ -567,6 +585,13 @@ impl<S: Store> Replica<S> {
             self.submitted_by.retain(|_, s| *s != id);
             self.drop_session_live(id);
         }
+    }
+
+    /// Close granted sessions whose grant is no longer effective (`policy.md` §7.4).
+    pub(crate) fn close_revoked_sessions(&mut self) {
+        let mut gone = std::collections::BTreeMap::new();
+        self.collect_revoked_sessions(&mut gone);
+        self.close_sessions_with_problems(gone);
     }
 
     pub(super) fn host_only(&self, s: SessionId) -> ApiResult<()> {
