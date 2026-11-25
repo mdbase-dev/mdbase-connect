@@ -231,6 +231,7 @@ const VALIDATE_PAGE = "validate-page-v1";
 const BASES_DISCOVERY_UNREADABLE = "bases-discovery-unreadable-v1";
 const BASES_ROW_PROPERTIES = "bases-row-properties-v1";
 const CONTRACT_QUERY_ORDER = "contract-query-order-v1";
+const CONTRACT_QUERY_ORDER_MTIME = "contract-query-order-mtime-v1";
 
 function params(entries: [number, CborValue | undefined][]): Map<number, CborValue> {
   const m = new Map<number, CborValue>();
@@ -738,7 +739,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE, BASES_DISCOVERY_UNREADABLE, BASES_ROW_PROPERTIES, CONTRACT_QUERY_ORDER])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE, BASES_DISCOVERY_UNREADABLE, BASES_ROW_PROPERTIES, CONTRACT_QUERY_ORDER, CONTRACT_QUERY_ORDER_MTIME])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1355,13 +1356,15 @@ export class MdbaseClient {
    * `contract-query-order-v1` is negotiated, 128 on older producers); use the
    * returned cursor for the remaining records. `orderBy` uses the spec 11
    * `order_by` grammar over contract fields and `file.*`, bound to the cursor;
-   * older producers refuse `orderBy` with `upgrade_required`. */
+   * older producers refuse `orderBy` with `upgrade_required`. Ordering by
+   * `file.mtime` additionally requires `contract-query-order-mtime-v1`. */
   async queryContract(contract: ContractRef, options: ContractQueryOptions = {}): Promise<ContractQueryResult> {
     const requested = options.pageSize ?? 128;
     if (!Number.isInteger(requested) || requested < 1 || !contract.id || contract.id.length > 1024 || !contract.version || contract.version.length > 128
       || (options.where !== undefined && (!options.where || options.where.length > 4096)))
       throw mdbaseError("invalid_request", "invalid contract page selection");
     let orderWire: CborValue | undefined;
+    let ordersByMtime = false;
     if (options.orderBy !== undefined) {
       if (!Array.isArray(options.orderBy) || options.orderBy.length < 1 || options.orderBy.length > 8)
         throw mdbaseError("invalid_request", "invalid contract order_by", "invalid_query");
@@ -1373,6 +1376,7 @@ export class MdbaseClient {
         if (keys.some(k => k !== "field" && k !== "direction") || typeof term.field !== "string" || !term.field || term.field.length > 256
           || (term.direction !== undefined && term.direction !== "asc" && term.direction !== "desc"))
           throw mdbaseError("invalid_request", "invalid contract order_by term", "invalid_query");
+        if (term.field === "file.mtime") ordersByMtime = true;
         terms.push(term.direction === undefined ? { field: term.field } : { field: term.field, direction: term.direction });
       }
       orderWire = toValue(terms);
@@ -1381,6 +1385,8 @@ export class MdbaseClient {
     const extended = session.hello.features.includes(CONTRACT_QUERY_ORDER);
     if (orderWire !== undefined && !extended)
       throw mdbaseError("upgrade_required", "This replica does not support ordered contract queries.", "contract_query_order_unsupported");
+    if (ordersByMtime && !session.hello.features.includes(CONTRACT_QUERY_ORDER_MTIME))
+      throw mdbaseError("upgrade_required", "This replica does not support ordering contract queries by file.mtime.", "contract_query_order_mtime_unsupported");
     const limit = Math.min(requested, extended ? 1000 : 128);
     const result = await this.call("query_contract_v1", params([
       [0, 1], [1, contract.id], [2, contract.version], [3, limit], [4, options.cursor], [5, options.where], [6, orderWire],

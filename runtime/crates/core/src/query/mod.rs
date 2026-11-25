@@ -428,6 +428,8 @@ pub struct Requirements {
     pub context: bool,
     /// The query reads `now()`/`today()`: live results change with time.
     pub time_dependent: bool,
+    /// The query reads or orders by `file.mtime`.
+    pub mtime: bool,
 }
 
 /// A compiled query.
@@ -506,6 +508,8 @@ pub struct QueryRecord<'a> {
     pub frontmatter: &'a Map,
     /// Body, when hydrated.
     pub body: Option<&'a str>,
+    /// Capture time of the last confirmed byte change (`file.mtime`), Unix ms.
+    pub mtime: Option<i64>,
 }
 
 /// Residual verdict for one record.
@@ -657,6 +661,16 @@ pub fn compile(query: &Query, catalog: &Catalog) -> Result<QueryPlan, QueryError
             effective: true,
             context: query.context_path.is_some(),
             time_dependent: calls("now") || calls("today"),
+            mtime: member("mtime")
+                || member("*")
+                || query
+                    .order_by
+                    .iter()
+                    .any(|t| matches!(&t.field, FieldRef::File(n) if n == "mtime"))
+                || query
+                    .select
+                    .iter()
+                    .any(|s| matches!(s, Selection::Field(FieldRef::File(n)) if n == "mtime")),
         },
         value_catalog: catalog.clone(),
         read_defaults: catalog
@@ -836,6 +850,7 @@ impl QueryPlan {
             types: record.types,
             frontmatter: &values,
             body: record.body,
+            mtime: record.mtime,
         };
         let mut out = Evaluated {
             verdict: Verdict::NoMatch,
@@ -895,7 +910,18 @@ impl QueryPlan {
                 ),
             );
         }
-        let file_cel = CelValue::from_value(&file);
+        let mut file_cel = CelValue::from_value(&file);
+        let mtime = record
+            .mtime
+            .and_then(|ms| crate::cel::time::Timestamp::from_millis(ms).ok());
+        if let (Value::Map(m), Some(ts)) = (&mut file, mtime) {
+            m.insert("mtime", Value::string(ts.to_rfc3339()));
+        }
+        if let (CelValue::Map(m), Some(ts)) = (&mut file_cel, mtime) {
+            let mut map = (**m).clone();
+            map.insert(Key::String("mtime".into()), CelValue::Timestamp(ts));
+            file_cel = CelValue::Map(std::sync::Arc::new(map));
+        }
         let activation = |projections: &CelMap| {
             let mut act = self.activation(record, &effective, file_cel.clone());
             act.with_clock(crate::lifecycle::cel_clock(env.now_ms, &env.today, &env.tz));
@@ -1150,6 +1176,7 @@ impl QueryPlan {
 
     fn sort_hint(&self, field: &FieldRef, types: &[String]) -> indexed::TemporalHint {
         let path = match field {
+            FieldRef::File(name) if name == "mtime" => return indexed::TemporalHint::DateTime,
             FieldRef::Effective(p) if p.len() == 1 && self.computed_alias(&p[0]) => {
                 return indexed::TemporalHint::None;
             }
@@ -1171,6 +1198,10 @@ impl QueryPlan {
     fn sort_value(&self, field: &FieldRef, record: &QueryRecord<'_>) -> Option<Value> {
         match field {
             FieldRef::Path => Some(Value::string(record.path)),
+            FieldRef::File(name) if name == "mtime" => record
+                .mtime
+                .and_then(|ms| crate::cel::time::Timestamp::from_millis(ms).ok())
+                .map(|ts| Value::string(ts.to_rfc3339())),
             FieldRef::File(name) => file_value(record.path, record.body).get(name).cloned(),
             FieldRef::Types => Some(Value::List(
                 record
@@ -1356,6 +1387,7 @@ pub fn execute(
                 types: &types,
                 frontmatter: &fm,
                 body: Some(doc.body()),
+                mtime: None,
             },
             env,
             Some(&links),

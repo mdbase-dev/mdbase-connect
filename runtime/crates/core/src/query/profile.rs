@@ -31,6 +31,8 @@ pub enum Unsupported {
 pub enum Column {
     /// Exact UTF-8 file path.
     Path,
+    /// Capture time (`file.mtime`), materialized as Temporal or Null.
+    Mtime,
     /// Trusted current effective frontmatter atom.
     Field(IndexFieldSpec),
 }
@@ -382,6 +384,7 @@ pub fn lower(plan: &QueryPlan, catalog: &Catalog) -> Result<Profile, Unsupported
     for t in &plan.order {
         let column = match &t.field {
             FieldRef::Path => Column::Path,
+            FieldRef::File(name) if name == "mtime" => Column::Mtime,
             FieldRef::Effective(p)
                 if p.len() == 1
                     && !plan.select.iter().any(|s| {

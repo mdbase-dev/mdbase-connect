@@ -2326,3 +2326,368 @@ fn query_keysets_benchmark_all_50k_open_tasks() {
         offset.as_secs_f64() / cursor.as_secs_f64()
     );
 }
+
+const MANUSCRIPT_CONTRACT: &str = "---\nkind: mdbase.contract\ncontract_type: record\nid: dev.mdbase.writer.manuscript\nversion: '1.0.0'\nrecord_schema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: {type: string}\n---\n";
+const MANUSCRIPT_TYPE: &str = "---\nkind: mdbase.type\nname: manuscript\nmatch: {path_glob: 'manuscripts/*.md'}\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      title: {type: string}\nimplements:\n  - contract: dev.mdbase.writer.manuscript\n    version: '1.0.0'\n    fields: {'/title': '/title'}\n---\n";
+
+fn setup_manuscript_contract(node: &mut Node) {
+    submit(
+        node,
+        vec![
+            Op::ResourcePut(ResourcePut {
+                path: "mdbase.yaml".into(),
+                doc: Text::Inline("spec_version: '0.3.0'\n".into()),
+                base_revision: None,
+                must_not_exist: None,
+            }),
+            Op::ResourcePut(ResourcePut {
+                path: "_contracts/manuscript.md".into(),
+                doc: Text::Inline(MANUSCRIPT_CONTRACT.into()),
+                base_revision: None,
+                must_not_exist: None,
+            }),
+            Op::ResourcePut(ResourcePut {
+                path: "_types/manuscript.md".into(),
+                doc: Text::Inline(MANUSCRIPT_TYPE.into()),
+                base_revision: None,
+                must_not_exist: None,
+            }),
+        ],
+    );
+    node.pump();
+}
+
+#[test]
+fn query_contract_file_mtime_indexed_paging_ties_absent_and_updates() {
+    let svc = FakeLogService::new();
+    let (st, index) = store_and_index("query_contract_file_mtime_indexed");
+    let mut node = open(&svc, st);
+    setup_manuscript_contract(&mut node);
+
+    let t0 = node.clock.get();
+    node.clock.set(t0 + 1_000);
+    submit(
+        &mut node,
+        vec![create(
+            1,
+            "manuscripts/oldest.md",
+            "---\ntitle: Oldest\n---\nbody\n".into(),
+        )],
+    );
+    node.pump();
+
+    // Two manuscripts sharing the same mtime verify ascending path tie-breaks.
+    node.clock.set(t0 + 2_000);
+    submit(
+        &mut node,
+        vec![
+            create(
+                2,
+                "manuscripts/tie-b.md",
+                "---\ntitle: Tie B\n---\nbody\n".into(),
+            ),
+            create(
+                3,
+                "manuscripts/tie-a.md",
+                "---\ntitle: Tie A\n---\nbody\n".into(),
+            ),
+        ],
+    );
+    node.pump();
+
+    node.clock.set(t0 + 3_000);
+    submit(
+        &mut node,
+        vec![create(
+            4,
+            "manuscripts/newest.md",
+            "---\ntitle: Newest\n---\nbody\n".into(),
+        )],
+    );
+    node.pump();
+
+    // Inject a record with `mtime: None` (simulating a record from an older snapshot)
+    // and rebuild the query index so `st_qmtime` holds its Null atom.
+    {
+        use mdbn_replica::Store as _;
+        let legacy_doc = "---\ntitle: Legacy\n---\nbody\n".to_string();
+        let legacy_path = "manuscripts/legacy.md".to_string();
+        let legacy_id = id(5);
+        let row = mdbn_replica::store::RecordRow {
+            id: legacy_id,
+            path_key: mdbn_core::paths::path_key(&legacy_path),
+            path: legacy_path,
+            revision: mdbn_wire::hash::sha256(legacy_doc.as_bytes()),
+            doc: legacy_doc,
+            modified_seq: node.r.head().seq,
+            mtime: None,
+            bucket: mdbn_replica::store::bucket16(&legacy_id),
+            meta: mdbn_replica::store::RecordMeta::default(),
+        };
+        node.r
+            .store_mut()
+            .commit(mdbn_replica::store::Tx {
+                records_put: vec![row],
+                ..Default::default()
+            })
+            .unwrap();
+        // Force a fresh open/backfill would happen on reopen; here re-trigger backfill by
+        // calling a harmless query after invalidating via a resource-less rebuild path?
+        // Instead commit an index-only backfill via a new node on the same store? Even simpler:
+        // touch a dummy non-manuscript resource so the replica rebuilds its query index cleanly.
+    }
+    submit(
+        &mut node,
+        vec![Op::ResourcePut(ResourcePut {
+            path: "_types/other.md".into(),
+            doc: Text::Inline("---\nkind: mdbase.type\nname: other\nschema: {dialect: json-schema-2020-12, value: {type: object}}\n---\n".into()),
+            base_revision: None,
+            must_not_exist: None,
+        })],
+    );
+    node.pump();
+
+    // Constrained profile proves indexed keyset paging works without desktop fallback.
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+    let indexed_before = node.r.query_stats().indexed;
+
+    let collect = |node: &mut Node, dir: &str| {
+        let mut paths = Vec::new();
+        let mut cursor = None;
+        loop {
+            let res = node
+                .r
+                .query_contract(
+                    node.s,
+                    mdbn_replica::api::ContractQuery {
+                        contract: "dev.mdbase.writer.manuscript".into(),
+                        version: "1.0.0".into(),
+                        limit: 2,
+                        cursor,
+                        where_: None,
+                        order_by: Some(order("file.mtime", dir)),
+                    },
+                )
+                .unwrap();
+            paths.extend(res.page.records.iter().map(|r| r.path.clone()));
+            cursor = res.page.cursor;
+            if cursor.is_none() {
+                break;
+            }
+        }
+        paths
+    };
+
+    // Spec 11: DESC puts null first, then newest to oldest, with ascending path tie-break.
+    index.borrow_mut().statements = Some(Vec::new());
+    let desc_paths = collect(&mut node, "desc");
+    let stmts = index.borrow_mut().statements.take().unwrap();
+    assert!(
+        stmts
+            .iter()
+            .any(|(sql, _)| sql.contains("FROM st_qmtime m INDEXED BY st_qmtime_desc")),
+        "expected st_qmtime_desc index seek, saw: {stmts:?}"
+    );
+    assert_eq!(
+        desc_paths,
+        [
+            "manuscripts/legacy.md",
+            "manuscripts/newest.md",
+            "manuscripts/tie-a.md",
+            "manuscripts/tie-b.md",
+            "manuscripts/oldest.md",
+        ]
+    );
+    assert_eq!(
+        collect(&mut node, "asc"),
+        [
+            "manuscripts/oldest.md",
+            "manuscripts/tie-a.md",
+            "manuscripts/tie-b.md",
+            "manuscripts/newest.md",
+            "manuscripts/legacy.md",
+        ]
+    );
+    assert_eq!(node.r.query_stats().indexed - indexed_before, 6);
+
+    // Editing oldest.md's bytes advances its mtime and moves it ahead of newest.md in DESC.
+    node.clock.set(t0 + 4_000);
+    submit(
+        &mut node,
+        vec![set(1, "title", Value::Text("Edited".into()))],
+    );
+    node.pump();
+    assert_eq!(
+        collect(&mut node, "desc"),
+        [
+            "manuscripts/legacy.md",
+            "manuscripts/oldest.md",
+            "manuscripts/newest.md",
+            "manuscripts/tie-a.md",
+            "manuscripts/tie-b.md",
+        ]
+    );
+
+    // Filtering by `has(file.mtime)` in `queryContract` excludes the legacy record without mtime.
+    let filtered = node
+        .r
+        .query_contract(
+            node.s,
+            mdbn_replica::api::ContractQuery {
+                contract: "dev.mdbase.writer.manuscript".into(),
+                version: "1.0.0".into(),
+                limit: 10,
+                cursor: None,
+                where_: Some("has(file.mtime)".into()),
+                order_by: Some(order("file.mtime", "desc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        filtered
+            .page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "manuscripts/oldest.md",
+            "manuscripts/newest.md",
+            "manuscripts/tie-a.md",
+            "manuscripts/tie-b.md",
+        ]
+    );
+}
+
+#[test]
+#[ignore = "manual: release timing, 10k manuscripts top-50 by file.mtime DESC vs loading all"]
+fn query_contract_mtime_benchmark_10k_top50_vs_load_all() {
+    let svc = FakeLogService::new();
+    let (st, index) = store_and_index("query_contract_mtime_bench_10k");
+    let mut node = open(&svc, st);
+    setup_manuscript_contract(&mut node);
+
+    let total = 10_000u32;
+    let base_time = node.clock.get();
+    // Seed 10,000 manuscripts in batches of 100, with deterministic varied mtimes
+    // (out of path order so sorting is genuinely non-trivial).
+    for start in (0..total).step_by(100) {
+        // Permute timestamps across batches so newest records are scattered across paths.
+        let batch_idx = start / 100;
+        let permuted = (batch_idx * 37) % 100;
+        node.clock
+            .set(base_time + u64::from(permuted) * 60_000 + 1_000);
+        let ops: Vec<_> = (start..(start + 100).min(total))
+            .map(|i| {
+                create(
+                    i + 1,
+                    &format!("manuscripts/m-{i:05}.md"),
+                    format!(
+                        "---\ntitle: Manuscript {i:05}\n---\nBody text for manuscript {i:05}.\n"
+                    ),
+                )
+            })
+            .collect();
+        submit(&mut node, ops);
+        node.pump();
+    }
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+
+    // Verify EXPLAIN QUERY PLAN uses st_qmtime_desc without a temp B-tree.
+    index.borrow_mut().explain = true;
+    let first_50 = node
+        .r
+        .query_contract(
+            node.s,
+            mdbn_replica::api::ContractQuery {
+                contract: "dev.mdbase.writer.manuscript".into(),
+                version: "1.0.0".into(),
+                limit: 50,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("file.mtime", "desc")),
+            },
+        )
+        .unwrap();
+    index.borrow_mut().explain = false;
+    assert_eq!(first_50.page.records.len(), 50);
+    assert!(first_50.page.cursor.is_some());
+
+    // Measure warm top-50 by file.mtime DESC (average over 20 runs) + next-page cursor latency.
+    let runs = 20;
+    let t_top50 = std::time::Instant::now();
+    let mut page1_cursor = None;
+    for _ in 0..runs {
+        let res = node
+            .r
+            .query_contract(
+                node.s,
+                mdbn_replica::api::ContractQuery {
+                    contract: "dev.mdbase.writer.manuscript".into(),
+                    version: "1.0.0".into(),
+                    limit: 50,
+                    cursor: None,
+                    where_: None,
+                    order_by: Some(order("file.mtime", "desc")),
+                },
+            )
+            .unwrap();
+        assert_eq!(res.page.records.len(), 50);
+        page1_cursor = res.page.cursor;
+    }
+    let top50_ms = t_top50.elapsed().as_secs_f64() * 1000.0 / runs as f64;
+
+    let t_page2 = std::time::Instant::now();
+    let page2 = node
+        .r
+        .query_contract(
+            node.s,
+            mdbn_replica::api::ContractQuery {
+                contract: "dev.mdbase.writer.manuscript".into(),
+                version: "1.0.0".into(),
+                limit: 50,
+                cursor: page1_cursor,
+                where_: None,
+                order_by: Some(order("file.mtime", "desc")),
+            },
+        )
+        .unwrap();
+    let page2_ms = t_page2.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(page2.page.records.len(), 50);
+    assert!(first_50.page.records.last().unwrap().mtime >= page2.page.records[0].mtime);
+
+    // Measure loading all 10,000 records (1000/page, path order, as an app would before sorting in JS).
+    let t_all = std::time::Instant::now();
+    let mut loaded = 0usize;
+    let mut cursor = None;
+    loop {
+        let res = node
+            .r
+            .query_contract(
+                node.s,
+                mdbn_replica::api::ContractQuery {
+                    contract: "dev.mdbase.writer.manuscript".into(),
+                    version: "1.0.0".into(),
+                    limit: 1000,
+                    cursor,
+                    where_: None,
+                    order_by: None,
+                },
+            )
+            .unwrap();
+        loaded += res.page.records.len();
+        cursor = res.page.cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    let load_all_ms = t_all.elapsed().as_secs_f64() * 1000.0;
+    assert_eq!(loaded, total as usize);
+
+    println!(
+        "CONTRACT_MTIME_10K top50_avg_ms={top50_ms:.2} page2_ms={page2_ms:.2} load_all_10k_ms={load_all_ms:.2} speedup={:.1}x",
+        load_all_ms / top50_ms
+    );
+}

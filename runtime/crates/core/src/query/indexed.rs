@@ -82,11 +82,7 @@ impl SortAtom {
             Some(Value::Text(s)) => {
                 let time = temporal_text(s, hint);
                 if let Some(t) = time {
-                    let mut key = Vec::with_capacity(12);
-                    let seconds = u64::from_ne_bytes(t.seconds.to_ne_bytes()) ^ (1 << 63);
-                    key.extend_from_slice(&seconds.to_be_bytes());
-                    key.extend_from_slice(&t.nanos.to_be_bytes());
-                    (AtomKind::Temporal, key)
+                    (AtomKind::Temporal, timestamp_key(t))
                 } else {
                     if s.len() > max_key_bytes {
                         return Err(IndexKeyError::TooWide);
@@ -113,6 +109,22 @@ impl SortAtom {
             return Err(IndexKeyError::TooWide);
         }
         Ok(Self { kind, key })
+    }
+
+    /// Materialize a record's capture time (`file.mtime`, Unix milliseconds)
+    /// into a canonical sort atom: [`AtomKind::Temporal`] when present and
+    /// within CEL's timestamp range, [`AtomKind::Null`] otherwise.
+    pub fn from_mtime(mtime: Option<i64>) -> Self {
+        match mtime.and_then(|ms| Timestamp::from_millis(ms).ok()) {
+            Some(t) => Self {
+                kind: AtomKind::Temporal,
+                key: timestamp_key(t),
+            },
+            None => Self {
+                kind: AtomKind::Null,
+                key: Vec::new(),
+            },
+        }
     }
 
     /// Reconstruct a bounded key read from an index or binary cursor.
@@ -245,6 +257,14 @@ fn valid_number_key(key: &[u8]) -> bool {
         key[0] == 0 && exponent == 63 && significand == 1 << 63
     };
     float_exact || int_exact
+}
+
+fn timestamp_key(t: Timestamp) -> Vec<u8> {
+    let mut key = Vec::with_capacity(12);
+    let seconds = u64::from_ne_bytes(t.seconds.to_ne_bytes()) ^ (1 << 63);
+    key.extend_from_slice(&seconds.to_be_bytes());
+    key.extend_from_slice(&t.nanos.to_be_bytes());
+    key
 }
 
 fn valid_time_key(key: &[u8]) -> bool {

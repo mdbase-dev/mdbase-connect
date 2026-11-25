@@ -790,6 +790,162 @@ fn contract_query_orders_by_mapped_field_and_rejects_heterogeneous_or_invalid_or
     );
 }
 
+#[test]
+fn contract_query_orders_by_file_mtime_and_advertises_feature() {
+    let (_, mut a) = configured(resources());
+    let (_, hello) =
+        a.r.hello(
+            crate::api::SessionAuth::Host,
+            mdbn_wire::client::HelloParams {
+                versions: vec![mdbn_wire::common::Version { major: 1, minor: 0 }],
+                client_name: "mtime-test".into(),
+                client_version: "1".into(),
+                features: Some(vec![
+                    "contract-query-order-v1".into(),
+                    "contract-query-order-mtime-v1".into(),
+                ]),
+                timezone: None,
+            },
+        )
+        .unwrap();
+    assert!(
+        hello
+            .features
+            .contains(&"contract-query-order-mtime-v1".to_owned()),
+        "{:?}",
+        hello.features
+    );
+
+    let t0 = a.clock.get();
+    a.clock.set(t0 + 1_000);
+    a.create(
+        1,
+        "rows/oldest.md",
+        "---\ntype: Zebra\ncompleted: false\n---\n",
+    );
+    settle(&mut [&mut a]);
+    a.clock.set(t0 + 2_000);
+    // Two records created in one mutation share the exact same capture clock instant (mtime tie).
+    a.r.submit(
+        a.s,
+        mdbn_wire::client::SubmitParams {
+            ops: vec![
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([2; 16]),
+                    path: Some("rows/tie-b.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: false\n---\n".into(),
+                    )),
+                }),
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([3; 16]),
+                    path: Some("rows/tie-a.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: true\n---\n".into(),
+                    )),
+                }),
+            ],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+            validation: None,
+        },
+    )
+    .expect("submit tie pair");
+    settle(&mut [&mut a]);
+    let tie_a_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([3; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    let tie_b_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([2; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    assert_eq!(tie_a_mtime, tie_b_mtime);
+    assert!(tie_a_mtime.is_some());
+    a.clock.set(t0 + 3_000);
+    a.create(
+        4,
+        "rows/newest.md",
+        "---\ntype: Zebra\ncompleted: true\n---\n",
+    );
+    settle(&mut [&mut a]);
+
+    let order = |direction: &str| {
+        Value::List(vec![Value::Map(vec![
+            ("field".into(), Value::Text("file.mtime".into())),
+            ("direction".into(), Value::Text(direction.into())),
+        ])])
+    };
+    let desc =
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit: 10,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("desc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        desc.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "rows/newest.md",
+            "rows/tie-a.md",
+            "rows/tie-b.md",
+            "rows/oldest.md",
+        ]
+    );
+    let asc =
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit: 10,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("asc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        asc.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "rows/oldest.md",
+            "rows/tie-a.md",
+            "rows/tie-b.md",
+            "rows/newest.md",
+        ]
+    );
+}
+
 /// A confirmed catalog change re-derives every record's types, which the feed
 /// cannot name: older cursors reset and watchers are told to re-read.
 #[test]

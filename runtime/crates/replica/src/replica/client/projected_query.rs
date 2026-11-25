@@ -375,6 +375,7 @@ impl<S: Store> Replica<S> {
                     types: &types,
                     frontmatter: fm,
                     body: Some(doc.body()),
+                    mtime: position.1,
                 },
                 env,
                 Some(&links),

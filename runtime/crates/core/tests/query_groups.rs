@@ -313,6 +313,7 @@ fn all_matched_schemas_must_agree_no_shape_guessing() {
                     types: &names,
                     frontmatter: fm,
                     body: None,
+                    mtime: None,
                 },
                 &env(),
                 None,
@@ -379,6 +380,7 @@ fn typed_dates_do_not_merge_with_plain_lookalike_text() {
         types: &names,
         frontmatter: &fm,
         body: None,
+        mtime: None,
     };
     let typed = p.evaluate(&r, &env(), None);
     let plain = p.evaluate(&QueryRecord { types: &[], ..r }, &env(), None);
@@ -455,6 +457,7 @@ fn incomplete_or_oversized_whole_metadata_fails_explicitly() {
             types: &[],
             frontmatter: &fm,
             body: None,
+            mtime: None,
         },
         &env(),
         None,

@@ -36,6 +36,7 @@ export interface MemoryRecord {
   frontmatter: w.FmMap;
   body: string;
   confirmedSeq: number;
+  mtime?: number;
   pending: boolean;
   hold?: w.HoldRef;
   unresolved?: number;
@@ -290,7 +291,7 @@ export class MemoryReplica {
 
   /** Seed a confirmed record directly. Frontmatter is plain data, or the
    * exact forms where a test wants them (`Float64`, `bigint`, a `Map`). */
-  seed(r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, PlainValue>; body?: string }): MemoryRecord {
+  seed(r: { id?: w.Uuid; path: string; types?: string[]; frontmatter?: Record<string, PlainValue>; body?: string; mtime?: number }): MemoryRecord {
     const rec: MemoryRecord = {
       id: r.id ?? uuidv7(),
       path: r.path,
@@ -298,6 +299,7 @@ export class MemoryReplica {
       frontmatter: new Map(Object.entries(r.frontmatter ?? {}).map(([k, v]) => [k, toValue(v)])),
       body: r.body ?? "",
       confirmedSeq: ++this.seq,
+      ...(r.mtime !== undefined ? { mtime: r.mtime } : {}),
       pending: false,
     };
     this.records.set(rec.id, rec);
@@ -608,7 +610,7 @@ export class MemoryReplica {
         x === "presence" || x === "fence"
         || (this.opts.features !== undefined
           ? this.opts.features.includes(x)
-          : x === "contract-query-order-v1" || x === "bases-row-properties-v1"),
+          : x === "contract-query-order-v1" || x === "contract-query-order-mtime-v1" || x === "bases-row-properties-v1"),
       ),
     };
     return w.clientFrame.enc({ kind: "response", id: f.id, result: w.helloResult.enc(result) });
@@ -704,13 +706,21 @@ export class MemoryReplica {
         .filter((x) => x.implementations.length)
         .sort((a, b) => {
           for (const k of orderKeys) {
-            const va = k.field === "file.path" ? a.r.path : a.implementations[0]!.fields.get(k.field) ?? null;
-            const vb = k.field === "file.path" ? b.r.path : b.implementations[0]!.fields.get(k.field) ?? null;
+            const va = k.field === "file.path" ? a.r.path
+              : k.field === "file.mtime" ? (a.r.mtime ?? null)
+              : a.implementations[0]!.fields.get(k.field) ?? null;
+            const vb = k.field === "file.path" ? b.r.path
+              : k.field === "file.mtime" ? (b.r.mtime ?? null)
+              : b.implementations[0]!.fields.get(k.field) ?? null;
             const aNull = va === null || va === undefined, bNull = vb === null || vb === undefined;
             if (aNull !== bNull) return k.desc ? (aNull ? -1 : 1) : (aNull ? 1 : -1);
             if (!aNull && !bNull) {
-              const sa = String(toPlain(va as CborValue)), sb = String(toPlain(vb as CborValue));
-              if (sa !== sb) return (sa < sb ? -1 : 1) * (k.desc ? -1 : 1);
+              if (k.field === "file.mtime") {
+                if (va !== vb) return ((va as number) < (vb as number) ? -1 : 1) * (k.desc ? -1 : 1);
+              } else {
+                const sa = String(toPlain(va as CborValue)), sb = String(toPlain(vb as CborValue));
+                if (sa !== sb) return (sa < sb ? -1 : 1) * (k.desc ? -1 : 1);
+              }
             }
           }
           return a.r.path < b.r.path ? -1 : a.r.path > b.r.path ? 1 : 0;
@@ -787,6 +797,7 @@ export class MemoryReplica {
     if (inc?.body) v.body = r.body;
     if (inc?.document) v.document = renderDocument(r);
     if (inc?.effective) v.effective = new Map(r.frontmatter);
+    if (r.mtime !== undefined) v.mtime = r.mtime;
     return v;
   }
 
@@ -811,7 +822,9 @@ export class MemoryReplica {
       }
     }
     const get = (r: MemoryRecord, field: string): unknown =>
-      field === "file.path" || field === "path" ? r.path : toPlain(r.frontmatter.get(field.replace(/^fm\./, "")) ?? null);
+      field === "file.path" || field === "path" ? r.path
+      : field === "file.mtime" ? (r.mtime ?? null)
+      : toPlain(r.frontmatter.get(field.replace(/^fm\./, "")) ?? null);
     rows.sort((a, b) => {
       for (const k of keys) {
         const x = get(a, k.field) as never;

@@ -425,6 +425,7 @@ impl<S: Store> Replica<S> {
                         types: &[],
                         frontmatter: &fields,
                         body: None,
+                        mtime: record.mtime,
                     };
                     if plan.matches(&candidate, env) != mdbn_core::query::Verdict::Match {
                         continue;

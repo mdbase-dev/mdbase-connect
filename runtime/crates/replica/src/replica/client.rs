@@ -765,6 +765,7 @@ const LOCAL_WEB_FEATURES: &[&str] = &[
     "bases-discovery-unreadable-v1",
     "bases-row-properties-v1",
     "contract-query-order-v1",
+    "contract-query-order-mtime-v1",
 ];
 
 /// `hello` features this build grants when asked (`replica-client-api.md` §2).
@@ -781,6 +782,8 @@ const GRANTABLE_FEATURES: &[&str] = &[
     "bases-row-properties-v1",
     // Contract query key 6 (`order_by`) and page sizes up to 1000.
     "contract-query-order-v1",
+    // Indexed `file.mtime` ordering (and `file.mtime` exposure in queries).
+    "contract-query-order-mtime-v1",
 ];
 
 impl<S: Store> Replica<S> {

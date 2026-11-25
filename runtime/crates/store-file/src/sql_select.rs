@@ -30,6 +30,7 @@ fn atom(a: &QueryAtom) -> StoreResult<()> {
 }
 struct Builder {
     fields: BTreeMap<QueryField, usize>,
+    needs_mtime: bool,
     params: Vec<SqlValue>,
     nodes: usize,
     bytes: usize,
@@ -53,6 +54,10 @@ impl Builder {
     fn column(&mut self, c: &QueryColumn) -> StoreResult<(String, String)> {
         match c {
             QueryColumn::Path => Ok(("4".into(), "q.path".into())),
+            QueryColumn::Mtime => {
+                self.needs_mtime = true;
+                Ok(("m.kind".into(), "m.sort".into()))
+            }
             QueryColumn::Field(f) => {
                 if f.source > 1 || f.path_key.len() > 1024 {
                     return Err(invalid());
@@ -244,13 +249,17 @@ pub(crate) fn projection_ids<I: IndexStorage>(
     }
     let mut b = Builder {
         fields: BTreeMap::new(),
+        needs_mtime: false,
         params: vec![],
         nodes: 0,
         bytes: 0,
     };
     let predicate = b.predicate(&req.predicate, 0)?;
     let mut params = Vec::new();
-    let joins = b.field_joins(&state.fields, &mut params)?;
+    let mut joins = b.field_joins(&state.fields, &mut params)?;
+    if b.needs_mtime {
+        joins.push_str(" JOIN st_qmtime m ON m.id=q.id");
+    }
     params.append(&mut b.params);
     let after = if let Some(after) = req.after {
         params.push(SqlValue::Blob(after.0.to_vec()));
@@ -319,6 +328,7 @@ pub fn select<I: IndexStorage>(
     }
     let mut b = Builder {
         fields: BTreeMap::new(),
+        needs_mtime: false,
         params: vec![],
         nodes: 0,
         bytes: 0,
@@ -356,55 +366,95 @@ pub fn select<I: IndexStorage>(
     // existing B-tree, rather than the predicate field then a whole-result sort.
     // CROSS JOIN pins loop order; coverage includes explicit Null255, so these
     // are the SAME exact joins/predicate, not a necessary-candidate shortcut.
+    enum Leading {
+        Field(usize, bool),
+        Mtime(bool),
+    }
     let leading = req.order.first().and_then(|term| match &term.column {
-        QueryColumn::Field(field) => b.fields.get(field).map(|n| (*n, term.descending)),
+        QueryColumn::Field(field) => b
+            .fields
+            .get(field)
+            .map(|n| Leading::Field(*n, term.descending)),
+        QueryColumn::Mtime => Some(Leading::Mtime(term.descending)),
         QueryColumn::Path => None,
     });
-    // The final ascending path tie-break. A leading field's index rows carry
-    // the path, so the seek yields the complete order without a sort.
-    let (mut from, final_path) = if let Some((lead, descending)) = leading {
-        let (field, _) = b
-            .fields
-            .iter()
-            .find(|(_, n)| **n == lead)
-            .ok_or_else(invalid)?;
-        if !state.fields.contains(field) {
-            return Err(invalid());
-        }
-        let index = if descending {
-            "st_field_desc"
-        } else {
-            "st_field_asc"
-        };
-        let mut from = format!(
-            " /* generic ordered seek */ FROM st_field f{lead} INDEXED BY {index} CROSS JOIN st_qrecord q ON q.id=f{lead}.id AND f{lead}.source=? AND f{lead}.field=? CROSS JOIN st_rec r ON r.id=q.id"
-        );
-        params.extend([
-            SqlValue::Integer(i64::from(field.source)),
-            SqlValue::Blob(field.path_key.clone()),
-        ]);
-        for (field, n) in &b.fields {
-            if *n == lead {
-                continue;
-            }
+    // The final ascending path tie-break. A leading field's or mtime's index
+    // rows carry the path, so the seek yields the complete order without a sort.
+    let (mut from, final_path) = match leading {
+        Some(Leading::Field(lead, descending)) => {
+            let (field, _) = b
+                .fields
+                .iter()
+                .find(|(_, n)| **n == lead)
+                .ok_or_else(invalid)?;
             if !state.fields.contains(field) {
                 return Err(invalid());
             }
-            from.push_str(&format!(
-                " CROSS JOIN st_field f{n} ON f{n}.id=q.id AND f{n}.source=? AND f{n}.field=?"
-            ));
+            let index = if descending {
+                "st_field_desc"
+            } else {
+                "st_field_asc"
+            };
+            let mut from = format!(
+                " /* generic ordered seek */ FROM st_field f{lead} INDEXED BY {index} CROSS JOIN st_qrecord q ON q.id=f{lead}.id AND f{lead}.source=? AND f{lead}.field=? CROSS JOIN st_rec r ON r.id=q.id"
+            );
             params.extend([
                 SqlValue::Integer(i64::from(field.source)),
                 SqlValue::Blob(field.path_key.clone()),
             ]);
+            for (field, n) in &b.fields {
+                if *n == lead {
+                    continue;
+                }
+                if !state.fields.contains(field) {
+                    return Err(invalid());
+                }
+                from.push_str(&format!(
+                    " CROSS JOIN st_field f{n} ON f{n}.id=q.id AND f{n}.source=? AND f{n}.field=?"
+                ));
+                params.extend([
+                    SqlValue::Integer(i64::from(field.source)),
+                    SqlValue::Blob(field.path_key.clone()),
+                ]);
+            }
+            if b.needs_mtime {
+                from.push_str(" CROSS JOIN st_qmtime m ON m.id=q.id");
+            }
+            (from, format!("f{lead}.path"))
         }
-        (from, format!("f{lead}.path"))
-    } else {
-        let joins = b.field_joins(&state.fields, &mut params)?;
-        (
-            format!(" FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins}"),
-            "q.path".into(),
-        )
+        Some(Leading::Mtime(descending)) => {
+            let index = if descending {
+                "st_qmtime_desc"
+            } else {
+                "st_qmtime_asc"
+            };
+            let mut from = format!(
+                " /* generic ordered seek */ FROM st_qmtime m INDEXED BY {index} CROSS JOIN st_qrecord q ON q.id=m.id CROSS JOIN st_rec r ON r.id=q.id"
+            );
+            for (field, n) in &b.fields {
+                if !state.fields.contains(field) {
+                    return Err(invalid());
+                }
+                from.push_str(&format!(
+                    " CROSS JOIN st_field f{n} ON f{n}.id=q.id AND f{n}.source=? AND f{n}.field=?"
+                ));
+                params.extend([
+                    SqlValue::Integer(i64::from(field.source)),
+                    SqlValue::Blob(field.path_key.clone()),
+                ]);
+            }
+            (from, "m.path".into())
+        }
+        None => {
+            let mut joins = b.field_joins(&state.fields, &mut params)?;
+            if b.needs_mtime {
+                joins.push_str(" JOIN st_qmtime m ON m.id=q.id");
+            }
+            (
+                format!(" FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins}"),
+                "q.path".into(),
+            )
+        }
     };
     if req.after.is_some() {
         from.push_str(" CROSS JOIN c");
@@ -433,18 +483,22 @@ pub fn select<I: IndexStorage>(
             if equal.is_empty() { "" } else { " AND " }
         ));
         after_sql = format!(" AND ({})", terms.join(" OR "));
-        if let Some((lead, descending)) = leading {
+        if let Some(lead) = leading {
+            let (alias, descending) = match lead {
+                Leading::Field(n, desc) => (format!("f{n}"), desc),
+                Leading::Mtime(desc) => ("m".into(), desc),
+            };
             // The inclusive leading-term bound is necessary for every full
             // multi-term continuation. KEEP the exact residual above. With a
             // single ASC term the complete (kind,key,path) bound is exclusive.
             // Scalar references to the one-row CTE let SQLite seek before its
             // nested loops, without extra key copies or caller budget credit.
             if !descending && order.len() == 1 {
-                after_sql.push_str(&format!(" AND (f{lead}.kind,f{lead}.sort,f{lead}.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))"));
+                after_sql.push_str(&format!(" AND ({alias}.kind,{alias}.sort,{alias}.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))"));
             } else {
                 let cmp = if descending { "<=" } else { ">=" };
                 after_sql.push_str(&format!(
-                    " AND (f{lead}.kind,f{lead}.sort) {cmp} ((SELECT k0 FROM c),(SELECT s0 FROM c))"
+                    " AND ({alias}.kind,{alias}.sort) {cmp} ((SELECT k0 FROM c),(SELECT s0 FROM c))"
                 ));
             }
         }

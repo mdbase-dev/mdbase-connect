@@ -29,9 +29,10 @@ pub(super) fn migrate(index: &mut impl IndexStorage) -> StoreResult<()> {
         )));
     }
     // Derived tables a runtime of this schema version may lack; see
-    // `sql_fields::BODY_SCHEMA`.
+    // `sql_fields::BODY_SCHEMA` and `sql_fields::MTIME_SCHEMA`.
     let mut stmts: Vec<_> = crate::sql_fields::BODY_SCHEMA
         .iter()
+        .chain(crate::sql_fields::MTIME_SCHEMA)
         .map(|s| st(s, vec![]))
         .collect();
     if version == VERSION {

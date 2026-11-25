@@ -980,3 +980,79 @@ fn incremental_publication_checks_touched_records_only() {
     assert_eq!(full(), before + 1);
     assert!(!store.query_index_state().unwrap().unwrap().ready);
 }
+
+#[test]
+fn indexed_mtime_ordering_handles_asc_desc_ties_cursors_and_absent_mtime() {
+    let mut rows = vec![
+        row(1, "priority: 1"),
+        row(2, "priority: 2"),
+        row(3, "priority: 3"),
+        row(4, "priority: 4"),
+        row(5, "priority: 5"),
+        row(6, "priority: 6"),
+    ];
+    rows[0].mtime = Some(1_700_000_001_000); // tasks/0001.md: oldest
+    rows[1].mtime = Some(1_700_000_002_000); // tasks/0002.md: tie
+    rows[2].mtime = Some(1_700_000_002_000); // tasks/0003.md: tie
+    rows[3].mtime = Some(1_700_000_003_000); // tasks/0004.md: newest
+    rows[4].mtime = None; // tasks/0005.md: absent (legacy snapshot)
+    rows[5].mtime = None; // tasks/0006.md: absent (tie on null)
+
+    let (store, _, blobs, _, _refs) = open("query_index_mtime", rows.clone(), &["priority"]);
+    assert_eq!(blobs.get(), 0);
+    let state = store.query_index_state().unwrap().unwrap();
+    for (descending, expected_paths) in [
+        (
+            true,
+            vec![
+                "tasks/0005.md",
+                "tasks/0006.md",
+                "tasks/0004.md",
+                "tasks/0002.md",
+                "tasks/0003.md",
+                "tasks/0001.md",
+            ],
+        ),
+        (
+            false,
+            vec![
+                "tasks/0001.md",
+                "tasks/0002.md",
+                "tasks/0003.md",
+                "tasks/0004.md",
+                "tasks/0005.md",
+                "tasks/0006.md",
+            ],
+        ),
+    ] {
+        // Page size 2 crosses null->temporal, distinct->tie, and tie->distinct boundaries.
+        let mut after = None;
+        let mut got = Vec::new();
+        loop {
+            let page = store
+                .query_index_page(&QueryIndexRequest {
+                    generation: state.generation,
+                    head: state.head,
+                    predicate: QueryPredicate::Types(vec!["task".into()]),
+                    order: vec![QueryOrder {
+                        column: QueryColumn::Mtime,
+                        descending,
+                    }],
+                    after,
+                    offset: 0,
+                    limit: 2,
+                    max_key_bytes: 1 << 20,
+                    count_matches: false,
+                })
+                .unwrap()
+                .unwrap();
+            got.extend(page.rows.iter().map(|r| r.path.clone()));
+            if !page.has_more {
+                break;
+            }
+            after = page.rows.last().cloned();
+        }
+        assert_eq!(got, expected_paths, "descending={descending}");
+        assert_eq!(blobs.get(), 0, "selection reads no record blobs");
+    }
+}

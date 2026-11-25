@@ -244,7 +244,7 @@ pub struct QueryStats {
 /// A candidate in the final merge: confirmed (from the index) or layered.
 enum Source {
     Confirmed(Box<RecordRow>),
-    Layered(mdbn_core::state::StoredRecord),
+    Layered(mdbn_core::state::StoredRecord, Option<RecordPosition>),
 }
 
 impl<S: Store> Replica<S> {
@@ -350,6 +350,7 @@ impl<S: Store> Replica<S> {
                     types: &types,
                     frontmatter: doc.frontmatter(),
                     body: Some(doc.body()),
+                    mtime: row.mtime,
                 };
                 if plan.matches(&record, env) == Verdict::Match {
                     if records.len() == limit {
@@ -756,6 +757,7 @@ impl<S: Store> Replica<S> {
                     types: &types,
                     frontmatter: fm,
                     body: Some(doc.body()),
+                    mtime: None,
                 },
                 env,
             );
@@ -851,11 +853,13 @@ impl<S: Store> Replica<S> {
                     let doc = mdbn_core::doc::Document::parse_at(&r.path, &r.doc);
                     let fm = doc.frontmatter().clone();
                     let types = catalog.membership(&r.path, &fm).types;
+                    let mtime = r.mtime;
                     keyed.push((
                         *id,
                         r.path.clone(),
                         fm,
                         types,
+                        mtime,
                         Source::Confirmed(Box::new(r)),
                     ));
                 }
@@ -864,7 +868,20 @@ impl<S: Store> Replica<S> {
                 let doc = mdbn_core::doc::Document::parse_at(&rec.path, &*rec.source);
                 let fm = doc.frontmatter().clone();
                 let types = catalog.membership(&rec.path, &fm).types;
-                keyed.push((id, rec.path.clone(), fm, types, Source::Layered(rec)));
+                let pos = if plan.requirements.mtime {
+                    Some(self.base_position(&id, &mut budget)?)
+                } else {
+                    None
+                };
+                let mtime = pos.and_then(|(_, m)| m);
+                keyed.push((
+                    id,
+                    rec.path.clone(),
+                    fm,
+                    types,
+                    mtime,
+                    Source::Layered(rec, pos),
+                ));
             }
             keyed.sort_by(|a, b| {
                 plan.compare(
@@ -873,12 +890,14 @@ impl<S: Store> Replica<S> {
                         types: &a.3,
                         frontmatter: &a.2,
                         body: None,
+                        mtime: a.4,
                     },
                     &QueryRecord {
                         path: &b.1,
                         types: &b.3,
                         frontmatter: &b.2,
                         body: None,
+                        mtime: b.4,
                     },
                 )
             });
@@ -888,26 +907,29 @@ impl<S: Store> Replica<S> {
                 .take(end - offset.min(end))
                 .collect();
             if merged {
-                merged_frontier = page.last().map(|(id, path, _, _, src)| QueryKeyedId {
+                merged_frontier = page.last().map(|(id, path, _, _, _, src)| QueryKeyedId {
                     id: *id,
                     keys: Vec::new(),
                     path: path.clone(),
                     encoded_bytes: match src {
                         Source::Confirmed(r) => r.doc.len() as u64,
-                        Source::Layered(rec) => rec.source.len() as u64,
+                        Source::Layered(rec, _) => rec.source.len() as u64,
                     },
                 });
             }
             page.into_iter()
-                .map(|(id, _, _, _, src)| match src {
+                .map(|(id, _, _, _, _, src)| match src {
                     Source::Confirmed(r) => Ok(confirmed_view(&r)),
                     // Already charged above; no second read.
-                    Source::Layered(rec) => Ok(record_view(
+                    Source::Layered(rec, pos) => Ok(record_view(
                         catalog,
                         &id,
                         &rec.path,
                         &rec.source,
-                        self.base_position(&id, &mut budget)?,
+                        match pos {
+                            Some(p) => p,
+                            None => self.base_position(&id, &mut budget)?,
+                        },
                         true,
                         include,
                     )),

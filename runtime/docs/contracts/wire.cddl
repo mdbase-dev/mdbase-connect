@@ -1053,7 +1053,7 @@ contract-query-v1 = {
   ? 3: uint,               ; page size 1..1000 (1..128 before contract-query-order-v1), default 128
   ? 4: tstr,               ; session-bound ordinary query cursor
   ? 5: tstr,               ; CEL filter over contract fields, 1..4096 bytes
-  ? 6: [+ { "field": tstr, ? "direction": "asc" / "desc" }], ; spec 11 order_by over contract fields / file.*, 1..8 terms (contract-query-order-v1)
+  ? 6: [+ { "field": tstr, ? "direction": "asc" / "desc" }], ; spec 11 order_by over contract fields / file.*, 1..8 terms (contract-query-order-v1; file.mtime requires contract-query-order-mtime-v1)
 }
 contract-query-result-v1 = {
   0: 1,
