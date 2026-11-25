@@ -175,6 +175,7 @@ impl Store for ProjectionStore {
             if !request.tags {
                 row.tags = None;
             }
+            row.raw_frontmatter = request.full_frontmatter.then(|| self.maps[id].clone());
             page.encoded_bytes += billed;
             page.rows.push(row);
         }

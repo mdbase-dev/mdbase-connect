@@ -121,6 +121,7 @@ fn check_local_source_summaries(
                 property_types: &hints,
                 timezone: "UTC",
                 window,
+                row_properties: None,
             },
             |result| {
                 assert_eq!(result.summaries, summaries);

@@ -96,7 +96,10 @@ support. Do not use a prior session's hello to certify a new session.
 The current Replica producer's marker list is `presence`, `validate-page-v1`
 (`validate` pages, §4), `file-stream-failure-v1`, `bases-discovery-unreadable-v1`
 (app Bases discovery request version 2, which skips and names records it cannot
-classify instead of refusing) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
+classify instead of refusing), `bases-row-properties-v1` (app Bases execute
+request key 7 / response key 10 projected effective row properties and catalog
+types), `contract-query-order-v1` (`query_contract_v1` key 6 `order_by` and
+page sizes up to 1000, §4.1.1) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
 `attachment-v1.materialize` directions when that replica admits them.
 `attachment-v1.write` is not granted by this producer. Directions are not implied
 by the bare codec marker. This source list is not a qualification of a deployed
@@ -700,9 +703,10 @@ contract-query-v1 = {
   0: 1,
   1: tstr,                 ; exact registered contract ID, max 1024 bytes
   2: tstr,                 ; exact resolved version, max 128 bytes
-  ? 3: uint,               ; page size 1..128, default 128
+  ? 3: uint,               ; page size 1..1000 (1..128 before contract-query-order-v1), default 128
   ? 4: tstr,               ; session-bound ordinary query cursor
   ? 5: tstr,               ; CEL filter over contract fields, 1..4096 bytes
+  ? 6: [+ { "field": tstr, ? "direction": "asc" / "desc" }], ; spec 11 order_by over contract fields / file.*, 1..8 terms (contract-query-order-v1)
 }
 contract-query-result-v1 = {
   0: 1,
@@ -726,11 +730,24 @@ the page's query records are filtered to match, `total_count` is omitted, and th
 cursor continues the underlying walk, so a page may hold fewer than the page size.
 Producers before key 5 refuse the envelope (`invalid_request`), never ignore it.
 
-The contract/version/digest (and filter) are included in the ordinary cursor fingerprint;
-all existing session, catalog, head and view-version invalidation rules apply.
-Its pages are path-ordered, so pending local edits never take away its cursor.
-The method selects every type implementing that exact record contract, with a
-128-implementation/128-mapping cap and a fixed 1 MiB projection/response budget.
+Key 6 orders results using the spec 11 `order_by` grammar (`{ "field": tstr, ? "direction": "asc" / "desc" }`,
+1..8 terms) over contract field references and `file.*`, with the same ordering
+semantics and ascending `file.path` tie-break as ordinary record queries. Contract
+fields are resolved through the implementing types' field mappings; if implementing
+types map an ordered contract field to different record fields, the producer
+refuses with `invalid_request` / `contract_order_unsupported`. Replicas that
+support key 6 and page sizes up to 1000 advertise the `contract-query-order-v1`
+`hello` feature; older SDKs continue sending keys 0..5 with page size 1..128,
+and newer SDKs clamp page size to 128 and refuse `orderBy` with
+`upgrade_required` / `contract_query_order_unsupported` against replicas without
+that feature. Producers before key 6 refuse the envelope (`invalid_request`).
+
+The contract/version/digest (and filter and order) are included in the ordinary
+cursor fingerprint; all existing session, catalog, head and view-version
+invalidation rules apply. Path-ordered pages (no `order_by`) merge pending local
+edits and keep their cursor. The method selects every type implementing that exact
+record contract, with a 128-implementation/128-mapping cap, a 1 MiB projection
+copy budget, and a 2 MiB encoded response cap.
 A valid registered contract with no implementations returns a complete empty
 page; a missing contract is `not_found` / `data_contract_not_found`. Invalid
 catalogs are `collection_invalid`. No cursor is fabricated for whole-scan stores:

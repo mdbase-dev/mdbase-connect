@@ -135,6 +135,8 @@ collection:
       const exact = await c.queryContract(contract, { pageSize: 2 });
       expect(exact.records).toHaveLength(2);
       expect(exact.page.hasMore).toBe(false);
+      const ordered = await c.queryContract(contract, { pageSize: 2, orderBy: [{ field: "name", direction: "desc" }] });
+      expect(ordered.records.map(r => r.implementations[0]!.fields.name)).toEqual(["Second", "Projected"]);
     } finally { c.close(); rt.dispose(); }
   });
 

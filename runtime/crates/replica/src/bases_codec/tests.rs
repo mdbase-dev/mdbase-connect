@@ -182,6 +182,7 @@ fn result() -> BasesExecutionResult {
     let cases = data.get("cells").unwrap().as_list().unwrap();
     BasesExecutionResult {
         summaries: vec![],
+        row_properties: None,
         window: None,
         view: BasesViewDescriptor {
             record: B16([0x11; 16]),
@@ -472,4 +473,94 @@ fn unavailable_not_null_maps_sorted_and_nonfinite_is_explicit_error_data() {
             Cbor::Array(vec![Cbor::Uint(8), Cbor::Text("non_finite_number".into())])
         );
     }
+}
+
+#[test]
+fn optional_row_properties_request_and_response_preserve_legacy_shape() {
+    use crate::replica::BasesRowProperties;
+    let data = fixture();
+    let Cbor::Map(base_req) =
+        cbor::decode(&hex(data.get("request_hex").unwrap().as_str().unwrap())).unwrap()
+    else {
+        panic!("map")
+    };
+    // Key 7 alone (without window key 6).
+    let mut only_props = base_req.clone();
+    only_props.push((
+        Cbor::Uint(7),
+        Cbor::Array(vec![
+            Cbor::Text("title".into()),
+            Cbor::Text("status".into()),
+        ]),
+    ));
+    let decoded = Request::decode(&cbor::encode(&Cbor::Map(only_props)).unwrap()).unwrap();
+    assert!(decoded.window.is_none());
+    assert_eq!(
+        decoded.row_properties,
+        Some(vec!["title".into(), "status".into()])
+    );
+    // Both key 6 (window) and key 7 (row_properties).
+    let mut both = base_req.clone();
+    both.push((
+        Cbor::Uint(6),
+        Cbor::Map(vec![
+            (Cbor::Uint(0), Cbor::Uint(0)),
+            (Cbor::Uint(1), Cbor::Uint(50)),
+        ]),
+    ));
+    both.push((Cbor::Uint(7), Cbor::Array(vec![])));
+    let decoded = Request::decode(&cbor::encode(&Cbor::Map(both)).unwrap()).unwrap();
+    assert_eq!(
+        decoded.window,
+        Some(BasesExecutionWindow {
+            offset: 0,
+            limit: 50
+        })
+    );
+    assert_eq!(decoded.row_properties, Some(vec![]));
+    // Duplicates, empty name, or >128 names are refused.
+    for bad in [
+        vec![Cbor::Text("".into())],
+        vec![Cbor::Text("a".into()), Cbor::Text("a".into())],
+        (0..129).map(|i| Cbor::Text(format!("f{i}"))).collect(),
+    ] {
+        let mut req = base_req.clone();
+        req.push((Cbor::Uint(7), Cbor::Array(bad)));
+        assert!(Request::decode(&cbor::encode(&Cbor::Map(req)).unwrap()).is_err());
+    }
+    // Legacy result without row_properties stays byte-for-byte identical.
+    let mut output = result();
+    assert_eq!(
+        encode(&output).unwrap(),
+        hex(data.get("success_hex").unwrap().as_str().unwrap())
+    );
+    // Result with row_properties encodes key 10 aligned 1-to-1 with rows.
+    output.row_properties = Some(vec![BasesRowProperties {
+        types: vec!["task".into()],
+        properties: mdbn_wire::common::DataMap(vec![(
+            "title".into(),
+            mdbn_wire::common::Value::Text("Example".into()),
+        )]),
+    }]);
+    let encoded = encode(&output).unwrap();
+    let Cbor::Map(fields) = cbor::decode(&encoded).unwrap() else {
+        panic!("map")
+    };
+    let entry = fields
+        .iter()
+        .find(|(k, _)| *k == Cbor::Uint(10))
+        .expect("key 10 present");
+    assert_eq!(
+        entry.1,
+        Cbor::Array(vec![Cbor::Array(vec![
+            Cbor::Array(vec![Cbor::Text("task".into())]),
+            Cbor::Map(vec![(
+                Cbor::Text("title".into()),
+                Cbor::Text("Example".into())
+            )]),
+        ])])
+    );
+    // Mismatched row_properties length is rejected before publication.
+    output.row_properties = Some(vec![]);
+    assert!(encode(&output).is_err());
 }

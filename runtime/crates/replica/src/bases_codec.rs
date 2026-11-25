@@ -57,6 +57,7 @@ struct Request {
     hints: BTreeMap<String, String>,
     zone: String,
     window: Option<BasesExecutionWindow>,
+    row_properties: Option<Vec<String>>,
 }
 fn text<'a>(r: &mut Reader<'a>, max: usize) -> ApiResult<&'a str> {
     let n = usize::try_from(r.arg(3).map_err(|_| invalid())?).map_err(|_| invalid())?;
@@ -72,7 +73,7 @@ impl Request {
         }
         let mut r = Reader { bytes, pos: 0 };
         let fields = r.arg(5).map_err(|_| invalid())?;
-        if fields != 6 && fields != 7 {
+        if !(6..=8).contains(&fields) {
             return Err(invalid());
         }
         r.field(0).map_err(|_| invalid())?;
@@ -105,22 +106,56 @@ impl Request {
         if text(&mut r, 64)? != PROFILE {
             return Err(invalid());
         }
-        let window = if fields == 7 {
-            r.field(6).map_err(|_| invalid())?;
-            if r.arg(5).map_err(|_| invalid())? != 2 {
+        let mut window = None;
+        let mut row_properties = None;
+        let mut prev_key = 5u64;
+        for _ in 6..fields {
+            let key = r.arg(0).map_err(|_| invalid())?;
+            if key <= prev_key {
                 return Err(invalid());
             }
-            r.field(0).map_err(|_| invalid())?;
-            let offset = u32::try_from(r.arg(0).map_err(|_| invalid())?).map_err(|_| invalid())?;
-            r.field(1).map_err(|_| invalid())?;
-            let limit = u32::try_from(r.arg(0).map_err(|_| invalid())?).map_err(|_| invalid())?;
-            if limit == 0 || limit > 65_536 {
-                return Err(invalid());
+            prev_key = key;
+            match key {
+                6 => {
+                    if r.arg(5).map_err(|_| invalid())? != 2 {
+                        return Err(invalid());
+                    }
+                    r.field(0).map_err(|_| invalid())?;
+                    let offset =
+                        u32::try_from(r.arg(0).map_err(|_| invalid())?).map_err(|_| invalid())?;
+                    r.field(1).map_err(|_| invalid())?;
+                    let limit =
+                        u32::try_from(r.arg(0).map_err(|_| invalid())?).map_err(|_| invalid())?;
+                    if limit == 0 || limit > 65_536 {
+                        return Err(invalid());
+                    }
+                    window = Some(BasesExecutionWindow { offset, limit });
+                }
+                7 => {
+                    let count =
+                        usize::try_from(r.arg(4).map_err(|_| invalid())?).map_err(|_| invalid())?;
+                    if count > crate::replica::MAX_ROW_PROPERTIES {
+                        return Err(invalid());
+                    }
+                    let mut names = Vec::with_capacity(count);
+                    let mut seen = std::collections::BTreeSet::new();
+                    let mut prop_bytes = 0usize;
+                    for _ in 0..count {
+                        let name = text(&mut r, crate::replica::MAX_ROW_PROPERTY_NAME)?;
+                        if name.is_empty() || !seen.insert(name) {
+                            return Err(invalid());
+                        }
+                        prop_bytes = prop_bytes.checked_add(name.len()).ok_or_else(invalid)?;
+                        if prop_bytes > crate::replica::MAX_ROW_PROPERTY_BYTES {
+                            return Err(invalid());
+                        }
+                        names.push(name.to_owned());
+                    }
+                    row_properties = Some(names);
+                }
+                _ => return Err(invalid()),
             }
-            Some(BasesExecutionWindow { offset, limit })
-        } else {
-            None
-        };
+        }
         if r.pos != bytes.len() {
             return Err(invalid());
         }
@@ -133,6 +168,7 @@ impl Request {
             hints,
             zone,
             window,
+            row_properties,
         })
     }
 }
@@ -319,7 +355,9 @@ impl Writer {
         }
         summaries::admit(&result.summaries)?;
         self.map(
-            7 + usize::from(result.window.is_some()) + usize::from(!result.summaries.is_empty()),
+            7 + usize::from(result.window.is_some())
+                + usize::from(!result.summaries.is_empty())
+                + usize::from(result.row_properties.is_some()),
         )?;
         self.uint(0)?;
         self.uint(1)?;
@@ -441,6 +479,26 @@ impl Writer {
                 self.value(value, 1)?;
             }
         }
+        if let Some(row_props) = &result.row_properties {
+            if row_props.len() != result.rows.len() {
+                return Err(too_large());
+            }
+            self.uint(10)?;
+            self.array(row_props.len())?;
+            for entry in row_props {
+                if entry.types.len() > MAX_ITEMS
+                    || entry.properties.0.len() > crate::replica::MAX_ROW_PROPERTIES
+                {
+                    return Err(too_large());
+                }
+                self.array(2)?;
+                self.array(entry.types.len())?;
+                for type_name in &entry.types {
+                    self.text(type_name)?;
+                }
+                self.wire(&entry.properties)?;
+            }
+        }
         Ok(())
     }
     fn descriptor(&mut self, view: &crate::replica::BasesViewDescriptor) -> ApiResult<()> {
@@ -548,6 +606,7 @@ impl<S: Store> Replica<S> {
                 property_types: &request.hints,
                 timezone: &request.zone,
                 window: request.window,
+                row_properties: request.row_properties.as_deref(),
             },
             measure,
             encode_sized,

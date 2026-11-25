@@ -143,7 +143,8 @@ fn invalid_window_and_unknown_session_refuse_before_any_key_or_display_scan() {
                 window: Some(BasesExecutionWindow {
                     offset: 0,
                     limit: 200
-                })
+                }),
+                row_properties: None,
             },
             |_| panic!("must not measure"),
             |_, _| panic!("must not encode")

@@ -140,6 +140,7 @@ fn contract_page(
             version: version.into(),
             limit: 128,
             cursor,
+            order_by: None,
         },
     )
 }
@@ -341,6 +342,7 @@ fn contract_query_refuses_unindexed_full_windows_and_checks_session_and_selectio
                 version: "1.0.0".into(),
                 limit: 1,
                 cursor: None,
+                order_by: None,
             }
         )
         .unwrap_err()
@@ -370,8 +372,9 @@ fn contract_query_refuses_unindexed_full_windows_and_checks_session_and_selectio
                 where_: None,
                 contract: "acme.task".into(),
                 version: "1.0.0".into(),
-                limit: 129,
-                cursor: None
+                limit: 1001,
+                cursor: None,
+                order_by: None,
             }
         )
         .unwrap_err()
@@ -686,6 +689,7 @@ fn contract_query_filters_on_contract_fields() {
                 version: "1.0.0".into(),
                 limit,
                 cursor,
+                order_by: None,
             },
         )
     };
@@ -707,6 +711,82 @@ fn contract_query_filters_on_contract_fields() {
             .reason
             .as_deref(),
         Some("invalid_query")
+    );
+}
+
+#[test]
+fn contract_query_orders_by_mapped_field_and_rejects_heterogeneous_or_invalid_order() {
+    let (_, mut a) = configured(resources());
+    a.create(1, "rows/a.md", "---\ntype: Zebra\ncompleted: false\n---\n");
+    a.create(2, "rows/b.md", "---\ntype: Zebra\ncompleted: true\n---\n");
+    a.create(3, "rows/c.md", "---\ntype: Zebra\ncompleted: false\n---\n");
+    settle(&mut [&mut a]);
+    let order = |field: &str, dir: &str| {
+        Value::List(vec![Value::Map(vec![
+            ("field".into(), Value::Text(field.into())),
+            ("direction".into(), Value::Text(dir.into())),
+        ])])
+    };
+    let run = |a: &mut Node, order_by: Option<Value>, limit: u32| {
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit,
+                cursor: None,
+                where_: None,
+                order_by,
+            },
+        )
+    };
+    // `done` maps to `completed`; DESC puts true (`b.md`) before false (`a.md`, `c.md`),
+    // with ascending `file.path` tie-break. Larger page sizes (up to 1000) are admitted.
+    let desc = run(&mut a, Some(order("done", "desc")), 500).unwrap();
+    let paths: Vec<_> = desc.page.records.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(paths, ["rows/b.md", "rows/a.md", "rows/c.md"]);
+    let path_desc = run(&mut a, Some(order("file.path", "desc")), 1000).unwrap();
+    let desc_paths: Vec<_> = path_desc
+        .page
+        .records
+        .iter()
+        .map(|r| r.path.as_str())
+        .collect();
+    assert_eq!(desc_paths, ["rows/c.md", "rows/b.md", "rows/a.md"]);
+    // Invalid order terms fail with `invalid_query`.
+    for bad in [
+        Value::List(vec![]),
+        Value::Text("done".into()),
+        order("raw.completed", "asc"),
+        order("done", "sideways"),
+    ] {
+        assert_eq!(
+            run(&mut a, Some(bad), 128)
+                .unwrap_err()
+                .problem()
+                .reason
+                .as_deref(),
+            Some("invalid_query")
+        );
+    }
+    // A second implementing type mapping `done` to a different record field refuses explicitly.
+    let mut mixed = resources();
+    mixed.push((
+        "_types/other.md".to_string(),
+        "---\nkind: mdbase.type\nname: Other\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      finished: { type: boolean }\nimplements:\n  - contract: acme.task\n    version: '1.0.0'\n    fields: {'/done': '/finished'}\n---\n"
+            .into(),
+    ));
+    let (_, mut b) = configured(mixed);
+    b.create(1, "rows/x.md", "---\ntype: Zebra\ncompleted: true\n---\n");
+    b.create(2, "rows/y.md", "---\ntype: Other\nfinished: false\n---\n");
+    settle(&mut [&mut b]);
+    assert_eq!(
+        run(&mut b, Some(order("done", "desc")), 128)
+            .unwrap_err()
+            .problem()
+            .reason
+            .as_deref(),
+        Some("contract_order_unsupported")
     );
 }
 

@@ -79,6 +79,7 @@ fn projected(svc: &FakeLogService, a: Node) -> Replica<ProjectionStore> {
                     source_bytes: row.doc.len() as u64,
                     fields: Vec::<RawField>::new(),
                     tags: capture_source_tags(&doc, &mut WorkBudget::new()).unwrap(),
+                    raw_frontmatter: None,
                 },
             );
         }

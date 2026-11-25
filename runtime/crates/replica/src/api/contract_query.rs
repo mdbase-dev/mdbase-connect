@@ -10,7 +10,7 @@ pub struct ContractQuery {
     pub contract: String,
     /// Exact resolved version.
     pub version: String,
-    /// Page size, 1–128.
+    /// Page size, 1–1000 (1–128 on producers before `contract-query-order-v1`).
     pub limit: u32,
     /// Ordinary session-bound query continuation.
     pub cursor: Option<String>,
@@ -18,6 +18,11 @@ pub struct ContractQuery {
     /// non-matching projections and records left without one are dropped, so
     /// a filtered page may hold fewer than `limit` records.
     pub where_: Option<String>,
+    /// Spec 11 `order_by` terms reusing the record query's ordering grammar and
+    /// semantics (`[{ "field": tstr, ? "direction": "asc" | "desc" }]`), bound
+    /// to the cursor. Contract fields are resolved through implementing types'
+    /// mappings; `file.path` and `file.*` refer to the record's file.
+    pub order_by: Option<Value>,
 }
 /// One resolved type's canonical projection, including invalid data for inspection.
 #[derive(Debug, Clone)]

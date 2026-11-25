@@ -113,6 +113,7 @@ fn summary_evaluation_failure_suppresses_the_whole_native_result_and_codec() {
                     property_types: &hints,
                     timezone: "UTC",
                     window,
+                    row_properties: None,
                 },
                 |_| panic!("bad reduction must never reach measurement"),
                 |_, _| panic!("bad reduction must never reach encoding")

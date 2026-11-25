@@ -14,6 +14,7 @@ fn request(store: &SqlStore<Trace>) -> QueryProjectionRequest {
         max_bytes: 1 << 20,
         fields: vec!["missing".into(), "priority".into()],
         tags: true,
+        full_frontmatter: false,
     }
 }
 
@@ -514,6 +515,7 @@ fn raw_metadata_limit_preserves_rows_without_sqlite_reprepare() {
                 max_bytes: 1 << 20,
                 fields: vec!["missing".into(), "priority".into()],
                 tags: true,
+                full_frontmatter: false,
             };
             let page = store.query_projection_page(&req).unwrap();
             page.check(&req).unwrap();

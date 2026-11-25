@@ -212,9 +212,13 @@ fn contract_query_frame_requires_exact_version_one_envelope() {
     let mut wrong_version = base.clone();
     wrong_version[0].1 = Cbor::Uint(2);
     let mut extra = base.clone();
-    extra.push((Cbor::Uint(5), Cbor::Bool(true)));
+    extra.push((Cbor::Uint(7), Cbor::Bool(true)));
+    let mut invalid_where = base.clone();
+    invalid_where.push((Cbor::Uint(5), Cbor::Bool(true)));
+    let mut invalid_order = base.clone();
+    invalid_order.push((Cbor::Uint(6), Cbor::Bool(true)));
     let mut invalid_limit = base.clone();
-    invalid_limit.push((Cbor::Uint(3), Cbor::Uint(129)));
+    invalid_limit.push((Cbor::Uint(3), Cbor::Uint(1001)));
     let mut invalid_cursor = base.clone();
     invalid_cursor.push((Cbor::Uint(4), Cbor::Uint(7)));
     let mut missing_version = base.clone();
@@ -222,6 +226,8 @@ fn contract_query_frame_requires_exact_version_one_envelope() {
     for (index, params) in [
         wrong_version,
         extra,
+        invalid_where,
+        invalid_order,
         invalid_limit,
         invalid_cursor,
         missing_version,

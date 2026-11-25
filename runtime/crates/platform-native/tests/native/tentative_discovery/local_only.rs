@@ -96,6 +96,7 @@ fn open_rows(app: &mut App, session: SessionId) -> Vec<B16> {
             property_types: &hints,
             timezone: "UTC",
             window: None,
+            row_properties: None,
         },
         |result| {
             assert_eq!(result.view.record, SOURCE_ID);

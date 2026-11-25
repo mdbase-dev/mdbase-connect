@@ -315,6 +315,7 @@ fn contract_page(
             version: "1.0.0".into(),
             limit: 128,
             cursor,
+            order_by: None,
         },
     )
 }

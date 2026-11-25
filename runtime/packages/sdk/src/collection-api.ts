@@ -77,7 +77,7 @@ export { fileGrant } from "./files.js";
 export type { FileAction, FileGrant, FileScope } from "./files.js";
 export type { AuthorRef, HistoryOptions, HistoryVersion, RecordHistory, RecordVersion, VersionKind } from "./history.js";
 export { PresenceApi } from "./presence.js";
-export type { ContractRef, ContractProjection, ContractQueryRecord, ContractQueryResult, ContractQueryOptions } from "./contract-query.js";
+export type { ContractRef, ContractOrderTerm, ContractProjection, ContractQueryRecord, ContractQueryResult, ContractQueryOptions } from "./contract-query.js";
 export type { ContractSelector, ContractIdentity, ContractRecordView } from "./contract-records.js";
 export type {
   TypePackAction, TypePackApplyResult, TypePackConflict, TypePackOptions, TypePackPlan, TypePackProvision,

@@ -20,6 +20,7 @@ fn read(app: &mut App, session: SessionId) -> Vec<B16> {
             property_types: &hints,
             timezone: "UTC",
             window: None,
+            row_properties: None,
         },
         |result| {
             rows = result.rows.iter().map(|row| row.record).collect();

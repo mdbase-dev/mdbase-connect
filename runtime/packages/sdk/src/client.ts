@@ -229,6 +229,8 @@ function accountSecret(secret: Uint8Array): void {
 /** The `hello` feature that lets `validate` page through every record. */
 const VALIDATE_PAGE = "validate-page-v1";
 const BASES_DISCOVERY_UNREADABLE = "bases-discovery-unreadable-v1";
+const BASES_ROW_PROPERTIES = "bases-row-properties-v1";
+const CONTRACT_QUERY_ORDER = "contract-query-order-v1";
 
 function params(entries: [number, CborValue | undefined][]): Map<number, CborValue> {
   const m = new Map<number, CborValue>();
@@ -736,7 +738,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE, BASES_DISCOVERY_UNREADABLE])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE, BASES_DISCOVERY_UNREADABLE, BASES_ROW_PROPERTIES, CONTRACT_QUERY_ORDER])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1349,17 +1351,39 @@ export class MdbaseClient {
   }
 
   /** Canonical contract projections with validation issues and ordinary cursor
-   * metadata. Positive page sizes above the producer's 128-record maximum clamp
-   * to 128; use the returned cursor for the remaining records. Old producers
-   * refuse; there is no SDK projection fallback. */
+   * metadata. Positive page sizes clamp to the producer's maximum (1000 when
+   * `contract-query-order-v1` is negotiated, 128 on older producers); use the
+   * returned cursor for the remaining records. `orderBy` uses the spec 11
+   * `order_by` grammar over contract fields and `file.*`, bound to the cursor;
+   * older producers refuse `orderBy` with `upgrade_required`. */
   async queryContract(contract: ContractRef, options: ContractQueryOptions = {}): Promise<ContractQueryResult> {
     const requested = options.pageSize ?? 128;
     if (!Number.isInteger(requested) || requested < 1 || !contract.id || contract.id.length > 1024 || !contract.version || contract.version.length > 128
       || (options.where !== undefined && (!options.where || options.where.length > 4096)))
       throw mdbaseError("invalid_request", "invalid contract page selection");
-    const limit = Math.min(requested, 128);
+    let orderWire: CborValue | undefined;
+    if (options.orderBy !== undefined) {
+      if (!Array.isArray(options.orderBy) || options.orderBy.length < 1 || options.orderBy.length > 8)
+        throw mdbaseError("invalid_request", "invalid contract order_by", "invalid_query");
+      const terms: { field: string; direction?: "asc" | "desc" }[] = [];
+      for (const term of options.orderBy) {
+        if (!term || typeof term !== "object" || Array.isArray(term))
+          throw mdbaseError("invalid_request", "invalid contract order_by term", "invalid_query");
+        const keys = Object.keys(term);
+        if (keys.some(k => k !== "field" && k !== "direction") || typeof term.field !== "string" || !term.field || term.field.length > 256
+          || (term.direction !== undefined && term.direction !== "asc" && term.direction !== "desc"))
+          throw mdbaseError("invalid_request", "invalid contract order_by term", "invalid_query");
+        terms.push(term.direction === undefined ? { field: term.field } : { field: term.field, direction: term.direction });
+      }
+      orderWire = toValue(terms);
+    }
+    const session = await this.readyForRead(options.signal);
+    const extended = session.hello.features.includes(CONTRACT_QUERY_ORDER);
+    if (orderWire !== undefined && !extended)
+      throw mdbaseError("upgrade_required", "This replica does not support ordered contract queries.", "contract_query_order_unsupported");
+    const limit = Math.min(requested, extended ? 1000 : 128);
     const result = await this.call("query_contract_v1", params([
-      [0, 1], [1, contract.id], [2, contract.version], [3, limit], [4, options.cursor], [5, options.where],
+      [0, 1], [1, contract.id], [2, contract.version], [3, limit], [4, options.cursor], [5, options.where], [6, orderWire],
     ]), { codec: contractQueryResult, retry: true, ...(options.signal ? { signal: options.signal } : {}) });
     if (result.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract query result", "contract_query_version");
     if (result.records.length !== result.page.records.length || result.records.some((record, i) => record.id !== result.page.records[i]?.id))
@@ -1855,15 +1879,21 @@ export class MdbaseClient {
 
   /** Independent native app-host Bases READ, exact original held session.
    * Unsupported transports refuse: no generic execute_view/data fallback.
+   * Passing `request.rowProperties` projects catalog `types` and those effective
+   * frontmatter properties onto each returned row in the same read; older
+   * replicas without `bases-row-properties-v1` refuse with `upgrade_required`.
    * `o.signal` cancels the read. */
   async executeAppBases(request: AppBasesRequest, o: ReadOptions = {}): Promise<AppBasesResult> {
     const signal = o.signal;
     const window = request.window === undefined ? null : {...request.window};
-    const bytes = encodeAppBasesRequest({...request, ...(window === null ? {} : {window})});
+    const rowProperties = request.rowProperties === undefined ? undefined : [...request.rowProperties];
+    const bytes = encodeAppBasesRequest({...request, ...(window === null ? {} : {window}), ...(rowProperties === undefined ? {} : {rowProperties})});
     const session = await this.readyForRead(signal);
+    if (rowProperties !== undefined && !session.hello.features.includes(BASES_ROW_PROPERTIES))
+      throw mdbaseError("upgrade_required", "This replica does not support projected Bases row properties.", "bases_row_properties_unsupported");
     const reply = await session.readAppBases(bytes, signal);
     if (session !== this.session || session.closed || this.readFencedAt !== null) throw mdbaseError("unavailable", "original Bases session is no longer current");
-    try { return decodeAppBasesResult(reply, window); }
+    try { return decodeAppBasesResult(reply, window, rowProperties ?? null); }
     catch (error) { throw schemaToError(error, "app Bases result"); }
   }
 

@@ -180,6 +180,7 @@ fn contract_request(cursor: Option<String>) -> ContractQuery {
         version: "2.0.0".into(),
         limit: 2,
         cursor,
+        order_by: None,
     }
 }
 
@@ -263,10 +264,122 @@ fn native_contract_query_has_real_indexed_complete_pages_and_exact_projection_bi
             "people/4.md"
         ]
     );
+    // Ordered contract query over the real SQLite `st_field` index: contract
+    // field `name` maps to record field `full_name`.
+    let desc_order = Value::List(vec![Value::Map(vec![
+        ("field".into(), Value::Text("name".into())),
+        ("direction".into(), Value::Text("desc".into())),
+    ])]);
+    let asc_order = Value::List(vec![Value::Map(vec![
+        ("field".into(), Value::Text("name".into())),
+        ("direction".into(), Value::Text("asc".into())),
+    ])]);
+    let o1 = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: None,
+                where_: None,
+                order_by: Some(desc_order.clone()),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        o1.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["people/4.md", "people/3.md"]
+    );
+    let cursor = o1.page.cursor.clone().expect("ordered keyset cursor");
+    // Changing `order_by` with the same cursor is refused explicitly.
+    let mismatch = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: Some(cursor.clone()),
+                where_: None,
+                order_by: Some(asc_order),
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        mismatch.problem().reason.as_deref(),
+        Some("invalid_query_cursor")
+    );
+    // Continuing with the same `order_by` resumes in exact DESC order.
+    let o2 = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: Some(cursor),
+                where_: None,
+                order_by: Some(desc_order.clone()),
+            },
+        )
+        .unwrap();
+    let o3 = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: o2.page.cursor.clone(),
+                where_: None,
+                order_by: Some(desc_order.clone()),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        [&o1, &o2, &o3]
+            .into_iter()
+            .flat_map(|p| p.page.records.iter().map(|r| r.path.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            "people/4.md",
+            "people/3.md",
+            "people/2.md",
+            "people/1.md",
+            "people/0.md"
+        ]
+    );
+    assert!(o3.page.cursor.is_none());
+    // Larger page sizes (up to 1000) fetch all 5 records in one ordered call.
+    let all_desc = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 500,
+                cursor: None,
+                where_: None,
+                order_by: Some(desc_order),
+            },
+        )
+        .unwrap();
+    assert_eq!(all_desc.page.records.len(), 5);
+    assert!(all_desc.page.cursor.is_none());
     assert_eq!(
         rep.replica_ref().query_stats().indexed,
-        3,
-        "actual maintained SQLite path, not a fake cursor"
+        7,
+        "actual maintained SQLite path for both path-ordered and field-ordered contract pages"
     );
     let _ = std::fs::remove_dir_all(root);
 }

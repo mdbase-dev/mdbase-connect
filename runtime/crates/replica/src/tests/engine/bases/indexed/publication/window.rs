@@ -9,6 +9,7 @@ fn request<'a>(source: &str, hints: &'a BTreeMap<String, String>) -> BasesReadRe
             offset: 0,
             limit: 2,
         }),
+        row_properties: None,
     }
 }
 #[test]

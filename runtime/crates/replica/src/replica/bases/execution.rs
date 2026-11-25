@@ -11,9 +11,14 @@ mod run;
 mod tags;
 pub use run::{
     BasesExecutionGroup, BasesExecutionPolicies, BasesExecutionResult, BasesExecutionRow,
+    BasesRowProperties,
 };
 mod window;
-pub use window::{BasesExecutionWindow, BasesGroupPlacement, BasesReadRequest, BasesWindowInfo};
+pub(crate) use window::check_row_properties;
+pub use window::{
+    BasesExecutionWindow, BasesGroupPlacement, BasesReadRequest, BasesWindowInfo,
+    MAX_ROW_PROPERTIES, MAX_ROW_PROPERTY_BYTES, MAX_ROW_PROPERTY_NAME,
+};
 /// Identity/source CAS and source declaration ordinal. Names are not identities.
 #[derive(Clone, Copy)]
 pub struct BasesViewSelection {

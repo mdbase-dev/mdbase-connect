@@ -514,6 +514,7 @@ impl<S: Store> Replica<S> {
             max_bytes,
             fields,
             tags,
+            full_frontmatter: false,
         };
         request
             .check()

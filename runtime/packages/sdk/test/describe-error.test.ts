@@ -119,6 +119,7 @@ describe("describeError", () => {
     "declared_setup_unsupported", "resource_setup_unsupported", "type_packs_unsupported",
     "describe_definitions_unsupported", "contract_records_unsupported", "record_links_unsupported", "backlinks_unsupported", "resolve_links_unsupported",
     "change_entity_unsupported", "timer_operation_recovery_unavailable", "contract_query_version",
+    "contract_query_order_unsupported", "bases_row_properties_unsupported",
     "unsupported_push_version",
   ])("describes compatibility detail %s as an actionable update, including Private collection problems", (code) => {
     const update = describeError("upgrade_required")!;

@@ -28,8 +28,9 @@ pub use discovery::{
 };
 pub use execution::{
     BasesExecutionGroup, BasesExecutionPolicies, BasesExecutionResult, BasesExecutionRow,
-    BasesExecutionWindow, BasesGroupPlacement, BasesReadRequest, BasesViewSelection,
-    BasesWindowInfo, CapturedBasesExecutionInputs,
+    BasesExecutionWindow, BasesGroupPlacement, BasesReadRequest, BasesRowProperties,
+    BasesViewSelection, BasesWindowInfo, CapturedBasesExecutionInputs, MAX_ROW_PROPERTIES,
+    MAX_ROW_PROPERTY_BYTES, MAX_ROW_PROPERTY_NAME,
 };
 /// Resolved implementation identity. Passive metadata grants no execution.
 #[derive(Clone)]

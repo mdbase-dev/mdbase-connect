@@ -11,7 +11,15 @@ pub(super) struct Context<'a> {
     pub snapshot: &'a QueryProjectionState,
     pub fence: &'a BasesReadFence,
     pub links: &'a BasesLinkMemo,
+    pub row_properties: Option<&'a [String]>,
 }
+pub(super) struct RenderedWindow {
+    pub rows: Vec<BasesExecutionRow>,
+    pub groups: Vec<BasesExecutionGroup>,
+    pub window: Option<BasesWindowInfo>,
+    pub row_properties: Option<Vec<BasesRowProperties>>,
+}
+
 pub(super) fn render<S: Store>(
     replica: &mut Replica<S>,
     context: Context<'_>,
@@ -20,11 +28,7 @@ pub(super) fn render<S: Store>(
     groups: Vec<BasesExecutionGroup>,
     ledger: &mut IncrementalBasesBudget,
     check_cancelled: &dyn Fn() -> bool,
-) -> ApiResult<(
-    Vec<BasesExecutionRow>,
-    Vec<BasesExecutionGroup>,
-    Option<BasesWindowInfo>,
-)> {
+) -> ApiResult<RenderedWindow> {
     let total = u32::try_from(order.len()).map_err(|_| invalid())?;
     if total > 65_536 {
         return Err(invalid());
@@ -62,7 +66,11 @@ pub(super) fn render<S: Store>(
         .copied()
         .filter(|id| !replica.layer.touches(&crate::convert::uuid(id)))
         .collect::<Vec<_>>();
+    let full_frontmatter = context.row_properties.is_some();
     let mut rows = (0..chosen.len()).map(|_| None).collect::<Vec<_>>();
+    let mut row_props: Option<Vec<Option<BasesRowProperties>>> = context
+        .row_properties
+        .map(|_| (0..chosen.len()).map(|_| None).collect());
     for (id, (local, index)) in &wanted {
         if !replica.layer.touches(&crate::convert::uuid(id)) {
             continue;
@@ -74,6 +82,7 @@ pub(super) fn render<S: Store>(
                 *id,
                 &context.requirements.fields,
                 context.requirements.tags,
+                full_frontmatter,
                 ledger,
             )?
             .ok_or_else(invalid)?;
@@ -83,6 +92,16 @@ pub(super) fn render<S: Store>(
             || row.source_bytes != *source_bytes
         {
             return Err(invalid());
+        }
+        if let (Some(requested), Some(out)) = (context.row_properties, row_props.as_mut()) {
+            let raw_fm = row.raw_frontmatter.as_ref().ok_or_else(invalid)?;
+            out[*local] = Some(ownership::project_row_properties(
+                replica.bases_read_catalog(),
+                &row.path,
+                raw_fm,
+                requested,
+                ledger,
+            )?);
         }
         let projected = replica
             .with_bases_links(context.links, |links| {
@@ -151,6 +170,7 @@ pub(super) fn render<S: Store>(
                     bases_records: Some(remaining.to_vec()),
                     fields: context.requirements.fields.clone(),
                     tags: context.requirements.tags,
+                    full_frontmatter,
                     after: None,
                     limit: remaining.len() as u32,
                     max_bytes: 1 << 20,
@@ -176,6 +196,16 @@ pub(super) fn render<S: Store>(
                     || rows[local].is_some()
                 {
                     return Err(invalid());
+                }
+                if let (Some(requested), Some(out)) = (context.row_properties, row_props.as_mut()) {
+                    let raw_fm = row.raw_frontmatter.as_ref().ok_or_else(invalid)?;
+                    out[local] = Some(ownership::project_row_properties(
+                        replica.bases_read_catalog(),
+                        &row.path,
+                        raw_fm,
+                        requested,
+                        ledger,
+                    )?);
                 }
                 // Same previously-admitted inventory identity. Source cardinality
                 // isn't doubled; work and retained projection are charged AGAIN.
@@ -231,6 +261,14 @@ pub(super) fn render<S: Store>(
         .into_iter()
         .map(|row| row.ok_or_else(invalid))
         .collect::<ApiResult<Vec<_>>>()?;
+    let row_properties = row_props
+        .map(|items| {
+            items
+                .into_iter()
+                .map(|item| item.ok_or_else(invalid))
+                .collect::<ApiResult<Vec<_>>>()
+        })
+        .transpose()?;
     let mut visible = Vec::new();
     let mut placements = Vec::new();
     for (ordinal, group) in groups.into_iter().enumerate() {
@@ -269,13 +307,139 @@ pub(super) fn render<S: Store>(
             });
         }
     }
-    Ok((
+    Ok(RenderedWindow {
         rows,
-        visible,
-        Some(BasesWindowInfo {
+        groups: visible,
+        window: Some(BasesWindowInfo {
             request: context.request,
             total_rows: total,
             groups: placements,
         }),
-    ))
+        row_properties,
+    })
+}
+
+/// Hydrate projected effective properties + catalog types for unwindowed output
+/// rows using the same batched `st_qraw` / pending raw projection path as
+/// windowed execution (zero document-body reads).
+pub(super) fn hydrate_row_properties<S: Store>(
+    replica: &mut Replica<S>,
+    rows: &[BasesExecutionRow],
+    requested: &[String],
+    snapshot: &QueryProjectionState,
+    fence: &BasesReadFence,
+    ledger: &mut IncrementalBasesBudget,
+    check_cancelled: &dyn Fn() -> bool,
+) -> ApiResult<Vec<BasesRowProperties>> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+    let wanted = rows
+        .iter()
+        .enumerate()
+        .map(|(local, row)| (row.record, local))
+        .collect::<BTreeMap<_, _>>();
+    if wanted.len() != rows.len() {
+        return Err(invalid());
+    }
+    let ids = wanted
+        .keys()
+        .copied()
+        .filter(|id| !replica.layer.touches(&crate::convert::uuid(id)))
+        .collect::<Vec<_>>();
+    let mut out: Vec<Option<BasesRowProperties>> = (0..rows.len()).map(|_| None).collect();
+    for (id, local) in &wanted {
+        if !replica.layer.touches(&crate::convert::uuid(id)) {
+            continue;
+        }
+        cancelled(check_cancelled)?;
+        replica.recheck_bases_read_capture(fence)?;
+        let row = replica
+            .bases_pending_projection(*id, &[], false, true, ledger)?
+            .ok_or_else(invalid)?;
+        let expected = &rows[*local];
+        if row.source_sha != expected.revision || row.path != expected.path {
+            return Err(invalid());
+        }
+        let raw_fm = row.raw_frontmatter.as_ref().ok_or_else(invalid)?;
+        out[*local] = Some(ownership::project_row_properties(
+            replica.bases_read_catalog(),
+            &row.path,
+            raw_fm,
+            requested,
+            ledger,
+        )?);
+    }
+    for chunk in ids.chunks(128) {
+        let mut consumed = 0usize;
+        while consumed < chunk.len() {
+            cancelled(check_cancelled)?;
+            replica.recheck_bases_read_capture(fence)?;
+            if replica.indexed_bases_state()? != *snapshot {
+                return Err(invalid());
+            }
+            let remaining = &chunk[consumed..];
+            ledger
+                .admit(|work| {
+                    let bytes = remaining.len() as u64 * 16;
+                    if work.charge(bytes, bytes) {
+                        Ok(())
+                    } else {
+                        Err(work.failure().expect("row properties projection request"))
+                    }
+                })
+                .map_err(failure)?;
+            let page = replica
+                .indexed_bases_projection(QueryProjectionRequest {
+                    generation: snapshot.generation,
+                    head: snapshot.head,
+                    predicate: QueryPredicate::All,
+                    bases_candidate: None,
+                    bases_records: Some(remaining.to_vec()),
+                    fields: Vec::new(),
+                    tags: false,
+                    full_frontmatter: true,
+                    after: None,
+                    limit: remaining.len() as u32,
+                    max_bytes: 1 << 20,
+                })?
+                .map_err(|_| {
+                    failure(EvaluationFailure::MetadataUnavailable(
+                        "view_raw_projection_not_ready",
+                    ))
+                })?;
+            ledger
+                .admit(|work| ownership::frame(&page, work))
+                .map_err(failure)?;
+            if page.rows.is_empty() {
+                return Err(invalid());
+            }
+            let count = page.rows.len();
+            for row in page.rows {
+                let local = *wanted.get(&row.id).ok_or_else(invalid)?;
+                let expected = &rows[local];
+                if row.source_sha != expected.revision
+                    || row.path != expected.path
+                    || out[local].is_some()
+                {
+                    return Err(invalid());
+                }
+                let raw_fm = row.raw_frontmatter.as_ref().ok_or_else(invalid)?;
+                out[local] = Some(ownership::project_row_properties(
+                    replica.bases_read_catalog(),
+                    &row.path,
+                    raw_fm,
+                    requested,
+                    ledger,
+                )?);
+            }
+            consumed += count;
+            if !page.has_more && consumed != chunk.len() {
+                return Err(invalid());
+            }
+        }
+    }
+    out.into_iter()
+        .map(|item| item.ok_or_else(invalid))
+        .collect()
 }
