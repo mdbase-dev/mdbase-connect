@@ -238,6 +238,9 @@ pub struct FileStore<P: FilePlatform, M: Store, D: DiskDb> {
     /// A deferred-durability window is open on the inner store
     /// ([`Store::defer_durability`]). Any outside effect closes it first.
     deferred: bool,
+    /// Sticky error from a failed deferred-durability barrier: every later
+    /// barrier check or commit sees the uncertain outcome until reopen.
+    deferral_fault: Option<StoreError>,
     /// A dropped pending commit is unresolved, not a cancelled operation.
     commit_active: Rc<Cell<bool>>,
     queued: deferred::Deferred,

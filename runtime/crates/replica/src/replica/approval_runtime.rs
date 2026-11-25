@@ -1019,6 +1019,16 @@ impl<S: Store> Replica<S> {
         }
     }
 
+    /// Number of staged own key grants awaiting durability.
+    pub(super) fn staged_key_grants_len(&self) -> usize {
+        self.approval.staged_applied.len()
+    }
+
+    /// Discard staged own key grants added after `len` (single-item failure).
+    pub(super) fn truncate_staged_key_grants(&mut self, len: usize) {
+        self.approval.staged_applied.truncate(len);
+    }
+
     /// The commit persisting the staged evaluations succeeded: resolve them.
     pub(super) fn publish_staged_key_grants(&mut self) {
         for (signer, recipient, seq) in std::mem::take(&mut self.approval.staged_applied) {

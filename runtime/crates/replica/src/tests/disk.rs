@@ -3123,10 +3123,10 @@ fn entries_around_a_control_item(svc: &FakeLogService, a: &mut Node) -> u64 {
     control
 }
 
-/// Catching up applies the entries of a page inside one deferred-durability
-/// window. A control item is never inside one, nothing is published to the
-/// folder from inside one, and no window outlives the call that applied the
-/// page: what the host takes next (log calls, client pushes) follows the barrier.
+/// Catching up applies the entries and control items of a page inside one
+/// deferred-durability window. Nothing is published to the folder from inside
+/// one, and no window outlives the call that applied the page: what the host
+/// takes next (log calls, client pushes) follows the barrier.
 #[test]
 fn a_caught_up_page_is_one_window_closed_before_anything_acts_on_it() {
     use crate::log::{LogClient, LogPort, LogRequest};
@@ -3164,20 +3164,20 @@ fn a_caught_up_page_is_one_window_closed_before_anything_acts_on_it() {
     assert_eq!(opened, closed);
     assert_eq!(
         opened - at_open.0,
-        2,
-        "one page: the entries before the control item, and those after it"
+        1,
+        "one page: entries and control items share one deferred-durability window"
     );
     let d = b.disk.borrow();
     let mut applied = 0;
     for (tx, in_window) in d.committed.iter().zip(&d.committed_in_window) {
         let Some(head) = tx.head else {
-            assert!(!in_window, "only applied entries commit inside a window");
+            assert!(!in_window, "only applied items commit inside a window");
             continue;
         };
         applied += 1;
         assert_eq!(
             *in_window,
-            kinds[&head.seq] == ItemKind::Entry,
+            kinds[&head.seq] != ItemKind::Base,
             "position {} ({:?})",
             head.seq,
             kinds[&head.seq]

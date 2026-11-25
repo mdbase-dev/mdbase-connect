@@ -708,3 +708,167 @@ fn snapshot_install_killed_during_chunk_staging_restarts_cleanly_on_sqlite() {
         assert_eq!(outcome, reference, "point {point} ({:?})", run.killed);
     }
 }
+
+#[test]
+fn the_app_store_batches_control_items_in_one_window_and_survives_kill() {
+    let root = scratch("app-control-apply-window");
+    let svc = r::fake::FakeLogService::new();
+    let mut cp = r::testkit::TestControlPlane::signed(COL);
+    cp.genesis_with_keys(&svc, w::policy::CState::E2e, DEV, &SIGN, &KEM);
+    for b in 1..=24u8 {
+        cp.append(
+            &svc,
+            vec![w::policy::PolicyOp::DeviceEnrol(w::policy::DeviceEnrol {
+                device: w::common::B16([b.wrapping_add(110); 16]),
+                account: r::testkit::TEST_OWNER,
+                kind: w::policy::DeviceKind::Desktop,
+                sign_pk: w::common::B32([b; 32]),
+                kem_pk: w::common::B32([b.wrapping_add(1); 32]),
+                noise_pk: w::common::B32([b.wrapping_add(2); 32]),
+                sas_commit: None,
+                local_root: None,
+            })],
+        );
+    }
+    // Settle the initial writer once (e.g. initial rekey) so `reader` only catches up.
+    let mut writer = open(MemStore::new(), 1);
+    let mut writer_client = svc.client(DEV);
+    settle(&mut writer, &mut writer_client);
+    let head = svc.head(&COL).0;
+    assert_eq!(head, 26);
+    let writer_keys: Vec<(u64, [u8; 32])> = writer
+        .testing_epoch_keys()
+        .into_iter()
+        .map(|(epoch, key)| (epoch, *key))
+        .collect();
+    assert!(
+        writer_keys.iter().any(|(epoch, _)| *epoch == 1),
+        "writer must hold epoch 1 key after initial rekey"
+    );
+
+    // Count synced commits on a full-page read of 26 control items: with
+    // windows enabled, all 26 control items share ONE synced commit instead of 26.
+    let count_run = |name: &str, windows: bool| -> Commits {
+        let dir = root.join(name);
+        fs::create_dir_all(&dir).unwrap();
+        let commits = Rc::new(Cell::new(Commits::default()));
+        let index = Rc::new(RefCell::new(Counted {
+            inner: SqliteIndex::open(dir.join("app.db"), IndexDurability::Durable).unwrap(),
+            windows,
+            open: false,
+            commits: commits.clone(),
+        }));
+        let store = TentativeStore::open(index.clone(), SqlStoreLimits::MOBILE).unwrap();
+        let mut reader = open(store, 2);
+        let opened = commits.get();
+        let mut client = svc.client(DEV);
+        settle(&mut reader, &mut client);
+        assert_eq!(reader.head().seq, head);
+        assert!(!reader.store().durability_deferred());
+        commits.get().since(opened)
+    };
+    let off = count_run("off", false);
+    let on = count_run("on", true);
+    assert_eq!((off.windows, off.in_window), (0, 0));
+    assert_eq!(
+        on.windows, 1,
+        "one page of control items = one window: {on:?}"
+    );
+    assert_eq!(
+        on.in_window, head,
+        "all {head} control items ran in the window: {on:?}"
+    );
+    assert_eq!(on.in_window, off.alone - on.alone);
+    assert!(on.synced() + head - 1 == off.synced());
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct ControlOutcome {
+        head: r::store::Head,
+        policy: r::policy::PolicyState,
+        epoch_keys: Vec<(u64, [u8; 32])>,
+    }
+
+    // Kill at every write / window boundary of the control-item page and verify
+    // reopening replays cleanly to the identical head, policy and key state.
+    let kill_run = |tag: &str, at: Option<u64>| -> (ControlOutcome, Plan) {
+        let dir = root.join(format!("{tag}-db"));
+        let image = root.join(format!("{tag}-img"));
+        fs::create_dir_all(&dir).unwrap();
+        let plan = Rc::new(RefCell::new(Plan {
+            at,
+            ..Plan::default()
+        }));
+        let mut reader = app(&dir, &image, &plan);
+        let mut client = svc.client(DEV);
+        plan.borrow_mut().armed = true;
+        'run: for _ in 0..20 {
+            for call in reader.take_log_calls() {
+                let reply = r::log::LogClient::call(&mut client, call.request);
+                reader.on_log_reply(call.id, reply);
+                if plan.borrow().killed.is_some() {
+                    break 'run;
+                }
+            }
+            reader.tick();
+        }
+        plan.borrow_mut().armed = false;
+        if let Some(kind) = plan.borrow().killed {
+            drop(reader);
+            let unarmed = Rc::new(RefCell::new(Plan::default()));
+            reader = app(&image, &root.join("unused"), &unarmed);
+            if matches!(kind, "write in a window" | "window closing") {
+                assert_eq!(
+                    reader.head().seq,
+                    0,
+                    "{tag} ({kind}): uncommitted control window must roll back to 0"
+                );
+                assert_eq!(
+                    reader.store().meta(r::store::meta_keys::POLICY).unwrap(),
+                    None,
+                    "{tag} ({kind}): uncommitted policy must roll back with head"
+                );
+                assert!(
+                    reader.testing_epoch_keys().is_empty(),
+                    "{tag} ({kind}): uncommitted key state must not survive kill"
+                );
+            }
+            settle(&mut reader, &mut client);
+        }
+        assert_eq!(reader.head().seq, head, "{tag}");
+        assert_eq!(reader.sync_status().incidents, vec![], "{tag}");
+        assert!(!reader.keyring_rebuilding(), "{tag}");
+        assert!(!reader.keyring_rebuild_failed(), "{tag}");
+        let policy_bytes = reader
+            .store()
+            .meta(r::store::meta_keys::POLICY)
+            .unwrap()
+            .expect("policy persisted");
+        let policy = r::policy::PolicyState::from_bytes(&policy_bytes).unwrap();
+        let epoch_keys: Vec<(u64, [u8; 32])> = reader
+            .testing_epoch_keys()
+            .into_iter()
+            .map(|(epoch, key)| (epoch, *key))
+            .collect();
+        let outcome = ControlOutcome {
+            head: reader.head(),
+            policy,
+            epoch_keys,
+        };
+        let p = std::mem::take(&mut *plan.borrow_mut());
+        (outcome, p)
+    };
+    let (ref_outcome, ref_plan) = kill_run("ref", None);
+    assert_eq!(ref_outcome.head.seq, head);
+    assert_eq!(ref_outcome.policy.seq, head);
+    assert_eq!(ref_outcome.policy.epoch, 1);
+    assert_eq!(ref_outcome.policy.devices.len(), 25);
+    assert!(ref_outcome.policy.devices[&DEV].keyed);
+    assert_eq!(ref_outcome.epoch_keys, writer_keys);
+    assert!(ref_plan.kinds["write in a window"] >= head);
+    assert_eq!(ref_plan.kinds["window closing"], 1);
+    for point in 1..=ref_plan.seen {
+        let (outcome, run) = kill_run(&format!("kill-{point}"), Some(point));
+        assert!(run.killed.is_some(), "point {point} must kill");
+        assert_eq!(outcome, ref_outcome, "point {point} ({:?})", run.killed);
+    }
+}

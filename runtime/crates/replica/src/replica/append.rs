@@ -238,6 +238,7 @@ impl<S: Store> Replica<S> {
 
     pub(crate) fn request_read(&mut self) {
         if self.apply_fault.is_some()
+            || self.install.is_some()
             || self.hosted_reindex_pending()
             || self.reading
             || self.unindexed_sources.pending()

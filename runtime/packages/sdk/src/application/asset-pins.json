@@ -1,11 +1,11 @@
 {
   "runtime": {
-    "sha256": "e9de314c497417fb67eff341ee3c8a71b2dc4ebfaccad093156bf0ffba70447d",
-    "bytes": 4061916,
-    "maxBytes": 4061916,
+    "sha256": "f288c009c483b0537eff2f104901005edeebfe6212b9d56f463723eb3966baf2",
+    "bytes": 4063471,
+    "maxBytes": 4063471,
     "source": {
       "repository": "mdbase-dev/mdbase-connect",
-      "commit": "c31073d0e77309e0f624e50cec5126318b494f9c"
+      "commit": "ac0c068a9a471de88a9242ccf56393e946af488b"
     }
   },
   "sqlite": {

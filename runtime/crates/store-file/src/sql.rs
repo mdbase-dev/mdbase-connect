@@ -20,7 +20,7 @@ mod schema;
 #[path = "sql_tail.rs"]
 mod tail;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::ops::Range;
 use std::rc::Rc;
@@ -169,6 +169,7 @@ impl Default for SqlStoreLimits {
 pub struct SqlStore<I: IndexStorage> {
     index: Rc<RefCell<I>>,
     limits: SqlStoreLimits,
+    deferred: Cell<bool>,
 }
 
 pub(crate) fn idx_err(e: IndexError) -> StoreError {
@@ -697,7 +698,11 @@ impl<I: IndexStorage> SqlStore<I> {
             return Err(StoreError::Io("invalid SQL blob memory limits".into()));
         }
         schema::migrate(&mut *index.borrow_mut())?;
-        Ok(SqlStore { index, limits })
+        Ok(SqlStore {
+            index,
+            limits,
+            deferred: Cell::new(false),
+        })
     }
 
     /// Own-intent count/bytes remain independent of raw-tail erasure. This is
@@ -1565,8 +1570,15 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         tail::own(self, after, limit)
     }
 
+    fn durability_deferred(&self) -> bool {
+        self.deferred.get()
+    }
     fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
-        self.index.borrow_mut().defer_sync(on).map_err(idx_err)?;
+        if !on {
+            self.deferred.set(false);
+        }
+        let deferring = self.index.borrow_mut().defer_sync(on).map_err(idx_err)?;
+        self.deferred.set(deferring && on);
         Ok(())
     }
     fn mirror_candidate_begin(
@@ -2315,5 +2327,82 @@ mod tests {
         assert!(wide_int(i64::MAX as u64 + 1).is_err());
         assert!(wide_int(u64::MAX).is_err());
         assert_eq!(int(u32::MAX), SqlValue::Integer(i64::from(u32::MAX)));
+    }
+
+    #[test]
+    fn sql_store_reports_durability_deferred_truthfully() {
+        struct DeferIndex {
+            supports: bool,
+            fail_close: bool,
+        }
+        impl IndexStorage for DeferIndex {
+            fn info(&self) -> IndexInfo {
+                IndexInfo {
+                    durability: IndexDurability::Durable,
+                    opened: OpenState::Fresh,
+                    sqlite_version: 3_045_000,
+                }
+            }
+            fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
+                Ok(batch
+                    .stmts
+                    .iter()
+                    .map(|s| {
+                        if s.sql == "PRAGMA user_version" {
+                            StmtResult {
+                                columns: 1,
+                                values: vec![SqlValue::Integer(0)],
+                                ..StmtResult::default()
+                            }
+                        } else {
+                            StmtResult::default()
+                        }
+                    })
+                    .collect())
+            }
+            fn reset(&mut self) -> Result<(), IndexError> {
+                Ok(())
+            }
+            fn defer_sync(&mut self, on: bool) -> Result<bool, IndexError> {
+                if !on && self.fail_close {
+                    return Err(IndexError::new(
+                        IndexErrorKind::Other,
+                        "injected close failure",
+                    ));
+                }
+                Ok(self.supports)
+            }
+        }
+
+        // Index that declines deferred windows: never reports deferred.
+        let mut unsupported = SqlStore::open(Rc::new(RefCell::new(DeferIndex {
+            supports: false,
+            fail_close: false,
+        })))
+        .unwrap();
+        assert!(!unsupported.durability_deferred());
+        unsupported.defer_durability(true).unwrap();
+        assert!(!unsupported.durability_deferred());
+        unsupported.defer_durability(false).unwrap();
+        assert!(!unsupported.durability_deferred());
+
+        // Index that supports deferred windows: truthful while open and closed.
+        let index = Rc::new(RefCell::new(DeferIndex {
+            supports: true,
+            fail_close: false,
+        }));
+        let mut supported = SqlStore::open(index.clone()).unwrap();
+        assert!(!supported.durability_deferred());
+        supported.defer_durability(true).unwrap();
+        assert!(supported.durability_deferred());
+        supported.defer_durability(false).unwrap();
+        assert!(!supported.durability_deferred());
+
+        // A failed barrier close clears the open state and returns the error.
+        supported.defer_durability(true).unwrap();
+        assert!(supported.durability_deferred());
+        index.borrow_mut().fail_close = true;
+        assert!(supported.defer_durability(false).is_err());
+        assert!(!supported.durability_deferred());
     }
 }

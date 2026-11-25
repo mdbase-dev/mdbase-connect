@@ -372,7 +372,7 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
-    fn install_start_chunks(&mut self, manifest: Box<ManifestPayload>) {
+    pub(in crate::replica) fn install_start_chunks(&mut self, manifest: Box<ManifestPayload>) {
         if let Err(e) = self.install_reset() {
             self.install = Some(Install::Reset(manifest));
             self.install_retry = true;

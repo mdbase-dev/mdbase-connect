@@ -648,3 +648,431 @@ fn simulated_crash_during_chunk_staging_restarts_cleanly() {
         a.r.confirmed_records().unwrap()
     );
 }
+
+/// Installing a generation-0 `base` skips the redundant `Install::Chain` read
+/// (seq 1's `prev == 0…0` was already verified by ordered apply) and issues no
+/// log `Read` while the install is in flight, even when trailing control items
+/// sit after the base.
+#[test]
+fn base_install_skips_chain_read_and_does_not_read_log_while_installing() {
+    use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
+
+    struct SmallAdopt(Vec<(B16, String, String)>);
+    impl AdoptSource for SmallAdopt {
+        fn records(&mut self) -> Result<AdoptRecords, String> {
+            Ok(AdoptRecords {
+                records: self.0.iter().map(|(id, p, _)| (*id, p.clone())).collect(),
+                resources: vec![],
+                settings: None,
+            })
+        }
+        fn read(&mut self, path: &str) -> Result<Option<String>, String> {
+            Ok(self
+                .0
+                .iter()
+                .find(|(_, p, _)| p == path)
+                .map(|(_, _, d)| d.clone()))
+        }
+    }
+
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let docs: Vec<_> = (1..=8u8)
+        .map(|i| {
+            (
+                B16([i; 16]),
+                format!("notes/n{i}.md"),
+                format!("note {i}\n"),
+            )
+        })
+        .collect();
+    a.r.begin_adopt(Box::new(SmallAdopt(docs)));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+
+    // Append trailing control items after the `base` item so `head > base.seq`.
+    let mut cp = TestControlPlane::new(COL);
+    for b in 40..50u8 {
+        cp.append(&svc, vec![enrol_op(b)]);
+    }
+    settle(&mut [&mut a]);
+    let head = a.r.head().seq;
+
+    let mut reader = node(&svc, 2, MemStore::new());
+    let mut saw_install = false;
+    let mut saw_chain_state = false;
+    let mut reads_during_install = 0u64;
+    let mut max_install_wave = 0usize;
+    for _ in 0..80 {
+        for push in reader.log.poll_pushes() {
+            reader.r.on_log_push(push);
+        }
+        let calls = reader.r.take_log_calls();
+        if calls.is_empty() {
+            reader.r.tick();
+            if reader.r.head().seq == head && !reader.r.installing() {
+                break;
+            }
+            continue;
+        }
+        if reader.r.installing() {
+            saw_install = true;
+            max_install_wave = max_install_wave.max(calls.len());
+            if matches!(reader.r.install, Some(TestInstall::Chain(..))) {
+                saw_chain_state = true;
+            }
+            for call in &calls {
+                if matches!(call.request, LogRequest::Read(_)) {
+                    reads_during_install += 1;
+                }
+            }
+        }
+        for call in calls {
+            let reply = reader.log.call(call.request);
+            reader.r.on_log_reply(call.id, reply);
+            if matches!(reader.r.install, Some(TestInstall::Chain(..))) {
+                saw_chain_state = true;
+            }
+        }
+    }
+
+    assert!(
+        saw_install,
+        "cold reader must install the generation-0 base"
+    );
+    assert!(
+        !saw_chain_state,
+        "base install must not enter Install::Chain"
+    );
+    assert_eq!(
+        reads_during_install, 0,
+        "no log Read may be queued while a base install is in flight"
+    );
+    assert!(
+        max_install_wave <= CHUNKS_IN_FLIGHT,
+        "install waves must stay within CHUNKS_IN_FLIGHT ({CHUNKS_IN_FLIGHT}), got {max_install_wave}"
+    );
+    assert_eq!(reader.r.head(), a.r.head());
+    assert_eq!(reader.r.stats.snapshots_installed, 1);
+    assert_eq!(reader.r.sync_status().incidents, vec![]);
+    assert_eq!(
+        reader.r.confirmed_records().unwrap(),
+        a.r.confirmed_records().unwrap()
+    );
+}
+
+/// An ordinary snapshot installed on a control-only prefix leaves a positive
+/// `head.seq` without ordered apply having verified seq 1's `prev == 0…0`.
+/// When a generation-0 `base` arrives later, `request_install_chain()` must
+/// still enter `Install::Chain` to verify seq 1's predecessor, and must refuse
+/// the base if seq 1's `prev` is not zero.
+#[test]
+fn base_install_after_snapshot_derived_head_still_verifies_chain() {
+    use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
+    use mdbn_wire::envelope::Item;
+    use mdbn_wire::schema::Wire;
+
+    struct SmallAdopt(Vec<(B16, String, String)>);
+    impl AdoptSource for SmallAdopt {
+        fn records(&mut self) -> Result<AdoptRecords, String> {
+            Ok(AdoptRecords {
+                records: self.0.iter().map(|(id, p, _)| (*id, p.clone())).collect(),
+                resources: vec![],
+                settings: None,
+            })
+        }
+        fn read(&mut self, path: &str) -> Result<Option<String>, String> {
+            Ok(self
+                .0
+                .iter()
+                .find(|(_, p, _)| p == path)
+                .map(|(_, _, d)| d.clone()))
+        }
+    }
+
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let mut cp = TestControlPlane::new(COL);
+    cp.append(&svc, vec![enrol_op(30)]);
+    settle(&mut [&mut a]);
+    assert!(
+        !a.r.policy.content_seen,
+        "prefix before snapshot is control-only"
+    );
+
+    // Build an ordinary snapshot at the control-only head.
+    a.r.build_snapshot_now().unwrap();
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.stats.snapshots_built, 1);
+    let snap_seq = a.r.head().seq;
+    assert!(snap_seq >= 1);
+
+    // Two cold readers install that ordinary snapshot so both reach a positive
+    // head via snapshot install rather than ordered apply from genesis.
+    let mut reader_ok = node(&svc, 2, MemStore::new());
+    let mut reader_bad = node(&svc, 3, MemStore::new());
+    reader_ok.r.begin_install();
+    reader_bad.r.begin_install();
+    settle(&mut [&mut reader_ok, &mut reader_bad]);
+    assert_eq!(reader_ok.r.head().seq, snap_seq);
+    assert_eq!(reader_bad.r.head().seq, snap_seq);
+    assert_eq!(reader_ok.r.stats.snapshots_installed, 1);
+    assert_eq!(reader_bad.r.stats.snapshots_installed, 1);
+
+    // Now a generation-0 `base` arrives after the control-only snapshot.
+    let docs = vec![(
+        B16([1; 16]),
+        "notes/n1.md".to_string(),
+        "note 1\n".to_string(),
+    )];
+    a.r.begin_adopt(Box::new(SmallAdopt(docs)));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+    let head = a.r.head().seq;
+    assert!(head > snap_seq);
+
+    // 1. Valid seq 1: reader_ok MUST enter Install::Chain (Read after=0 limit=1)
+    // and then finish the base install cleanly.
+    let mut saw_chain_state = false;
+    let mut saw_chain_read = false;
+    for _ in 0..80 {
+        for push in reader_ok.log.poll_pushes() {
+            reader_ok.r.on_log_push(push);
+        }
+        let calls = reader_ok.r.take_log_calls();
+        if calls.is_empty() {
+            reader_ok.r.tick();
+            if reader_ok.r.head().seq == head && !reader_ok.r.installing() {
+                break;
+            }
+            continue;
+        }
+        if matches!(reader_ok.r.install, Some(TestInstall::Chain(..))) {
+            saw_chain_state = true;
+        }
+        for call in calls {
+            if matches!(reader_ok.r.install, Some(TestInstall::Chain(..)))
+                && matches!(
+                    &call.request,
+                    LogRequest::Read(p) if p.after == 0 && p.limit == 1
+                )
+            {
+                saw_chain_read = true;
+            }
+            let reply = reader_ok.log.call(call.request);
+            reader_ok.r.on_log_reply(call.id, reply);
+            if matches!(reader_ok.r.install, Some(TestInstall::Chain(..))) {
+                saw_chain_state = true;
+            }
+        }
+    }
+    assert!(
+        saw_chain_state && saw_chain_read,
+        "snapshot-derived head must verify seq 1 via Install::Chain"
+    );
+    assert_eq!(reader_ok.r.head(), a.r.head());
+    assert_eq!(reader_ok.r.stats.snapshots_installed, 2);
+    assert_eq!(reader_ok.r.sync_status().incidents, vec![]);
+    assert_eq!(
+        reader_ok.r.confirmed_records().unwrap(),
+        a.r.confirmed_records().unwrap()
+    );
+
+    // 2. Tampered seq 1 (`prev != 0…0`): Install::Chain catches the mismatch
+    // and refuses the base install.
+    let mut tampered = Item::from_bytes(&svc.items(&COL)[0]).unwrap();
+    tampered.prev = Some(B32([9; 32]));
+    let tampered_bytes = Bytes(tampered.to_bytes().unwrap());
+    let mut intercepted = false;
+    'bad: for _ in 0..80 {
+        for push in reader_bad.log.poll_pushes() {
+            reader_bad.r.on_log_push(push);
+        }
+        let calls = reader_bad.r.take_log_calls();
+        if calls.is_empty() {
+            reader_bad.r.tick();
+            continue;
+        }
+        for call in calls {
+            let is_chain_read = matches!(reader_bad.r.install, Some(TestInstall::Chain(..)))
+                && matches!(
+                    &call.request,
+                    LogRequest::Read(p) if p.after == 0 && p.limit == 1
+                );
+            let mut reply = reader_bad.log.call(call.request);
+            if is_chain_read {
+                intercepted = true;
+                if let Ok(LogResponse::Read(r)) = &mut reply
+                    && let Some(first) = r.items.first_mut()
+                {
+                    first.item = tampered_bytes.clone();
+                }
+            }
+            reader_bad.r.on_log_reply(call.id, reply);
+            if is_chain_read {
+                break 'bad;
+            }
+        }
+    }
+    assert!(intercepted, "reader_bad must have issued the chain read");
+    assert_eq!(
+        reader_bad.r.head().seq,
+        snap_seq,
+        "refused base install must not advance head"
+    );
+    assert_eq!(reader_bad.r.stats.snapshots_installed, 1);
+    assert!(
+        reader_bad.r.sync_status().incidents.iter().any(|inc| {
+            inc.kind == IncidentKind::Integrity
+                && format!("{:?}", inc.details).contains("manifest chain does not match the log")
+        }),
+        "expected manifest chain mismatch incident, got {:?}",
+        reader_bad.r.sync_status().incidents
+    );
+}
+
+/// A malformed stored head with `seq == 0` and a nonzero `chain` (which the SQL
+/// head decoder accepts) must NOT establish a verified genesis observation when
+/// seq 1 matches that nonzero `prev`. A subsequent generation-0 `base` must
+/// still run `Install::Chain` and refuse the nonzero seq-1 predecessor.
+#[test]
+fn base_install_after_malformed_zero_seq_head_still_verifies_chain() {
+    use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
+    use mdbn_wire::envelope::Item;
+    use mdbn_wire::schema::Wire;
+
+    struct SmallAdopt(Vec<(B16, String, String)>);
+    impl AdoptSource for SmallAdopt {
+        fn records(&mut self) -> Result<AdoptRecords, String> {
+            Ok(AdoptRecords {
+                records: self.0.iter().map(|(id, p, _)| (*id, p.clone())).collect(),
+                resources: vec![],
+                settings: None,
+            })
+        }
+        fn read(&mut self, path: &str) -> Result<Option<String>, String> {
+            Ok(self
+                .0
+                .iter()
+                .find(|(_, p, _)| p == path)
+                .map(|(_, _, d)| d.clone()))
+        }
+    }
+
+    // Build a normal log with a generation-0 base so we have valid control,
+    // rekey, and base items + chunk objects on the log service.
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let docs = vec![(
+        B16([1; 16]),
+        "notes/n1.md".to_string(),
+        "note 1\n".to_string(),
+    )];
+    a.r.begin_adopt(Box::new(SmallAdopt(docs)));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+
+    // Re-chain every item in a second log service starting from a malformed
+    // nonzero chain at seq 0, keeping the same signed bodies and base objects.
+    let bad_zero_chain = B32([9; 32]);
+    let raw_items = svc.items(&COL);
+    assert!(raw_items.len() >= 3);
+    let mut rechained = Vec::with_capacity(raw_items.len());
+    let mut prev = bad_zero_chain;
+    for raw in &raw_items {
+        let mut item = Item::from_bytes(raw).unwrap();
+        item.prev = Some(prev);
+        let bytes = item.to_bytes().unwrap();
+        prev = mdbn_wire::hash::chain_hash(&bytes);
+        rechained.push(bytes);
+    }
+
+    // Seed a store with the malformed head `{ seq: 0, chain: bad_zero_chain }`
+    // before opening the replica.
+    let mut malformed_store = MemStore::new();
+    malformed_store
+        .commit(crate::store::Tx {
+            head: Some(crate::store::Head {
+                seq: 0,
+                chain: bad_zero_chain,
+            }),
+            ..crate::store::Tx::default()
+        })
+        .unwrap();
+    let mut reader = node(&svc, 2, malformed_store);
+    assert_eq!(reader.r.head().seq, 0);
+    assert_eq!(reader.r.head().chain, bad_zero_chain);
+
+    // Feed the rechained items in one read reply: seq 1 matches `bad_zero_chain`,
+    // then the generation-0 base starts an install. Because `head != Head::GENESIS`,
+    // `OriginalHistory` must NOT record a verified genesis and `request_install_chain`
+    // must still enter `Install::Chain` and refuse the nonzero seq-1 `prev`.
+    let mut saw_chain_read = false;
+    let seq_items: Vec<mdbn_wire::log_service::SeqItem> = rechained
+        .iter()
+        .enumerate()
+        .map(|(i, b)| mdbn_wire::log_service::SeqItem {
+            seq: i as u64 + 1,
+            item: Bytes(b.clone()),
+        })
+        .collect();
+    reader.r.apply_items(seq_items);
+    assert_eq!(
+        reader.r.observed_original_genesis(),
+        None,
+        "malformed zero-seq head must never mint a verified genesis observation"
+    );
+
+    for _ in 0..40 {
+        let calls = reader.r.take_log_calls();
+        if calls.is_empty() {
+            reader.r.tick();
+            continue;
+        }
+        for call in calls {
+            let is_chain_read = matches!(reader.r.install, Some(TestInstall::Chain(..)))
+                && matches!(
+                    &call.request,
+                    LogRequest::Read(p) if p.after == 0 && p.limit == 1
+                );
+            if is_chain_read {
+                saw_chain_read = true;
+                reader.r.on_log_reply(
+                    call.id,
+                    Ok(LogResponse::Read(mdbn_wire::log_service::ReadResult {
+                        items: vec![mdbn_wire::log_service::SeqItem {
+                            seq: 1,
+                            item: Bytes(rechained[0].clone()),
+                        }],
+                        head: rechained.len() as u64,
+                        head_chain: prev,
+                        retained_from: 1,
+                        behind: false,
+                        snapshot: None,
+                        more: false,
+                    })),
+                );
+                continue;
+            }
+            let reply = reader.log.call(call.request);
+            reader.r.on_log_reply(call.id, reply);
+        }
+        if saw_chain_read {
+            break;
+        }
+    }
+
+    assert!(
+        saw_chain_read,
+        "malformed zero-seq head must keep the Install::Chain check"
+    );
+    assert_eq!(reader.r.stats.snapshots_installed, 0);
+    assert!(
+        reader.r.sync_status().incidents.iter().any(|inc| {
+            inc.kind == IncidentKind::Integrity
+                && format!("{:?}", inc.details).contains("manifest chain does not match the log")
+        }),
+        "expected manifest chain mismatch incident, got {:?}",
+        reader.r.sync_status().incidents
+    );
+}
