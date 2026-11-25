@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -14,6 +15,10 @@ import { createDatabase } from "./db.js";
 import type { McpRuntimeConfig } from "./config.js";
 import { SecretBox, pkceChallenge } from "./security.js";
 
+const TEST_VIEW = {
+  page: '<!doctype html><script type="module" crossorigin src="./assets/index-abc.js"></script>',
+  assets: new Map([["index-abc.js", { type: "text/javascript; charset=utf-8", body: Buffer.from("export {};"), gzip: gzipSync("export {};") }]])
+};
 const MCP_CAPABILITIES = {
   contract_version: 2,
   required: ["collection.read"],
@@ -31,7 +36,7 @@ afterEach(() => vi.restoreAllMocks());
 describe("mdbase MCP gateway", () => {
   it("publishes OAuth metadata and challenges unauthenticated MCP requests", async () => {
     const db = await createDatabase("memory");
-    const { app } = await buildApp({ db, config: testConfig() });
+    const { app } = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
     const metadata = await app.inject({ method: "GET", url: "/.well-known/oauth-protected-resource/mcp" });
     expect(metadata.statusCode).toBe(200);
     expect(metadata.json()).toMatchObject({
@@ -59,6 +64,28 @@ describe("mdbase MCP gateway", () => {
     await db.end();
   });
 
+  it("serves the MCP App view's built files to hosts' frames on other origins, and nothing else", async () => {
+    const db = await createDatabase("memory");
+    const { app } = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
+    const script = await app.inject({ method: "GET", url: "/view/assets/index-abc.js" });
+    expect(script.statusCode).toBe(200);
+    expect(script.body).toBe("export {};");
+    expect(script.headers).toMatchObject({
+      "content-type": "text/javascript; charset=utf-8",
+      "cache-control": "public, max-age=31536000, immutable",
+      "access-control-allow-origin": "*",
+      "cross-origin-resource-policy": "cross-origin"
+    });
+    const compressed = await app.inject({ method: "GET", url: "/view/assets/index-abc.js", headers: { "accept-encoding": "gzip, br" } });
+    expect(compressed.headers["content-encoding"]).toBe("gzip");
+    expect(gunzipSync(compressed.rawPayload).toString()).toBe("export {};");
+    for (const url of ["/view/assets/missing.js", "/view/assets/..%2Fpackage.json", "/view/assets/"]) {
+      expect((await app.inject({ method: "GET", url })).statusCode, url).toBe(404);
+    }
+    await app.close();
+    await db.end();
+  });
+
   it.each([
     ["read-only", READ_OPERATIONS, ["list", "read"]],
     ["writing", [...READ_OPERATIONS, ...WRITE_OPERATIONS], ["list", "read", "add", "replace", "move", "delete"]]
@@ -67,7 +94,7 @@ describe("mdbase MCP gateway", () => {
     vi.stubGlobal("fetch", upstream.fetch);
     const db = await createDatabase("memory");
     const config = testConfig();
-    const { app, gateway } = await buildApp({ db, config });
+    const { app, gateway } = await buildApp({ db, config, view: TEST_VIEW });
     const keyStore = new PostgresGrantKeyStore(db, config.masterKey);
     const key = await keyStore.create("new-v2-key");
     await gateway.createAuthorizationRequest({
@@ -116,7 +143,7 @@ describe("mdbase MCP gateway", () => {
       code: "first-upstream-code", verifier: "verifier", applicationId,
       connectionSetId: setId, keyHandle: key.handle
     });
-    const { app, gateway } = await buildApp({ db, config });
+    const { app, gateway } = await buildApp({ db, config, view: TEST_VIEW });
     expect(await gateway.listConnections(setId)).toEqual([connection]);
     await db.query("UPDATE mcp_connections SET access_expires_at = now() - interval '1 second'");
     await expect(gateway.operation(setId, connection.id, "query", {})).resolves.toMatchObject({ valid: true });
@@ -345,7 +372,7 @@ describe("mdbase MCP gateway", () => {
 
   it("keeps malformed and oversized request bodies out of the server-error path", async () => {
     const db = await createDatabase("memory");
-    const { app } = await buildApp({ db, config: testConfig() });
+    const { app } = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
 
     const malformed = await app.inject({
       method: "POST",
@@ -379,7 +406,7 @@ describe("mdbase MCP gateway", () => {
     const upstream = await fakeUpstream(globalThis.fetch);
     vi.stubGlobal("fetch", upstream.fetch);
     const db = await createDatabase("memory");
-    const { app, oauth, gateway } = await buildApp({ db, config: testConfig() });
+    const { app, oauth, gateway } = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
 
     const registration = await app.inject({
       method: "POST",
@@ -716,7 +743,7 @@ describe("mdbase MCP gateway", () => {
 describe("open OAuth endpoints", () => {
   it("limits registration and authorization per client address", async () => {
     const db = await createDatabase("memory");
-    const { app } = await buildApp({ db, config: testConfig() });
+    const { app } = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
     try {
       const register = () => app.inject({ method: "POST", url: "/oauth/register", payload: { redirect_uris: ["https://client.example/callback"] } });
       for (let attempt = 0; attempt < 30; attempt += 1) expect((await register()).statusCode).toBe(201);
@@ -736,7 +763,7 @@ describe("open OAuth endpoints", () => {
     const upstream = await fakeUpstream(globalThis.fetch, { native: true });
     vi.stubGlobal("fetch", upstream.fetch);
     const db = await createDatabase("memory");
-    const { app, oauth } = await buildApp({ db, config: testConfig() });
+    const { app, oauth } = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
     try {
       const { client_id: clientId } = await oauth.registerClient({ redirect_uris: ["https://client.example/callback"] }) as { client_id: string };
       const setId = randomUUID();
@@ -874,7 +901,7 @@ async function nativeOAuth(options: Parameters<typeof fakeUpstream>[1] = {}) {
   const upstream = await fakeUpstream(globalThis.fetch, { native: true, ...options });
   vi.stubGlobal("fetch", upstream.fetch);
   const db = await createDatabase("memory");
-  const runtime = await buildApp({ db, config: testConfig() });
+  const runtime = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
   const client = await runtime.oauth.registerClient({ redirect_uris: ["https://client.example/callback"] });
   const clientId = client.client_id as string;
   const verifier = "host-pkce-verifier-that-is-long-enough-for-s256-0001";

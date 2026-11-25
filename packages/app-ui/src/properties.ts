@@ -14,3 +14,5 @@ export {
   propertiesInUse, propertyKind, valueLine,
 } from "./properties/model.js";
 export type { PropertyInfo, PropertyKind, PropertyScalar } from "./properties/model.js";
+export { mergeTypeSchemas, propertiesFromSchema } from "./properties/schema.js";
+export type { JsonSchema } from "./properties/schema.js";

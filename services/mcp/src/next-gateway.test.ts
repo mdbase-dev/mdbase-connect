@@ -122,6 +122,16 @@ describe("NextGateway", () => {
       setup.gateway.close();
     });
 
+    it("removes the fields an update unsets, beside the ones it patches", async () => {
+      const update = vi.fn(async (..._args: Parameters<MdbaseClient["update"]>) => writeOf([], undefined));
+      const setup = await writing({ update, find: vi.fn(async () => record) });
+      await setup.gateway.run(native, "access", "update", { path: "notes/a.md", patch: { status: "done" }, unset: ["due"], if_revision: "rev1" }, "req-1");
+      expect(update.mock.calls[0]![1]).toEqual({ patch: { status: "done" }, unset: ["due"], ifRevision: "rev1" });
+      await expect(setup.gateway.run(native, "access", "update", { path: "notes/a.md", unset: ["due"], document: "---\n---\n" }, "req-2"))
+        .rejects.toMatchObject({ code: "invalid_request" });
+      setup.gateway.close();
+    });
+
     it("uses the receipt's record when the replica sends one", async () => {
       const create = vi.fn(async () => writeOf([], [record])), find = vi.fn(async () => null);
       const setup = await writing({ create, find });

@@ -387,11 +387,12 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
     case "update": {
       const current = await read(client, String(input.path), signal, true);
       if (typeof input.document === "string") {
-        if (input.patch !== undefined || input.body !== undefined) throw new GatewayOperationError("invalid_request", "document cannot be combined with patch or body.");
+        if (input.patch !== undefined || input.unset !== undefined || input.body !== undefined) throw new GatewayOperationError("invalid_request", "document cannot be combined with patch, unset or body.");
         return { ...recordDocument(await settle(client.replaceDocument(current, input.document, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }), () => client.find(current.id, { include: RECORD_VIEW, signal }))) };
       }
       return recordDocument(await settle(client.update(current, {
         ...(input.patch ? { patch: input.patch as Record<string, never> } : {}),
+        ...(Array.isArray(input.unset) ? { unset: input.unset as string[] } : {}),
         ...(typeof input.body === "string" ? { body: input.body } : {}),
         ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {})
       }, write), () => client.find(current.id, { include: RECORD_VIEW, signal })));

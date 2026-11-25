@@ -1,0 +1,94 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-11-25 15:56+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ru\n"
+
+#: view/RecordsTable.tsx
+msgid "{count, plural, one {# record} other {# records}}"
+msgstr "{count, plural, one {# запись} few {# записи} many {# записей} other {# записи}}"
+
+#: view/RecordsTable.tsx
+msgid "{count} of {total} records"
+msgstr "Записей: {count} из {total}"
+
+#: view/View.tsx
+msgctxt "Opens the approval page for a collection whose access lapsed"
+msgid "Approve again"
+msgstr "Одобрить снова"
+
+#: view/main.tsx
+msgid "Asking the collection"
+msgstr "Запрос к коллекции"
+
+#: view/View.tsx
+msgctxt "Returns from a record to the query results"
+msgid "Back"
+msgstr "Назад"
+
+#. placeholder {0}: recordTitle(record)
+#: view/RecordCard.tsx
+msgid "Body of {0}"
+msgstr "Текст записи «{0}»"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of how many records a group holds"
+msgid "Count"
+msgstr "Количество"
+
+#: view/RecordsTable.tsx
+msgctxt "Loads the next page of query results"
+msgid "Load more"
+msgstr "Загрузить ещё"
+
+#: view/RecordCard.tsx
+msgid "Moved from {renamedFrom}"
+msgstr "Перемещено из {renamedFrom}"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of record names"
+msgid "Name"
+msgstr "Название"
+
+#: view/RecordsTable.tsx
+msgid "No records match."
+msgstr "Нет подходящих записей."
+
+#. placeholder {0}: shown.title
+#: view/View.tsx
+msgid "Opening {0}"
+msgstr "Открытие «{0}»"
+
+#: view/RecordsTable.tsx
+msgctxt "Label of the query results table"
+msgid "Records"
+msgstr "Записи"
+
+#: view/RecordCard.tsx
+msgctxt "Reads the record again after a save failed"
+msgid "Reload"
+msgstr "Перезагрузить"
+
+#: view/RecordCard.tsx
+msgid "The change could not be saved."
+msgstr "Не удалось сохранить изменение."
+
+#: view/View.tsx
+msgid "The collection could not answer."
+msgstr "Коллекция не смогла ответить."
+
+#: view/RecordCard.tsx
+msgid "The record could not be read again."
+msgstr "Не удалось повторно прочитать запись."
+
+#: view/View.tsx
+msgid "There is nothing here to show."
+msgstr "Здесь нечего показать."
+
+#: view/RecordCard.tsx
+msgctxt "List of the mdbase types a record has"
+msgid "Types"
+msgstr "Типы"

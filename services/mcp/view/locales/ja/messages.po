@@ -1,0 +1,94 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-11-25 15:56+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: ja\n"
+
+#: view/RecordsTable.tsx
+msgid "{count, plural, one {# record} other {# records}}"
+msgstr "{count, plural, other {# 件のレコード}}"
+
+#: view/RecordsTable.tsx
+msgid "{count} of {total} records"
+msgstr "{total} 件中 {count} 件のレコード"
+
+#: view/View.tsx
+msgctxt "Opens the approval page for a collection whose access lapsed"
+msgid "Approve again"
+msgstr "もう一度承認"
+
+#: view/main.tsx
+msgid "Asking the collection"
+msgstr "コレクションに問い合わせ中"
+
+#: view/View.tsx
+msgctxt "Returns from a record to the query results"
+msgid "Back"
+msgstr "戻る"
+
+#. placeholder {0}: recordTitle(record)
+#: view/RecordCard.tsx
+msgid "Body of {0}"
+msgstr "{0} の本文"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of how many records a group holds"
+msgid "Count"
+msgstr "件数"
+
+#: view/RecordsTable.tsx
+msgctxt "Loads the next page of query results"
+msgid "Load more"
+msgstr "さらに読み込む"
+
+#: view/RecordCard.tsx
+msgid "Moved from {renamedFrom}"
+msgstr "{renamedFrom} から移動"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of record names"
+msgid "Name"
+msgstr "名前"
+
+#: view/RecordsTable.tsx
+msgid "No records match."
+msgstr "一致するレコードはありません。"
+
+#. placeholder {0}: shown.title
+#: view/View.tsx
+msgid "Opening {0}"
+msgstr "{0} を開いています"
+
+#: view/RecordsTable.tsx
+msgctxt "Label of the query results table"
+msgid "Records"
+msgstr "レコード"
+
+#: view/RecordCard.tsx
+msgctxt "Reads the record again after a save failed"
+msgid "Reload"
+msgstr "再読み込み"
+
+#: view/RecordCard.tsx
+msgid "The change could not be saved."
+msgstr "変更を保存できませんでした。"
+
+#: view/View.tsx
+msgid "The collection could not answer."
+msgstr "コレクションが応答できませんでした。"
+
+#: view/RecordCard.tsx
+msgid "The record could not be read again."
+msgstr "レコードを再度読み込めませんでした。"
+
+#: view/View.tsx
+msgid "There is nothing here to show."
+msgstr "ここに表示するものはありません。"
+
+#: view/RecordCard.tsx
+msgctxt "List of the mdbase types a record has"
+msgid "Types"
+msgstr "型"

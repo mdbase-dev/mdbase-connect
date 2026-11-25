@@ -1,12 +1,15 @@
 import { buildApp } from "./app.js";
 import { runtimeConfigFromEnv } from "./config.js";
 import { createDatabase } from "./db.js";
+import { readViewBuild } from "./view.js";
 
 const config = runtimeConfigFromEnv(process.env);
 const db = await createDatabase();
 const { app } = await buildApp({
   db,
   config,
+  // Built by `pnpm build:view`; src/ and dist/ both sit one level under the package.
+  view: readViewBuild(new URL("../dist-app/", import.meta.url)),
   revision: process.env.MDBASE_CONNECT_REVISION ?? process.env.RENDER_GIT_COMMIT
 });
 

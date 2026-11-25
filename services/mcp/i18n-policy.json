@@ -1,0 +1,21 @@
+{
+  "source": {
+    "include": [
+      "view"
+    ],
+    "brands": [
+      "mdbase"
+    ]
+  },
+  "allowIdentical": {
+    "fr": [
+      "TpEIaL"
+    ],
+    "de": [
+      "X_ZFNS"
+    ],
+    "it": [
+      "M78ns3"
+    ]
+  }
+}

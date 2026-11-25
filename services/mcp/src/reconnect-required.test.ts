@@ -13,7 +13,7 @@ describe("reconnect_required tool error", () => {
     } as unknown as ConnectGateway;
     const createConnectionTicket = vi.fn(async () => "https://mcp.example/connect/ticket-1");
     const context = { clientId: "client", connectionSetId: "set-1", scopes: [] };
-    const server = createMcpServer(context, gateway, { createConnectionTicket } as unknown as OAuthService);
+    const server = createMcpServer(context, gateway, { createConnectionTicket } as unknown as OAuthService, { html: "<!doctype html>", origin: "https://mcp.example" });
     const [clientSide, serverSide] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "test", version: "1" });
     await Promise.all([server.connect(serverSide), client.connect(clientSide)]);

@@ -12,10 +12,13 @@ import { ConnectGateway } from "./connect.js";
 import { createMcpServer } from "./mcp.js";
 import { MCP_SCOPES, OAuthError, OAuthService } from "./oauth.js";
 import { verifyMasterKey } from "./security.js";
+import { VIEW_ASSET_PATH, viewPage, type ViewBuild } from "./view.js";
 
 interface BuildOptions {
   db: DatabasePool;
   config: McpRuntimeConfig;
+  /** The built MCP App view (`pnpm build:view`). */
+  view: ViewBuild;
   revision?: string;
 }
 
@@ -66,6 +69,7 @@ export async function buildApp(options: BuildOptions) {
   pruning.unref();
   app.addHook("onClose", async () => clearInterval(pruning));
   const resourceMetadataUrl = `${config.publicUrl}/.well-known/oauth-protected-resource/mcp`;
+  const view = { html: viewPage(options.view, config.publicUrl), origin: config.publicUrl };
 
   await app.register(formbody);
   await app.register(helmet, {
@@ -126,6 +130,22 @@ export async function buildApp(options: BuildOptions) {
   )));
 
   app.get("/.well-known/mdbase-app.json", async () => manifest);
+
+  // The view's built files, for hosts' sandboxed frames on other origins. Their names carry
+  // their content hash, so a name never changes meaning; nothing else is served from here.
+  app.get(`${VIEW_ASSET_PATH}:name`, { config: { rateLimit: false } }, async (request, reply) => {
+    const asset = options.view.assets.get((request.params as { name: string }).name);
+    if (!asset) return reply.code(404).send({ error: "not_found" });
+    const gzip = /\bgzip\b/u.test(headerText(request.headers["accept-encoding"]) ?? "");
+    if (gzip) reply.header("content-encoding", "gzip");
+    return reply
+      .header("vary", "accept-encoding")
+      .header("cache-control", "public, max-age=31536000, immutable")
+      .header("access-control-allow-origin", "*")
+      .header("cross-origin-resource-policy", "cross-origin")
+      .type(asset.type)
+      .send(gzip ? asset.gzip : asset.body);
+  });
 
   const protectedResourceMetadata = {
     resource: config.resource,
@@ -220,7 +240,7 @@ export async function buildApp(options: BuildOptions) {
   app.post("/mcp", async (request, reply) => {
     const context = await authenticateRequest(request.headers.authorization, oauth);
     if (!context) return unauthorized(reply, resourceMetadataUrl);
-    const server = createMcpServer(context, gateway, oauth);
+    const server = createMcpServer(context, gateway, oauth, view);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true
