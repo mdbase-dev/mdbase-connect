@@ -1,14 +1,15 @@
 // @vitest-environment jsdom
-import { act, type ReactElement } from "react";
+import { act, useRef, useState, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { accessibleName, visibleLabel } from "../test/label-in-name.js";
 import { AppSwitcher } from "./AppSwitcher.js";
 import { aiAssistants, mcpSetupUrl } from "./apps.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+HTMLElement.prototype.getAnimations = () => [];
 
 function openMenu(element: ReactElement): { container: HTMLDivElement; unmount: () => void } {
   const container = document.body.appendChild(document.createElement("div"));
@@ -210,5 +211,62 @@ describe("AppSwitcher", () => {
     const journalMarkup = renderToStaticMarkup(<AppSwitcher current="journal" />);
     expect(journalMarkup).toContain('class="mdbase-mark mdbase-app-mark is-journal wordmark-mark"');
     expect(journalMarkup).toContain("Journal");
+  });
+  it("has no trigger with variant none, opens from the app's anchor and returns focus to it", () => {
+    let anchor: HTMLButtonElement | null = null;
+    const onOpenChange = vi.fn();
+    function Host() {
+      const anchorRef = useRef<HTMLButtonElement>(null);
+      const [open, setOpen] = useState(false);
+      return <>
+        <button ref={(element) => { anchorRef.current = element; anchor = element; }} type="button" onClick={() => setOpen(true)}>More</button>
+        <AppSwitcher
+          current="tasknotes"
+          variant="none"
+          anchorRef={anchorRef}
+          collectionId="col_7"
+          urls={{ editor: "https://editor.example" }}
+          open={open}
+          onOpenChange={(next) => { onOpenChange(next); setOpen(next); }}
+        />
+      </>;
+    }
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    act(() => root.render(<Host />));
+    expect(container.querySelector(".mdbase-app-switcher")).toBeNull();
+    expect(container.querySelector('[role="menu"]')).toBeNull();
+
+    act(() => anchor!.click());
+    const menu = container.querySelector<HTMLElement>('[role="menu"]')!;
+    expect(menu.getAttribute("aria-label")).toBe("mdbase apps");
+    expect(menu.querySelector('a[href="https://editor.example/?collection=col_7"]')).not.toBeNull();
+    expect(menu.contains(document.activeElement)).toBe(true);
+
+    // The anchor counts as part of the menu, so pressing it leaves the app to decide.
+    act(() => { anchor!.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); });
+    expect(container.querySelector('[role="menu"]')).not.toBeNull();
+
+    act(() => { document.activeElement!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); });
+    expect(onOpenChange.mock.calls).toEqual([[false]]);
+    expect(container.querySelector('[role="menu"][data-open="true"]')).toBeNull();
+    expect(document.activeElement).toBe(anchor);
+    act(() => root.unmount());
+    container.remove();
+  });
+
+  it("asks through onOpenChange when controlled, and keeps its own state otherwise", () => {
+    const onOpenChange = vi.fn();
+    const controlled = openMenu(<AppSwitcher current="writer" open={false} onOpenChange={onOpenChange} />);
+    expect(onOpenChange).toHaveBeenCalledExactlyOnceWith(true);
+    expect(controlled.container.querySelector('[role="menu"]')).toBeNull();
+    controlled.unmount();
+
+    onOpenChange.mockClear();
+    const own = openMenu(<AppSwitcher current="writer" onOpenChange={onOpenChange} />);
+    expect(own.container.querySelector('[role="menu"]')).not.toBeNull();
+    act(() => own.container.querySelector<HTMLElement>(".mdbase-app-switcher")!.click());
+    expect(onOpenChange.mock.calls).toEqual([[true], [false]]);
+    own.unmount();
   });
 });
