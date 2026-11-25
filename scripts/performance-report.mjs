@@ -64,16 +64,33 @@ export function runtimeMetrics(report) {
   return metrics;
 }
 
-export function performanceReport(metrics, suite, { commit, commitAt }, env = process.env) {
+export function cpuSlug(cpu) {
+  if (typeof cpu !== "string") return null;
+  const slug = cpu
+    .replace(/\((?:r|tm|c)\)|[®™©]/gi, "")
+    .replace(/(?:@\s*)?\b\d+(?:\.\d+)?\s*[gm]hz\b/gi, "")
+    .replace(/\b\d+[-\s]+core\b/gi, "")
+    .replace(/\b(?:cpu|processor)\b/gi, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 64)
+    .replace(/-+$/, "");
+  return slug || null;
+}
+
+export function performanceReport(metrics, suite, { commit, commitAt, cpu = null }, env = process.env) {
   if (env.GITHUB_REPOSITORY !== "mdbase-dev/mdbase-connect" || env.GITHUB_REF !== "refs/heads/main"
     || !["push", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME) || env.GITHUB_SHA !== commit
     || !Number.isSafeInteger(Number(env.GITHUB_RUN_ID)) || Number(env.GITHUB_RUN_ID) < 1
     || !Number.isSafeInteger(Number(env.GITHUB_RUN_ATTEMPT)) || Number(env.GITHUB_RUN_ATTEMPT) < 1
     || !/^[0-9a-f]{40}$/.test(commit) || !Number.isFinite(Date.parse(commitAt))
     || env.RUNNER_OS !== "Linux" || !["X64", "ARM64"].includes(env.RUNNER_ARCH)) throw new Error("Performance reports require an exact main-branch Actions checkout");
+  const baseRunner = `linux-${env.RUNNER_ARCH.toLowerCase()}`;
+  const hardware = cpuSlug(cpu);
   return { schema_version: 1, repo: "connect", suite, run_id: Number(env.GITHUB_RUN_ID), attempt: Number(env.GITHUB_RUN_ATTEMPT),
     commit, commit_at: new Date(commitAt).toISOString(),
-    observed_at: new Date().toISOString(), runner: `linux-${env.RUNNER_ARCH.toLowerCase()}`, conclusion: "success", metrics };
+    observed_at: new Date().toISOString(), runner: hardware ? `${baseRunner}.${hardware}` : baseRunner, conclusion: "success", metrics };
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
@@ -81,13 +98,15 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
     "sdk-package": { type: "string" }, runtime: { type: "string" }, out: { type: "string" } } });
   if (!values.out) throw new Error("--out is required");
   const suite = performanceSuite({ ...values, sdkPackage: values["sdk-package"] });
-  const metrics = values.runtime ? runtimeMetrics(JSON.parse(await readFile(values.runtime, "utf8")))
+  const runtimeReport = values.runtime ? JSON.parse(await readFile(values.runtime, "utf8")) : null;
+  const metrics = runtimeReport ? runtimeMetrics(runtimeReport)
     : await sizeMetrics({ app: values.app, sdkPackage: values["sdk-package"], wasm: (values.wasm ?? []).map((value) => {
       const separator = value.indexOf("=");
       if (separator < 1) throw new Error("--wasm requires name=path");
       return { name: value.slice(0, separator), path: value.slice(separator + 1) };
     }) });
   const source = { commit: execFileSync("git", ["rev-parse", "HEAD"], { encoding: "utf8" }).trim(),
-    commitAt: execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], { encoding: "utf8" }).trim() };
+    commitAt: execFileSync("git", ["show", "-s", "--format=%cI", "HEAD"], { encoding: "utf8" }).trim(),
+    cpu: runtimeReport?.meta?.cpu };
   await writeFile(values.out, `${JSON.stringify(performanceReport(metrics, suite, source))}\n`);
 }
