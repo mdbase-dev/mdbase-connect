@@ -379,7 +379,9 @@ date, a number, a list of values, links to other records, or text. Include
 
 `declared` is what the record's type says about its properties, in the type's
 order: a name, a kind, and where known the values it may take and whether it is
-a date. `inUse` is what other records hold, offered when a property is added;
+a date. `propertiesFromSchema(properties, required, links?, values?)` works it
+out from JSON Schema, following local `$ref`s and `allOf`; `mergeTypeSchemas`
+first combines the schemas of a record's several types. `inUse` is what other records hold, offered when a property is added;
 `propertiesInUse` works that out from their values. Properties that hold
 nothing stay out of the way until one is added by name or all are shown.
 `onChange` receives null for a value that was cleared or a property that was

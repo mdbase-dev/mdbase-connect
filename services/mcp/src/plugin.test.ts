@@ -17,7 +17,8 @@ describe("mdbase ChatGPT plugin", () => {
     const server = createMcpServer(
       { clientId: "plugin-test", connectionSetId: "plugin-test", scopes: ["mdbase:read", "mdbase:write"] },
       {} as ConnectGateway,
-      {} as OAuthService
+      {} as OAuthService,
+      { html: "<!doctype html>", origin: "https://mcp.example" }
     );
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const client = new Client({ name: "plugin-test", version: "0" });

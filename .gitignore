@@ -1,6 +1,7 @@
 /target/
 **/node_modules/
 **/dist/
+/services/mcp/dist-app/
 **/.vite/
 /packages/app-ui/test-results/
 /apps/portal/test-results/
@@ -10,6 +11,7 @@
 /apps/desktop/src/locales/*/*.json
 /packages/app-ui/src/locales/*/*.json
 /packages/ui/locales/*/*.json
+/services/mcp/view/locales/*/*.json
 **/out/
 /.tmp/
 /.ci-flakes/

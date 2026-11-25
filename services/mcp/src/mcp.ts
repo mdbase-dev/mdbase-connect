@@ -1,4 +1,5 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { RESOURCE_MIME_TYPE, RESOURCE_URI_META_KEY, registerAppResource } from "@modelcontextprotocol/ext-apps/server";
 import { randomUUID } from "node:crypto";
 import type { CollectionChangesPage, CollectionOperation } from "@mdbase-dev/connect-protocol";
 import { normalizeCollectionChange } from "./change-events.js";
@@ -13,6 +14,17 @@ const queryCursor = z.string().min(1).max(10_000).describe("Opaque hosted query 
 const object = z.record(z.string(), z.unknown());
 const TOOL_REFERENCE = "https://mdbase.dev/apps/mcp/tools/";
 
+/** The MCP App view: one bundled page that shows query results as a table and a record as a card. */
+export const VIEW_URI = "ui://mdbase/collection-view.html";
+/** Tools whose results the view shows. ext-apps reads the nested key; older hosts the flat one. */
+const VIEW = { ui: { resourceUri: VIEW_URI }, [RESOURCE_URI_META_KEY]: VIEW_URI };
+
+/** The view as hosts receive it: its page, and the gateway origin its scripts, styles and fonts load from. */
+export interface McpView {
+  readonly html: string;
+  readonly origin: string;
+}
+
 export const SERVER_INSTRUCTIONS = [
   "mdbase reaches typed markdown collections the user has approved in mdbase connect. Each file is a record whose YAML frontmatter fields are validated against its type.",
   "Start with list_connections: every other tool needs a connection_id it returns. If the user asks to connect, add or approve a collection that is not listed, call add_connection and give them the link. Nothing is approved until they open it; then call list_connections again.",
@@ -24,13 +36,24 @@ export const SERVER_INSTRUCTIONS = [
 export function createMcpServer(
   context: McpAuthContext,
   gateway: ConnectGateway,
-  oauth: OAuthService
+  oauth: OAuthService,
+  view: McpView
 ): McpServer {
   const server = new McpServer(
     { name: "mdbase", version: "0.1.0-beta.152" },
     { instructions: SERVER_INSTRUCTIONS }
   );
   const registerTool = directoryRegistrar(server);
+
+  // The view loads its own files from the gateway and fetches nothing else: every collection
+  // request it makes is a tool call through the host.
+  const viewMeta = { ui: { csp: { connectDomains: [], resourceDomains: [view.origin] }, prefersBorder: true } };
+  registerAppResource(server, "mdbase collection view", VIEW_URI, {
+    description: "Shows mdbase query results as a table and a record as a card with its properties and body.",
+    _meta: viewMeta
+  }, async () => ({
+    contents: [{ uri: VIEW_URI, mimeType: RESOURCE_MIME_TYPE, text: view.html, _meta: viewMeta }]
+  }));
 
   registerTool("list_connections", {
     title: "List mdbase collections",
@@ -111,7 +134,8 @@ export function createMcpServer(
       frontmatter_mode: z.enum(["effective", "persisted", "both"]).optional(),
       contract: object.optional().describe("Data-contract query: { id, version, type? } from describe_collection; allows where, limit and cursor only")
     },
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    _meta: VIEW
   }, ({ connection_id, ...input }, { signal }) => operationTool(gateway, oauth, context, connection_id, "query", input, { signal }));
 
   registerTool("release_query_cursor", {
@@ -133,7 +157,8 @@ export function createMcpServer(
     title: "Read an mdbase record",
     description: "Read one record's frontmatter, body and current revision by its collection-relative path, such as tasks/renew-passport.md; never pass a local file system path. Use it to show a record and to get the revision to pass as if_revision before changing or deleting it. It does not change anything.",
     inputSchema: { connection_id: connectionId, path },
-    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
+    annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+    _meta: VIEW
   }, ({ connection_id, path }, { signal }) => operationTool(gateway, oauth, context, connection_id, "read", { path }, { signal }));
 
   registerTool("validate_collection", {
@@ -173,13 +198,15 @@ function registerWriteTools(registerTool: McpServer["registerTool"], context: Mc
     connection_id: connectionId,
     path,
     patch: object.optional(),
+    unset: z.array(z.string().min(1).max(200)).min(1).max(200).optional()
+      .describe("Frontmatter fields to remove from the record"),
     body: z.string().max(2_000_000).optional(),
     document: z.string().max(2_000_000).optional(),
     if_revision: revision.optional(),
     mutation_id: z.uuid().optional()
   }).refine(
-    ({ patch, body, document }) => patch !== undefined || body !== undefined || document !== undefined,
-    { message: "Supply at least one of patch, body, or document." }
+    ({ patch, unset, body, document }) => patch !== undefined || unset !== undefined || body !== undefined || document !== undefined,
+    { message: "Supply at least one of patch, unset, body, or document." }
   );
   registerTool("create_record", {
     title: "Create an mdbase record",
@@ -193,16 +220,18 @@ function registerWriteTools(registerTool: McpServer["registerTool"], context: Mc
       if_revision: revision.optional(),
       mutation_id: z.uuid().optional()
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false }
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false },
+    _meta: VIEW
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
     gateway, oauth, context, connection_id, "create", input, mutation_id, signal
   ));
 
   registerTool("update_record", {
     title: "Update an mdbase record",
-    description: "Change one existing record, overwriting what you supply: patch replaces the given frontmatter fields, body replaces the body and document replaces the whole file. Read the record first and pass its revision as if_revision so a concurrent edit is not overwritten; path is collection-relative, never a local file system path, and ask the user before changing more than a few records. Afterwards tell the user the saved path and the fields that changed.",
+    description: "Change one existing record, overwriting what you supply: patch replaces the given frontmatter fields, unset removes the named fields, body replaces the body and document replaces the whole file. Read the record first and pass its revision as if_revision so a concurrent edit is not overwritten; path is collection-relative, never a local file system path, and ask the user before changing more than a few records. Afterwards tell the user the saved path and the fields that changed.",
     inputSchema: updateRecordInput,
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    _meta: VIEW
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
     gateway, oauth, context, connection_id, "update", input, mutation_id, signal
   ));
@@ -234,7 +263,8 @@ function registerWriteTools(registerTool: McpServer["registerTool"], context: Mc
       mutation_id: z.uuid().optional()
     },
     // The old path stops resolving and update_refs rewrites links in other records.
-    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false }
+    annotations: { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false },
+    _meta: VIEW
   }, ({ connection_id, mutation_id, ...input }, { signal }) => mutationOperationTool(
     gateway, oauth, context, connection_id, "rename", input, mutation_id, signal
   ));

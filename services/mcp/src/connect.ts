@@ -328,6 +328,10 @@ export class ConnectGateway {
         );
         if (next !== LEGACY) return next as Result;
         if (completion) throw new GatewayOperationError("control_error", "Native collection routing is unavailable. Try again shortly.");
+        // Legacy authorities predate field removal; refuse rather than let them ignore it.
+        if (operation === "update" && (input as { unset?: unknown } | undefined)?.unset !== undefined) {
+          throw new GatewayOperationError("unsupported_operation", `${connection.display_name} cannot remove fields through unset. Pass the whole file as document instead.`);
+        }
         await this.requireQueryOutput(connection, operation, input, options.signal);
         const attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
         if (attempt.status === 401 && !force) continue;

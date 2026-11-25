@@ -1,0 +1,94 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-11-25 15:56+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: it\n"
+
+#: view/RecordsTable.tsx
+msgid "{count, plural, one {# record} other {# records}}"
+msgstr "{count, plural, one {# record} other {# record}}"
+
+#: view/RecordsTable.tsx
+msgid "{count} of {total} records"
+msgstr "{count} di {total} record"
+
+#: view/View.tsx
+msgctxt "Opens the approval page for a collection whose access lapsed"
+msgid "Approve again"
+msgstr "Approva di nuovo"
+
+#: view/main.tsx
+msgid "Asking the collection"
+msgstr "Interrogazione della raccolta"
+
+#: view/View.tsx
+msgctxt "Returns from a record to the query results"
+msgid "Back"
+msgstr "Indietro"
+
+#. placeholder {0}: recordTitle(record)
+#: view/RecordCard.tsx
+msgid "Body of {0}"
+msgstr "Corpo di {0}"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of how many records a group holds"
+msgid "Count"
+msgstr "Conteggio"
+
+#: view/RecordsTable.tsx
+msgctxt "Loads the next page of query results"
+msgid "Load more"
+msgstr "Carica altri"
+
+#: view/RecordCard.tsx
+msgid "Moved from {renamedFrom}"
+msgstr "Spostato da {renamedFrom}"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of record names"
+msgid "Name"
+msgstr "Nome"
+
+#: view/RecordsTable.tsx
+msgid "No records match."
+msgstr "Nessun record corrisponde."
+
+#. placeholder {0}: shown.title
+#: view/View.tsx
+msgid "Opening {0}"
+msgstr "Apertura di {0}"
+
+#: view/RecordsTable.tsx
+msgctxt "Label of the query results table"
+msgid "Records"
+msgstr "Record"
+
+#: view/RecordCard.tsx
+msgctxt "Reads the record again after a save failed"
+msgid "Reload"
+msgstr "Ricarica"
+
+#: view/RecordCard.tsx
+msgid "The change could not be saved."
+msgstr "Impossibile salvare la modifica."
+
+#: view/View.tsx
+msgid "The collection could not answer."
+msgstr "La raccolta non ha potuto rispondere."
+
+#: view/RecordCard.tsx
+msgid "The record could not be read again."
+msgstr "Impossibile rileggere il record."
+
+#: view/View.tsx
+msgid "There is nothing here to show."
+msgstr "Non c'è niente da mostrare qui."
+
+#: view/RecordCard.tsx
+msgctxt "List of the mdbase types a record has"
+msgid "Types"
+msgstr "Tipi"

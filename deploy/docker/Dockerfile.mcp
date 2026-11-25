@@ -8,15 +8,26 @@ COPY patches patches
 # The workspace lock resolves file-pinned editor SDK bytes even for filtered installs.
 COPY apps/editor/vendor/sdk-75840a5b-production-0.2.19.tgz apps/editor/vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz apps/editor/vendor/
 COPY apps/editor/vendor/sdk-self-hosted-*.tgz apps/editor/vendor/
+COPY packages/app-ui/package.json packages/app-ui/package.json
+COPY packages/i18n/package.json packages/i18n/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
+COPY packages/ui/package.json packages/ui/package.json
 COPY services/mcp/package.json services/mcp/package.json
 
 RUN pnpm install --frozen-lockfile --filter @mdbase/connect-mcp...
 
+# The MCP App view is built from the shared app UI; its catalogue step also compiles packages/ui's.
+COPY packages/app-ui packages/app-ui
+COPY packages/i18n packages/i18n
 COPY packages/protocol packages/protocol
+COPY packages/ui packages/ui
 COPY services/mcp services/mcp
 
-RUN pnpm --filter @mdbase-dev/connect-protocol build \
+RUN pnpm --filter @mdbase-dev/i18n build \
+ && pnpm --filter @mdbase-dev/ui i18n:check \
+ && pnpm --filter @mdbase/connect-mcp i18n:check \
+ && pnpm --filter @mdbase-dev/connect-protocol build \
+ && pnpm --filter @mdbase-dev/ui build \
  && pnpm --filter @mdbase/connect-mcp build
 
 FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS runtime

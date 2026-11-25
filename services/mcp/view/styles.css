@@ -1,0 +1,244 @@
+/*
+ * The view sits inside the host's conversation, so it takes the host's fonts (MCP Apps style
+ * variables) over the bundled Plex faces, keeps the host's background, and uses the shared
+ * mdbase roles for everything else. The host sets data-theme, which tokens.css follows.
+ */
+:root {
+  --sans: var(--font-sans, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+  --mono: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace);
+}
+
+html,
+body {
+  margin: 0;
+  background: transparent;
+}
+
+body {
+  color: var(--color-text);
+  font: var(--font-size-ui) / 1.45 var(--sans);
+}
+
+.view {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  min-width: 0;
+}
+
+.view-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 28px;
+  color: var(--color-text-soft);
+  font-size: var(--font-size-caption);
+}
+
+.view-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.view-brand > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.view-mark {
+  inline-size: 16px;
+  block-size: 16px;
+  flex: none;
+}
+
+.view-back {
+  margin-inline-start: calc(-1 * var(--space-2));
+}
+
+.view-muted {
+  color: var(--color-text-muted);
+}
+
+.view-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.view-problem {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}
+
+/* Results */
+
+.view-table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.view-table {
+  inline-size: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.view-table th,
+.view-table td {
+  padding: 6px var(--space-3);
+  border-block-end: 1px solid var(--color-border);
+  text-align: start;
+  vertical-align: top;
+  white-space: nowrap;
+  max-inline-size: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.view-table tbody tr:last-child > * {
+  border-block-end: 0;
+}
+
+.view-table thead th {
+  background: var(--color-surface-subtle);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.view-table tbody th {
+  font-weight: var(--font-weight-regular);
+}
+
+.view-table tbody tr:hover {
+  background: var(--color-selected);
+}
+
+.view-column {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.view-open {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  text-align: start;
+  cursor: pointer;
+}
+
+.view-open:hover {
+  text-decoration: underline;
+}
+
+.view-open:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.view-records {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.view-records-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--font-size-caption);
+}
+
+/* Record */
+
+.view-record {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.view-record-head {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.view-record-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+}
+
+.view-record-title h1 {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.view-record-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+  font: var(--font-size-caption) / 1.4 var(--mono);
+  overflow-wrap: anywhere;
+}
+
+.view-types {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.view-types li {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-subtle);
+  color: var(--color-text-soft);
+  font-size: var(--font-size-caption);
+}
+
+.view-body {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+}
+
+.view-body .cm-editor {
+  background: transparent;
+}
+
+.view-body .cm-editor.cm-focused {
+  outline: none;
+}
+
+.view-body .cm-content {
+  padding: 0;
+  color: var(--color-editor-text);
+  font-family: var(--sans);
+  font-size: var(--font-size-prose);
+  line-height: 1.6;
+}
+
+.view-body .cm-line {
+  padding: 0;
+}
