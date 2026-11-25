@@ -11,16 +11,14 @@ COPY apps/editor/vendor/sdk-self-hosted-*.tgz apps/editor/vendor/
 COPY packages/app-ui/package.json packages/app-ui/package.json
 COPY packages/i18n/package.json packages/i18n/package.json
 COPY packages/protocol/package.json packages/protocol/package.json
-COPY packages/ui/package.json packages/ui/package.json
 COPY services/mcp/package.json services/mcp/package.json
 
 RUN pnpm install --frozen-lockfile --filter @mdbase/connect-mcp...
 
-# The MCP App view is built from the shared app UI; its catalogue step also compiles packages/ui's.
+# The MCP App view is built from the shared app UI.
 COPY packages/app-ui packages/app-ui
 COPY packages/i18n packages/i18n
 COPY packages/protocol packages/protocol
-COPY packages/ui packages/ui
 COPY services/mcp services/mcp
 
 RUN pnpm --filter @mdbase-dev/i18n build \

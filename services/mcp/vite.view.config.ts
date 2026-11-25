@@ -5,10 +5,9 @@ import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 
-execFileSync(process.execPath, [
-  fileURLToPath(new URL("../../packages/app-ui/scripts/compile-catalogues.mjs", import.meta.url)),
-  fileURLToPath(new URL(".", import.meta.url)),
-], { stdio: "inherit" });
+// The view uses app-ui's catalogues and its own, not packages/ui's: compiling those here would
+// rewrite them while packages/ui, which this package does not depend on, reads them in parallel.
+execFileSync("pnpm", ["i18n:compile"], { cwd: fileURLToPath(new URL(".", import.meta.url)), stdio: "inherit" });
 
 // The MCP App view (src/view.ts serves it). Hosts render the page without a base URL, so the
 // gateway points its two entry references at its own origin; everything else the bundle loads

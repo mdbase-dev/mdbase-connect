@@ -8,12 +8,12 @@
     "build:view": "vite build --config vite.view.config.ts",
     "dev": "pnpm build:view && tsx watch src/index.ts",
     "i18n:extract": "mdbase-i18n extract",
-    "i18n:compile": "mdbase-i18n compile",
+    "i18n:compile": "node ../../packages/app-ui/scripts/compile-catalogues.mjs ../../packages/app-ui && mdbase-i18n compile",
     "i18n:check": "mdbase-i18n check --compose \"../../packages/app-ui/src/locales/{locale}/messages.json\"",
     "migrate": "node dist/migrate.js",
     "start": "node dist/index.js",
-    "test": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && node ../../scripts/ci/vitest.mjs",
-    "typecheck": "node ../../packages/app-ui/scripts/compile-catalogues.mjs && tsc -p tsconfig.json --noEmit && tsc -p view/tsconfig.json --noEmit"
+    "test": "pnpm i18n:compile && node ../../scripts/ci/vitest.mjs",
+    "typecheck": "pnpm i18n:compile && tsc -p tsconfig.json --noEmit && tsc -p view/tsconfig.json --noEmit"
   },
   "dependencies": {
     "@fastify/cors": "^11.3.0",
