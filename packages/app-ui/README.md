@@ -496,6 +496,10 @@ import "@mdbase-dev/ui/collections.css";
   problems, and renders its children once the phase is `ready`. A live problem
   then shows as a banner above them. `layout="panel"` fits inside a shell or a
   dialog.
+- `appHero` is for an app that shows its own name, headline and lead above the
+  gate. The gate leaves out its app line on every screen, and signed out it
+  shows only its actions, centred and at their own width on narrow screens. Its
+  heading and lead stay for screen readers. The other screens are unchanged.
 - The gate calls `mdbase.start()` itself while the front door hasn't started
   (`autoStart`, default `true`). It makes one call however many gates render,
   and none once the app has started it, so apps can drop their own `start()`.

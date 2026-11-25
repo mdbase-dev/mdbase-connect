@@ -176,6 +176,52 @@ describe("opening presentation", () => {
   });
 });
 
+describe("appHero", () => {
+  it("renders the app line and a visible heading and lead by default", () => {
+    const { entry } = fakeMdbase({ kind: "signed_out", notice: null }, { signIn: null, collections: [] });
+    render(<CollectionGate mdbase={entry} app={app} layout="panel" autoStart={false}>{() => null}</CollectionGate>);
+    const gate = container.querySelector(".mdbase-collections-gate")!;
+    expect(gate.hasAttribute("data-hero")).toBe(false);
+    expect(gate.querySelector(".mdbase-collections-brand")?.textContent).toBe("TaskNotes");
+    expect(gate.querySelector("h2")?.className).toBe("mdbase-collections-heading");
+    expect(gate.querySelector(".mdbase-collections-lead")).not.toBeNull();
+  });
+
+  it("signed out, shows only the actions and keeps the heading and lead for assistive technology", () => {
+    const { entry } = fakeMdbase({ kind: "signed_out", notice: null }, { signIn: null, collections: [] });
+    render(<CollectionGate mdbase={entry} app={app} layout="panel" appHero autoStart={false} extraActions={<button type="button">Try it</button>}>{() => null}</CollectionGate>);
+    const gate = container.querySelector(".mdbase-collections-gate")!;
+    expect(gate.getAttribute("data-hero")).toBe("app");
+    expect(gate.querySelector(".mdbase-collections-brand")).toBeNull();
+    expect(gate.querySelector(".mdbase-collections-heading, .mdbase-collections-lead")).toBeNull();
+    const [heading, lead] = [...gate.querySelectorAll(".mdbase-collections-gate-body > .mdbase-collections-visually-hidden")];
+    expect(heading?.tagName).toBe("H2");
+    expect(heading?.textContent).toBeTruthy();
+    expect(lead?.tagName).toBe("P");
+    expect(lead?.textContent).toBeTruthy();
+    expect(button("Sign in")).toBeDefined();
+    expect(button("Try it")).toBeDefined();
+  });
+
+  it("keeps the heading and lead visible on every other screen, still without the app line", () => {
+    const { entry, set } = fakeMdbase({ kind: "signed_out", notice: null });
+    render(<CollectionGate mdbase={entry} app={app} layout="panel" appHero autoStart={false}>{() => null}</CollectionGate>);
+    act(() => set({ phase: { kind: "choosing", lastApproval: null } }));
+    const gate = container.querySelector(".mdbase-collections-gate")!;
+    expect(gate.getAttribute("data-phase")).toBe("choosing");
+    expect(gate.querySelector(".mdbase-collections-brand")).toBeNull();
+    const heading = gate.querySelector("h2")!;
+    expect(heading.className).toBe("mdbase-collections-heading");
+    expect(document.activeElement).toBe(heading);
+  });
+
+  it("centres the signed-out actions at their own width instead of stretching them on narrow screens", () => {
+    const css = readFileSync(join(import.meta.dirname, "../../css/collections.css"), "utf8");
+    expect(css).toMatch(/\.mdbase-collections-gate\[data-hero="app"\]\[data-phase="signed_out"\] \.mdbase-collections-actions \{\s*justify-content: center;/);
+    expect(css).toMatch(/@media \(max-width: 479\.98px\) \{\s*\.mdbase-collections-gate:not\(\[data-hero="app"\]\[data-phase="signed_out"\]\) \.mdbase-collections-actions > \.mdbase-collections-button:not\(\.is-quiet\) \{\s*flex: 1 1 100%;/);
+  });
+});
+
 describe("sign-out progress", () => {
   it.each(["page", "panel"] as const)("explains a pending sign-out on the signed-out %s screen until the original action settles", async (layout) => {
     const { mdbase, entry, set } = fakeMdbase({ kind: "choosing", lastApproval: null });
