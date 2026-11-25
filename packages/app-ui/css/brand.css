@@ -34,16 +34,6 @@
   fill: var(--mark-accent);
 }
 
-.mdbase-mark .mdbase-mark-ink-stroke {
-  fill: none;
-  stroke: var(--mark-ink);
-}
-
-.mdbase-mark .mdbase-mark-accent-stroke {
-  fill: none;
-  stroke: var(--mark-accent);
-}
-
 /* Progress: a faint copy keeps the shape visible while the lines fill. */
 .mdbase-mark .mdbase-mark-progress-ghost {
   opacity: 0.22;

@@ -105,7 +105,6 @@ describe("marks", () => {
 
     const tasknotes = renderToStaticMarkup(<MdbaseAppMark app="tasknotes" className="slot" />);
     expect(tasknotes).toContain('class="mdbase-mark mdbase-app-mark is-tasknotes slot"');
-    expect(tasknotes).toContain(`viewBox="${MDBASE_MARK_VIEW_BOX}"`);
-    expect(tasknotes).not.toContain("rx=");
+    expect(tasknotes).toMatch(/<mask id="(tasknotes-mark-[^"]+)".*mask="url\(#\1\)"/);
   });
 });
