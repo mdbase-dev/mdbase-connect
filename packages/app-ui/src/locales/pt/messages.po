@@ -2228,6 +2228,11 @@ msgstr "O que você estava tentando fazer?"
 msgid "What would you like to improve?"
 msgstr "O que você gostaria de melhorar?"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "What your assistants remember"
+msgstr "O que seus assistentes lembram"
+
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "O que está funcionando bem para você?"
