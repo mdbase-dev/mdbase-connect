@@ -1000,6 +1000,7 @@ impl<S: Store> Replica<S> {
         self.store.commit(tx)?;
         if let Some(hosted) = self.hosted.as_mut() {
             hosted.reindex_stamp = None;
+            hosted.reindex_hold = None;
         }
         self.store_generation += 1;
         self.repair_stats.resurrected += own.len() as u64;

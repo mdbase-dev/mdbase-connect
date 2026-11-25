@@ -927,6 +927,7 @@ impl<S: Store> Replica<S> {
         self.catalog = std::sync::Arc::new(catalog);
         if let Some(hosted) = self.hosted.as_mut() {
             hosted.reindex_stamp = None;
+            hosted.reindex_hold = None;
         }
         self.reset_feed();
         self.query_context = None;

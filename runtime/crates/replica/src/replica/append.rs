@@ -176,14 +176,21 @@ pub(crate) enum Inflight {
 impl<S: Store> Replica<S> {
     /// Drive the loop: read if behind, otherwise plan and send a batch.
     pub(crate) fn pump(&mut self) {
-        if self.apply_fault.is_some() || self.install.is_some() || self.hosted_blocked() {
+        // A record-metadata repair holds content, not control work: the reads,
+        // apply and key grants below run during it (`send_batch` stops there).
+        if self.apply_fault.is_some()
+            || self.install.is_some()
+            || self.hosted_blocked_except_reindex()
+        {
             return;
         }
-        self.retire_completed_setups();
-        self.unindexed_source_step();
-        self.declared_setup_rpc_step();
-        self.reverse_text_step();
-        self.native_blob_step();
+        if !self.hosted_reindex_pending() {
+            self.retire_completed_setups();
+            self.unindexed_source_step();
+            self.declared_setup_rpc_step();
+            self.reverse_text_step();
+            self.native_blob_step();
+        }
         if self.unindexed_sources.pending() || self.reverse_text_sources.pending() {
             return;
         }
@@ -239,7 +246,7 @@ impl<S: Store> Replica<S> {
     pub(crate) fn request_read(&mut self) {
         if self.apply_fault.is_some()
             || self.install.is_some()
-            || self.hosted_reindex_pending()
+            || self.hosted_reindex_read_held()
             || self.reading
             || self.unindexed_sources.pending()
             || self.reverse_text_sources.pending()
@@ -304,6 +311,7 @@ impl<S: Store> Replica<S> {
         }
         let me = self.cfg.device_id;
         if self.cfg.key_grants_only
+            || self.hosted_reindex_pending()
             || self.key_untrusted
             || self.policy.rekey_required
             || self.policy.frozen

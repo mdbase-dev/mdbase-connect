@@ -132,6 +132,9 @@ enum Lookup {
 #[derive(Debug, Default)]
 pub(crate) struct HostedState {
     pub(super) reindex_stamp: Option<Vec<u8>>,
+    /// During a record-metadata repair, apply stopped before an entry right
+    /// after this head: no read until the head moves or the repair ends.
+    pub(super) reindex_hold: Option<u64>,
     repair_boundary: Option<HostedRepairBoundary>,
     pub(super) applied_since_tick: u32,
     profile: HostedProfile,
@@ -1232,8 +1235,34 @@ impl<S: Store> Replica<S> {
         }
         if done {
             hosted.reindex_stamp = None;
+            hosted.reindex_hold = None;
         }
         Ok(())
+    }
+
+    /// Apply reached an entry during a record-metadata repair.
+    pub(super) fn hosted_reindex_hold(&mut self) {
+        let head = self.head.seq;
+        if let Some(hosted) = self.hosted.as_mut() {
+            hosted.reindex_hold = Some(head);
+        }
+        self.caught_up = false;
+    }
+
+    /// A read now could only return the entry apply is holding before.
+    pub(super) fn hosted_reindex_read_held(&self) -> bool {
+        self.hosted
+            .as_deref()
+            .is_some_and(|h| h.reindex_stamp.is_some() && h.reindex_hold == Some(self.head.seq))
+    }
+
+    /// Hosted work that waits for nothing but a record-metadata repair may run.
+    pub(crate) fn hosted_blocked_except_reindex(&self) -> bool {
+        self.device_keys_blocked()
+            || self
+                .hosted
+                .as_deref()
+                .is_some_and(|h| h.keys.is_some() || h.needs_reset)
     }
 
     /// Hosted mode: whether this replica serves sessions (it has rebuilt from the log
@@ -1286,11 +1315,7 @@ impl<S: Store> Replica<S> {
     /// While the warm-wake key rebuild runs (hosted), or a device keyring
     /// rebuild (`key_rebuild.rs`), the replica neither reads nor appends.
     pub(crate) fn hosted_blocked(&self) -> bool {
-        self.device_keys_blocked()
-            || self
-                .hosted
-                .as_deref()
-                .is_some_and(|h| h.keys.is_some() || h.needs_reset || h.reindex_stamp.is_some())
+        self.hosted_blocked_except_reindex() || self.hosted_reindex_pending()
     }
 
     /// Queue the next control read of the warm-wake rebuild, if one is due.
