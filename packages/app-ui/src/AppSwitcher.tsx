@@ -20,6 +20,9 @@ import { moveMenuFocus, placeSubmenu } from "./popover.js";
 /** Where the menu's "Your app here" row goes: the same SDK guide in every environment. */
 const sdkDocumentationUrl = "https://mdbase.dev/sdk/";
 
+/** Memory keeps what AI assistants remember as notes in a collection, so it lives in their submenu. */
+const memoryUrl = "https://memory.mdbase.dev/";
+
 function isMdbaseAppId(id: OfficialAppId): id is MdbaseAppId {
   return id === "editor" || id === "reader" || id === "writer";
 }
@@ -29,7 +32,7 @@ export type AppSwitcherProps = {
   /** Lab and local builds, for example `{ writer: import.meta.env.VITE_MDBASE_WRITER_URL }`. */
   readonly urls?: Partial<Record<OfficialApp["id"], string | undefined>>;
   /**
-   * Setup guide for other AI clients using MCP, the last row of the AI assistants submenu.
+   * Setup guide for other AI clients using MCP, a row of the AI assistants submenu.
    * Pass `null` on custom servers to omit the submenu: the assistants' listings use mdbase's own.
    */
   readonly mcpUrl?: string | null | undefined;
@@ -216,8 +219,8 @@ function McpMark(): JSX.Element {
 const submenuCloseDelay = 250;
 
 /**
- * A row that opens a submenu of the AI assistants with an official mdbase listing, then the
- * MCP setup guide for any other client. The pointer opens it by hovering; a click, Enter, Space
+ * A row that opens a submenu of the AI assistants with an official mdbase listing, the MCP
+ * setup guide for any other client, then Memory, the app they share a memory through. The pointer opens it by hovering; a click, Enter, Space
  * or → opens it and enters it; ← or leaving it closes it.
  */
 function AiAssistantsItem({ setupUrl, onClose }: {
@@ -325,6 +328,10 @@ function AiAssistantsItem({ setupUrl, onClose }: {
       <div className="mdbase-menu-divider" role="separator" />
       <div className="mdbase-menu-list">
         {link(setupUrl, t({ message: "Other AI clients", context: "App switcher" }), t({ message: "Set up with MCP", context: "App switcher" }))}
+      </div>
+      <div className="mdbase-menu-divider" role="separator" />
+      <div className="mdbase-menu-list">
+        {link(memoryUrl, "Memory", t({ message: "What your assistants remember", context: "App switcher" }))}
       </div>
     </div>}
   </div>;

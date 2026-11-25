@@ -104,7 +104,7 @@ describe("AppSwitcher", () => {
     unmount();
   });
 
-  it("opens the AI assistants submenu with the official listings and the MCP guide, and omits it when mcpUrl is null", () => {
+  it("opens the AI assistants submenu with the official listings, the MCP guide and Memory, and omits it when mcpUrl is null", () => {
     const shown = openMenu(
       <AppSwitcher current="writer" urls={{ editor: "https://editor.example", writer: "https://writer.example" }} />
     );
@@ -118,8 +118,8 @@ describe("AppSwitcher", () => {
 
     expect(row.getAttribute("aria-expanded")).toBe("true");
     expect(submenu.getAttribute("role")).toBe("menu");
-    expect(links.map((link) => link.href)).toEqual([...aiAssistants.map((assistant) => assistant.url), mcpSetupUrl]);
-    expect(links.map((link) => link.querySelector("strong")!.textContent)).toEqual(["Claude", "ChatGPT", "Other AI clients"]);
+    expect(links.map((link) => link.href)).toEqual([...aiAssistants.map((assistant) => assistant.url), mcpSetupUrl, "https://memory.mdbase.dev/"]);
+    expect(links.map((link) => link.querySelector("strong")!.textContent)).toEqual(["Claude", "ChatGPT", "Other AI clients", "Memory"]);
     expect(links.every((link) => link.target === "_blank" && link.rel === "noopener")).toBe(true);
     expect(document.activeElement).toBe(links[0]);
 

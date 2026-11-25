@@ -2228,6 +2228,11 @@ msgstr "何をしようとしていましたか？"
 msgid "What would you like to improve?"
 msgstr "どのような改善を希望しますか？"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "What your assistants remember"
+msgstr "アシスタントが覚えていること"
+
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "うまく機能している点を教えてください。"
