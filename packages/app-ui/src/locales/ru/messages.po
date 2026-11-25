@@ -171,6 +171,16 @@ msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "Добавить элемент в {property}"
 
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from ChatGPT's plugins"
+msgstr "Добавить mdbase из плагинов ChatGPT"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from Claude's directory"
+msgstr "Добавить mdbase из каталога Claude"
+
 #: src/properties/labels.ts
 msgctxt "Property list"
 msgid "Add property"
@@ -202,8 +212,9 @@ msgid "after"
 msgstr "позже"
 
 #: src/AppSwitcher.tsx
-msgid "AI clients (MCP)"
-msgstr "ИИ-клиенты (MCP)"
+msgctxt "App switcher"
+msgid "AI assistants"
+msgstr "ИИ-ассистенты"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -327,8 +338,9 @@ msgid "Browser, OS, viewport and recent error codes. No note contents, paths or 
 msgstr "Браузер, ОС, размер окна и последние коды ошибок. Без содержимого заметок, путей и учётных данных."
 
 #: src/AppSwitcher.tsx
-msgid "Build your own"
-msgstr "Создайте своё приложение"
+msgctxt "App switcher"
+msgid "Build one with the mdbase SDK"
+msgstr "Создайте своё с mdbase SDK"
 
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
@@ -444,8 +456,9 @@ msgid "Choose value"
 msgstr "Выбрать значение"
 
 #: src/AppSwitcher.tsx
-msgid "Claude, ChatGPT and Codex"
-msgstr "Claude, ChatGPT и Codex"
+msgctxt "App switcher"
+msgid "Claude, ChatGPT and others"
+msgstr "Claude, ChatGPT и другие"
 
 #: src/DatePicker.tsx
 msgctxt "Date picker"
@@ -1349,6 +1362,11 @@ msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "или нажмите Enter"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Other AI clients"
+msgstr "Другие ИИ-клиенты"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
@@ -1653,6 +1671,11 @@ msgstr "Настроить"
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
 msgstr "Настройка коллекции «{collection}» для {app}"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Set up with MCP"
+msgstr "Настроить через MCP"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -2277,6 +2300,11 @@ msgstr "Вы вышли из {app} на этом устройстве."
 #: src/Feedback.tsx
 msgid "you@example.com"
 msgstr "name@example.com"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Your app here"
+msgstr "Здесь ваше приложение"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

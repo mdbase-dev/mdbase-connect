@@ -669,28 +669,128 @@ textarea.mdbase-field {
   stroke: var(--color-text);
 }
 
-/* The app menu's last line: the new-tab note, and a quiet link to the SDK guide. */
-.mdbase-app-menu-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2px 12px;
-}
-
+/* "Your app here": an empty slot after the apps. Hovered or focused, it spins past the
+   family's marks and lands on a tile with a waiting caret, while a sheen crosses the row. */
 .mdbase-app-menu-build {
-  margin: -2px -6px;
-  padding: 2px 6px;
-  border-radius: var(--control-radius);
-  color: var(--color-text-soft);
-  text-decoration: none;
+  position: relative;
+  overflow: hidden;
 }
 
-.mdbase-app-menu-build:hover,
-.mdbase-menu .mdbase-app-menu-build:focus-visible {
-  outline: 0;
+.mdbase-app-menu-slot {
+  --slot-cell: 19px;
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin-inline: 3px;
+  overflow: hidden;
+  border: 1.5px dashed var(--color-border-strong);
+  border-radius: 6px;
+  transition: border-color var(--motion-slow) var(--ease-out);
+}
+
+.mdbase-app-menu-reel {
+  position: absolute;
+  inset: 0 0 auto;
+  display: grid;
+  grid-auto-rows: var(--slot-cell);
+  place-items: center;
+  transition: transform 0.28s var(--ease-out);
+}
+
+.mdbase-app-menu-reel > .mdbase-mark {
+  width: 15px;
+  height: 15px;
+}
+
+.mdbase-app-menu-slot-plus {
+  position: relative;
+  width: 9px;
+  height: 9px;
+}
+
+.mdbase-app-menu-slot-plus::before,
+.mdbase-app-menu-slot-plus::after {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 9px;
+  height: 1.6px;
+  background: var(--color-text-muted);
+  content: "";
+  translate: 0 -50%;
+}
+
+.mdbase-app-menu-slot-plus::after { rotate: 90deg; }
+
+.mdbase-app-menu-slot-caret {
+  width: 1.6px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+
+.mdbase-app-menu-build::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, light-dark(oklch(100% 0 0 / 0.75), oklch(100% 0 0 / 0.12)) 50%, transparent 70%);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-110%);
+}
+
+.mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-slot {
+  border-style: solid;
+  border-color: var(--color-accent);
+}
+
+.mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-reel {
+  transform: translateY(calc(-1 * var(--reel-stops) * var(--slot-cell)));
+  transition: transform 1.15s cubic-bezier(0.12, 0.75, 0.18, 1.04);
+}
+
+.mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-slot-caret {
+  animation: mdbase-slot-caret 1s steps(1) 1.15s infinite;
+}
+
+.mdbase-app-menu-build:is(:hover, :focus)::after {
+  animation: mdbase-slot-sheen 0.8s var(--ease-out) 0.9s;
+}
+
+@keyframes mdbase-slot-caret { 50% { opacity: 0; } }
+@keyframes mdbase-slot-sheen { to { transform: translateX(110%); } }
+
+/* The end state at once: the waiting tile, no spin, sheen or blink. */
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-app-menu-reel,
+  .mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-reel { transition: none; }
+  .mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-slot-caret,
+  .mdbase-app-menu-build:is(:hover, :focus)::after { animation: none; }
+}
+
+.mdbase-app-menu-submenu-chevron {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.6;
+}
+
+.mdbase-app-menu-ai {
+  display: grid;
+}
+
+.mdbase-app-menu-ai > [aria-expanded="true"] {
   color: var(--color-text);
   background: var(--color-accent-soft);
+}
+
+.mdbase-app-submenu {
+  width: max-content;
+  min-width: 240px;
+  max-width: min(300px, calc(100vw - 16px));
 }
 
 .mdbase-app-menu-external {

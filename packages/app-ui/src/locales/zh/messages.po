@@ -171,6 +171,16 @@ msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "向 {property} 添加条目"
 
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from ChatGPT's plugins"
+msgstr "从 ChatGPT 插件添加 mdbase"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from Claude's directory"
+msgstr "从 Claude 目录添加 mdbase"
+
 #: src/properties/labels.ts
 msgctxt "Property list"
 msgid "Add property"
@@ -202,8 +212,9 @@ msgid "after"
 msgstr "晚于"
 
 #: src/AppSwitcher.tsx
-msgid "AI clients (MCP)"
-msgstr "AI 客户端（MCP）"
+msgctxt "App switcher"
+msgid "AI assistants"
+msgstr "AI 助手"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -327,8 +338,9 @@ msgid "Browser, OS, viewport and recent error codes. No note contents, paths or 
 msgstr "浏览器、操作系统、视口和近期错误代码。不包含笔记内容、路径或凭据。"
 
 #: src/AppSwitcher.tsx
-msgid "Build your own"
-msgstr "构建自己的应用"
+msgctxt "App switcher"
+msgid "Build one with the mdbase SDK"
+msgstr "使用 mdbase SDK 构建"
 
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
@@ -444,8 +456,9 @@ msgid "Choose value"
 msgstr "选择值"
 
 #: src/AppSwitcher.tsx
-msgid "Claude, ChatGPT and Codex"
-msgstr "Claude、ChatGPT 和 Codex"
+msgctxt "App switcher"
+msgid "Claude, ChatGPT and others"
+msgstr "Claude、ChatGPT 等"
 
 #: src/DatePicker.tsx
 msgctxt "Date picker"
@@ -1349,6 +1362,11 @@ msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "或按 Enter"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Other AI clients"
+msgstr "其他 AI 客户端"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
@@ -1653,6 +1671,11 @@ msgstr "设置"
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
 msgstr "为 {app} 设置 {collection}"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Set up with MCP"
+msgstr "通过 MCP 设置"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -2277,6 +2300,11 @@ msgstr "你已在此设备上退出 {app}。"
 #: src/Feedback.tsx
 msgid "you@example.com"
 msgstr "例如：you@example.com"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Your app here"
+msgstr "你的应用在这里"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
