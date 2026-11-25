@@ -445,8 +445,10 @@ export class HostedCollection extends DurableObject<Env> {
         log_calls: per,
       };
       if (this.env.LAB === "1") {
-        // LAB: one line per first open, phase durations only (no ids or content).
-        try { console.info(JSON.stringify({ event: "hosted_first_open", role: this.escrow ? "escrow" : "hosted", ...this.timings })); } catch { /* Logging is not authority. */ }
+        // LAB: one line per first open, phase durations only (no raw ids or content).
+        // The salted collection tag ties this line to the same open's next_service_wake lines.
+        const tag = await wakeCollectionTag(collection);
+        try { console.info(JSON.stringify({ event: "hosted_first_open", role: this.escrow ? "escrow" : "hosted", collection_tag: tag, ...this.timings })); } catch { /* Logging is not authority. */ }
       }
       openingTrace.stage = "engine_reset";
       await this.checkCache(engine, true);
@@ -783,7 +785,9 @@ export class HostedCollection extends DurableObject<Env> {
     if (!current()) return;
     const install = engine.installStatus();
     // Counts only, in every environment: the one sign of an install in production.
-    if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...install })); } catch { /* Logging is not authority. */ }
+    // LAB lines also carry the salted collection tag, to tie an install to one open.
+    const installTag = install && this.env.LAB === "1" && this.collection ? await wakeCollectionTag(this.collection) : null;
+    if (install) try { console.info(JSON.stringify({ event: "hosted_install_progress", role: this.escrow ? "escrow" : "hosted", ...(installTag ? { collection_tag: installTag } : {}), ...install })); } catch { /* Logging is not authority. */ }
     // No count of the collection's text, and no identifiers.
     if (engine.snapshotDeclined()) try { console.info(JSON.stringify({ event: "hosted_snapshot_declined", role: this.escrow ? "escrow" : "hosted" })); } catch { /* Logging is not authority. */ }
     const installMs = await this.installWake(install, report.failed > 0, current);
