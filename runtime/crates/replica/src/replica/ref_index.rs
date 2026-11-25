@@ -370,6 +370,12 @@ impl<S: Store> Replica<S> {
 
     /// Check the manifest's chain against the item after it.
     pub(super) fn request_install_chain(&mut self, p: SnapshotPointer, m: Box<ManifestPayload>) {
+        if self.install_base.is_some() && self.head.seq >= 1 {
+            // A generation-0 base manifest has seq = 0 and chain = 0…0 (checked by
+            // `verify_base_manifest`). Ordered apply already verified seq 1's
+            // prev == 0…0 on the way to the base item.
+            return self.install_start_chunks(m);
+        }
         let id = self.queue(LogRequest::Read(ReadParams {
             collection: self.cfg.collection,
             after: m.seq,

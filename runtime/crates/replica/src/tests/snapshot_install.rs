@@ -648,3 +648,115 @@ fn simulated_crash_during_chunk_staging_restarts_cleanly() {
         a.r.confirmed_records().unwrap()
     );
 }
+
+/// Installing a generation-0 `base` skips the redundant `Install::Chain` read
+/// (seq 1's `prev == 0…0` was already verified by ordered apply) and issues no
+/// log `Read` while the install is in flight, even when trailing control items
+/// sit after the base.
+#[test]
+fn base_install_skips_chain_read_and_does_not_read_log_while_installing() {
+    use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
+
+    struct SmallAdopt(Vec<(B16, String, String)>);
+    impl AdoptSource for SmallAdopt {
+        fn records(&mut self) -> Result<AdoptRecords, String> {
+            Ok(AdoptRecords {
+                records: self.0.iter().map(|(id, p, _)| (*id, p.clone())).collect(),
+                resources: vec![],
+                settings: None,
+            })
+        }
+        fn read(&mut self, path: &str) -> Result<Option<String>, String> {
+            Ok(self
+                .0
+                .iter()
+                .find(|(_, p, _)| p == path)
+                .map(|(_, _, d)| d.clone()))
+        }
+    }
+
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    let docs: Vec<_> = (1..=8u8)
+        .map(|i| {
+            (
+                B16([i; 16]),
+                format!("notes/n{i}.md"),
+                format!("note {i}\n"),
+            )
+        })
+        .collect();
+    a.r.begin_adopt(Box::new(SmallAdopt(docs)));
+    settle(&mut [&mut a]);
+    assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+
+    // Append trailing control items after the `base` item so `head > base.seq`.
+    let mut cp = TestControlPlane::new(COL);
+    for b in 40..50u8 {
+        cp.append(&svc, vec![enrol_op(b)]);
+    }
+    settle(&mut [&mut a]);
+    let head = a.r.head().seq;
+
+    let mut reader = node(&svc, 2, MemStore::new());
+    let mut saw_install = false;
+    let mut saw_chain_state = false;
+    let mut reads_during_install = 0u64;
+    let mut max_install_wave = 0usize;
+    for _ in 0..80 {
+        for push in reader.log.poll_pushes() {
+            reader.r.on_log_push(push);
+        }
+        let calls = reader.r.take_log_calls();
+        if calls.is_empty() {
+            reader.r.tick();
+            if reader.r.head().seq == head && !reader.r.installing() {
+                break;
+            }
+            continue;
+        }
+        if reader.r.installing() {
+            saw_install = true;
+            max_install_wave = max_install_wave.max(calls.len());
+            if matches!(reader.r.install, Some(TestInstall::Chain(..))) {
+                saw_chain_state = true;
+            }
+            for call in &calls {
+                if matches!(call.request, LogRequest::Read(_)) {
+                    reads_during_install += 1;
+                }
+            }
+        }
+        for call in calls {
+            let reply = reader.log.call(call.request);
+            reader.r.on_log_reply(call.id, reply);
+            if matches!(reader.r.install, Some(TestInstall::Chain(..))) {
+                saw_chain_state = true;
+            }
+        }
+    }
+
+    assert!(
+        saw_install,
+        "cold reader must install the generation-0 base"
+    );
+    assert!(
+        !saw_chain_state,
+        "base install must not enter Install::Chain"
+    );
+    assert_eq!(
+        reads_during_install, 0,
+        "no log Read may be queued while a base install is in flight"
+    );
+    assert!(
+        max_install_wave <= CHUNKS_IN_FLIGHT,
+        "install waves must stay within CHUNKS_IN_FLIGHT ({CHUNKS_IN_FLIGHT}), got {max_install_wave}"
+    );
+    assert_eq!(reader.r.head(), a.r.head());
+    assert_eq!(reader.r.stats.snapshots_installed, 1);
+    assert_eq!(reader.r.sync_status().incidents, vec![]);
+    assert_eq!(
+        reader.r.confirmed_records().unwrap(),
+        a.r.confirmed_records().unwrap()
+    );
+}

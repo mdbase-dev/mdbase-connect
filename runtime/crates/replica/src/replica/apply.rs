@@ -143,6 +143,7 @@ impl<S: Store> Replica<S> {
         if self.apply_fault.is_some() || self.hosted_reindex_pending() {
             return;
         }
+        self.discard_staged_key_grants();
         let mut changed: BTreeSet<String> = BTreeSet::new();
         let mut any = false;
         for it in items {
@@ -261,6 +262,7 @@ impl<S: Store> Replica<S> {
         if self.close_apply_window().is_err() || !any {
             return;
         }
+        self.close_revoked_sessions();
         if self.head.seq >= self.head_known {
             self.head_known = self.head.seq;
             self.flush_query_index();
@@ -297,29 +299,28 @@ impl<S: Store> Replica<S> {
         }
     }
 
-    /// Open the deferred-durability window of the call's entries, if the store
+    /// Open the deferred-durability window of the call's items, if the store
     /// has such a mode (the desktop's native index and the app's browser
-    /// index; every other store commits each entry on its own and this does
+    /// index; every other store commits each item on its own and this does
     /// nothing).
     ///
-    /// Inside it an applied entry is atomic and ordered but not yet durable, so
-    /// a crash takes back a suffix of the call's entries. That is safe because
+    /// Inside it an applied item is atomic and ordered but not yet durable, so
+    /// a crash takes back a suffix of the call's items. That is safe because
     /// nothing outside the store can have seen them:
     ///
     /// - the store closes the window itself before any outside effect (a file
     ///   written, moved or removed, an attachment staged, a keychain entry);
-    /// - everything this replica emits (log calls, pushes, receipts) is queued
-    ///   in memory and taken by the host only after the call returns, and the
-    ///   call closes the window first (`apply_items`), fencing the instance and
-    ///   dropping those outputs if the barrier's outcome is unknown;
+    /// - everything this replica emits (log calls, pushes, receipts, own
+    ///   key-grant approval dispositions) is queued or staged in memory and
+    ///   delivered only after the barrier succeeds (`close_apply_window`),
+    ///   fencing the instance and dropping those outputs if the barrier's
+    ///   outcome is unknown;
     /// - what a crash loses is re-read from the log at the durable head and
     ///   applied again to the same result, own pending mutations included
     ///   (their rows and receipts roll back with the head).
     ///
-    /// Only entries are inside one. A control item (policy, rekey, key grant,
-    /// grant approval) or a base closes the window first and commits durably on
-    /// its own, as before: authorization and key state never run ahead of what
-    /// is durable.
+    /// Entries and control items share one window per `apply_items` call; a
+    /// `base` item closes the window first before beginning its staged install.
     fn open_apply_window(&mut self) -> Result<(), StoreError> {
         self.store.defer_durability(true)
     }
@@ -329,9 +330,15 @@ impl<S: Store> Replica<S> {
     /// the instance is fenced until reopen, as after any commit whose outcome
     /// is unknown, and nothing queued from them is delivered.
     fn close_apply_window(&mut self) -> Result<(), StoreError> {
-        self.store.defer_durability(false).inspect_err(|_| {
+        let r = self.store.defer_durability(false);
+        if r.is_ok() {
+            // Durable: only now do own approval grants from the window count as applied.
+            self.publish_staged_key_grants();
+        } else {
+            self.discard_staged_key_grants();
             self.terminal_store_fault("apply_window_barrier_failed");
-        })
+        }
+        r
     }
 
     /// A `base` item (`snapshot.md` §7): check it, then install its generation 0.
@@ -620,10 +627,10 @@ impl<S: Store> Replica<S> {
         head: Head,
         item: &Item,
     ) -> Result<Outcome, StoreError> {
-        self.discard_staged_key_grants();
+        let staged_before = self.staged_key_grants_len();
         let outcome = match self.evaluate_control(p, &head.chain, item, &[], true) {
             Err(stall) => {
-                self.discard_staged_key_grants();
+                self.truncate_staged_key_grants(staged_before);
                 return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, stall));
             }
             Ok(None) => Outcome::Applied,
@@ -658,7 +665,7 @@ impl<S: Store> Replica<S> {
             verdict(&outcome),
         );
         if let Err(e) = committed {
-            self.discard_staged_key_grants();
+            self.truncate_staged_key_grants(staged_before);
             return Err(e);
         }
         if self.apply_fault.is_none()
@@ -667,11 +674,13 @@ impl<S: Store> Replica<S> {
         {
             self.original_history = history;
         }
-        // Durable: only now does an own approval grant count as applied.
-        self.publish_staged_key_grants();
+        // Durable now if no deferred-durability window is open (otherwise
+        // `close_apply_window` publishes once the barrier succeeds).
+        if !self.store.durability_deferred() {
+            self.publish_staged_key_grants();
+        }
         self.note_genesis(head);
         self.status_dirty = true;
-        self.close_revoked_sessions();
         Ok(outcome)
     }
 
@@ -1065,10 +1074,10 @@ impl<S: Store> Replica<S> {
             seq: p,
             chain: mdbn_wire::hash::chain_hash(&bytes.0),
         };
-        if item.kind == ItemKind::Entry {
-            self.open_apply_window()?;
-        } else {
+        if item.kind == ItemKind::Base {
             self.close_apply_window()?;
+        } else {
+            self.open_apply_window()?;
         }
         if item.kind.is_control() && p <= self.policy.seq {
             self.original_history.invalidate();
