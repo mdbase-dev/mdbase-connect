@@ -102,11 +102,12 @@ impl<S: Store> Replica<S> {
                 tx.query_index = None;
                 return Ok(Some(context));
             };
-            // The store writes the path once for the record and once per field.
+            // The store writes the path in `st_qrecord`, `st_qmtime`, and once per field.
             bytes = match projected
                 .path
                 .len()
-                .checked_mul(1 + projected.fields.len())
+                .checked_mul(2 + projected.fields.len())
+                .and_then(|n| n.checked_add(projected.mtime.key.len()))
                 .and_then(|n| bytes.checked_add(n))
                 .and_then(|n| {
                     projected.fields.iter().try_fold(n, |n, f| {

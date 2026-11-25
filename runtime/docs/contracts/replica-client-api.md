@@ -99,7 +99,11 @@ The current Replica producer's marker list is `presence`, `validate-page-v1`
 classify instead of refusing), `bases-row-properties-v1` (app Bases execute
 request key 7 / response key 10 projected effective row properties and catalog
 types), `contract-query-order-v1` (`query_contract_v1` key 6 `order_by` and
-page sizes up to 1000, §4.1.1) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
+page sizes up to 1000, §4.1.1), `contract-query-order-mtime-v1` (indexed
+`file.mtime` ordering and `has(file.mtime)` / `!has(file.mtime)` index
+qualification in `query_contract_v1`, plus `file.mtime` exposure in queries,
+§3.1, §4.1.1; granted only by replicas whose store maintains the query index,
+not the hosted replica's `LogCache`) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
 `attachment-v1.materialize` directions when that replica admits them.
 `attachment-v1.write` is not granted by this producer. Directions are not implied
 by the bare codec marker. This source list is not a qualification of a deployed
@@ -163,7 +167,10 @@ A record whose latest change is pending reports its last confirmed time.
 Absent means unknown: the record has not changed since adoption or since a replica
 that predates the field built the snapshot this replica installed. It is never
 inferred from a host stat, sequence or snapshot time, is not part of the state
-digest, and is not exposed as `file.mtime` to queries or Bases.
+digest, and is not exposed as `file.mtime` to Bases. Ordinary and contract queries
+expose it as `file.mtime` (a CEL timestamp / RFC 3339 instant when present, absent/null
+when unknown; `order_by` orders it as a temporal value with ascending `file.path`
+tie-breaks).
 
 ## 4. Reads, live queries and change feeds
 
@@ -706,7 +713,7 @@ contract-query-v1 = {
   ? 3: uint,               ; page size 1..1000 (1..128 before contract-query-order-v1), default 128
   ? 4: tstr,               ; session-bound ordinary query cursor
   ? 5: tstr,               ; CEL filter over contract fields, 1..4096 bytes
-  ? 6: [+ { "field": tstr, ? "direction": "asc" / "desc" }], ; spec 11 order_by over contract fields / file.*, 1..8 terms (contract-query-order-v1)
+  ? 6: [+ { "field": tstr, ? "direction": "asc" / "desc" }], ; spec 11 order_by over contract fields / file.*, 1..8 terms (contract-query-order-v1; file.mtime requires contract-query-order-mtime-v1)
 }
 contract-query-result-v1 = {
   0: 1,
@@ -728,6 +735,9 @@ mapped fields as top-level names (no types, so no defaults; `file.*` is the
 record's file). Non-matching projections are dropped, then records left with none;
 the page's query records are filtered to match, `total_count` is omitted, and the
 cursor continues the underlying walk, so a page may hold fewer than the page size.
+As a narrow exception, a filter that is strictly `has(file.mtime)` or
+`!has(file.mtime)` qualifies rows in the `st_qmtime` index before pagination so
+pages return full windows of known-mtime or unknown-mtime records.
 Producers before key 5 refuse the envelope (`invalid_request`), never ignore it.
 
 Key 6 orders results using the spec 11 `order_by` grammar (`{ "field": tstr, ? "direction": "asc" / "desc" }`,
@@ -740,12 +750,29 @@ support key 6 and page sizes up to 1000 advertise the `contract-query-order-v1`
 `hello` feature; older SDKs continue sending keys 0..5 with page size 1..128,
 and newer SDKs clamp page size to 128 and refuse `orderBy` with
 `upgrade_required` / `contract_query_order_unsupported` against replicas without
-that feature. Producers before key 6 refuse the envelope (`invalid_request`).
+that feature. Ordering by `file.mtime` additionally requires the
+`contract-query-order-mtime-v1` `hello` feature, which is granted only by
+replicas whose store supports indexed query paging (not the hosted replica's
+`LogCache`). Older producers evaluate `file.mtime` as absent/null: an `orderBy`
+naming `file.mtime` silently falls back to path order (which newer SDKs refuse
+with `upgrade_required` / `contract_query_order_mtime_unsupported`), and a
+filter-only request whose `where` references `file.mtime` (such as
+`has(file.mtime)` or `!has(file.mtime)` without an `orderBy` on `file.mtime`)
+will silently return different results on older replicas because the SDK does
+not parse `where` expressions; callers relying on `file.mtime` in `where` must
+check that `contract-query-order-mtime-v1` was negotiated in `hello`. Producers
+before key 6 refuse the envelope (`invalid_request`).
 
 The contract/version/digest (and filter and order) are included in the ordinary
 cursor fingerprint; all existing session, catalog, head and view-version
 invalidation rules apply. Path-ordered pages (no `order_by`) merge pending local
-edits and keep their cursor. The method selects every type implementing that exact
+edits and keep their cursor. Ordered pages (`order_by` present) do not currently
+merge pending local edits into keyset continuations: while any pending local
+edit exists on the replica, an ordered request whose match count exceeds `limit`
+— or a full page at `limit` when pending edits leave the ordered result without
+a continuation witness — refuses with `upgrade_required` /
+`contract_query_cursor_required`, and consumers should fall back to an
+unordered (`order_by` omitted) load on that refusal. The method selects every type implementing that exact
 record contract, with a 128-implementation/128-mapping cap, a 1 MiB projection
 copy budget, and a 2 MiB encoded response cap.
 A valid registered contract with no implementations returns a complete empty

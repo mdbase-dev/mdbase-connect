@@ -272,7 +272,16 @@ impl<S: Store> Replica<S> {
                 })
             })
             .transpose()?;
-        let env = filter.as_ref().map(|_| {
+        // Narrow index pushdown: `has(file.mtime)` and `!has(file.mtime)` depend
+        // only on the record's own capture time, so qualify rows in the index
+        // before pagination to yield full pages instead of short/empty ones.
+        let index_mtime_where = filter.as_ref().and_then(|p| p.where_mtime_presence());
+        let residual_filter = if index_mtime_where.is_some() {
+            None
+        } else {
+            filter.as_ref()
+        };
+        let env = residual_filter.map(|_| {
             let now = self.now();
             let tz = self.host.zones.default_zone();
             mdbn_core::query::QueryEnv {
@@ -346,6 +355,19 @@ impl<S: Store> Replica<S> {
             ("limit".into(), Value::Int(i64::from(request.limit))),
             ("context".into(), Value::Map(context_entries)),
         ];
+        if let Some(present) = index_mtime_where {
+            query.push((
+                "where".into(),
+                Value::Text(
+                    if present {
+                        "has(file.mtime)"
+                    } else {
+                        "!has(file.mtime)"
+                    }
+                    .into(),
+                ),
+            ));
+        }
         if let Some(order_terms) = resolved_order
             && !order_terms.is_empty()
         {
@@ -419,12 +441,13 @@ impl<S: Store> Replica<S> {
                 let (fields, issues) = implementation
                     .inspect_view(contract, &effective)
                     .map_err(|_| ErrorCode::Internal.err("A resolved contract mapping failed."))?;
-                if let (Some(plan), Some(env)) = (&filter, &env) {
+                if let (Some(plan), Some(env)) = (residual_filter, &env) {
                     let candidate = mdbn_core::query::QueryRecord {
                         path: &record.path,
                         types: &[],
                         frontmatter: &fields,
                         body: None,
+                        mtime: record.mtime,
                     };
                     if plan.matches(&candidate, env) != mdbn_core::query::Verdict::Match {
                         continue;
@@ -448,7 +471,7 @@ impl<S: Store> Replica<S> {
                         .collect(),
                 });
             }
-            if filter.is_some() && projections.is_empty() {
+            if residual_filter.is_some() && projections.is_empty() {
                 continue;
             }
             records.push(ContractQueryRecord {
@@ -458,8 +481,10 @@ impl<S: Store> Replica<S> {
         }
         let mut page = page;
         if filter.is_some() {
-            let kept: Vec<_> = records.iter().map(|r| r.id).collect();
-            page.records.retain(|r| kept.contains(&r.id));
+            if residual_filter.is_some() {
+                let kept: Vec<_> = records.iter().map(|r| r.id).collect();
+                page.records.retain(|r| kept.contains(&r.id));
+            }
             page.total_count = None;
         }
         self.require(session, crate::policy::capability::READ)?;

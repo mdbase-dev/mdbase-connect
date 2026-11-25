@@ -46,6 +46,8 @@ pub struct QueryIndexedRow {
     /// The body's [`mdbn_core::query::body_index_text`], at most
     /// [`MAX_ROW_BODY_BYTES`], when the generation indexes bodies.
     pub body: Option<String>,
+    /// Canonical `file.mtime` sort atom (`Temporal` when present, `Null` when absent).
+    pub mtime: QueryAtom,
 }
 /// Longest body index text one record may have; a collection with a longer
 /// body is indexed without bodies. Well inside a hosted 2 MB SQLite value.
@@ -87,6 +89,8 @@ pub struct QueryIndexTx {
 pub enum QueryColumn {
     /// Exact UTF-8 path bytes.
     Path,
+    /// Materialized `file.mtime` atom (`Temporal` or `Null`).
+    Mtime,
     /// Explicitly materialized metadata source/path.
     Field(QueryField),
 }
@@ -204,6 +208,7 @@ impl QueryIndexRequest {
         ) -> StoreResult<QueryColumn> {
             match c {
                 p::Column::Path => Ok(QueryColumn::Path),
+                p::Column::Mtime => Ok(QueryColumn::Mtime),
                 p::Column::Field(f) => {
                     let field = QueryField {
                         source: match f.source {

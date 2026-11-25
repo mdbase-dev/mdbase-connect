@@ -95,6 +95,7 @@ fn verdict(cel: &str, source: &str, names: &[&str]) -> Verdict {
             types: &types,
             frontmatter: doc.frontmatter(),
             body: Some(doc.body()),
+            mtime: None,
         },
         &env(),
     )
@@ -196,6 +197,7 @@ fn activation_keeps_reserved_bindings_origin_and_original_values() {
         types: &types,
         frontmatter: doc.frontmatter(),
         body: None,
+        mtime: None,
     };
     let effective = plan.effective(&record);
     let act = plan.activation(
@@ -425,6 +427,7 @@ select:
         types: &types,
         frontmatter: doc.frontmatter(),
         body: None,
+        mtime: None,
     };
     let evaluated = plan.evaluate(&record, &env(), None);
     assert_eq!(evaluated.verdict, Verdict::Match);
@@ -498,6 +501,7 @@ select:
             types: &names,
             frontmatter: doc.frontmatter(),
             body: None,
+            mtime: None,
         };
         let evaluated = plan.evaluate(&record, &env(), None);
         assert_eq!(evaluated.verdict, Verdict::Match);
@@ -550,6 +554,7 @@ select:
         types: &names,
         frontmatter: doc.frontmatter(),
         body: None,
+        mtime: None,
     };
     let evaluated = plan.evaluate(&record, &env(), None);
     assert_eq!(evaluated.verdict, Verdict::Match);
@@ -587,7 +592,8 @@ fn compiled_plan_owns_its_schema_snapshot() {
                 path: "tasks/a.md",
                 types: &types,
                 frontmatter: doc.frontmatter(),
-                body: None
+                body: None,
+                mtime: None,
             },
             &env()
         ),

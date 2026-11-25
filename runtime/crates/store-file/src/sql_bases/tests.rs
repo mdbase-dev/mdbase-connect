@@ -175,6 +175,10 @@ fn tx(row: RecordRow) -> Tx {
                 types: vec![],
                 fields: vec![],
                 body: None,
+                mtime: mdbn_replica::store_query::QueryAtom {
+                    kind: 255,
+                    key: vec![],
+                },
             }],
             publish_at: Some(Head::GENESIS),
             completes_backfill: false,

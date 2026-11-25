@@ -122,6 +122,10 @@ fn raw_backfill_reuses_index_transactions_and_unavailable_is_not_empty() {
                     types: vec![],
                     fields: vec![],
                     body: None,
+                    mtime: QueryAtom {
+                        kind: 255,
+                        key: vec![],
+                    },
                 }],
                 publish_at: Some(Head::GENESIS),
                 completes_backfill: false,

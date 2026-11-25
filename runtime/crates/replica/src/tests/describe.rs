@@ -790,6 +790,274 @@ fn contract_query_orders_by_mapped_field_and_rejects_heterogeneous_or_invalid_or
     );
 }
 
+#[test]
+fn contract_query_orders_by_file_mtime_and_omits_feature_without_query_index() {
+    let (_, mut a) = configured(resources());
+    let (_, hello) =
+        a.r.hello(
+            crate::api::SessionAuth::Host,
+            mdbn_wire::client::HelloParams {
+                versions: vec![mdbn_wire::common::Version { major: 1, minor: 0 }],
+                client_name: "mtime-test".into(),
+                client_version: "1".into(),
+                features: Some(vec![
+                    "contract-query-order-v1".into(),
+                    "contract-query-order-mtime-v1".into(),
+                ]),
+                timezone: None,
+            },
+        )
+        .unwrap();
+    // MemStore does not maintain the query index (`query_index_supported() == false`),
+    // so `hello` must not advertise `contract-query-order-mtime-v1`.
+    assert!(
+        hello
+            .features
+            .contains(&"contract-query-order-v1".to_owned()),
+        "{:?}",
+        hello.features
+    );
+    assert!(
+        !hello
+            .features
+            .contains(&"contract-query-order-mtime-v1".to_owned()),
+        "non-indexed store must not advertise contract-query-order-mtime-v1: {:?}",
+        hello.features
+    );
+
+    let t0 = a.clock.get();
+    a.clock.set(t0 + 1_000);
+    a.create(
+        1,
+        "rows/oldest.md",
+        "---\ntype: Zebra\ncompleted: false\n---\n",
+    );
+    settle(&mut [&mut a]);
+    a.clock.set(t0 + 2_000);
+    // Two records created in one mutation share the exact same capture clock instant (mtime tie).
+    a.r.submit(
+        a.s,
+        mdbn_wire::client::SubmitParams {
+            ops: vec![
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([2; 16]),
+                    path: Some("rows/tie-b.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: false\n---\n".into(),
+                    )),
+                }),
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([3; 16]),
+                    path: Some("rows/tie-a.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: true\n---\n".into(),
+                    )),
+                }),
+            ],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+            validation: None,
+        },
+    )
+    .expect("submit tie pair");
+    settle(&mut [&mut a]);
+    let tie_a_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([3; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    let tie_b_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([2; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    assert_eq!(tie_a_mtime, tie_b_mtime);
+    assert!(tie_a_mtime.is_some());
+    a.clock.set(t0 + 3_000);
+    a.create(
+        4,
+        "rows/newest.md",
+        "---\ntype: Zebra\ncompleted: true\n---\n",
+    );
+    settle(&mut [&mut a]);
+
+    let order = |direction: &str| {
+        Value::List(vec![Value::Map(vec![
+            ("field".into(), Value::Text("file.mtime".into())),
+            ("direction".into(), Value::Text(direction.into())),
+        ])])
+    };
+    let desc =
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit: 10,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("desc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        desc.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "rows/newest.md",
+            "rows/tie-a.md",
+            "rows/tie-b.md",
+            "rows/oldest.md",
+        ]
+    );
+    let asc =
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit: 10,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("asc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        asc.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "rows/oldest.md",
+            "rows/tie-a.md",
+            "rows/tie-b.md",
+            "rows/newest.md",
+        ]
+    );
+}
+
+#[test]
+fn in_file_mtime_predicate_preserves_confirmed_mtime_across_pending_edit() {
+    let (_, mut a) = configured(resources());
+    let t0 = a.clock.get();
+    a.clock.set(t0 + 1_000);
+    a.create(
+        1,
+        "rows/confirmed.md",
+        "---\ntype: Zebra\ncompleted: false\n---\n",
+    );
+    settle(&mut [&mut a]);
+    let confirmed_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([1; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    assert!(confirmed_mtime.is_some());
+
+    let query_in_file = || {
+        Value::Map(vec![(
+            "where".into(),
+            Value::Text("\"mtime\" in file".into()),
+        )])
+    };
+    let include = mdbn_wire::client::Include {
+        effective: None,
+        body: None,
+        document: None,
+        diagnostics: None,
+    };
+
+    let before = a.r.query(a.s, query_in_file(), include.clone()).unwrap();
+    assert_eq!(
+        before
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["rows/confirmed.md"]
+    );
+    assert_eq!(before.records[0].mtime, confirmed_mtime);
+
+    // Edit the confirmed record and create a new record, both pending (unsettled).
+    a.clock.set(t0 + 2_000);
+    a.r.submit(
+        a.s,
+        mdbn_wire::client::SubmitParams {
+            ops: vec![
+                mdbn_wire::intent::Op::Update(mdbn_wire::intent::Update {
+                    id: mdbn_wire::common::B16([1; 16]),
+                    patch: Some(mdbn_wire::common::DataMap(vec![(
+                        "completed".into(),
+                        Value::Bool(true),
+                    )])),
+                    unset: None,
+                    add: None,
+                    remove: None,
+                    body: None,
+                    body_edits: None,
+                    body_base: None,
+                    body_base_text: None,
+                    base: None,
+                    if_revision: None,
+                    update_refs: None,
+                }),
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([2; 16]),
+                    path: Some("rows/pending-only.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: false\n---\n".into(),
+                    )),
+                }),
+            ],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+            validation: None,
+        },
+    )
+    .expect("submit pending edit and create");
+
+    let during_pending = a.r.query(a.s, query_in_file(), include).unwrap();
+    assert_eq!(
+        during_pending
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["rows/confirmed.md"],
+        "pending edit on a confirmed record must still match `\"mtime\" in file`"
+    );
+    assert_eq!(during_pending.records[0].mtime, confirmed_mtime);
+}
+
 /// A confirmed catalog change re-derives every record's types, which the feed
 /// cannot name: older cursors reset and watchers are told to re-read.
 #[test]

@@ -32,6 +32,50 @@ describe("bounded contract query pages",()=>{
       expect(call).toHaveBeenCalledTimes(1);
     } finally {client.close();}
   });
+  it("refuses file.mtime orderBy against replicas with contract-query-order-v1 but without contract-query-order-mtime-v1",async()=>{
+    const replica=new MemoryReplica({features:["contract-query-order-v1"]}),client=await connect({connector:replica.connector(),app:{name:"test",version:"0"},reconnect:false});
+    try {
+      const call=vi.spyOn(client,"call").mockResolvedValue({version:1,contractDigest:"a".repeat(64),records:[],page:{records:[],complete:true,asOf:0}});
+      await client.queryContract(contract,{pageSize:500,orderBy:[{field:"date",direction:"desc"}]});
+      expect(call).toHaveBeenCalledTimes(1);
+      await expect(client.queryContract(contract,{orderBy:[{field:"file.mtime",direction:"desc"}]})).rejects.toMatchObject({code:"upgrade_required",reason:"contract_query_order_mtime_unsupported"});
+      await expect(client.queryContract(contract,{orderBy:[{field:"date",direction:"asc"},{field:"file.mtime",direction:"desc"}]})).rejects.toMatchObject({code:"upgrade_required",reason:"contract_query_order_mtime_unsupported"});
+      expect(call).toHaveBeenCalledTimes(1);
+    } finally {client.close();}
+  });
+  it("orders contract pages by file.mtime (asc/desc, ties, and absent mtime) across cursors in MemoryReplica",async()=>{
+    const replica=new MemoryReplica({
+      contracts:[{id:"dev.mdbase.writer.manuscript",version:"1.0.0",type:"manuscript",fields:{title:"title"}}],
+    });
+    replica.seed({path:"m/old.md",types:["manuscript"],frontmatter:{title:"Old"},mtime:1_700_000_001_000});
+    replica.seed({path:"m/tie-b.md",types:["manuscript"],frontmatter:{title:"Tie B"},mtime:1_700_000_002_000});
+    replica.seed({path:"m/tie-a.md",types:["manuscript"],frontmatter:{title:"Tie A"},mtime:1_700_000_002_000});
+    replica.seed({path:"m/new.md",types:["manuscript"],frontmatter:{title:"New"},mtime:1_700_000_003_000});
+    replica.seed({path:"m/no-mtime.md",types:["manuscript"],frontmatter:{title:"Legacy"}});
+    const client=await connect({connector:replica.connector(),app:{name:"test",version:"0"},reconnect:false});
+    try {
+      const mContract={id:"dev.mdbase.writer.manuscript",version:"1.0.0"};
+      const collect=async(direction:"asc"|"desc")=>{
+        const paths:string[]=[];
+        let cursor:string|undefined;
+        do {
+          const res=await client.queryContract(mContract,{pageSize:2,orderBy:[{field:"file.mtime",direction}],...(cursor?{cursor}:{})});
+          paths.push(...res.page.records.map(r=>r.path));
+          cursor=res.page.cursor;
+        } while (cursor);
+        return paths;
+      };
+      // Spec 11: DESC reverses value order (null first, newest to oldest), final tie-break is file.path ASC.
+      expect(await collect("desc")).toEqual(["m/no-mtime.md","m/new.md","m/tie-a.md","m/tie-b.md","m/old.md"]);
+      // ASC: oldest to newest, null last, ties by file.path ASC.
+      expect(await collect("asc")).toEqual(["m/old.md","m/tie-a.md","m/tie-b.md","m/new.md","m/no-mtime.md"]);
+      // Ordinary `query` in MemoryReplica uses the same spec 11 null placement.
+      const qDesc=await client.query({types:["manuscript"],order_by:[{field:"file.mtime",direction:"desc"}]});
+      expect(qDesc.records.map(r=>r.path)).toEqual(["m/no-mtime.md","m/new.md","m/tie-a.md","m/tie-b.md","m/old.md"]);
+      const qAsc=await client.query({types:["manuscript"],order_by:[{field:"file.mtime",direction:"asc"}]});
+      expect(qAsc.records.map(r=>r.path)).toEqual(["m/old.md","m/tie-a.md","m/tie-b.md","m/new.md","m/no-mtime.md"]);
+    } finally {client.close();}
+  });
   it("orders contract pages and binds orderBy to the continuation cursor",async()=>{
     const replica=new MemoryReplica({
       contracts:[{id:"dev.mdbase.writer.manuscript",version:"1.0.0",type:"manuscript",fields:{title:"title",date:"date"}}],

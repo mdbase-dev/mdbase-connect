@@ -260,6 +260,7 @@ fn project_record_fields(
             types: &membership.types,
             frontmatter,
             body: None,
+            mtime: row.mtime,
         },
         fields,
         max_key_bytes,
@@ -282,8 +283,8 @@ fn project_record_fields(
 
 /// The projection algorithm identity, independent of log position and key codec.
 /// Bump whenever membership/default/atom projection semantics change.
-/// Version 3 adds the body index text.
-pub const QUERY_PROJECTION_VERSION: u64 = 3;
+/// Version 4 adds the `file.mtime` index atom.
+pub const QUERY_PROJECTION_VERSION: u64 = 4;
 
 /// Convert the supported configured fields to neutral store identities, preserving
 /// declared order. Duplicate or unsupported fields fail, never silently deduplicate.
@@ -425,12 +426,17 @@ fn project_query_row(
             },
         })
         .collect();
+    let mtime = SortAtom::from_mtime(row.mtime);
     Ok(QueryIndexedRow {
         id: row.id,
         path: row.path.clone(),
         types: projected.types,
         fields,
         body: projected.body,
+        mtime: QueryAtom {
+            kind: mtime.kind() as u8,
+            key: mtime.key().to_vec(),
+        },
     })
 }
 
@@ -623,6 +629,7 @@ impl QueryProjectionContext {
             types: &membership.types,
             frontmatter,
             body: None,
+            mtime: row.mtime,
         };
         self.fields
             .iter()
