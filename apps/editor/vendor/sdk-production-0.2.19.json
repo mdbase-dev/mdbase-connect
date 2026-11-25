@@ -1,20 +1,20 @@
 {
   "schema": "tnapp/production-sdk-original/1",
-  "artifact": "sdk-e1eef60b-production-0.2.17.tgz",
-  "version": "0.2.17",
-  "sourceCommit": "e1eef60b466280da0cf6bd2ff209284770f7ae4a",
+  "artifact": "sdk-75840a5b-production-0.2.19.tgz",
+  "version": "0.2.19",
+  "sourceCommit": "75840a5b46f2cac8608444d189bce2b0d24bf2b7",
   "environment": "production",
   "bytes": 4964337,
-  "sha256": "258dd95359b894e44bac2bce5c690daa4453a967a836fc90bf9b56617aab08bd",
-  "sri": "sha512-BXgkYkI9sR9BfSq/4rNIkCSZGMuE/uTiOhtsGXMX/MiO0vPgkTRyCy1j0Zh8qg1U4FD9J0YFbaA+oAXDYFfVuQ==",
+  "sha256": "9628ee9d7bb6f8ac6eee3fa50e3d39938ba60d27eee97590f4342d0047e38894",
+  "sri": "sha512-lIJkn/qcDnAZL0MrufxMFjGF82SclDyHx3PbbcUqjAJp3UQevKmaZA1ic4HMuYMcVFslJBFnQ+ysj/fL5UzQtw==",
   "publication": {
     "repository": "mdbase-dev/mdbase-connect",
     "workflow": ".github/workflows/publish-sdk-npm.yml",
-    "ref": "refs/tags/v0.2.17",
-    "npm": "@mdbase-dev/sdk@0.2.17",
-    "integrity": "sha512-BXgkYkI9sR9BfSq/4rNIkCSZGMuE/uTiOhtsGXMX/MiO0vPgkTRyCy1j0Zh8qg1U4FD9J0YFbaA+oAXDYFfVuQ==",
-    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.2.17.tgz",
-    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.2.17"
+    "ref": "refs/tags/v0.2.19",
+    "npm": "@mdbase-dev/sdk@0.2.19",
+    "integrity": "sha512-lIJkn/qcDnAZL0MrufxMFjGF82SclDyHx3PbbcUqjAJp3UQevKmaZA1ic4HMuYMcVFslJBFnQ+ysj/fL5UzQtw==",
+    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.2.19.tgz",
+    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.2.19"
   },
   "trust": {
     "package": "@mdbase-dev/sdk",
@@ -43,6 +43,6 @@
       "sha256": "f1e56dbcdd434340362fb7bfdd268fb04293fedd002eddb833d8188f743b51d3"
     }
   ],
-  "artifactFacts": "sdk-e1eef60b-production-0.2.17.facts.json",
-  "artifactFactsSha256": "f442f9e442ced8b3fcee5e227a3bb75b2c5caf6669feb4df35e50290f7d43f3e"
+  "artifactFacts": "sdk-75840a5b-production-0.2.19.facts.json",
+  "artifactFactsSha256": "0a714331e1563986470fd006fc0abe33cd7f8568022e273e499612fd004d9905"
 }
