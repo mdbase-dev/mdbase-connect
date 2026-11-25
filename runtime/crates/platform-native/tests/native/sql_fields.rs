@@ -1056,3 +1056,141 @@ fn indexed_mtime_ordering_handles_asc_desc_ties_cursors_and_absent_mtime() {
         assert_eq!(blobs.get(), 0, "selection reads no record blobs");
     }
 }
+
+#[test]
+fn descending_mtime_continuation_seeks_tie_bucket_by_path_and_null_mtime_path_uses_index() {
+    // 250 unknown-mtime rows (one large null tie bucket), 100 tied known-mtime
+    // rows, and 50 distinct known-mtime rows.
+    let mut rows = Vec::with_capacity(400);
+    for n in 1u16..=400 {
+        let mut r = row(n, "priority: 1");
+        r.mtime = if n <= 250 {
+            None
+        } else if n <= 350 {
+            Some(1_700_000_002_000)
+        } else {
+            Some(1_700_000_000_000 + i64::from(n) * 1_000)
+        };
+        rows.push(r);
+    }
+    let (store, index, blobs, _, _refs) = open("query_index_mtime_ties", rows, &["priority"]);
+    let state = store.query_index_state().unwrap().unwrap();
+
+    // 1) Unfiltered DESC paging across null tie bucket -> distinct temporal -> tied temporal.
+    let mut after = None;
+    let mut got = Vec::new();
+    while {
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::Types(vec!["task".into()]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: true,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 30,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        got.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert_eq!(got.len(), 400);
+    assert_eq!(got[0], "tasks/0001.md");
+    assert_eq!(got[249], "tasks/0250.md");
+    assert_eq!(got[250], "tasks/0400.md");
+    assert_eq!(got[299], "tasks/0351.md");
+    assert_eq!(got[300], "tasks/0251.md");
+    assert_eq!(got[399], "tasks/0350.md");
+
+    // 2) Phase (a): `has(file.mtime)` + `file.mtime DESC` returns only the 150 known rows.
+    let has_mtime = QueryPredicate::Not(Box::new(QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    }));
+    let mut after = None;
+    let mut known = Vec::new();
+    while {
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    has_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: true,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 40,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        known.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert_eq!(known.len(), 150);
+    assert_eq!(known[0], "tasks/0400.md");
+    assert_eq!(known[49], "tasks/0351.md");
+    assert_eq!(known[50], "tasks/0251.md");
+    assert_eq!(known[149], "tasks/0350.md");
+
+    // 3) Phase (b): `!has(file.mtime)` + `file.path ASC` returns only the 250 unknown rows
+    // via `st_qmtime_asc` without scanning known-mtime rows.
+    let no_mtime = QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    };
+    let mut after = None;
+    let mut unknown = Vec::new();
+    while {
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    no_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Path,
+                    descending: false,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 40,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        unknown.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert_eq!(unknown.len(), 250);
+    assert_eq!(unknown[0], "tasks/0001.md");
+    assert_eq!(unknown[249], "tasks/0250.md");
+    assert_eq!(blobs.get(), 0, "selection reads no record blobs");
+    let _ = index;
+}

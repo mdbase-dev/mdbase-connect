@@ -761,11 +761,15 @@ impl<S: Store> Replica<S> {
     }
 }
 
+/// Indexed `file.mtime` ordering (and `file.mtime` exposure in queries).
+/// Granted only when this replica's store supports indexed query paging
+/// (`Store::query_index_supported`); hosted `LogCache` and `MemStore` do not.
+const CONTRACT_QUERY_ORDER_MTIME_FEATURE: &str = "contract-query-order-mtime-v1";
+
 const LOCAL_WEB_FEATURES: &[&str] = &[
     "bases-discovery-unreadable-v1",
     "bases-row-properties-v1",
     "contract-query-order-v1",
-    "contract-query-order-mtime-v1",
 ];
 
 /// `hello` features this build grants when asked (`replica-client-api.md` §2).
@@ -782,8 +786,6 @@ const GRANTABLE_FEATURES: &[&str] = &[
     "bases-row-properties-v1",
     // Contract query key 6 (`order_by`) and page sizes up to 1000.
     "contract-query-order-v1",
-    // Indexed `file.mtime` ordering (and `file.mtime` exposure in queries).
-    "contract-query-order-mtime-v1",
 ];
 
 impl<S: Store> Replica<S> {
@@ -929,6 +931,7 @@ impl<S: Store> ClientApi for Replica<S> {
                 _ => None,
             })
             .is_some_and(|grant| self.supports_declared_setup(grant));
+        let mtime_order_supported = self.store.query_index_supported();
         let wanted = params.features.clone().unwrap_or_default();
         let head_witness = status
             .confirmed_head
@@ -952,8 +955,12 @@ impl<S: Store> ClientApi for Replica<S> {
                     .filter(|f| {
                         if local_web {
                             LOCAL_WEB_FEATURES.contains(&f.as_str())
+                                || (mtime_order_supported
+                                    && f == CONTRACT_QUERY_ORDER_MTIME_FEATURE)
                         } else {
                             GRANTABLE_FEATURES.contains(&f.as_str())
+                                || (mtime_order_supported
+                                    && f == CONTRACT_QUERY_ORDER_MTIME_FEATURE)
                                 || (setup_supported
                                     && f == super::collection_setup::SETUP_RPC_FEATURE)
                                 || self.attachment_direction(f.as_str())

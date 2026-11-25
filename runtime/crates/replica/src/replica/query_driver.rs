@@ -118,7 +118,7 @@ fn fitting_prefix(rows: &[&QueryKeyedId], bytes: u64, records: u32) -> usize {
 /// known before hydration, so nothing beyond the page is read.
 fn merged_prefix(
     confirmed: &mut Vec<QueryKeyedId>,
-    layered: &mut Vec<(Uuid, mdbn_core::state::StoredRecord)>,
+    layered: &mut Vec<(Uuid, mdbn_core::state::StoredRecord, Option<RecordPosition>)>,
     limit: usize,
     bytes: u64,
     records: u32,
@@ -127,7 +127,7 @@ fn merged_prefix(
     let (mut c, mut l, mut used, mut count) = (0, 0, 0u64, 0u32);
     while c + l < limit {
         let next_confirmed = match (confirmed.get(c), layered.get(l)) {
-            (Some(row), Some((_, rec))) => row.path < rec.path,
+            (Some(row), Some((_, rec, _))) => row.path < rec.path,
             (Some(_), None) => true,
             (None, Some(_)) => false,
             (None, None) => break,
@@ -751,18 +751,23 @@ impl<S: Store> Replica<S> {
             let doc = mdbn_core::doc::Document::parse_at(&rec.path, &*rec.source);
             let fm = doc.frontmatter();
             let types = catalog.membership(&rec.path, fm).types;
+            let pos = if plan.requirements.mtime {
+                Some(self.base_position(id, &mut budget)?)
+            } else {
+                None
+            };
             let verdict = plan.matches(
                 &QueryRecord {
                     path: &rec.path,
                     types: &types,
                     frontmatter: fm,
                     body: Some(doc.body()),
-                    mtime: None,
+                    mtime: pos.and_then(|(_, m)| m),
                 },
                 env,
             );
             if verdict == Verdict::Match {
-                layered.push((*id, rec));
+                layered.push((*id, rec, pos));
             }
         }
 
@@ -864,15 +869,10 @@ impl<S: Store> Replica<S> {
                     ));
                 }
             }
-            for (id, rec) in layered {
+            for (id, rec, pos) in layered {
                 let doc = mdbn_core::doc::Document::parse_at(&rec.path, &*rec.source);
                 let fm = doc.frontmatter().clone();
                 let types = catalog.membership(&rec.path, &fm).types;
-                let pos = if plan.requirements.mtime {
-                    Some(self.base_position(&id, &mut budget)?)
-                } else {
-                    None
-                };
                 let mtime = pos.and_then(|(_, m)| m);
                 keyed.push((
                     id,

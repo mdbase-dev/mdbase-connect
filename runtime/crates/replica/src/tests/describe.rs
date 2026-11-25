@@ -791,7 +791,7 @@ fn contract_query_orders_by_mapped_field_and_rejects_heterogeneous_or_invalid_or
 }
 
 #[test]
-fn contract_query_orders_by_file_mtime_and_advertises_feature() {
+fn contract_query_orders_by_file_mtime_and_omits_feature_without_query_index() {
     let (_, mut a) = configured(resources());
     let (_, hello) =
         a.r.hello(
@@ -808,11 +808,20 @@ fn contract_query_orders_by_file_mtime_and_advertises_feature() {
             },
         )
         .unwrap();
+    // MemStore does not maintain the query index (`query_index_supported() == false`),
+    // so `hello` must not advertise `contract-query-order-mtime-v1`.
     assert!(
         hello
             .features
-            .contains(&"contract-query-order-mtime-v1".to_owned()),
+            .contains(&"contract-query-order-v1".to_owned()),
         "{:?}",
+        hello.features
+    );
+    assert!(
+        !hello
+            .features
+            .contains(&"contract-query-order-mtime-v1".to_owned()),
+        "non-indexed store must not advertise contract-query-order-mtime-v1: {:?}",
         hello.features
     );
 

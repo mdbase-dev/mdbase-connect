@@ -69,6 +69,11 @@ describe("bounded contract query pages",()=>{
       expect(await collect("desc")).toEqual(["m/no-mtime.md","m/new.md","m/tie-a.md","m/tie-b.md","m/old.md"]);
       // ASC: oldest to newest, null last, ties by file.path ASC.
       expect(await collect("asc")).toEqual(["m/old.md","m/tie-a.md","m/tie-b.md","m/new.md","m/no-mtime.md"]);
+      // Ordinary `query` in MemoryReplica uses the same spec 11 null placement.
+      const qDesc=await client.query({types:["manuscript"],order_by:[{field:"file.mtime",direction:"desc"}]});
+      expect(qDesc.records.map(r=>r.path)).toEqual(["m/no-mtime.md","m/new.md","m/tie-a.md","m/tie-b.md","m/old.md"]);
+      const qAsc=await client.query({types:["manuscript"],order_by:[{field:"file.mtime",direction:"asc"}]});
+      expect(qAsc.records.map(r=>r.path)).toEqual(["m/old.md","m/tie-a.md","m/tie-b.md","m/new.md","m/no-mtime.md"]);
     } finally {client.close();}
   });
   it("orders contract pages and binds orderBy to the continuation cursor",async()=>{

@@ -726,6 +726,30 @@ impl QueryPlan {
         !self.query.group_by.is_empty() || !self.summaries.is_empty()
     }
 
+    /// If this plan's `where` is strictly `has(file.mtime)` or `!has(file.mtime)`,
+    /// returns `Some(true)` for `has(file.mtime)` and `Some(false)` for `!has(file.mtime)`.
+    pub fn where_mtime_presence(&self) -> Option<bool> {
+        let mut expr = self.where_program.as_ref()?.0.ast();
+        let mut present = true;
+        while let crate::cel::ast::Expr::Not(inner) = expr {
+            present = !present;
+            expr = inner;
+        }
+        match expr {
+            crate::cel::ast::Expr::Select {
+                operand,
+                field,
+                test: true,
+                optional: false,
+            } if matches!(operand.as_ref(), crate::cel::ast::Expr::Ident(n) if n == "file")
+                && field == "mtime" =>
+            {
+                Some(present)
+            }
+            _ => None,
+        }
+    }
+
     /// Effective frontmatter of a record: persisted values plus the read
     /// defaults of its types (spec 07).
     pub fn effective(&self, record: &QueryRecord<'_>) -> Map {
@@ -1036,6 +1060,7 @@ impl QueryPlan {
                 record,
                 effective: &effective,
                 file: &file,
+                file_cel: &file_cel,
                 projections: &projection_values,
                 selections: &native_selections,
                 evaluated: &out,
@@ -1075,6 +1100,7 @@ impl QueryPlan {
             record,
             effective,
             file,
+            file_cel,
             projections,
             selections,
             evaluated,
@@ -1116,6 +1142,10 @@ impl QueryPlan {
                         == indexed::TemporalHint::DateTime
                 }))
             }
+            FieldRef::File(n) => match file_cel {
+                CelValue::Map(m) => m.get_str(n).cloned(),
+                _ => None,
+            },
             _ => None,
         }
         .unwrap_or_else(|| CelValue::from_value(value));
@@ -1254,6 +1284,7 @@ struct ReductionContext<'a, 'r> {
     record: &'a QueryRecord<'r>,
     effective: &'a Map,
     file: &'a Value,
+    file_cel: &'a crate::cel::CelValue,
     projections: &'a crate::cel::CelMap,
     selections: &'a crate::cel::CelMap,
     evaluated: &'a Evaluated,
@@ -1438,4 +1469,92 @@ pub fn execute(
         diagnostics,
         groups,
     })
+}
+
+#[cfg(test)]
+mod mtime_reduction_tests {
+    use super::*;
+    use crate::cel::{CelMap, CelValue, Key, time::Timestamp};
+
+    #[test]
+    fn reduction_input_reuses_native_timestamp_for_file_mtime_and_renders_rfc3339_public_value() {
+        let cat = Catalog::load([("mdbase.yaml", "spec_version: '0.3.0'\n")]);
+        let plan = compile(&Query::default(), &cat).unwrap();
+        let fm = Map::new();
+        let ms = 1_700_000_000_000i64;
+        let ts = Timestamp::from_millis(ms).unwrap();
+        let record = QueryRecord {
+            path: "notes/a.md",
+            types: &[],
+            frontmatter: &fm,
+            body: None,
+            mtime: Some(ms),
+        };
+        let mut file = file_value(record.path, record.body);
+        let mut file_cel = CelValue::from_value(&file);
+        if let Value::Map(m) = &mut file {
+            m.insert("mtime", Value::string(ts.to_rfc3339()));
+        }
+        if let CelValue::Map(m) = &mut file_cel {
+            let mut map = (**m).clone();
+            map.insert(Key::String("mtime".into()), CelValue::Timestamp(ts));
+            file_cel = CelValue::Map(std::sync::Arc::new(map));
+        }
+        let evaluated = Evaluated {
+            verdict: Verdict::Match,
+            projections: Map::new(),
+            values: Map::new(),
+            sort_keys: Vec::new(),
+            sort_hints: Vec::new(),
+            reduction: groups::Row::default(),
+            reduction_error: None,
+            diagnostics: Vec::new(),
+        };
+        let ctx = ReductionContext {
+            record: &record,
+            effective: &fm,
+            file: &file,
+            file_cel: &file_cel,
+            projections: &CelMap::new(),
+            selections: &CelMap::new(),
+            evaluated: &evaluated,
+        };
+        let mut budget = groups::Budget::default();
+        let input = plan
+            .reduction_input(&FieldRef::File("mtime".into()), &ctx, &mut budget)
+            .unwrap();
+        let custom = groups::compile(
+            &[Value::Map(
+                [
+                    ("field".into(), Value::string("file.mtime")),
+                    ("function".into(), Value::string("yr")),
+                ]
+                .into_iter()
+                .collect(),
+            )],
+            &[(
+                "yr".into(),
+                "values.filter(v, v != null).map(v, v.getFullYear())".into(),
+            )],
+        )
+        .unwrap();
+        let row = groups::Row {
+            keys: vec![],
+            inputs: vec![input],
+        };
+        let env = QueryEnv {
+            now_ms: ms,
+            today: "2023-11-14".into(),
+            tz: "UTC".into(),
+        };
+        let mut diagnostics = Vec::new();
+        let groups = groups::reduce(&[], &custom, &[&row], &env, &mut diagnostics)
+            .unwrap()
+            .unwrap();
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+        assert_eq!(
+            groups[0].summaries.get("yr"),
+            Some(&Value::List(vec![Value::Int(2023)]))
+        );
+    }
 }

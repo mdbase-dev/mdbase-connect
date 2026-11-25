@@ -830,7 +830,8 @@ export class MemoryReplica {
         const x = get(a, k.field) as never;
         const y = get(b, k.field) as never;
         if (x === y) continue;
-        const c = x === null ? -1 : y === null ? 1 : x < y ? -1 : 1;
+        // Spec 11: null/missing sorts last in ASC and first in DESC.
+        const c = x === null ? 1 : y === null ? -1 : x < y ? -1 : 1;
         return k.desc ? -c : c;
       }
       return a.path < b.path ? -1 : a.path > b.path ? 1 : 0;

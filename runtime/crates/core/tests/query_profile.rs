@@ -737,4 +737,38 @@ fn file_mtime_lowers_for_ordering_and_evaluates_in_filters_and_select() {
         ev_hit.values.get("mtime"),
         Some(&Value::string("2023-11-14T22:13:20Z"))
     );
+
+    // Narrow index lowering for `has(file.mtime)` and `!has(file.mtime)`.
+    for (expr, want_presence) in [
+        ("has(file.mtime)", Some(true)),
+        ("!has(file.mtime)", Some(false)),
+        (" ( has(file.mtime) ) ", Some(true)),
+        ("! has(file.mtime)", Some(false)),
+    ] {
+        let p = plan(expr, &c);
+        assert!(p.requirements.mtime, "{expr}");
+        assert_eq!(p.where_mtime_presence(), want_presence, "{expr}");
+        let prof = profile::lower(&p, &c).expect(expr);
+        assert!(prof.diagnostics_exact, "{expr}");
+        for row in &rows {
+            let expected = p.matches(row, &env()) == Verdict::Match;
+            let actual = holds(&prof.predicate, &c, row);
+            assert_eq!(actual, expected, "{expr} on {}", row.path);
+        }
+    }
+    // Conjunction lowers in profile, but `where_mtime_presence` stays narrow.
+    let conj = plan("has(file.mtime) && priority == 1", &c);
+    assert_eq!(conj.where_mtime_presence(), None);
+    assert!(profile::lower(&conj, &c).is_ok());
+    // Direct comparisons or other `has(file.*)` predicates stay out of the profile.
+    for expr in [
+        "file.mtime == null",
+        "file.mtime != null",
+        "has(file.name)",
+        "has(file.body)",
+    ] {
+        let p = plan(expr, &c);
+        assert_eq!(p.where_mtime_presence(), None, "{expr}");
+        assert!(profile::lower(&p, &c).is_err(), "{expr}");
+    }
 }

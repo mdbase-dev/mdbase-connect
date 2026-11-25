@@ -2447,6 +2447,31 @@ fn query_contract_file_mtime_indexed_paging_ties_absent_and_updates() {
     );
     node.pump();
 
+    // SqlStore supports the query index, so `hello` grants `contract-query-order-mtime-v1`.
+    let (_, hello_res) = node
+        .r
+        .hello(
+            SessionAuth::Host,
+            HelloParams {
+                versions: vec![Version { major: 1, minor: 0 }],
+                client_name: "bench".into(),
+                client_version: "1".into(),
+                features: Some(vec![
+                    "contract-query-order-v1".into(),
+                    "contract-query-order-mtime-v1".into(),
+                ]),
+                timezone: None,
+            },
+        )
+        .unwrap();
+    assert!(
+        hello_res
+            .features
+            .contains(&"contract-query-order-mtime-v1".to_owned()),
+        "indexed SqlStore must grant contract-query-order-mtime-v1: {:?}",
+        hello_res.features
+    );
+
     // Constrained profile proves indexed keyset paging works without desktop fallback.
     node.r
         .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
@@ -2529,8 +2554,102 @@ fn query_contract_file_mtime_indexed_paging_ties_absent_and_updates() {
         ]
     );
 
-    // Filtering by `has(file.mtime)` in `queryContract` excludes the legacy record without mtime.
-    let filtered = node
+    // Phase (a): `has(file.mtime)` + `file.mtime DESC` qualifies in the index
+    // before pagination, returning full pages of known-mtime records only.
+    index.borrow_mut().statements = Some(Vec::new());
+    let mut phase_a_pages = Vec::new();
+    let mut cursor = None;
+    loop {
+        let res = node
+            .r
+            .query_contract(
+                node.s,
+                mdbn_replica::api::ContractQuery {
+                    contract: "dev.mdbase.writer.manuscript".into(),
+                    version: "1.0.0".into(),
+                    limit: 2,
+                    cursor,
+                    where_: Some("has(file.mtime)".into()),
+                    order_by: Some(order("file.mtime", "desc")),
+                },
+            )
+            .unwrap();
+        phase_a_pages.push(
+            res.page
+                .records
+                .iter()
+                .map(|r| r.path.clone())
+                .collect::<Vec<_>>(),
+        );
+        cursor = res.page.cursor;
+        if cursor.is_none() {
+            break;
+        }
+    }
+    let stmts_a = index.borrow_mut().statements.take().unwrap();
+    assert!(
+        stmts_a.iter().any(
+            |(sql, _)| sql.contains("FROM st_qmtime m INDEXED BY st_qmtime_desc")
+                && sql.contains("(m.kind=3)")
+        ),
+        "expected st_qmtime_desc with m.kind=3, saw: {stmts_a:?}"
+    );
+    assert_eq!(
+        phase_a_pages,
+        vec![
+            vec![
+                "manuscripts/oldest.md".to_string(),
+                "manuscripts/newest.md".to_string()
+            ],
+            vec![
+                "manuscripts/tie-a.md".to_string(),
+                "manuscripts/tie-b.md".to_string()
+            ],
+        ]
+    );
+
+    // Phase (b): `!has(file.mtime)` + `file.path ASC` qualifies in `st_qmtime_asc`
+    // before pagination, returning only unknown-mtime records in path order.
+    index.borrow_mut().statements = Some(Vec::new());
+    let phase_b = node
+        .r
+        .query_contract(
+            node.s,
+            mdbn_replica::api::ContractQuery {
+                contract: "dev.mdbase.writer.manuscript".into(),
+                version: "1.0.0".into(),
+                limit: 2,
+                cursor: None,
+                where_: Some("!has(file.mtime)".into()),
+                order_by: Some(order("file.path", "asc")),
+            },
+        )
+        .unwrap();
+    let stmts_b = index.borrow_mut().statements.take().unwrap();
+    assert!(
+        stmts_b
+            .iter()
+            .any(|(sql, _)| sql.contains("FROM st_qmtime m INDEXED BY st_qmtime_asc")),
+        "expected st_qmtime_asc seek for !has(file.mtime), saw: {stmts_b:?}"
+    );
+    assert_eq!(
+        phase_b
+            .page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["manuscripts/legacy.md"]
+    );
+    assert!(phase_b.page.cursor.is_none());
+
+    // Pending edit to a known-mtime record keeps its confirmed mtime and must
+    // NOT leak into path-ordered `!has(file.mtime)`.
+    submit(
+        &mut node,
+        vec![set(4, "title", Value::Text("Pending edit".into()))],
+    );
+    let phase_b_with_pending = node
         .r
         .query_contract(
             node.s,
@@ -2539,25 +2658,329 @@ fn query_contract_file_mtime_indexed_paging_ties_absent_and_updates() {
                 version: "1.0.0".into(),
                 limit: 10,
                 cursor: None,
-                where_: Some("has(file.mtime)".into()),
-                order_by: Some(order("file.mtime", "desc")),
+                where_: Some("!has(file.mtime)".into()),
+                order_by: None,
             },
         )
         .unwrap();
     assert_eq!(
-        filtered
+        phase_b_with_pending
             .page
             .records
             .iter()
             .map(|r| r.path.as_str())
             .collect::<Vec<_>>(),
-        [
-            "manuscripts/oldest.md",
-            "manuscripts/newest.md",
-            "manuscripts/tie-a.md",
-            "manuscripts/tie-b.md",
-        ]
+        ["manuscripts/legacy.md"]
     );
+}
+
+#[test]
+fn query_contract_ordered_refuses_with_pending_edit_and_unordered_fallback_works() {
+    let svc = FakeLogService::new();
+    let st = store("query_contract_ordered_pending_refusal");
+    let mut node = open(&svc, st);
+    setup_manuscript_contract(&mut node);
+
+    let ops: Vec<_> = (1u32..=55)
+        .map(|i| {
+            create(
+                i,
+                &format!("manuscripts/m-{i:03}.md"),
+                format!("---\ntitle: Manuscript {i}\n---\nbody\n"),
+            )
+        })
+        .collect();
+    submit(&mut node, ops);
+    node.pump();
+    node.r
+        .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+
+    // Submit an unrelated pending write (not pumped to log yet).
+    submit(
+        &mut node,
+        vec![create(
+            999,
+            "notes/unrelated.md",
+            "---\ntitle: Unrelated\n---\nbody\n".into(),
+        )],
+    );
+
+    // Ordered contract query exceeding `limit` refuses with `contract_query_cursor_required`
+    // because ordered keyset paging does not currently merge pending local edits.
+    let err = node
+        .r
+        .query_contract(
+            node.s,
+            mdbn_replica::api::ContractQuery {
+                contract: "dev.mdbase.writer.manuscript".into(),
+                version: "1.0.0".into(),
+                limit: 50,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("file.mtime", "desc")),
+            },
+        )
+        .unwrap_err();
+    assert_eq!(err.problem().code, "upgrade_required");
+    assert_eq!(
+        err.problem().reason.as_deref(),
+        Some("contract_query_cursor_required")
+    );
+
+    // Unordered (path-ordered) fallback succeeds with a continuation cursor.
+    let unordered = node
+        .r
+        .query_contract(
+            node.s,
+            mdbn_replica::api::ContractQuery {
+                contract: "dev.mdbase.writer.manuscript".into(),
+                version: "1.0.0".into(),
+                limit: 50,
+                cursor: None,
+                where_: None,
+                order_by: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(unordered.page.records.len(), 50);
+    assert!(unordered.page.cursor.is_some());
+
+    // Once the pending edit confirms, ordered paging works again.
+    node.pump();
+    let ordered = node
+        .r
+        .query_contract(
+            node.s,
+            mdbn_replica::api::ContractQuery {
+                contract: "dev.mdbase.writer.manuscript".into(),
+                version: "1.0.0".into(),
+                limit: 50,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("file.mtime", "desc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(ordered.page.records.len(), 50);
+    assert!(ordered.page.cursor.is_some());
+}
+
+#[test]
+fn populated_v3_store_backfills_st_qmtime_and_interrupted_reopen_recovers() {
+    use mdbn_replica::Store as _;
+    let svc = FakeLogService::new();
+    let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("v3_mtime_backfill_reopen");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let db_path = dir.join("index.sqlite");
+
+    let open_raw = |backfill_pages_left: Option<usize>| {
+        let index = SqliteIndex::open(&db_path, IndexDurability::Durable).unwrap();
+        let index = Rc::new(RefCell::new(ProfiledIndex {
+            inner: index,
+            explain: false,
+            backfill_pages_left,
+            hosted_transport: false,
+            statements: None,
+        }));
+        (SqlStore::open(index.clone()).unwrap(), index)
+    };
+
+    // 1) Seed 40 manuscripts: 20 with known mtime and 20 with unknown mtime
+    //    (exceeds BACKFILL_PAGE=16 so backfill spans multiple transactions).
+    let v4_generation = {
+        let (st, _) = open_raw(None);
+        let mut node = open(&svc, st);
+        setup_manuscript_contract(&mut node);
+        let base_t = node.clock.get();
+        for i in 1u32..=20 {
+            node.clock.set(base_t + u64::from(i) * 1_000);
+            submit(
+                &mut node,
+                vec![create(
+                    i,
+                    &format!("manuscripts/known-{i:02}.md"),
+                    format!("---\ntitle: Known {i}\n---\nbody\n"),
+                )],
+            );
+            node.pump();
+        }
+        let mut legacy = Vec::new();
+        for i in 21u32..=40 {
+            let doc = format!("---\ntitle: Legacy {i}\n---\nbody\n");
+            let path = format!("manuscripts/legacy-{i:02}.md");
+            let rec_id = id(i);
+            legacy.push(mdbn_replica::store::RecordRow {
+                id: rec_id,
+                path_key: mdbn_core::paths::path_key(&path),
+                path,
+                revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+                doc,
+                modified_seq: node.r.head().seq,
+                mtime: None,
+                bucket: mdbn_replica::store::bucket16(&rec_id),
+                meta: mdbn_replica::store::RecordMeta::default(),
+            });
+        }
+        node.r
+            .store_mut()
+            .commit(mdbn_replica::store::Tx {
+                records_put: legacy,
+                ..Default::default()
+            })
+            .unwrap();
+        drop(node);
+        let (st2, _) = open_raw(None);
+        let node2 = open(&svc, st2);
+        node2
+            .r
+            .store()
+            .query_index_state()
+            .unwrap()
+            .unwrap()
+            .generation
+    };
+
+    let downgrade_to_populated_v3 = || {
+        let mut idx = SqliteIndex::open(&db_path, IndexDurability::Durable).unwrap();
+        // Simulate a populated v3 store: ready under a v3 generation and no `st_qmtime` table.
+        idx.run(&Batch {
+            mode: BatchMode::Transaction,
+            stmts: vec![
+                Stmt::new("DROP TABLE IF EXISTS st_qmtime", vec![]),
+                Stmt::new(
+                    "UPDATE st_qstate SET generation=?, ready=1 WHERE slot=0",
+                    vec![SqlValue::Blob(vec![0x33; 32])],
+                ),
+            ],
+        })
+        .unwrap();
+    };
+
+    // 2) Clean populated-v3 upgrade: opening backfills `st_qmtime` and serves both phases.
+    downgrade_to_populated_v3();
+    {
+        let (st, _) = open_raw(None);
+        let mut node = open(&svc, st);
+        let state = node.r.store().query_index_state().unwrap().unwrap();
+        assert!(state.ready);
+        assert_eq!(state.generation, v4_generation);
+        node.r
+            .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+        let known = node
+            .r
+            .query_contract(
+                node.s,
+                mdbn_replica::api::ContractQuery {
+                    contract: "dev.mdbase.writer.manuscript".into(),
+                    version: "1.0.0".into(),
+                    limit: 50,
+                    cursor: None,
+                    where_: Some("has(file.mtime)".into()),
+                    order_by: Some(order("file.mtime", "desc")),
+                },
+            )
+            .unwrap();
+        assert_eq!(known.page.records.len(), 20);
+        assert_eq!(known.page.records[0].path, "manuscripts/known-20.md");
+        assert_eq!(known.page.records[19].path, "manuscripts/known-01.md");
+        let unknown = node
+            .r
+            .query_contract(
+                node.s,
+                mdbn_replica::api::ContractQuery {
+                    contract: "dev.mdbase.writer.manuscript".into(),
+                    version: "1.0.0".into(),
+                    limit: 50,
+                    cursor: None,
+                    where_: Some("!has(file.mtime)".into()),
+                    order_by: Some(order("file.path", "asc")),
+                },
+            )
+            .unwrap();
+        assert_eq!(unknown.page.records.len(), 20);
+        assert_eq!(unknown.page.records[0].path, "manuscripts/legacy-21.md");
+        assert_eq!(unknown.page.records[19].path, "manuscripts/legacy-40.md");
+    }
+
+    // 3) Interrupted v3 -> v4 backfill: abort after 1 backfill page, leaving
+    //    `st_qstate.ready = 0` and partial `st_qmtime` rows, then reopen and
+    //    verify complete recovery.
+    downgrade_to_populated_v3();
+    {
+        let (st, index) = open_raw(Some(1));
+        let node = open(&svc, st);
+        let state = node.r.store().query_index_state().unwrap().unwrap();
+        assert!(
+            !state.ready,
+            "interrupted backfill must leave index unready"
+        );
+        let partial_rows = index
+            .borrow_mut()
+            .inner
+            .run(&Batch {
+                mode: BatchMode::Autocommit,
+                stmts: vec![Stmt::new("SELECT count(*) FROM st_qmtime", vec![])],
+            })
+            .unwrap()[0]
+            .values
+            .clone();
+        assert_eq!(
+            partial_rows,
+            vec![SqlValue::Integer(16)],
+            "first page committed before interruption"
+        );
+    }
+    {
+        let (st, index) = open_raw(None);
+        let mut node = open(&svc, st);
+        let state = node.r.store().query_index_state().unwrap().unwrap();
+        assert!(state.ready, "reopen must finish interrupted backfill");
+        assert_eq!(state.generation, v4_generation);
+        let total_rows = index
+            .borrow_mut()
+            .inner
+            .run(&Batch {
+                mode: BatchMode::Autocommit,
+                stmts: vec![Stmt::new("SELECT count(*) FROM st_qmtime", vec![])],
+            })
+            .unwrap()[0]
+            .values
+            .clone();
+        assert_eq!(total_rows, vec![SqlValue::Integer(40)]);
+        node.r
+            .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+        let known = node
+            .r
+            .query_contract(
+                node.s,
+                mdbn_replica::api::ContractQuery {
+                    contract: "dev.mdbase.writer.manuscript".into(),
+                    version: "1.0.0".into(),
+                    limit: 50,
+                    cursor: None,
+                    where_: Some("has(file.mtime)".into()),
+                    order_by: Some(order("file.mtime", "desc")),
+                },
+            )
+            .unwrap();
+        assert_eq!(known.page.records.len(), 20);
+        let unknown = node
+            .r
+            .query_contract(
+                node.s,
+                mdbn_replica::api::ContractQuery {
+                    contract: "dev.mdbase.writer.manuscript".into(),
+                    version: "1.0.0".into(),
+                    limit: 50,
+                    cursor: None,
+                    where_: Some("!has(file.mtime)".into()),
+                    order_by: Some(order("file.path", "asc")),
+                },
+            )
+            .unwrap();
+        assert_eq!(unknown.page.records.len(), 20);
+    }
 }
 
 #[test]
@@ -2690,4 +3113,240 @@ fn query_contract_mtime_benchmark_10k_top50_vs_load_all() {
         "CONTRACT_MTIME_10K top50_avg_ms={top50_ms:.2} page2_ms={page2_ms:.2} load_all_10k_ms={load_all_ms:.2} speedup={:.1}x",
         load_all_ms / top50_ms
     );
+}
+
+#[test]
+#[ignore = "manual: release timing, 10k two-phase benchmarks (all-unknown, half-known) and v3->v4 rebuild"]
+fn query_contract_mtime_benchmark_10k_phases_and_v3_rebuild() {
+    use mdbn_replica::Store as _;
+
+    let seed_collection = |name: &str, known_count: u32, total: u32| {
+        let svc = FakeLogService::new();
+        let dir = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let db_path = dir.join("index.sqlite");
+        let index = SqliteIndex::open(&db_path, IndexDurability::Durable).unwrap();
+        let index = Rc::new(RefCell::new(ProfiledIndex {
+            inner: index,
+            explain: false,
+            backfill_pages_left: None,
+            hosted_transport: false,
+            statements: None,
+        }));
+        let st = SqlStore::open(index.clone()).unwrap();
+        let mut node = open(&svc, st);
+        setup_manuscript_contract(&mut node);
+
+        let base_time = node.clock.get() as i64;
+        // Write all 10k records directly to the store (mixed known/unknown mtimes,
+        // interleaved so half-known is genuinely scattered across paths) and backfill once.
+        for start in (0..total).step_by(500) {
+            let mut batch = Vec::new();
+            for i in start..(start + 500).min(total) {
+                let rec_id = id(i + 1);
+                let path = format!("manuscripts/m-{i:05}.md");
+                let doc = format!(
+                    "---\ntitle: Manuscript {i:05}\n---\nBody text for manuscript {i:05}.\n"
+                );
+                let is_known = if known_count == 0 {
+                    false
+                } else if known_count == total {
+                    true
+                } else {
+                    i % 2 == 0
+                };
+                // 50 buckets of 100 ties each when half-known, permuted out of path order.
+                let mtime = is_known.then(|| {
+                    let bucket = ((i / 2) / 100 * 37) % 50;
+                    base_time + i64::from(bucket) * 60_000 + 1_000
+                });
+                batch.push(mdbn_replica::store::RecordRow {
+                    id: rec_id,
+                    path_key: mdbn_core::paths::path_key(&path),
+                    path,
+                    revision: mdbn_wire::hash::sha256(doc.as_bytes()),
+                    doc,
+                    modified_seq: node.r.head().seq,
+                    mtime,
+                    bucket: mdbn_replica::store::bucket16(&rec_id),
+                    meta: mdbn_replica::store::RecordMeta::default(),
+                });
+            }
+            node.r
+                .store_mut()
+                .commit(mdbn_replica::store::Tx {
+                    records_put: batch,
+                    ..Default::default()
+                })
+                .unwrap();
+        }
+        drop(node);
+        drop(index);
+        let index = Rc::new(RefCell::new(ProfiledIndex {
+            inner: SqliteIndex::open(&db_path, IndexDurability::Durable).unwrap(),
+            explain: false,
+            backfill_pages_left: None,
+            hosted_transport: false,
+            statements: None,
+        }));
+        let st = SqlStore::open(index.clone()).unwrap();
+        let mut node = open(&svc, st);
+        assert!(node.r.store().query_index_state().unwrap().unwrap().ready);
+        node.r
+            .set_query_execution_profile(mdbn_replica::QueryExecutionProfile::MemoryConstrained);
+        (svc, db_path, node, index)
+    };
+
+    let run_phase = |node: &mut Node,
+                     index: &Rc<RefCell<ProfiledIndex>>,
+                     label: &str,
+                     where_: Option<&str>,
+                     order_field: &str,
+                     order_dir: &str,
+                     late_page_idx: usize| {
+        let mut cursor = None;
+        let mut page1_ms = 0.0;
+        let mut late_ms = 0.0;
+        let mut total_rows = 0usize;
+        let mut pages = 0usize;
+        loop {
+            let is_first = pages == 0;
+            let is_late = pages == late_page_idx;
+            if is_first || is_late {
+                index.borrow_mut().explain = true;
+            }
+            let t = std::time::Instant::now();
+            let res = node
+                .r
+                .query_contract(
+                    node.s,
+                    mdbn_replica::api::ContractQuery {
+                        contract: "dev.mdbase.writer.manuscript".into(),
+                        version: "1.0.0".into(),
+                        limit: 50,
+                        cursor,
+                        where_: where_.map(str::to_owned),
+                        order_by: Some(order(order_field, order_dir)),
+                    },
+                )
+                .unwrap();
+            let elapsed = t.elapsed().as_secs_f64() * 1000.0;
+            if is_first || is_late {
+                index.borrow_mut().explain = false;
+            }
+            if is_first {
+                page1_ms = elapsed;
+            }
+            if is_late {
+                late_ms = elapsed;
+            }
+            total_rows += res.page.records.len();
+            pages += 1;
+            cursor = res.page.cursor;
+            if cursor.is_none() || (pages > late_page_idx && late_page_idx > 0) {
+                break;
+            }
+        }
+        println!(
+            "BENCH {label}: page1_ms={page1_ms:.2} late_page({late_page_idx})_ms={late_ms:.2} sampled_rows={total_rows}"
+        );
+    };
+
+    // Scenario 1: 10,000 manuscripts, every mtime unknown.
+    {
+        let (_svc, _db, mut node, index) = seed_collection("bench_10k_all_unknown", 0, 10_000);
+        run_phase(
+            &mut node,
+            &index,
+            "all_unknown_phase_a_has_mtime_desc",
+            Some("has(file.mtime)"),
+            "file.mtime",
+            "desc",
+            0,
+        );
+        run_phase(
+            &mut node,
+            &index,
+            "all_unknown_phase_b_no_mtime_path_asc",
+            Some("!has(file.mtime)"),
+            "file.path",
+            "asc",
+            180,
+        );
+        run_phase(
+            &mut node,
+            &index,
+            "all_unknown_unfiltered_mtime_desc",
+            None,
+            "file.mtime",
+            "desc",
+            180,
+        );
+    }
+
+    // Scenario 2: 10,000 manuscripts, half known (5,000) and half unknown (5,000).
+    let (svc, db_path, mut node, index) = seed_collection("bench_10k_half_known", 5_000, 10_000);
+    run_phase(
+        &mut node,
+        &index,
+        "half_known_phase_a_has_mtime_desc",
+        Some("has(file.mtime)"),
+        "file.mtime",
+        "desc",
+        90,
+    );
+    run_phase(
+        &mut node,
+        &index,
+        "half_known_phase_b_no_mtime_path_asc",
+        Some("!has(file.mtime)"),
+        "file.path",
+        "asc",
+        90,
+    );
+
+    // Scenario 3: Measure synchronous v3 -> v4 query projection rebuild on first open at 10k.
+    drop(node);
+    drop(index);
+    {
+        let mut idx = SqliteIndex::open(&db_path, IndexDurability::Durable).unwrap();
+        idx.run(&Batch {
+            mode: BatchMode::Transaction,
+            stmts: vec![
+                Stmt::new("DROP TABLE IF EXISTS st_qmtime", vec![]),
+                Stmt::new(
+                    "UPDATE st_qstate SET generation=?, ready=1 WHERE slot=0",
+                    vec![SqlValue::Blob(vec![0x33; 32])],
+                ),
+            ],
+        })
+        .unwrap();
+    }
+    let reopen_idx = Rc::new(RefCell::new(ProfiledIndex {
+        inner: SqliteIndex::open(&db_path, IndexDurability::Durable).unwrap(),
+        explain: false,
+        backfill_pages_left: None,
+        hosted_transport: false,
+        statements: Some(Vec::new()),
+    }));
+    let t_rebuild = std::time::Instant::now();
+    let reopened_store = SqlStore::open(reopen_idx.clone()).unwrap();
+    let reopened = open(&svc, reopened_store);
+    let rebuild_ms = t_rebuild.elapsed().as_secs_f64() * 1000.0;
+    let stmts = reopen_idx.borrow_mut().statements.take().unwrap();
+    let rec_reads = stmts
+        .iter()
+        .filter(|(sql, _)| sql.contains("FROM st_rec"))
+        .count();
+    assert!(
+        reopened
+            .r
+            .store()
+            .query_index_state()
+            .unwrap()
+            .unwrap()
+            .ready
+    );
+    println!("BENCH v3_to_v4_rebuild_10k: rebuild_ms={rebuild_ms:.2} st_rec_reads={rec_reads}");
 }

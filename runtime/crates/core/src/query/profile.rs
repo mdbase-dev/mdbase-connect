@@ -179,6 +179,24 @@ impl Lower<'_> {
                 })
             }
             Expr::Bin(op, a, b) => self.compare(*op, a, b),
+            // Narrow index lowering for `has(file.mtime)` (and `!has(file.mtime)`
+            // via `Expr::Not` above). `file` is always a map in query activation,
+            // so presence test never errors and matches `SortAtom::from_mtime`.
+            Expr::Select {
+                operand,
+                field,
+                test: true,
+                optional: false,
+            } if matches!(operand.as_ref(), Expr::Ident(n) if n == "file") && field == "mtime" => {
+                Ok(Leaf {
+                    predicate: Predicate::Not(Box::new(Predicate::Compare {
+                        column: Column::Mtime,
+                        op: Compare::Eq,
+                        value: SortAtom::from_mtime(None),
+                    })),
+                    can_error: false,
+                })
+            }
             Expr::Call {
                 target: Some(t),
                 func,
