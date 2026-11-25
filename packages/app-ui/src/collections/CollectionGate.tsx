@@ -33,6 +33,12 @@ export interface CollectionGateOwnProps {
   readonly layout?: "page" | "panel";
   /** Call `mdbase.start()` when it hasn't started. Default true; safe with several gates. */
   readonly autoStart?: boolean;
+  /**
+   * The app shows its own name, headline and lead above the gate. The gate then
+   * leaves out its app line, and signed out it shows only its actions, centred;
+   * its heading and lead stay for screen readers. Default false.
+   */
+  readonly appHero?: boolean;
 }
 
 export interface CollectionGateProps extends CollectionUiOptions, CollectionGateOwnProps {
@@ -50,7 +56,7 @@ export interface CollectionGateProps extends CollectionUiOptions, CollectionGate
  * review and problems. In phase `ready` it renders the app, with a banner
  * above it for a live problem (migrating, update required, access removed).
  */
-export function CollectionGate({ children, renderAppCollection, extraActions, layout = "page", autoStart = true, ...options }: CollectionGateProps): JSX.Element {
+export function CollectionGate({ children, renderAppCollection, extraActions, layout = "page", autoStart = true, appHero = false, ...options }: CollectionGateProps): JSX.Element {
   const ui = useCollectionUi(options);
   useAutoStart(options.mdbase, autoStart);
   if (ui.appOpen && renderAppCollection) {
@@ -74,10 +80,10 @@ export function CollectionGate({ children, renderAppCollection, extraActions, la
       <CollectionMdbaseContext value={options.mdbase}>{children(ui.view.phase.connection)}</CollectionMdbaseContext>
     </>;
   }
-  return <GateScreen ui={ui} layout={layout} extraActions={extraActions} />;
+  return <GateScreen ui={ui} layout={layout} extraActions={extraActions} appHero={appHero} />;
 }
 
-export interface CollectionPanelProps extends CollectionUiOptions, Omit<CollectionGateOwnProps, "layout"> {}
+export interface CollectionPanelProps extends CollectionUiOptions, Omit<CollectionGateOwnProps, "layout" | "appHero"> {}
 
 /**
  * For write-first apps and settings dialogs: the gate's screens in a panel and,
@@ -88,7 +94,7 @@ export function CollectionPanel({ extraActions, autoStart = true, ...options }: 
   useAutoStart(options.mdbase, autoStart);
   const [dialog, setDialog] = useState<RowDialog>(null);
   if (ui.view.kind === "unsynced") return <div className="mdbase-collections mdbase-collections-panel"><UnsyncedPanel ui={ui} /></div>;
-  if (ui.view.kind !== "ready") return <GateScreen ui={ui} layout="panel" extraActions={extraActions} />;
+  if (ui.view.kind !== "ready") return <GateScreen ui={ui} layout="panel" extraActions={extraActions} appHero={false} />;
   return <div className="mdbase-collections mdbase-collections-panel">
     {ui.view.notice && <NoticeBlock notice={ui.view.notice} ui={ui} variant="inline" />}
     <BringInBanner ui={ui} variant="inline" />
@@ -120,7 +126,7 @@ export function CollectionProblem({ problem, variant = "banner", ...options }: C
   return <div className="mdbase-collections"><NoticeBlock notice={notice} ui={ui} variant={variant} /></div>;
 }
 
-function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "page" | "panel"; extraActions?: CollectionExtraActions | undefined }): JSX.Element {
+function GateScreen({ ui, layout, extraActions, appHero }: { ui: CollectionUi; layout: "page" | "panel"; extraActions?: CollectionExtraActions | undefined; appHero: boolean }): JSX.Element {
   const { view, options } = ui;
   const extra = typeof extraActions === "function" ? extraActions(view) : extraActions;
   // An empty SDK list is not "no collections" when the app lists its own.
@@ -142,17 +148,19 @@ function GateScreen({ ui, layout, extraActions }: { ui: CollectionUi; layout: "p
   const Heading = layout === "page" ? "h1" : "h2";
   const Container = layout === "page" ? "main" : "div";
   const opening = view.kind === "starting" || view.kind === "opening";
+  // Under the app's own hero, signed out is only the actions.
+  const actionsOnly = appHero && view.kind === "signed_out";
   const announce = view.kind === "authorizing" ? view.heading : "";
-  return <Container ref={element => { root.current = element; }} className="mdbase-collections mdbase-collections-gate" data-layout={layout} data-phase={view.kind} aria-busy={ui.busy !== null || undefined}>
+  return <Container ref={element => { root.current = element; }} className="mdbase-collections mdbase-collections-gate" data-layout={layout} data-phase={view.kind} data-hero={appHero ? "app" : undefined} aria-busy={ui.busy !== null || undefined}>
     <div className="mdbase-collections-gate-body">
-      {!opening && <p className="mdbase-collections-brand">
+      {!opening && !appHero && <p className="mdbase-collections-brand">
         {options.app.mark && <span className="mdbase-collections-brand-mark" aria-hidden="true">{options.app.mark}</span>}
         <span>{options.app.name}</span>
       </p>}
-      <Heading ref={heading} tabIndex={-1} className={opening ? "mdbase-collections-visually-hidden" : "mdbase-collections-heading"}>{headingText}</Heading>
+      <Heading ref={heading} tabIndex={-1} className={opening || actionsOnly ? "mdbase-collections-visually-hidden" : "mdbase-collections-heading"}>{headingText}</Heading>
       {opening
         ? <OpeningScreen app={options.app} layout="panel" title={headingText} detail={lead ?? undefined} />
-        : lead && view.kind !== "needs_setup" && <p className="mdbase-collections-lead">{lead}</p>}
+        : lead && view.kind !== "needs_setup" && <p className={actionsOnly ? "mdbase-collections-visually-hidden" : "mdbase-collections-lead"}>{lead}</p>}
       <GateBody ui={ui} layout={layout} extraActions={view.kind === "signed_out" ? extra : undefined} onDialog={setDialog} />
       {ui.error && !(view.kind === "choosing" && ui.error.key === "account_collection_quota_exceeded") && <NoticeBlock notice={ui.error} ui={ui} variant="inline" />}
       <GateFooter ui={ui} chooseAnother={showsChooseAnother(view)} extra={view.kind === "signed_out" ? undefined : extra} />
