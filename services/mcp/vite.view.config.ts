@@ -7,7 +7,8 @@ import { defineConfig } from "vite";
 
 // The view uses app-ui's catalogues and its own, not packages/ui's: compiling those here would
 // rewrite them while packages/ui, which this package does not depend on, reads them in parallel.
-execFileSync("pnpm", ["i18n:compile"], { cwd: fileURLToPath(new URL(".", import.meta.url)), stdio: "inherit" });
+// On Windows pnpm is a .cmd shim, which execFileSync only starts through a shell.
+execFileSync("pnpm", ["i18n:compile"], { cwd: fileURLToPath(new URL(".", import.meta.url)), stdio: "inherit", shell: process.platform === "win32" });
 
 // The MCP App view (src/view.ts serves it). Hosts render the page without a base URL, so the
 // gateway points its two entry references at its own origin; everything else the bundle loads
