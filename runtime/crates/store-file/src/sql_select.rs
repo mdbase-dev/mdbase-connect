@@ -332,6 +332,21 @@ fn requires_null_mtime(p: &QueryPredicate) -> bool {
     }
 }
 
+fn requires_known_mtime(p: &QueryPredicate) -> bool {
+    match p {
+        QueryPredicate::Not(inner) => matches!(
+            inner.as_ref(),
+            QueryPredicate::Compare {
+                column: QueryColumn::Mtime,
+                op: QueryCompare::Eq,
+                value,
+            } if value.kind == 255 && value.key.is_empty()
+        ),
+        QueryPredicate::And(ps) => ps.iter().any(requires_known_mtime),
+        _ => false,
+    }
+}
+
 /// Select IDs/keys after preflighting returned key lengths. Copies no record BLOB.
 pub fn select<I: IndexStorage>(
     index: &Rc<RefCell<I>>,
@@ -617,7 +632,7 @@ pub fn select<I: IndexStorage>(
         )
     } else {
         let mut after_sql = String::new();
-        if req.after.is_some() {
+        if let Some(after) = &req.after {
             let mut terms = Vec::new();
             let mut equal = Vec::new();
             for (i, ((k, s), desc)) in order.iter().enumerate() {
@@ -655,8 +670,22 @@ pub fn select<I: IndexStorage>(
                         }
                     }
                     Leading::Mtime(descending) => {
+                        let k0 = after.keys[0].kind;
+                        // When the predicate already fixes `m.kind` (e.g. `has(file.mtime)`
+                        // lowers to `m.kind=3`), SQLite ignores a row-value starting with
+                        // `m.kind` and rescans the fixed bucket. Seek on `(m.sort, m.path)`
+                        // (or `m.path` for the null bucket) within that fixed kind.
                         if !descending && order.len() == 1 {
-                            after_sql.push_str(" AND (m.kind,m.sort,m.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))");
+                            if requires_known_mtime(&req.predicate) && k0 == 3 {
+                                after_sql.push_str(" AND (m.sort,m.path) > ((SELECT s0 FROM c),(SELECT path FROM c))");
+                            } else if requires_null_mtime(&req.predicate) && k0 == 255 {
+                                after_sql.push_str(" AND m.path>(SELECT path FROM c)");
+                            } else {
+                                after_sql.push_str(" AND (m.kind,m.sort,m.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))");
+                            }
+                        } else if requires_known_mtime(&req.predicate) && k0 == 3 {
+                            let cmp = if descending { "<=" } else { ">=" };
+                            after_sql.push_str(&format!(" AND m.sort {cmp} (SELECT s0 FROM c)"));
                         } else {
                             let cmp = if descending { "<=" } else { ">=" };
                             after_sql.push_str(&format!(

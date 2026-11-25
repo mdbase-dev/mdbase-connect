@@ -421,6 +421,9 @@ fn walk(e: &Expr, bound: &mut Vec<(String, Provenance)>, r: &mut References) -> 
             {
                 r.timezone_functions.insert(func.clone());
             }
+            if func == "size" && values.iter().any(Provenance::file) {
+                r.file_members.insert("*".into());
+            }
             if target.is_none() && matches!(func.as_str(), "timestamp" | "now") {
                 Provenance::Timestamp
             } else if matches!(
@@ -453,9 +456,18 @@ fn walk(e: &Expr, bound: &mut Vec<(String, Provenance)>, r: &mut References) -> 
             walk(value, bound, r);
             Provenance::Plain
         }
-        Expr::Bin(operator, left, right) => {
-            let left = walk(left, bound, r);
-            let right = walk(right, bound, r);
+        Expr::Bin(operator, left_expr, right_expr) => {
+            let left = walk(left_expr, bound, r);
+            let right = walk(right_expr, bound, r);
+            if matches!(operator, BinOp::In) && right.file() {
+                if let Some(CelValue::String(member)) = constant_index(left_expr) {
+                    r.file_members.insert(member.to_string());
+                } else {
+                    r.file_members.insert("*".into());
+                }
+            } else if matches!(operator, BinOp::Eq | BinOp::Ne) && (left.file() || right.file()) {
+                r.file_members.insert("*".into());
+            }
             match (operator, left, right) {
                 (BinOp::Add, left, right) if left.list() || right.list() => {
                     Provenance::Sequence(Arc::new(Provenance::alternatives([
@@ -485,6 +497,9 @@ fn walk(e: &Expr, bound: &mut Vec<(String, Provenance)>, r: &mut References) -> 
             ..
         } => {
             let range = walk(range, bound, r);
+            if range.file() {
+                r.file_members.insert("*".into());
+            }
             let element = range.element();
             bound.push((var.clone(), element.clone()));
             let body = walk(body, bound, r);

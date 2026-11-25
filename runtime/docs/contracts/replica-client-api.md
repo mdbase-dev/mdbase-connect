@@ -769,9 +769,10 @@ invalidation rules apply. Path-ordered pages (no `order_by`) merge pending local
 edits and keep their cursor. Ordered pages (`order_by` present) do not currently
 merge pending local edits into keyset continuations: while any pending local
 edit exists on the replica, an ordered request whose match count exceeds `limit`
-refuses with `upgrade_required` / `contract_query_cursor_required`, and
-consumers should fall back to an unordered (`order_by` omitted) load on that
-refusal. The method selects every type implementing that exact
+— or a full page at `limit` when pending edits leave the ordered result without
+a continuation witness — refuses with `upgrade_required` /
+`contract_query_cursor_required`, and consumers should fall back to an
+unordered (`order_by` omitted) load on that refusal. The method selects every type implementing that exact
 record contract, with a 128-implementation/128-mapping cap, a 1 MiB projection
 copy budget, and a 2 MiB encoded response cap.
 A valid registered contract with no implementations returns a complete empty

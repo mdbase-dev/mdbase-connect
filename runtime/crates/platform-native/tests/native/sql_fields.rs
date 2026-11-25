@@ -16,12 +16,15 @@ use mdbn_store_file::testing::replica::plan::{project_record_query_index_row, qu
 use mdbn_store_file::testing::replica::store::{Head, RecordMeta, RecordRow, StoreError};
 use mdbn_store_file::testing::replica::store_query::*;
 
+type CapturedSql = Rc<RefCell<Vec<(String, Vec<SqlValue>)>>>;
+
 struct Trace {
     inner: SqliteIndex,
     blob_reads: Rc<Cell<usize>>,
     key_reads: Rc<Cell<usize>>,
     full_coverage_checks: Rc<Cell<usize>>,
     orphan_scans: Rc<Cell<usize>>,
+    captured: Option<CapturedSql>,
 }
 impl IndexStorage for Trace {
     fn info(&self) -> mdbn_store_file::index::IndexInfo {
@@ -32,6 +35,11 @@ impl IndexStorage for Trace {
     }
     fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
         for s in &batch.stmts {
+            if let Some(captured) = &self.captured {
+                captured
+                    .borrow_mut()
+                    .push((s.sql.clone(), s.params.clone()));
+            }
             if s.sql.contains("FROM st_qraw") {
                 assert!(
                     s.params.len()
@@ -114,6 +122,7 @@ fn open(name: &str, rows: Vec<RecordRow>, names: &[&str]) -> Fixture {
         key_reads: keys.clone(),
         full_coverage_checks: Rc::new(Cell::new(0)),
         orphan_scans: Rc::new(Cell::new(0)),
+        captured: None,
     }));
     let mut store = SqlStore::open(index.clone()).unwrap();
     let refs: Vec<_> = names.iter().map(|n| field(n)).collect();
@@ -1193,4 +1202,182 @@ fn descending_mtime_continuation_seeks_tie_bucket_by_path_and_null_mtime_path_us
     assert_eq!(unknown[249], "tasks/0250.md");
     assert_eq!(blobs.get(), 0, "selection reads no record blobs");
     let _ = index;
+}
+
+#[test]
+fn filtered_asc_mtime_continuation_seeks_sort_and_path_within_fixed_kind() {
+    let mut rows = Vec::with_capacity(200);
+    for n in 1u16..=200 {
+        let mut r = row(n, "priority: 1");
+        r.mtime = if n <= 50 {
+            None
+        } else if n <= 120 {
+            Some(1_700_000_002_000)
+        } else {
+            Some(1_700_000_000_000 + i64::from(n) * 1_000)
+        };
+        rows.push(r);
+    }
+    let (store, index, blobs, _, _refs) = open("query_index_mtime_asc_seek", rows, &["priority"]);
+    let state = store.query_index_state().unwrap().unwrap();
+    let captured = Rc::new(RefCell::new(Vec::new()));
+    index.borrow_mut().captured = Some(captured.clone());
+
+    let explain_details = |sql: &str, params: &[SqlValue]| -> Vec<String> {
+        let res = index
+            .borrow_mut()
+            .inner
+            .run(&Batch {
+                mode: BatchMode::Autocommit,
+                stmts: vec![Stmt::new(
+                    format!("EXPLAIN QUERY PLAN {sql}"),
+                    params.to_vec(),
+                )],
+            })
+            .unwrap();
+        let cols = usize::try_from(res[0].columns).unwrap();
+        res[0]
+            .values
+            .chunks_exact(cols)
+            .filter_map(|row| match &row[cols - 1] {
+                SqlValue::Text(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // 1) `has(file.mtime)` + `file.mtime ASC`: exact pagination and continuation seeks `(sort, path)` within `kind=?`.
+    let has_mtime = QueryPredicate::Not(Box::new(QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    }));
+    let mut after = None;
+    let mut got = Vec::new();
+    let mut continuation_checked = false;
+    while {
+        captured.borrow_mut().clear();
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    has_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: false,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 30,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        if after.is_some() && !continuation_checked {
+            let stmts: Vec<_> = captured
+                .borrow()
+                .iter()
+                .filter(|(sql, _)| sql.contains("INDEXED BY st_qmtime_asc"))
+                .cloned()
+                .collect();
+            assert!(!stmts.is_empty());
+            for (sql, params) in stmts {
+                let details = explain_details(&sql, &params);
+                assert!(
+                    details.iter().any(|d| {
+                        d.contains("COVERING INDEX st_qmtime_asc (kind=? AND (sort,path)>(?,?))")
+                    }),
+                    "expected (kind, (sort, path)) seek in plan: {details:?}\nSQL: {sql}"
+                );
+                assert!(
+                    !details.iter().any(|d| d.contains("TEMP B-TREE")),
+                    "unexpected temp sort in plan: {details:?}"
+                );
+            }
+            continuation_checked = true;
+        }
+        got.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert!(continuation_checked);
+    assert_eq!(got.len(), 150);
+    assert_eq!(got[0], "tasks/0051.md");
+    assert_eq!(got[69], "tasks/0120.md");
+    assert_eq!(got[70], "tasks/0121.md");
+    assert_eq!(got[149], "tasks/0200.md");
+
+    // 2) `!has(file.mtime)` + `file.mtime ASC`: continuation seeks `path>?` within fixed `(kind, sort)`.
+    let no_mtime = QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    };
+    let mut after = None;
+    let mut unknown = Vec::new();
+    let mut null_continuation_checked = false;
+    while {
+        captured.borrow_mut().clear();
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    no_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: false,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 20,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        if after.is_some() && !null_continuation_checked {
+            let stmts: Vec<_> = captured
+                .borrow()
+                .iter()
+                .filter(|(sql, _)| sql.contains("INDEXED BY st_qmtime_asc"))
+                .cloned()
+                .collect();
+            assert!(!stmts.is_empty());
+            for (sql, params) in stmts {
+                let details = explain_details(&sql, &params);
+                assert!(
+                    details.iter().any(|d| {
+                        d.contains("COVERING INDEX st_qmtime_asc (kind=? AND sort=? AND path>?)")
+                    }),
+                    "expected (kind, sort, path) seek in plan: {details:?}\nSQL: {sql}"
+                );
+                assert!(
+                    !details.iter().any(|d| d.contains("TEMP B-TREE")),
+                    "unexpected temp sort in plan: {details:?}"
+                );
+            }
+            null_continuation_checked = true;
+        }
+        unknown.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert!(null_continuation_checked);
+    assert_eq!(unknown.len(), 50);
+    assert_eq!(unknown[0], "tasks/0001.md");
+    assert_eq!(unknown[49], "tasks/0050.md");
+    assert_eq!(blobs.get(), 0, "selection reads no record blobs");
 }

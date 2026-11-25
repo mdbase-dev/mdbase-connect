@@ -955,6 +955,109 @@ fn contract_query_orders_by_file_mtime_and_omits_feature_without_query_index() {
     );
 }
 
+#[test]
+fn in_file_mtime_predicate_preserves_confirmed_mtime_across_pending_edit() {
+    let (_, mut a) = configured(resources());
+    let t0 = a.clock.get();
+    a.clock.set(t0 + 1_000);
+    a.create(
+        1,
+        "rows/confirmed.md",
+        "---\ntype: Zebra\ncompleted: false\n---\n",
+    );
+    settle(&mut [&mut a]);
+    let confirmed_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([1; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    assert!(confirmed_mtime.is_some());
+
+    let query_in_file = || {
+        Value::Map(vec![(
+            "where".into(),
+            Value::Text("\"mtime\" in file".into()),
+        )])
+    };
+    let include = mdbn_wire::client::Include {
+        effective: None,
+        body: None,
+        document: None,
+        diagnostics: None,
+    };
+
+    let before = a.r.query(a.s, query_in_file(), include.clone()).unwrap();
+    assert_eq!(
+        before
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["rows/confirmed.md"]
+    );
+    assert_eq!(before.records[0].mtime, confirmed_mtime);
+
+    // Edit the confirmed record and create a new record, both pending (unsettled).
+    a.clock.set(t0 + 2_000);
+    a.r.submit(
+        a.s,
+        mdbn_wire::client::SubmitParams {
+            ops: vec![
+                mdbn_wire::intent::Op::Update(mdbn_wire::intent::Update {
+                    id: mdbn_wire::common::B16([1; 16]),
+                    patch: Some(mdbn_wire::common::DataMap(vec![(
+                        "completed".into(),
+                        Value::Bool(true),
+                    )])),
+                    unset: None,
+                    add: None,
+                    remove: None,
+                    body: None,
+                    body_edits: None,
+                    body_base: None,
+                    body_base_text: None,
+                    base: None,
+                    if_revision: None,
+                    update_refs: None,
+                }),
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([2; 16]),
+                    path: Some("rows/pending-only.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: false\n---\n".into(),
+                    )),
+                }),
+            ],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+            validation: None,
+        },
+    )
+    .expect("submit pending edit and create");
+
+    let during_pending = a.r.query(a.s, query_in_file(), include).unwrap();
+    assert_eq!(
+        during_pending
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["rows/confirmed.md"],
+        "pending edit on a confirmed record must still match `\"mtime\" in file`"
+    );
+    assert_eq!(during_pending.records[0].mtime, confirmed_mtime);
+}
+
 /// A confirmed catalog change re-derives every record's types, which the feed
 /// cannot name: older cursors reset and watchers are told to re-read.
 #[test]

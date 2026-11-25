@@ -771,4 +771,22 @@ fn file_mtime_lowers_for_ordering_and_evaluates_in_filters_and_select() {
         assert_eq!(p.where_mtime_presence(), None, "{expr}");
         assert!(profile::lower(&p, &c).is_err(), "{expr}");
     }
+
+    // `in file`, key iteration, and map-size checks on `file` set `requirements.mtime`
+    // so per-record evaluation supplies confirmed mtime across pending edits.
+    for expr in [
+        "\"mtime\" in file",
+        "\"m\" + \"time\" in file",
+        "raw.key in file",
+        "[file].exists(f, \"mtime\" in f)",
+        "file.exists(k, k == \"mtime\")",
+        "size(file) > 0",
+    ] {
+        let p = plan(expr, &c);
+        assert!(p.requirements.mtime, "{expr}");
+    }
+    for expr in ["\"path\" in file", "file.path == \"a.md\""] {
+        let p = plan(expr, &c);
+        assert!(!p.requirements.mtime, "{expr}");
+    }
 }
