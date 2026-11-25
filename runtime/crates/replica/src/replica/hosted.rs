@@ -841,7 +841,7 @@ impl<S: Store> Replica<HostedCache<S>> {
             r.original_history = super::original_history::OriginalHistory::new(
                 r.cfg.collection,
                 r.store_generation,
-                crate::store::Head::GENESIS,
+                r.head,
                 0,
                 None,
             );

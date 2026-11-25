@@ -637,6 +637,9 @@ impl<S: Store> Replica<S> {
         >,
     ) -> Result<Outcome, StoreError> {
         let staged_before = self.staged_key_grants_len();
+        let track_keyring = matches!(item.kind, ItemKind::Rekey | ItemKind::KeyGrant)
+            && self.store.keyring_persistence() != crate::store::KeyringPersistence::RebuildOnOpen;
+        let keyring_before = track_keyring.then(|| self.sealer.export()).flatten();
         let outcome = match self.evaluate_control(p, &head.chain, item, &[], true) {
             Err(stall) => {
                 self.truncate_staged_key_grants(staged_before);
@@ -662,7 +665,14 @@ impl<S: Store> Replica<S> {
         if let Some(bytes) = next_history.as_ref().and_then(|h| h.hint_bytes()) {
             meta.push((super::original_history::META.into(), Some(bytes)));
         }
-        meta.extend(self.keyring_meta());
+        if track_keyring {
+            let keyring_after = self.sealer.export();
+            if keyring_after != keyring_before
+                && let Some(bytes) = keyring_after
+            {
+                meta.push((meta_keys::KEYRING.to_string(), Some(bytes.to_vec())));
+            }
+        }
         meta.extend(self.genesis_meta(head));
         let committed = self.commit_retained(
             head,

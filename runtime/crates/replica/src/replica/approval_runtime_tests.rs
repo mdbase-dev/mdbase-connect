@@ -1862,3 +1862,332 @@ fn restart_after_the_grant_keeps_the_saved_exchanges_approver() {
     assert!(!reopened.key_untrusted);
     assert!(reopened.cfg.trusted_signers.contains(&ME));
 }
+
+/// Real deferred-durability window containing this device's OWN approval
+/// `KeyGrant`, followed by a failed final barrier (`defer_durability(false)`):
+/// the approval disposition must remain unresolved/unpublished (`Sent`),
+/// `pending_grant` stays unresolved, `staged_applied` is cleared, and the
+/// replica is fenced.
+#[test]
+fn own_approval_key_grant_in_deferred_window_with_failed_barrier_stays_unresolved_and_fences() {
+    use crate::log::LogPort;
+    use crate::store::*;
+    use mdbn_wire::client::Hold;
+    use mdbn_wire::common::Hash;
+    use mdbn_wire::log_service::SeqItem;
+
+    struct FailBarrierStore {
+        inner: MemStore,
+        fail_close: Rc<Cell<bool>>,
+        commits_in_window: Rc<Cell<u32>>,
+        failed_closes: Rc<Cell<u32>>,
+    }
+    impl Store for FailBarrierStore {
+        fn head(&self) -> StoreResult<Head> {
+            self.inner.head()
+        }
+        fn record(&self, id: &Uuid) -> StoreResult<Option<RecordRow>> {
+            self.inner.record(id)
+        }
+        fn record_at(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.inner.record_at(path_key)
+        }
+        fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>> {
+            self.inner.records(page)
+        }
+        fn records_in_buckets(
+            &self,
+            range: std::ops::Range<u32>,
+            page: Page,
+        ) -> StoreResult<Vec<RecordRow>> {
+            self.inner.records_in_buckets(range, page)
+        }
+        fn record_count(&self) -> StoreResult<u64> {
+            self.inner.record_count()
+        }
+        fn file(&self, id: &Uuid) -> StoreResult<Option<FileRow>> {
+            self.inner.file(id)
+        }
+        fn file_at(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.inner.file_at(path_key)
+        }
+        fn files(&self, page: Page) -> StoreResult<Vec<FileRow>> {
+            self.inner.files(page)
+        }
+        fn files_in_buckets(
+            &self,
+            range: std::ops::Range<u32>,
+            page: Page,
+        ) -> StoreResult<Vec<FileRow>> {
+            self.inner.files_in_buckets(range, page)
+        }
+        fn resource(&self, path: &str) -> StoreResult<Option<String>> {
+            self.inner.resource(path)
+        }
+        fn resources(&self) -> StoreResult<Vec<(String, String)>> {
+            self.inner.resources()
+        }
+        fn settings(&self) -> StoreResult<Option<mdbn_wire::intent::FileInclusion>> {
+            self.inner.settings()
+        }
+        fn tombstone(&self, id: &Uuid) -> StoreResult<Option<TombstoneRow>> {
+            self.inner.tombstone(id)
+        }
+        fn tombstones_at(&self, path_key: &str) -> StoreResult<Vec<TombstoneRow>> {
+            self.inner.tombstones_at(path_key)
+        }
+        fn tombstones(&self, page: Page) -> StoreResult<Vec<TombstoneRow>> {
+            self.inner.tombstones(page)
+        }
+        fn alias(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.inner.alias(path_key)
+        }
+        fn aliases(&self) -> StoreResult<Vec<AliasRow>> {
+            self.inner.aliases()
+        }
+        fn conflicts(&self, of: Option<&Uuid>) -> StoreResult<Vec<ConflictRow>> {
+            self.inner.conflicts(of)
+        }
+        fn conflict_count(&self) -> StoreResult<u64> {
+            self.inner.conflict_count()
+        }
+        fn receipt(&self, mutation: &Uuid) -> StoreResult<Option<ReceiptRow>> {
+            self.inner.receipt(mutation)
+        }
+        fn receipts(&self, after: Option<Uuid>, limit: u32) -> StoreResult<Vec<ReceiptRow>> {
+            self.inner.receipts(after, limit)
+        }
+        fn referrers(&self, target_keys: &[String]) -> StoreResult<Vec<Uuid>> {
+            self.inner.referrers(target_keys)
+        }
+        fn unique_holders(&self, field: &str, value_key: &str) -> StoreResult<Vec<Uuid>> {
+            self.inner.unique_holders(field, value_key)
+        }
+        fn candidates(&self, q: &Candidate, page: Page) -> StoreResult<Vec<RecordRow>> {
+            self.inner.candidates(q, page)
+        }
+        fn tail(&self, after: Seq, limit: u32) -> StoreResult<Vec<TailRow>> {
+            self.inner.tail(after, limit)
+        }
+        fn tail_stats(&self) -> StoreResult<TailStats> {
+            self.inner.tail_stats()
+        }
+        fn own_retained_stats(&self) -> StoreResult<TailStats> {
+            self.inner.own_retained_stats()
+        }
+        fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
+            self.inner.own_retained(after, limit)
+        }
+        fn pending(&self, after_order: Option<u64>, limit: u32) -> StoreResult<Vec<PendingRow>> {
+            self.inner.pending(after_order, limit)
+        }
+        fn pending_get(&self, mutation: &Uuid) -> StoreResult<Option<PendingRow>> {
+            self.inner.pending_get(mutation)
+        }
+        fn pending_count(&self) -> StoreResult<u64> {
+            self.inner.pending_count()
+        }
+        fn local_receipt(&self, mutation: &Uuid) -> StoreResult<Option<LocalReceipt>> {
+            self.inner.local_receipt(mutation)
+        }
+        fn holds(&self) -> StoreResult<Vec<Hold>> {
+            self.inner.holds()
+        }
+        fn hold(&self, id: &Uuid) -> StoreResult<Option<Hold>> {
+            self.inner.hold(id)
+        }
+        fn meta(&self, key: &str) -> StoreResult<Option<Vec<u8>>> {
+            self.inner.meta(key)
+        }
+        fn transfer(&self, id: &Uuid) -> StoreResult<Option<TransferRow>> {
+            self.inner.transfer(id)
+        }
+        fn transfer_chunk(&self, id: &Uuid, index: u64) -> StoreResult<Option<Vec<u8>>> {
+            self.inner.transfer_chunk(id, index)
+        }
+        fn blob_size(&self, digest: &Hash) -> StoreResult<Option<u64>> {
+            self.inner.blob_size(digest)
+        }
+        fn blob_read(&self, digest: &Hash, offset: u64, len: u64) -> StoreResult<Vec<u8>> {
+            self.inner.blob_read(digest, offset, len)
+        }
+        fn durability_deferred(&self) -> bool {
+            self.inner.durability_deferred()
+        }
+        fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
+            if !on && self.fail_close.get() {
+                self.failed_closes.set(self.failed_closes.get() + 1);
+                let _ = self.inner.defer_durability(false);
+                return Err(StoreError::Io(
+                    "injected apply window barrier failure".into(),
+                ));
+            }
+            self.inner.defer_durability(on)
+        }
+        fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+            if self.durability_deferred() {
+                self.commits_in_window.set(self.commits_in_window.get() + 1);
+            }
+            self.inner.commit(tx)
+        }
+    }
+
+    let source = Source(Rc::new(Cell::new(Some(ApprovalAuthorityStamp {
+        account: ACCOUNT,
+        epoch: 1,
+    }))));
+    let clock = ClockRef(Rc::new(Cell::new(1_000)));
+    let mut rng = TestEntropy::new(90);
+    let mut n = NewDevice::new(COL, tuple(NEW, 20), &mut rng);
+    let (rekey, _) = keys::build_rekey(
+        &COL,
+        0,
+        &Keyring::new(),
+        &[Recipient {
+            device: ME,
+            kem_pk: tuple(ME, 10).kem_pk,
+        }],
+        RekeyReason::Initial,
+        &mut rng,
+    )
+    .unwrap();
+    let mut sealer = KeyringSealer::new(COL, ME, &[10; 32], &[10; 32]);
+    sealer.accept_rekey(&rekey);
+    sealer.set_epoch(1);
+    let fail_close = Rc::new(Cell::new(false));
+    let commits_in_window = Rc::new(Cell::new(0));
+    let failed_closes = Rc::new(Cell::new(0));
+    let store = FailBarrierStore {
+        inner: MemStore::new(),
+        fail_close: fail_close.clone(),
+        commits_in_window: commits_in_window.clone(),
+        failed_closes: failed_closes.clone(),
+    };
+    let mut r = Replica::open_with_grant_source(
+        ReplicaConfig {
+            collection: COL,
+            replica_id: B16([3; 16]),
+            device_id: ME,
+            mode: SyncMode::Synced,
+            log_endpoint: EndpointId(1),
+            verify: false,
+            runtime_version: "test".into(),
+            trusted_roots: vec![],
+            e2e: true,
+            trusted_signers: vec![ME],
+            user_enabled_cloud_copy: false,
+            chosen_state: Some(CState::E2e),
+            expected_genesis: None,
+            key_grants_only: false,
+            policy_pins: None,
+        },
+        store,
+        Box::new(CorePlanner),
+        Box::new(sealer),
+        Host {
+            clock: Box::new(clock),
+            entropy: Box::new(rng),
+            zones: Box::new(UtcOnly),
+        },
+        DeviceSecrets {
+            sign_sk: [10; 32],
+            kem_sk: [10; 32],
+        },
+        Box::new(source),
+    )
+    .unwrap();
+    let mut p = PolicyState::new();
+    p.cstate = Some(CState::E2e);
+    p.epoch = 1;
+    p.members.insert(ACCOUNT, Role::Owner);
+    p.devices.insert(ME, device(tuple(ME, 10), true, None));
+    p.devices
+        .insert(NEW, device(tuple(NEW, 20), false, Some(n.commitment())));
+    r.policy = p;
+    r.sealer.set_epoch(1);
+    r.check_key_trust();
+    let (s, _) = r
+        .hello(
+            SessionAuth::Host,
+            HelloParams {
+                versions: vec![Version { major: 1, minor: 0 }],
+                client_name: "test".into(),
+                client_version: "0".into(),
+                features: None,
+                timezone: None,
+            },
+        )
+        .unwrap();
+
+    // Build and send this device's own signed approval KeyGrant.
+    let c = r.start_device_approval(s, NEW).unwrap();
+    let Answer::Reveal { r_n, code, .. } = n.on_challenge(&r.policy, &ME, &c.r_a.0) else {
+        panic!("requester reveal");
+    };
+    r.receive_device_reveal(
+        s,
+        &ApprovalReveal {
+            challenge: c,
+            r_n: B32(r_n),
+        },
+    )
+    .unwrap();
+    let (intent, _) = r
+        .submit_device_approval(s, NEW, &ApproverCode::parse(&code).unwrap())
+        .unwrap();
+    assert!(r.send_private_key_grant_if_needed());
+    let grant_bytes = r
+        .take_log_calls()
+        .into_iter()
+        .find_map(|call| match call.request {
+            crate::log::LogRequest::Append(p) => p.items.into_iter().next(),
+            _ => None,
+        })
+        .expect("append call for key_grant");
+    assert_eq!(
+        r.device_approval_disposition(s, intent).unwrap(),
+        ApprovalDisposition::Sent
+    );
+    let _ = r.take_pushes();
+
+    // Apply the own KeyGrant inside a real deferred window, then fail the final
+    // durability barrier.
+    let seq = r.head.seq + 1;
+    commits_in_window.set(0);
+    fail_close.set(true);
+    r.apply_items(vec![SeqItem {
+        seq,
+        item: grant_bytes,
+    }]);
+
+    assert_eq!(
+        commits_in_window.get(),
+        1,
+        "own KeyGrant must have committed inside the open deferred window"
+    );
+    assert_eq!(failed_closes.get(), 1, "final barrier must have failed");
+    assert!(r.requires_reopen(), "failed barrier must fence the replica");
+    assert_eq!(r.fence(), Some(crate::Fence::Store));
+    assert_eq!(
+        r.approval.dispositions[&intent],
+        ApprovalDisposition::Sent,
+        "own approval must stay unresolved/unpublished after failed barrier"
+    );
+    assert!(
+        r.approval.pending_grant.is_some(),
+        "pending_grant must remain unresolved"
+    );
+    assert!(
+        r.approval.staged_applied.is_empty(),
+        "staged_applied must be discarded on barrier failure"
+    );
+    assert!(
+        r.device_approval_disposition(s, intent).is_err(),
+        "fenced replica must refuse host disposition reads"
+    );
+    let pushes = r.take_pushes();
+    assert!(
+        pushes.iter().all(|(_, p)| matches!(p, Push::Closed(_))),
+        "only session close pushes may be emitted after failed barrier: {pushes:?}"
+    );
+}

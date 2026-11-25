@@ -26,6 +26,8 @@ pub(crate) struct CommitBarrier {
     files: Option<MacFiles>,
     #[cfg(test)]
     fail_next: std::cell::Cell<usize>,
+    #[cfg(test)]
+    syncs: std::cell::Cell<u64>,
 }
 
 #[cfg(all(feature = "sqlite", target_os = "macos"))]
@@ -91,6 +93,8 @@ impl CommitBarrier {
             files,
             #[cfg(test)]
             fail_next: std::cell::Cell::new(0),
+            #[cfg(test)]
+            syncs: std::cell::Cell::new(0),
         })
     }
 
@@ -100,6 +104,7 @@ impl CommitBarrier {
         }
         #[cfg(test)]
         {
+            self.syncs.set(self.syncs.get() + 1);
             let left = self.fail_next.get();
             if left > 0 {
                 self.fail_next.set(left - 1);
@@ -151,6 +156,11 @@ impl CommitBarrier {
             }
         }
         Ok(())
+    }
+
+    #[cfg(test)]
+    pub(crate) fn sync_count(&self) -> u64 {
+        self.syncs.get()
     }
 
     #[cfg(test)]
