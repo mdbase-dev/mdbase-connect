@@ -59,6 +59,45 @@ function place(
 }
 
 /**
+ * Where a submenu opens: level with its row, after the parent menu's right edge when it fits,
+ * else before its left edge. With room on neither side (a phone) it overlaps the parent just
+ * below its row. It stays inside the viewport either way.
+ */
+export function submenuPlacement(
+  row: Box,
+  parent: Pick<Box, "left" | "width">,
+  popover: Size,
+  viewport: Size,
+  { gap = 4, margin = 8, inset = 5 }: { gap?: number; margin?: number; inset?: number } = {}
+): { readonly top: number; readonly left: number; readonly side: "after" | "before" | "below" } {
+  const after = parent.left + parent.width + gap;
+  const before = parent.left - gap - popover.width;
+  const side = after + popover.width <= viewport.width - margin ? "after" : before >= margin ? "before" : "below";
+  const left = side === "after" ? after : side === "before" ? before : row.left;
+  const top = side === "below" ? row.bottom + gap : row.top - inset;
+  return {
+    side,
+    left: Math.max(margin, Math.min(left, viewport.width - popover.width - margin)),
+    top: Math.max(margin, Math.min(top, viewport.height - popover.height - margin))
+  };
+}
+
+/** Shows `submenu` in the top layer beside `row`, the parent menu's item that opened it. */
+export function placeSubmenu(row: HTMLElement, submenu: HTMLElement): void {
+  showInTopLayer(submenu);
+  const parent = row.closest<HTMLElement>('[role="menu"]') ?? row;
+  const placement = submenuPlacement(
+    row.getBoundingClientRect(),
+    parent.getBoundingClientRect(),
+    { width: submenu.offsetWidth, height: submenu.offsetHeight },
+    { width: window.innerWidth, height: window.innerHeight }
+  );
+  submenu.style.top = `${placement.top}px`;
+  submenu.style.left = `${placement.left}px`;
+  submenu.style.setProperty("--overlay-origin", placement.side === "before" ? "top right" : "top left");
+}
+
+/**
  * The topmost open modal `<dialog>`, if one is showing. A modal dialog makes everything outside
  * its subtree inert—even a top-layer popover—so a popover opened while one is open mounts inside it.
  */
@@ -206,12 +245,17 @@ export function useMenuPopover(
 }
 
 /**
- * Arrow keys, Home and End move between a menu's enabled items. From a text field inside the
- * menu (a filter), Home and End stay in the field and the arrows enter the list.
+ * Arrow keys, Home and End move between a menu's enabled items, not those of a submenu inside
+ * it. From a text field inside the menu (a filter), Home and End stay in the field and the
+ * arrows enter the list.
  */
 export function moveMenuFocus(event: KeyboardEvent, menu: HTMLElement | null): void {
   if (!menu || !["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
-  const items = [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled):not([aria-disabled="true"])')];
+  const items = [...menu.querySelectorAll<HTMLElement>('[role^="menuitem"]:not(:disabled):not([aria-disabled="true"])')]
+    .filter((item) => {
+      const owner = item.parentElement?.closest('[role="menu"]');
+      return !owner || owner === menu || !menu.contains(owner);
+    });
   const inField = document.activeElement instanceof HTMLInputElement && menu.contains(document.activeElement);
   if (inField && (event.key === "Home" || event.key === "End")) return;
   event.preventDefault();

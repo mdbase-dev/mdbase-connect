@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { accessibleName, visibleLabel } from "../test/label-in-name.js";
 import { AppSwitcher } from "./AppSwitcher.js";
-import { mcpSetupUrl } from "./apps.js";
+import { aiAssistants, mcpSetupUrl } from "./apps.js";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -58,17 +58,17 @@ describe("AppSwitcher", () => {
       />
     );
     const items = [...container.querySelectorAll<HTMLAnchorElement>('[role="menu"] [role="menuitem"]:not([aria-disabled="true"])')];
-    const build = items.at(-1)!;
+    const build = items.at(-2)!;
 
     expect(items.map((item) => item.getAttribute("href"))).toEqual([
       "https://editor.example/",
       "https://reader.example/",
-      mcpSetupUrl,
-      "https://mdbase.dev/sdk/"
+      "https://mdbase.dev/sdk/",
+      null
     ]);
     expect(container.textContent).not.toContain("Journal");
     expect(container.textContent).not.toContain("TaskNotes");
-    expect(build.textContent).toContain("Build your own");
+    expect(build.textContent).toContain("Your app here");
     expect(build.target).toBe("_blank");
     unmount();
   });
@@ -95,26 +95,40 @@ describe("AppSwitcher", () => {
       `https://writer.example/${sharedQuery}`,
       `https://journal.example/${sharedQuery}`,
       `https://tasks.example/${sharedQuery}`,
-      mcpSetupUrl,
-      "https://mdbase.dev/sdk/"
+      "https://mdbase.dev/sdk/",
+      null
     ]);
     expect(container.querySelector(".mdbase-app-menu-mark.is-journal")).not.toBeNull();
     expect(container.querySelector(".mdbase-app-menu-mark.is-tasknotes")).not.toBeNull();
     unmount();
   });
 
-  it("renders the AI clients (MCP) link by default and omits it when mcpUrl is null", () => {
+  it("opens the AI assistants submenu with the official listings and the MCP guide, and omits it when mcpUrl is null", () => {
     const shown = openMenu(
       <AppSwitcher current="writer" urls={{ editor: "https://editor.example", writer: "https://writer.example" }} />
     );
-    const mcpLink = shown.container.querySelector<HTMLAnchorElement>(`[role="menu"] a[href="${mcpSetupUrl}"]`);
+    const row = shown.container.querySelector<HTMLButtonElement>('[role="menu"] button[aria-haspopup="menu"]')!;
 
-    expect(mcpLink).not.toBeNull();
-    expect(mcpLink!.textContent).toContain("AI clients (MCP)");
-    expect(mcpLink!.textContent).toContain("Claude, ChatGPT and Codex");
-    expect(mcpLink!.target).toBe("_blank");
-    expect(mcpLink!.rel).toBe("noopener");
-    expect(shown.container.querySelector('[role="menu"] [role="separator"]')).not.toBeNull();
+    expect(row.textContent).toContain("AI assistants");
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    act(() => row.click());
+    const submenu = document.getElementById(row.getAttribute("aria-controls")!)!;
+    const links = [...submenu.querySelectorAll<HTMLAnchorElement>('a[role="menuitem"]')];
+
+    expect(row.getAttribute("aria-expanded")).toBe("true");
+    expect(submenu.getAttribute("role")).toBe("menu");
+    expect(links.map((link) => link.href)).toEqual([...aiAssistants.map((assistant) => assistant.url), mcpSetupUrl]);
+    expect(links.map((link) => link.querySelector("strong")!.textContent)).toEqual(["Claude", "ChatGPT", "Other AI clients"]);
+    expect(links.every((link) => link.target === "_blank" && link.rel === "noopener")).toBe(true);
+    expect(document.activeElement).toBe(links[0]);
+
+    act(() => links[0]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+    expect(document.activeElement).toBe(links[1]);
+    act(() => links[1]!.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", bubbles: true })));
+    expect(row.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(row);
+    act(() => row.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true })));
+    expect(document.activeElement?.getAttribute("href")).toBe(aiAssistants[0]!.url);
     shown.unmount();
 
     const hidden = openMenu(
@@ -124,8 +138,34 @@ describe("AppSwitcher", () => {
 
     expect(items.map((item) => item.getAttribute("href"))).toEqual(["https://editor.example/", "https://mdbase.dev/sdk/"]);
     expect(hidden.container.querySelector('[role="menu"] [role="separator"]')).toBeNull();
-    expect(hidden.container.textContent).not.toContain("AI clients (MCP)");
+    expect(hidden.container.textContent).not.toContain("AI assistants");
     hidden.unmount();
+  });
+
+  it("keeps the parent menu's arrow keys out of an open submenu", () => {
+    const { container, unmount } = openMenu(<AppSwitcher current="writer" urls={{ editor: "https://editor.example" }} />);
+    const menu = container.querySelector<HTMLElement>('[role="menu"]')!;
+    const row = menu.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]')!;
+    act(() => row.click());
+    act(() => row.focus());
+    act(() => row.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true })));
+
+    expect(document.activeElement?.getAttribute("href")).toBe("https://editor.example/");
+    unmount();
+  });
+
+  it("offers an empty slot for your own app that spins past every app's mark", () => {
+    const { container, unmount } = openMenu(<AppSwitcher current="writer" urls={{ editor: "https://editor.example" }} />);
+    const slot = container.querySelector<HTMLAnchorElement>('[role="menu"] a[href="https://mdbase.dev/sdk/"]')!;
+    const reel = slot.querySelector<HTMLElement>(".mdbase-app-menu-reel")!;
+
+    expect(slot.textContent).toContain("Your app here");
+    expect(slot.target).toBe("_blank");
+    expect(slot.querySelector(".mdbase-app-menu-slot")!.getAttribute("aria-hidden")).toBe("true");
+    expect(reel.children).toHaveLength(Number(reel.style.getPropertyValue("--reel-stops")) + 1);
+    for (const app of ["editor", "reader", "writer", "journal", "tasknotes"]) expect(reel.querySelector(`.is-${app}`)).not.toBeNull();
+    expect(reel.lastElementChild!.className).toBe("mdbase-app-menu-slot-caret");
+    unmount();
   });
 
   it("supports TaskNotes and Journal as current apps with custom trigger content and explicit collectionId", () => {
@@ -162,8 +202,8 @@ describe("AppSwitcher", () => {
       "https://reader.example/?collection=col_99",
       "https://writer.example/?collection=col_99",
       "https://journal.example/?collection=col_99",
-      mcpSetupUrl,
-      "https://mdbase.dev/sdk/"
+      "https://mdbase.dev/sdk/",
+      null
     ]);
     unmount();
 

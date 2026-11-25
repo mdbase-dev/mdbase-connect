@@ -171,6 +171,16 @@ msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "{property}에 항목 추가"
 
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from ChatGPT's plugins"
+msgstr "ChatGPT 플러그인에서 mdbase 추가"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from Claude's directory"
+msgstr "Claude 디렉터리에서 mdbase 추가"
+
 #: src/properties/labels.ts
 msgctxt "Property list"
 msgid "Add property"
@@ -202,8 +212,9 @@ msgid "after"
 msgstr "보다 나중"
 
 #: src/AppSwitcher.tsx
-msgid "AI clients (MCP)"
-msgstr "AI 클라이언트(MCP)"
+msgctxt "App switcher"
+msgid "AI assistants"
+msgstr "AI 어시스턴트"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -327,8 +338,9 @@ msgid "Browser, OS, viewport and recent error codes. No note contents, paths or 
 msgstr "브라우저, 운영체제, 뷰포트 및 최근 오류 코드입니다. 노트 내용, 경로 또는 인증 정보는 포함되지 않습니다."
 
 #: src/AppSwitcher.tsx
-msgid "Build your own"
-msgstr "나만의 앱 만들기"
+msgctxt "App switcher"
+msgid "Build one with the mdbase SDK"
+msgstr "mdbase SDK로 만들기"
 
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
@@ -444,8 +456,9 @@ msgid "Choose value"
 msgstr "값 선택"
 
 #: src/AppSwitcher.tsx
-msgid "Claude, ChatGPT and Codex"
-msgstr "Claude, ChatGPT 및 Codex"
+msgctxt "App switcher"
+msgid "Claude, ChatGPT and others"
+msgstr "Claude, ChatGPT 등"
 
 #: src/DatePicker.tsx
 msgctxt "Date picker"
@@ -1349,6 +1362,11 @@ msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "또는 Enter 키"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Other AI clients"
+msgstr "기타 AI 클라이언트"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
@@ -1653,6 +1671,11 @@ msgstr "설정"
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
 msgstr "{app}에서 사용할 {collection} 설정"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Set up with MCP"
+msgstr "MCP로 설정"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -2277,6 +2300,11 @@ msgstr "이 기기에서 {app}에서 로그아웃했습니다."
 #: src/Feedback.tsx
 msgid "you@example.com"
 msgstr "you@example.com"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Your app here"
+msgstr "여기에 나만의 앱"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

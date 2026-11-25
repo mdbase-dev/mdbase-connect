@@ -1,8 +1,9 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
-import { useId, useRef, useState, type JSX, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent, type ReactNode } from "react";
 
 import {
+  aiAssistants,
   mcpSetupUrl,
   mdbaseAppHref,
   officialApps,
@@ -14,8 +15,9 @@ import {
 import { MdbaseAppMark, Wordmark, type MdbaseMarkMotion } from "./brand.js";
 import { useMdbaseMarkActivity } from "./mark-activity.js";
 import { Menu } from "./Menu.js";
+import { moveMenuFocus, placeSubmenu } from "./popover.js";
 
-/** Where the menu's "Build your own" link goes: the same SDK guide in every environment. */
+/** Where the menu's "Your app here" row goes: the same SDK guide in every environment. */
 const sdkDocumentationUrl = "https://mdbase.dev/sdk/";
 
 function isMdbaseAppId(id: OfficialAppId): id is MdbaseAppId {
@@ -42,7 +44,10 @@ export function AppSwitcher({
   readonly current: OfficialAppId;
   /** Lab and local builds, for example `{ writer: import.meta.env.VITE_MDBASE_WRITER_URL }`. */
   readonly urls?: Partial<Record<OfficialApp["id"], string | undefined>>;
-  /** Setup guide for AI clients using MCP; pass `null` to omit on custom servers. */
+  /**
+   * Setup guide for other AI clients using MCP, the last row of the AI assistants submenu.
+   * Pass `null` on custom servers to omit the submenu: the assistants' listings use mdbase's own.
+   */
   readonly mcpUrl?: string | null | undefined;
   readonly motion?: MdbaseMarkMotion | undefined;
   /** Current collection ID for apps that do not carry `?collection=` in `location.href`. */
@@ -110,20 +115,15 @@ function AppMenu({ apps, current, collectionId, mcpUrl, onClose }: {
     <div className="mdbase-menu-heading" role="presentation">{heading}</div>
     <div className="mdbase-menu-list">
       {apps.map((app) => <AppItem key={app.id} app={app} current={app.id === current} collectionId={collectionId} onOpen={() => onClose(false)} />)}
+      <BuildYourOwnItem onOpen={() => onClose(false)} />
     </div>
     {mcpUrl && <>
-      {apps.length > 0 && <div className="mdbase-menu-divider" role="separator" />}
+      <div className="mdbase-menu-divider" role="separator" />
       <div className="mdbase-menu-list">
-        <McpItem url={mcpUrl} onOpen={() => onClose(false)} />
+        <AiAssistantsItem setupUrl={mcpUrl} onClose={onClose} />
       </div>
     </>}
-    <div className="mdbase-menu-note mdbase-app-menu-footer">
-      <span>{t({ message: "Opens in a new tab" })}</span>
-      <a className="mdbase-app-menu-build" role="menuitem" href={sdkDocumentationUrl} target="_blank" rel="noopener" onClick={() => onClose(false)}>
-        {t({ message: "Build your own" })}
-        <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
-      </a>
-    </div>
+    <div className="mdbase-menu-note">{t({ message: "Opens in a new tab" })}</div>
   </>;
 }
 
@@ -133,32 +133,158 @@ function ExternalIcon(): JSX.Element {
   </svg>;
 }
 
-function McpItem({ url, onOpen }: {
-  readonly url: string;
-  readonly onOpen: () => void;
-}): JSX.Element {
+function NewTabHint(): JSX.Element {
+  return <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>;
+}
+
+/** The marks the "Your app here" slot spins past before it lands on an empty, waiting tile. */
+const reel: readonly OfficialAppId[] = [...officialApps.map((app) => app.id), "editor", "reader", "writer"];
+
+/** An empty slot after the apps, for the app someone builds next. */
+function BuildYourOwnItem({ onOpen }: { readonly onOpen: () => void }): JSX.Element {
   useLocaleRevision();
-  return <a
-    className="mdbase-menu-item"
-    role="menuitem"
-    href={url}
-    target="_blank"
-    rel="noopener"
-    onClick={onOpen}
-  >
-    <svg className="mdbase-app-menu-mark mdbase-app-menu-mcp-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <circle cx="6.5" cy="12" r="2.25" />
-      <circle cx="17.5" cy="6.5" r="2.25" />
-      <circle cx="17.5" cy="17.5" r="2.25" />
-      <path d="M8.5 11 15.5 7.5M8.5 13l7 3.5" />
-    </svg>
+  return <a className="mdbase-menu-item mdbase-app-menu-build" role="menuitem" href={sdkDocumentationUrl} target="_blank" rel="noopener" onClick={onOpen}>
+    <span className="mdbase-app-menu-slot" aria-hidden="true">
+      <span className="mdbase-app-menu-reel" style={{ "--reel-stops": reel.length + 1 } as CSSProperties}>
+        <span className="mdbase-app-menu-slot-plus" />
+        {reel.map((id, index) => <MdbaseAppMark key={index} app={id} />)}
+        <span className="mdbase-app-menu-slot-caret" />
+      </span>
+    </span>
     <span className="mdbase-menu-copy">
-      <strong>{t({ message: "AI clients (MCP)" })}</strong>
-      <small>{t({ message: "Claude, ChatGPT and Codex" })}</small>
+      <strong>{t({ message: "Your app here", context: "App switcher" })}</strong>
+      <small>{t({ message: "Build one with the mdbase SDK", context: "App switcher" })}</small>
     </span>
     <ExternalIcon />
-    <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
+    <NewTabHint />
   </a>;
+}
+
+function McpMark(): JSX.Element {
+  return <svg className="mdbase-app-menu-mark mdbase-app-menu-mcp-mark" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <circle cx="6.5" cy="12" r="2.25" />
+    <circle cx="17.5" cy="6.5" r="2.25" />
+    <circle cx="17.5" cy="17.5" r="2.25" />
+    <path d="M8.5 11 15.5 7.5M8.5 13l7 3.5" />
+  </svg>;
+}
+
+/** How long the pointer may be off the row and its submenu before the submenu closes. */
+const submenuCloseDelay = 250;
+
+/**
+ * A row that opens a submenu of the AI assistants with an official mdbase listing, then the
+ * MCP setup guide for any other client. The pointer opens it by hovering; a click, Enter, Space
+ * or → opens it and enters it; ← or leaving it closes it.
+ */
+function AiAssistantsItem({ setupUrl, onClose }: {
+  readonly setupUrl: string;
+  readonly onClose: (refocus: boolean) => void;
+}): JSX.Element {
+  useLocaleRevision();
+  const submenuId = useId();
+  const rowRef = useRef<HTMLButtonElement>(null);
+  const submenuRef = useRef<HTMLDivElement>(null);
+  const enter = useRef(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const [open, setOpen] = useState(false);
+  const show = (enterSubmenu: boolean): void => {
+    clearTimeout(closeTimer.current);
+    enter.current = enterSubmenu;
+    setOpen(true);
+    if (enterSubmenu && open) submenuRef.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
+  };
+  const hide = (refocus: boolean): void => {
+    clearTimeout(closeTimer.current);
+    setOpen(false);
+    if (refocus) rowRef.current?.focus();
+  };
+  const hideSoon = (): void => {
+    clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setOpen(false), submenuCloseDelay);
+  };
+  useEffect(() => () => clearTimeout(closeTimer.current), []);
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    const submenu = submenuRef.current;
+    if (!open || !row || !submenu) return;
+    placeSubmenu(row, submenu);
+    if (enter.current) submenu.querySelector<HTMLElement>('[role="menuitem"]')?.focus({ preventScroll: true });
+  }, [open]);
+  const onSubmenuKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      hide(true);
+    } else moveMenuFocus(event, submenuRef.current);
+    // The parent menu's own arrow keys would leave the submenu.
+    if (["ArrowLeft", "ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) event.stopPropagation();
+  };
+  const link = (href: string, name: string, description: string) => <a
+    key={href}
+    className="mdbase-menu-item"
+    role="menuitem"
+    href={href}
+    target="_blank"
+    rel="noopener"
+    onClick={() => onClose(false)}
+  >
+    <span className="mdbase-menu-copy">
+      <strong>{name}</strong>
+      <small>{description}</small>
+    </span>
+    <ExternalIcon />
+    <NewTabHint />
+  </a>;
+  return <div
+    className="mdbase-app-menu-ai"
+    onPointerEnter={(event) => { if (event.pointerType === "mouse") show(false); }}
+    onPointerLeave={(event) => { if (event.pointerType === "mouse") hideSoon(); }}
+    onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) hide(false); }}
+  >
+    <button
+      ref={rowRef}
+      type="button"
+      className="mdbase-menu-item"
+      role="menuitem"
+      aria-haspopup="menu"
+      aria-expanded={open}
+      aria-controls={open ? submenuId : undefined}
+      onClick={() => show(true)}
+      onKeyDown={(event) => {
+        if (event.key === "ArrowRight") {
+          event.preventDefault();
+          show(true);
+        }
+      }}
+    >
+      <McpMark />
+      <span className="mdbase-menu-copy">
+        <strong>{t({ message: "AI assistants", context: "App switcher" })}</strong>
+        <small>{t({ message: "Claude, ChatGPT and others", context: "App switcher" })}</small>
+      </span>
+      <svg className="mdbase-app-menu-submenu-chevron" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="m10 7 5 5-5 5" />
+      </svg>
+    </button>
+    {open && <div
+      ref={submenuRef}
+      id={submenuId}
+      className="mdbase-menu mdbase-overlay mdbase-app-submenu"
+      data-open="true"
+      popover="manual"
+      role="menu"
+      aria-label={t({ message: "AI assistants", context: "App switcher" })}
+      onKeyDown={onSubmenuKeyDown}
+    >
+      <div className="mdbase-menu-list">
+        {aiAssistants.map((assistant) => link(assistant.url, assistant.name, assistant.description))}
+      </div>
+      <div className="mdbase-menu-divider" role="separator" />
+      <div className="mdbase-menu-list">
+        {link(setupUrl, t({ message: "Other AI clients", context: "App switcher" }), t({ message: "Set up with MCP", context: "App switcher" }))}
+      </div>
+    </div>}
+  </div>;
 }
 
 function AppItem({ app, current, collectionId, onOpen }: {
@@ -191,6 +317,6 @@ function AppItem({ app, current, collectionId, onOpen }: {
   >
     {copy}
     <ExternalIcon />
-    <span className="mdbase-visually-hidden">  {t({ message: "(opens in a new tab)" })}</span>
+    <NewTabHint />
   </a>;
 }

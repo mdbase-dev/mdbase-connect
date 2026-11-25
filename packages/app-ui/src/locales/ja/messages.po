@@ -171,6 +171,16 @@ msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "{property} に項目を追加"
 
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from ChatGPT's plugins"
+msgstr "ChatGPTのプラグインからmdbaseを追加"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from Claude's directory"
+msgstr "Claudeのディレクトリからmdbaseを追加"
+
 #: src/properties/labels.ts
 msgctxt "Property list"
 msgid "Add property"
@@ -202,8 +212,9 @@ msgid "after"
 msgstr "より後"
 
 #: src/AppSwitcher.tsx
-msgid "AI clients (MCP)"
-msgstr "AIクライアント（MCP）"
+msgctxt "App switcher"
+msgid "AI assistants"
+msgstr "AIアシスタント"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -327,8 +338,9 @@ msgid "Browser, OS, viewport and recent error codes. No note contents, paths or 
 msgstr "ブラウザー、OS、表示領域、最近のエラーコード。ノートの内容、パス、認証情報は含まれません。"
 
 #: src/AppSwitcher.tsx
-msgid "Build your own"
-msgstr "自分のアプリを作る"
+msgctxt "App switcher"
+msgid "Build one with the mdbase SDK"
+msgstr "mdbase SDKで作る"
 
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
@@ -444,8 +456,9 @@ msgid "Choose value"
 msgstr "値を選択"
 
 #: src/AppSwitcher.tsx
-msgid "Claude, ChatGPT and Codex"
-msgstr "Claude、ChatGPT、Codex"
+msgctxt "App switcher"
+msgid "Claude, ChatGPT and others"
+msgstr "Claude、ChatGPTなど"
 
 #: src/DatePicker.tsx
 msgctxt "Date picker"
@@ -1349,6 +1362,11 @@ msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "または Enter キー"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Other AI clients"
+msgstr "その他のAIクライアント"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
@@ -1653,6 +1671,11 @@ msgstr "設定"
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
 msgstr "{app}用に{collection}を設定"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Set up with MCP"
+msgstr "MCPで設定"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -2277,6 +2300,11 @@ msgstr "このデバイスで{app}からサインアウトしました。"
 #: src/Feedback.tsx
 msgid "you@example.com"
 msgstr "you@example.jp"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Your app here"
+msgstr "あなたのアプリをここに"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

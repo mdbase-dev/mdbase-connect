@@ -171,6 +171,16 @@ msgctxt "Property list"
 msgid "Add item to {property}"
 msgstr "Add item to {property}"
 
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from ChatGPT's plugins"
+msgstr "Add mdbase from ChatGPT's plugins"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from Claude's directory"
+msgstr "Add mdbase from Claude's directory"
+
 #: src/properties/labels.ts
 msgctxt "Property list"
 msgid "Add property"
@@ -202,8 +212,9 @@ msgid "after"
 msgstr "after"
 
 #: src/AppSwitcher.tsx
-msgid "AI clients (MCP)"
-msgstr "AI clients (MCP)"
+msgctxt "App switcher"
+msgid "AI assistants"
+msgstr "AI assistants"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -327,8 +338,9 @@ msgid "Browser, OS, viewport and recent error codes. No note contents, paths or 
 msgstr "Browser, OS, viewport and recent error codes. No note contents, paths or credentials."
 
 #: src/AppSwitcher.tsx
-msgid "Build your own"
-msgstr "Build your own"
+msgctxt "App switcher"
+msgid "Build one with the mdbase SDK"
+msgstr "Build one with the mdbase SDK"
 
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
@@ -444,8 +456,9 @@ msgid "Choose value"
 msgstr "Choose value"
 
 #: src/AppSwitcher.tsx
-msgid "Claude, ChatGPT and Codex"
-msgstr "Claude, ChatGPT and Codex"
+msgctxt "App switcher"
+msgid "Claude, ChatGPT and others"
+msgstr "Claude, ChatGPT and others"
 
 #: src/DatePicker.tsx
 msgctxt "Date picker"
@@ -1349,6 +1362,11 @@ msgctxt "Filter builder"
 msgid "or press Enter"
 msgstr "or press Enter"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Other AI clients"
+msgstr "Other AI clients"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
@@ -1653,6 +1671,11 @@ msgstr "Set up"
 msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
 msgstr "Set up {collection} for {app}"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Set up with MCP"
+msgstr "Set up with MCP"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -2277,6 +2300,11 @@ msgstr "You've signed out of {app} on this device."
 #: src/Feedback.tsx
 msgid "you@example.com"
 msgstr "you@example.com"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Your app here"
+msgstr "Your app here"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
