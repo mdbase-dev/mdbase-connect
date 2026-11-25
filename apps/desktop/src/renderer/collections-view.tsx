@@ -10,7 +10,6 @@ import { groupedApprovalCode, presentCollection } from "./daemon-view.mjs";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { Empty, ListFilter, SectionHeading } from "./ui-components";
 import { message, relativeTime, syncEnableMessage } from "./view-model";
-import type { TakeoverHold } from "./takeover-state.mjs";
 
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 
@@ -62,10 +61,10 @@ export function CollectionsView({ collections, devices, computerName, busy, onAd
             <CollectionCard key={collection.id} collection={collection} deviceNames={deviceNames} computerName={computerName} busy={busy} onAct={onAct} onNotice={onNotice} onRefresh={onRefresh} onTurnOnSync={() => openSync(collection)} />
           ))}</div>}
       </section>
-      {syncCollection && <TurnOnSyncDialog key={syncCollection.id} open={syncTarget !== null} collection={syncCollection} busy={busy} error={syncFailure} onAct={onAct} onClose={() => openSync(null)} onConfirm={(mode, acceptTakeoverHolds) => onAct(async () => {
+      {syncCollection && <TurnOnSyncDialog key={syncCollection.id} open={syncTarget !== null} collection={syncCollection} busy={busy} error={syncFailure} onAct={onAct} onClose={() => openSync(null)} onConfirm={(mode) => onAct(async () => {
         setSyncFailure(null);
         try {
-          await window.mdbaseConnect.enableSync(syncCollection.id, mode, acceptTakeoverHolds);
+          await window.mdbaseConnect.enableSync(syncCollection.id, mode);
         } catch (error) {
           // Shown in the dialog the user is looking at, not behind it.
           setSyncFailure(syncEnableMessage(error));
@@ -310,7 +309,7 @@ function SyncedFiles({ collection, onDone }: { collection: DaemonCollection; onD
       <fieldset disabled={disabled}>
         <legend><Trans>File types</Trans></legend>
         <div>{FILE_CLASSES.map((c) => (
-          <label key={c.id} className="takeover-option">
+          <label key={c.id} className="sync-option">
             <input className="mdbase-checkbox" type="checkbox" checked={include.includes(c.id)} onChange={(event) => setInclude((current) => event.target.checked ? [...current, c.id] : current.filter((id) => id !== c.id))} />
             {c.label()}
           </label>
@@ -321,7 +320,7 @@ function SyncedFiles({ collection, onDone }: { collection: DaemonCollection; onD
         <small><Trans>One folder per line, relative to the collection.</Trans></small>
       </label>
       <div className="sync-files-size">
-        <label className="takeover-option">
+        <label className="sync-option">
           <input className="mdbase-checkbox" type="checkbox" checked={capped} disabled={disabled} onChange={(event) => setCapped(event.target.checked)} />
           <Trans>Leave out files larger than</Trans>
         </label>
@@ -347,18 +346,25 @@ const HOLD_REASONS: Record<string, string> = {
   get unsent_edit() { return t(i18n)({ message: "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder" }); }
 };
 
-function Holds({ collection, busy, onAct, onLoaded }: {
+function Holds({ collection, busy, onAct, onCountChange }: {
   collection: DaemonCollection;
   busy: boolean;
   onAct: Act;
-  onLoaded?(holds: HoldSummary[]): void;
+  onCountChange?(count: number | null): void;
 }) {
   useLocaleRevision();
   const [holds, setHolds] = useState<HoldSummary[] | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const load = () => window.mdbaseConnect.listHolds(collection.id)
-    .then((list) => { setHolds(list); onLoaded?.(list); })
-    .catch((reason) => setFailure(message(reason)));
+    .then((list) => {
+      setHolds(list);
+      setFailure(null);
+      onCountChange?.(list.length);
+    })
+    .catch((reason) => {
+      setFailure(message(reason));
+      onCountChange?.(null);
+    });
   React.useEffect(() => { void load(); }, [collection.id, collection.sync?.holds]);
   const resolve = (hold: HoldSummary, how: "keep_mine" | "take_theirs" | "keep_both") => {
     void onAct(async () => { await window.mdbaseConnect.resolveHold(collection.id, hold.id, how); await load(); });
@@ -406,13 +412,7 @@ function Holds({ collection, busy, onAct, onLoaded }: {
   );
 }
 
-/**
- * Sync starts from the files already in the folder (a taken-over folder included).
- * Files waiting for a decision come first and are resolved one by one, files held at
- * the takeover included. A daemon that does not list those files as holds yet (an
- * older build) still reports them through the takeover status: they are then listed
- * here and must be checked before sync is turned on with them as they are.
- */
+/** Sync starts from the files already in the folder after the current holds are resolved. */
 function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onConfirm }: {
   open: boolean;
   collection: DaemonCollection;
@@ -421,29 +421,12 @@ function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onCon
   error: string | null;
   onAct: Act;
   onClose(): void;
-  onConfirm(mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<void>;
+  onConfirm(mode: "private" | "cloud-copy"): Promise<void>;
 }) {
   useLocaleRevision();
   const [encrypted, setEncrypted] = useState(false);
-  const [takeover, setTakeover] = useState<{ takenOver: boolean; held: TakeoverHold[] } | null>(null);
-  const [holds, setHolds] = useState<HoldSummary[] | null>(null);
-  const [reviewed, setReviewed] = useState(false);
-  const [failure, setFailure] = useState<string | null>(null);
-  useEffect(() => { if (open) { setEncrypted(false); setTakeover(null); setHolds(null); setReviewed(false); setFailure(null); } }, [open]);
-  // Read with each hold list, so a file resolved through the hold path drops out of both.
-  const holdsLoaded = (list: HoldSummary[]) => {
-    window.mdbaseConnect.migrationStatus()
-      .then((status) => {
-        setTakeover({
-          takenOver: Boolean(status.record?.collections[collection.id]),
-          held: status.holds?.[collection.id] ?? []
-        });
-        setHolds(list);
-      })
-      .catch((reason) => setFailure(message(reason)));
-  };
-  const unlisted = takeover && holds ? takeover.held.filter((held) => !holds.some((hold) => hold.path === held.path)) : [];
-  const ready = takeover !== null && holds !== null && holds.length === 0 && (unlisted.length === 0 || reviewed);
+  const [holdCount, setHoldCount] = useState<number | null>(null);
+  useEffect(() => { if (open) { setEncrypted(false); setHoldCount(null); } }, [open]);
   const paused = collection.state === "paused";
   return (
     <Dialog open={open} onClose={() => !busy && onClose()} title={t(i18n)`Turn on sync for ${collection.name}`} className="modal" closeDisabled={busy}>
@@ -452,35 +435,24 @@ function TurnOnSyncDialog({ open, collection, busy, error, onAct, onClose, onCon
         {!error && <p><Trans>Resume this collection to check its files before turning on sync.</Trans></p>}
         <div className="modal-actions"><button className="mdbase-button is-primary" disabled={busy} onClick={onClose}><Trans>Back to collection</Trans></button></div>
       </> : <>
-      <p><Trans>Your other devices get a copy and stay up to date. The folder stays where it is{takeover?.takenOver ? t(i18n)({ message: ", and the files already in it become the first synced version" }) : ""}.</Trans></p>
-      {failure && <p className="mdbase-message is-error" role="alert">{failure}</p>}
-      {holds !== null && holds.length > 0 && <p><Trans>Choose a version for each of these files before turning on sync.</Trans></p>}
-      <div hidden={holds !== null && holds.length === 0}>
-        <Holds collection={collection} busy={busy} onAct={onAct} onLoaded={holdsLoaded} />
+      <p><Trans>Your other devices get a copy and stay up to date. The folder stays where it is.</Trans></p>
+      {holdCount !== null && holdCount > 0 && <p><Trans>Choose a version for each of these files before turning on sync.</Trans></p>}
+      <div hidden={holdCount === 0}>
+        <Holds collection={collection} busy={busy} onAct={onAct} onCountChange={setHoldCount} />
       </div>
-      {unlisted.length > 0 && (
-        <div className="collection-holds">
-          <p>{t(i18n)`When this folder moved to the new sync engine, mdbase kept another version of ${plural(unlisted.length, { one: "# file", other: "# files" })}. The folder has this computer's version; check it before sync starts from it.`}</p>
-          <ul>{unlisted.map((hold) => <li key={hold.path}><code>{hold.path}</code></li>)}</ul>
-          <label className="takeover-option"><Trans>
-            <input className="mdbase-checkbox" type="checkbox" checked={reviewed} disabled={busy} onChange={(event) => setReviewed(event.target.checked)} />
-            I have checked these files
-          </Trans></label>
-        </div>
-      )}
       <p>{encrypted
         ? <Trans>mdbase stores only encrypted changes. Web apps and agents can use this collection only while one of your devices with the desktop app is online.</Trans>
         : <Trans>mdbase keeps a cloud copy, so web apps and agents can use this collection while your devices are off.</Trans>}</p>
       <details className="mdbase-disclosure">
         <summary><Trans>Advanced</Trans></summary>
-        <label className="takeover-option"><Trans>
+        <label className="sync-option"><Trans>
           <input className="mdbase-checkbox" type="checkbox" checked={encrypted} disabled={busy} onChange={(event) => setEncrypted(event.target.checked)} />
           Encrypt end to end so mdbase cannot read it
         </Trans></label>
       </details>
       <div className="modal-actions">
         <button className="mdbase-button" disabled={busy} onClick={onClose}><Trans>Cancel</Trans></button>
-        <button className="mdbase-button is-primary" disabled={busy || !ready} onClick={() => void onConfirm(encrypted ? "private" : "cloud-copy", unlisted.length > 0 && reviewed)}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
+        <button className="mdbase-button is-primary" disabled={busy || holdCount !== 0} onClick={() => void onConfirm(encrypted ? "private" : "cloud-copy")}>{busy ? t(i18n)({ message: "Turning on…", context: "Local collection management" }) : t(i18n)({ message: "Turn on sync", context: "Local collection management" })}</button>
       </div>
       </>}
     </Dialog>

@@ -49,7 +49,6 @@ let runtime: DaemonRuntime | null = null;
 let profile: DaemonProfile | null = null;
 let session: DaemonSession | null = null;
 let cli: DaemonCli | null = null;
-let migrationRun: Promise<unknown> | null = null;
 let quitting = false;
 let updateStore: UpdateStateStore;
 let updater: UpdateCoordinator;
@@ -83,23 +82,6 @@ function daemonCli(): DaemonCli {
   if (!cli) throw new Error("mdbase has not been initialized.");
   return cli;
 }
-
-/**
- * An explicit, user-chosen move from the old Connect engine. It is never called
- * automatically: the daemon moves on its own once the account's rollout allows it.
- * `migrate start` is privileged, so it runs through the CLI (keychain control key).
- */
-function startMigration(stopMirrors: boolean): Promise<unknown> {
-  if (migrationRun) return migrationRun;
-  const run = bootGate.request(() => daemonCli().run(
-    ["migrate", "start", ...(stopMirrors ? ["--stop-mirrors"] : [])],
-    MIGRATION_TIMEOUT_MS
-  ));
-  migrationRun = run.finally(() => { migrationRun = null; });
-  return migrationRun;
-}
-// The daemon's own drain is bounded well below this; the CLI call waits for the run.
-const MIGRATION_TIMEOUT_MS = 650_000;
 
 interface AccountInfo {
   signed_in: boolean;
@@ -261,15 +243,6 @@ function registerIpc(): void {
     trustedIpc(event);
     return requestReadyAgent("status");
   });
-  ipcMain.handle("connect:migration:status", async (event) => {
-    trustedIpc(event);
-    return { ...await requestReadyAgent<object>("migrate.status"), running: migrationRun !== null };
-  });
-  ipcMain.handle("connect:migration:start", async (event, input: unknown) => {
-    trustedIpc(event);
-    const stopMirrors = asObject(input, "Invalid migration input.").stopMirrors === true;
-    return startMigration(stopMirrors);
-  });
   ipcMain.handle("connect:updates:status", (event) => {
     trustedIpc(event);
     return updater.status();
@@ -360,12 +333,8 @@ function registerIpc(): void {
     const value = asObject(input, "Invalid sync input.");
     const mode = value.mode;
     if (mode !== "private" && mode !== "cloud-copy") throw new Error(t(i18n)({ message: "Choose how to sync.", context: "Desktop application" }));
-    if (typeof value.acceptTakeoverHolds !== "boolean") throw new Error("Invalid sync input.");
-    // A folder with files (for example a taken-over one) is adopted as the first
-    // version. Files held at takeover are accepted only after the user has seen them.
     return bootGate.request(() => daemonCli().run([
-      "sync", "enable", collectionIdOf(value.collectionId), "--mode", mode,
-      ...(value.acceptTakeoverHolds ? ["--accept-takeover-holds"] : [])
+      "sync", "enable", collectionIdOf(value.collectionId), "--mode", mode
     ], 600_000));
   });
   ipcMain.handle("connect:collections:mode-status", async (event, collectionId: unknown) => {
@@ -682,10 +651,6 @@ function createWindow(): void {
       sandbox: true
     }
   });
-  // Also refresh when this app attaches to an already-running daemon.
-  mainWindow.on("focus", () => {
-    void requestReadyAgent("migrate.status", { refresh_rollout: true }).catch(() => {});
-  });
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   mainWindow.webContents.on("will-navigate", (event, target) => {
     if (target !== mainWindow?.webContents.getURL()) event.preventDefault();
@@ -819,7 +784,6 @@ app.whenReady().then(async () => {
   }
   try {
     await bootGate.ready();
-    void requestReadyAgent("migrate.status", { refresh_rollout: true }).catch(() => {});
   } catch (error) {
     startupFailed = true;
     refreshTrayMenu();

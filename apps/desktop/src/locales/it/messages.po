@@ -12,19 +12,6 @@ msgctxt "Connect interface"
 msgid " · older app version"
 msgstr " · versione precedente dell'app"
 
-#: src/renderer/takeover-state.mts
-msgid " in {folder}"
-msgstr " nella cartella {folder}"
-
-#. placeholder {0}: imp.mirror_root
-#: src/renderer/takeover-state.mts
-msgid " The old folder {0} is kept as it was."
-msgstr " La vecchia cartella {0} rimane invariata."
-
-#: src/renderer/collections-view.tsx
-msgid ", and the files already in it become the first synced version"
-msgstr ", e i file già presenti diventano la prima versione sincronizzata"
-
 #. placeholder {0}: pendingApps.length
 #: src/renderer/home-view.tsx
 msgid "{0, plural, one {# app is waiting for your approval.} other {# apps are waiting for your approval.}}"
@@ -123,11 +110,6 @@ msgstr "{0} è stata salvata."
 msgid "{0} Your files are untouched."
 msgstr "{0} I file non sono stati modificati."
 
-#. placeholder {0}: names[id] ?? id
-#: src/renderer/takeover-state.mts
-msgid "{0}: the folder's mdbase marker was removed or changed after the move. mdbase stopped serving it so nothing is overwritten."
-msgstr "{0}: il marcatore mdbase della cartella è stato rimosso o modificato dopo lo spostamento. mdbase ha smesso di renderla disponibile per evitare sovrascritture."
-
 #: src/renderer/daemon-view.mts
 msgid "{app} asked to use {collection}"
 msgstr "{app} ha chiesto di usare {collection}"
@@ -173,10 +155,6 @@ msgstr "{collection} è stata rinominata o descritta"
 msgid "{collection} was resumed"
 msgstr "{collection} è stata riattivata"
 
-#: src/renderer/takeover-state.mts
-msgid "{held, plural, one {# unsent edit in “{name}” conflicts with changes made elsewhere. Review it in the collection's held files.} other {# unsent edits in “{name}” conflict with changes made elsewhere. Review them in the collection's held files.}}"
-msgstr "{held, plural, one {# modifica non inviata in «{name}» è in conflitto con modifiche effettuate altrove. Verificala nei file trattenuti della raccolta.} other {# modifiche non inviate in «{name}» sono in conflitto con modifiche effettuate altrove. Verificale nei file trattenuti della raccolta.}}"
-
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file is waiting for you} other {# files are waiting for you}}"
 msgstr "{holds, plural, one {# file richiede attenzione} other {# file richiedono attenzione}}"
@@ -184,34 +162,6 @@ msgstr "{holds, plural, one {# file richiede attenzione} other {# file richiedon
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file waiting for you} other {# files waiting for you}}"
 msgstr "{holds, plural, one {# file in attesa di intervento} other {# file in attesa di intervento}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{interrupted, plural, one {# interrupted write was kept for review; your files were left as they were.} other {# interrupted writes were kept for review; your files were left as they were.}}"
-msgstr "{interrupted, plural, one {# scrittura interrotta è stata conservata per la verifica; i file sono rimasti invariati.} other {# scritture interrotte sono state conservate per la verifica; i file sono rimasti invariati.}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{safe} Sign in on this computer so they can move automatically when your account is upgraded."
-msgstr "{safe} Accedi su questo computer affinché possano essere spostate automaticamente dopo l'aggiornamento dell'account."
-
-#: src/renderer/takeover-state.mts
-msgid "{safe} They will move automatically when mdbase can reach the server and confirm your account upgrade."
-msgstr "{safe} Verranno spostate automaticamente quando mdbase potrà raggiungere il server e confermare l'aggiornamento dell'account."
-
-#: src/renderer/takeover-state.mts
-msgid "{safe} They will move automatically when your account is upgraded, shortly."
-msgstr "{safe} Verranno spostate automaticamente a breve, quando l'account sarà aggiornato."
-
-#: src/renderer/takeover-state.mts
-msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
-msgstr "{waiting, plural, one {«{name}» si sincronizza di nuovo{location}. # modifica effettuata in «{name}» prima dello spostamento verrà aggiunta dopo l'allineamento.{after}{oldFolder}} other {«{name}» si sincronizza di nuovo{location}. # modifiche effettuate in «{name}» prima dello spostamento verranno aggiunte dopo l'allineamento.{after}{oldFolder}}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{waiting, plural, one {# edit made in “{name}” before the move was not uploaded yet and is kept. mdbase is adding “{name}” back to this computer{where}. {reason}.} other {# edits made in “{name}” before the move were not uploaded yet and are kept. mdbase is adding “{name}” back to this computer{where}. {reason}.}}"
-msgstr "{waiting, plural, one {# modifica effettuata in «{name}» prima dello spostamento non è stata ancora caricata ed è stata conservata. mdbase sta aggiungendo di nuovo «{name}» a questo computer{where}. {reason}.} other {# modifiche effettuate in «{name}» prima dello spostamento non sono state ancora caricate e sono state conservate. mdbase sta aggiungendo di nuovo «{name}» a questo computer{where}. {reason}.}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
-msgstr "{waiting, plural, one {«{name}» è stata rimossa da questo computer, quindi # modifica effettuata in «{name}» prima dello spostamento non vi è stata aggiunta. Rimane in {oldPath}.} other {«{name}» è stata rimossa da questo computer, quindi # modifiche effettuate in «{name}» prima dello spostamento non vi sono state aggiunte. Rimangono in {oldPath}.}}"
 
 #: src/renderer/device-requests.tsx
 msgid "{who} can now open {collection}."
@@ -225,17 +175,9 @@ msgstr "{who} vuole aprire {collection}"
 msgid "{who} was not given access to {collection}."
 msgstr "Non è stato concesso a {who} l’accesso a {collection}."
 
-#: src/renderer/takeover-panel.tsx
-msgid "<0/>Allow hosted mirrors to stop until I join them again"
-msgstr "<0/>Consenti l'arresto delle copie speculari ospitate finché non le ricollego"
-
 #: src/renderer/collections-view.tsx
 msgid "<0/>Encrypt end to end so mdbase cannot read it"
 msgstr "<0/>Crittografa end-to-end così mdbase non può leggerla"
-
-#: src/renderer/collections-view.tsx
-msgid "<0/>I have checked these files"
-msgstr "<0/>Ho controllato questi file"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -349,10 +291,6 @@ msgstr "Un'altra app, ad esempio Obsidian, sta usando questa cartella. mdbase la
 #: src/renderer/main.tsx
 msgid "Another device"
 msgstr "Un altro dispositivo"
-
-#: src/renderer/takeover-state.mts
-msgid "another program is writing to the folder"
-msgstr "un altro programma sta scrivendo nella cartella"
 
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
@@ -522,10 +460,6 @@ msgctxt "Confirmation dialog"
 msgid "Check that the app's access request in your browser shows the same key."
 msgstr "Verifica che la richiesta di accesso dell'app nel browser mostri la stessa chiave."
 
-#: src/renderer/takeover-state.mts
-msgid "Check that the disk is not full, then try again. Nothing was changed."
-msgstr "Controlla che il disco non sia pieno, poi riprova. Non è stato modificato nulla."
-
 #: src/main/main.ts
 msgid "Check the verification code before allowing."
 msgstr "Controlla il codice di verifica prima di consentire l’accesso."
@@ -533,10 +467,6 @@ msgstr "Controlla il codice di verifica prima di consentire l’accesso."
 #: src/renderer/collections-view.tsx
 msgid "Check this code matches on your other computer:"
 msgstr "Controlla che questo codice corrisponda a quello sull’altro computer:"
-
-#: src/renderer/takeover-state.mts
-msgid "Check whether this folder was copied from another computer. Nothing was changed."
-msgstr "Controlla se questa cartella è stata copiata da un altro computer. Non è stato modificato nulla."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -585,10 +515,6 @@ msgctxt "Desktop application"
 msgid "Choose how to sync."
 msgstr "Scegli come sincronizzare."
 
-#: src/renderer/takeover-state.mts
-msgid "Choose Move to the new sync engine and allow hosted mirrors to stop. Edits they have not uploaded yet are kept and added when you join those collections on this computer."
-msgstr "Scegli Sposta sul nuovo motore di sincronizzazione e consenti l'arresto delle copie speculari ospitate. Le modifiche non ancora caricate vengono conservate e aggiunte quando colleghi queste raccolte su questo computer."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose where to create the collection folder"
@@ -610,10 +536,6 @@ msgstr "Cancella filtro"
 #: src/renderer/collections-view.tsx
 msgid "Close"
 msgstr "Chiudi"
-
-#: src/renderer/takeover-state.mts
-msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
-msgstr "Chiudi le app che stanno modificando questa cartella, poi scegli Sposta sul nuovo motore di sincronizzazione."
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -830,19 +752,6 @@ msgstr "modificare record e file"
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
 msgstr "Modificata qui prima dello spostamento ma mai caricata, e da allora modificata altrove; la versione attuale si trova nella cartella"
 
-#. placeholder {0}: imp.error
-#: src/renderer/takeover-state.mts
-msgid "Edits made in “{name}” before the move could not be read ({0}). They are kept in the old Connect data."
-msgstr "Impossibile leggere le modifiche effettuate in «{name}» prima dello spostamento ({0}). Sono conservate nei vecchi dati di Connect."
-
-#: src/renderer/takeover-state.mts
-msgid "edits waiting to upload in hosted collections could not be saved for the move"
-msgstr "non è stato possibile conservare per lo spostamento le modifiche in attesa di caricamento nelle raccolte ospitate"
-
-#: src/renderer/takeover-state.mts
-msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
-msgstr "Scrivi a support@mdbase.dev e allega un rapporto diagnostico. Completeremo l'aggiornamento o riporteremo questo computer a mdbase Connect."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -915,10 +824,6 @@ msgctxt "Connect interface"
 msgid "Home"
 msgstr "Inizio"
 
-#: src/renderer/takeover-state.mts
-msgid "hosted collections still have edits waiting to upload"
-msgstr "le raccolte ospitate hanno ancora modifiche in attesa di caricamento"
-
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "Come le nuove app ottengono accesso alle raccolte locali."
@@ -958,19 +863,6 @@ msgstr "Installazione della versione {target}. mdbase continua a sincronizzare d
 msgid "It failed to open."
 msgstr "Impossibile aprirla."
 
-#: src/renderer/takeover-state.mts
-msgctxt "Collection move recovery"
-msgid "it is not a text file"
-msgstr "non è un file di testo"
-
-#: src/renderer/takeover-state.mts
-msgid "It moves when you join that hosted collection on this computer."
-msgstr "Verrà spostata quando questa raccolta ospitata sarà collegata su questo computer."
-
-#: src/renderer/takeover-state.mts
-msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
-msgstr "Riproverà al riavvio di mdbase. Se il problema persiste, ripeti lo spostamento per vedere l'errore."
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
@@ -997,14 +889,6 @@ msgstr "Conserva quella attuale"
 #: src/renderer/main.tsx
 msgid "Keep mdbase connect in the tray without opening a window."
 msgstr "Mantieni mdbase connect nell'area di notifica senza aprire una finestra."
-
-#: src/renderer/takeover-state.mts
-msgid "Keep mdbase open. This can take a few minutes."
-msgstr "Lascia aperto mdbase. Potrebbero volerci alcuni minuti."
-
-#: src/renderer/takeover-state.mts
-msgid "Keep mdbase open. Your files stay where they are."
-msgstr "Lascia aperto mdbase. I file rimangono dove si trovano."
 
 #: src/renderer/collections-view.tsx
 msgid "Keep this computer's"
@@ -1034,10 +918,6 @@ msgstr "L'avvio all'accesso è disattivato."
 #: src/renderer/main.tsx
 msgid "Launch in the tray when you sign in"
 msgstr "Avvia nell'area di notifica quando accedi"
-
-#: src/renderer/takeover-state.mts
-msgid "Leave mdbase Connect's data in place and contact support with a diagnostics report."
-msgstr "Lascia invariati i dati di mdbase Connect e contatta l'assistenza con un rapporto diagnostico."
 
 #: src/renderer/collections-view.tsx
 msgid "Leave out files larger than"
@@ -1254,58 +1134,9 @@ msgctxt "Confirmation dialog"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
 msgstr "mdbase potrà leggere la raccolta, inclusa la cronologia esistente, e renderla disponibile mentre i tuoi dispositivi sono spenti. Le app collegate a questa raccolta dovranno essere ricollegate in seguito."
 
-#. placeholder {0}: reason.replaceAll("_", " ")
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry ({0})"
-msgstr "mdbase riproverà ({0})"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry in a new folder"
-msgstr "mdbase riproverà in una nuova cartella"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry once this collection has finished moving"
-msgstr "mdbase riproverà dopo il completamento dello spostamento di questa raccolta"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry shortly"
-msgstr "mdbase riproverà a breve"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry when it can reach the server"
-msgstr "mdbase riproverà quando potrà raggiungere il server"
-
-#: src/renderer/takeover-state.mts
-msgctxt "Collection move recovery"
-msgid "Migration postponed"
-msgstr "Migrazione rinviata"
-
-#. placeholder {0}: first.reason
-#: src/renderer/takeover-state.mts
-msgid "Migration postponed: {0}"
-msgstr "Migrazione rinviata: {0}"
-
 #: src/renderer/home-view.tsx
 msgid "More apps from mdbase"
 msgstr "Altre app di mdbase"
-
-#: src/renderer/takeover-panel.tsx
-#: src/renderer/takeover-state.mts
-msgid "Move to the new sync engine"
-msgstr "Sposta sul nuovo motore di sincronizzazione"
-
-#: src/renderer/takeover-panel.tsx
-msgctxt "Collection move recovery"
-msgid "Moved"
-msgstr "Spostata"
-
-#: src/renderer/takeover-panel.tsx
-msgid "Moved, files kept for review"
-msgstr "Spostata, file conservati per la verifica"
-
-#: src/renderer/takeover-state.mts
-msgid "Moving your collections to mdbase…"
-msgstr "Spostamento delle raccolte su mdbase…"
 
 #: src/renderer/collections-view.tsx
 msgid "Name"
@@ -1375,10 +1206,6 @@ msgstr "Niente in attesa"
 #: src/renderer/collections-view.tsx
 msgid "Nothing is waiting."
 msgstr "Niente in attesa."
-
-#: src/renderer/takeover-state.mts
-msgid "Nothing was changed. Contact support with a diagnostics report."
-msgstr "Non è stato modificato nulla. Contatta l'assistenza con un rapporto diagnostico."
 
 #: src/renderer/main.tsx
 msgid "Off"
@@ -1488,11 +1315,6 @@ msgctxt "File types that sync"
 msgid "PDFs"
 msgstr "PDF"
 
-#: src/renderer/takeover-panel.tsx
-msgctxt "Collection move recovery"
-msgid "Postponed"
-msgstr "Rinviato"
-
 #: src/renderer/device-requests.tsx
 msgid "Preparing comparison code…"
 msgstr "Preparazione del codice di confronto…"
@@ -1509,10 +1331,6 @@ msgstr "Sincronizzazione privata (crittografia end-to-end)"
 msgctxt "Desktop application"
 msgid "Quit mdbase connect"
 msgstr "Esci da mdbase connect"
-
-#: src/renderer/takeover-state.mts
-msgid "Quit mdbase Connect (including its menu-bar or tray icon), then choose Move to the new sync engine."
-msgstr "Esci da mdbase Connect (inclusa l'icona nella barra dei menu o nell'area di notifica), poi scegli Sposta sul nuovo motore di sincronizzazione."
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1548,10 +1366,6 @@ msgstr "Pronto"
 msgctxt "Connect interface"
 msgid "Recent activity"
 msgstr "Attività recente"
-
-#: src/renderer/takeover-state.mts
-msgid "Reconnect the drive or restore the folder; the old engine's data is kept."
-msgstr "Riconnetti l'unità o ripristina la cartella; i dati del vecchio motore vengono conservati."
 
 #: src/renderer/main.tsx
 msgid "Releases are checked against signed provenance before installation."
@@ -1593,10 +1407,6 @@ msgstr "Riprendi"
 #: src/renderer/daemon-view.mts
 msgid "Resume this collection to check its files before turning on sync."
 msgstr "Riprendi questa raccolta per controllarne i file prima di attivare la sincronizzazione."
-
-#: src/renderer/takeover-panel.tsx
-msgid "Returned to the old engine"
-msgstr "Ritorno al vecchio motore"
 
 #: src/renderer/home-view.tsx
 msgid "Review"
@@ -1701,10 +1511,6 @@ msgstr "Accedi prima di aggiungere raccolte, affinché le app possano raggiunger
 msgid "Sign in first, then add your collection."
 msgstr "Accedi prima, poi aggiungi la raccolta."
 
-#: src/renderer/takeover-state.mts
-msgid "Sign in to finish moving your collections"
-msgstr "Accedi per completare lo spostamento delle raccolte"
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Sign in to mdbase on this computer"
 msgstr "Accedi a mdbase su questo computer"
@@ -1725,10 +1531,6 @@ msgstr "Accedi prima a mdbase su questo computer."
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer, then try again. {unchanged}"
 msgstr "Accedi a mdbase su questo computer, poi riprova. {unchanged}"
-
-#: src/renderer/takeover-state.mts
-msgid "Sign in to mdbase to continue"
-msgstr "Accedi a mdbase per continuare"
 
 #: src/renderer/daemon-view.mts
 msgid "Sign in to serve this collection."
@@ -1781,18 +1583,6 @@ msgstr "La disconnessione non è stata completata. Prova a uscire di nuovo."
 msgid "Size limit in megabytes"
 msgstr "Limite di dimensione in megabyte"
 
-#: src/renderer/takeover-state.mts
-msgid "Some edits from before the move need your attention."
-msgstr "Alcune modifiche precedenti allo spostamento richiedono attenzione."
-
-#: src/renderer/takeover-state.mts
-msgid "Some files were being written during the move. mdbase kept the files in your folder as they are; the unfinished versions are kept in the old Connect data."
-msgstr "Alcuni file erano in fase di scrittura durante lo spostamento. mdbase ha lasciato invariati i file nella cartella; le versioni incompiute sono conservate nei vecchi dati di Connect."
-
-#: src/renderer/takeover-state.mts
-msgid "Some hosted collections have edits from before the move that are not uploaded yet."
-msgstr "Alcune raccolte ospitate contengono modifiche precedenti allo spostamento che non sono ancora state caricate."
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Start again"
 msgstr "Ricomincia"
@@ -1805,10 +1595,6 @@ msgstr "Avvia all'accesso"
 #: src/renderer/home-view.tsx
 msgid "Start with an app"
 msgstr "Inizia con un’app"
-
-#: src/renderer/takeover-state.mts
-msgid "Stay online until uploads finish, then try again."
-msgstr "Rimani in linea fino al completamento dei caricamenti, poi riprova."
 
 #. placeholder {0}: entry.app_name
 #. placeholder {1}: scope(entry, names)
@@ -1884,10 +1670,6 @@ msgctxt "Desktop application"
 msgid "The application update is in progress."
 msgstr "L'aggiornamento dell'applicazione è in corso."
 
-#: src/renderer/takeover-state.mts
-msgid "the collection did not accept it"
-msgstr "la raccolta non l'ha accettato"
-
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The external update is not ready to open."
@@ -1896,19 +1678,6 @@ msgstr "L'aggiornamento esterno non è pronto per l'apertura."
 #: src/renderer/view-model.ts
 msgid "The folder and its files are unchanged."
 msgstr "La cartella e i suoi file sono invariati."
-
-#: src/renderer/takeover-state.mts
-msgid "the folder belongs to a different mdbase install"
-msgstr "la cartella appartiene a un'altra installazione di mdbase"
-
-#: src/renderer/takeover-state.mts
-msgid "the folder is a copy of a hosted collection"
-msgstr "la cartella è una copia di una raccolta ospitata"
-
-#: src/renderer/takeover-state.mts
-msgctxt "Collection move recovery"
-msgid "the folder is missing"
-msgstr "la cartella non è presente"
 
 #: src/renderer/daemon-view.mts
 msgid "The folder is missing. Reconnect the drive or restore the folder."
@@ -1922,10 +1691,6 @@ msgstr "La cartella non viene rinominata. La descrizione rimane su questo comput
 msgid "The folder or file could not be opened. {error}"
 msgstr "Impossibile aprire la cartella o il file. {error}"
 
-#: src/renderer/takeover-state.mts
-msgid "the folder's mdbase marker is unreadable"
-msgstr "il marcatore mdbase della cartella è illeggibile"
-
 #: src/renderer/language-setting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
 msgstr "Impossibile caricare o salvare la lingua. Prova a sceglierla di nuovo."
@@ -1935,58 +1700,17 @@ msgstr "Impossibile caricare o salvare la lingua. Prova a sceglierla di nuovo."
 msgid "The language could not be loaded. Choose it again in Settings."
 msgstr "Impossibile caricare la lingua. Sceglila di nuovo nelle Impostazioni."
 
-#. placeholder {0}: status.error
-#: src/renderer/takeover-state.mts
-msgid "The last move attempt failed: {0}"
-msgstr "L'ultimo tentativo di spostamento non è riuscito: {0}"
-
 #: src/renderer/main.tsx
 msgid "The mdbase account this computer is signed in to."
 msgstr "L'account mdbase a cui è connesso questo computer."
-
-#: src/renderer/takeover-state.mts
-msgid "The move could not finish."
-msgstr "Impossibile completare lo spostamento."
-
-#: src/renderer/takeover-state.mts
-msgid "the move failed and will be retried"
-msgstr "lo spostamento non è riuscito e verrà ripetuto"
-
-#: src/renderer/takeover-state.mts
-msgid "The move finished, but needs your attention."
-msgstr "Lo spostamento è terminato, ma richiede attenzione."
-
-#: src/renderer/takeover-state.mts
-msgid "the old engine's mirror state could not be read"
-msgstr "impossibile leggere lo stato delle copie speculari del vecchio motore"
-
-#: src/renderer/takeover-state.mts
-msgid "the old folder"
-msgstr "la vecchia cartella"
 
 #: src/renderer/daemon-view.mts
 msgid "The old mdbase Connect is running on this computer. Quit it or update it; mdbase resumes on its own."
 msgstr "Il vecchio mdbase Connect è in esecuzione su questo computer. Chiudilo o aggiornalo; mdbase riprenderà automaticamente."
 
-#: src/renderer/takeover-state.mts
-msgid "the old mdbase Connect is still running"
-msgstr "il vecchio mdbase Connect è ancora in esecuzione"
-
 #: src/renderer/view-model.ts
 msgid "The old mdbase Connect is still running on this computer. Quit it, then try again. {unchanged}"
 msgstr "Il vecchio mdbase Connect è ancora in esecuzione su questo computer. Chiudilo e riprova. {unchanged}"
-
-#: src/renderer/takeover-state.mts
-msgid "The old mdbase Connect keeps serving these collections until the move finishes. Nothing was changed."
-msgstr "Il vecchio mdbase Connect continua a rendere disponibili queste raccolte fino al termine dello spostamento. Non è stato modificato nulla."
-
-#: src/renderer/takeover-state.mts
-msgid "The old mdbase Connect started again after the move. Quit it and remove it from your login items; mdbase has taken over its collections."
-msgstr "Il vecchio mdbase Connect si è riavviato dopo lo spostamento. Chiudilo e rimuovilo dagli elementi di avvio; mdbase ha assunto il controllo delle sue raccolte."
-
-#: src/renderer/takeover-state.mts
-msgid "The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev."
-msgstr "Il server non ha confermato il ritiro del vecchio mdbase Connect su questo computer. Continua a usare mdbase normalmente. Se questo messaggio persiste, scrivi a support@mdbase.dev."
 
 #: src/renderer/daemon-view.mts
 msgid "The sign-in request expired. Start again."
@@ -2040,10 +1764,6 @@ msgstr "Questo computer"
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
 msgstr "Questo computer · {0, plural, one {# raccolta} other {# raccolte}}"
 
-#: src/renderer/takeover-state.mts
-msgid "this computer also syncs hosted collections with the old engine"
-msgstr "questo computer sincronizza anche raccolte ospitate con il vecchio motore"
-
 #: src/renderer/daemon-view.mts
 msgid "This computer has not joined this collection yet."
 msgstr "Questo computer non ha ancora collegato questa raccolta."
@@ -2061,10 +1781,6 @@ msgstr "Questo computer ora si chiama {0}"
 #: src/renderer/main.tsx
 msgid "This computer is now called {0}."
 msgstr "Questo computer ora si chiama {0}."
-
-#: src/renderer/takeover-state.mts
-msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
-msgstr "Questo computer ha spostato le raccolte sul nuovo motore di sincronizzazione, ma l'account mdbase non è ancora stato aggiornato oppure l'aggiornamento è stato sospeso. I file sono al sicuro nelle loro cartelle, ma le modifiche effettuate su questo computer potrebbero non raggiungere le altre app mdbase finché l'account non sarà aggiornato."
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -2284,11 +2000,6 @@ msgctxt "Local collection management"
 msgid "View progress"
 msgstr "Visualizza avanzamento"
 
-#: src/renderer/takeover-panel.tsx
-msgctxt "Collection move recovery"
-msgid "Waiting"
-msgstr "In attesa"
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Waiting for browser approval"
 msgstr "In attesa dell'approvazione nel browser"
@@ -2319,18 +2030,9 @@ msgstr "In attesa di apertura."
 msgid "What this collection is for"
 msgstr "A cosa serve questa raccolta"
 
-#: src/renderer/takeover-panel.tsx
-msgid "What to do: "
-msgstr "Cosa fare: "
-
 #: src/renderer/main.tsx
 msgid "When on, an app you approve in mdbase also waits for your approval on this computer"
 msgstr "Quando è attiva, un'app approvata in mdbase attende anche l'approvazione su questo computer"
-
-#. placeholder {0}: unlisted.length
-#: src/renderer/collections-view.tsx
-msgid "When this folder moved to the new sync engine, mdbase kept another version of {0, plural, one {# file} other {# files}}. The folder has this computer's version; check it before sync starts from it."
-msgstr "Quando questa cartella è passata al nuovo motore di sincronizzazione, mdbase ha conservato un'altra versione di {0, plural, one {# file} other {# file}}. La cartella contiene la versione di questo computer; controllala prima che inizi la sincronizzazione da essa."
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
@@ -2358,10 +2060,6 @@ msgctxt "Confirmation dialog"
 msgid "You will still be notified."
 msgstr "Riceverai comunque una notifica."
 
-#: src/renderer/takeover-state.mts
-msgid "Your account still uses mdbase Connect"
-msgstr "L'account usa ancora mdbase Connect"
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
 msgstr "La richiesta dell'applicazione rimarrà in attesa. Accedi per scegliere una cartella su questo computer, poi continua la stessa richiesta."
@@ -2379,29 +2077,10 @@ msgctxt "Connect interface"
 msgid "Your apps reconnect soon"
 msgstr "Le app si riconnetteranno a breve"
 
-#: src/renderer/takeover-state.mts
-msgid "Your collections are waiting to move"
-msgstr "Le raccolte attendono lo spostamento"
-
-#: src/renderer/takeover-state.mts
-msgid "Your collections moved to mdbase"
-msgstr "Le raccolte sono state spostate su mdbase"
-
-#: src/renderer/takeover-state.mts
-msgid "Your local collections are safe on disk."
-msgstr "Le raccolte locali sono al sicuro sul disco."
-
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."
 msgstr "L'account mdbase non può sincronizzare questa raccolta. Controlla il piano o contatta il proprietario della raccolta."
 
-#. placeholder {0}: takeover?.takenOver ? t(i18n)({ message: ", and the files already in it become the first synced version" }) : ""
 #: src/renderer/collections-view.tsx
-msgid "Your other devices get a copy and stay up to date. The folder stays where it is{0}."
-msgstr "Gli altri dispositivi ricevono una copia e rimangono aggiornati. La cartella rimane dove si trova{0}."
-
-#. placeholder {0}: r.path
-#. placeholder {1}: r.file
-#: src/renderer/takeover-state.mts
-msgid "Your unsent edit to {0} in “{name}” could not be added because {why}. A copy is at {1}."
-msgstr "Impossibile aggiungere la modifica non inviata a {0} in «{name}» perché {why}. Una copia è disponibile in {1}."
+msgid "Your other devices get a copy and stay up to date. The folder stays where it is."
+msgstr "Gli altri dispositivi ricevono una copia e rimangono aggiornati. La cartella rimane dove si trova."
