@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { useLocaleRevision } from "./i18n.js";
-import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type JSX, type KeyboardEvent, type ReactNode, type RefObject } from "react";
 
 import {
   aiAssistants,
@@ -24,12 +24,61 @@ function isMdbaseAppId(id: OfficialAppId): id is MdbaseAppId {
   return id === "editor" || id === "reader" || id === "writer";
 }
 
+export type AppSwitcherProps = {
+  readonly current: OfficialAppId;
+  /** Lab and local builds, for example `{ writer: import.meta.env.VITE_MDBASE_WRITER_URL }`. */
+  readonly urls?: Partial<Record<OfficialApp["id"], string | undefined>>;
+  /**
+   * Setup guide for other AI clients using MCP, the last row of the AI assistants submenu.
+   * Pass `null` on custom servers to omit the submenu: the assistants' listings use mdbase's own.
+   */
+  readonly mcpUrl?: string | null | undefined;
+  /** Current collection ID for apps that do not carry `?collection=` in `location.href`. */
+  readonly collectionId?: string | null | undefined;
+  /** Which edge of the trigger (or anchor) the menu aligns to. Defaults to `"start"`. */
+  readonly align?: "start" | "end" | undefined;
+  /**
+   * Whether the menu is open. Leave it out and the switcher keeps its own
+   * state; pass it and the switcher only asks through `onOpenChange`.
+   */
+  readonly open?: boolean | undefined;
+  /** Called whenever the switcher opens or closes itself, controlled or not. */
+  readonly onOpenChange?: ((open: boolean) => void) | undefined;
+} & ({
+  /** "wordmark": the product wordmark opens the menu; "none": no trigger. */
+  readonly variant?: "wordmark" | undefined;
+  readonly motion?: MdbaseMarkMotion | undefined;
+  readonly className?: string | undefined;
+  /** Custom trigger content (mark and name) for apps with their own identity, such as TaskNotes. */
+  readonly children?: ReactNode;
+  readonly anchorRef?: never;
+} | {
+  /**
+   * No trigger of its own: the app opens the menu with `open` and `onOpenChange`,
+   * for instance from an item in its own overflow menu while its wordmark is hidden.
+   */
+  readonly variant: "none";
+  /**
+   * The app's element the menu belongs to, such as the button of the menu that
+   * offered it. The menu is placed against it and focus returns to it on Escape.
+   * It must stay mounted while the menu is open.
+   */
+  readonly anchorRef: RefObject<HTMLElement | null>;
+  readonly motion?: never;
+  readonly className?: never;
+  readonly children?: never;
+});
+
 /**
  * The product wordmark as a menu for opening the current collection in the other mdbase apps.
  * Each opens in a new tab so the current app stays where it is.
  *
  * Its mark shows the page's activity (see `mark-activity`): progress, then a held loop,
  * then `motion`. Without a `motion` it plays `keys-first` the first time it appears.
+ *
+ * Pass `open` and `onOpenChange` to control it. With `variant="none"` it has no
+ * trigger, so an app can open it from its own control and pass that control's
+ * element (or the menu button that held it) as `anchorRef`.
  */
 export function AppSwitcher({
   current,
@@ -39,33 +88,27 @@ export function AppSwitcher({
   collectionId,
   className,
   align = "start",
+  open: openProp,
+  onOpenChange,
+  variant = "wordmark",
+  anchorRef,
   children
-}: {
-  readonly current: OfficialAppId;
-  /** Lab and local builds, for example `{ writer: import.meta.env.VITE_MDBASE_WRITER_URL }`. */
-  readonly urls?: Partial<Record<OfficialApp["id"], string | undefined>>;
-  /**
-   * Setup guide for other AI clients using MCP, the last row of the AI assistants submenu.
-   * Pass `null` on custom servers to omit the submenu: the assistants' listings use mdbase's own.
-   */
-  readonly mcpUrl?: string | null | undefined;
-  readonly motion?: MdbaseMarkMotion | undefined;
-  /** Current collection ID for apps that do not carry `?collection=` in `location.href`. */
-  readonly collectionId?: string | null | undefined;
-  readonly className?: string | undefined;
-  /** Which edge of the trigger the menu aligns to. Defaults to `"start"`. */
-  readonly align?: "start" | "end" | undefined;
-  /** Custom trigger content (mark and name) for apps with their own identity, such as TaskNotes. */
-  readonly children?: ReactNode;
-}): JSX.Element {
+}: AppSwitcherProps): JSX.Element {
   useLocaleRevision();
   const menuId = useId();
   const triggerRef = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
+  const anchor = anchorRef ?? triggerRef;
+  const [ownOpen, setOwnOpen] = useState(false);
+  const open = openProp ?? ownOpen;
+  const setOpen = (next: boolean): void => {
+    if (next === open) return;
+    if (openProp === undefined) setOwnOpen(next);
+    onOpenChange?.(next);
+  };
   const activity = useMdbaseMarkActivity();
   const close = (refocus: boolean): void => {
     setOpen(false);
-    if (refocus) triggerRef.current?.focus();
+    if (refocus) anchor.current?.focus();
   };
   const triggerContent = children ?? (isMdbaseAppId(current)
     ? <Wordmark app={current} motion={activity.busy ?? motion ?? "keys-first"} signal={activity.signal} progress={activity.progress} />
@@ -74,7 +117,7 @@ export function AppSwitcher({
       <span className="wordmark-label"><span>{officialApps.find((app) => app.id === current)?.name ?? current}</span></span>
     </span>);
   return <>
-    <button
+    {variant !== "none" && <button
       ref={triggerRef}
       type="button"
       className={className ? `mdbase-app-switcher ${className}` : "mdbase-app-switcher"}
@@ -94,8 +137,8 @@ export function AppSwitcher({
       <svg className="mdbase-app-switcher-chevron" viewBox="0 0 24 24" aria-hidden="true">
         <path d="m7 10 5 5 5-5" />
       </svg>
-    </button>
-    <Menu open={open} id={menuId} triggerRef={triggerRef} onClose={close} label={t({ message: "mdbase apps" })} align={align}>
+    </button>}
+    <Menu open={open} id={menuId} triggerRef={anchor} onClose={close} label={t({ message: "mdbase apps" })} align={align}>
       <AppMenu apps={withAppUrls(urls, officialApps)} current={current} collectionId={collectionId} mcpUrl={mcpUrl} onClose={close} />
     </Menu>
   </>;
