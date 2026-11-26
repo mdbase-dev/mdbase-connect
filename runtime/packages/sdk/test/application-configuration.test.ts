@@ -237,10 +237,19 @@ describe("scoped application configuration phase", () => {
     // A seed whose upgrade conflicts with the person's changes is offered the same way.
     const conflicting = { ...kept, action: "conflict" as const, reason: undefined };
     expect(setupPlan(pack("upgrade", [conflicting]), input)).toMatchObject({ adoptable: { "_types/task.md": digest }, refusal: { code: "setup_conflict" } });
-    // Alongside a conflict only the collection's owner can resolve, setup says so.
+    // Alongside a non-replaceable conflict (Core omits currentDigest, e.g. a retired managed resource), setup says so.
     const edited = { target: "_contracts/tasks.md", kind: "contract", mode: "managed" as const, action: "conflict" as const, installed: true };
     expect(setupPlan(pack("upgrade", [edited, kept]), input)).toMatchObject({ canApply: false, adoptable: { "_types/task.md": digest },
       refusal: { code: "setup_conflict", message: expect.stringContaining("can't be set up automatically") } });
+    // An installed managed contract modified after setup is offered for replacement when Core provides currentDigest.
+    const modifiedContract = { target: "_contracts/example.base/1.0.0.md", kind: "contract", mode: "managed" as const, action: "conflict" as const, installed: true, currentDigest: digest };
+    expect(setupPlan({ status: "conflict", assessmentDigest: digest, review: { configuration: [], staged: [],
+      packs: [{ id: "example.base", version: "1.0.0", status: "conflict", installedVersion: "1.0.0", resources: [modifiedContract] }] } }, input)).toMatchObject({
+      status: "conflict", canApply: false, adoptable: { "_contracts/example.base/1.0.0.md": digest },
+      refusal: { code: "setup_conflict", message: "One item differs from what this app needs. Choose whether to use this app's version to continue." },
+      conflicts: [{ target: "_contracts/example.base/1.0.0.md", adoptable: { digest },
+        message: "The shared format for this app's notes was changed after this app set it up. You can replace it with this app's version." }],
+    });
     // Core withholds the digest of a type records use: it is never offered.
     const { currentDigest: _digest, ...inUse } = kept;
     expect(setupPlan(pack("upgrade", [inUse]), input)).toMatchObject({ canApply: false, adoptable: {}, refusal: { code: "setup_conflict",

@@ -321,7 +321,7 @@ fn overwrites(ops: &[Op], path: &str) -> bool {
         .any(|op| matches!(op, Op::ResourcePut(r) if r.path == path && !r.must_not_exist))
 }
 #[test]
-fn adoption_is_limited_to_the_advertised_unmanaged_managed_conflicts() {
+fn adoption_allows_modified_installed_managed_and_excludes_preserved_seeds() {
     // A seed target the user already has is preserved, never adoptable.
     let seed = pack_declaration_mode(TASK, "seed");
     let mut inventory = Vec::new();
@@ -330,7 +330,8 @@ fn adoption_is_limited_to_the_advertised_unmanaged_managed_conflicts() {
     assert!(kept.applicable && !overwrites(&ops, "_types/task.md"));
     assert!(assess(&inventory, &seed, &adopting("_types/task.md", &rev(THEIRS))).is_err());
 
-    // An installed managed definition edited afterwards stays a conflict.
+    // An installed managed definition edited afterwards conflicts unreviewed,
+    // advertises its digest, and is replaceable only at that exact digest.
     let managed = pack_declaration(TASK);
     let mut inventory = Vec::new();
     let (_, ops, _) = assess(&inventory, &managed, &Decisions::default()).unwrap();
@@ -340,16 +341,62 @@ fn adoption_is_limited_to_the_advertised_unmanaged_managed_conflicts() {
         }
     }
     put(&mut inventory, "_types/task.md", THEIRS);
-    let (edited, _, _) = assess(&inventory, &managed, &Decisions::default()).unwrap();
-    assert!(!edited.applicable);
+    let (edited, ops, adopted) = assess(&inventory, &managed, &Decisions::default()).unwrap();
+    assert!(!edited.applicable && ops.is_empty());
+    let review = envelope::collection_setup_review(
+        &edited.configuration,
+        &edited.type_packs,
+        &ops,
+        &adopted,
+    );
+    let row = &review.get("packs").unwrap().as_list().unwrap()[0]
+        .get("resources")
+        .unwrap()
+        .as_list()
+        .unwrap()[0];
+    assert_eq!(row.get("installed"), Some(&Value::Bool(true)));
+    assert_eq!(
+        row.get("currentDigest").and_then(Value::as_str),
+        Some(rev(THEIRS).as_str())
+    );
     assert!(
         assess(
             &inventory,
             &managed,
-            &adopting("_types/task.md", &rev(THEIRS))
+            &adopting("_types/task.md", &rev(TASK))
         )
-        .is_err()
+        .is_err(),
+        "a stale digest must refuse"
     );
+    let (repaired, ops, _) = assess(
+        &inventory,
+        &managed,
+        &adopting("_types/task.md", &rev(THEIRS)),
+    )
+    .unwrap();
+    assert!(repaired.applicable);
+    let write = ops
+        .iter()
+        .find_map(|op| match op {
+            Op::ResourcePut(r) if r.path == "_types/task.md" => Some(r),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        (
+            write.doc.as_str(),
+            write.must_not_exist,
+            write.base_revision.map(|h| h.to_string())
+        ),
+        (TASK, false, Some(rev(THEIRS)))
+    );
+    for op in ops {
+        if let Op::ResourcePut(r) = op {
+            put(&mut inventory, &r.path, &r.doc);
+        }
+    }
+    let (current, ops, _) = assess(&inventory, &managed, &Decisions::default()).unwrap();
+    assert!(current.applicable && ops.is_empty());
 }
 #[test]
 fn reviewed_adoption_binds_target_existence_revision_and_guard() {

@@ -196,3 +196,88 @@ fn a_seed_no_baseline_upgrades_is_replaced_only_by_its_reviewed_choice() {
     );
     assert_eq!(setup, original);
 }
+#[test]
+fn modified_installed_managed_resource_is_replaced_only_by_reviewed_choice() {
+    let (mut view, setup, clock, _) = fixture();
+    // Install the managed resource cleanly first.
+    view.0.insert_resource(PATH, DOC);
+    let initial = assess_collection_setup(&view, &setup, &clock).unwrap();
+    assert!(initial.applicable);
+    let (_, ops) = apply_reviewed_collection_setup(
+        &view,
+        &setup,
+        &clock,
+        &BTreeMap::new(),
+        &[],
+        initial.collection_revision,
+        initial.assessment_digest,
+    )
+    .unwrap();
+    for op in ops {
+        if let Op::ResourcePut(r) = op {
+            view.0.insert_resource(&r.path, &r.doc);
+        }
+    }
+    assert!(
+        !assess_collection_setup(&view, &setup, &clock)
+            .unwrap()
+            .has_changes()
+    );
+
+    // Modifying the installed managed resource produces a replaceable conflict.
+    let modified = format!("{DOC}# local edit\n");
+    view.0.insert_resource(PATH, &modified);
+    let conflict = assess_collection_setup(&view, &setup, &clock).unwrap();
+    assert!(!conflict.applicable);
+    let row = &conflict.type_packs[0].resources[0];
+    assert!(row.replaceable());
+
+    let stale = BTreeMap::from([(PATH.into(), revision(DOC))]);
+    assert!(assess_reviewed_collection_setup(&view, &setup, &clock, &stale, &[]).is_err());
+
+    let chosen = BTreeMap::from([(PATH.into(), revision(&modified))]);
+    let review = assess_reviewed_collection_setup(&view, &setup, &clock, &chosen, &[]).unwrap();
+    assert!(review.applicable);
+    assert_eq!(review.provision_digest, conflict.provision_digest);
+    let (_, ops) = apply_reviewed_collection_setup(
+        &view,
+        &setup,
+        &clock,
+        &chosen,
+        &[],
+        review.collection_revision,
+        review.assessment_digest,
+    )
+    .unwrap();
+    let put = ops
+        .iter()
+        .find_map(|op| match op {
+            Op::ResourcePut(p) if p.path == PATH => Some(p),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(
+        (put.doc.as_str(), put.base_revision, put.must_not_exist),
+        (DOC, Some(revision(&modified)), false)
+    );
+
+    // A retired managed resource modified after install has no pack version to replace it with.
+    let other_path = "_types/other.md";
+    let other_doc = "---\nkind: mdbase.type\nname: other\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+    let retired_manifest = format!(
+        "kind: mdbase.type-pack\nid: example.notes\nversion: 2.0.0\nresources:\n  - kind: type\n    mode: managed\n    source: other.md\n    target: {other_path}\n    digest: {}\n",
+        revision(other_doc)
+    );
+    let mut retired_setup = setup.clone();
+    retired_setup.type_packs[0].pack =
+        load_pack(&retired_manifest, &|_| Some(other_doc.into())).unwrap();
+    let retired_conflict = assess_collection_setup(&view, &retired_setup, &clock).unwrap();
+    assert!(!retired_conflict.applicable);
+    let retired_row = retired_conflict.type_packs[0]
+        .resources
+        .iter()
+        .find(|r| r.target == PATH)
+        .unwrap();
+    assert!(!retired_row.replaceable());
+    assert!(assess_reviewed_collection_setup(&view, &retired_setup, &clock, &chosen, &[]).is_err());
+}

@@ -22,8 +22,9 @@ fn row(r: &crate::packs::PlannedResource, installed: bool, adopted: Option<&Hash
         ("action", Value::string(action)),
         ("installed", Value::Bool(installed)),
     ];
-    // Without its digest, a type records use cannot be offered for replacement.
-    if let Some(live) = adopted.or(r.live.as_ref().filter(|_| !r.in_use)) {
+    // Without its digest, a target that cannot be replaced (a type records use
+    // or a retired managed resource) is never offered for replacement.
+    if let Some(live) = adopted.or(r.live.as_ref().filter(|_| r.replaceable())) {
         fields.push(("currentDigest", Value::string(live.to_string())));
     }
     if let Some(reason) = &r.reason {
@@ -145,5 +146,29 @@ mod tests {
         };
         assert!(row(&kept(false), true, None).get("currentDigest").is_some());
         assert!(row(&kept(true), true, None).get("currentDigest").is_none());
+    }
+
+    #[test]
+    fn active_managed_conflict_exposes_digest_while_retired_managed_conflict_omits_it() {
+        let managed = |source: &str| crate::packs::PlannedResource {
+            kind: "contract".to_owned(),
+            mode: crate::packs::Mode::Managed,
+            source: source.to_owned(),
+            target: "_contracts/example.base/1.0.0.md".to_owned(),
+            action: Action::Conflict,
+            live: Some(crate::ids::revision("modified")),
+            document: None,
+            result: None,
+            origin: None,
+            reason: Some("modified".to_owned()),
+            upgrade_baseline: None,
+            in_use: false,
+        };
+        assert!(
+            row(&managed("contracts/example.base/1.0.0.md"), true, None)
+                .get("currentDigest")
+                .is_some()
+        );
+        assert!(row(&managed(""), true, None).get("currentDigest").is_none());
     }
 }

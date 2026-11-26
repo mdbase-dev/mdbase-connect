@@ -161,7 +161,9 @@ function resource(v: JsonValue): TypePackResource {
 }
 
 function conflictMessage(r: TypePackResource, adoptable: boolean): string {
-  if (adoptable) return `${r.target} already exists with different content. Review it, then adopt it to let this pack manage it.`;
+  if (adoptable) return r.installedDigest !== undefined
+    ? `${r.target} was changed after this pack installed it. Review it, then adopt it to replace it with this pack's version.`
+    : `${r.target} already exists with different content. Review it, then adopt it to let this pack manage it.`;
   return r.reason ? `${r.target} can't be changed: ${r.reason}.` : `${r.target} can't be changed by this pack.`;
 }
 
@@ -172,8 +174,8 @@ function toPlan(assessment: JsonValue, pack: TypePackProvision, options: TypePac
   const summary = Object.fromEntries(ACTIONS.map((k) => [k, resources.filter((r) => r.action === k).map((r) => r.target)])) as Record<TypePackAction, string[]>;
   const adoptable: Record<string, string> = {};
   const conflicts = resources.filter((r) => r.action === "conflict").map((r): TypePackConflict => {
-    // An unmanaged live target the pack would own: adoption resolves it.
-    const canAdopt = r.mode === "managed" && r.currentDigest !== undefined && r.installedDigest === undefined;
+    // A conflicting managed target the pack still declares: adoption replaces it.
+    const canAdopt = r.mode === "managed" && r.currentDigest !== undefined && r.source !== "";
     if (canAdopt) adoptable[r.target] = r.currentDigest!;
     return {
       target: r.target, kind: r.kind, ...opt("reason", r.reason), message: conflictMessage(r, canAdopt),
