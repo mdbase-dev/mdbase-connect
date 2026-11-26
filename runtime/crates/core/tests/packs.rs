@@ -613,7 +613,7 @@ fn a_seed_that_cannot_merge_but_implements_the_pack_is_kept_as_it_is() {
     let p = seed_plan(&legacy_seed(1, &competing));
     assert_eq!((p.action, p.reason.as_deref()), (Action::Preserve, None));
     assert_eq!(p.origin, None);
-    assert!(!p.replaceable(true));
+    assert!(!p.replaceable());
 }
 
 #[test]
@@ -642,7 +642,7 @@ fn a_kept_seed_with_records_cannot_be_replaced() {
         &SEED_V1_REWRITTEN[end..]
     );
     let mut state = legacy_seed(1, &unimplemented);
-    assert!(seed_plan(&state).replaceable(true));
+    assert!(seed_plan(&state).replaceable());
     state.insert_record(
         mdbn_core::ids::Uuid([1; 16]),
         "notes/a.md",
@@ -650,7 +650,7 @@ fn a_kept_seed_with_records_cannot_be_replaced() {
     );
     let p = seed_plan(&state);
     assert!(p.reason.is_some() && p.in_use);
-    assert!(!p.replaceable(true));
+    assert!(!p.replaceable());
 }
 
 #[test]

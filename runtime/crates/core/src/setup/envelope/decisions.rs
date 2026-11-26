@@ -3,8 +3,8 @@ use super::*;
 use std::collections::BTreeMap;
 
 /// Validate only advertised replacements at exact live bytes (see
-/// [`packs::PlannedResource::replaceable`]). Installed managed, missing,
-/// changed and undeclared targets always refuse.
+/// [`packs::PlannedResource::replaceable`]). Retired managed, in-use seed,
+/// missing, changed and undeclared targets always refuse.
 pub fn reviewed_resource_adoptions(
     state: &dyn StateView,
     setup: &CollectionSetup,
@@ -21,12 +21,8 @@ pub fn reviewed_resource_adoptions(
         .type_packs
         .iter()
         .flat_map(|a| {
-            a.resources.iter().filter_map(move |r| {
-                let installed = a
-                    .current
-                    .as_ref()
-                    .is_some_and(|c| c.resources.iter().any(|e| e.target == r.target));
-                r.replaceable(installed)
+            a.resources.iter().filter_map(|r| {
+                r.replaceable()
                     .then_some(r.live.map(|live| (r.target.clone(), live)))
                     .flatten()
             })

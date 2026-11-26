@@ -23,11 +23,12 @@ if (plan.canApply) await app.setup.apply(plan);
 ```
 
 `status` is `current` (nothing to do), `setup` or `conflict`. A conflict that
-`adoptable` lists is an existing definition with different content, or a type
-the app seeded that was edited in a way no published version can be combined
-with: if the user chooses the app's version, plan again with `adopt` and that
-definition is replaced over exactly the reviewed revision. `staged` holds the definition
-documents setup would write, for a details view.
+`adoptable` lists is an existing definition with different content, a managed
+definition that changed after setup, or a type the app seeded that was edited
+in a way no published version can be combined with: if the user chooses the
+app's version, plan again with `adopt` and that definition is replaced over
+exactly the reviewed revision. `staged` holds the definition documents setup
+would write, for a details view.
 
 Starter `records` (at most 32, 256 KiB in total) are created once, in the
 same mutation as the setup, and only if setup has something to do. A path

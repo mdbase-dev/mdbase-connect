@@ -549,12 +549,14 @@ pub struct PlannedResource {
 }
 
 impl PlannedResource {
-    /// Whether a person may replace this target with the pack's version: an
-    /// unmanaged target's conflict, or a seed setup cannot upgrade (a
-    /// conflict, or kept with a reason) that no record relies on.
-    pub fn replaceable(&self, installed: bool) -> bool {
+    /// Whether a person may replace this target with the pack's version: a
+    /// conflicting managed target the pack still declares (whether or not
+    /// already installed), or a seed setup cannot upgrade (a conflict, or kept
+    /// with a reason) that no record relies on. Retired managed targets have no
+    /// pack version to replace them with.
+    pub fn replaceable(&self) -> bool {
         match self.mode {
-            Mode::Managed => self.action == Action::Conflict && !installed,
+            Mode::Managed => self.action == Action::Conflict && !self.source.is_empty(),
             Mode::Seed => self.unresolved_seed() && !self.in_use,
         }
     }
@@ -572,8 +574,9 @@ pub struct AssessOptions {
     pub installed_by: String,
     /// Canonical target → collection target.
     pub target_overrides: BTreeMap<String, String>,
-    /// Explicit adoptions: target → its exact current digest. An unmanaged
-    /// managed target, or a seed the person chose to replace with the pack's.
+    /// Explicit adoptions: target → its exact current digest. A conflicting
+    /// managed target the pack declares, or a seed the person chose to replace
+    /// with the pack's.
     pub adopt: BTreeMap<String, Hash>,
     /// Seed targets intentionally omitted.
     pub preserve_seed_targets: BTreeSet<String>,

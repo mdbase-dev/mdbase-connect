@@ -154,13 +154,14 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
       case "conflict": {
         if (r.action === "preserve" && r.reason === undefined) break;
         const seed = r.mode === "seed";
-        const canAdopt = r.currentDigest !== undefined && (seed || !r.installed);
+        const canAdopt = r.currentDigest !== undefined;
         if (canAdopt) adoptable[r.target] = r.currentDigest!;
         conflicts.push({ target: r.target, ...(canAdopt ? { adoptable: { digest: r.currentDigest! } } : {}),
           message: canAdopt && seed ? `Your ${thing.bare} has changes that can't be combined with the version this app needs. You can replace it with this app's version.`
-            : canAdopt ? `This collection already has a ${thing.bare} that differs from the one this app needs. You can replace it with this app's version.`
-              : r.installed ? `${The} was changed after this app set it up, so it can't be updated automatically.`
-                : `${The} can't be set up automatically.` });
+            : canAdopt && r.installed ? `${The} was changed after this app set it up. You can replace it with this app's version.`
+              : canAdopt ? `This collection already has a ${thing.bare} that differs from the one this app needs. You can replace it with this app's version.`
+                : r.installed ? `${The} was changed after this app set it up, so it can't be updated automatically.`
+                  : `${The} can't be set up automatically.` });
         break;
       }
       default: break;
