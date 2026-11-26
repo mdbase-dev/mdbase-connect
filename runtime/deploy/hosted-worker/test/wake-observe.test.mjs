@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { encode } from "../../../packages/sdk/src/cbor.ts";
-import { wakeCollectionTag, hasGrantAppend, grantRecipients, wakeLog } from "../src/wake-observe.ts";
+import { wakeCollectionTag, hasGrantAppend, grantRecipients, wakeLog, invocationLog } from "../src/wake-observe.ts";
 test("Worker wake tags match CP domain separation without disclosing identifiers", async () => {
  const collection="0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e";
  const tag=await wakeCollectionTag(collection);
@@ -30,4 +30,20 @@ test("grant recipients: 4-byte device prefix per Item4 payload, nothing from oth
  const prior=console.info;const logs=[];console.info=(line)=>logs.push(line);
  try {wakeLog("a".repeat(24),"hosted","grant_emitted",undefined,["abababab"]);} finally {console.info=prior;}
  assert.deepEqual(JSON.parse(logs[0]).recipients,["abababab"]);
+});
+test("LAB invocation lines: tagged positions and flags only, nothing outside LAB", () => {
+ const tag="b".repeat(24);
+ const sample={kind:"alarm",role:"hosted",cold:false,startApplied:4,facts:{applied:20,headKnown:23,caughtUp:false,grantWaiting:false,grantDue:false},serving:false,installing:false,nextWakeup:2_000,alarm:2_100,started:900,now:1_000};
+ const prior=console.info;const logs=[];console.info=(line)=>logs.push(line);
+ try {
+  invocationLog(false,tag,sample);
+  invocationLog(true,null,sample);
+  invocationLog(true,"0e0e0e0e-0e0e-4e0e-8e0e-0e0e0e0e0e0e",sample);
+  assert.equal(logs.length,0,"no line outside LAB or without a valid tag");
+  invocationLog(true,tag,sample);
+  invocationLog(true,tag,{...sample,kind:"activate",cold:true,startApplied:null,facts:null,serving:null,installing:null,nextWakeup:null,alarm:null});
+ } finally {console.info=prior;}
+ assert.deepEqual(JSON.parse(logs[0]),{event:"hosted_invocation",collection_tag:tag,role:"hosted",kind:"alarm",cold:false,engine:true,applied:20,log_head:23,behind:3,applied_this_invocation:16,serving:false,caught_up:false,installing:false,grant_waiting:false,grant_due:false,next_wakeup_ms:1_000,alarm_ms:1_100,elapsed_ms:100});
+ const empty=JSON.parse(logs[1]);
+ assert.equal(empty.engine,false);assert.equal(empty.kind,"activate");assert.equal(empty.applied_this_invocation,null);assert.equal(empty.next_wakeup_ms,null);
 });

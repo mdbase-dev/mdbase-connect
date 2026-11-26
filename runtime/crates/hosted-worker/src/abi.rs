@@ -6,7 +6,8 @@
 //!
 //! Exports: `alloc`, `dealloc`, `hd_open(cfg)` (empty out = ok, else UTF-8 error),
 //! `hd_serving()`, `hd_hello(grant48, frame)` → `[session, frame]`, `hd_frame`,
-//! `hd_close`, `hd_tick(now_ms, after_open)`, `hd_next_wakeup(omit_stall_probe)` (−1 = none), `hd_poll()` →
+//! `hd_close`, `hd_tick(now_ms, after_open)`, `hd_next_wakeup(omit_stall_probe)` (−1 = none),
+//! `hd_catchup_facts()` (LAB diagnostics), `hd_poll()` →
 //! `[* [session, bytes / null]]`, `hd_log_calls()` → `[* [call_id, host call]]`
 //! (`mdbn_replica::log_codec::host_call`), `hd_log_reply(call_id, bytes)`,
 //! `hd_log_failed(call_id, offline)`, `hd_log_push(bytes)`, `hd_log_event(kind)`
@@ -342,6 +343,25 @@ pub extern "C" fn hd_applied_head() -> u64 {
             Cbor::Bytes(chain.to_vec()),
         ]))
         .expect("bounded applied head encodes"),
+    )
+}
+
+/// LAB catch-up diagnostics (connect#1850): `[applied, head_known, caught_up,
+/// grant_waiting, grant_due]`, or empty without an engine. Numbers and flags only.
+#[unsafe(no_mangle)]
+pub extern "C" fn hd_catchup_facts() -> u64 {
+    let Some(f) = with(|s| s.engine.catchup_facts()) else {
+        return give(Vec::new());
+    };
+    give(
+        cbor::encode(&Cbor::Array(vec![
+            Cbor::Uint(f.applied),
+            Cbor::Uint(f.head_known),
+            Cbor::Bool(f.caught_up),
+            Cbor::Bool(f.grant_waiting),
+            Cbor::Bool(f.grant_due),
+        ]))
+        .expect("bounded catch-up facts encode"),
     )
 }
 

@@ -386,3 +386,42 @@ test("LAB: an idle replica that is not serving waits for the poll, not its stall
   assert.equal(await syncAt(prod, at, stalled(false)) / S, 1, "outside LAB the stall probe is unchanged");
   mock.restoreAll();
 });
+
+test("LAB invocation lines: one tagged line per alarm and activation; none outside LAB (connect#1850)", async () => {
+  const at = 1_000_000_000_000;
+  const run = async (lab) => {
+    const lines = [];
+    mock.method(console, "info", (line) => lines.push(JSON.parse(line)));
+    mock.method(Date, "now", () => at);
+    const t = lab ? labObject() : object();
+    if (!lab) t.o.log = logReplying();
+    t.o.pitrClosed = false;
+    let applied = 4;
+    const e = Object.assign(servingEngine(["subscribe", "read"]), {
+      tick() {}, catchupFacts: () => ({ applied, headKnown: 40, caughtUp: false, grantWaiting: false, grantDue: false }),
+      nextWakeup: () => at + S,
+    });
+    e.refresh = () => { e.arm(); applied += 16; };
+    t.o.engine = e;
+    t.o.ready = async () => e;
+    t.o.lastRefresh = 0;
+    await t.o.alarm();
+    const response = await t.o.fetch(new Request(`https://w.test/v1/hosted/activate?collection=${collection}`, {
+      method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify({ collection }) }));
+    assert.equal(response.status, 200);
+    mock.restoreAll();
+    return lines;
+  };
+  const production = await run(false);
+  assert.deepEqual(production.filter(l => l.event === "hosted_invocation"), [], "no invocation line outside LAB");
+  assert.ok(production.every(l => !("collection_tag" in l)), "no tag on any production line");
+  const lab = (await run(true)).filter(l => l.event === "hosted_invocation");
+  assert.deepEqual(lab.map(l => l.kind), ["alarm", "activate"]);
+  for (const l of lab) {
+    assert.match(l.collection_tag, /^[0-9a-f]{24}$/);
+    assert.ok(!JSON.stringify(l).includes(collection), "no raw collection id");
+    assert.deepEqual([l.engine, l.cold, l.log_head, l.applied_this_invocation, l.serving, l.caught_up, l.installing, l.next_wakeup_ms, l.alarm_ms],
+      [true, false, 40, 16, true, false, false, S, S]);
+  }
+  assert.deepEqual(lab.map(l => [l.applied, l.behind]), [[20, 20], [36, 4]]);
+});

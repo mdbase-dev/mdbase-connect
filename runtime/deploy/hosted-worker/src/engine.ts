@@ -5,6 +5,7 @@
 import { outputFrames } from "./output-frames.ts";
 import { decodePitrAppQuery } from "./pitr-app-query.ts";
 import type { ControlClient, PitrAppGrantIdentity } from "./control.ts";
+import type { CatchupFacts } from "./wake-observe.ts";
 import { decode, encode, type CborValue } from "../../../packages/sdk/src/cbor.js";
 import { sqlHost } from "./sql.js";
 import engineModule from "../hosted.wasm";
@@ -26,6 +27,7 @@ interface Exports extends WebAssembly.Exports {
   hd_tick(now: number, afterOpen: number): void;
   hd_next_wakeup(omitStallProbe: number): number;
   hd_install_status(): bigint;
+  hd_catchup_facts(): bigint;
   hd_applied_head(): bigint;
   hd_poll(): bigint;
   hd_log_calls(): bigint;
@@ -86,6 +88,8 @@ export interface AttachmentReadOut {
 export class Engine {
   private ex!: Exports;
   #opened = false;
+  /** LAB only: the salted collection tag for this engine's repair lines. */
+  labTag: string | null = null;
 
   constructor(storage: DurableObjectStorage) {
     const host = sqlHost(storage, () => this.ex);
@@ -94,7 +98,9 @@ export class Engine {
         host_sql: host,
         host_repair_boundary: (startReason: number, seq: bigint, visited: bigint, written: bigint) => {
           try {
+            // `labTag` is set by the host only in LAB; production lines are unchanged.
             console.info(JSON.stringify({ event: startReason ? "hosted_record_meta_repair_start" : "hosted_record_meta_repair_finish",
+              ...(this.labTag ? { collection_tag: this.labTag } : {}),
               reason: [undefined, "first_open", "catalog_stamp_changed", "cursor_invalid", "derived_version_changed"][startReason],
               applied_seq: seq.toString(), records_visited: Number(visited), record_rows_written: Number(written) }));
           } catch { /* Diagnostics cannot interrupt a committed slice. */ }
@@ -247,6 +253,16 @@ export class Engine {
     const status = this.takeDecoded(this.ex.hd_install_status());
     if (!Array.isArray(status)) return null;
     return { done: Number(status[0]), total: Number(status[1]) };
+  }
+
+  /** LAB diagnostics only (connect#1850): numbers and flags, never an authority. */
+  catchupFacts(): CatchupFacts | null {
+    const facts = this.takeDecoded(this.ex.hd_catchup_facts());
+    if (!Array.isArray(facts) || facts.length !== 5) return null;
+    return {
+      applied: Number(facts[0]), headKnown: Number(facts[1]), caughtUp: facts[2] === true,
+      grantWaiting: facts[3] === true, grantDue: facts[4] === true,
+    };
   }
 
   snapshotDeclined(): boolean {
