@@ -12,19 +12,6 @@ msgctxt "Connect interface"
 msgid " · older app version"
 msgstr " · 旧版应用"
 
-#: src/renderer/takeover-state.mts
-msgid " in {folder}"
-msgstr "，位于 {folder}"
-
-#. placeholder {0}: imp.mirror_root
-#: src/renderer/takeover-state.mts
-msgid " The old folder {0} is kept as it was."
-msgstr " 旧文件夹 {0} 保持原样。"
-
-#: src/renderer/collections-view.tsx
-msgid ", and the files already in it become the first synced version"
-msgstr "，且其中现有文件将成为第一个同步版本"
-
 #. placeholder {0}: pendingApps.length
 #: src/renderer/home-view.tsx
 msgid "{0, plural, one {# app is waiting for your approval.} other {# apps are waiting for your approval.}}"
@@ -123,11 +110,6 @@ msgstr "已保存 {0}。"
 msgid "{0} Your files are untouched."
 msgstr "{0} 你的文件未被改动。"
 
-#. placeholder {0}: names[id] ?? id
-#: src/renderer/takeover-state.mts
-msgid "{0}: the folder's mdbase marker was removed or changed after the move. mdbase stopped serving it so nothing is overwritten."
-msgstr "{0}：迁移后，文件夹的 mdbase 标记被移除或更改。mdbase 已停止提供该文件夹，以免覆盖任何内容。"
-
 #: src/renderer/daemon-view.mts
 msgid "{app} asked to use {collection}"
 msgstr "{app} 请求使用 {collection}"
@@ -173,10 +155,6 @@ msgstr "已重命名 {collection} 或更改其描述"
 msgid "{collection} was resumed"
 msgstr "已恢复 {collection}"
 
-#: src/renderer/takeover-state.mts
-msgid "{held, plural, one {# unsent edit in “{name}” conflicts with changes made elsewhere. Review it in the collection's held files.} other {# unsent edits in “{name}” conflict with changes made elsewhere. Review them in the collection's held files.}}"
-msgstr "{held, plural, other {“{name}”中的 # 项未发送编辑与其他地方的更改冲突。请在集合的待处理文件中检查。}}"
-
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file is waiting for you} other {# files are waiting for you}}"
 msgstr "{holds, plural, other {# 个文件等待你处理}}"
@@ -184,34 +162,6 @@ msgstr "{holds, plural, other {# 个文件等待你处理}}"
 #: src/renderer/daemon-view.mts
 msgid "{holds, plural, one {# file waiting for you} other {# files waiting for you}}"
 msgstr "{holds, plural, other {# 个文件待你处理}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{interrupted, plural, one {# interrupted write was kept for review; your files were left as they were.} other {# interrupted writes were kept for review; your files were left as they were.}}"
-msgstr "{interrupted, plural, other {# 次中断的写入已保留供你检查；你的文件保持原样。}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{safe} Sign in on this computer so they can move automatically when your account is upgraded."
-msgstr "{safe} 请在此电脑上登录，以便在账户升级后自动迁移它们。"
-
-#: src/renderer/takeover-state.mts
-msgid "{safe} They will move automatically when mdbase can reach the server and confirm your account upgrade."
-msgstr "{safe} 当 mdbase 能够连接服务器并确认你的账户已升级时，它们将自动迁移。"
-
-#: src/renderer/takeover-state.mts
-msgid "{safe} They will move automatically when your account is upgraded, shortly."
-msgstr "{safe} 账户即将升级，届时它们会自动迁移。"
-
-#: src/renderer/takeover-state.mts
-msgid "{waiting, plural, one {“{name}” syncs again{location}. # edit made in “{name}” before the move is added once it has caught up.{after}{oldFolder}} other {“{name}” syncs again{location}. # edits made in “{name}” before the move are added once it has caught up.{after}{oldFolder}}}"
-msgstr "{waiting, plural, other {“{name}”重新开始同步{location}。迁移前在“{name}”中进行的 # 项编辑，会在同步追上进度后加入。{after}{oldFolder}}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{waiting, plural, one {# edit made in “{name}” before the move was not uploaded yet and is kept. mdbase is adding “{name}” back to this computer{where}. {reason}.} other {# edits made in “{name}” before the move were not uploaded yet and are kept. mdbase is adding “{name}” back to this computer{where}. {reason}.}}"
-msgstr "{waiting, plural, other {迁移前在“{name}”中进行的 # 项编辑尚未上传，已予以保留。mdbase 正在将“{name}”重新添加到此电脑{where}。{reason}。}}"
-
-#: src/renderer/takeover-state.mts
-msgid "{waiting, plural, one {You removed “{name}” from this computer, so # edit made in “{name}” before the move was not added to it. It is still in {oldPath}.} other {You removed “{name}” from this computer, so # edits made in “{name}” before the move were not added to it. They are still in {oldPath}.}}"
-msgstr "{waiting, plural, other {你已从此电脑移除“{name}”，因此迁移前在“{name}”中进行的 # 项编辑未添加到其中。这些编辑仍保存在 {oldPath}。}}"
 
 #: src/renderer/device-requests.tsx
 msgid "{who} can now open {collection}."
@@ -225,17 +175,9 @@ msgstr "{who}想要打开{collection}"
 msgid "{who} was not given access to {collection}."
 msgstr "未授予{who}访问{collection}的权限。"
 
-#: src/renderer/takeover-panel.tsx
-msgid "<0/>Allow hosted mirrors to stop until I join them again"
-msgstr "<0/>允许托管镜像暂停，直到我重新加入"
-
 #: src/renderer/collections-view.tsx
 msgid "<0/>Encrypt end to end so mdbase cannot read it"
 msgstr "<0/>端到端加密，mdbase 无法读取"
-
-#: src/renderer/collections-view.tsx
-msgid "<0/>I have checked these files"
-msgstr "<0/>我已检查这些文件"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -349,10 +291,6 @@ msgstr "另一个应用（如 Obsidian）目前正在使用此文件夹。该应
 #: src/renderer/main.tsx
 msgid "Another device"
 msgstr "其他设备"
-
-#: src/renderer/takeover-state.mts
-msgid "another program is writing to the folder"
-msgstr "另一个程序正在写入文件夹"
 
 #: src/renderer/activity-view.tsx
 msgid "App access and collection changes on this computer will be listed here."
@@ -522,10 +460,6 @@ msgctxt "Confirmation dialog"
 msgid "Check that the app's access request in your browser shows the same key."
 msgstr "请确认浏览器中该应用的访问请求显示的是同一个密钥。"
 
-#: src/renderer/takeover-state.mts
-msgid "Check that the disk is not full, then try again. Nothing was changed."
-msgstr "请检查磁盘是否已满，然后重试。没有任何内容被更改。"
-
 #: src/main/main.ts
 msgid "Check the verification code before allowing."
 msgstr "允许前请核对验证码。"
@@ -533,10 +467,6 @@ msgstr "允许前请核对验证码。"
 #: src/renderer/collections-view.tsx
 msgid "Check this code matches on your other computer:"
 msgstr "请确认此代码与您另一台电脑上的代码一致："
-
-#: src/renderer/takeover-state.mts
-msgid "Check whether this folder was copied from another computer. Nothing was changed."
-msgstr "请检查此文件夹是否从另一台电脑复制而来。没有任何内容被更改。"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -585,10 +515,6 @@ msgctxt "Desktop application"
 msgid "Choose how to sync."
 msgstr "选择同步方式。"
 
-#: src/renderer/takeover-state.mts
-msgid "Choose Move to the new sync engine and allow hosted mirrors to stop. Edits they have not uploaded yet are kept and added when you join those collections on this computer."
-msgstr "选择“迁移到新同步引擎”，并允许托管镜像暂停。尚未上传的编辑会保留；当你在此电脑加入相应集合时，它们会被添加。"
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Choose where to create the collection folder"
@@ -610,10 +536,6 @@ msgstr "清除筛选"
 #: src/renderer/collections-view.tsx
 msgid "Close"
 msgstr "关闭"
-
-#: src/renderer/takeover-state.mts
-msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
-msgstr "关闭正在编辑此文件夹的应用，然后选择“迁移到新同步引擎”。"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -830,19 +752,6 @@ msgstr "编辑记录和文件"
 msgid "Edited here before the move but never uploaded, and changed elsewhere since; the current version is in the folder"
 msgstr "迁移前已在此处编辑但从未上传，且此后其他地方也有更改；当前版本位于以下文件夹中："
 
-#. placeholder {0}: imp.error
-#: src/renderer/takeover-state.mts
-msgid "Edits made in “{name}” before the move could not be read ({0}). They are kept in the old Connect data."
-msgstr "迁移前无法读取在“{name}”中进行的编辑（{0}）。这些编辑保留在旧的 Connect 数据中。"
-
-#: src/renderer/takeover-state.mts
-msgid "edits waiting to upload in hosted collections could not be saved for the move"
-msgstr "托管集合中待上传的编辑无法为迁移保存"
-
-#: src/renderer/takeover-state.mts
-msgid "Email support@mdbase.dev and include a diagnostics report. We'll finish your upgrade or move this computer back to mdbase Connect."
-msgstr "请发送邮件至 support@mdbase.dev 并附上诊断报告。我们将完成升级，或让此电脑退回 mdbase Connect。"
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Enter a name for this computer."
@@ -915,10 +824,6 @@ msgctxt "Connect interface"
 msgid "Home"
 msgstr "主页"
 
-#: src/renderer/takeover-state.mts
-msgid "hosted collections still have edits waiting to upload"
-msgstr "托管集合仍有编辑等待上传"
-
 #: src/renderer/main.tsx
 msgid "How new apps get access to your local collections."
 msgstr "新应用如何取得本地集合的访问权限。"
@@ -958,19 +863,6 @@ msgstr "正在安装版本 {target}。应用重启期间，mdbase 会继续同�
 msgid "It failed to open."
 msgstr "无法打开。"
 
-#: src/renderer/takeover-state.mts
-msgctxt "Collection move recovery"
-msgid "it is not a text file"
-msgstr "它不是文本文件"
-
-#: src/renderer/takeover-state.mts
-msgid "It moves when you join that hosted collection on this computer."
-msgstr "当你在此电脑加入该托管集合时，它会迁移。"
-
-#: src/renderer/takeover-state.mts
-msgid "It retries when mdbase restarts. If it keeps failing, move again to see the error."
-msgstr "mdbase 重启后会重试。如果持续失败，请再次尝试迁移以查看错误。"
-
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "Its mdbase.yaml has an x-mdbase-connect entry that no mdbase Connect on this computer manages, for example because the folder was copied or removed from Connect. Adding the folder removes that entry and leaves the rest of the file unchanged."
@@ -997,14 +889,6 @@ msgstr "保留当前版本"
 #: src/renderer/main.tsx
 msgid "Keep mdbase connect in the tray without opening a window."
 msgstr "将 mdbase connect 留在系统托盘中，不打开窗口。"
-
-#: src/renderer/takeover-state.mts
-msgid "Keep mdbase open. This can take a few minutes."
-msgstr "请保持 mdbase 运行。这可能需要几分钟。"
-
-#: src/renderer/takeover-state.mts
-msgid "Keep mdbase open. Your files stay where they are."
-msgstr "请保持 mdbase 运行。你的文件会保留在原位置。"
 
 #: src/renderer/collections-view.tsx
 msgid "Keep this computer's"
@@ -1034,10 +918,6 @@ msgstr "已关闭登录时启动。"
 #: src/renderer/main.tsx
 msgid "Launch in the tray when you sign in"
 msgstr "登录时在系统托盘启动"
-
-#: src/renderer/takeover-state.mts
-msgid "Leave mdbase Connect's data in place and contact support with a diagnostics report."
-msgstr "保留 mdbase Connect 的数据，并携诊断报告联系支持人员。"
 
 #: src/renderer/collections-view.tsx
 msgid "Leave out files larger than"
@@ -1254,58 +1134,9 @@ msgctxt "Confirmation dialog"
 msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
 msgstr "mdbase 将能够读取该集合（包括其现有历史记录），并在您的设备关闭时提供服务。连接到此集合的应用随后需要重新连接。"
 
-#. placeholder {0}: reason.replaceAll("_", " ")
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry ({0})"
-msgstr "mdbase 将重试（{0}）"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry in a new folder"
-msgstr "mdbase 将在新文件夹中重试"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry once this collection has finished moving"
-msgstr "此集合完成迁移后，mdbase 将重试"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry shortly"
-msgstr "mdbase 将很快重试"
-
-#: src/renderer/takeover-state.mts
-msgid "mdbase will retry when it can reach the server"
-msgstr "可以连接服务器后，mdbase 将重试"
-
-#: src/renderer/takeover-state.mts
-msgctxt "Collection move recovery"
-msgid "Migration postponed"
-msgstr "迁移已推迟"
-
-#. placeholder {0}: first.reason
-#: src/renderer/takeover-state.mts
-msgid "Migration postponed: {0}"
-msgstr "迁移已推迟：{0}"
-
 #: src/renderer/home-view.tsx
 msgid "More apps from mdbase"
 msgstr "更多 mdbase 应用"
-
-#: src/renderer/takeover-panel.tsx
-#: src/renderer/takeover-state.mts
-msgid "Move to the new sync engine"
-msgstr "迁移到新同步引擎"
-
-#: src/renderer/takeover-panel.tsx
-msgctxt "Collection move recovery"
-msgid "Moved"
-msgstr "已迁移"
-
-#: src/renderer/takeover-panel.tsx
-msgid "Moved, files kept for review"
-msgstr "已迁移，文件已保留供检查"
-
-#: src/renderer/takeover-state.mts
-msgid "Moving your collections to mdbase…"
-msgstr "正在将你的集合迁移到 mdbase…"
 
 #: src/renderer/collections-view.tsx
 msgid "Name"
@@ -1375,10 +1206,6 @@ msgstr "没有待处理事项"
 #: src/renderer/collections-view.tsx
 msgid "Nothing is waiting."
 msgstr "没有待处理事项。"
-
-#: src/renderer/takeover-state.mts
-msgid "Nothing was changed. Contact support with a diagnostics report."
-msgstr "没有任何内容被更改。请携诊断报告联系支持人员。"
 
 #: src/renderer/main.tsx
 msgid "Off"
@@ -1488,11 +1315,6 @@ msgctxt "File types that sync"
 msgid "PDFs"
 msgstr "PDF"
 
-#: src/renderer/takeover-panel.tsx
-msgctxt "Collection move recovery"
-msgid "Postponed"
-msgstr "已推迟"
-
 #: src/renderer/device-requests.tsx
 msgid "Preparing comparison code…"
 msgstr "正在准备比对代码…"
@@ -1509,10 +1331,6 @@ msgstr "私有同步（端到端加密）"
 msgctxt "Desktop application"
 msgid "Quit mdbase connect"
 msgstr "退出 mdbase connect"
-
-#: src/renderer/takeover-state.mts
-msgid "Quit mdbase Connect (including its menu-bar or tray icon), then choose Move to the new sync engine."
-msgstr "退出 mdbase Connect（包括菜单栏或系统托盘图标），然后选择“迁移到新同步引擎”。"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1548,10 +1366,6 @@ msgstr "就绪"
 msgctxt "Connect interface"
 msgid "Recent activity"
 msgstr "最近活动"
-
-#: src/renderer/takeover-state.mts
-msgid "Reconnect the drive or restore the folder; the old engine's data is kept."
-msgstr "重新连接驱动器或恢复文件夹；旧引擎的数据已保留。"
 
 #: src/renderer/main.tsx
 msgid "Releases are checked against signed provenance before installation."
@@ -1593,10 +1407,6 @@ msgstr "恢复"
 #: src/renderer/daemon-view.mts
 msgid "Resume this collection to check its files before turning on sync."
 msgstr "开启同步前，请恢复此集合以检查其文件。"
-
-#: src/renderer/takeover-panel.tsx
-msgid "Returned to the old engine"
-msgstr "已退回旧引擎"
 
 #: src/renderer/home-view.tsx
 msgid "Review"
@@ -1701,10 +1511,6 @@ msgstr "请先登录再添加集合，这样应用才能通过此电脑访问它
 msgid "Sign in first, then add your collection."
 msgstr "先登录，再添加集合。"
 
-#: src/renderer/takeover-state.mts
-msgid "Sign in to finish moving your collections"
-msgstr "登录以完成集合迁移"
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Sign in to mdbase on this computer"
 msgstr "在此电脑上登录 mdbase"
@@ -1725,10 +1531,6 @@ msgstr "请先在此电脑上登录 mdbase。"
 #: src/renderer/view-model.ts
 msgid "Sign in to mdbase on this computer, then try again. {unchanged}"
 msgstr "请在此电脑上登录 mdbase，然后重试。{unchanged}"
-
-#: src/renderer/takeover-state.mts
-msgid "Sign in to mdbase to continue"
-msgstr "登录 mdbase 以继续"
 
 #: src/renderer/daemon-view.mts
 msgid "Sign in to serve this collection."
@@ -1781,18 +1583,6 @@ msgstr "退出登录未完成。请再次尝试退出登录。"
 msgid "Size limit in megabytes"
 msgstr "大小上限（MB）"
 
-#: src/renderer/takeover-state.mts
-msgid "Some edits from before the move need your attention."
-msgstr "迁移前的一些编辑需要你处理。"
-
-#: src/renderer/takeover-state.mts
-msgid "Some files were being written during the move. mdbase kept the files in your folder as they are; the unfinished versions are kept in the old Connect data."
-msgstr "迁移期间有文件正在写入。mdbase 保留了文件夹中的原文件，未完成的版本则保存在旧 Connect 数据中。"
-
-#: src/renderer/takeover-state.mts
-msgid "Some hosted collections have edits from before the move that are not uploaded yet."
-msgstr "部分托管集合还有迁移前未上传的编辑。"
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Start again"
 msgstr "重新开始"
@@ -1805,10 +1595,6 @@ msgstr "登录时启动"
 #: src/renderer/home-view.tsx
 msgid "Start with an app"
 msgstr "从一个应用开始"
-
-#: src/renderer/takeover-state.mts
-msgid "Stay online until uploads finish, then try again."
-msgstr "保持在线，等待上传完成后再重试。"
 
 #. placeholder {0}: entry.app_name
 #. placeholder {1}: scope(entry, names)
@@ -1884,10 +1670,6 @@ msgctxt "Desktop application"
 msgid "The application update is in progress."
 msgstr "正在更新应用。"
 
-#: src/renderer/takeover-state.mts
-msgid "the collection did not accept it"
-msgstr "集合未接受"
-
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The external update is not ready to open."
@@ -1896,19 +1678,6 @@ msgstr "外部更新尚未准备好打开。"
 #: src/renderer/view-model.ts
 msgid "The folder and its files are unchanged."
 msgstr "文件夹及其文件保持不变。"
-
-#: src/renderer/takeover-state.mts
-msgid "the folder belongs to a different mdbase install"
-msgstr "文件夹属于另一个 mdbase 安装实例"
-
-#: src/renderer/takeover-state.mts
-msgid "the folder is a copy of a hosted collection"
-msgstr "文件夹是托管集合的副本"
-
-#: src/renderer/takeover-state.mts
-msgctxt "Collection move recovery"
-msgid "the folder is missing"
-msgstr "文件夹缺失"
 
 #: src/renderer/daemon-view.mts
 msgid "The folder is missing. Reconnect the drive or restore the folder."
@@ -1922,10 +1691,6 @@ msgstr "文件夹未重命名。描述仍保留在此电脑上。"
 msgid "The folder or file could not be opened. {error}"
 msgstr "无法打开文件夹或文件。{error}"
 
-#: src/renderer/takeover-state.mts
-msgid "the folder's mdbase marker is unreadable"
-msgstr "文件夹的 mdbase 标记无法读取"
-
 #: src/renderer/language-setting.tsx
 msgid "The language could not be loaded or saved. Try choosing it again."
 msgstr "无法加载或保存语言设置。请重新选择。"
@@ -1935,58 +1700,17 @@ msgstr "无法加载或保存语言设置。请重新选择。"
 msgid "The language could not be loaded. Choose it again in Settings."
 msgstr "无法加载语言。请在“设置”中重新选择。"
 
-#. placeholder {0}: status.error
-#: src/renderer/takeover-state.mts
-msgid "The last move attempt failed: {0}"
-msgstr "上次迁移尝试失败：{0}"
-
 #: src/renderer/main.tsx
 msgid "The mdbase account this computer is signed in to."
 msgstr "此电脑登录的 mdbase 账户。"
-
-#: src/renderer/takeover-state.mts
-msgid "The move could not finish."
-msgstr "迁移未能完成。"
-
-#: src/renderer/takeover-state.mts
-msgid "the move failed and will be retried"
-msgstr "迁移失败，将重试"
-
-#: src/renderer/takeover-state.mts
-msgid "The move finished, but needs your attention."
-msgstr "迁移已完成，但需要你处理。"
-
-#: src/renderer/takeover-state.mts
-msgid "the old engine's mirror state could not be read"
-msgstr "无法读取旧引擎的镜像状态"
-
-#: src/renderer/takeover-state.mts
-msgid "the old folder"
-msgstr "旧文件夹"
 
 #: src/renderer/daemon-view.mts
 msgid "The old mdbase Connect is running on this computer. Quit it or update it; mdbase resumes on its own."
 msgstr "旧版 mdbase Connect 仍在此电脑上运行。请退出或更新它；mdbase 会自行恢复。"
 
-#: src/renderer/takeover-state.mts
-msgid "the old mdbase Connect is still running"
-msgstr "旧版 mdbase Connect 仍在运行"
-
 #: src/renderer/view-model.ts
 msgid "The old mdbase Connect is still running on this computer. Quit it, then try again. {unchanged}"
 msgstr "旧版 mdbase Connect 仍在此电脑上运行。请退出后重试。{unchanged}"
-
-#: src/renderer/takeover-state.mts
-msgid "The old mdbase Connect keeps serving these collections until the move finishes. Nothing was changed."
-msgstr "迁移完成前，旧版 mdbase Connect 会继续提供这些集合。没有任何内容被更改。"
-
-#: src/renderer/takeover-state.mts
-msgid "The old mdbase Connect started again after the move. Quit it and remove it from your login items; mdbase has taken over its collections."
-msgstr "迁移后，旧版 mdbase Connect 又启动了。请退出并将其从登录项中移除；mdbase 已接管其集合。"
-
-#: src/renderer/takeover-state.mts
-msgid "The server hasn't confirmed that the old mdbase Connect on this computer is retired. Keep using mdbase as normal. If this message stays, email support@mdbase.dev."
-msgstr "服务器尚未确认此电脑上的旧版 mdbase Connect 已停用。请照常使用 mdbase。如果此消息持续显示，请发送邮件至 support@mdbase.dev。"
 
 #: src/renderer/daemon-view.mts
 msgid "The sign-in request expired. Start again."
@@ -2040,10 +1764,6 @@ msgstr "此电脑"
 msgid "This computer · {0, plural, one {# collection} other {# collections}}"
 msgstr "此电脑 · {0, plural, other {# 个集合}}"
 
-#: src/renderer/takeover-state.mts
-msgid "this computer also syncs hosted collections with the old engine"
-msgstr "此电脑还在使用旧引擎同步托管集合"
-
 #: src/renderer/daemon-view.mts
 msgid "This computer has not joined this collection yet."
 msgstr "此电脑尚未加入此集合。"
@@ -2061,10 +1781,6 @@ msgstr "此电脑现已更名为 {0}"
 #: src/renderer/main.tsx
 msgid "This computer is now called {0}."
 msgstr "此电脑现已更名为 {0}。"
-
-#: src/renderer/takeover-state.mts
-msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
-msgstr "此电脑已将你的集合迁移到新同步引擎，但你的 mdbase 账户尚未升级，或升级已暂停。文件仍安全地保存在文件夹中，但此电脑上的更改可能要等到账户升级后，才能同步到其他 mdbase 应用。"
 
 #: src/renderer/main.tsx
 msgctxt "Connect interface"
@@ -2284,11 +2000,6 @@ msgctxt "Local collection management"
 msgid "View progress"
 msgstr "查看进度"
 
-#: src/renderer/takeover-panel.tsx
-msgctxt "Collection move recovery"
-msgid "Waiting"
-msgstr "等待中"
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Waiting for browser approval"
 msgstr "等待浏览器批准"
@@ -2319,18 +2030,9 @@ msgstr "等待打开。"
 msgid "What this collection is for"
 msgstr "此集合的用途"
 
-#: src/renderer/takeover-panel.tsx
-msgid "What to do: "
-msgstr "操作方法： "
-
 #: src/renderer/main.tsx
 msgid "When on, an app you approve in mdbase also waits for your approval on this computer"
 msgstr "开启后，你在 mdbase 中批准的应用还需要等待你在此电脑上批准"
-
-#. placeholder {0}: unlisted.length
-#: src/renderer/collections-view.tsx
-msgid "When this folder moved to the new sync engine, mdbase kept another version of {0, plural, one {# file} other {# files}}. The folder has this computer's version; check it before sync starts from it."
-msgstr "此文件夹迁移到新同步引擎时，mdbase 保留了 {0, plural, other {# 个文件}} 的另一个版本。文件夹中是此电脑的版本；从该版本开始同步前，请先检查。"
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
@@ -2358,10 +2060,6 @@ msgctxt "Confirmation dialog"
 msgid "You will still be notified."
 msgstr "你仍会收到通知。"
 
-#: src/renderer/takeover-state.mts
-msgid "Your account still uses mdbase Connect"
-msgstr "你的账户仍在使用 mdbase Connect"
-
 #: src/renderer/sign-in-panel.tsx
 msgid "Your application request will keep waiting. Sign in so you can choose a folder on this computer, then continue the same request."
 msgstr "应用请求会继续等待。请登录，选择此电脑上的文件夹，然后继续处理同一个请求。"
@@ -2379,29 +2077,10 @@ msgctxt "Connect interface"
 msgid "Your apps reconnect soon"
 msgstr "你的应用即将重新连接"
 
-#: src/renderer/takeover-state.mts
-msgid "Your collections are waiting to move"
-msgstr "你的集合正在等待迁移"
-
-#: src/renderer/takeover-state.mts
-msgid "Your collections moved to mdbase"
-msgstr "你的集合已迁移到 mdbase"
-
-#: src/renderer/takeover-state.mts
-msgid "Your local collections are safe on disk."
-msgstr "你的本地集合安全地保存在磁盘上。"
-
 #: src/renderer/daemon-view.mts
 msgid "Your mdbase account cannot sync this collection. Check your plan or the collection's owner."
 msgstr "你的 mdbase 账户无法同步此集合。请检查订阅方案或联系集合所有者。"
 
-#. placeholder {0}: takeover?.takenOver ? t(i18n)({ message: ", and the files already in it become the first synced version" }) : ""
 #: src/renderer/collections-view.tsx
-msgid "Your other devices get a copy and stay up to date. The folder stays where it is{0}."
-msgstr "你的其他设备会收到副本并保持最新。文件夹仍保留在原位置{0}。"
-
-#. placeholder {0}: r.path
-#. placeholder {1}: r.file
-#: src/renderer/takeover-state.mts
-msgid "Your unsent edit to {0} in “{name}” could not be added because {why}. A copy is at {1}."
-msgstr "无法添加你在“{name}”中对 {0} 进行的未发送编辑，因为{why}。副本位于 {1}。"
+msgid "Your other devices get a copy and stay up to date. The folder stays where it is."
+msgstr "你的其他设备会收到副本并保持最新。文件夹仍保留在原位置。"

@@ -5,7 +5,7 @@ import { DaemonControlError, parseEndpoint, type DaemonEndpoint } from "./daemon
 /**
  * Running the mdbase daemon's CLI (mdbase-next `crates/daemon/src/cli.rs`).
  *
- * Privileged control methods (sign-in, migrate start, sync enable, approvals, …)
+ * Privileged control methods (sign-in, sync enable, approvals, …)
  * need the control key in the OS keychain. The app never reads it: it runs the
  * daemon's own CLI, which authenticates itself. `--json` prints the result object,
  * or `{"error": {code, message, reason?}}`. Exit codes: 0 ok, 1 error, 2 usage,

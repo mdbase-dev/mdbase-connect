@@ -2,12 +2,9 @@
 // (test secret backend, no service manager) and check it attaches.
 //
 //   MDBN_DAEMON_BIN=…/mdbase MDBASE_DESKTOP_SMOKE_DIR=<scratch> xvfb-run -a node scripts/next-electron-smoke.mjs
-//
-// With MDBASE_DESKTOP_SMOKE_CONNECT_HOME=<abs old connector state> (for example the
-// rehearsal fixture), it also checks the takeover panel: the closed rollout gate
-// offers an explicit move, and choosing it moves the collection.
 import { _electron as electron } from "playwright-core";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { isAbsolute, join, resolve } from "node:path";
@@ -22,13 +19,11 @@ if (!binary || !root || !isAbsolute(root)) throw new Error("Set MDBN_DAEMON_BIN 
 await rm(root, { recursive: true, force: true });
 await mkdir(root, { recursive: true });
 const stateDir = join(root, "next");
-const connectHome = process.env.MDBASE_DESKTOP_SMOKE_CONNECT_HOME;
-if (connectHome !== undefined && !isAbsolute(connectHome)) throw new Error("MDBASE_DESKTOP_SMOKE_CONNECT_HOME must be absolute.");
 const env = {
   ...process.env,
   MDBN_DAEMON_BIN: binary,
   MDBASE_DESKTOP_STATE_DIR: stateDir,
-  MDBASE_CONNECT_HOME: connectHome ?? join(root, "no-connect"),
+  MDBASE_CONNECT_HOME: join(root, "no-connect"),
   MDBASE_CONNECT_USER_DATA_DIR: join(root, "electron"),
   MDBASE_ENV: "test",
   MDBASE_SECRET_BACKEND: "insecure-test-file"
@@ -73,18 +68,18 @@ try {
   await nav("Activity").click();
   await window.getByRole("heading", { name: "Recent activity" }).waitFor();
   console.log("ok - Collections, Apps, Activity and Settings views read the daemon");
-  if (connectHome) {
-    const move = window.getByRole("button", { name: "Move to the new sync engine" });
-    await move.waitFor({ timeout: 30_000 });
-    assert.equal((await cli.run(["migrate", "status"])).record, null, "the app must not start a move on its own");
-    console.log("ok - closed rollout gate: panel offers an explicit move and nothing moved");
-    await move.click();
-    await window.getByText("Your collections moved to mdbase").waitFor({ timeout: 120_000 });
-    const after = await cli.run(["migrate", "status"]);
-    assert.equal(after.record.state, "complete");
-    assert.ok(Object.values(after.record.collections).every((c) => ["complete", "held"].includes(c.state)));
-    console.log(`ok - explicit move finished; panel shows held files (${Object.values(after.holds).flat().length})`);
-  }
+  // A fresh profile has no collection. Both calls must reach the daemon and
+  // report a missing collection without attempting any hosted sync operation.
+  const missingCollection = randomUUID();
+  await assert.rejects(
+    window.evaluate((id) => window.mdbaseConnect.listHolds(id), missingCollection),
+    /no registered collection/
+  );
+  await assert.rejects(
+    window.evaluate((id) => window.mdbaseConnect.enableSync(id, "cloud-copy"), missingCollection),
+    /no registered collection/
+  );
+  console.log("ok - the sync dialog's holds and cloud-copy commands reach the daemon");
   // Quit like the tray does (closing the window only hides it).
   const exited = new Promise((resolve) => app.process().once("exit", resolve));
   await app.evaluate(({ app: electronApp }) => electronApp.quit());

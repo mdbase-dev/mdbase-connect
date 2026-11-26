@@ -25,7 +25,6 @@ import { updateActions } from "../main/update-actions";
 import { consumePairingCompleted } from "./onboarding-state.mjs";
 import { pollWhileVisible } from "./visible-poll.mjs";
 import { SignInPanel } from "./sign-in-panel";
-import { TakeoverPanel } from "./takeover-panel";
 import {
   MobileProductBar,
   ProductSidebar,
@@ -232,8 +231,6 @@ function App() {
             {checked && !status && <div className="mdbase-message is-error" role="status">{t(i18n)({ message: "mdbase is not running on this computer. It restarts automatically; if this stays, restart mdbase connect." })}</div>}
             {notice && <div className="mdbase-message is-success">{notice}</div>}
           </div>
-
-          <TakeoverPanel names={names} />
 
           {cloud !== null && !cloud.configured && <div hidden={route === "activity"}>
             <SignInPanel cloud={cloud} reason={signInReason} onSignedIn={onSignedIn} />

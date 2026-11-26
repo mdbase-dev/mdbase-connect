@@ -158,15 +158,13 @@ interface Window {
     checkForUpdates(): Promise<DesktopUpdateStatus>;
     installUpdate(): Promise<DesktopUpdateStatus>;
     setEarlyAccess(enabled: boolean): Promise<DesktopUpdateStatus>;
-    migrationStatus(): Promise<import("./takeover-state.mjs").TakeoverStatus & { running: boolean }>;
-    startMigration(stopMirrors: boolean): Promise<unknown>;
     listCollections(): Promise<DaemonCollection[]>;
     addCollection(): Promise<DaemonCollection | null>;
     chooseCreateFolder(): Promise<string | null>;
     createCollection(input: { parent: string; name: string }): Promise<DaemonCollection>;
     removeCollection(collectionId: string): Promise<unknown>;
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<unknown>;
-    enableSync(collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<unknown>;
+    enableSync(collectionId: string, mode: "private" | "cloud-copy"): Promise<unknown>;
     collectionModeStatus(collectionId: string): Promise<unknown>;
     changeCollectionMode(collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }): Promise<unknown>;
     syncFiles(collectionId: string): Promise<SyncFiles>;

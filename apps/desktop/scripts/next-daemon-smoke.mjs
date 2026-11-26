@@ -52,10 +52,6 @@ try {
   assert.equal(settings.require_grant_approval, true);
   step("privileged method refused on the app socket and accepted through the CLI");
 
-  const migrate = await session.request("migrate.status");
-  assert.equal(migrate.record, null);
-  step("migrate.status reports no takeover record");
-
   const reattached = new Promise((resolve) => {
     let sawDisconnect = false;
     const off = session.subscribe((state) => {

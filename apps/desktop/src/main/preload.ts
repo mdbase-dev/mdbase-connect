@@ -9,8 +9,6 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   checkForUpdates: () => ipcRenderer.invoke("connect:updates:check"),
   installUpdate: () => ipcRenderer.invoke("connect:updates:install"),
   setEarlyAccess: (enabled: boolean) => ipcRenderer.invoke("connect:updates:early-access", enabled === true),
-  migrationStatus: () => ipcRenderer.invoke("connect:migration:status"),
-  startMigration: (stopMirrors: boolean) => ipcRenderer.invoke("connect:migration:start", { stopMirrors }),
   listCollections: () => ipcRenderer.invoke("connect:collections:list"),
   addCollection: () => ipcRenderer.invoke("connect:collections:add"),
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
@@ -19,8 +17,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   removeCollection: (collectionId: string) => ipcRenderer.invoke("connect:collections:remove", collectionId),
   setCollectionEnabled: (collectionId: string, enabled: boolean) =>
     ipcRenderer.invoke("connect:collections:set-enabled", { collectionId, enabled }),
-  enableSync: (collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean) =>
-    ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode, acceptTakeoverHolds }),
+  enableSync: (collectionId: string, mode: "private" | "cloud-copy") =>
+    ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode }),
   collectionModeStatus: (collectionId: string) => ipcRenderer.invoke("connect:collections:mode-status", collectionId),
   changeCollectionMode: (collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }) =>
     ipcRenderer.invoke("connect:collections:mode-change", {

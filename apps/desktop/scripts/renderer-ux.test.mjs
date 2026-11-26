@@ -66,7 +66,6 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       updateStatus: async () => fixture.updateStatus,
       checkForUpdates: async () => { calls.push(["checkForUpdates"]); return fixture.updateStatus; },
       installUpdate: async () => { calls.push(["installUpdate"]); return fixture.updateStatus; },
-      migrationStatus: async () => fixture.migration ?? { record: null, running: false },
       listCollections: async () => fixture.collections,
       listAccess: async () => fixture.access,
       listApps: async () => ({ applications: fixture.apps }),
@@ -102,9 +101,9 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
       syncFiles: async () => fixture.syncFiles ?? { include: ["image", "audio", "video", "pdf", "other"], exclude: [] },
       setSyncFiles: async (id, files) => { calls.push(["setSyncFiles", id, files]); fixture.syncFiles = files; return files; },
       listHolds: async () => fixture.holds ?? [],
-      resolveHold: async (id, hold, how) => { calls.push(["resolveHold", id, hold, how]); fixture.holds = (fixture.holds ?? []).filter((h) => h.id !== hold);
-        const held = fixture.migration?.holds?.[id];
-        if (held) fixture.migration.holds[id] = held.filter((h) => h.id !== hold);
+      resolveHold: async (id, hold, how) => {
+        calls.push(["resolveHold", id, hold, how]);
+        fixture.holds = (fixture.holds ?? []).filter((h) => h.id !== hold);
         return null;
       },
       listActivity: async () => fixture.activity ?? [],
@@ -585,7 +584,7 @@ for (const theme of ["light", "dark"]) {
 test("a window hidden to the tray makes no daemon calls; showing it refreshes once and polling resumes", async () => {
   const { page, errors } = await desktop({ collections: [collection()] });
   const counts = () => page.evaluate(() => ({ ...window.fixture.counts }));
-  const polled = ["status", "listCollections", "listAccess", "getSettings", "getLaunchAtLogin", "listActivity", "listPendingDevices", "migrationStatus", "listApps"];
+  const polled = ["status", "listCollections", "listAccess", "getSettings", "getLaunchAtLogin", "listActivity", "listPendingDevices", "listApps"];
   try {
     await page.clock.runFor(5_000);
     await page.evaluate(() => window.fixture.setVisibility("hidden"));
@@ -786,7 +785,7 @@ test("turning on sync offers private only as an advanced choice and removal is c
     await encrypt.check();
     await dialog.getByRole("button", { name: "Turn on sync" }).click();
     await page.getByText("Notes now syncs privately.", { exact: true }).waitFor();
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "private", false]]);
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "private"]]);
     await collectionAction(page, "Remove", card);
     const confirmation = page.getByRole("dialog", { name: /^Remove / });
     await confirmation.getByText(/^Remove Notes from mdbase/).waitFor();
@@ -951,40 +950,28 @@ test("a refused source capture returns to the retained collection instead of off
   } finally { await page.close(); }
 });
 
-test("turning on sync for a taken-over folder shows the files held at takeover and needs them checked", async () => {
+test("turning on cloud-copy sync only needs the current collection holds", async () => {
   const { page, errors, calls } = await desktop({ collections: [collection()] });
   try {
     await page.evaluate(() => {
-      window.fixture.migration = {
-        record: { state: "complete", collections: { "c-notes": { state: "held", holds: 1 } } },
-        holds: { "c-notes": [{ path: "Inbox/plan.md", reason: "conflict" }] },
-        running: false
-      };
+      // The 0.2.8 daemon rejects the retired RPC if the desktop asks for it.
+      window.mdbaseConnect.migrationStatus = async () => { throw new Error("unknown method migrate.status"); };
     });
     await nav(page, "Collections").click();
     await collectionAction(page, "Turn on sync");
     const dialog = page.getByRole("dialog");
-    await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
-    const confirm = dialog.getByRole("button", { name: "Turn on sync" });
-    assert.equal(await confirm.isDisabled(), true, "held files must be checked first");
-    await dialog.getByRole("checkbox", { name: "I have checked these files" }).check();
-    await confirm.click();
+    await dialog.getByRole("button", { name: "Turn on sync" }).click({ timeout: 5_000 });
     await page.getByText("Notes now syncs.", { exact: true }).waitFor();
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy", true]]);
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy"]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
 
-test("files held at the takeover are resolved one by one before sync turns on", async () => {
+test("current holds are resolved one by one before sync turns on", async () => {
   const { page, errors, calls } = await desktop({ collections: [collection()] });
   try {
     await page.evaluate(() => {
-      window.fixture.holds = [{ id: "takeover:1", path: "Inbox/plan.md", reason: "taken_over", since: Date.now(), saves: 0, has_theirs: true, binary: false }];
-      window.fixture.migration = {
-        record: { state: "complete", collections: { "c-notes": { state: "held", holds: 1 } } },
-        holds: { "c-notes": [{ id: "takeover:1", path: "Inbox/plan.md", reason: "conflict" }] },
-        running: false
-      };
+      window.fixture.holds = [{ id: "held:1", path: "Inbox/plan.md", reason: "conflict", since: Date.now(), saves: 0, has_theirs: true, binary: false }];
     });
     await nav(page, "Collections").click();
     await collectionAction(page, "Turn on sync");
@@ -992,14 +979,13 @@ test("files held at the takeover are resolved one by one before sync turns on", 
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor();
     const confirm = dialog.getByRole("button", { name: "Turn on sync" });
     assert.equal(await confirm.isDisabled(), true, "held files are resolved first");
-    assert.equal(await dialog.getByRole("checkbox", { name: "I have checked these files" }).count(), 0, "no blanket acceptance when each file can be resolved");
     await dialog.getByRole("button", { name: "Keep both" }).click();
     await dialog.getByText("Inbox/plan.md", { exact: true }).waitFor({ state: "detached" });
     assert.equal(await confirm.isDisabled(), false);
     await confirm.click();
     await page.getByText("Notes now syncs.", { exact: true }).waitFor();
-    assert.deepEqual(await calls("resolveHold"), [["c-notes", "takeover:1", "keep_both"]]);
-    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy", false]]);
+    assert.deepEqual(await calls("resolveHold"), [["c-notes", "held:1", "keep_both"]]);
+    assert.deepEqual(await calls("enableSync"), [["c-notes", "cloud-copy"]]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
