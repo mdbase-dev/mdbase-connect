@@ -438,8 +438,8 @@ msgid "Choose a screenshot smaller than 16 megapixels."
 msgstr "请选择小于 1600 万像素的屏幕截图。"
 
 #: src/feedback-data.ts
-msgid "Choose a screenshot smaller than 3 MB."
-msgstr "请选择小于 3 MB 的屏幕截图。"
+msgid "Choose a screenshot smaller than 20 MB."
+msgstr "请选择小于 20 MB 的屏幕截图。"
 
 #: src/Feedback.tsx
 msgid "Choose an image"
@@ -1659,6 +1659,10 @@ msgid "Sending…"
 msgstr "正在发送…"
 
 #: src/Feedback.tsx
+msgid "Sent privately to the mdbase team without the screenshot, which couldn’t be attached."
+msgstr "已私密发送给 mdbase 团队，未附带无法附加的屏幕截图。"
+
+#: src/Feedback.tsx
 msgid "Sent privately to the mdbase team."
 msgstr "已私密发送给 mdbase 团队。"
 
@@ -1996,6 +2000,10 @@ msgstr "无法读取屏幕截图。"
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be saved."
 msgstr "无法保存屏幕截图。"
+
+#: src/Feedback.tsx
+msgid "The screenshot could not be sent and was excluded."
+msgstr "无法发送屏幕截图，已将其排除。"
 
 #: src/feedback-data.ts
 msgid "The screenshot does not contain a valid PNG or JPEG image."

@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { readdirSync } from "node:fs";
-import { feedbackApplication, feedbackDiagnostics, feedbackEvents, readFeedbackScreenshot, resolveFeedbackEndpoint, sendFeedback } from "./feedback-data.js";
+import { FeedbackSendError, feedbackApplication, feedbackDiagnostics, feedbackEvents, isScreenshotSendError, readFeedbackScreenshot, resolveFeedbackEndpoint, screenshotFromCanvas, sendFeedback, stripScreenshotMetadata } from "./feedback-data.js";
 
 afterEach(() => vi.unstubAllGlobals());
 describe("shared feedback data boundary", () => {
@@ -30,7 +30,7 @@ describe("shared feedback data boundary", () => {
     expect(() => feedbackApplication("mdbase reader", "/private/source.pdf")).toThrow("fixed identifiers");
   });
   it("rejects invalid/oversized attachments without decoding", async () => {
-    await expect(readFeedbackScreenshot(new File([new Uint8Array(3 * 1024 * 1024 + 1)], "private.png", { type: "image/png" }))).rejects.toThrow("smaller than 3 MB");
+    await expect(readFeedbackScreenshot(new File([new Uint8Array(20 * 1024 * 1024 + 1)], "private.png", { type: "image/png" }))).rejects.toThrow("smaller than 20 MB");
     await expect(readFeedbackScreenshot(new File(["svg"], "private.svg", { type: "image/svg+xml" }))).rejects.toThrow("PNG or JPEG");
     await expect(readFeedbackScreenshot(new File(["fake"], "private.png", { type: "image/png" }))).rejects.toThrow("valid PNG");
     const png = new Uint8Array(24); png.set([137, 80, 78, 71, 13, 10, 26, 10]); png.set([73, 72, 68, 82], 12);
@@ -39,8 +39,54 @@ describe("shared feedback data boundary", () => {
     const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0, 8, 8, 0xff, 0xff, 0xff, 0xff, 3]);
     await expect(readFeedbackScreenshot(new File([jpeg], "private.jpg", { type: "image/jpeg" }))).rejects.toThrow("16 megapixels");
   });
-  it("never exposes unstructured infrastructure responses", async () => {
+  it("strips browser-emitted PNG and JPEG metadata chunks client-side", () => {
+    const cleanPng = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (c) => c.charCodeAt(0));
+    const exif = new Uint8Array(12 + 4);
+    new DataView(exif.buffer).setUint32(0, 4);
+    exif.set([101, 88, 73, 102], 4); // eXIf
+    const headerEnd = 8 + 12 + 13;
+    const pngWithExif = new Uint8Array(cleanPng.length + exif.length);
+    pngWithExif.set(cleanPng.subarray(0, headerEnd), 0);
+    pngWithExif.set(exif, headerEnd);
+    pngWithExif.set(cleanPng.subarray(headerEnd), headerEnd + exif.length);
+    expect(stripScreenshotMetadata(pngWithExif, "image/png")).toEqual(cleanPng);
+
+    const cleanJpeg = Uint8Array.from(atob("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q=="), (c) => c.charCodeAt(0));
+    const app2 = new Uint8Array([0xff, 0xe2, 0x00, 0x06, 0x49, 0x43, 0x43, 0x00]);
+    const jpegWithApp2 = new Uint8Array(cleanJpeg.length + app2.length);
+    jpegWithApp2.set(cleanJpeg.subarray(0, 2), 0);
+    jpegWithApp2.set(app2, 2);
+    jpegWithApp2.set(cleanJpeg.subarray(2), 2 + app2.length);
+    expect(stripScreenshotMetadata(jpegWithApp2, "image/jpeg")).toEqual(cleanJpeg);
+  });
+  it("falls back to downscaled JPEG when a high-resolution PNG canvas exceeds 3 MB", async () => {
+    const smallJpeg = Uint8Array.from(atob("/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAMCAgICAgMCAgIDAwMDBAYEBAQEBAgGBgUGCQgKCgkICQkKDA8MCgsOCwkJDRENDg8QEBEQCgwSExIQEw8QEBD/wAALCAABAAEBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AVN//2Q=="), (c) => c.charCodeAt(0));
+    const makeCanvas = (w: number, h: number) => ({
+      width: w,
+      height: h,
+      getContext: () => ({ fillStyle: "", fillRect() {}, drawImage() {} }),
+      toBlob(cb: BlobCallback, mime?: string) {
+        if (mime === "image/png") cb(new Blob([new Uint8Array(3 * 1024 * 1024 + 100)], { type: "image/png" }));
+        else cb(new Blob([smallJpeg], { type: "image/jpeg" }));
+      }
+    }) as unknown as HTMLCanvasElement;
+    vi.stubGlobal("document", { createElement: () => makeCanvas(0, 0) });
+    const result = await screenshotFromCanvas(makeCanvas(3456, 2234), "image/png");
+    expect(result.media_type).toBe("image/jpeg");
+    expect(result.filename).toBe("screenshot.jpg");
+    expect(result.content_base64.length).toBeGreaterThan(0);
+  });
+  it("never exposes unstructured infrastructure responses and classifies screenshot errors", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("provider secrets", { status: 500 })));
     await expect(sendFeedback("https://feedback.example", { schema_version: 2, request_id: "id", application: feedbackApplication("mdbase reader", "library"), topic: "problem", message: "Help" }, new AbortController().signal)).rejects.toThrow("Please try again");
+
+    vi.stubGlobal("fetch", vi.fn(async () => Response.json({ error: { code: "invalid_screenshot", message: "The screenshot is invalid or too large." } }, { status: 400 })));
+    try {
+      await sendFeedback("https://feedback.example", { schema_version: 2, request_id: "id", application: feedbackApplication("mdbase reader", "library"), topic: "problem", message: "Help" }, new AbortController().signal);
+      expect.unreachable();
+    } catch (error) {
+      expect(error).toBeInstanceOf(FeedbackSendError);
+      expect(isScreenshotSendError(error)).toBe(true);
+    }
   });
 });

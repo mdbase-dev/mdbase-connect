@@ -438,8 +438,8 @@ msgid "Choose a screenshot smaller than 16 megapixels."
 msgstr "Escolha uma captura de tela com menos de 16 megapixels."
 
 #: src/feedback-data.ts
-msgid "Choose a screenshot smaller than 3 MB."
-msgstr "Escolha uma captura de tela menor que 3 MB."
+msgid "Choose a screenshot smaller than 20 MB."
+msgstr "Escolha uma captura de tela menor que 20 MB."
 
 #: src/Feedback.tsx
 msgid "Choose an image"
@@ -1659,6 +1659,10 @@ msgid "Sending…"
 msgstr "Enviando…"
 
 #: src/Feedback.tsx
+msgid "Sent privately to the mdbase team without the screenshot, which couldn’t be attached."
+msgstr "Enviado em caráter privado à equipe do mdbase sem a captura de tela, que não pôde ser anexada."
+
+#: src/Feedback.tsx
 msgid "Sent privately to the mdbase team."
 msgstr "Enviado em caráter privado à equipe do mdbase."
 
@@ -1996,6 +2000,10 @@ msgstr "Não foi possível ler a captura de tela."
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be saved."
 msgstr "Não foi possível salvar a captura de tela."
+
+#: src/Feedback.tsx
+msgid "The screenshot could not be sent and was excluded."
+msgstr "Não foi possível enviar a captura de tela e ela foi excluída."
 
 #: src/feedback-data.ts
 msgid "The screenshot does not contain a valid PNG or JPEG image."
