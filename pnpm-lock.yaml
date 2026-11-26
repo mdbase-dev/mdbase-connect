@@ -205,14 +205,14 @@ importers:
         specifier: 0.4.0
         version: 0.4.0(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase-dev/sdk':
-        specifier: file:vendor/sdk-4d300f92-production-0.2.32.tgz
-        version: file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz
+        specifier: file:vendor/sdk-b86ceff0-production-0.2.33.tgz
+        version: file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz
       '@mdbase-dev/sdk-self-hosted':
         specifier: file:vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz
         version: '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz'
       '@mdbase-dev/ui':
         specifier: 0.2.30
-        version: 0.2.30(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        version: 0.2.30(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -430,8 +430,8 @@ importers:
         specifier: workspace:*
         version: link:../i18n
       '@mdbase-dev/sdk':
-        specifier: file:../../apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz
-        version: file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz
+        specifier: file:../../apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz
+        version: file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz
       '@rolldown/plugin-babel':
         specifier: ^0.2.4
         version: 0.2.4(@babel/core@7.29.7(supports-color@10.2.2))(@babel/runtime@7.29.7)(rolldown@1.2.14)(vite@8.3.4(@types/node@24.19.0)(esbuild@0.28.1)(jiti@2.7.0)(terser@5.49.0)(tsx@4.23.1)(yaml@2.9.1))
@@ -620,8 +620,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/protocol
       '@mdbase-dev/sdk':
-        specifier: file:../../apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz
-        version: file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz
+        specifier: file:../../apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz
+        version: file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz
       '@modelcontextprotocol/ext-apps':
         specifier: ^1.7.5
         version: 1.7.5(@modelcontextprotocol/sdk@1.32.1(@cfworker/json-schema@4.1.6)(supports-color@10.2.2)(zod@4.6.6))(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(zod@4.6.6)
@@ -2315,9 +2315,9 @@ packages:
       react-dom:
         optional: true
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz':
-    resolution: {integrity: sha512-/2rXo/msQaqBj87QUQnNg/iC4j9o6doYJveg3ZsvQ9QI4BipK2eB4j5WRJzsaa1R/OkJVi3vVubf7sTcMnlQTw==, tarball: file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz}
-    version: 0.2.32
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz':
+    resolution: {integrity: sha512-btxT2jz6k8l9ehwdB/4XisWibi//JPrDaTGYFo/U7mRItKMVfo1xOQvakXlQLO6m/CWIxye6eVW+DDHKHXd98Q==, tarball: file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz}
+    version: 0.2.33
     engines: {node: '>=20'}
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
@@ -8222,7 +8222,7 @@ snapshots:
       react: 19.3.0
       react-dom: 19.3.0(react@19.3.0)
 
-  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz':
+  '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz':
     dependencies:
       '@noble/ciphers': 2.4.0
       '@noble/curves': 2.4.0
@@ -8234,7 +8234,7 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.2.30(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.2.30(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
@@ -8251,7 +8251,7 @@ snapshots:
       '@codemirror/view': 6.43.12
       '@lezer/common': 1.5.2
       '@lezer/markdown': 1.7.2
-      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-4d300f92-production-0.2.32.tgz
+      '@mdbase-dev/sdk': file:apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz
       react-dom: 19.3.0(react@19.3.0)
 
   '@messageformat/date-skeleton@1.1.0': {}
