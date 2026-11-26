@@ -1,8 +1,8 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "mdbase",
-  "version": "0.1.1",
-  "description": "Query and edit typed markdown collections you approve in mdbase connect.",
+  "version": "0.1.2",
+  "description": "Connect ChatGPT to the markdown collections you approve in mdbase connect.",
   "author": { "name": "mdbase", "url": "https://mdbase.dev" },
   "homepage": "https://mdbase.dev",
   "repository": "https://github.com/mdbase-dev/mdbase-connect",
@@ -12,8 +12,8 @@
     "com.openai": {
       "interface": {
         "displayName": "mdbase",
-        "shortDescription": "Typed markdown collections",
-        "longDescription": "mdbase treats a folder of markdown files as a typed, queryable collection: each file is a record, its YAML frontmatter holds the fields, and type definitions describe and validate them. This plugin connects ChatGPT to collections you explicitly approve in mdbase connect. Ask for records by type, field values, dates or links; read and summarise them; and create, update, rename or delete records with schema validation and revision checks so a concurrent edit is never silently overwritten. Each collection is approved separately with its own permissions, and you can revoke access at any time from mdbase connect. The plugin can also help build pages and small apps on top of a collection, using its type definitions to generate forms and tables.",
+        "shortDescription": "Connect markdown collections",
+        "longDescription": "This plugin connects ChatGPT to folders of markdown files that you approve in mdbase connect, including an existing Obsidian vault. Once a collection is connected, ChatGPT can find, read and summarise its records, and create, update, rename or delete them if you allow it. Each file is a record, and the fields in its frontmatter can be searched and filtered. Changes are validated against the collection's type definitions, and an edit is rejected if the record changed since it was read. Each collection is approved separately with its own permissions. You can remove access at any time in mdbase connect. The plugin can also help build pages and small apps on top of a collection.",
         "developerName": "mdbase",
         "category": "Productivity",
         "capabilities": ["Read", "Write"],
@@ -83,7 +83,7 @@
         }
       },
       "publication": {
-        "release_notes": "Initial mdbase plugin with collection workflows, revision-checked edits, and guidance for collection-backed interfaces."
+        "release_notes": "Clearer listing text: connects ChatGPT to the markdown collections you approve, including an existing Obsidian vault."
       }
     }
   }
