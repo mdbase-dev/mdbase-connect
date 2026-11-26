@@ -3,7 +3,7 @@
   container-type: inline-size;
   display: flex;
   flex-direction: column;
-  padding: 0 8px var(--space-3);
+  padding: 0 6px var(--space-3);
   border-right: 1px solid var(--line);
 }
 
@@ -253,7 +253,8 @@
 .collection-rail nav .rail-tree-row .rail-row-action {
   min-width: 0;
   min-height: 34px;
-  padding: 5px 26px 5px 4px;
+  gap: 4px;
+  padding: 5px 24px 5px 4px;
 }
 .collection-rail nav .rail-tree-row .rail-row-action > span { gap: 6px; }
 

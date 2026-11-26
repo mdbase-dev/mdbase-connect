@@ -161,9 +161,9 @@ describe("mdbase editor", () => {
     const collectionResize = screen.getByRole("separator", { name: "Resize collections sidebar" });
     collectionResize.focus();
     await user.keyboard("{ArrowRight}");
-    expect(collectionResize).toHaveAttribute("aria-valuenow", "220");
+    expect(collectionResize).toHaveAttribute("aria-valuenow", "184");
     expect(JSON.parse(localStorage.getItem("mdbase-editor:layout") ?? "null")).toMatchObject({
-      collectionWidth: 220,
+      collectionWidth: 184,
       collectionCollapsed: false,
       listCollapsed: false
     });

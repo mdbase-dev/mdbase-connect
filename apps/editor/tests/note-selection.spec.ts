@@ -7,7 +7,7 @@ test("selection preserves the anchor, keyboard range works, batch tag changes sh
   await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue("The shape of useful tools");
   const list = page.getByRole("listbox", { name: listName });
   const second = list.getByRole("option", { name: /Garden notes 2/ });
-  await second.click({ modifiers: ["Control"] });
+  await second.click({ modifiers: ["Shift"] });
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note title", exact: true })).toHaveValue("The shape of useful tools");
   await expect(list).toBeFocused();
@@ -50,7 +50,7 @@ test("pins persist only in All notes, selected drag moves all notes and Undo res
   await search.fill("Garden");
   await expect(list.locator(".note-group-header")).toHaveCount(0);
   await search.fill("");
-  await second.click({ modifiers: ["Control"] });
+  await second.click({ modifiers: ["Shift"] });
   await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
   await second.dragTo(page.getByRole("button", { name: /^Show notes in Archive,/ }));
   await expect(page.getByRole("status").filter({ has: page.getByRole("button", { name: "Undo", exact: true }) })).toContainText("Moved 2 notes");

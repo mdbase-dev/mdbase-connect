@@ -122,7 +122,7 @@ test.describe("responsive themed view readiness", () => {
 
       if (mobile) await page.getByRole("button", { name: "Back to notes", exact: true }).click();
       const list = page.getByRole("listbox", { name: "Collection notes and files" });
-      await list.getByRole("option", { name: /Garden notes 2/ }).click({ modifiers: ["Control"] });
+      await list.getByRole("option", { name: /Garden notes 2/ }).click({ modifiers: ["Shift"] });
       await expect(page.getByText("2 selected", { exact: true })).toBeVisible();
       await checkView("Selected list");
 
