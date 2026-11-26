@@ -272,7 +272,7 @@ fn inner_commit_error(e: StoreError) -> StoreError {
 }
 
 fn db_err(e: DbError) -> StoreError {
-    StoreError::Io(format!("disk db: {}", e.0))
+    e.into()
 }
 
 fn fs_err(e: FsError) -> StoreError {

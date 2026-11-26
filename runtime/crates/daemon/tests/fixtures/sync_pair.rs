@@ -330,7 +330,7 @@ fn open_with(
         Box::new(NoGrants)
     };
     Runtime::open(cfg, d.secrets(), grants, Default::default())
-        .unwrap_or_else(|e| panic!("open {}: {}", d.label, e.0))
+        .unwrap_or_else(|e| panic!("open {}: {e}", d.label))
 }
 
 /// A host session on `rt` (the daemon is the host).

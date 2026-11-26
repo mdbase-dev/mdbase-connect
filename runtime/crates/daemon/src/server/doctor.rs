@@ -246,7 +246,17 @@ mod collection_check_tests {
             serde_json::json!([]),
         ));
         assert_eq!(c.status, "fail");
+        assert!(c.detail.contains("Failed (open_failed)"), "{}", c.detail);
         assert!(c.action.unwrap().contains("mdbase logs"));
+
+        let notice = "The collection could not open because of a local storage error; mdbase reopens it automatically.";
+        let c = collection_check(&status(
+            "failed",
+            Some("open_failed"),
+            serde_json::json!([{"code": "open_failed", "message": notice}]),
+        ));
+        assert_eq!(c.status, "fail");
+        assert_eq!(c.action.as_deref(), Some(notice));
 
         let notice = "Sync stopped: this collection's storage on this computer failed the same way after 3 automatic reopens (x). Check this computer's disk, free space and keychain, then run `mdbase collection resume 900c5d48`.";
         let c = collection_check(&status(

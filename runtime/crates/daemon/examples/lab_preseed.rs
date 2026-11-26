@@ -284,7 +284,7 @@ async fn main() {
         Box::new(HostOnly),
         Default::default(),
     )
-    .unwrap_or_else(|e| panic!("open: {}", e.0));
+    .unwrap_or_else(|e| panic!("open: {e}"));
 
     // Caught up with exactly the control prefix, keyed, no incidents.
     let t0 = Instant::now();

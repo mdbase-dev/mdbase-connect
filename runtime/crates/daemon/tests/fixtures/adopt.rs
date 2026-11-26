@@ -387,7 +387,7 @@ pub fn open(
         kem_sk: plan.kem[label],
     };
     Runtime::open(cfg, secrets, Box::new(NoGrants), Default::default())
-        .unwrap_or_else(|e| panic!("open {label}: {}", e.0))
+        .unwrap_or_else(|e| panic!("open {label}: {e}"))
 }
 
 /// Wait until the runtime's adopt is no longer pending; panics on failure.

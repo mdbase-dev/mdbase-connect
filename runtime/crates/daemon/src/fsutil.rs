@@ -1,7 +1,7 @@
 //! Small durable-file helpers for the daemon's own state (never collection files:
 //! those go through `FilePlatform`).
 
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::{self, Write};
 use std::path::Path;
 
@@ -83,6 +83,16 @@ pub fn verify_owner_only(path: &Path) -> io::Result<()> {
 /// directory, fsync, rename over `path`, fsync the directory. A crash leaves either
 /// the old or the new content, never a torn file.
 pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    write_atomic_using(path, |f| {
+        f.write_all(bytes)?;
+        f.sync_all()
+    })
+}
+
+fn write_atomic_using(
+    path: &Path,
+    write: impl FnOnce(&mut File) -> io::Result<()>,
+) -> io::Result<()> {
     let dir = path
         .parent()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no parent"))?;
@@ -94,19 +104,17 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
         name.to_string_lossy(),
         std::process::id()
     ));
+    let mut opts = OpenOptions::new();
+    opts.write(true).create(true).truncate(true);
+    #[cfg(unix)]
     {
-        let mut opts = OpenOptions::new();
-        opts.write(true).create(true).truncate(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o600);
-        }
-        let mut f = opts.open(&tmp)?;
-        f.write_all(bytes)?;
-        f.sync_all()?;
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o600);
     }
-    if let Err(e) = fs::rename(&tmp, path) {
+    let mut file = opts.open(&tmp)?;
+    let written = write(&mut file);
+    drop(file);
+    if let Err(e) = written.and_then(|()| fs::rename(&tmp, path)) {
         let _ = fs::remove_file(&tmp);
         return Err(e);
     }
@@ -158,6 +166,25 @@ pub fn now_ms() -> u128 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disk_full_removes_failed_diagnostic_temp_and_preserves_last_good_copy() {
+        let dir = crate::testutil::TestDir::new("failed-diagnostic");
+        let path = dir.path().join("last-sync-failure.json");
+        write_atomic(&path, b"last good diagnostic").unwrap();
+        for partial in [false, true] {
+            let error = write_atomic_using(&path, |file| {
+                if partial {
+                    file.write_all(b"partial")?;
+                }
+                Err(io::ErrorKind::StorageFull.into())
+            })
+            .unwrap_err();
+            assert_eq!(error.kind(), io::ErrorKind::StorageFull);
+            assert_eq!(fs::read(&path).unwrap(), b"last good diagnostic");
+            assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+        }
+    }
 
     #[test]
     fn atomic_write_replaces_and_reads_back() {

@@ -436,7 +436,7 @@ async fn cloud_fixture(
             Box::new(NoGrants),
             Default::default(),
         )
-        .unwrap_or_else(|e| panic!("open hosted: {}", e.0)),
+        .unwrap_or_else(|e| panic!("open hosted: {e}")),
     );
     for _ in 0..200 {
         if hosted_rt

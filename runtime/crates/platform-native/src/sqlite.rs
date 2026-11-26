@@ -43,8 +43,12 @@ fn index_err(e: rusqlite::Error) -> IndexError {
     IndexError::new(kind, e.to_string())
 }
 fn barrier_err(e: std::io::Error) -> IndexError {
+    let kind = match e.kind() {
+        std::io::ErrorKind::StorageFull | std::io::ErrorKind::QuotaExceeded => IndexErrorKind::Full,
+        _ => IndexErrorKind::Other,
+    };
     IndexError::new(
-        IndexErrorKind::Other,
+        kind,
         format!("required device commit failed (unknown outcome; reopen required): {e}"),
     )
 }

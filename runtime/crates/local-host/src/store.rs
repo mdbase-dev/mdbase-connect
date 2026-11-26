@@ -134,7 +134,7 @@ pub fn open_store(
     .map_err(Error::Platform)?;
     // The same connection stays live through FileStore::open and for the
     // store's lifetime. No competing opener can change admission in between.
-    let db = SqlDiskDb::open(index).map_err(|e| Error::Identity(format!("disk db: {e:?}")))?;
+    let db = SqlDiskDb::open(index).map_err(|e| Error::Store(e.into()))?;
     Ok(FileStore::open(
         Rc::new(platform),
         inner,

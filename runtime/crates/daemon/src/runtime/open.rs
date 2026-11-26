@@ -1,6 +1,42 @@
 //! Pre-open checks on private state, the readiness rule and opening the replica.
 
 use super::*;
+use mdbn_local_host::{Error as HostError, LockError};
+use mdbn_replica::{StoreError, replica::OpenError};
+use mdbn_store_file::{index::IndexErrorKind, platform::FsErrorKind};
+
+fn retryable_io(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind::*;
+    matches!(
+        error.kind(),
+        StorageFull | QuotaExceeded | WouldBlock | Interrupted
+    )
+}
+
+fn open_error(context: &str, error: impl std::fmt::Debug, retryable: bool) -> OpenFailed {
+    let detail = format!("{context}: {error:?}");
+    if retryable {
+        OpenFailed::RetryableIo(detail)
+    } else {
+        OpenFailed::Other(detail)
+    }
+}
+
+fn store_error(context: &str, error: StoreError) -> OpenFailed {
+    let retryable = error == StoreError::Full;
+    open_error(context, error, retryable)
+}
+
+fn host_error(error: HostError) -> OpenFailed {
+    let retryable = match &error {
+        HostError::Io(e) | HostError::Lock(LockError::Io(e)) => retryable_io(e),
+        HostError::Platform(e) => matches!(e.kind, FsErrorKind::NoSpace | FsErrorKind::Busy),
+        HostError::Index(e) => e.kind == IndexErrorKind::Full,
+        HostError::Store(StoreError::Full) => true,
+        _ => false,
+    };
+    open_error("store", error, retryable)
+}
 
 /// The verified policy a synced collection's index already holds, checked before
 /// user-file IO. Missing/new cache is not trusted; genesis/pins must match.
@@ -9,44 +45,56 @@ pub fn preopen_cache_check(
     private_dir: &std::path::Path,
     expected_genesis: [u8; 32],
     pins: &mdbn_replica::policy::PolicyPins,
-) -> Result<Option<mdbn_replica::policy::PolicyState>, String> {
+) -> Result<Option<mdbn_replica::policy::PolicyState>, OpenFailed> {
     use mdbn_replica::store::{Store as _, meta_keys};
     let path = private_dir.join("index.sqlite");
-    if !path.exists() {
+    if !path.try_exists().map_err(|e| {
+        let retryable = retryable_io(&e);
+        open_error("cache path", e, retryable)
+    })? {
         return Ok(None);
     }
     let index = Rc::new(RefCell::new(
-        SqliteIndex::open(path, IndexDurability::Durable).map_err(|e| format!("index: {e:?}"))?,
+        SqliteIndex::open(path, IndexDurability::Durable).map_err(|e| {
+            let retryable = e.kind == IndexErrorKind::Full;
+            open_error("cache index", e, retryable)
+        })?,
     ));
     let store = SqlStore::open_with_limits(index, SqlStoreLimits::DESKTOP)
-        .map_err(|e| format!("store: {e:?}"))?;
+        .map_err(|e| store_error("cache store", e))?;
     // A present committed marker is authoritative even in a cold/empty cache.
     // Check it BEFORE allowing missing/seq0 policy to skip the warm-history gate.
     let genesis = store
         .meta(meta_keys::GENESIS)
-        .map_err(|e| format!("{e:?}"))?;
+        .map_err(|e| store_error("cache metadata", e))?;
     if genesis
         .as_deref()
         .is_some_and(|g| g != &expected_genesis[..])
     {
-        return Err("the cached store does not hold the pinned genesis".into());
+        return Err(OpenFailed::Other(
+            "the cached store does not hold the pinned genesis".into(),
+        ));
     }
     let Some(policy) = store
         .meta(meta_keys::POLICY)
-        .map_err(|e| format!("{e:?}"))?
+        .map_err(|e| store_error("cache metadata", e))?
     else {
         return Ok(None);
     };
     let policy = mdbn_replica::policy::PolicyState::from_bytes(&policy)
-        .map_err(|e| format!("policy: {e}"))?;
+        .map_err(|e| OpenFailed::Other(format!("cache policy: {e}")))?;
     if policy.seq == 0 {
         return Ok(None);
     }
     if genesis.as_deref() != Some(&expected_genesis[..]) {
-        return Err("the cached store does not hold the pinned genesis".into());
+        return Err(OpenFailed::Other(
+            "the cached store does not hold the pinned genesis".into(),
+        ));
     }
     if !policy.consistent_with(pins) {
-        return Err("the cached store was built under unpublished control-plane keys".into());
+        return Err(OpenFailed::Other(
+            "the cached store was built under unpublished control-plane keys".into(),
+        ));
     }
     Ok(Some(policy))
 }
@@ -60,14 +108,17 @@ pub fn cached_eligibility(
     account: [u8; 16],
     expected_genesis: [u8; 32],
     pins: &mdbn_replica::policy::PolicyPins,
-) -> Result<(), String> {
-    let policy = preopen_cache_check(private_dir, expected_genesis, pins)?.ok_or("never opened")?;
+) -> Result<(), OpenFailed> {
+    let policy = preopen_cache_check(private_dir, expected_genesis, pins)?
+        .ok_or_else(|| OpenFailed::Other("never opened".into()))?;
     let active = policy
         .devices
         .get(&B16(device))
         .is_some_and(|d| d.active && d.account == B16(account));
     if !active || !policy.members.contains_key(&B16(account)) {
-        return Err("not an active member device in the verified policy".into());
+        return Err(OpenFailed::Other(
+            "not an active member device in the verified policy".into(),
+        ));
     }
     Ok(())
 }
@@ -131,12 +182,12 @@ fn refuse_lockless_host(root: &std::path::Path) -> Result<(), OpenFailed> {
             if !matches!(d.host, HostKind::Daemon | HostKind::Library)
                 && !d.is_stale(crate::fsutil::now_ms() as u64, HOST_DESCRIPTOR_STALE_MS) =>
         {
-            Err(OpenFailed(format!(
+            Err(OpenFailed::HostedElsewhere(format!(
                 "folder host lock: hosted by {}",
                 d.host
             )))
         }
-        DescriptorState::Unreadable(why) => Err(OpenFailed(format!(
+        DescriptorState::Unreadable(why) => Err(OpenFailed::HostedElsewhere(format!(
             "folder host lock: unreadable host descriptor ({why})"
         ))),
         _ => Ok(()),
@@ -150,14 +201,15 @@ pub(super) fn open_replica(
     secrets: DeviceSecrets,
     source: Box<dyn mdbn_replica::policy::GrantSource>,
 ) -> Result<(Replica<Store>, mdbn_local_host::HostLock), OpenFailed> {
-    let err = |what: &str, e: &dyn std::fmt::Debug| OpenFailed(format!("{what}: {e:?}"));
     let t0 = std::time::Instant::now();
-    crate::fsutil::ensure_private_dir(&cfg.private_dir).map_err(|e| err("state dir", &e))?;
+    crate::fsutil::ensure_private_dir(&cfg.private_dir).map_err(|e| {
+        let retryable = retryable_io(&e);
+        open_error("state dir", e, retryable)
+    })?;
     // Synced: a cached store must match the pinned genesis and the published keys
     // before the folder is opened (no user-file IO for a refused cache).
     if let Some(sync) = &cfg.sync {
-        preopen_cache_check(&cfg.private_dir, sync.expected_genesis, &sync.policy_pins)
-            .map_err(|e| OpenFailed(format!("cache: {e}")))?;
+        preopen_cache_check(&cfg.private_dir, sync.expected_genesis, &sync.policy_pins)?;
     }
     // One host per folder: the library or another daemon holding it refuses here,
     // before any file or index is touched.
@@ -170,7 +222,14 @@ pub(super) fn open_replica(
             crate::fsutil::now_ms() as u64,
         )),
     )
-    .map_err(|e| OpenFailed(format!("folder host lock: {e}")))?;
+    .map_err(|e| {
+        let detail = format!("folder host lock: {e}");
+        if matches!(&e, LockError::Io(io) if retryable_io(io)) {
+            OpenFailed::RetryableIo(detail)
+        } else {
+            OpenFailed::HostedElsewhere(detail)
+        }
+    })?;
     // The shared native composition (mdbn-local-host): file store over the native
     // platform, the durable SQLite index in this collection's state directory.
     let store = mdbn_local_host::open_store(
@@ -184,7 +243,7 @@ pub(super) fn open_replica(
         },
         Box::new(mdbn_local_host::SystemClock),
     )
-    .map_err(|e| OpenFailed(format!("store: {e}")))?;
+    .map_err(host_error)?;
     let diagnostics = store.platform().diagnostics();
     let platform = store.platform().clone();
     if diagnostics.backup_exclusion_failures != 0 {
@@ -198,7 +257,7 @@ pub(super) fn open_replica(
         cfg.sync.as_ref().map(|s| s.secrets.clone()),
         &B16(cfg.collection),
     )
-    .map_err(|e| err("keyring", &e))?;
+    .map_err(|e| store_error("keyring", e))?;
     let store_ms = t0.elapsed().as_millis() as u64;
     let rcfg = match &cfg.sync {
         None => ReplicaConfig {
@@ -238,7 +297,7 @@ pub(super) fn open_replica(
     };
     // Fail closed before any transport use: trust anchors are local.
     rcfg.validate_host_trust()
-        .map_err(|e| OpenFailed(format!("trust: {e}")))?;
+        .map_err(|e| OpenFailed::Other(format!("trust: {e}")))?;
     let sealer = KeyringSealer::new(
         B16(cfg.collection),
         B16(cfg.device_id),
@@ -261,7 +320,13 @@ pub(super) fn open_replica(
         secrets,
         source,
     )
-    .map_err(|e| err("replica", &e))?;
+    .map_err(|e| {
+        let retryable = matches!(
+            e,
+            OpenError::Store(StoreError::Full) | OpenError::StoreAt(_, StoreError::Full)
+        );
+        open_error("replica", e, retryable)
+    })?;
     // The desktop composition point explicitly selects its query fallback policy;
     // portable/hosted/mobile defaults remain constrained.
     rep.set_query_execution_profile(mdbn_replica::QueryExecutionProfile::Desktop);
@@ -289,7 +354,7 @@ pub(super) fn open_replica(
     let t1 = std::time::Instant::now();
     let observed = rep.observe(None);
     log_retention_reclaims(&mut rep);
-    observed.map_err(|e| err("first scan", &e))?;
+    observed.map_err(|e| store_error("first scan", e))?;
     tracing::info!(
         store_ms,
         replica_ms,
@@ -407,7 +472,9 @@ mod tests {
         }
         put(dir.path(), meta_keys::GENESIS, Some(vec![8; 32]));
         assert_eq!(
-            super::preopen_cache_check(dir.path(), [9; 32], &pins).unwrap_err(),
+            super::preopen_cache_check(dir.path(), [9; 32], &pins)
+                .unwrap_err()
+                .to_string(),
             "the cached store does not hold the pinned genesis"
         );
         put(
@@ -416,7 +483,9 @@ mod tests {
             Some(mdbn_replica::policy::PolicyState::new().to_bytes().unwrap()),
         );
         assert_eq!(
-            super::preopen_cache_check(dir.path(), [9; 32], &pins).unwrap_err(),
+            super::preopen_cache_check(dir.path(), [9; 32], &pins)
+                .unwrap_err()
+                .to_string(),
             "the cached store does not hold the pinned genesis"
         );
         put(dir.path(), meta_keys::GENESIS, Some(vec![9; 32]));
@@ -479,7 +548,7 @@ mod tests {
             Box::new(NoGrants),
         );
         assert!(
-            matches!(&second, Err(e) if e.0.starts_with("folder host lock")),
+            matches!(&second, Err(super::OpenFailed::HostedElsewhere(why)) if why.starts_with("folder host lock")),
             "{:?}",
             second.err()
         );
@@ -510,12 +579,14 @@ mod tests {
         obsidian(now);
         let refused = open();
         assert!(
-            matches!(&refused, Err(e) if e.0.starts_with("folder host lock: hosted by Obsidian")),
+            matches!(&refused, Err(super::OpenFailed::HostedElsewhere(why)) if why.starts_with("folder host lock: hosted by Obsidian")),
             "{:?}",
             refused.err()
         );
         std::fs::write(&descriptor, b"{not json").unwrap();
-        assert!(matches!(&open(), Err(e) if e.0.starts_with("folder host lock: unreadable")),);
+        assert!(
+            matches!(&open(), Err(super::OpenFailed::HostedElsewhere(why)) if why.starts_with("folder host lock: unreadable")),
+        );
         // A dead (stale) Obsidian host is taken over, and the daemon's own
         // descriptor replaces it, which a paused plugin yields to.
         obsidian(now - super::HOST_DESCRIPTOR_STALE_MS - 1_000);
