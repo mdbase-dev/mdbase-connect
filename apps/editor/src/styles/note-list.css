@@ -214,6 +214,7 @@
 /* Line two: where the note is, how it starts, and its type. */
 .note-detail {
   min-width: 0;
+  min-height: 1.5em;
   display: flex;
   align-items: center;
   gap: 6px;
@@ -232,7 +233,7 @@
   text-overflow: ellipsis;
 }
 
-.note-detail .note-folder + .note-excerpt::before {
+.note-detail .note-folder + .note-excerpt:not(.note-excerpt-placeholder)::before {
   content: "·";
   margin-right: 5px;
   color: var(--faint);
@@ -245,6 +246,22 @@
   color: var(--faint);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Quiet fixed-height placeholder before a note's body is loaded, so opening notes never shift row height. */
+.note-excerpt-placeholder {
+  display: inline-flex;
+  align-items: center;
+  height: 1.5em;
+}
+
+.note-excerpt-placeholder::after {
+  content: "";
+  display: block;
+  width: min(60%, 120px);
+  height: 7px;
+  border-radius: 3px;
+  background: var(--hover);
 }
 
 /* A search hit quotes the text that matched, so it reads at the title's strength. */

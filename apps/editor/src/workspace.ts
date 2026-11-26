@@ -197,10 +197,10 @@ export function adjacentTab(workspace: Workspace, direction: -1 | 1): NoteTab {
 
 const SIDE: Record<SplitDirection, SplitSide> = { right: "right", down: "bottom" };
 
-/** Opens a pane on `path` to the right of the focused pane, or under it, and focuses it. */
-export function splitPane(workspace: Workspace, direction: SplitDirection, path: string | undefined): Workspace {
+/** Opens a pane on `path` to the right of the given (or focused) pane, or under it, and focuses it. */
+export function splitPane(workspace: Workspace, direction: SplitDirection, path: string | undefined, stackId = focusedPane(workspace).id): Workspace {
   const panel = newPanel(workspace.layout, path === undefined ? emptyNoteHistory : visitNote(emptyNoteHistory, path));
-  const opened = apply(workspace.layout, { type: "add", panel, target: { at: "split", stack: focusedPane(workspace).id, side: SIDE[direction] } });
+  const opened = apply(workspace.layout, { type: "add", panel, target: { at: "split", stack: stackId, side: SIDE[direction] } });
   return workspaceOf(apply(opened, { type: "focus", stack: stackOfPanel(opened, panel.id)!.id }));
 }
 

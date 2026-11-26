@@ -169,7 +169,11 @@ function AppMenu({ apps, current, collectionId, mcpUrl, onClose }: {
         <AiAssistantsItem setupUrl={mcpUrl} onClose={onClose} />
       </div>
     </>}
-    <div className="mdbase-menu-note">{t({ message: "Opens in a new tab" })}</div>
+    <div className="mdbase-menu-note">
+      {hasCollection
+        ? t({ message: "Opens in a new tab. Sign in to the app if prompted to open this collection.", context: "App switcher" })
+        : t({ message: "Opens in a new tab" })}
+    </div>
   </>;
 }
 

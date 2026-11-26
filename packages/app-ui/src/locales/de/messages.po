@@ -1348,6 +1348,11 @@ msgstr "Wird geöffnet…"
 msgid "Opens in a new tab"
 msgstr "Wird in einem neuen Tab geöffnet"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Opens in a new tab. Sign in to the app if prompted to open this collection."
+msgstr "Wird in einem neuen Tab geöffnet. Melden Sie sich bei Bedarf in der App an, um diese Sammlung zu öffnen."
+
 #: src/filter-builder/labels.ts
 msgctxt "Filter builder"
 msgid "Operator"

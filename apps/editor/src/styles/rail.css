@@ -3,7 +3,7 @@
   container-type: inline-size;
   display: flex;
   flex-direction: column;
-  padding: 0 10px var(--space-3);
+  padding: 0 8px var(--space-3);
   border-right: 1px solid var(--line);
 }
 
@@ -232,13 +232,13 @@
   min-width: 0;
   position: relative;
   display: grid;
-  grid-template-columns: 20px minmax(0, 1fr);
+  grid-template-columns: 16px minmax(0, 1fr);
   align-items: center;
 }
 
 .collection-rail nav .rail-tree-row .folder-disclosure,
 .collection-rail nav .rail-tree-row .folder-disclosure-spacer {
-  width: 20px;
+  width: 16px;
   min-height: 34px;
   display: flex;
   align-items: center;
@@ -253,7 +253,7 @@
 .collection-rail nav .rail-tree-row .rail-row-action {
   min-width: 0;
   min-height: 34px;
-  padding: 5px 28px 5px 3px;
+  padding: 5px 26px 5px 4px;
 }
 .collection-rail nav .rail-tree-row .rail-row-action > span { gap: 6px; }
 

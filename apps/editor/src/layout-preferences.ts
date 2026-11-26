@@ -7,7 +7,7 @@ export interface LayoutPreferences {
   compactList: boolean;
 }
 
-export const COLLECTION_WIDTH = { default: 176, min: 144, max: 280 } as const;
+export const COLLECTION_WIDTH = { default: 212, min: 144, max: 320 } as const;
 export const LIST_WIDTH = { default: 304, min: 240, max: 520 } as const;
 export const INSPECTOR_WIDTH = { default: 340, min: 280, max: 560 } as const;
 

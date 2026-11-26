@@ -161,12 +161,19 @@ describe("mdbase editor", () => {
     const collectionResize = screen.getByRole("separator", { name: "Resize collections sidebar" });
     collectionResize.focus();
     await user.keyboard("{ArrowRight}");
-    expect(collectionResize).toHaveAttribute("aria-valuenow", "184");
+    expect(collectionResize).toHaveAttribute("aria-valuenow", "220");
     expect(JSON.parse(localStorage.getItem("mdbase-editor:layout") ?? "null")).toMatchObject({
-      collectionWidth: 184,
+      collectionWidth: 220,
       collectionCollapsed: false,
       listCollapsed: false
     });
+
+    const folderButtons = [...collectionRail.querySelectorAll<HTMLButtonElement>("[data-folder-path]")];
+    expect(folderButtons.length).toBeGreaterThan(0);
+    for (const button of folderButtons) {
+      expect(button).toHaveAttribute("title", button.dataset.folderPath);
+    }
+    expect(collectionRail.querySelector<HTMLButtonElement>('[data-folder-path="_mdbase"]')).toHaveAttribute("title", "_mdbase");
 
     await user.click(within(screen.getByRole("complementary", { name: "Collection navigation" })).getByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Forget from this browser" }));

@@ -109,7 +109,7 @@
 @media (max-width: 1120px) {
   .app-shell,
   .app-shell.inspector-visible {
-    --collection-display: min(var(--collection-track), 156px);
+    --collection-display: min(var(--collection-track), 184px);
     --list-display: min(var(--list-track), 278px);
     grid-template-columns: var(--collection-display) var(--list-display) minmax(320px, 1fr);
   }

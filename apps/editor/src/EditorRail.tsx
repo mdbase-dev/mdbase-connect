@@ -39,6 +39,7 @@ interface RailDestination {
 }
 
 export function EditorRail({
+  collectionId,
   collectionName,
   noteCount,
   typeCount,
@@ -56,6 +57,7 @@ export function EditorRail({
   children,
   footer
 }: {
+  collectionId?: string;
   collectionName: string;
   noteCount?: number;
   typeCount?: number;
@@ -75,7 +77,7 @@ export function EditorRail({
 } & RailDropActions) {
   useLingui();
   return <aside className="collection-rail" aria-label={t`Collection navigation`}>
-    <div className="rail-header"><div className="rail-collection-heading"><AppSwitcher current="editor" urls={appUrls} />{switcher ?? <span className="rail-current-collection"><span>{collectionName}</span></span>}</div>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
+    <div className="rail-header"><div className="rail-collection-heading"><AppSwitcher current="editor" urls={appUrls} collectionId={collectionId} />{switcher ?? <span className="rail-current-collection" title={collectionName}><span>{collectionName}</span></span>}</div>{onCollapse && <RailCollapseButton onClick={onCollapse} />}</div>
     <nav>
       {mobileReturn && <a className="mobile-editor-return" href={mobileReturn.href} onClick={mobileReturn.onClick}><span><ArrowLeft aria-hidden="true" />{mobileReturn.label}</span></a>}
       <div className="rail-scroll">

@@ -37,6 +37,8 @@ export { PushPinIcon } from "@phosphor-icons/react/PushPin";
 export { PlusIcon } from "@phosphor-icons/react/Plus";
 export { SidebarSimpleIcon } from "@phosphor-icons/react/SidebarSimple";
 export { SlidersHorizontalIcon } from "@phosphor-icons/react/SlidersHorizontal";
+export { SquareSplitHorizontalIcon } from "@phosphor-icons/react/SquareSplitHorizontal";
+export { SquareSplitVerticalIcon } from "@phosphor-icons/react/SquareSplitVertical";
 export { TagIcon } from "@phosphor-icons/react/Tag";
 export { TextBIcon } from "@phosphor-icons/react/TextB";
 export { TextHTwoIcon } from "@phosphor-icons/react/TextHTwo";

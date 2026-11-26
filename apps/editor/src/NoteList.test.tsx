@@ -61,8 +61,17 @@ describe("NoteList search presentation", () => {
     expect(archive).toHaveTextContent("No additional text");
     expect(archive.querySelector(".note-type-badge")).toHaveTextContent("Obsidian base");
     expect(archive.querySelector(".note-type-badge")).toHaveAttribute("title", "Type: obsidian_base");
-    // A body still loading is not yet known to be empty.
+    // A body still loading renders a quiet fixed-height placeholder rather than claiming empty text.
     expect(later).not.toHaveTextContent("No additional text");
+    expect(later.querySelector(".note-excerpt-placeholder")).toHaveAttribute("aria-hidden", "true");
+    expect(archive.querySelector(".note-excerpt-placeholder")).toBeNull();
+
+    // Once the body arrives, the placeholder becomes the real excerpt inside the same detail slot.
+    const loaded: NoteSummary = { ...unloaded, body: "# later\n\nOpening paragraph here." };
+    view.rerender(<NoteList {...props} entries={[undated, loaded].map((note) => ({ kind: "note" as const, path: note.path, note }))} />);
+    const loadedRow = screen.getAllByRole("option")[1];
+    expect(loadedRow.querySelector(".note-excerpt-placeholder")).toBeNull();
+    expect(loadedRow.querySelector(".note-excerpt")).toHaveTextContent("Opening paragraph here.");
 
     fireEvent.click(screen.getByRole("button", { name: "View options" }));
     fireEvent.click(screen.getByRole("menuitemcheckbox", { name: "Compact" }));
@@ -351,5 +360,37 @@ describe("NoteList touch selection", () => {
     expect(props.onSelection).toHaveBeenLastCalledWith({ paths: [], anchor: "Notes/one.md", focus: "Notes/one.md" });
     expect(props.onSelect).not.toHaveBeenCalled();
     coarse.mockRestore();
+  });
+
+  it("opens in a new tab on Ctrl/Cmd-click when single-selected, and toggles when multi-selecting", () => {
+    const notes = ["Notes/one.md", "Notes/two.md", "Notes/three.md"].map((path): NoteSummary => ({ path, frontmatter: {}, effectiveFrontmatter: {}, types: [], body: "", file: { mtime: "2026-01-01T12:00:00Z" } }));
+    const noop = () => {};
+    const onOpenInNewTab = vi.fn();
+    const onSelection = vi.fn();
+    const onSelect = vi.fn();
+    const props = {
+      entries: notes.map((note) => ({ kind: "note" as const, path: note.path, note })),
+      noteCount: 3, fileCount: 0, types: [], selectedPath: notes[0].path, statuses: new Map(),
+      search: "", searchQuery: "", searchContexts: new Map(), sort: defaultNoteSort, sortFields: [],
+      collectionName: "Test", loading: false, structureLoading: false, filesLoading: false,
+      searchPending: false,
+      onSearch: noop, onSort: noop, onClearScope: noop,
+      onRetryStructure: noop, onRetrySearch: noop, onRetryContent: noop, onRetryFiles: noop,
+      onSelect, onSelection, onOpenInNewTab, onSelectFile: noop, onCollections: noop
+    };
+    const view = render(<NoteList {...props} />);
+    fireEvent.click(screen.getAllByRole("option")[1], { ctrlKey: true });
+    expect(onOpenInNewTab).toHaveBeenLastCalledWith("Notes/two.md");
+    expect(onSelect).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getAllByRole("option")[2], { metaKey: true });
+    expect(onOpenInNewTab).toHaveBeenLastCalledWith("Notes/three.md");
+    expect(onOpenInNewTab).toHaveBeenCalledTimes(2);
+
+    // Once multiple notes are selected, Ctrl/Cmd-click toggles items in the selection instead.
+    view.rerender(<NoteList {...props} selection={{ paths: ["Notes/one.md", "Notes/two.md"], anchor: "Notes/one.md", focus: "Notes/two.md" }} />);
+    fireEvent.click(screen.getAllByRole("option")[2], { ctrlKey: true });
+    expect(onOpenInNewTab).toHaveBeenCalledTimes(2);
+    expect(onSelection).toHaveBeenLastCalledWith({ paths: ["Notes/one.md", "Notes/two.md", "Notes/three.md"], anchor: "Notes/one.md", focus: "Notes/three.md" });
   });
 });

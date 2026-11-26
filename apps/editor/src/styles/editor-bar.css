@@ -253,6 +253,7 @@
 
 .action-menu-separator { height: 1px; margin: var(--space-1) 0; background: var(--line); }
 .danger-action { color: var(--danger); }
+.mdbase-menu-item .menu-item-shortcut { margin-left: auto; padding-left: var(--space-4); color: var(--faint); font-size: var(--font-size-caption); }
 
 .notice,
 .rename-confirm {

@@ -74,7 +74,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   onRetryFiles: () => void;
   onSelect: (path: string, options?: { keyboard?: boolean }) => void;
   onSelectFile: (file: CollectionFile) => void;
-  /** Opens a note in a new tab, from a middle click on its row; without it, the row ignores the middle button. */
+  /** Opens a note in a new tab, from Ctrl/Cmd-click or middle-click on its row; without it, those fall back to regular row behavior. */
   onOpenInNewTab?: (path: string) => void;
   filter?: NoteFilter;
   tags?: SearchFacet[];
@@ -134,14 +134,17 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
     if (mode === "single" || !currentSelection.anchor || !selectable.includes(currentSelection.anchor)) onSelect(next.anchor!, { keyboard });
     if (mode !== "single" || keyboard) scrollRef.current?.focus({ preventScroll: true });
   };
-  // Touch has no modifier keys; holding a note offers Select, which starts a selection with it.
+  // Row menus offer Select to enter multi-selection mode (for touch and non-contiguous desktop picks).
   const rowActions = (path: string): ActionMenuItem[] => {
     const actions = noteActions?.(path) ?? [];
-    if (!onStartSelecting || selecting || !coarsePointer()) return actions;
-    return [{ label: t`Select`, icon: <CheckCircleIcon aria-hidden="true" />, onSelect: () => {
+    if (!onStartSelecting || selecting || (currentSelection.paths.length > 1 && selectedPaths.has(path))) return actions;
+    const selectAction: ActionMenuItem = { label: t`Select`, icon: <CheckCircleIcon aria-hidden="true" />, onSelect: () => {
       onSelection?.({ paths: [path], anchor: path, focus: path });
       onStartSelecting();
-    } }, ...actions];
+    } };
+    if (coarsePointer()) return [selectAction, ...actions];
+    const dangerAt = actions.findIndex((item) => item.tone === "danger");
+    return dangerAt < 0 ? [...actions, selectAction] : [...actions.slice(0, dangerAt), selectAction, ...actions.slice(dangerAt)];
   };
   const rowSecondLine = useCallback((entry: CollectionBrowserEntry): { kind: "excerpt" | NoteSearchContext["kind"]; text: string; ranges: SearchTextRange[] } | undefined => {
     if (entry.kind !== "note") return undefined;
@@ -327,7 +330,10 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
         return <ContextMenu key={note.path} className="note-row-context" showTrigger={false} label={t`${title} note actions`} items={rowActions(note.path)} style={{ transform: `translateY(${virtualRow.start}px)`, height: virtualRow.size }}><button id={`note-entry-${virtualRow.index}`} tabIndex={-1} role="option" aria-selected={selectedPaths.has(note.path)} aria-busy={status?.busy || undefined} aria-disabled={status?.disabled || undefined} aria-describedby={!compact && secondLine?.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} className={`note-row${note.path === arrivingPath ? " note-row-arrival" : ""}${selectedPaths.has(note.path) ? " selected" : ""}${note.path === focusedPath ? " list-focused" : ""}${status ? ` ${status.tone}` : ""}`} draggable={!status?.disabled && !coarsePointer()} onDragStart={(event) => { event.dataTransfer.setData(NOTE_PATHS_MIME, JSON.stringify(selectedPaths.has(note.path) ? currentSelection.paths : [note.path])); event.dataTransfer.effectAllowed = "move"; }} onClick={(event) => {
             if (status?.disabled) return;
             if (selecting) onSelection?.(selectNote(currentSelection, note.path, selectablePaths(), "toggle"));
-            else chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single");
+            else if ((event.metaKey || event.ctrlKey) && !event.shiftKey && onOpenInNewTab && currentSelection.paths.length <= 1) {
+              event.preventDefault();
+              onOpenInNewTab(note.path);
+            } else chooseNote(note.path, event.shiftKey ? "range" : event.metaKey || event.ctrlKey ? "toggle" : "single");
           }} onMouseDown={(event) => { if (event.button === 1 && onOpenInNewTab) event.preventDefault(); }} onAuxClick={(event) => {
             if (event.button !== 1 || !onOpenInNewTab || status?.disabled) return;
             event.preventDefault();
@@ -338,7 +344,9 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
             {noteFolder && <span className="note-folder">{noteFolder}</span>}
             {secondLine
               ? <span id={secondLine.kind === "excerpt" ? `note-excerpt-${virtualRow.index}` : undefined} aria-hidden={secondLine.kind === "excerpt" || undefined} className={`note-excerpt${secondLine.kind === "excerpt" ? "" : ` note-search-context ${secondLine.kind}`}`}><SearchMatchText text={secondLine.text} ranges={secondLine.ranges} /></span>
-              : note.body !== undefined && <span className="note-excerpt note-excerpt-empty" aria-hidden="true"><Trans>No additional text</Trans></span>}
+              : note.body !== undefined
+                ? <span className="note-excerpt note-excerpt-empty" aria-hidden="true"><Trans>No additional text</Trans></span>
+                : <span className="note-excerpt note-excerpt-placeholder" aria-hidden="true" />}
             {typed && <span className="note-type-badge" title={t`Type: ${note.types.join(", ")}`}>{icon && <span className="note-type-icon" aria-hidden="true"><TypeIcon name={icon} /></span>}{note.types.map(typeDisplayName).join(" · ")}</span>}
           </span>)}
         </button></ContextMenu>;

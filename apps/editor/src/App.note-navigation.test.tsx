@@ -325,6 +325,18 @@ describe("note navigation ownership and recovery", () => {
     expect(tabs().map((tab) => [tab.textContent, tab.getAttribute("aria-selected")])).toEqual([["Garden notes 2", "false"], ["A quiet interface 3", "true"]]);
     expect(historyButton("Back in note history")).toBeDisabled();
 
+    fireEvent.click(screen.getByRole("option", { name: /The shape of useful tools/ }), { ctrlKey: true });
+    await screen.findByDisplayValue("The shape of useful tools");
+    expect(tabs().map((tab) => [tab.textContent, tab.getAttribute("aria-selected")])).toEqual([["Garden notes 2", "false"], ["A quiet interface 3", "false"], ["The shape of useful tools", "true"]]);
+    fireEvent.keyDown(tabs()[2]!, { key: "Delete" });
+    await screen.findByDisplayValue("A quiet interface 3");
+
+    fireEvent.click(screen.getByRole("option", { name: /The shape of useful tools/ }), { metaKey: true });
+    await screen.findByDisplayValue("The shape of useful tools");
+    expect(tabs().map((tab) => tab.textContent)).toEqual(["Garden notes 2", "A quiet interface 3", "The shape of useful tools"]);
+    fireEvent.keyDown(tabs()[2]!, { key: "Delete" });
+    await screen.findByDisplayValue("A quiet interface 3");
+
     fireEvent.pointerDown(tabs()[0]!, { button: 0 });
     await screen.findByDisplayValue("Garden notes 2");
     expect(historyButton("Back in note history")).toHaveAttribute("title", expect.stringContaining(first.path));
@@ -401,6 +413,39 @@ describe("note navigation ownership and recovery", () => {
     await waitFor(() => expect(within(otherPanes()[0]!).getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3"));
     expect(paneCorners()).toEqual([{ left: 0, top: 0 }, { left: 0, top: expect.any(Number) }]);
     expect(paneCorners()[1]!.top).toBeGreaterThan(0);
+  });
+
+  it("splits right and down from pane header controls and the tab context menu", async () => {
+    await harness();
+    const focusedTitle = () => within(focusedPane()).getByRole("textbox", { name: "Note title" });
+
+    // Discoverable even when only one pane and one tab are open (tab strip hidden).
+    expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+    fireEvent.click(within(focusedPane()).getByRole("button", { name: "Split right" }));
+    await waitFor(() => expect(otherPanes()).toHaveLength(1));
+    expect(paneCorners()[1]!.left).toBeGreaterThan(0);
+    expect(focusedTitle()).toHaveValue("The shape of useful tools");
+
+    // Split down from the focused pane's header control.
+    fireEvent.click(within(focusedPane()).getByRole("button", { name: "Split down" }));
+    await waitFor(() => expect(otherPanes()).toHaveLength(2));
+    expect(paneCorners()[2]!.top).toBeGreaterThan(0);
+
+    // Tab context menu exposes Split right, Split down, Close tab, and Close pane.
+    const tablists = screen.getAllByRole("tablist", { name: "Open tabs" });
+    const thirdTab = within(tablists[2]!).getByRole("tab", { name: "The shape of useful tools" });
+    fireEvent.contextMenu(thirdTab, { clientX: 120, clientY: 40 });
+    const tabMenu = screen.getByRole("menu");
+    expect(within(tabMenu).getAllByRole("menuitem").map((item) => item.textContent)).toEqual(["Split right", "Split down", "Close tab", "Close pane"]);
+    fireEvent.click(within(tabMenu).getByRole("menuitem", { name: "Close pane" }));
+    await waitFor(() => expect(otherPanes()).toHaveLength(1));
+
+    // Splitting from a tab context menu works too.
+    const secondTab = within(screen.getAllByRole("tablist", { name: "Open tabs" })[1]!).getByRole("tab", { name: "The shape of useful tools" });
+    fireEvent.contextMenu(secondTab, { clientX: 120, clientY: 40 });
+    fireEvent.click(within(screen.getByRole("menu")).getByRole("menuitem", { name: "Split down" }));
+    await waitFor(() => expect(otherPanes()).toHaveLength(2));
+    expect(paneCorners()[2]!.top).toBeGreaterThan(0);
   });
 
   it("does not surface a stale read failure after a newer note has opened", async () => {

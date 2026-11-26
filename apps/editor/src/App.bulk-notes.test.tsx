@@ -17,7 +17,7 @@ const first = "Notes/the-shape-of-useful-tools.md";
 const second = "Journal/garden-notes-2.md";
 async function selectPair() {
   await screen.findByRole("textbox", { name: "Note body" });
-  fireEvent.click(screen.getByRole("option", { name: /Garden notes 2/ }), { ctrlKey: true });
+  fireEvent.click(screen.getByRole("option", { name: /Garden notes 2/ }), { shiftKey: true });
   expect(screen.getByText("2 selected")).toBeInTheDocument();
 }
 async function selectionAction(name: string) {
@@ -135,7 +135,9 @@ describe("bulk notes", () => {
     fireEvent.keyDown(screen.getByRole("listbox", { name: "Collection notes and files" }), { key: "Escape" });
     fireEvent.click(screen.getByRole("option", { name: /Reading list 4/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Reading list 4"));
-    fireEvent.click(screen.getByRole("option", { name: /The shape of useful tools 8/ }), { metaKey: true });
+    fireEvent.contextMenu(screen.getByRole("option", { name: /Reading list 4/ }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Select" }));
+    fireEvent.click(screen.getByRole("option", { name: /The shape of useful tools 8/ }));
     await selectionAction("Set property");
     const panel = await screen.findByRole("form", { name: "Set property" });
     await chooseOption(user, within(panel).getByRole("combobox", { name: "Property" }), "title");
