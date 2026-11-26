@@ -3,6 +3,7 @@
 
 mod attachment_streams;
 mod attachments;
+mod catchup_facts;
 mod mode_lifecycle;
 mod original_app;
 mod projected_queries;

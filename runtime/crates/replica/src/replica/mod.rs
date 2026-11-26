@@ -1617,3 +1617,13 @@ pub(crate) fn unsafe_path_rejection(path: &str) -> mdbn_core::plan::Rejection {
 pub(crate) fn i64_meta(v: i64) -> Option<Vec<u8>> {
     Some(v.to_be_bytes().to_vec())
 }
+
+// Kept at the end of the file: inserting above would shift the panic locations
+// that end up in the app runtime WASM, and with them its SDK pin.
+impl<S: Store> Replica<S> {
+    /// The highest log head this replica has heard of (a head fetch, a read or a
+    /// push). Diagnostics only: not verified, and never an authority.
+    pub fn head_known(&self) -> u64 {
+        self.head_known
+    }
+}

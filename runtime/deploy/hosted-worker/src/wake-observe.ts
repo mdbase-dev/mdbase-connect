@@ -46,3 +46,46 @@ export function wakeLog(tag: string, role: "hosted" | "escrow", phase: "wake_rec
   if (!/^[0-9a-f]{24}$/.test(tag)) return;
   try { console.info(JSON.stringify({ event: "next_service_wake", at: new Date().toISOString(), collection_tag: tag, role, phase, ...(recipients?.length ? { recipients } : {}), ...(observation ? boundedAppendObservation(observation) : {}) })); } catch { /* Logging is not authority. */ }
 }
+/** Engine catch-up diagnostics (`hd_catchup_facts`): numbers and flags only. */
+export type CatchupFacts = { applied: number; headKnown: number; caughtUp: boolean; grantWaiting: boolean; grantDue: boolean };
+/** One alarm or activation invocation, as the host saw it at its end. */
+export type InvocationSample = {
+  kind: "alarm" | "activate";
+  role: "hosted" | "escrow";
+  /** No engine when the invocation began (it opened one, or failed to). */
+  cold: boolean;
+  /** Applied position when the invocation began (or right after its cold open). */
+  startApplied: number | null;
+  facts: CatchupFacts | null;
+  serving: boolean | null;
+  installing: boolean | null;
+  /** Engine's next wakeup and the stored alarm, as absolute host ms. */
+  nextWakeup: number | null;
+  alarm: number | null;
+  started: number;
+  now: number;
+};
+/** LAB only (connect#1850): one `hosted_invocation` line per alarm or activation,
+ * tagged for correlation with the same collection's wake and grant lines. Positions,
+ * counts, flags and deltas only; no identifiers beyond the salted tag. Nothing is
+ * logged outside LAB or without a valid tag. */
+export function invocationLog(lab: boolean, tag: string | null, s: InvocationSample): void {
+  if (!lab || !tag || !/^[0-9a-f]{24}$/.test(tag)) return;
+  const f = s.facts;
+  const from = s.startApplied;
+  try {
+    console.info(JSON.stringify({
+      event: "hosted_invocation", collection_tag: tag, role: s.role, kind: s.kind, cold: s.cold,
+      engine: f !== null,
+      applied: f?.applied ?? null,
+      log_head: f?.headKnown ?? null,
+      behind: f ? Math.max(0, f.headKnown - f.applied) : null,
+      applied_this_invocation: f && from !== null ? Math.max(0, f.applied - from) : null,
+      serving: s.serving, caught_up: f?.caughtUp ?? null, installing: s.installing,
+      grant_waiting: f?.grantWaiting ?? null, grant_due: f?.grantDue ?? null,
+      next_wakeup_ms: s.nextWakeup === null ? null : s.nextWakeup - s.now,
+      alarm_ms: s.alarm === null ? null : s.alarm - s.now,
+      elapsed_ms: Math.max(0, s.now - s.started),
+    }));
+  } catch { /* Logging is not authority. */ }
+}

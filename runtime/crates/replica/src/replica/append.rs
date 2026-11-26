@@ -2054,3 +2054,16 @@ fn legacy_entry_plain(
         .to_bytes()
         .map_err(|_| crate::api::ErrorCode::InvalidRequest.err("result does not encode"))
 }
+
+// Kept at the end of the file: inserting above would shift the panic locations
+// that end up in the app runtime WASM, and with them its SDK pin.
+impl<S: Store> Replica<S> {
+    /// Diagnostics only (connect#1850): whether an active, unkeyed device is
+    /// waiting for a key grant from this device, and whether that grant is due now.
+    /// Never an authority; [`Self::send_key_grant_if_needed`] decides.
+    pub fn key_grant_waiting(&self) -> (bool, bool) {
+        let waiting = self.grant_candidate().is_some();
+        let due = waiting && self.key_grant_turn().is_some_and(|at| at <= self.now());
+        (waiting, due)
+    }
+}

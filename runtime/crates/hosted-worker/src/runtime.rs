@@ -279,6 +279,21 @@ impl ObservedOriginalAppCaller {
     }
 }
 
+/// [`Engine::catchup_facts`]: LAB diagnostics only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CatchupFacts {
+    /// Applied log position.
+    pub applied: u64,
+    /// Highest log head heard of.
+    pub head_known: u64,
+    /// Read up to the head heard of in this connection.
+    pub caught_up: bool,
+    /// An active, unkeyed device waits for a key grant from this device.
+    pub grant_waiting: bool,
+    /// That grant is this device's turn now.
+    pub grant_due: bool,
+}
+
 /// One hosted collection.
 pub struct Engine<S: Store> {
     replica: Replica<HostedCache<S>>,
@@ -850,6 +865,20 @@ impl<S: Store> Engine<S> {
     pub fn applied_head(&self) -> (u64, [u8; 32]) {
         let head = self.replica.head();
         (head.seq, head.chain.0)
+    }
+
+    /// LAB catch-up diagnostics (connect#1850), numbers and flags only: applied
+    /// seq, the highest log head heard of, caught up, a key grant waiting, and
+    /// that grant due now. Not a serving, admission or effect permit.
+    pub fn catchup_facts(&self) -> CatchupFacts {
+        let (grant_waiting, grant_due) = self.replica.key_grant_waiting();
+        CatchupFacts {
+            applied: self.replica.head().seq,
+            head_known: self.replica.head_known(),
+            caught_up: self.replica.caught_up(),
+            grant_waiting,
+            grant_due,
+        }
     }
 
     /// Snapshot install progress as chunks done and total. The install lives in

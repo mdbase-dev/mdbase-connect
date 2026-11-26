@@ -49,7 +49,7 @@ import { labHealth } from "./health.js";
 import { locationHint, namedStub } from "./do-location.ts";
 import { fetchAttachment } from "./object-reads.js";
 import { deploymentObjectOrigins, type ObjectOriginPolicy } from "./object-origins.ts";
-import { grantRecipients, hasGrantAppend, wakeCollectionTag, wakeLog } from "./wake-observe.ts";
+import { grantRecipients, hasGrantAppend, invocationLog, wakeCollectionTag, wakeLog, type CatchupFacts } from "./wake-observe.ts";
 import { INSTALL_RETRY_MAX_STEPS, INSTALL_WAKE_MS, installRetryMs } from "./install-retry.ts";
 import { PIN_RESET_KEY, PinParked, isPinMismatch, pinLog, pinsDigest } from "./pin-reset.ts";
 import { readyDiagnostic, type ReadyDiagnostic, type ReadyTrace } from "./ready-diagnostic.ts";
@@ -175,6 +175,10 @@ export class HostedCollection extends DurableObject<Env> {
   private pinParked = false;
   /** Phase timings of this wake's first open (LAB status only). */
   private timings: Record<string, unknown> | null = null;
+  /** LAB only: this collection's salted tag, once known (diagnostic lines). */
+  private labTag: string | null = null;
+  /** LAB only: applied position right after this wake's engine open. */
+  private openApplied: number | null = null;
   /** When this DO instance (wake) started. */
   private readonly wokeAt = Date.now();
 
@@ -303,7 +307,7 @@ export class HostedCollection extends DurableObject<Env> {
   private engineReset(site: string): void {
     this.dropLogToken();
     if (this.env.LAB === "1") {
-      try { console.info(JSON.stringify({ event: "hosted_engine_reset", site })); } catch { /* Logging is not authority. */ }
+      try { console.info(JSON.stringify({ event: "hosted_engine_reset", site, ...(this.labTag ? { collection_tag: this.labTag } : {}) })); } catch { /* Logging is not authority. */ }
     }
   }
 
@@ -346,6 +350,7 @@ export class HostedCollection extends DurableObject<Env> {
       // Only the alarm actually installed here may be replaced on success.
       openingTrace.stage = "open_retry_read";
       const version = this.env.CF_VERSION_METADATA?.id ?? "";
+      if (this.env.LAB === "1") this.labTag ??= await wakeCollectionTag(collection);
       const record = await this.ctx.storage.get<{ version: string; count: number }>(OPEN_UNFINISHED_KEY);
       const unfinished = record?.version === version ? record.count : 0;
       if (unfinished >= OPEN_PARK_AFTER) {
@@ -386,6 +391,7 @@ export class HostedCollection extends DurableObject<Env> {
         openingTrace.stage = "engine_construct";
         pinBytes = new Uint8Array(keys.policyPins); // public; outlives the zeroize
         engine = new Engine(this.ctx.storage);
+        if (this.env.LAB === "1") engine.labTag = this.labTag;
         tWasm = Date.now();
         openingTrace.stage = "engine_config";
         const config = openConfig(collection, keys, this.escrow);
@@ -416,6 +422,9 @@ export class HostedCollection extends DurableObject<Env> {
       openingTrace.stage = "pin_mismatch";
       if (pinMismatch) return this.pinMismatch(collection, pins, pinMarker);
       this.pinRebuild = pinMarker === pins;
+      if (this.env.LAB === "1") {
+        try { this.openApplied = engine.catchupFacts()?.applied ?? null; } catch { this.openApplied = null; }
+      }
       openingTrace.stage = "live_admission";
       const live = app ? await this.liveAdmission(engine, collection, app) : null;
       openingTrace.stage = "background_guard";
@@ -935,8 +944,46 @@ export class HostedCollection extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
+    const start = this.env.LAB === "1" && !this.pitrClosed ? this.invocationStart() : null;
     try { await this.runAlarm(); }
     catch (error) { this.noteTrap(error); throw error; }
+    finally {
+      if (start) {
+        const tag = this.labTag ?? (this.collection ? await wakeCollectionTag(this.collection).catch(() => null) : null);
+        await this.observeInvocation("alarm", tag, start);
+      }
+    }
+  }
+
+  /** LAB only: what an alarm or activation started from. */
+  private invocationStart(): { cold: boolean; startApplied: number | null; started: number } {
+    let startApplied: number | null = null;
+    try { startApplied = this.engine?.catchupFacts()?.applied ?? null; } catch { /* Diagnostics only. */ }
+    return { cold: !this.engine, startApplied, started: Date.now() };
+  }
+
+  /** LAB only (connect#1850): one tagged `hosted_invocation` line at the end of an
+   * alarm or activation. Reads engine state and the stored alarm; changes nothing. */
+  private async observeInvocation(kind: "alarm" | "activate", tag: string | null, start: { cold: boolean; startApplied: number | null; started: number }): Promise<void> {
+    if (this.env.LAB !== "1" || !tag) return;
+    try {
+      const engine = this.engine;
+      let facts: CatchupFacts | null = null, serving: boolean | null = null, installing: boolean | null = null, nextWakeup: number | null = null;
+      if (engine) {
+        try { facts = engine.catchupFacts(); } catch { /* Diagnostics only. */ }
+        try {
+          serving = engine.serving();
+          installing = engine.installStatus() !== null;
+          nextWakeup = engine.nextWakeup();
+        } catch { /* Diagnostics only. */ }
+      }
+      const alarm = await this.ctx.storage.getAlarm();
+      invocationLog(true, tag, {
+        kind, role: this.escrow ? "escrow" : "hosted", cold: start.cold,
+        startApplied: start.startApplied ?? (start.cold ? this.openApplied : null),
+        facts, serving, installing, nextWakeup, alarm, started: start.started, now: Date.now(),
+      });
+    } catch { /* Logging is not authority. */ }
   }
 
   private async runAlarm(): Promise<void> {
@@ -1094,40 +1141,46 @@ export class HostedCollection extends DurableObject<Env> {
       if (approved !== collection) return new Response("bad collection", { status: 400 });
       const tag = this.env.LAB === "1" ? await wakeCollectionTag(collection) : null;
       if (tag) wakeLog(tag, this.escrow ? "escrow" : "hosted", "wake_received");
-      // Every committed policy batch (enrolment, removal, rekey) activates: mint a
-      // fresh token against current eligibility, and poll at the base rate again.
-      if (this.collection === collection) this.dropLogToken();
-      this.noteActivity();
-      let coldSyncGeneration: number | undefined;
-      let engine: Engine;
-      try { engine = await this.ready(collection, { onColdSync: generation => { coldSyncGeneration = generation; } }); }
-      catch (error) {
-        // A lasting verdict (deleted, left sync, not this deployment's) is an
-        // answer, not a failure: ready() already retired the actor. The CP keeps
-        // the batch pending and retries on its own backoff.
-        if (this.lastingRefusal(error)) return verdictAnswer(error);
-        throw error;
-      }
-      const generation = this.logGen;
+      if (tag) this.labTag ??= tag;
+      const observed = tag ? this.invocationStart() : null;
       try {
-        if (coldSyncGeneration !== generation) {
-          await this.withSyncTurn(async () => {
-            if (this.engine !== engine || this.logGen !== generation) return;
-            engine.refresh();
-            await this.sync(engine);
-          });
+        // Every committed policy batch (enrolment, removal, rekey) activates: mint a
+        // fresh token against current eligibility, and poll at the base rate again.
+        if (this.collection === collection) this.dropLogToken();
+        this.noteActivity();
+        let coldSyncGeneration: number | undefined;
+        let engine: Engine;
+        try { engine = await this.ready(collection, { onColdSync: generation => { coldSyncGeneration = generation; } }); }
+        catch (error) {
+          // A lasting verdict (deleted, left sync, not this deployment's) is an
+          // answer, not a failure: ready() already retired the actor. The CP keeps
+          // the batch pending and retries on its own backoff.
+          if (this.lastingRefusal(error)) return verdictAnswer(error);
+          throw error;
         }
+        const generation = this.logGen;
+        try {
+          if (coldSyncGeneration !== generation) {
+            await this.withSyncTurn(async () => {
+              if (this.engine !== engine || this.logGen !== generation) return;
+              engine.refresh();
+              await this.sync(engine);
+            });
+          }
+        }
+        catch (error) {
+          // A warm engine learns of the verdict through its fresh log token (the
+          // activation dropped the held one): retire as the alarm path does, and
+          // give the CP the same definite answer as a cold open.
+          if (!this.lastingRefusal(error)) throw error;
+          await this.retireForVerdict(error);
+          return verdictAnswer(error);
+        }
+        if (tag && this.engine === engine && this.logGen === generation) wakeLog(tag, this.escrow ? "escrow" : "hosted", "activation_complete");
+        return Response.json({ activated: true }, { headers: { "cache-control": "no-store" } });
+      } finally {
+        if (observed) await this.observeInvocation("activate", tag, observed);
       }
-      catch (error) {
-        // A warm engine learns of the verdict through its fresh log token (the
-        // activation dropped the held one): retire as the alarm path does, and
-        // give the CP the same definite answer as a cold open.
-        if (!this.lastingRefusal(error)) throw error;
-        await this.retireForVerdict(error);
-        return verdictAnswer(error);
-      }
-      if (tag && this.engine === engine && this.logGen === generation) wakeLog(tag, this.escrow ? "escrow" : "hosted", "activation_complete");
-      return Response.json({ activated: true }, { headers: { "cache-control": "no-store" } });
     }
     if (url.pathname.endsWith("/app") && !this.escrow && request.headers.get("upgrade") === "websocket") {
       // App sessions: Noise authenticates; live admission decides each step.
