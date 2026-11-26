@@ -40,15 +40,20 @@ for (const width of [1440, 390]) {
     await page.goto("?demo=300");
     await expect(page.getByRole("textbox", { name: "Note body" })).toBeVisible();
     await expect(page.getByRole("button", { name: "More note actions" })).toHaveCount(1);
-    if (width === 390) await expect(page.locator(".editor-bar button:visible")).toHaveCount(3);
+    if (width === 390) await expect(page.locator(".editor-bar button:visible")).toHaveCount(4);
     await page.getByRole("button", { name: "More note actions" }).click();
     const menu = page.getByRole("menu", { name: "More note actions" });
-    await expect(menu.getByRole("separator")).toHaveCount(3);
+    await expect(menu.getByRole("separator")).toHaveCount(width === 390 ? 4 : 3);
     await expect(menu.getByRole("menuitem", { name: /Attach file/ })).toHaveCount(1);
     await expect(menu.getByRole("menuitem", { name: /Rename/ })).toHaveCount(1);
     const groupStarts = await menu.getByRole("separator").evaluateAll((separators) => separators.map((separator) => separator.nextElementSibling?.textContent));
-    expect(groupStarts).toEqual(["Document outline", "Attach file…", "Keyboard shortcuts"]);
+    expect(groupStarts).toEqual(
+      width === 390
+        ? ["Rename path", "Document outline", "Attach file…", "Keyboard shortcuts"]
+        : ["Document outline", "Attach file…", "Keyboard shortcuts"]
+    );
     if (width === 390) {
+      await expect(menu.getByRole("menuitem").first()).toHaveText("Note properties");
       await expect(menu.getByRole("menuitem", { name: "New note", exact: true })).toHaveCount(0);
       await expect(menu.getByRole("menuitem", { name: "Quick open", exact: true })).toHaveCount(1);
       await expect(menu.getByRole("menuitem", { name: "Rename path", exact: true })).toHaveCount(1);

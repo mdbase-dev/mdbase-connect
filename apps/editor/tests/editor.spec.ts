@@ -1029,7 +1029,8 @@ test("starts a note of a chosen type from the picker", async ({ page }) => {
   await page.goto("?demo=4");
   await expect(page.getByRole("textbox", { name: "Note title" })).toBeVisible();
   const picker = page.getByRole("dialog", { name: "New note" });
-  await page.getByRole("button", { name: "New note of type…" }).click();
+  await page.getByRole("button", { name: "New menu" }).click();
+  await page.getByRole("menuitem", { name: "New note of type…" }).click();
   await expect(picker.getByRole("option")).toHaveCount(2);
   await expect(picker.getByRole("option").first()).toContainText("General note");
   await page.keyboard.press("Escape");
@@ -1152,7 +1153,8 @@ test("creates and edits a contact through its declared display field", async ({ 
   await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
 
   await page.getByRole("button", { name: /^All notes, / }).click();
-  await page.getByRole("button", { name: "New note of type…" }).click();
+  await page.getByRole("button", { name: "New menu" }).click();
+  await page.getByRole("menuitem", { name: "New note of type…" }).click();
   await page.getByRole("dialog", { name: "New note" }).getByRole("option", { name: /Contact/ }).click();
   const title = page.getByRole("textbox", { name: "Note title" });
   await expect(title).toBeFocused();
@@ -1253,7 +1255,8 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(page.getByRole("button", { name: "Review changes" })).toBeVisible();
 
   await page.getByRole("button", { name: /^All notes, / }).click();
-  await page.getByRole("button", { name: "New note of type…" }).click();
+  await page.getByRole("button", { name: "New menu" }).click();
+  await page.getByRole("menuitem", { name: "New note of type…" }).click();
   await page.getByRole("dialog", { name: "New note" }).getByRole("option", { name: /Contact/ }).click();
   await page.keyboard.type("Grace Hopper");
   await page.keyboard.press("Enter");
@@ -1925,7 +1928,8 @@ test("keeps a note that can't be saved yet as a draft, and discards it only on r
   await expect(page.getByRole("button", { name: "Types (2)" })).toBeVisible();
   await page.getByRole("button", { name: /^All notes, / }).click();
 
-  await page.getByRole("button", { name: "New note of type…" }).click();
+  await page.getByRole("button", { name: "New menu" }).click();
+  await page.getByRole("menuitem", { name: "New note of type…" }).click();
   await page.getByRole("dialog", { name: "New note" }).getByRole("option", { name: /Contact/ }).click();
   const body = page.getByRole("textbox", { name: "Note body" });
   await body.click();
