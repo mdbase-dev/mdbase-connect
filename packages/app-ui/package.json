@@ -242,7 +242,7 @@
     "@lingui/react": "6.9.0",
     "@lingui/vite-plugin": "6.9.0",
     "@mdbase-dev/i18n": "workspace:*",
-    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz",
+    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-85843c6f-production-0.2.36.tgz",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.0.0",
