@@ -146,7 +146,7 @@ it("distinguishes declined confirmation, keyed_owner_required, mode_abandoned, m
 
   // mode_switch_unavailable -> hides control.
   const unavailable = vi.fn(async () => {
-    throw new Error("Error invoking remote method 'connect:collections:mode-change': DaemonControlError: Switching this collection isn't available yet.");
+    throw new Error("Error invoking remote method 'connect:collections:mode-change': DaemonControlError: Switching this collection isn't available yet. Create a new collection as Private from the start (`mdbase collection add <folder>`, then `mdbase sync enable <collection> --mode private`) and copy or move your notes into it.");
   });
   await mount({ load: async () => state(), change: unavailable, native: true, id: "four" });
   await click("Make private");

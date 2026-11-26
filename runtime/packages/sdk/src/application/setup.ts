@@ -86,12 +86,11 @@ const MAX_RECORDS = 32, MAX_RECORD_BYTES = 256 * 1024;
 const name = (target: string) => (target.split("/").pop() ?? target).replace(/\.(md|ya?ml|json)$/i, "");
 /** Explain the purpose, not an internal identifier. Exact paths and documents
  * remain in the plan for inspection; they are not names an owner chose. */
-function definition(kind: string): { readonly the: string; readonly bare: string } {
-  const bare = kind === "contract" ? "shared format for this app's notes"
-    : kind === "type" ? "note type for this app"
-      : kind === "schema" ? "set of checks for this app's note properties"
-        : "setup item this app needs";
-  return { the: `the ${bare}`, bare };
+function definition(kind: string): { readonly key: string; readonly the: string; readonly bare: string; readonly many: string } {
+  if (kind === "contract") return { key: "contract", the: "the shared format for this app's notes", bare: "shared format for this app's notes", many: "shared formats for this app's notes" };
+  if (kind === "type") return { key: "type", the: "the note type for this app", bare: "note type for this app", many: "note types for this app" };
+  if (kind === "schema") return { key: "schema", the: "the set of checks for this app's note properties", bare: "set of checks for this app's note properties", many: "sets of checks for this app's note properties" };
+  return { key: "other", the: "the setup item this app needs", bare: "setup item this app needs", many: "setup items this app needs" };
 }
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const setting = (path: string) => (path.split("/").filter(Boolean).pop() ?? path).replace(/[_-]+/g, " ");
@@ -129,23 +128,48 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   readonly records: readonly { readonly path: string; readonly free: boolean }[];
   /** Packs installed at a newer version (see configuration `newerPacks`). */
   readonly newer?: NewerPacks;
+  /** Existing files that Native setup will recognize as notes. */
+  readonly promoted?: number;
 }): MdbaseSetupPlan {
   const review = assessed.review!;
   let status = assessed.status === "current" ? "current" as const : assessed.status === "conflict" ? "conflict" as const : "setup" as const;
-  const changes: MdbaseSetupChange[] = [], conflicts: MdbaseSetupConflict[] = [], adoptable: Record<string, string> = {};
+  const conflicts: MdbaseSetupConflict[] = [], adoptable: Record<string, string> = {};
   const replaced = new Set(review.staged.map(s => s.path));
+  type Group = { readonly kind: MdbaseSetupChangeKind; readonly targets: string[]; count: number; readonly message: (count: number) => string };
+  const groups = new Map<string, Group>();
+  let totalChanges = 0, modifiesExisting = false;
+  const addChange = (key: string, kind: MdbaseSetupChangeKind, target: string, message: (count: number) => string, modifies: boolean, count = 1) => {
+    totalChanges += count;
+    if (modifies) modifiesExisting = true;
+    const existing = groups.get(key);
+    if (existing) {
+      existing.count += count;
+      if (!existing.targets.includes(target)) existing.targets.push(target);
+    } else {
+      groups.set(key, { kind, targets: [target], count, message });
+    }
+  };
   for (const pack of review.packs) for (const r of pack.resources) {
     const thing = definition(r.kind), The = `T${thing.the.slice(1)}`;
     const why = r.kind === "contract" ? ", so other apps can work with them" : "";
+    const noun = (n: number) => n === 1 ? thing.the : `${n} ${thing.many}`;
     switch (r.action) {
-      case "create": changes.push({ kind: "create", target: r.target, message: `Add ${thing.the}${why}.` }); break;
-      case "update": changes.push({ kind: "update", target: r.target, message: `Update ${thing.the}.` }); break;
-      case "delete": changes.push({ kind: "delete", target: r.target, message: `Remove ${thing.the}, which this app no longer uses.` }); break;
+      case "create": addChange(`resource:create:${thing.key}`, "create", r.target, n => `Add ${noun(n)}${why}.`, false); break;
+      case "update": addChange(`resource:update:${thing.key}`, "update", r.target, n => `Update ${noun(n)}.`, true); break;
+      case "delete": addChange(`resource:delete:${thing.key}`, "delete", r.target, n => `Remove ${noun(n)}, which this app no longer uses.`, true); break;
       // Unreviewed, Core plans adopt only for byte-identical bytes: nothing is
       // written. A reviewed replacement is an adopt row whose document is staged.
-      case "adopt": changes.push({ kind: "adopt", target: r.target, message: replaced.has(r.target)
-        ? `Replace ${thing.the} with this app's version. Yours isn't kept.`
-        : `Use your existing ${thing.bare}, which already matches this app's.` }); break;
+      case "adopt":
+        if (replaced.has(r.target)) {
+          addChange(`resource:adopt-replace:${thing.key}`, "adopt", r.target, n => n === 1
+            ? `Replace ${thing.the} with this app's version. Yours isn't kept.`
+            : `Replace ${n} ${thing.many} with this app's versions. Yours aren't kept.`, true);
+        } else {
+          addChange(`resource:adopt-match:${thing.key}`, "adopt", r.target, n => n === 1
+            ? `Use your existing ${thing.bare}, which already matches this app's.`
+            : `Use your ${n} existing ${thing.many}, which already match this app's.`, false);
+        }
+        break;
       // Core keeps a seed that no published version upgrades (`reason` says
       // so); the app's version is then never written unless the person chooses
       // it, so a required contract could stay unimplemented while the pack
@@ -169,21 +193,35 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   }
   for (const c of review.configuration) {
     const label = setting(c.path);
-    if (c.action === "add") changes.push({ kind: "setting", target: label,
-      message: label === "include"
-        ? "Include this app's files when reading the collection."
-        : label === "record extensions" && typeof c.value === "string"
-          ? `Read .${c.value.replace(/^\./, "")} files as notes in this collection.`
-          : "Adjust a collection setting this app needs." });
-    else conflicts.push({ target: label, message: "A collection setting differs from what this app needs, so it can't be changed automatically." });
+    if (c.action === "add") {
+      if (label === "include") {
+        addChange("setting:include", "setting", label, () => "Include this app's files when reading the collection.", true);
+      } else if (label === "record extensions" && typeof c.value === "string") {
+        const ext = c.value.replace(/^\./, "");
+        addChange(`setting:ext:${ext}`, "setting", label, () => `Read .${ext} files as notes in this collection.`, true);
+      } else {
+        addChange("setting:other", "setting", label, n => n === 1
+          ? "Adjust a collection setting this app needs."
+          : `Adjust ${n} collection settings this app needs.`, true);
+      }
+    } else conflicts.push({ target: label, message: "A collection setting differs from what this app needs, so it can't be changed automatically." });
   }
   const records = status === "current" ? [] : input.records.map(r => Object.freeze({ path: r.path, action: r.free ? "create" as const : "skip" as const }));
-  for (const r of records) if (r.action === "create") changes.push({ kind: "record", target: r.path, message: `Create the starter note "${name(r.path)}".` });
+  for (const r of records) if (r.action === "create") {
+    addChange(`record:${r.path}`, "record", r.path, () => `Create the starter note "${name(r.path)}".`, false);
+  }
+  if (input.promoted) {
+    const promoted = input.promoted;
+    addChange("record:existing-files", "record", "Existing files", () => `Recognize ${promoted} existing ${promoted === 1 ? "file" : "files"} as notes, preserving their contents.`, true, 1);
+  }
   // Core's review omits its own receipt files (mdbase.provisions.yaml and the
   // type lock), yet a plan that only refreshes them still writes. Say so,
   // rather than promising that nothing changes.
-  if (status === "setup" && changes.length === 0 && conflicts.length === 0)
-    changes.push({ kind: "update", target: "Setup record", message: "Update this collection's record of this app's setup. Your notes and note types stay as they are." });
+  if (status === "setup" && groups.size === 0 && conflicts.length === 0)
+    addChange("update:setup-record", "update", "Setup record", () => "Update this collection's record of this app's setup. Your notes and note types stay as they are.", true);
+  const changes: MdbaseSetupChange[] = [...groups.values()].map(g => ({
+    kind: g.kind, target: g.targets.join(", "), message: g.message(g.count),
+  }));
   // A kept seed blocks even a pack Core reports current: never "nothing to do".
   if (status === "current" && conflicts.length) status = "conflict";
   const newerMajor = (input.newer?.major.length ?? 0) > 0 || review.packs.some(p => p.installedVersion && versionRelation(p.installedVersion, p.version) === "installed_newer_major");
@@ -196,8 +234,8 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
   else if (records.some(r => r.action === "create") && !input.canCreateRecords) refusal = { code: "setup_records_forbidden", message: "This app doesn't have permission to create notes in this collection." };
   const summary = status === "current" ? "Everything this app needs is already set up."
     : refusal ? refusal.message
-      : `This app will make ${plural(changes.length, "change")} to this collection.${
-        changes.every(c => c.kind === "create" || c.kind === "record" || (c.kind === "adopt" && !replaced.has(c.target))) ? " Nothing already in it is changed." : ""}`;
+      : `This app will make ${plural(totalChanges, "change")} to this collection.${
+        !modifiesExisting ? " Nothing already in it is changed." : ""}`;
   return Object.freeze({
     status, canApply: status === "setup" && refusal === undefined, digest: assessed.assessmentDigest, summary,
     changes: Object.freeze(changes.map(c => Object.freeze(c))), conflicts: Object.freeze(conflicts.map(c => Object.freeze(c))),

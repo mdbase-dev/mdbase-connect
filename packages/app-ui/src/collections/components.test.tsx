@@ -437,6 +437,24 @@ describe("setup review", () => {
     expect(container.querySelector(".mdbase-collections-setup-summary")?.textContent).toBe("One readable setup summary.");
   });
 
+  it("groups repeated identical setup change lines into one bullet with a count", async () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "needs_setup", collectionId: A, collection: { collectionId: A, displayName: "Alpha", role: "owner" } } as MdbasePhase);
+    mdbase.setup.plan.mockResolvedValue({ status: "setup", canApply: true, digest: "d", summary: "This app will make 5 changes to this collection.",
+      changes: [
+        { kind: "create", target: "_contracts/a.md", message: "Add the shared format for this app's notes, so other apps can work with them." },
+        { kind: "create", target: "_contracts/b.md", message: "Add the shared format for this app's notes, so other apps can work with them." },
+        { kind: "create", target: "_contracts/c.md", message: "Add the shared format for this app's notes, so other apps can work with them." },
+        { kind: "create", target: "_contracts/d.md", message: "Add the shared format for this app's notes, so other apps can work with them." },
+        { kind: "create", target: "_types/task.md", message: "Add the note type for this app." },
+      ],
+      conflicts: [], adoptable: {}, packs: [], staged: [], records: [] } as never);
+    await act(async () => root.render(<CollectionGate mdbase={entry} app={app}>{() => null}</CollectionGate>));
+    expect([...container.querySelectorAll(".mdbase-collections-setup-list > li")].map((li) => li.textContent)).toEqual([
+      "Add the shared format for this app's notes, so other apps can work with them. (×4)",
+      "Add the note type for this app.",
+    ]);
+  });
+
   it("plans again by itself while setup is busy elsewhere, instead of stopping at Try again", async () => {
     vi.useFakeTimers();
     try {

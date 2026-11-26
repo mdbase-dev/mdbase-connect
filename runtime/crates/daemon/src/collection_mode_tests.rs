@@ -219,6 +219,7 @@ mod driver {
 
     struct MockCpState {
         current_mode: String,
+        execution_available: bool,
         active_request: Option<String>,
         source_mode: Option<String>,
         target_mode: Option<String>,
@@ -246,6 +247,7 @@ mod driver {
         fn new(initial_mode: &str) -> Self {
             Self {
                 current_mode: initial_mode.into(),
+                execution_available: true,
                 active_request: None,
                 source_mode: None,
                 target_mode: None,
@@ -484,7 +486,7 @@ mod driver {
                             json!({
                                 "collection_id": col_str,
                                 "current_mode": s.current_mode,
-                                "execution_available": true,
+                                "execution_available": s.execution_available,
                                 "change": change,
                             }),
                             s.status_gate.take(),
@@ -2120,6 +2122,48 @@ mod driver {
                 1
             );
         }
+        f.close().await;
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn unavailable_mode_switch_includes_next_step_guidance_without_confirmation() {
+        let f = DriverFixture::start("driver-unavailable-private", false).await;
+        f.state.lock().unwrap().execution_available = false;
+        let err = f.change("private", false).await.unwrap_err();
+        assert_eq!(err.code, "unavailable");
+        assert_eq!(err.reason.as_deref(), Some("mode_switch_unavailable"));
+        assert!(
+            err.message
+                .starts_with("Switching this collection isn't available yet."),
+            "{}",
+            err.message
+        );
+        assert!(
+            err.message.contains("mdbase collection add"),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("--mode private"), "{}", err.message);
+        assert!(
+            err.message.contains("copy or move your notes"),
+            "{}",
+            err.message
+        );
+        assert_eq!(f.asked.0.load(Ordering::SeqCst), 0);
+        f.close().await;
+
+        let f = DriverFixture::start("driver-unavailable-cloud", true).await;
+        f.state.lock().unwrap().execution_available = false;
+        let err = f.change("cloud_copy", false).await.unwrap_err();
+        assert_eq!(err.reason.as_deref(), Some("mode_switch_unavailable"));
+        assert!(
+            err.message
+                .starts_with("Switching this collection isn't available yet."),
+            "{}",
+            err.message
+        );
+        assert!(err.message.contains("--mode cloud-copy"), "{}", err.message);
+        assert_eq!(f.asked.0.load(Ordering::SeqCst), 0);
         f.close().await;
     }
 }

@@ -1,10 +1,21 @@
-import type { MdbaseSetupPlan, MdbaseSetupPlanOptions } from "@mdbase-dev/sdk";
+import type { MdbaseSetupChange, MdbaseSetupPlan, MdbaseSetupPlanOptions } from "@mdbase-dev/sdk";
 import { describeError } from "@mdbase-dev/sdk/describe";
 import { useEffect, useRef, useState, useSyncExternalStore, type JSX } from "react";
 
 import { actionNotice, problemControl, type CollectionNotice } from "./model.js";
 import { ActionButton, NoticeBlock } from "./parts.js";
 import type { CollectionUi } from "./use-collection-ui.js";
+
+/** Collapse repeated identical change lines so older SDK plans never repeat the same bullet. */
+function groupSetupChanges(changes: readonly MdbaseSetupChange[]): readonly { readonly key: string; readonly message: string; readonly count: number }[] {
+  const groups = new Map<string, { readonly key: string; readonly message: string; count: number }>();
+  for (const change of changes) {
+    const existing = groups.get(change.message);
+    if (existing) existing.count += 1;
+    else groups.set(change.message, { key: `${change.kind}:${change.target}`, message: change.message, count: 1 });
+  }
+  return [...groups.values()];
+}
 
 type State =
   | { readonly status: "planning"; readonly notice: CollectionNotice | null }
@@ -132,7 +143,9 @@ export function SetupReview({ ui, layout = "panel" }: { readonly ui: CollectionU
     {refusalNotice ? <NoticeBlock notice={refusalNotice} ui={ui} /> : <p className="mdbase-collections-setup-summary">{nothing ? ui.copy.setupNothing : plan.summary}</p>}
     {plan.changes.length > 0 && <section className="mdbase-collections-setup-section">
       <Heading>{ui.copy.setupChanges}</Heading>
-      <ul className="mdbase-collections-setup-list">{plan.changes.map((change) => <li key={`${change.kind}:${change.target}`}>{change.message}</li>)}</ul>
+      <ul className="mdbase-collections-setup-list">{groupSetupChanges(plan.changes).map((change) => (
+        <li key={change.key}>{change.count > 1 ? `${change.message} (×${change.count})` : change.message}</li>
+      ))}</ul>
     </section>}
     {plan.conflicts.length > 0 && <section className="mdbase-collections-setup-section">
       <Heading>{ui.copy.setupConflicts}</Heading>

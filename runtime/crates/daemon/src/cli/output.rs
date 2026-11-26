@@ -203,16 +203,24 @@ pub(super) fn print_mode(out: &Output, collection: &CollectionStatus, value: &Va
 
 fn format_mode(id: &str, name: &str, value: &Value, status: bool, now_ms: u64) -> String {
     use crate::control::terminal_text;
-    use crate::server::{format_mode_devices, format_wait_phrase, mode_label};
+    use crate::server::{
+        format_mode_devices, format_wait_phrase, mode_label, mode_switch_unavailable_message,
+    };
 
     let name = terminal_text(name);
     let mut lines = Vec::new();
     let record = if status {
-        let current = mode_label(value["current_mode"].as_str().unwrap_or_default());
+        let current_raw = value["current_mode"].as_str().unwrap_or_default();
+        let current = mode_label(current_raw);
         lines.push(format!("{name}: {current}."));
         if value["change"].is_null() {
             lines.push(if value["execution_available"] == false {
-                "Switching modes is unavailable.".into()
+                let target = if current_raw == "private" {
+                    "cloud_copy"
+                } else {
+                    "private"
+                };
+                mode_switch_unavailable_message(target).into()
             } else {
                 "No switch in progress.".into()
             });
@@ -405,6 +413,31 @@ fn mode_renderer_distinguishes_terminal_results_and_parked_notices() {
             assert!(!out.contains("Reconnect apps"));
         }
     }
+}
+
+#[cfg(test)]
+#[test]
+fn mode_status_explains_next_step_when_switching_is_unavailable() {
+    let cloud = json!({
+        "current_mode": "cloud_copy",
+        "execution_available": false,
+        "change": null,
+    });
+    let out = format_mode("notes", "Notes", &cloud, true, 0);
+    assert!(out.contains("Notes: Cloud copy."));
+    assert!(out.contains("Switching this collection isn't available yet."));
+    assert!(out.contains("mdbase collection add"));
+    assert!(out.contains("--mode private"));
+
+    let private = json!({
+        "current_mode": "private",
+        "execution_available": false,
+        "change": null,
+    });
+    let out = format_mode("notes", "Notes", &private, true, 0);
+    assert!(out.contains("Notes: Private."));
+    assert!(out.contains("Switching this collection isn't available yet."));
+    assert!(out.contains("--mode cloud-copy"));
 }
 
 #[cfg(test)]
