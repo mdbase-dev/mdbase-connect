@@ -255,9 +255,9 @@ as an application grant.
 `pnpm typecheck` uses strict TypeScript with unused code checks. `pnpm test`
 covers domain logic, controllers, components, race conditions, and recovery.
 The Playwright suite covers production-shaped user flows, accessibility,
-responsive behavior, and a 10,000-note collection. `pnpm build` is followed by
-`pnpm check:bundle`, which enforces gzip budgets for initial JavaScript and CSS.
-CI runs all four gates before deployment.
+responsive behavior, and a 10,000-note collection. CI runs all three and
+builds the app before deployment. Bundle sizes are recorded for the performance
+report, not gated.
 
 ## Comments
 

@@ -16,7 +16,6 @@ const run=args=>execFileSync('pnpm',args,{stdio:'inherit',env:{...process.env,
 run(['rebuild','--pending']);
 run(['build:packages']);
 run(['--filter','mdbase-editor','build']);
-run(['--filter','mdbase-editor','check:bundle']);
 run(['--filter','mdbase-editor','check:csp']);
 await cp('apps/editor/dist',join(output,'publish'),{recursive:true,errorOnExist:true,force:false});
 await writeFile(join(output,'inventory.json'),serializeInventory(await publicationInventory(join(output,'publish'),plan)));

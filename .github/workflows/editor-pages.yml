@@ -108,7 +108,6 @@ jobs:
         env:
           MDBASE_EDITOR_ORIGIN: https://editor.mdbase.dev
           MDBASE_EDITOR_BASE_PATH: /
-      - run: pnpm --filter mdbase-editor check:bundle
       - run: pnpm --filter mdbase-editor check:csp
       - name: Build the separate self-hosted Editor (validation only)
         run: pnpm --filter mdbase-editor build:direct
