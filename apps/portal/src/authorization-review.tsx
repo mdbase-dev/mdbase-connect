@@ -15,7 +15,7 @@ import {
 import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Brand } from "./portal-ui";
 import { SignedOutFooter } from "./auth-view";
-import { initials, readRememberedCollection } from "./portal-model";
+import { initials, readRememberedCollection, scheduleAtDeadline } from "./portal-model";
 import { literal } from "./literal";
 import { CloudIcon, DesktopIcon } from "@phosphor-icons/react";
 import { initialContractSetupChoice } from "./application-setup";
@@ -24,11 +24,7 @@ import { HIGHER_IMPACT_FILE_ACTIONS, HIGHER_IMPACT_PEOPLE_PERMISSIONS, type Auth
 import { Select } from "@mdbase-dev/ui/select";
 
 export function useRequestExpiry(expiresAt: string | undefined, onExpire: () => void) {
-  useEffect(() => {
-    if (!expiresAt) return;
-    const timer = window.setTimeout(onExpire, Math.max(0, Date.parse(expiresAt) - Date.now()));
-    return () => window.clearTimeout(timer);
-  }, [expiresAt, onExpire]);
+  useEffect(() => expiresAt ? scheduleAtDeadline(Date.parse(expiresAt), onExpire) : undefined, [expiresAt, onExpire]);
 }
 
 type FileRequirements = NonNullable<PendingAuthorization["requirements"]["files"]>;

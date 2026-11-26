@@ -3,6 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { capabilityOperations } from "@mdbase-dev/connect-protocol";
 import { api, ApiError } from "./api";
 import { Authorization } from "./authorization-view";
+import { MAX_TIMEOUT_MS, scheduleAtDeadline } from "./portal-model";
 import { render, screen } from "./test/render";
 
 vi.mock("./api", async original => ({ ...await original<typeof import("./api")>(), api: vi.fn() }));
@@ -51,6 +52,48 @@ it("expires a pending request locally and a stale pending poll cannot reopen it"
   await act(() => vi.advanceTimersByTimeAsync(2_000));
   expect(screen.getByText("This request has expired or was already answered.")).toBeInTheDocument();
   expect(screen.queryByText(/expires.*ago/)).not.toBeInTheDocument();
+});
+
+it("does not overflow setTimeout or expire immediately for a far-future deadline", async () => {
+  vi.setSystemTime(new Date("2026-11-26T22:00:00Z"));
+  const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+  vi.mocked(api).mockImplementation(async path => path.endsWith("/status") ? { status: "pending" } : {
+    authorization: { id: requestId, application_name: "Reader", expires_at: "2099-08-01T00:00:00.000Z", requested_operations: [], requirements: { contracts: [], access: "full_collection" }, provisions: { type_packs: [] } },
+    collections: [], unavailable_connectors: []
+  });
+  render(<Authorization requestId={requestId} />);
+  await act(() => vi.advanceTimersByTimeAsync(2_000));
+  expect(screen.getByRole("heading", { name: "Reader", level: 1 })).toBeInTheDocument();
+  expect(screen.queryByText("This request has expired or was already answered.")).not.toBeInTheDocument();
+  for (const [, delay] of setTimeoutSpy.mock.calls) {
+    if (typeof delay === "number") {
+      expect(delay).toBeGreaterThanOrEqual(0);
+      expect(delay).toBeLessThanOrEqual(MAX_TIMEOUT_MS);
+    }
+  }
+});
+
+it("chunks deadlines beyond the 32-bit setTimeout limit and honors cancellation", () => {
+  vi.setSystemTime(new Date("2026-11-26T22:00:00Z"));
+  const fired = vi.fn();
+  const cancel = scheduleAtDeadline(Date.now() + MAX_TIMEOUT_MS + 5_000, fired);
+  vi.advanceTimersByTime(MAX_TIMEOUT_MS);
+  expect(fired).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(4_999);
+  expect(fired).not.toHaveBeenCalled();
+  vi.advanceTimersByTime(1);
+  expect(fired).toHaveBeenCalledTimes(1);
+  cancel?.();
+
+  const cancelled = vi.fn();
+  const stop = scheduleAtDeadline(Date.now() + MAX_TIMEOUT_MS + 5_000, cancelled);
+  vi.advanceTimersByTime(MAX_TIMEOUT_MS);
+  stop?.();
+  vi.advanceTimersByTime(10_000);
+  expect(cancelled).not.toHaveBeenCalled();
+
+  expect(scheduleAtDeadline(Number.NaN, cancelled)).toBeUndefined();
+  expect(scheduleAtDeadline(Number.POSITIVE_INFINITY, cancelled)).toBeUndefined();
 });
 
 for (const detailFirst of [true, false]) it(`hands an already approved request back to the app (detail 404 ${detailFirst ? "first" : "last"})`, async () => {

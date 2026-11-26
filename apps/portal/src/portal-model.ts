@@ -243,3 +243,22 @@ export function relativeTime(value: string) {
   if (Math.abs(hours) < 24) return format.format(hours, "hour");
   return format.format(Math.round(hours / 24), "day");
 }
+
+export const MAX_TIMEOUT_MS = 2_147_483_647;
+
+/** Schedule a callback at an absolute timestamp without overflowing 32-bit
+ * timer delays (~24.85 days). */
+export function scheduleAtDeadline(deadlineMs: number, callback: () => void): (() => void) | undefined {
+  if (!Number.isFinite(deadlineMs)) return undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const schedule = () => {
+    const remaining = deadlineMs - Date.now();
+    timer = remaining > MAX_TIMEOUT_MS
+      ? globalThis.setTimeout(schedule, MAX_TIMEOUT_MS)
+      : globalThis.setTimeout(callback, Math.max(0, remaining));
+  };
+  schedule();
+  return () => {
+    if (timer !== undefined) globalThis.clearTimeout(timer);
+  };
+}
