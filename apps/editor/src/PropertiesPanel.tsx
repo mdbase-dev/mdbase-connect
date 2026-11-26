@@ -1,14 +1,14 @@
 import { i18n } from "@lingui/core";
 import { displayLocale } from "./i18n/format";
 import { Trans } from "@lingui/react/macro";
-import { t } from "@lingui/core/macro";
+import { plural, t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import {
   FileCodeIcon as FileCode2,
   DotsThreeIcon as MoreHorizontal,
   XIcon as X
 } from "./icons";
-import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CollectionTypeDescriptor, JsonObject } from "./connect-types";
 import { declaredFields } from "./field-reference";
 import { CodeEditor } from "./CodeEditor";
@@ -17,7 +17,7 @@ import type { NoteDocument } from "./model";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import { noteWordCount } from "./note";
 import { useDelayedBusy } from "./use-delayed-busy";
-import { PropertyList } from "@mdbase-dev/ui/properties";
+import { isEmptyValue, PropertyList, type PropertyInfo } from "@mdbase-dev/ui/properties";
 import "@mdbase-dev/ui/properties.css";
 import { propertyValidationErrors } from "./StructuredPropertiesEditor";
 import type { RecordLinking } from "./LinkPropertyEditor";
@@ -62,6 +62,21 @@ export function PropertiesPanel({
   const links = useMemo(() => linking && { ...linking, properties: linkRules }, [linking, linkRules]);
   const [draft, setDraft] = useState<JsonObject>(initial);
   const declared = useMemo(() => propertyInfos(contract.properties, contract.required, linkRules, draft), [contract, linkRules, draft]);
+  const [showEmpty, setShowEmpty] = useState(readShowEmptyProperties);
+  const [listResetKey, setListResetKey] = useState(0);
+  const fieldsRef = useRef<HTMLDivElement>(null);
+  const [hasNativeEmptyToggle, setHasNativeEmptyToggle] = useState(false);
+  const emptyTopLevel = useMemo(() => countEmptyTopLevel(draft, declared), [draft, declared]);
+  const emptyNested = useMemo(() => countEmptyNestedParts(draft, declared), [draft, declared]);
+  const displayedDraft = useMemo(
+    () => showEmpty && !readOnly ? expandEmptyNestedParts(draft, declared) : draft,
+    [draft, declared, showEmpty, readOnly]
+  );
+  const showEmptyFieldsLabel = (count: number) => plural(count, { one: "Show # empty field", other: "Show # empty fields" });
+  const propertyListLabels = useMemo(() => ({
+    showEmpty: (count: number) => showEmptyFieldsLabel(count <= emptyTopLevel ? count + emptyNested : count),
+    hideEmpty: t`Hide empty fields`
+  }), [emptyTopLevel, emptyNested, i18n.locale]);
   const [persistedFrontmatter, setPersistedFrontmatter] = useState(initial);
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
   const [raw, setRaw] = useState(() => JSON.stringify(initial, null, 2));
@@ -177,10 +192,29 @@ export function PropertiesPanel({
     setRawError(undefined);
   }
 
+  useLayoutEffect(() => {
+    const container = fieldsRef.current;
+    if (!container || mode !== "fields") {
+      setHasNativeEmptyToggle(false);
+      return;
+    }
+    setHasNativeEmptyToggle(Boolean(container.querySelector(".mdbase-properties .mdbase-properties-action.is-toggle")));
+  }, [mode, displayedDraft, declared, showEmpty, listResetKey, readOnly]);
+
+  function toggleEmptyProperties() {
+    const next = !showEmpty;
+    writeShowEmptyProperties(next);
+    setShowEmpty(next);
+    if (!next) setListResetKey((value) => value + 1);
+  }
+
   /** One field changed in the list. A field cleared or taken off leaves the file. */
   function changeField(name: string, value: unknown) {
+    const cleaned = stripUndefinedValues(value);
     const { [name]: _was, ...others } = latestDraft.current;
-    change(value === null ? others : { ...latestDraft.current, [name]: value } as JsonObject);
+    const removed = cleaned === null
+      || (isPlainObject(cleaned) && Object.keys(cleaned).length === 0 && !(name in latestDraft.current));
+    change(removed ? others : { ...latestDraft.current, [name]: cleaned } as JsonObject);
   }
 
   function updateRaw(value: string) {
@@ -285,9 +319,23 @@ export function PropertiesPanel({
       </div>
     </div>
 
-    {mode === "fields" ? <div id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
+    {mode === "fields" ? <div id="properties-fields-panel" ref={fieldsRef} className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab"
+      onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest(".mdbase-properties .mdbase-properties-action.is-toggle")) {
+          const next = readShowEmptyProperties();
+          setShowEmpty(next);
+          if (!next) setListResetKey((value) => value + 1);
+        }
+      }}>
       {!declared.length && !Object.keys(draft).length && <p className="quiet-empty"><Trans>Add a property to keep details like tags, dates, or a status with this note.</Trans></p>}
-      <PropertyList values={draft} declared={declared} errors={fieldErrors} records={records} onChange={readOnly ? undefined : changeField} />
+      <PropertyList key={listResetKey} values={displayedDraft} declared={declared} errors={fieldErrors} records={records} labels={propertyListLabels} onChange={readOnly ? undefined : changeField} />
+      {!readOnly && !hasNativeEmptyToggle && (emptyTopLevel > 0 || emptyNested > 0) && <div className="mdbase-properties-foot property-fields-empty-foot">
+        <button type="button" className="mdbase-properties-action is-toggle" aria-expanded={showEmpty} onClick={toggleEmptyProperties}>
+          {showEmpty
+            ? t`Hide empty fields`
+            : showEmptyFieldsLabel(emptyTopLevel + emptyNested)}
+        </button>
+      </div>}
       {Object.keys(automatic).length > 0 && <section className="effective-properties" aria-label={t`Automatic properties`}>
         <div><h3><Trans>Automatic</Trans></h3><p><Trans>Provided by the note's type, not stored in this file.</Trans></p></div>
         <PropertyList values={automatic} declared={declared.filter((field) => field.name in automatic).map(({ required: _required, ...field }) => field)} records={records} onChange={undefined} />
@@ -350,4 +398,116 @@ function formatBytes(value: number): string {
 
 function formatDate(value: string): string {
   return new Intl.DateTimeFormat(displayLocale(), { dateStyle: "medium", timeStyle: "short" }).format(new Date(value));
+}
+
+const SHOW_EMPTY_PROPERTIES_KEY = "mdbase:show-empty-properties";
+
+function readShowEmptyProperties(): boolean {
+  try {
+    return localStorage.getItem(SHOW_EMPTY_PROPERTIES_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeShowEmptyProperties(show: boolean): void {
+  try {
+    localStorage.setItem(SHOW_EMPTY_PROPERTIES_KEY, show ? "1" : "0");
+  } catch {
+    // Ignore storage errors.
+  }
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function countEmptyTopLevel(values: JsonObject, declared: readonly PropertyInfo[]): number {
+  return declared.filter((field) => !field.required && isEmptyValue(values[field.name])).length;
+}
+
+function countEmptyNestedParts(values: Readonly<Record<string, unknown>>, declared: readonly PropertyInfo[]): number {
+  let count = 0;
+  for (const field of declared) {
+    const value = values[field.name];
+    if (field.kind === "group" && field.parts?.length && isPlainObject(value) && Object.keys(value).length > 0) {
+      for (const part of field.parts) {
+        if (!part.required && !(part.name in value)) count += 1;
+      }
+      count += countEmptyNestedParts(value, field.parts);
+    } else if (field.kind === "list" && field.items?.kind === "group" && field.items.parts?.length && Array.isArray(value)) {
+      for (const item of value) {
+        if (!isPlainObject(item)) continue;
+        for (const part of field.items.parts) {
+          if (!part.required && !(part.name in item)) count += 1;
+        }
+        count += countEmptyNestedParts(item, field.items.parts);
+      }
+    }
+  }
+  return count;
+}
+
+function expandEmptyNestedParts(values: JsonObject, declared: readonly PropertyInfo[]): JsonObject {
+  let changed = false;
+  const next: Record<string, unknown> = { ...values };
+  for (const field of declared) {
+    const value = values[field.name];
+    if (field.kind === "group" && field.parts?.length) {
+      if (value === undefined || value === null || isPlainObject(value)) {
+        const expanded = expandGroupParts(isPlainObject(value) ? value : {}, field.parts);
+        if (expanded !== value) {
+          next[field.name] = expanded;
+          changed = true;
+        }
+      }
+    } else if (field.kind === "list" && field.items?.kind === "group" && field.items.parts?.length && Array.isArray(value)) {
+      let listChanged = false;
+      const expandedList = value.map((item) => {
+        if (!isPlainObject(item)) return item;
+        const expandedItem = expandGroupParts(item, field.items!.parts!);
+        if (expandedItem !== item) listChanged = true;
+        return expandedItem;
+      });
+      if (listChanged) {
+        next[field.name] = expandedList;
+        changed = true;
+      }
+    }
+  }
+  return changed ? next as JsonObject : values;
+}
+
+function expandGroupParts(group: Record<string, unknown>, parts: readonly PropertyInfo[]): Record<string, unknown> {
+  let changed = false;
+  const next: Record<string, unknown> = { ...group };
+  for (const part of parts) {
+    const current = group[part.name];
+    if (part.kind === "group" && part.parts?.length && (current === undefined || current === null || isPlainObject(current))) {
+      const expanded = expandGroupParts(isPlainObject(current) ? current : {}, part.parts);
+      if (expanded !== current) {
+        next[part.name] = expanded;
+        changed = true;
+      }
+    } else if (!(part.name in group)) {
+      next[part.name] = undefined;
+      changed = true;
+    }
+  }
+  return changed ? next : group;
+}
+
+function stripUndefinedValues(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripUndefinedValues);
+  if (!isPlainObject(value)) return value;
+  const entries: Array<[string, unknown]> = [];
+  for (const [key, entry] of Object.entries(value)) {
+    if (entry === undefined) continue;
+    const cleaned = stripUndefinedValues(entry);
+    if (isPlainObject(cleaned) && Object.keys(cleaned).length === 0 && Object.values(entry as Record<string, unknown>).every((nested) => nested === undefined)) {
+      continue;
+    }
+    entries.push([key, cleaned]);
+  }
+  return Object.fromEntries(entries);
 }

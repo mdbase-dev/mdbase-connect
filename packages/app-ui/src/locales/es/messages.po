@@ -67,11 +67,6 @@ msgstr "{app} dejará de mostrarla en este dispositivo. No se elimina nada de la
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "{count, plural, one {# empty} other {# empty}}"
-msgstr "{count, plural, one {# vacía} other {# vacías}}"
-
-#: src/properties/labels.ts
-msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, one {# elemento} other {# elementos}}"
 
@@ -93,6 +88,11 @@ msgstr "{count, plural, one {# propiedad} other {# propiedades}}"
 msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, one {# seleccionado} other {# seleccionados}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, one {Mostrar # campo vacío} other {Mostrar # campos vacíos}}"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
@@ -915,8 +915,8 @@ msgstr "¿Dar acceso a {app} a esta colección?"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "Hide empty"
-msgstr "Ocultar vacías"
+msgid "Hide empty fields"
+msgstr "Ocultar campos vacíos"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"

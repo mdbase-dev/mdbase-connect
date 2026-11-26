@@ -8,7 +8,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { gatewayError } from "./gateway";
 import { ArrowLeftIcon as ArrowLeft, XIcon as X } from "./icons";
 import type { CollectionGateway, NoteHistory, NoteHistoryReader, NoteVersion } from "./model";
-import { dateLabel, dayLabel, historyTimeline, timeLabel, versionAuthor, versionChange, type HistoryRow } from "./note-history";
+import { dateLabel, dayLabel, historyTimeline, restoreChangeSummary, timeLabel, versionAuthor, versionChange, type HistoryRow } from "./note-history";
 
 type Problem =
   /** The collection's replica serves no history (hosted, local-only, or older). */
@@ -212,6 +212,7 @@ function VersionView({ history, path, row, me, current, onRestore, onBack, onSta
   }, [history, path, version.seq, version.kind, attempt]);
 
   const diff = useMemo(() => text.state === "ready" && text.document !== current ? compareLines(text.document, current) : [], [text, current]);
+  const summary = useMemo(() => text.state === "ready" && text.document !== current ? restoreChangeSummary(current, text.document) : undefined, [text, current]);
   const when = dateLabel(version.time);
 
   return <div className="history-version">
@@ -242,7 +243,21 @@ function VersionView({ history, path, row, me, current, onRestore, onBack, onSta
       consequence={t`The note’s text is replaced with this version from ${when}. The text it has now stays in history, so you can restore it later.`}
       confirmLabel={t`Restore`} pendingLabel={t`Restoring…`}
       onConfirm={async () => { await onRestore(text.document); setConfirming(false); }}
-      onClose={() => setConfirming(false)} />}
+      onClose={() => setConfirming(false)}>
+      {summary && (summary.added > 0 || summary.removed > 0) && <div className="restore-change-summary">
+        <p className="restore-change-counts">
+          {summary.added > 0 && <span className="restore-count-added">{plural(summary.added, { one: "+# line added", other: "+# lines added" })}</span>}
+          {summary.removed > 0 && <span className="restore-count-removed">{plural(summary.removed, { one: "−# line removed", other: "−# lines removed" })}</span>}
+        </p>
+        {summary.preview.length > 0 && <div className="restore-diff-peek" role="region" aria-label={t`Summary of changes`}>
+          {summary.preview.map((line, index) => <div className={`restore-diff-line ${line.kind === "added" ? "is-added" : "is-removed"}`} key={`${line.kind}:${index}`}>
+            <span className="restore-diff-marker" aria-hidden="true">{line.kind === "added" ? "+" : "−"}</span>
+            <code><span className="sr-only">{line.kind === "added" ? t`Added:` : t`Removed:`} </span>{line.text || " "}</code>
+          </div>)}
+          {summary.omitted > 0 && <p className="restore-diff-more">{plural(summary.omitted, { one: "# more changed line", other: "# more changed lines" })}</p>}
+        </div>}
+      </div>}
+    </ConfirmDialog>}
   </div>;
 }
 

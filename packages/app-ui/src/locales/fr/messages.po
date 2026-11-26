@@ -67,11 +67,6 @@ msgstr "{app} cesse de l’afficher sur cet appareil. Rien n’est supprimé dan
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "{count, plural, one {# empty} other {# empty}}"
-msgstr "{count, plural, one {# vide} other {# vides}}"
-
-#: src/properties/labels.ts
-msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, one {# élément} other {# éléments}}"
 
@@ -93,6 +88,11 @@ msgstr "{count, plural, one {# propriété} other {# propriétés}}"
 msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, one {# sélectionné} other {# sélectionnés}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, one {Afficher # champ vide} other {Afficher # champs vides}}"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
@@ -915,8 +915,8 @@ msgstr "Donner à {app} l’accès à cette collection ?"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "Hide empty"
-msgstr "Masquer les vides"
+msgid "Hide empty fields"
+msgstr "Masquer les champs vides"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"

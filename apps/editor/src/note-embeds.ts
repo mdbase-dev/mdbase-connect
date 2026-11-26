@@ -5,7 +5,7 @@ import { internalLink } from "./links";
 import type { MarkdownReference } from "./markdown-references";
 import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { markdownFragment } from "./markdown-fragments";
-import type { CollectionGateway, NoteDocument, NoteSummary } from "./model";
+import type { CollectionFile, CollectionGateway, NoteDocument, NoteSummary } from "./model";
 import { basename, noteTitle } from "./note";
 
 export type ResolvedNoteEmbed = MarkdownReference & {
@@ -19,6 +19,7 @@ export type ResolvedNoteEmbed = MarkdownReference & {
 };
 
 const EMPTY_REFERENCES: MarkdownReference[] = [];
+const EMPTY_FILES: readonly CollectionFile[] = [];
 const NO_TARGETS = { subscribe: () => () => undefined, getVersion: () => 0 };
 
 export type EmbedCacheOwner = { collectionId: string | undefined; epoch: number };
@@ -37,7 +38,8 @@ export function useEmbeddedNoteReferences(
   source: string,
   notes: readonly NoteSummary[],
   linkTargets: LinkTargets | undefined,
-  visibleKeys?: ReadonlySet<string>
+  visibleKeys?: ReadonlySet<string>,
+  files: readonly CollectionFile[] = EMPTY_FILES
 ): ParsedEmbeds<ResolvedNoteEmbed> {
   const [cacheVersion, rerender] = useState(0);
   const targets = linkTargets ?? NO_TARGETS;
@@ -86,6 +88,7 @@ export function useEmbeddedNoteReferences(
   }, [linkTargets, parsed.source, references]);
 
   const notesByPath = useMemo(() => new Map(notes.map((note) => [note.path, note])), [notes]);
+  const filePaths = useMemo(() => new Set(files.map((file) => file.path)), [files]);
   const resolved = useMemo(() => references.flatMap((reference): ResolvedNoteEmbed[] => {
     const key = `${reference.from}:${reference.to}`;
     const named = (reference.label ?? reference.target) || t`Missing note`;
@@ -99,12 +102,18 @@ export function useEmbeddedNoteReferences(
     if (target.kind === "file") return [];
     if (target.kind === "ambiguous") {
       const matches = target.candidates;
+      const areFiles = matches.length > 0 && (filePaths.size > 0
+        ? matches.every((path) => filePaths.has(path))
+        : matches.every((path) => !notesByPath.has(path) && !/\.md$/iu.test(path)));
+      const examples = matches.slice(0, 3).join(", ");
       return [{
         ...reference,
         key,
         status: "ambiguous",
         title: reference.label ?? reference.target,
-        error: t`${matches.length} notes match this reference.`
+        error: areFiles
+          ? t`${matches.length} files match “${reference.target}”. Use a full path to disambiguate: ${examples}.`
+          : t`${matches.length} notes match this reference.`
       }];
     }
     if (target.kind !== "note") return [{ ...reference, key, status: "missing", title: named }];
@@ -139,7 +148,7 @@ export function useEmbeddedNoteReferences(
       revision: cached?.revision
     }];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- targetsVersion marks new answers in linkTargets
-  }), [references, parsed.source, linkTargets, targetsVersion, sourcePath, notesByPath, store, cache, errors, cacheVersion]);
+  }), [references, parsed.source, linkTargets, targetsVersion, sourcePath, notesByPath, filePaths, store, cache, errors, cacheVersion]);
 
   const requests = resolved.filter((reference) => (
     reference.status === "loading"

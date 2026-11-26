@@ -88,6 +88,11 @@ describe("note history", () => {
     await user.click(await screen.findByRole("button", { name: /Created/ }));
     await user.click(await screen.findByRole("button", { name: "Restore this version" }));
     const confirm = await screen.findByRole("dialog", { name: "Restore this version?" });
+    expect(within(confirm).getByText("+1 line added")).toBeInTheDocument();
+    expect(within(confirm).getByText("−1 line removed")).toBeInTheDocument();
+    const peek = within(confirm).getByRole("region", { name: "Summary of changes" });
+    expect(within(peek).getByText("Then")).toBeInTheDocument();
+    expect(within(peek).getByText("Now")).toBeInTheDocument();
     expect(restore).not.toHaveBeenCalled();
     await user.click(within(confirm).getByRole("button", { name: "Restore" }));
     expect(restore).toHaveBeenCalledWith("# A\n\nThen\n");

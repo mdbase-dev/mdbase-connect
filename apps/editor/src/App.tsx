@@ -48,7 +48,7 @@ import { MoveNoteDialog } from "./MoveNoteDialog";
 import { QuickCreateRecord } from "./QuickCreateRecord";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
-import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
+import { AttachmentProgress, AttachmentTransfer, CollectionFileUploadInput, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
 import { collectionFileTitle, useCollectionBrowserEntries } from "./collection-browser";
 import { CollectionRail, ConnectionStatus, connectWorkspaceUrl, type ShownConnectionState } from "./CollectionRail";
 import { folderChangeMoves, type FolderChangePlan, type FolderChangeProgress, type FolderChangeResult } from "./folder-change";
@@ -2188,9 +2188,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     ...description.types.map((type) => ({ id: `new-note:${type.name}`, name: typeDisplayName(type.name), type: type.name, detail: type.description }))
   ];
   const attachFileAction = attachmentMenuItem(attachments, canAttachFiles, () => void authorizeCollection("selected").catch((error) => setNotice(gatewayError(error))));
+  const uploadFolder = noteFilter?.kind === "folder" ? noteFilter.value : undefined;
+  const canUploadDirectFiles = canAttachFiles && !mutationsFrozen && !attachments.disabled;
   const quickOpenCommands = buildEditorCommands({
     "new-note": canCreateNotes && !mutationsFrozen ? () => openNewNote() : undefined,
     "new-note-of-type": canCreateNotes && !mutationsFrozen && description.types.length > 0 ? chooseNewNoteType : undefined,
+    "upload-files": canUploadDirectFiles && !attachments.upload ? () => attachments.pickFiles() : undefined,
     "new-note-in-folder": canCreateNotes && !mutationsFrozen ? () => openNewNoteInFolder(notePath?.split("/").slice(0, -1).join("/") ?? (noteFilter?.kind === "folder" ? noteFilter.value : "")) : undefined,
     "toggle-list": () => setLayout((current) => ({ ...current, listCollapsed: !current.listCollapsed })),
     shortcuts: () => setShortcutsOpen(true),
@@ -2385,7 +2388,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
               <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
             </div>}
-            {!mobileLayout && !isNew && <button className={`icon-button${focused && inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
+            {!isNew && <button className={`icon-button${focused && inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
             {!mobileLayout && !isNew && noteComments.available && <button className={`icon-button comments-toggle${focused && inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{focused && noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
             {!mobileLayout && !isNew && noteHistory && <button className={`icon-button${focused && inspector === "history" ? " active" : ""}`} aria-label={t`Version history`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "history"} onClick={() => showInspector("history", true)}><ClockCounterClockwise aria-hidden="true" /></button>}
             {focused && focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
@@ -2400,14 +2403,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)),
               discardNewNoteItem(isNew.id, openNewWrite === "saving")
               ] : [
-              ...(mobileLayout ? [menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })] : []),
-              ...noteActions(shown.path, mobileLayout ? t`Rename path` : undefined),
+              ...(mobileLayout ? [
+                menuCommand("properties", <Info aria-hidden="true" />, () => showInspector("properties")),
+                ...(noteComments.available ? [menuCommand("comments", <ChatText aria-hidden="true" />, () => showInspector("comments"))] : []),
+                ...(noteHistory ? [menuCommand("version-history", <ClockCounterClockwise aria-hidden="true" />, () => showInspector("history"))] : []),
+                menuCommand("quick-open", <Search aria-hidden="true" />, () => { setPaletteMode("notes"); setQuickOpen(true); })
+              ] : []),
+              ...noteActions(shown.path, mobileLayout ? t`Rename path` : undefined).map((item, actionIndex) => mobileLayout && actionIndex === 0 ? { ...item, separatorBefore: true } : item),
               { ...menuCommand("outline", <ListBullets aria-hidden="true" />, () => setOutlineOpen(true)), separatorBefore: true },
               menuCommand("backlinks", <Link2 aria-hidden="true" />, () => { window.document.getElementById(ids.backlinks)?.focus(); }),
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
-              ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => showInspector("properties"))] : []),
-              ...(mobileLayout && noteComments.available ? [menuCommand("comments", <ChatText aria-hidden="true" />, () => showInspector("comments"))] : []),
-              ...(mobileLayout && noteHistory ? [menuCommand("version-history", <ClockCounterClockwise aria-hidden="true" />, () => showInspector("history"))] : []),
               { ...attachFileAction, separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
@@ -2636,6 +2641,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onDelete={(path) => { if (peekPath) { closePeek(); focusNoteList(); } if (listSelection.paths.length > 1 && listSelection.paths.includes(path)) void deleteSelectedNotes(listSelection.paths); else void requestDelete(path); }}
         onCreate={canCreateNotes ? () => openNewNote() : undefined}
         onCreateOfType={canCreateNotes && description.types.length > 0 ? chooseNewNoteType : undefined}
+        onUploadFiles={canUploadDirectFiles ? () => attachments.pickFiles() : undefined}
+        onDropFiles={canUploadDirectFiles ? (files) => void attachments.uploadFiles(files, uploadFolder) : undefined}
+        uploadingFiles={Boolean(attachments.upload)}
+        uploadProgress={attachments.upload?.mode === "collection" ? <AttachmentProgress upload={attachments.upload} /> : undefined}
         onCollections={() => returnToMobilePane("collections")}
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
@@ -2815,6 +2824,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
+    <CollectionFileUploadInput controller={attachments} folder={uploadFolder} />
     <NotePreviewCard preview={notePreviewController.preview} />
     <Toaster items={activeToasts} onDismiss={dismissToast} />
   </div>;

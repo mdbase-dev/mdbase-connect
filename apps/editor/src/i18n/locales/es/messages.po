@@ -96,6 +96,11 @@ msgstr "{0, plural, one {# campo} other {# campos}}"
 msgid "{0, plural, one {# match} other {# matches}}"
 msgstr "{0, plural, one {# coincidencia} other {# coincidencias}}"
 
+#. placeholder {0}: summary.omitted
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
+msgstr "{0, plural, one {# línea modificada más} other {# líneas modificadas más}}"
+
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
@@ -110,6 +115,16 @@ msgstr "{0, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
 msgstr "{0, plural, one {# campo obligatorio sin asignar} other {# campos obligatorios sin asignar}}"
+
+#. placeholder {0}: summary.added
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {+# line added} other {+# lines added}}"
+msgstr "{0, plural, one {+# línea añadida} other {+# líneas añadidas}}"
+
+#. placeholder {0}: summary.removed
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {−# line removed} other {−# lines removed}}"
+msgstr "{0, plural, one {−# línea eliminada} other {−# líneas eliminadas}}"
 
 #. placeholder {0}: recoveryAction.references
 #: src/use-note-actions.ts
@@ -140,6 +155,11 @@ msgstr "{0, plural, one {El archivo se subió, pero la nota cambió antes de que
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
 msgstr "{0, plural, one {Se subió # archivo. El archivo ya está confirmado en la colección; el enlace de la nota se está guardando por separado.} other {Se subieron # archivos. Los archivos ya están confirmados en la colección; los enlaces de la nota se están guardando por separado.}}"
+
+#. placeholder {0}: uploadedFiles.length
+#: src/AttachmentUpload.tsx
+msgid "{0, plural, one {Uploaded # file.} other {Uploaded # files.}}"
+msgstr "{0, plural, one {Se subió # archivo.} other {Se subieron # archivos.}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
@@ -195,6 +215,18 @@ msgstr "Cambios aplicados: {0}"
 #: src/TypeBrowser.tsx
 msgid "{0} choice"
 msgstr "Opción de {0}"
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/code-editor-reference-diagnostics.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate it."
+msgstr "{0} archivos coinciden con «{1}». Usa una ruta completa para desambiguarlo."
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/note-embeds.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate: {examples}."
+msgstr "{0} archivos coinciden con «{1}». Usa una ruta completa para desambiguar: {examples}."
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
@@ -256,7 +288,7 @@ msgstr "{0} advertencias de enlaces requieren atención y no se corregirán auto
 msgid "{0} notes loaded · incomplete"
 msgstr "Notas cargadas: {0} · incompleto"
 
-#. placeholder {0}: noteMatches.length
+#. placeholder {0}: matches.length
 #. placeholder {1}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "{0} notes match “{1}”. Use a path to disambiguate it."
@@ -417,6 +449,10 @@ msgstr "{count, plural, one {Se movió # nota.} other {Se movieron # notas.}}"
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, one {Se restauró # nota.} other {Se restauraron # notas.}}"
+
+#: src/PropertiesPanel.tsx
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, one {Mostrar # campo vacío} other {Mostrar # campos vacíos}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
@@ -943,6 +979,10 @@ msgstr "Añadir regla de unicidad"
 msgid "Added “{0}” and opened the new type."
 msgstr "Se añadió «{0}» y se abrió el nuevo tipo."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Added:"
+msgstr "Añadido:"
+
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
 msgstr "Para añadir definiciones se necesita permiso para gestionar los tipos de esta colección."
@@ -1153,7 +1193,7 @@ msgstr "Adjuntando archivo…"
 msgid "Attaching files is not available for this collection in mdbase editor yet."
 msgstr "Adjuntar archivos aún no está disponible para esta colección en el editor de mdbase."
 
-#. placeholder {0}: controller.upload.name
+#. placeholder {0}: upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
 msgstr "Progreso del archivo adjunto {0}"
@@ -1326,6 +1366,11 @@ msgstr "Cambiar atajos"
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
 msgstr "Cambió en otro lugar"
+
+#: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
+msgid "Changes are saved on this device and will sync automatically when the connection returns."
+msgstr "Los cambios están guardados en este dispositivo y se sincronizarán automáticamente cuando vuelva la conexión."
 
 #: src/NoteCommentsPanel.tsx
 #: src/pending-note-mutation.ts
@@ -1567,8 +1612,8 @@ msgid "Collection changed before the type pack finished."
 msgstr "La colección cambió antes de que terminara el paquete de tipos."
 
 #: src/CollectionRail.tsx
-msgid "Collection changes saved on this device; waiting for sync"
-msgstr "Cambios de la colección guardados en este dispositivo; esperando la sincronización"
+msgid "Collection changes are saved on this device and will sync automatically when the connection returns"
+msgstr "Los cambios de la colección están guardados en este dispositivo y se sincronizarán automáticamente cuando vuelva la conexión"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
@@ -2337,6 +2382,10 @@ msgstr "Listo"
 msgid "Drag to resize · Double-click to reset"
 msgstr "Arrastra para cambiar el tamaño · Haz doble clic para restablecer"
 
+#: src/NoteList.tsx
+msgid "Drop files to upload"
+msgstr "Suelta archivos para subirlos"
+
 #: src/editor-commands.ts
 msgid "Duplicate"
 msgstr "Duplicar"
@@ -2854,6 +2903,10 @@ msgstr "Encabezado 3"
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
 msgstr "Ocultar la barra lateral de colecciones"
+
+#: src/PropertiesPanel.tsx
+msgid "Hide empty fields"
+msgstr "Ocultar campos vacíos"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
@@ -3584,6 +3637,10 @@ msgid "nested required fields"
 msgstr "campos obligatorios anidados"
 
 #: src/NoteList.tsx
+msgid "New"
+msgstr "Nuevo"
+
+#: src/NoteList.tsx
 msgctxt "button that creates a note"
 msgid "New"
 msgstr "Nueva"
@@ -3602,6 +3659,10 @@ msgstr "Crear: {typeLabel}"
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "Carpeta nueva"
+
+#: src/NoteList.tsx
+msgid "New menu"
+msgstr "Menú Nuevo"
 
 #: src/App.tsx
 #: src/code-editor-completions.ts
@@ -4727,6 +4788,10 @@ msgstr "Quita esta colección del editor sin cambiar sus archivos."
 msgid "Remove uniqueness rule for {0}"
 msgstr "Quitar la regla de unicidad de {0}"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Removed:"
+msgstr "Eliminado:"
+
 #: src/editor-commands.ts
 msgid "Rename"
 msgstr "Cambiar nombre"
@@ -5063,8 +5128,8 @@ msgstr "Acceso guardado"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
-msgid "Saved on this device; waiting for sync"
-msgstr "Guardado en este dispositivo; pendiente de sincronización"
+msgid "Saved on this device · syncs automatically when online"
+msgstr "Guardado en este dispositivo · se sincroniza automáticamente al reconectar"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
@@ -5402,6 +5467,10 @@ msgstr "Condiciones estructuradas del frontmatter"
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
 msgstr "Sugerencia basada solo en los nombres y la estructura de los campos. Confirma que los significados coincidan."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Summary of changes"
+msgstr "Resumen de cambios"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -6555,6 +6624,24 @@ msgstr "actualizar"
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
 msgstr "Actualizar <0>{0}</0> a la plantilla actual de Person. "
 
+#: src/NoteList.tsx
+msgid "Upload"
+msgstr "Subir"
+
+#: src/NoteList.tsx
+msgid "Upload files"
+msgstr "Subir archivos"
+
+#: src/editor-commands.ts
+#: src/NoteList.tsx
+msgid "Upload files…"
+msgstr "Subir archivos…"
+
+#. placeholder {0}: files[0]!.name
+#: src/AttachmentUpload.tsx
+msgid "Uploaded “{0}”."
+msgstr "Se subió «{0}»."
+
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
@@ -6576,6 +6663,14 @@ msgstr "Subiendo {0}…"
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
 msgstr "La subida de {name} tardó demasiado. Inténtalo de nuevo."
+
+#: src/NoteList.tsx
+msgid "Uploading files…"
+msgstr "Subiendo archivos…"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Use {path}"
+msgstr "Usar {path}"
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."

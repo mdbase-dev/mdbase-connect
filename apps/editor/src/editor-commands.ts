@@ -13,6 +13,7 @@ export const commandDefinitions = {
   "command-palette": { get label() { return t`Commands`; }, shortcut: "mod+K", aliases: ["mod+shift+P"], group: "Navigate", get scope() { return t`outside text; add a link while typing`; } },
   "new-note": { get label() { return t`New note`; }, shortcut: "C", aliases: ["mod+shift+N"], group: "Note" },
   "new-note-of-type": { get label() { return t`New note of type…`; }, shortcut: "shift+C", group: "Note" },
+  "upload-files": { get label() { return t`Upload files…`; }, group: "Note" },
   "focus-search": { get label() { return t`Search notes and files`; }, shortcut: "/", group: "Navigate" },
   notes: { get label() { return t`Open Notes`; }, shortcut: "g n", group: "Navigate" },
   "new-note-in-folder": { get label() { return t`New note in current folder`; } },

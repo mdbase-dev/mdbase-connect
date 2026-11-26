@@ -961,9 +961,15 @@ function demoResolve(raw: string, from: string, notes: readonly string[], files:
   }
   const key = target.replace(/\.md$/i, "").toLocaleLowerCase();
   const segments = (path: string) => path.split("/").length;
-  const matches = all.filter((path) => path.split("/").pop()!.replace(/\.md$/i, "").toLocaleLowerCase() === key)
+  const noteMatches = notes.filter((path) => path.split("/").pop()!.replace(/\.md$/i, "").toLocaleLowerCase() === key)
     .sort((a, b) => Number(b.startsWith(`${folder}/`)) - Number(a.startsWith(`${folder}/`)) || segments(a) - segments(b) || (a < b ? -1 : 1));
-  return matches[0] ? kindOf(matches[0]) : { kind: "missing" };
+  if (noteMatches[0]) return { kind: "note", path: noteMatches[0] };
+  const fileMatches = files
+    .filter((path) => (path.split("/").pop() ?? path).toLocaleLowerCase() === target.toLocaleLowerCase())
+    .sort((a, b) => a.localeCompare(b));
+  if (fileMatches.length === 1) return { kind: "file", path: fileMatches[0]! };
+  if (fileMatches.length > 1) return { kind: "ambiguous", candidates: fileMatches };
+  return { kind: "missing" };
 }
 
 function demoEmbeds(body: string): string[] {

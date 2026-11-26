@@ -67,11 +67,6 @@ msgstr "Приложение {app} перестанет показывать е�
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "{count, plural, one {# empty} other {# empty}}"
-msgstr "{count, plural, one {# пустое} few {# пустых} many {# пустых} other {# пустого}}"
-
-#: src/properties/labels.ts
-msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, one {# элемент} few {# элемента} many {# элементов} other {# элемента}}"
 
@@ -93,6 +88,11 @@ msgstr "{count, plural, one {# свойство} few {# свойства} many {
 msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, one {Выбрано: #} few {Выбрано: #} many {Выбрано: #} other {Выбрано: #}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, one {Показать # пустое поле} few {Показать # пустых поля} many {Показать # пустых полей} other {Показать # пустых полей}}"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
@@ -915,8 +915,8 @@ msgstr "Предоставить приложению {app} доступ к эт
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "Hide empty"
-msgstr "Скрыть пустые"
+msgid "Hide empty fields"
+msgstr "Скрыть пустые поля"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"

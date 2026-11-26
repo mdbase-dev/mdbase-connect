@@ -180,4 +180,22 @@ describe("embedded note owner cache", () => {
     const hook = embedHarness(read, "indexed B"); await ready(hook.result, "indexed B");
     expect(read).not.toHaveBeenCalled();
   });
+
+  it("explains ambiguous file embeds with candidate full paths", async () => {
+    const read = vi.fn();
+    const ambiguousTargets = linkTargets("Notes/today.md", {
+      "![[page.html]]": { kind: "ambiguous", candidates: ["Archive/page.html", "Attachments/page.html"] }
+    });
+    const { result } = renderHook(() => useEmbeddedNoteReferences(
+      { read },
+      { collectionId: "a", epoch: 1 },
+      "![[page.html]]",
+      [],
+      ambiguousTargets
+    ));
+    await waitFor(() => expect(result.current.references[0]).toMatchObject({
+      status: "ambiguous",
+      error: "2 files match “page.html”. Use a full path to disambiguate: Archive/page.html, Attachments/page.html."
+    }));
+  });
 });

@@ -175,4 +175,19 @@ describe("shared attachment pipeline", () => {
     expect(inventory.getSnapshot().files).toHaveLength(1); // a committed attachment survives independently
     expect(result.current.insertion).toBeUndefined();
   });
+
+  it("uploads files directly into the collection without requiring or editing a note", async () => {
+    const { result, gateway, inventory, setNotice, changeNote } = harness();
+    changeNote(); // no active note session
+    const upload = vi.spyOn(gateway, "uploadFile");
+    const html = new File(["<h1>Hi</h1>"], "page.html", { type: "text/html" });
+    await act(async () => {
+      await result.current.uploadFiles([html]);
+      await result.current.uploadFiles([html], "Resources");
+    });
+    expect(upload.mock.calls.map(([path]) => path)).toEqual(["Attachments/page.html", "Resources/page.html"]);
+    expect(result.current.insertion).toBeUndefined();
+    expect(inventory.getSnapshot().files.map((file) => file.path)).toEqual(["Attachments/page.html", "Resources/page.html"]);
+    expect(setNotice).toHaveBeenLastCalledWith("Uploaded “page.html”.", "success");
+  });
 });

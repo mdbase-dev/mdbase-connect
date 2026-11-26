@@ -67,11 +67,6 @@ msgstr "このデバイスで{app}に表示されなくなります。コレク�
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "{count, plural, one {# empty} other {# empty}}"
-msgstr "{count, plural, other {空の項目 # 件}}"
-
-#: src/properties/labels.ts
-msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, other {# 項目}}"
 
@@ -93,6 +88,11 @@ msgstr "{count, plural, other {プロパティ # 件}}"
 msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, other {# 件選択中}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, other {空のフィールド # 件を表示}}"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
@@ -915,8 +915,8 @@ msgstr "{app}にこのコレクションへのアクセスを許可しますか�
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "Hide empty"
-msgstr "空の項目を隠す"
+msgid "Hide empty fields"
+msgstr "空のフィールドを隠す"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"

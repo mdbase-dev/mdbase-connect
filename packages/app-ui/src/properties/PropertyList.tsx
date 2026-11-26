@@ -78,6 +78,8 @@ interface Shared {
   /** Whether a value with parts is open, by its path. A value nobody has opened or closed is not here. */
   readonly folds: ReadonlyMap<string, boolean>;
   readonly fold: (path: string, open: boolean) => void;
+  readonly showEmpty: boolean;
+  readonly toggleEmpty: () => void;
 }
 
 /**
@@ -90,12 +92,26 @@ export function PropertyList(props: PropertyListProps): JSX.Element {
   useLocaleRevision();
   const labels = { ...propertyLabels(), ...props.labels };
   const [folds, setFolds] = useState<ReadonlyMap<string, boolean>>(() => new Map());
+  const [showEmpty, setShowEmpty] = useState(readShowEmpty);
+  const toggleEmpty = (): void => {
+    setShowEmpty((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(showEmptyKey, next ? "1" : "0");
+      } catch {
+        // Not kept.
+      }
+      return next;
+    });
+  };
   const shared: Shared = {
     labels,
     records: props.records,
     errors: props.errors ?? noErrors,
     folds,
     fold: (path, open) => setFolds((current) => new Map(current).set(path, open)),
+    showEmpty,
+    toggleEmpty,
   };
   return (
     <div className="mdbase-properties">
@@ -139,7 +155,6 @@ function Rows(props: {
   const [addingHere, setAddingHere] = useState(false);
   const adding = parent ? Boolean(props.adding) : addingHere;
   const setAdding = (next: boolean): void => (parent ? props.onAdding?.(next) : setAddingHere(next));
-  const [showEmpty, setShowEmpty] = useState(readShowEmpty);
   /** Properties brought into view to be filled in. */
   const [revealed, setRevealed] = useState<readonly string[]>([]);
   const [focus, setFocus] = useState<string | null>(null);
@@ -152,19 +167,10 @@ function Rows(props: {
     if (!isEmptyValue(values[name])) held.current.add(name);
   }
   const must = (name: string): boolean => declared.some((field) => field.name === name && field.required);
-  // A part of a value is there to be seen once the value holds it; a record's own empty properties wait to be asked for.
+  // A part of a value is there to be seen once the value holds it; empty declared fields and nested parts wait on the shared disclosure.
   const lasting = (name: string): boolean => held.current.has(name) || revealed.includes(name) || must(name) || (parent !== undefined && name in values);
-  const shown = names.filter((name) => (!parent && showEmpty) || lasting(name));
-  const empties = parent ? 0 : names.filter((name) => !lasting(name)).length;
-  const toggleEmpty = (): void => {
-    const next = !showEmpty;
-    setShowEmpty(next);
-    try {
-      localStorage.setItem(showEmptyKey, next ? "1" : "0");
-    } catch {
-      // Not kept.
-    }
-  };
+  const shown = names.filter((name) => shared.showEmpty || lasting(name));
+  const empties = parent ? 0 : names.filter((name) => !lasting(name)).length + countEmptyNested(values, declared, hidden);
   const reveal = (name: string): void => {
     setRevealed((current) => (current.includes(name) ? current : [...current, name]));
     setFocus(name);
@@ -266,9 +272,9 @@ function Rows(props: {
             </button>
           ) : null}
           {empties ? (
-            <button type="button" className="mdbase-properties-action is-toggle" aria-expanded={showEmpty} onClick={toggleEmpty}>
-              {showEmpty ? labels.hideEmpty : labels.showEmpty(empties)}
-              <Glyph name={showEmpty ? "up" : "down"} size={12} />
+            <button type="button" className="mdbase-properties-action is-toggle" aria-expanded={shared.showEmpty} onClick={shared.toggleEmpty}>
+              {shared.showEmpty ? labels.hideEmpty : labels.showEmpty(empties)}
+              <Glyph name={shared.showEmpty ? "up" : "down"} size={12} />
             </button>
           ) : null}
         </div>
@@ -387,7 +393,7 @@ function Row(props: {
         {error ? <p className="mdbase-property-error" role="alert">{error}</p> : null}
       </div>
       {/* A value that can be added to keeps its parts' place while it has none: a part being named or filled in is there. */}
-      {open && (count > 0 || (kind === "group" && onChange !== undefined)) ? (
+      {open && (count > 0 || (kind === "group" && (onChange !== undefined || (shared.showEmpty && Boolean(info?.parts?.length))))) ? (
         <div className="mdbase-property-parts" id={parts} role="group" aria-label={label}>
           {kind === "items" ? (
             <Items shared={shared} parent={{ path, label }} list={list} info={info?.items} added={added} onAdded={setAdded} onChange={onChange} />
@@ -472,4 +478,32 @@ function Items(props: {
       })}
     </>
   );
+}
+
+/** Count empty declared nested parts inside existing groups and lists of groups. */
+function countEmptyNested(
+  values: Readonly<Record<string, unknown>>,
+  declared: readonly PropertyInfo[],
+  hidden: (name: string) => boolean,
+): number {
+  let count = 0;
+  for (const field of declared) {
+    if (hidden(field.name)) continue;
+    const value = values[field.name];
+    if (field.kind === "group" && field.parts?.length && isGroup(value) && Object.keys(value).length > 0) {
+      for (const part of field.parts) {
+        if (!part.required && !(part.name in value)) count += 1;
+      }
+      count += countEmptyNested(value, field.parts, shownAlways);
+    } else if (field.kind === "list" && field.items?.kind === "group" && field.items.parts?.length && Array.isArray(value)) {
+      for (const item of value) {
+        if (!isGroup(item)) continue;
+        for (const part of field.items.parts) {
+          if (!part.required && !(part.name in item)) count += 1;
+        }
+        count += countEmptyNested(item, field.items.parts, shownAlways);
+      }
+    }
+  }
+  return count;
 }

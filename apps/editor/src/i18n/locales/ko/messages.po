@@ -96,6 +96,11 @@ msgstr "{0, plural, other {필드 #개}}"
 msgid "{0, plural, one {# match} other {# matches}}"
 msgstr "{0, plural, other {일치 항목 #개}}"
 
+#. placeholder {0}: summary.omitted
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
+msgstr "{0, plural, other {변경된 줄 #개 더}}"
+
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
@@ -110,6 +115,16 @@ msgstr "{0, plural, other {노트 #개 이동됨}}"
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
 msgstr "{0, plural, other {매핑되지 않은 필수 필드 #개}}"
+
+#. placeholder {0}: summary.added
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {+# line added} other {+# lines added}}"
+msgstr "{0, plural, other {+#줄 추가됨}}"
+
+#. placeholder {0}: summary.removed
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {−# line removed} other {−# lines removed}}"
+msgstr "{0, plural, other {−#줄 삭제됨}}"
 
 #. placeholder {0}: recoveryAction.references
 #: src/use-note-actions.ts
@@ -140,6 +155,11 @@ msgstr "{0, plural, other {파일을 업로드했지만 링크를 삽입하기 �
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
 msgstr "{0, plural, other {파일 #개 업로드됨. 컬렉션 파일은 저장되었으며 노트 링크는 별도로 저장 중입니다.}}"
+
+#. placeholder {0}: uploadedFiles.length
+#: src/AttachmentUpload.tsx
+msgid "{0, plural, one {Uploaded # file.} other {Uploaded # files.}}"
+msgstr "{0, plural, other {파일 #개를 업로드했습니다.}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
@@ -195,6 +215,18 @@ msgstr "{0}개 변경사항 적용됨"
 #: src/TypeBrowser.tsx
 msgid "{0} choice"
 msgstr "{0}개 선택 항목"
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/code-editor-reference-diagnostics.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate it."
+msgstr "“{1}”과(와) 일치하는 파일이 {0}개 있습니다. 구분하려면 전체 경로를 사용하세요."
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/note-embeds.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate: {examples}."
+msgstr "“{1}”과(와) 일치하는 파일이 {0}개 있습니다. 구분하려면 전체 경로를 사용하세요: {examples}."
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
@@ -256,7 +288,7 @@ msgstr "{0}개 링크 경고에 주의가 필요하며 자동으로 해결되지
 msgid "{0} notes loaded · incomplete"
 msgstr "노트 {0}개 불러옴 · 일부 결과"
 
-#. placeholder {0}: noteMatches.length
+#. placeholder {0}: matches.length
 #. placeholder {1}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "{0} notes match “{1}”. Use a path to disambiguate it."
@@ -417,6 +449,10 @@ msgstr "{count, plural, other {노트 #개 이동됨.}}"
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, other {노트 #개 복원됨.}}"
+
+#: src/PropertiesPanel.tsx
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, other {빈 필드 #개 표시}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
@@ -943,6 +979,10 @@ msgstr "고유성 규칙 추가"
 msgid "Added “{0}” and opened the new type."
 msgstr "“{0}”을(를) 추가하고 새 유형을 열었습니다."
 
+#: src/NoteHistoryPanel.tsx
+msgid "Added:"
+msgstr "추가됨:"
+
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
 msgstr "정의를 추가하려면 이 컬렉션의 유형을 관리할 권한이 필요합니다."
@@ -1153,7 +1193,7 @@ msgstr "파일 첨부 중…"
 msgid "Attaching files is not available for this collection in mdbase editor yet."
 msgstr "mdbase editor에서는 아직 이 컬렉션에 파일을 첨부할 수 없습니다."
 
-#. placeholder {0}: controller.upload.name
+#. placeholder {0}: upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
 msgstr "첨부 진행률: {0}"
@@ -1326,6 +1366,11 @@ msgstr "단축키 변경"
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
 msgstr "다른 곳에서 변경됨"
+
+#: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
+msgid "Changes are saved on this device and will sync automatically when the connection returns."
+msgstr "변경 사항이 이 기기에 저장되었으며 연결이 복구되면 자동으로 동기화됩니다."
 
 #: src/NoteCommentsPanel.tsx
 #: src/pending-note-mutation.ts
@@ -1567,8 +1612,8 @@ msgid "Collection changed before the type pack finished."
 msgstr "유형 팩이 완료되기 전에 컬렉션이 변경되었습니다."
 
 #: src/CollectionRail.tsx
-msgid "Collection changes saved on this device; waiting for sync"
-msgstr "컬렉션 변경사항이 이 기기에 저장되었습니다. 동기화를 기다리는 중입니다"
+msgid "Collection changes are saved on this device and will sync automatically when the connection returns"
+msgstr "컬렉션 변경 사항이 이 기기에 저장되었으며 연결이 복구되면 자동으로 동기화됩니다"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
@@ -2337,6 +2382,10 @@ msgstr "완료"
 msgid "Drag to resize · Double-click to reset"
 msgstr "드래그하여 크기 조절 · 두 번 클릭하여 초기화"
 
+#: src/NoteList.tsx
+msgid "Drop files to upload"
+msgstr "파일을 놓아 업로드"
+
 #: src/editor-commands.ts
 msgid "Duplicate"
 msgstr "복제"
@@ -2854,6 +2903,10 @@ msgstr "제목 3"
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
 msgstr "컬렉션 사이드바 숨기기"
+
+#: src/PropertiesPanel.tsx
+msgid "Hide empty fields"
+msgstr "빈 필드 숨기기"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
@@ -3584,6 +3637,10 @@ msgid "nested required fields"
 msgstr "중첩 필수 필드"
 
 #: src/NoteList.tsx
+msgid "New"
+msgstr "새로 만들기"
+
+#: src/NoteList.tsx
 msgctxt "button that creates a note"
 msgid "New"
 msgstr "새 노트"
@@ -3602,6 +3659,10 @@ msgstr "새로 만들기: {typeLabel}"
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "새 폴더"
+
+#: src/NoteList.tsx
+msgid "New menu"
+msgstr "새로 만들기 메뉴"
 
 #: src/App.tsx
 #: src/code-editor-completions.ts
@@ -4727,6 +4788,10 @@ msgstr "파일을 변경하지 않고 편집기에서 이 컬렉션을 제거합
 msgid "Remove uniqueness rule for {0}"
 msgstr "{0}의 고유성 규칙 제거"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Removed:"
+msgstr "삭제됨:"
+
 #: src/editor-commands.ts
 msgid "Rename"
 msgstr "이름 바꾸기"
@@ -5063,8 +5128,8 @@ msgstr "접근 권한 저장됨"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
-msgid "Saved on this device; waiting for sync"
-msgstr "이 기기에 저장됨 · 동기화 대기 중"
+msgid "Saved on this device · syncs automatically when online"
+msgstr "이 기기에 저장됨 · 온라인 시 자동 동기화"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
@@ -5402,6 +5467,10 @@ msgstr "구조화된 프런트매터 조건"
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
 msgstr "필드 이름과 형태만 바탕으로 제안되었습니다. 의미가 맞는지 확인하세요."
+
+#: src/NoteHistoryPanel.tsx
+msgid "Summary of changes"
+msgstr "변경 요약"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -6555,6 +6624,24 @@ msgstr "업그레이드"
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
 msgstr "<0>{0}</0>을(를) 최신 Person 스타터로 업그레이드합니다. "
 
+#: src/NoteList.tsx
+msgid "Upload"
+msgstr "업로드"
+
+#: src/NoteList.tsx
+msgid "Upload files"
+msgstr "파일 업로드"
+
+#: src/editor-commands.ts
+#: src/NoteList.tsx
+msgid "Upload files…"
+msgstr "파일 업로드…"
+
+#. placeholder {0}: files[0]!.name
+#: src/AttachmentUpload.tsx
+msgid "Uploaded “{0}”."
+msgstr "“{0}”을(를) 업로드했습니다."
+
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
@@ -6576,6 +6663,14 @@ msgstr "{0} 업로드 중…"
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
 msgstr "{name} 업로드 시간이 초과되었습니다. 다시 시도하세요."
+
+#: src/NoteList.tsx
+msgid "Uploading files…"
+msgstr "파일 업로드 중…"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Use {path}"
+msgstr "{path} 사용"
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."

@@ -94,7 +94,8 @@ async function startNote(user: ReturnType<typeof userEvent.setup>) {
 }
 
 async function startNoteOfType(user: ReturnType<typeof userEvent.setup>, type: RegExp) {
-  await user.click(screen.getByRole("button", { name: "New note of type…" }));
+  await user.click(screen.getByRole("button", { name: "New menu" }));
+  await user.click(await screen.findByRole("menuitem", { name: "New note of type…" }));
   const picker = await screen.findByRole("dialog", { name: "New note" });
   await user.click(within(picker).getByRole("option", { name: type }));
   await waitFor(() => expect(noteTitle()).toHaveValue(""));
@@ -178,7 +179,8 @@ describe("a new note", () => {
     const create = vi.spyOn(gateway, "create");
     const user = await openEditor(gateway);
 
-    await user.click(screen.getByRole("button", { name: "New note of type…" }));
+    await user.click(screen.getByRole("button", { name: "New menu" }));
+    await user.click(await screen.findByRole("menuitem", { name: "New note of type…" }));
     const picker = await screen.findByRole("dialog", { name: "New note" });
     expect(within(picker).getAllByRole("option").map((option) => option.textContent)).toEqual([
       expect.stringContaining("General note"), expect.stringContaining("note"), expect.stringContaining("meeting")

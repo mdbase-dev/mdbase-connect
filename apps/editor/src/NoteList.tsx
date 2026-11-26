@@ -3,12 +3,14 @@ import { displayLocale } from "./i18n/format";
 import { Trans } from "@lingui/react/macro";
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { defaultRangeExtractor, useVirtualizer, type Range } from "@tanstack/react-virtual";
+import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { useOverlay } from "@mdbase-dev/ui/overlay";
 import type { CollectionTypeDescriptor } from "./connect-types";
-import { CaretDownIcon as CaretDown, CheckCircleIcon, PlusIcon as Plus, SidebarSimpleIcon as PanelLeft } from "./icons";
+import { CaretDownIcon as CaretDown, CheckCircleIcon, FilePlusIcon as FilePlus, PlusIcon as Plus, SidebarSimpleIcon as PanelLeft, UploadSimpleIcon as UploadSimple } from "./icons";
 import { ContextMenu, type ActionMenuItem } from "./ContextMenu";
+import { FOLDER_PATH_MIME } from "./folder-change";
 import { NoteSearchField } from "./NoteSearchField";
 import type { CollectionFile } from "./model";
 import { folder, noteExcerpt, noteTimestamp, noteTitle, noteTypeIcon, typeDisplayName } from "./note";
@@ -27,7 +29,7 @@ const listNavigationKeys: Record<string, true> = { ArrowDown: true, ArrowUp: tru
 
 import { matchesCommandShortcut } from "./editor-commands";
 
-export function NoteList({ entries, selection, onSelection, selecting = false, onStartSelecting, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, searchPending, searchError, contentError, total, leadingActions, trailingActions, onSearch, onSort, onClearScope, onRetryStructure, onRetrySearch, onRetryContent, onRetryFiles, onSelect, onSelectFile, onOpenInNewTab, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
+export function NoteList({ entries, selection, onSelection, selecting = false, onStartSelecting, selectionBar, pinnedPaths = [], noteCount, fileCount, types, selectedPath, selectedFilePath, pendingPath, pendingFilePath, statuses, arrivingPath, search, searchQuery, searchContexts, sort, sortFields, scopeLabel, collectionName, loading, structureLoading, structureError, filesLoading, fileError, searchPending, searchError, contentError, total, leadingActions, trailingActions, onSearch, onSort, onClearScope, onRetryStructure, onRetrySearch, onRetryContent, onRetryFiles, onSelect, onSelectFile, onOpenInNewTab, filter, tags = [], filterTypes = [], onFilter, noteActions, onRename, onDelete, onPeek, peek, peekTitle, onClosePeek, onCreate, onCreateOfType, onUploadFiles, onDropFiles, uploadingFiles = false, uploadProgress, drafts = [], onOpenDraft, onCollections, compact = false, onCompact }: {
   entries: CollectionBrowserEntry[];
   selection?: NoteSelection;
   onSelection?: (selection: NoteSelection) => void;
@@ -90,6 +92,12 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   onCreate?: () => void;
   /** New note with its type chosen first; offered when the collection has types. */
   onCreateOfType?: () => void;
+  /** Upload non-Markdown files directly into the collection without editing a note. */
+  onUploadFiles?: () => void;
+  /** Upload external files dropped directly onto the notes and files list. */
+  onDropFiles?: (files: File[]) => void;
+  uploadingFiles?: boolean;
+  uploadProgress?: ReactNode;
   /** New notes that are not in the collection yet: untouched, waiting on a required field, or being written. */
   drafts?: { id: string; title: string; status: string; selected: boolean }[];
   onOpenDraft?: (id: string) => void;
@@ -100,6 +108,32 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
 }) {
   useLingui();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const newMenu = useMenuTrigger();
+  const [fileDragOver, setFileDragOver] = useState(false);
+  const acceptsExternalFiles = (dataTransfer: DataTransfer | null) => {
+    if (!onDropFiles || uploadingFiles || !dataTransfer) return false;
+    const types = [...dataTransfer.types];
+    return types.includes("Files") && !types.includes(NOTE_PATHS_MIME) && !types.includes(FOLDER_PATH_MIME);
+  };
+  const handleFileDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!acceptsExternalFiles(event.dataTransfer)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "copy";
+    setFileDragOver(true);
+  };
+  const handleFileDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+      setFileDragOver(false);
+    }
+  };
+  const handleFileDrop = (event: DragEvent<HTMLDivElement>) => {
+    setFileDragOver(false);
+    if (!acceptsExternalFiles(event.dataTransfer)) return;
+    const files = [...event.dataTransfer.files];
+    if (!files.length) return;
+    event.preventDefault();
+    onDropFiles?.(files);
+  };
   useEffect(() => {
     if (document.activeElement === document.body) scrollRef.current?.focus({ preventScroll: true });
   }, []);
@@ -275,7 +309,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
   };
 
   return <section className="note-list-pane" aria-label={t`Notes and files`}>
-    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, searchPending, total, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && searchError)))}{structureError ? <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button> : contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry notes</Trans></button>}{search.trim() && searchError && (onRetrySearch ? <button className="list-retry" title={searchError} onClick={onRetrySearch}><Trans>Retry search</Trans></button> : <> · <Trans>Search limit reached. Try a different term.</Trans></>)}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate && <div className="new-note-group"><button className="new-note" aria-label={t`New note`} title={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><Plus aria-hidden="true" /><span><Trans context="button that creates a note">New</Trans></span></button>{onCreateOfType && <button className="new-note-type" aria-label={t`New note of type…`} title={t`New note of type…`} aria-keyshortcuts="Shift+C" aria-haspopup="dialog" onClick={onCreateOfType}><CaretDown aria-hidden="true" /></button>}</div>}</header>
+    <header className="list-header"><button className="mobile-collections icon-button" aria-label={t`Collections`} onClick={onCollections}><PanelLeft aria-hidden="true" /></button>{leadingActions}<div><h1>{collectionName}</h1><p aria-live="polite">{browserCountLabel(noteCount, fileCount, entries.length, loading, structureLoading, filesLoading, searchPending, total, Boolean(search.trim()), sort, Boolean(structureError || (search.trim() && searchError)))}{structureError ? <button className="list-retry" title={structureError} onClick={onRetryStructure}><Trans>Retry notes</Trans></button> : contentError && <button className="list-retry" title={contentError} onClick={onRetryContent}><Trans>Retry notes</Trans></button>}{search.trim() && searchError && (onRetrySearch ? <button className="list-retry" title={searchError} onClick={onRetrySearch}><Trans>Retry search</Trans></button> : <> · <Trans>Search limit reached. Try a different term.</Trans></>)}{fileError && <button className="list-retry" title={fileError} onClick={onRetryFiles}><Trans>Retry files</Trans></button>}</p></div>{trailingActions}{onCreate ? <div className="new-note-group"><button className="new-note" aria-label={t`New note`} title={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" onClick={onCreate}><Plus aria-hidden="true" /><span><Trans context="button that creates a note">New</Trans></span></button>{onUploadFiles ? <><button {...newMenu.triggerProps} className="new-note-type" aria-label={t`New menu`} title={t`New menu`}><CaretDown aria-hidden="true" /></button><Menu open={newMenu.open} id={newMenu.id} label={t`New`} triggerRef={newMenu.trigger} onClose={newMenu.close}>{onCreateOfType && <button role="menuitem" className="mdbase-menu-item" onClick={() => { newMenu.close(true); onCreateOfType(); }}><FilePlus aria-hidden="true" /><Trans>New note of type…</Trans></button>}<button role="menuitem" className="mdbase-menu-item" disabled={uploadingFiles} onClick={() => { newMenu.close(true); onUploadFiles(); }}><UploadSimple aria-hidden="true" />{uploadingFiles ? t`Uploading files…` : t`Upload files…`}</button></Menu></> : onCreateOfType && <button className="new-note-type" aria-label={t`New note of type…`} title={t`New note of type…`} aria-keyshortcuts="Shift+C" aria-haspopup="dialog" onClick={onCreateOfType}><CaretDown aria-hidden="true" /></button>}</div> : onUploadFiles && <div className="new-note-group"><button className="new-note" aria-label={t`Upload files`} title={t`Upload files`} disabled={uploadingFiles} onClick={onUploadFiles}><UploadSimple aria-hidden="true" /><span><Trans>Upload</Trans></span></button></div>}</header>
     <div className="note-list-controls">
       <NoteSearchField search={search} filter={filter} tags={tags} types={filterTypes} onSearch={onSearch} onFilter={onFilter ?? onClearScope} onResults={(first) => {
         if (first && entries[0]) {
@@ -295,13 +329,14 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
       }} />
       <NoteListViewOptions sort={sort} fields={sortFields} scopeLabel={filter ? undefined : scopeLabel} compact={compact} onSort={onSort} onClearScope={onClearScope} onCompact={onCompact} />
     </div>
-    <div className="note-selection-slot">{selectionBar}</div>
+    <div className="note-selection-slot">{selectionBar}{uploadProgress}</div>
     <div className="note-drafts" role="group" aria-label={t`Notes not saved yet`} hidden={!drafts.length}>{drafts.map((draft) => <button key={draft.id}
       className={`note-draft${draft.selected ? " selected" : ""}`} aria-current={draft.selected ? "true" : undefined} onClick={() => onOpenDraft?.(draft.id)}>
       <span className={`note-title${draft.title ? "" : " note-title-empty"}`}>{draft.title || t`Untitled`}</span>
       <span className="note-transition">{draft.status}</span>
     </button>)}</div>
-    <div className={`note-scroll${compact ? " compact" : ""}`} ref={scrollRef} role="listbox" aria-multiselectable="true" aria-label={t`Collection notes and files`} aria-busy={structureLoading || filesLoading} tabIndex={entries.length ? 0 : undefined} aria-activedescendant={selectedItemId} onKeyDown={handleListKeyDown}>
+    <div className={`note-scroll${compact ? " compact" : ""}${fileDragOver ? " is-file-drag-over" : ""}`} ref={scrollRef} role="listbox" aria-multiselectable="true" aria-label={t`Collection notes and files`} aria-busy={structureLoading || filesLoading} tabIndex={entries.length ? 0 : undefined} aria-activedescendant={selectedItemId} onKeyDown={handleListKeyDown} onDragOver={handleFileDragOver} onDragLeave={handleFileDragLeave} onDrop={handleFileDrop}>
+      {fileDragOver && <div className="list-file-drop-hint" aria-hidden="true"><UploadSimple aria-hidden="true" /><span><Trans>Drop files to upload</Trans></span></div>}
       {entries.length ? <div className="virtual-list" style={{ height: virtualizer.getTotalSize() }}>{virtualizer.getVirtualItems().map((virtualRow) => {
         const item = listItems[virtualRow.index];
         if (item.kind === "header") {
@@ -342,7 +377,7 @@ export function NoteList({ entries, selection, onSelection, selecting = false, o
             {typed && <span className="note-type-badge" title={t`Type: ${note.types.join(", ")}`}>{icon && <span className="note-type-icon" aria-hidden="true"><TypeIcon name={icon} /></span>}{note.types.map(typeDisplayName).join(" · ")}</span>}
           </span>)}
         </button></ContextMenu>;
-      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><span className="sr-only"><Trans>Reading notes and files…</Trans></span><SkeletonLines count={10} /></div> : searching && searchPending ? <div className="list-loading">{t`Searching`}</div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && searchError ? t`Search is incomplete.` : search || filter ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && !filter && !structureError && onCreate && <button onClick={onCreate}><Trans>Create the first note</Trans></button>}</div>}
+      })}</div> : structureLoading || filesLoading ? <div className="list-loading" role="status"><span className="sr-only"><Trans>Reading notes and files…</Trans></span><SkeletonLines count={10} /></div> : searching && searchPending ? <div className="list-loading">{t`Searching`}</div> : <div className="list-empty"><p>{structureError ? t`Notes could not finish loading.` : search && searchError ? t`Search is incomplete.` : search || filter ? t`No notes or files found.` : t`This collection is empty.`}</p>{!search && (!filter || filter.kind === "folder") && !structureError && (onCreate || onUploadFiles) && <div className="list-empty-actions">{!filter && onCreate && <button type="button" onClick={onCreate}><Trans>Create the first note</Trans></button>}{onUploadFiles && <button type="button" disabled={uploadingFiles} onClick={onUploadFiles}><Trans>Upload files</Trans></button>}</div>}</div>}
     </div>
     {peekPresent && <aside ref={peekRef} popover="manual" className="note-peek" data-open={Boolean(peek)} role="region" aria-label={peekContent.current.title}>{peekContent.current.body}</aside>}
   </section>;

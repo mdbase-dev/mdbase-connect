@@ -96,6 +96,11 @@ msgstr "{0, plural, other {# 个字段}}"
 msgid "{0, plural, one {# match} other {# matches}}"
 msgstr "{0, plural, other {# 项匹配}}"
 
+#. placeholder {0}: summary.omitted
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
+msgstr "{0, plural, other {还有 # 行更改}}"
+
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
@@ -110,6 +115,16 @@ msgstr "{0, plural, other {已移动 # 篇笔记。}}"
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
 msgstr "{0, plural, other {# 个必填字段尚未映射}}"
+
+#. placeholder {0}: summary.added
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {+# line added} other {+# lines added}}"
+msgstr "{0, plural, other {+# 行已添加}}"
+
+#. placeholder {0}: summary.removed
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {−# line removed} other {−# lines removed}}"
+msgstr "{0, plural, other {−# 行已删除}}"
 
 #. placeholder {0}: recoveryAction.references
 #: src/use-note-actions.ts
@@ -140,6 +155,11 @@ msgstr "{0, plural, other {文件已上传，但在插入链接前，笔记已�
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
 msgstr "{0, plural, other {已上传 # 个文件。集合中的文件已提交；笔记中的链接正在单独保存。}}"
+
+#. placeholder {0}: uploadedFiles.length
+#: src/AttachmentUpload.tsx
+msgid "{0, plural, one {Uploaded # file.} other {Uploaded # files.}}"
+msgstr "{0, plural, other {已上传 # 个文件。}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
@@ -195,6 +215,18 @@ msgstr "已应用 {0} 项更改"
 #: src/TypeBrowser.tsx
 msgid "{0} choice"
 msgstr "{0} 选项"
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/code-editor-reference-diagnostics.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate it."
+msgstr "有 {0} 个文件匹配“{1}”。请使用完整路径以消除歧义。"
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/note-embeds.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate: {examples}."
+msgstr "有 {0} 个文件匹配“{1}”。请使用完整路径以消除歧义：{examples}。"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
@@ -256,7 +288,7 @@ msgstr "{0} 个链接警告需要处理，不会自动修复：{1}"
 msgid "{0} notes loaded · incomplete"
 msgstr "已加载 {0} 篇笔记 · 结果不完整"
 
-#. placeholder {0}: noteMatches.length
+#. placeholder {0}: matches.length
 #. placeholder {1}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "{0} notes match “{1}”. Use a path to disambiguate it."
@@ -417,6 +449,10 @@ msgstr "{count, plural, other {已移动 # 篇笔记。}}"
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, other {已恢复 # 篇笔记。}}"
+
+#: src/PropertiesPanel.tsx
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, other {显示 # 个空字段}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
@@ -943,6 +979,10 @@ msgstr "添加唯一性规则"
 msgid "Added “{0}” and opened the new type."
 msgstr "已添加“{0}”并打开新类型。"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Added:"
+msgstr "已添加："
+
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
 msgstr "添加定义需要管理此集合类型的权限。"
@@ -1153,7 +1193,7 @@ msgstr "正在添加附件…"
 msgid "Attaching files is not available for this collection in mdbase editor yet."
 msgstr "mdbase editor 暂不支持为此集合添加附件。"
 
-#. placeholder {0}: controller.upload.name
+#. placeholder {0}: upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
 msgstr "{0} 的附件上传进度"
@@ -1326,6 +1366,11 @@ msgstr "更改快捷键"
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
 msgstr "已在其他位置更改"
+
+#: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
+msgid "Changes are saved on this device and will sync automatically when the connection returns."
+msgstr "更改已保存在此设备上，连接恢复后将自动同步。"
 
 #: src/NoteCommentsPanel.tsx
 #: src/pending-note-mutation.ts
@@ -1567,8 +1612,8 @@ msgid "Collection changed before the type pack finished."
 msgstr "类型包处理完成前，集合已切换。"
 
 #: src/CollectionRail.tsx
-msgid "Collection changes saved on this device; waiting for sync"
-msgstr "集合更改已保存在此设备上；等待同步"
+msgid "Collection changes are saved on this device and will sync automatically when the connection returns"
+msgstr "集合更改已保存在此设备上，连接恢复后将自动同步"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
@@ -2337,6 +2382,10 @@ msgstr "完成"
 msgid "Drag to resize · Double-click to reset"
 msgstr "拖动调整大小 · 双击重置"
 
+#: src/NoteList.tsx
+msgid "Drop files to upload"
+msgstr "拖放文件以上传"
+
 #: src/editor-commands.ts
 msgid "Duplicate"
 msgstr "创建副本"
@@ -2854,6 +2903,10 @@ msgstr "三级标题"
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
 msgstr "隐藏集合侧边栏"
+
+#: src/PropertiesPanel.tsx
+msgid "Hide empty fields"
+msgstr "隐藏空字段"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
@@ -3584,6 +3637,10 @@ msgid "nested required fields"
 msgstr "嵌套必填字段"
 
 #: src/NoteList.tsx
+msgid "New"
+msgstr "新建"
+
+#: src/NoteList.tsx
 msgctxt "button that creates a note"
 msgid "New"
 msgstr "新建"
@@ -3602,6 +3659,10 @@ msgstr "新建：{typeLabel}"
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "新建文件夹"
+
+#: src/NoteList.tsx
+msgid "New menu"
+msgstr "新建菜单"
 
 #: src/App.tsx
 #: src/code-editor-completions.ts
@@ -4727,6 +4788,10 @@ msgstr "从编辑器中移除此集合，不更改其文件。"
 msgid "Remove uniqueness rule for {0}"
 msgstr "移除 {0} 的唯一性规则"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Removed:"
+msgstr "已删除："
+
 #: src/editor-commands.ts
 msgid "Rename"
 msgstr "重命名"
@@ -5063,8 +5128,8 @@ msgstr "已保存的访问权限"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
-msgid "Saved on this device; waiting for sync"
-msgstr "已保存在此设备上，等待同步"
+msgid "Saved on this device · syncs automatically when online"
+msgstr "已保存在此设备 · 联网后自动同步"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
@@ -5402,6 +5467,10 @@ msgstr "结构化前置元数据条件"
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
 msgstr "建议仅依据字段名称和结构生成。请确认含义一致。"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Summary of changes"
+msgstr "更改摘要"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -6555,6 +6624,24 @@ msgstr "升级"
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
 msgstr "将 <0>{0}</0> 升级为当前的 Person 初始类型。 "
 
+#: src/NoteList.tsx
+msgid "Upload"
+msgstr "上传"
+
+#: src/NoteList.tsx
+msgid "Upload files"
+msgstr "上传文件"
+
+#: src/editor-commands.ts
+#: src/NoteList.tsx
+msgid "Upload files…"
+msgstr "上传文件…"
+
+#. placeholder {0}: files[0]!.name
+#: src/AttachmentUpload.tsx
+msgid "Uploaded “{0}”."
+msgstr "已上传“{0}”。"
+
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
@@ -6576,6 +6663,14 @@ msgstr "正在上传 {0}…"
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
 msgstr "上传 {name} 超时。请重试。"
+
+#: src/NoteList.tsx
+msgid "Uploading files…"
+msgstr "正在上传文件…"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Use {path}"
+msgstr "使用 {path}"
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."

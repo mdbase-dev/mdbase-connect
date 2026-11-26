@@ -100,7 +100,12 @@ export class LinkTargets {
   private version = 0;
   failure?: string;
 
-  constructor(private readonly gateway: Pick<CollectionGateway, "resolveLinks">, readonly from: string, previous?: LinkTargets) {
+  constructor(
+    private readonly gateway: Pick<CollectionGateway, "resolveLinks">,
+    readonly from: string,
+    previous?: LinkTargets,
+    private readonly files: readonly CollectionFile[] = []
+  ) {
     this.targets = new Map(previous?.from === from ? previous.targets : []);
   }
 
@@ -149,11 +154,19 @@ export class LinkTargets {
       const rooted = targets[index]!.kind === "missing" ? rootedMarkdownLink(raw) : undefined;
       return rooted ? [{ index, rooted }] : [];
     });
-    if (!retry.length) return targets;
-    const again = await this.gateway.resolveLinks(this.from, retry.map(({ rooted }) => rooted));
-    retry.forEach(({ index }, position) => {
-      if (again[position]!.kind === "file") targets[index] = again[position]!;
-    });
+    if (retry.length) {
+      const again = await this.gateway.resolveLinks(this.from, retry.map(({ rooted }) => rooted));
+      retry.forEach(({ index }, position) => {
+        if (again[position]!.kind === "file") targets[index] = again[position]!;
+      });
+    }
+    if (this.files.length) {
+      raws.forEach((raw, index) => {
+        if (targets[index]!.kind !== "missing") return;
+        const matched = resolveFileEmbedBasename(raw, this.files);
+        if (matched) targets[index] = matched;
+      });
+    }
     return targets;
   }
 
@@ -168,7 +181,7 @@ export class LinkTargets {
 export function useLinkTargets(gateway: CollectionGateway, path: string | undefined, revision: number,
   files: readonly CollectionFile[]): LinkTargets | undefined {
   const previous = useRef<LinkTargets>(undefined);
-  return useMemo(() => path ? (previous.current = new LinkTargets(gateway, path, previous.current)) : undefined,
+  return useMemo(() => path ? (previous.current = new LinkTargets(gateway, path, previous.current, files)) : undefined,
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new revision or file list asks again
     [gateway, path, revision, files]);
 }
@@ -180,4 +193,23 @@ function rootedMarkdownLink(raw: string): string | undefined {
   const target = link?.[2];
   if (!link || !target || /^(?:\/|\.\.?\/)/.test(target) || !internalLink(target)) return undefined;
   return `${link[1]}/${raw.slice(link[1].length)}`;
+}
+
+/** Resolve a bare wikilink file embed (`![[page.html]]`) by unique basename
+ * when the collection did not match a note or explicit path. */
+function resolveFileEmbedBasename(raw: string, files: readonly CollectionFile[]): LinkTarget | undefined {
+  const embed = /^!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]$/.exec(raw);
+  const target = embed?.[1]?.trim();
+  if (!target || target.includes("/") || target.startsWith(".") || !internalLink(target)) return undefined;
+  const wanted = target.normalize("NFC").toLocaleLowerCase();
+  const matches = files
+    .filter((file) => {
+      const name = file.path.split("/").at(-1) ?? file.path;
+      return name.normalize("NFC").toLocaleLowerCase() === wanted;
+    })
+    .map((file) => file.path)
+    .sort((left, right) => left.localeCompare(right));
+  if (matches.length === 1) return { kind: "file", path: matches[0]! };
+  if (matches.length > 1) return { kind: "ambiguous", candidates: matches };
+  return undefined;
 }
