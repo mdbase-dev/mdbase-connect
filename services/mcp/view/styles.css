@@ -59,6 +59,21 @@ body {
   margin-inline-start: calc(-1 * var(--space-2));
 }
 
+.view-head-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  margin-inline-start: auto;
+}
+
+/* Full screen, the view reads as a page rather than a strip of the conversation. */
+.view.is-full {
+  max-inline-size: 960px;
+  margin-inline: auto;
+  padding-block: var(--space-4) var(--space-6);
+}
+
 .view-muted {
   color: var(--color-text-muted);
 }
@@ -159,10 +174,54 @@ body {
 
 .view-records-foot {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
   font-size: var(--font-size-caption);
+}
+
+.view-records-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.view-records[aria-busy="true"] tbody {
+  opacity: 0.6;
+}
+
+.view-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.view-sort:hover:not(:disabled),
+th[aria-sort] .view-sort {
+  color: var(--color-text);
+}
+
+.view-sort:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.view-sort-mark {
+  min-inline-size: 1ch;
+}
+
+/* A changeable value's control brings its own inset; the cell keeps the text where its neighbours have it. */
+.view-table td.view-edit-cell {
+  padding-block: 0;
+  padding-inline: calc(var(--space-3) - 8px);
+  vertical-align: middle;
 }
 
 /* Record */
@@ -218,9 +277,87 @@ body {
   font-size: var(--font-size-caption);
 }
 
-.view-body {
+/* Folded, the card is a summary: properties are added once it is unfolded. */
+.view-record.is-folded .mdbase-properties-foot {
+  display: none;
+}
+
+.view-record .mdbase-property[data-changed] {
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+}
+
+.view-changes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-1) 0 0;
+  padding: 0;
+}
+
+.view-changes > span {
+  padding: 1px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-soft);
+  color: var(--color-text);
+  font-size: var(--font-size-caption);
+}
+
+.view-fold {
+  justify-self: start;
+  margin-inline-start: calc(-1 * var(--space-2));
+}
+
+.view-body-section {
+  display: grid;
+  gap: var(--space-2);
   padding-block-start: var(--space-3);
   border-block-start: 1px solid var(--color-border);
+}
+
+.view-body-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.view-body.is-editing {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.view-body.is-editing .cm-content {
+  min-block-size: 6em;
+}
+
+.view-body .cm-lp-task {
+  cursor: pointer;
+}
+
+/* New record */
+
+.view-new {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.view-new h1 {
+  margin: 0;
+  font-size: var(--font-size-heading);
+  font-weight: var(--font-weight-semibold);
+  line-height: 1.25;
+}
+
+.view-new-title {
+  display: grid;
+  gap: 4px;
+  color: var(--color-text-soft);
+  font-size: var(--font-size-caption);
+}
+
+.view-new-actions {
+  display: flex;
+  gap: var(--space-2);
 }
 
 .view-body .cm-editor {

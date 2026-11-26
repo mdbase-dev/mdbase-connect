@@ -562,6 +562,8 @@ describe("mdbase MCP gateway", () => {
     expect((createRecord.inputSchema.required as string[])).not.toContain("frontmatter");
     const listed = await client.callTool({ name: "list_connections", arguments: {} });
     expect((listed.structuredContent as any).connections).toHaveLength(2);
+    expect((listed.structuredContent as any).connections.map((connection: { editor_url: string }) => connection.editor_url)).toEqual(connections.map((connection) =>
+      `https://editor.example/?server=https%3A%2F%2Fconnect.example&collection=${connection.collection_id}`));
     const queried = await client.callTool({
       name: "query_records",
       arguments: {
@@ -1109,6 +1111,9 @@ async function fakeUpstream(realFetch: typeof fetch, options: {
         availability: { state: "unavailable", reason: "no_device_registered" }
       });
       return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
+    }
+    if (url.href === "https://connect.example/v1/ui-configuration") {
+      return Response.json({ editor_url: "https://editor.example/connect?server=https%3A%2F%2Fconnect.example" });
     }
     if (url.hostname === "127.0.0.1") return realFetch(input, init);
     return Response.json({ error: { code: "unexpected_fetch", message: url.href } }, { status: 500 });

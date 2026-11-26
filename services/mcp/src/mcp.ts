@@ -57,9 +57,15 @@ export function createMcpServer(
 
   registerTool("list_connections", {
     title: "List mdbase collections",
-    description: "List the mdbase collections the user has approved for this connector and the operations each one allows. Call it first: every other tool needs a connection_id it returns. If the collection the user means is not listed, use add_connection.",
+    description: "List the mdbase collections the user has approved for this connector and the operations each one allows. Call it first: every other tool needs a connection_id it returns. If the collection the user means is not listed, use add_connection. editor_url, when present, opens the collection in the mdbase Editor for the user.",
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
-  }, async () => toolResult({ connections: await gateway.listConnections(context.connectionSetId) }));
+  }, async () => {
+    const [connections, editors] = await Promise.all([
+      gateway.listConnections(context.connectionSetId),
+      gateway.editorLinks(context.connectionSetId)
+    ]);
+    return toolResult({ connections: connections.map((connection) => ({ ...connection, editor_url: editors.get(connection.id) ?? null })) });
+  });
 
   registerTool("add_connection", {
     title: "Connect another mdbase collection",

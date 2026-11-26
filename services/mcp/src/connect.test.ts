@@ -159,3 +159,44 @@ describe("Native token refresh", () => {
     }
   });
 });
+
+describe("links to a collection in the Editor", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("opens each collection in the Editor its server names, asking each server once, and has none where a server names none or cannot say", async () => {
+    const rows = [
+      { id: "a", upstream_url: "https://connect.example", collection_id: collectionId },
+      { id: "b", upstream_url: "https://connect.example/", collection_id: otherCollectionId },
+      { id: "c", upstream_url: "https://quiet.example", collection_id: collectionId },
+      { id: "d", upstream_url: "https://down.example", collection_id: collectionId }
+    ];
+    const fetch = vi.fn(async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url === "https://connect.example/v1/ui-configuration") return Response.json({ editor_url: "https://editor.example/connect?server=https%3A%2F%2Fpublic.example" });
+      if (url === "https://quiet.example/v1/ui-configuration") return Response.json({ editor_url: null });
+      return new Response("unavailable", { status: 503 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const warn = vi.fn();
+    const gateway = new ConnectGateway(
+      { query: async () => ({ rows }) } as any, new SecretBox(Buffer.alloc(32, 7)), new MemoryGrantKeyStore(), "https://connect.example",
+      {} as any, "https://mcp.example/callback", warn
+    );
+    const links = await gateway.editorLinks("set");
+    expect(Object.fromEntries(links)).toEqual({
+      a: `https://editor.example/?server=https%3A%2F%2Fpublic.example&collection=${collectionId}`,
+      b: `https://editor.example/?server=https%3A%2F%2Fpublic.example&collection=${otherCollectionId}`,
+      c: null,
+      d: null
+    });
+    expect(warn).toHaveBeenCalledWith({ event: "editor_link_unavailable", reason: "https://down.example UI configuration answered 503" });
+    await gateway.editorLinks("set");
+    // The answers are kept; the server that failed is asked again.
+    expect(fetch.mock.calls.map(([url]) => String(url)).sort()).toEqual([
+      "https://connect.example/v1/ui-configuration",
+      "https://down.example/v1/ui-configuration",
+      "https://down.example/v1/ui-configuration",
+      "https://quiet.example/v1/ui-configuration"
+    ]);
+  });
+});

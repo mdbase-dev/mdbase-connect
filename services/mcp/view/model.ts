@@ -15,6 +15,8 @@ export interface RecordDocument {
 
 export interface Row {
   readonly path: string;
+  /** The revision a change to the row is made against; absent when the result did not carry one. */
+  readonly revision: string | undefined;
   readonly name: string;
   readonly types: readonly string[];
   /** What each column shows for the row, by column key. */
@@ -26,6 +28,23 @@ export interface Row {
 export interface Column {
   readonly key: string;
   readonly label: string;
+  /** Whether the column is a frontmatter field, so that it can be sorted by and changed, not a computed value. */
+  readonly field: boolean;
+}
+
+/** What a write the model made changed in the record it returned, for the card to point out. */
+export interface Changes {
+  /** Fields set or changed. */
+  readonly set: readonly string[];
+  /** Fields removed. */
+  readonly removed: readonly string[];
+  readonly body: boolean;
+}
+
+/** A query's ordering by one column. */
+export interface Sort {
+  readonly field: string;
+  readonly direction: "asc" | "desc";
 }
 
 export interface Records {
@@ -92,6 +111,62 @@ export function appendPage(shown: Records, page: Shown): Records | undefined {
   };
 }
 
+/**
+ * What an update_record call changed, by its arguments; nothing for any other call. A host need
+ * not say which tool ran (`tool` is then undefined): update_record is the one that takes patch,
+ * unset or document.
+ */
+export function changesOf(tool: string | undefined, args: Json): Changes | undefined {
+  const update = tool === undefined ? "patch" in args || "unset" in args || "document" in args : tool === "update_record";
+  if (!update) return undefined;
+  const changes = {
+    set: isObject(args.patch) ? Object.keys(args.patch) : [],
+    removed: stringList(args.unset),
+    body: typeof args.body === "string" || typeof args.document === "string",
+  };
+  return changes.set.length || changes.removed.length || changes.body ? changes : undefined;
+}
+
+/** The column a query is ordered by first, when it is ordered by a field. */
+export function sortOf(args: Json): Sort | undefined {
+  const first = Array.isArray(args.order_by) ? args.order_by[0] : undefined;
+  if (!isObject(first) || typeof first.field !== "string") return undefined;
+  return { field: first.field, direction: first.direction === "desc" ? "desc" : "asc" };
+}
+
+/** A query's arguments ordered by `field`: ascending first, then the other way on the next click, from the first page. */
+export function sortedBy(args: Json, field: string): Json {
+  const current = sortOf(args);
+  const direction = current?.field === field && current.direction === "asc" ? "desc" : "asc";
+  const { cursor: _cursor, offset: _offset, ...rest } = args;
+  return { ...rest, order_by: [{ field, direction }] };
+}
+
+/** A row after a change to its record: what its field columns show now, from the record saved. */
+export function rowAfter(row: Row, columns: readonly Column[], record: RecordDocument): Row {
+  const cells = { ...row.cells };
+  for (const column of columns) if (column.field) cells[column.key] = record.frontmatter[column.key];
+  return { ...row, revision: record.revision, frontmatter: record.frontmatter, cells };
+}
+
+/** A row for a record made here, to sit at the top of the results it was made from. */
+export function rowOf(record: RecordDocument, columns: readonly Column[]): Row {
+  return rowAfter({ path: record.path, revision: record.revision, name: record.name, types: record.types, cells: {}, frontmatter: record.frontmatter }, columns, record);
+}
+
+/** The type a new record in these results would be: the one type the query asked for, or that every row has. */
+export function typeOfResults(args: Json, rows: readonly Row[]): string | undefined {
+  const asked = stringList(args.types);
+  if (asked.length) return asked.length === 1 ? asked[0] : undefined;
+  const held = unique(rows.flatMap((row) => row.types));
+  return held.length === 1 && rows.every((row) => row.types.length === 1) ? held[0] : undefined;
+}
+
+/** A task line's text, without its bullet and box. */
+export function taskText(line: string): string {
+  return line.replace(/^\s*(?:[-*+]|\d+[.)])\s+\[[ xX]\]\s*/u, "").trim();
+}
+
 /** A title for a record: the `title` property when it has one, else its file name. */
 export function recordTitle(record: { readonly frontmatter: Json; readonly name: string }): string {
   const title = record.frontmatter.title;
@@ -107,7 +182,7 @@ function queryResult(results: unknown[], meta: Json, args: Json): Records | Grou
       summaries: isObject(group.summaries) ? group.summaries : {},
     }));
     const keys = unique(groups.flatMap((group) => [...Object.keys(group.values), ...Object.keys(group.summaries)]));
-    return { kind: "groups", groups, columns: keys.map((key) => ({ key, label: key })) };
+    return { kind: "groups", groups, columns: keys.map((key) => ({ key, label: key, field: false })) };
   }
   const rows = results.filter(isObject).flatMap((result): Row[] => {
     if (typeof result.path !== "string") return [];
@@ -115,6 +190,7 @@ function queryResult(results: unknown[], meta: Json, args: Json): Records | Grou
     const values = isObject(result.values) ? result.values : {};
     return [{
       path: result.path,
+      revision: typeof result.revision === "string" ? result.revision : undefined,
       name: fileName(result),
       types: stringList(result.types),
       frontmatter,
@@ -124,7 +200,7 @@ function queryResult(results: unknown[], meta: Json, args: Json): Records | Grou
   const columns = selected ?? unique(rows.flatMap((row) => Object.keys(row.frontmatter)))
     .filter((key) => key !== "title")
     .slice(0, IMPLICIT_COLUMNS)
-    .map((key) => ({ key, label: key }));
+    .map((key) => ({ key, label: key, field: true }));
   return {
     kind: "records",
     rows,
@@ -138,9 +214,9 @@ function queryResult(results: unknown[], meta: Json, args: Json): Records | Grou
 function selectedColumns(select: unknown): Column[] | undefined {
   if (!Array.isArray(select) || !select.length) return undefined;
   return select.flatMap((entry): Column[] => {
-    if (typeof entry === "string") return [{ key: entry, label: entry }];
+    if (typeof entry === "string") return [{ key: entry, label: entry, field: !entry.includes(".") }];
     if (isObject(entry) && typeof entry.name === "string") {
-      return [{ key: entry.name, label: typeof entry.label === "string" && entry.label ? entry.label : entry.name }];
+      return [{ key: entry.name, label: typeof entry.label === "string" && entry.label ? entry.label : entry.name, field: false }];
     }
     return [];
   }).filter((column) => column.key !== "title" && column.key !== "file.name" && column.key !== "file.path");

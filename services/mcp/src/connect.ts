@@ -112,6 +112,12 @@ export interface ConnectionSummary {
   authority: "local" | "remote";
 }
 
+/** The Editor a Connect server names: where it runs, and the server origin it opens collections from. */
+interface EditorEntry {
+  readonly origin: string;
+  readonly server: string;
+}
+
 interface ConnectionRow {
   id: string;
   connection_set_id: string;
@@ -135,6 +141,8 @@ export class ConnectGateway {
   private readonly applicationOrigin: string;
   private readonly noise: NoiseKeyStore;
   readonly next: NextGateway;
+  /** Each Connect server's Editor, as its UI configuration names it, for five minutes. */
+  private readonly editors = new Map<string, { readonly expires: number; readonly editor: Promise<EditorEntry | null> }>();
 
   constructor(
     private readonly db: DatabasePool,
@@ -296,6 +304,45 @@ export class ConnectGateway {
       [connectionSetId]
     );
     return result.rows.map(summary);
+  }
+
+  /**
+   * Each connection's link to its collection in the Editor its Connect server names, or null when
+   * the server names none or cannot say right now (the link is a convenience, not access).
+   */
+  async editorLinks(connectionSetId: string): Promise<Map<string, string | null>> {
+    const result = await this.db.query<Pick<ConnectionRow, "id" | "upstream_url" | "collection_id">>(
+      "SELECT id, upstream_url, collection_id FROM mcp_connections WHERE connection_set_id = $1",
+      [connectionSetId]
+    );
+    return new Map(await Promise.all(result.rows.map(async (row): Promise<[string, string | null]> => {
+      const editor = await this.editor(new URL(row.upstream_url).origin).catch((error: unknown) => {
+        this.warn({ event: "editor_link_unavailable", reason: error instanceof Error ? error.message : String(error) });
+        return null;
+      });
+      if (!editor) return [row.id, null];
+      const link = new URL("/", editor.origin);
+      link.searchParams.set("server", editor.server);
+      link.searchParams.set("collection", row.collection_id);
+      return [row.id, link.href];
+    })));
+  }
+
+  private editor(server: string): Promise<EditorEntry | null> {
+    const cached = this.editors.get(server);
+    if (cached && cached.expires > Date.now()) return cached.editor;
+    const editor = fetch(`${server}/v1/ui-configuration`, { signal: AbortSignal.timeout(3_000) }).then(async (response) => {
+      if (!response.ok) throw new Error(`${server} UI configuration answered ${response.status}`);
+      const { editor_url: url } = await response.json() as { editor_url?: unknown };
+      if (url === null) return null;
+      if (typeof url !== "string") throw new Error(`${server} UI configuration has no editor_url`);
+      const named = new URL(url);
+      return { origin: named.origin, server: named.searchParams.get("server") ?? server };
+    });
+    this.editors.set(server, { expires: Date.now() + 300_000, editor });
+    // A server that could not answer is asked again next time.
+    editor.catch(() => this.editors.delete(server));
+    return editor;
   }
 
   async operation<Result>(
