@@ -53,7 +53,7 @@
     "@mdbase-dev/panels": "0.4.0",
     "@mdbase-dev/sdk": "file:vendor/sdk-85843c6f-production-0.2.36.tgz",
     "@mdbase-dev/sdk-self-hosted": "file:vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz",
-    "@mdbase-dev/ui": "0.2.37",
+    "@mdbase-dev/ui": "0.2.39",
     "@mdbase/connect-ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
     "@phosphor-icons/web": "^2.1.2",
