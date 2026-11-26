@@ -1,9 +1,8 @@
 import { displayLocale } from "./i18n/format";
 import { t } from "@lingui/core/macro";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor, JsonObject } from "./connect-types";
 import type { EditableNote, NoteDocument, NoteSummary, TitleSource } from "./model";
 import {
-  collectionDisplayField,
   fieldReferencePath,
   fieldReferencePatch,
   readFieldReference,
@@ -16,13 +15,14 @@ export function typeDisplayName(name: string): string {
   return words ? words[0].toLocaleUpperCase() + words.slice(1) : name;
 }
 
+/** A type name inside a sentence: `reading_item` → "reading item", in the case it was declared in. */
+export function typeNameInSentence(name: string): string {
+  return name.replace(/[_-]+/g, " ").trim() || name;
+}
+
 /** The icon a note's type declares, if any. */
 export function noteTypeIcon(note: NoteSummary, types: CollectionTypeDescriptor[]): string | undefined {
   return recordDisplayField(note.types, types, "icon");
-}
-
-export function collectionDeclaresTypeIcons(types: CollectionTypeDescriptor[]): boolean {
-  return types.some((type) => collectionDisplayField(type, "icon"));
 }
 
 export function summaryFromDocument(document: NoteDocument): NoteSummary {
@@ -207,7 +207,8 @@ function markdownHeading(body: string): string | undefined {
 export interface FolderTreeNode {
   name: string;
   path: string;
-  count: number;
+  noteCount: number;
+  fileCount: number;
   children: FolderTreeNode[];
 }
 
@@ -217,35 +218,33 @@ interface MutableFolderTreeNode extends Omit<FolderTreeNode, "children"> {
 
 const facetCollator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
-export function folderTree(notes: NoteSummary[], additionalPaths: readonly string[] = []): FolderTreeNode[] {
+export function folderTree(notes: NoteSummary[], files: readonly { path: string }[] = []): FolderTreeNode[] {
   const roots = new Map<string, MutableFolderTreeNode>();
-  for (const itemPath of [...notes.map((note) => note.path), ...additionalPaths]) {
+  function addPath(itemPath: string, count: "noteCount" | "fileCount") {
     const directory = folder(itemPath);
-    if (!directory) continue;
+    if (!directory) return;
     let siblings = roots;
     let parentPath = "";
     for (const name of directory.split("/").filter(Boolean)) {
       const path = parentPath ? `${parentPath}/${name}` : name;
       let node = siblings.get(name);
       if (!node) {
-        node = { name, path, count: 0, children: new Map() };
+        node = { name, path, noteCount: 0, fileCount: 0, children: new Map() };
         siblings.set(name, node);
       }
-      node.count += 1;
+      node[count] += 1;
       parentPath = path;
       siblings = node.children;
     }
   }
 
+  for (const note of notes) addPath(note.path, "noteCount");
+  for (const file of files) addPath(file.path, "fileCount");
+
   const freeze = (nodes: Map<string, MutableFolderTreeNode>): FolderTreeNode[] =>
     [...nodes.values()]
       .sort((left, right) => facetCollator.compare(left.name, right.name))
-      .map((node) => ({
-        name: node.name,
-        path: node.path,
-        count: node.count,
-        children: freeze(node.children)
-      }));
+      .map((node) => ({ ...node, children: freeze(node.children) }));
 
   return freeze(roots);
 }
@@ -256,6 +255,20 @@ export function noteTags(note: NoteSummary): string[] {
     ? note.effectiveFrontmatter.tags.filter((tag): tag is string => typeof tag === "string")
     : typeof note.effectiveFrontmatter.tags === "string" ? [note.effectiveFrontmatter.tags] : [];
   return [...new Set([...fileTags, ...frontmatterTags].map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean))];
+}
+
+/** The note has `tag` or a tag nested under it (`project` covers
+ * `project/alpha`) among the tags the page holds, by the runtime's
+ * `file.hasTag` rule. Only Quick open uses it: the note list asks the
+ * runtime (`searchTag`), since record views carry no inline tags. */
+export function noteHasTag(note: NoteSummary, tag: string): boolean {
+  const wanted = tag.replace(/^#+/, "");
+  return wanted !== "" && noteTags(note).some((name) => name === wanted || name.startsWith(`${wanted}/`));
+}
+
+export function noteHasType(note: NoteSummary, type: string): boolean {
+  const wanted = type.toLocaleLowerCase();
+  return note.types.some((name) => name.toLocaleLowerCase() === wanted);
 }
 
 export function tags(notes: NoteSummary[]): Array<{ name: string; count: number }> {

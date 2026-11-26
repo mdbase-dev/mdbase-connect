@@ -1,5 +1,5 @@
 // Loads with this lazy chunk: the live-preview and KaTeX styles only matter once a note editor
-// opens, and keeping them out of the first load holds the initial CSS within its budget.
+// opens, so they stay out of the first load.
 import "@mdbase-dev/ui/live-preview.css";
 import { useLingui } from "@lingui/react";
 import { isLocale } from "@mdbase-dev/i18n";
@@ -7,7 +7,7 @@ import { englishCodeMirrorPhrases, loadCodeMirrorPhrases } from "@mdbase-dev/i18
 import { t } from "@lingui/core/macro";
 import { commandShortcuts, matchesChord } from "./editor-commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
-import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore, redo } from "@codemirror/commands";
+import { defaultKeymap, history, historyField, historyKeymap, indentLess, indentMore, insertTab, redo } from "@codemirror/commands";
 import { deleteMarkupBackward, insertNewlineContinueMarkupCommand, markdown, markdownLanguage, pasteURLAsLink } from "@codemirror/lang-markdown";
 import {
   bracketMatching,
@@ -35,7 +35,7 @@ import {
 } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
+import { closeBracketsAtCaret, cycleHeading, exitEmptyQuote, insertNoteLink, newLineInListItem, outdentEmptyListItem, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
 import { WritingToolbar, type WritingAction } from "./writing-toolbar";
 import { LinkIcon, ListBulletsIcon, ListChecksIcon, TextBIcon, TextHTwoIcon, TextIndentIcon, TextItalicIcon, TextOutdentIcon } from "./icons";
 import { createPortal } from "react-dom";
@@ -50,6 +50,7 @@ import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { MISSING_REFERENCE_CLASS, referenceDiagnostics } from "./code-editor-reference-diagnostics";
 import { writerInteractions, type LinkOpening } from "./code-editor-writer-interactions";
 import type { LinkTargets } from "./collection-links";
+import type { CreateLinkedRecord } from "./LinkPropertyEditor";
 import type { LinkSuggestion } from "./links";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import type { NotePreviewAnchor, NotePreviewSource } from "./NotePreview";
@@ -85,6 +86,8 @@ interface CodeEditorProps {
   recentPaths?: string[];
   linkSuggestions?: LinkSuggestion[];
   linkTypes?: string[];
+  /** Makes a record to link to from the `[[` and `@` suggestions. */
+  onCreateLinked?: CreateLinkedRecord;
   /** Opens a linked note, in a new tab when the click asked for one. */
   onOpenLink?: (path: string, options?: LinkOpening) => void;
   onCreateLink?: (target: string, label: string | undefined, format: "wikilink" | "markdown") => void;
@@ -167,6 +170,7 @@ export function CodeEditor({
   recentPaths = EMPTY_STRINGS,
   linkSuggestions = EMPTY_SUGGESTIONS,
   linkTypes = EMPTY_STRINGS,
+  onCreateLinked,
   onOpenLink,
   onCreateLink,
   onPreviewLink,
@@ -221,6 +225,7 @@ export function CodeEditor({
   const phraseMode = useRef(new Compartment());
   const linkSuggestionsRef = useRef(linkSuggestions);
   const linkTypesRef = useRef(linkTypes);
+  const createLinkedRef = useRef(onCreateLinked);
   const recentPathsRef = useRef(recentPaths);
   const currentPathRef = useRef(currentPath);
   const linkTargetsRef = useRef(linkTargets);
@@ -273,6 +278,7 @@ export function CodeEditor({
 
   linkSuggestionsRef.current = linkSuggestions;
   linkTypesRef.current = linkTypes;
+  createLinkedRef.current = onCreateLinked;
   recentPathsRef.current = recentPaths;
   currentPathRef.current = currentPath;
   linkTargetsRef.current = linkTargets;
@@ -317,7 +323,8 @@ export function CodeEditor({
         () => recentPathsRef.current,
         () => filesRef.current,
         () => notesRef.current,
-        () => linkTargetsRef.current
+        () => linkTargetsRef.current,
+        () => createLinkedRef.current
       ) : []),
       writerLint.current.of(variant === "writer" && language === "markdown" ? referenceDiagnostics(
         () => linkTargetsRef.current,
@@ -346,7 +353,7 @@ export function CodeEditor({
         (id) => onCommentAnchorRef.current?.(id),
         (id) => commentCardRef.current?.(id) ?? null
       ) : [],
-      variant === "writer" && language === "markdown" ? wrapSelectionOnType : [],
+      variant === "writer" && language === "markdown" ? [wrapSelectionOnType, closeBracketsAtCaret] : [],
       interactionMode.current.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
       editorAttributes.current.of(EditorView.contentAttributes.of(contentAttributes(label, variant, language))),
       placeholderMode.current.of(placeholder ? editorPlaceholder(placeholder) : []),
@@ -465,7 +472,8 @@ export function CodeEditor({
         () => recentPathsRef.current,
         () => filesRef.current,
         () => notesRef.current,
-        () => linkTargetsRef.current
+        () => linkTargetsRef.current,
+        () => createLinkedRef.current
       ) : [])
     });
   }, [language, variant]);
@@ -723,10 +731,13 @@ function markdownSupport(): Extension {
 }
 
 // The language's own keymap, except that Enter on an empty item or quoted line
-// ends the list or quote, however loose the list.
+// ends the list or quote, however loose the list, Backspace on an empty nested
+// item lifts it a level, and Shift-Enter stays in the item.
 const markdownKeymap: KeyBinding[] = [
   { key: "Enter", run: exitEmptyQuote },
   { key: "Enter", run: insertNewlineContinueMarkupCommand({ nonTightLists: false }) },
+  { key: "Shift-Enter", run: newLineInListItem },
+  { key: "Backspace", run: outdentEmptyListItem },
   { key: "Backspace", run: deleteMarkupBackward }
 ];
 
@@ -772,7 +783,10 @@ const writerKeymap: KeyBinding[] = [
     return match ? markdownFormatCommand(match[1])(view) : false;
   } },
   { key: "Tab", run: indentListItem },
-  { key: "Shift-Tab", run: outdentListItem }
+  { key: "Shift-Tab", run: outdentListItem },
+  // Outside a list, Tab types a tab; Escape then Tab still leaves the editor.
+  { key: "Tab", run: insertTab },
+  { key: "Shift-Tab", run: indentLess }
 ];
 
 const mdbaseHighlightStyle = HighlightStyle.define([
@@ -821,13 +835,13 @@ function markdownFormatCommand(format: MarkdownFormat) {
   };
 }
 
-/** Live preview; missing links reuse the reference linter's verdict. */
+/** Live preview; missing links reuse the reference linter's verdict. It sizes headings by line, so
+ * the plain writer's per-token heading sizes stay out: both together scale a heading twice. */
 const livePreviewPresentation = [
   livePreview({
     linkMissing: (state, link) => missingReferenceStarts(state).has(link.from),
     refresh: (update) => update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(setDiagnosticsEffect)))
-  }),
-  syntaxHighlighting(writerHighlightStyle)
+  })
 ];
 
 const missingReferences = new WeakMap<EditorState, Set<number>>();

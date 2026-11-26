@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { MdbaseConnectError, type CollectionTypeDescriptor } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect/advanced";
+import { MdbaseConnectError, type CollectionTypeDescriptor } from "./connect-types";
+import { connectProblem } from "./connect-types";
 import { bulkFields, runNoteBatch } from "./bulk-note-actions";
 
 const types: CollectionTypeDescriptor[] = [

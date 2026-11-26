@@ -61,6 +61,9 @@ pub struct KeychainKeyring<S> {
     collection: Uuid,
     #[cfg(test)]
     capture_fixture_fault: Option<crate::runtime::native_pending_fixture::Fault>,
+    /// Test-only: commits still to fail with an unknown outcome.
+    #[cfg(test)]
+    unknown_commits: u32,
 }
 
 impl<S: Store> KeychainKeyring<S> {
@@ -83,6 +86,8 @@ impl<S: Store> KeychainKeyring<S> {
             collection: *collection,
             #[cfg(test)]
             capture_fixture_fault: None,
+            #[cfg(test)]
+            unknown_commits: 0,
         })
     }
 
@@ -96,6 +101,13 @@ impl<S: Store> KeychainKeyring<S> {
         }
         self.capture_fixture_fault = Some(fault);
         Ok(())
+    }
+
+    /// Test-only: fail the next `n` commits before they reach the store, with
+    /// an outcome the replica cannot know (an I/O error, not a typed abort).
+    #[cfg(test)]
+    pub(crate) fn fail_unknown_commits(&mut self, n: u32) {
+        self.unknown_commits = n;
     }
 
     #[cfg(test)]
@@ -351,6 +363,9 @@ impl<S: Store> Store for KeychainKeyring<S> {
     fn has_files(&self) -> bool {
         self.inner.has_files()
     }
+    fn files_read_only(&self) -> bool {
+        self.inner.files_read_only()
+    }
     fn stages(&self) -> bool {
         self.inner.stages()
     }
@@ -397,6 +412,11 @@ impl<S: Store> Store for KeychainKeyring<S> {
         }
     }
     fn commit(&mut self, mut tx: Tx) -> StoreResult<CommitReport> {
+        #[cfg(test)]
+        if self.unknown_commits > 0 {
+            self.unknown_commits -= 1;
+            return Err(StoreError::Io("injected unknown outcome".into()));
+        }
         let Some(secrets) = self.secrets.clone() else {
             #[cfg(test)]
             if let Some(fault) = &mut self.capture_fixture_fault {

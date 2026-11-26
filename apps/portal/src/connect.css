@@ -465,6 +465,7 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 .connect-skeleton > div > b { width: 80px; }
 .connect-preferences { display: flex; align-items: center; gap: 16px; }
 .connect-preferences > * { flex: 1; min-width: 0; }
+.connect-preferences > .mdbase-segmented { flex: none; }
 .mdbase-confirm-dialog button[aria-busy="true"]::before { content: ""; width: 12px; height: 12px; border: 1.5px solid currentColor; border-right-color: transparent; border-radius: 50%; opacity: 0; animation: connect-busy 800ms linear 100ms infinite; }
 @keyframes connect-busy { from { opacity: 1; rotate: 0deg; } to { opacity: 1; rotate: 360deg; } }
 
@@ -752,23 +753,22 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 }
 
 .connect-deletion-effects {
-  padding: 14px;
-  border: 1px solid color-mix(in oklch, var(--danger) 28%, var(--line));
+  padding: var(--space-3) 14px;
+  border: 1px solid color-mix(in oklch, var(--danger) 30%, transparent);
+  border-radius: var(--radius-md);
   background: var(--color-danger-soft);
-  color: var(--muted);
-  font-size: var(--font-size-ui);
 }
 
-.connect-deletion-effects p { margin: 0; }
-.connect-deletion-effects ul { margin: var(--space-2) 0; padding-left: 20px; }
+.connect-deletion-effects ul { margin: var(--space-1) 0 var(--space-2); padding-left: 18px; }
 
 .connect-account-reauthentication {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-3);
-  padding: 14px;
-  border: 1px solid var(--line);
+  gap: var(--space-2);
 }
+
+.connect-account-reauthentication > strong { font-weight: var(--font-weight-medium); }
+.connect-account-reauthentication .connect-account-actions { justify-content: flex-start; }
 
 .connect-google-provider {
   position: relative;
@@ -975,6 +975,7 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
   .connect-account-row, .connect-account-row-main { grid-template-columns: minmax(0, 1fr) auto; gap: 12px; }
   .connect-shell :is(button, a.mdbase-button, summary), .connect-shell .connect-desktop-help a, .connect-computer-row > a, .mdbase-dialog :is(button, a) { min-height: 44px; }
   .connect-preferences { flex-direction: column; align-items: stretch; }
+  .connect-preferences > .mdbase-segmented { --control-height: 44px; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1006,3 +1007,5 @@ section:has(> .connect-row:nth-child(8)) > .connect-row {
 }
 .connect-collection-row,
 .connect-application { view-transition-name: match-element; }
+.connect-collection-apps .mcp-connect-row { margin-top: 8px; }
+.connect-collection-apps .connect-section-title + .mcp-connect-row { margin-top: 0; }

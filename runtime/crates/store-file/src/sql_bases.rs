@@ -32,7 +32,8 @@ const MAX_TX_BYTES: usize = 8 << 20;
 const MAX_RECORD_BLOB: i64 = 4 << 20;
 const MAX_TX_TAG_STEPS: u64 = 64_000_000;
 // Increment when the raw encoding or source observation algorithm changes.
-const VERSION: i64 = 256 + BASES_TAG_CAPTURE_VERSION as i64;
+// +1: an unreadable record is a skipped row, not missing coverage.
+const VERSION: i64 = 257 + BASES_TAG_CAPTURE_VERSION as i64;
 
 fn blob(bytes: &[u8]) -> SqlValue {
     SqlValue::Blob(bytes.to_vec())
@@ -54,6 +55,26 @@ struct Payload {
     facts: Vec<Stmt>,
     fact_bytes: usize,
 }
+impl Payload {
+    /// A record whose frontmatter cannot be read: a row with empty payloads.
+    /// It counts toward coverage, so the projection can still be ready, but
+    /// pages never serve it (no valid CBOR encoding is empty), so a view skips
+    /// it, as app view discovery does, instead of every view refusing.
+    fn unreadable() -> Self {
+        Payload {
+            fields: Vec::new(),
+            tags: Vec::new(),
+            facts: Vec::new(),
+            fact_bytes: 0,
+        }
+    }
+    fn is_unreadable(&self) -> bool {
+        self.fields.is_empty()
+    }
+}
+/// The SQL condition for a served `st_qraw` row (alias `q`): not a skipped,
+/// unreadable record.
+pub(crate) const READABLE: &str = "length(q.fields)>0";
 
 /// None means unavailable, not empty frontmatter or known-empty tags.
 fn capture(row: &RecordRow, tag_steps_left: &mut u64) -> Option<Payload> {
@@ -66,7 +87,7 @@ fn capture(row: &RecordRow, tag_steps_left: &mut u64) -> Option<Payload> {
     }
     let (document, _) = Document::parse_at_bounded(&row.path, &row.doc).ok()?;
     if document.problem().is_some() {
-        return None;
+        return Some(Payload::unreadable());
     }
     let fields = cbor::encode(&convert::wmap(document.frontmatter()).to_cbor()).ok()?;
     if fields.len() > MAX_PAYLOAD {
@@ -272,7 +293,9 @@ pub(crate) fn maintenance<I: IndexStorage>(
             Some(n) if n <= MAX_TX_BYTES => n,
             _ => return Ok(invalidate()),
         };
-        if fact_bytes.saturating_add(payload.fact_bytes) <= MAX_TX_BYTES {
+        if payload.is_unreadable() {
+            candidate::delete(&row.id.0, &mut out);
+        } else if fact_bytes.saturating_add(payload.fact_bytes) <= MAX_TX_BYTES {
             fact_bytes += payload.fact_bytes;
             out.extend(payload.facts);
         } else {
@@ -291,11 +314,10 @@ pub(crate) fn maintenance<I: IndexStorage>(
     }
     ids.extend(tx.records_del.iter().copied());
     if unavailable {
-        // An unprojectable record (a document with a problem, over a size or
-        // tag budget) has no row, so coverage is incomplete: unready, and raw
-        // pages are not served. Its stale row is deleted above, so the version
-        // stays current; poisoning it would force a rebuild that can only reach
-        // this same state again.
+        // An unprojectable record (over a size or tag budget) has no row, so
+        // coverage is incomplete: unready, and raw pages are not served. Its
+        // stale row is deleted above, so the version stays current; poisoning
+        // it would force a rebuild that can only reach this same state again.
         out.push(Stmt::new(
             "UPDATE st_qraw_state SET ready=0 WHERE slot=0",
             vec![],

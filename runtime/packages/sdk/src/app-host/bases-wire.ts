@@ -3,11 +3,13 @@
  * Dates/display/duration provenance is preserved, never inferred in JavaScript. */
 import { decode, encode, Float64, type CborValue } from "../cbor.js";
 import { SchemaError, bool, hash, int, uint, uuid } from "../codec.js";
+import { toPlain, type JsonObject } from "../plain.js";
 import { revisionOf } from "../values.js";
-import { opClock, problem, type Hash, type OpClock, type Problem, type Uuid } from "../wire.js";
+import { fmMap, opClock, problem, type Hash, type OpClock, type Problem, type Uuid } from "../wire.js";
 export const APP_BASES_PROFILE = "whole-view-synthetic-policy-reference-v1";
 const FRAME_MAX = 16 * 1024 * 1024, REQUEST_MAX = 128 * 1024;
 const TEXT_MAX = 4096, ITEMS_MAX = 4096, ROWS_MAX = 65536;
+const ROW_PROPERTIES_MAX = 128, ROW_PROPERTY_NAME_MAX = 256, ROW_PROPERTY_BYTES_MAX = 16 * 1024;
 const utf8 = new TextEncoder();
 const bad = (message: string, unknown = false) => new SchemaError("app-bases-v1", message, unknown);
 function text(c: CborValue | undefined, max = TEXT_MAX): string {
@@ -128,11 +130,30 @@ export interface AppBasesWindowInfo extends AppBasesWindow {totalMatchedRows: nu
 export interface AppBasesRequest {
   record: Uuid; sourceRevision: Hash; ordinal: number;
   hints: ReadonlyMap<string, string>; captureTimezone: string; window?: AppBasesWindow;
+  /** Optional effective frontmatter property names to project (alongside record
+   * catalog `types`) on every returned row. Requires `bases-row-properties-v1`. */
+  rowProperties?: readonly string[];
 }
 function checkedWindow(window: AppBasesWindow): AppBasesWindow {
   const offset = unsigned(window.offset, 0xffffffff), limit = unsigned(window.limit, ROWS_MAX);
   if (limit === 0) throw bad("window limit must be positive");
   return {offset, limit};
+}
+function checkedRowProperties(names: readonly string[]): string[] {
+  if (!Array.isArray(names) || names.length > ROW_PROPERTIES_MAX) throw bad("bounded rowProperties list required");
+  const seen = new Set<string>();
+  const out: string[] = [];
+  let total = 0;
+  for (const name of names) {
+    if (typeof name !== "string" || name.length === 0) throw bad("non-empty row property name required");
+    const len = utf8.encode(name).length;
+    if (len > ROW_PROPERTY_NAME_MAX || seen.has(name)) throw bad("distinct bounded row property name required");
+    total += len;
+    if (total > ROW_PROPERTY_BYTES_MAX) throw bad("row property names exceed bound");
+    seen.add(name);
+    out.push(name);
+  }
+  return out;
 }
 /** Fixed reference profile; never accepts a caller policy, source, AST, head,
  * budget or authority override. Native still performs capture/current READ. */
@@ -152,6 +173,9 @@ export function encodeAppBasesRequest(request: AppBasesRequest): Uint8Array {
     const window = checkedWindow(request.window);
     value.set(6, new Map<number, CborValue>([[0, window.offset], [1, window.limit]]));
   }
+  if (request.rowProperties !== undefined) {
+    value.set(7, checkedRowProperties(request.rowProperties));
+  }
   const bytes = encode(value); if (bytes.length > REQUEST_MAX) throw bad("request bytes exceed bound"); return bytes;
 }
 export interface AppBasesDescriptor {
@@ -170,7 +194,13 @@ function decodeDescriptor(value: CborValue | undefined): AppBasesDescriptor {
     }),
   };
 }
-export interface AppBasesRow {record: Uuid; path: string; sourceRevision: Hash; cells: readonly AppBasesCell[]}
+export interface AppBasesRow {
+  record: Uuid; path: string; sourceRevision: Hash; cells: readonly AppBasesCell[];
+  /** Catalog types of the record; present when `request.rowProperties` was supplied. */
+  types?: readonly string[];
+  /** Effective frontmatter values for requested `rowProperties`; present when `request.rowProperties` was supplied. */
+  properties?: JsonObject;
+}
 export type AppBasesResult =
   | {kind: "refusal"; problem: Problem}
   | {kind: "success"; view: AppBasesDescriptor;
@@ -181,7 +211,11 @@ export type AppBasesResult =
 /** ONE complete success OR shared native Problem. Byte/frame admission precedes
  * generic canonical CBOR allocation; typed bounds precede typed result copies.
  * No partial publication, JS sorting/grouping/date math or readiness inference. */
-export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBasesWindow | null): AppBasesResult {
+export function decodeAppBasesResult(
+  bytes: Uint8Array,
+  expectedWindow?: AppBasesWindow | null,
+  expectedRowProperties?: readonly string[] | boolean | null,
+): AppBasesResult {
   if (!(bytes instanceof Uint8Array) || !bytes.length || bytes.length > FRAME_MAX) throw bad("response bytes exceed bound");
   const decoded = decode(bytes);
   if (!(decoded instanceof Map)) throw bad("result struct required");
@@ -190,7 +224,12 @@ export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBase
   if (value.has(7)) {const m = fields(value, [0, 7]); return {kind: "refusal", problem: problem.dec(m.get(7)!)};}
   const hasWindow = value.has(8);
   const hasSummaries = value.has(9);
-  const m = fields(value, [0, 1, 2, 3, 4, 5, 6, ...(hasWindow ? [8] : []), ...(hasSummaries ? [9] : [])]);
+  const hasRowProperties = value.has(10);
+  const expectRowProps = expectedRowProperties === undefined || expectedRowProperties === null || expectedRowProperties === false
+    ? false : true;
+  if (hasRowProperties !== expectRowProps) throw bad("rowProperties response differs from request");
+  const allowedProps = Array.isArray(expectedRowProperties) ? new Set(checkedRowProperties(expectedRowProperties)) : null;
+  const m = fields(value, [0, 1, 2, 3, 4, 5, 6, ...(hasWindow ? [8] : []), ...(hasSummaries ? [9] : []), ...(hasRowProperties ? [10] : [])]);
   if (expectedWindow !== undefined && hasWindow !== (expectedWindow !== null)) throw bad("window response differs from request");
   const view = decodeDescriptor(m.get(1));
   const columnsWire = fields(m.get(2), [0, 1]), columns = list(columnsWire.get(0), 64).map(v => text(v));
@@ -199,11 +238,27 @@ export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBase
     if (index >= columns.length) throw bad("unavailable column index out of bounds");
     return {index, code: text(i.get(1)), detail: text(i.get(2))};
   });
-  const rows = list(m.get(3), ROWS_MAX).map(v => {
+  const baseRows: AppBasesRow[] = list(m.get(3), ROWS_MAX).map(v => {
     const row = tuple(v, 4), cells = list(row[3], 64);
     if (cells.length !== columns.length) throw bad("row cell count differs from columns");
     return {record: uuid.dec(row[0]!), path: text(row[1]), sourceRevision: hash.dec(row[2]!), cells: cells.map(v => decodeAppBasesCell(v))};
   });
+  const rows: AppBasesRow[] = hasRowProperties ? (() => {
+    const entries = list(m.get(10), ROWS_MAX);
+    if (entries.length !== baseRows.length) throw bad("rowProperties count differs from rows");
+    return baseRows.map((row, index) => {
+      const entry = tuple(entries[index], 2);
+      const types = list(entry[0], ITEMS_MAX).map(t => text(t));
+      const propsMap = fmMap.dec(entry[1]!);
+      if (propsMap.size > ROW_PROPERTIES_MAX) throw bad("rowProperties entry exceeds bound");
+      const properties: JsonObject = Object.create(null) as JsonObject;
+      for (const [k, v] of propsMap) {
+        if (allowedProps && !allowedProps.has(k)) throw bad("unexpected row property in response");
+        Object.defineProperty(properties, k, {value: toPlain(v), enumerable: true, writable: true, configurable: true});
+      }
+      return {...row, types, properties: {...properties}};
+    });
+  })() : baseRows;
   const groups = list(m.get(4), ROWS_MAX).map(v => {
     const group = tuple(v, 2), key = decodeAppBasesCell(group[0]!);
     if (!isGroupKey(key)) throw bad("group key must be a qualified scalar or list");
@@ -246,12 +301,19 @@ export function decodeAppBasesResult(bytes: Uint8Array, expectedWindow?: AppBase
   return {kind: "success", view, columns, unavailableColumns, rows, groups, clock, collectionRevision: hash.dec(m.get(6)!), ...(window === undefined ? {} : {window}), ...(summaries === undefined ? {} : {summaries})};
 }
 
-/** Native discovery is a separate same-cut continuation, never a Query cursor. */
-export interface AppBasesDiscoveryRequest {captureTimezone: string; limit: number; continuation?: Uint8Array | null}
+/** Native discovery is a separate same-cut continuation, never a Query cursor.
+ * `reportUnreadable` asks for request version 2: a record the replica cannot
+ * classify (malformed YAML, bad `views`) is skipped and named in `unreadable`
+ * instead of refusing the whole discovery. Version 1 still refuses. */
+export interface AppBasesDiscoveryRequest {captureTimezone: string; limit: number; continuation?: Uint8Array | null; reportUnreadable?: boolean}
+/** A record skipped by discovery. `reason` is the refusal reason version 1
+ * would have returned (`view_metadata_unavailable`, `view_unsupported_construct`);
+ * `detail` is the machine-readable cause, such as `base_raw_frontmatter_unavailable`. */
+export interface AppBasesUnreadableSource {record: Uuid; path: string; sourceRevision: Hash; reason: string; detail: string}
 export interface AppBasesSourceRequest {record: Uuid; sourceRevision: Hash; ordinal: number; captureTimezone: string}
 export type AppBasesDiscoveryResult =
   | {kind: "refusal"; problem: Problem}
-  | {kind: "success"; views: readonly AppBasesDescriptor[]; clock: OpClock; collectionRevision: Hash; continuation: Uint8Array | null};
+  | {kind: "success"; views: readonly AppBasesDescriptor[]; unreadable: readonly AppBasesUnreadableSource[]; clock: OpClock; collectionRevision: Hash; continuation: Uint8Array | null};
 export type AppBasesSourceResult =
   | {kind: "refusal"; problem: Problem}
   | {kind: "success"; view: AppBasesDescriptor; source: string; clock: OpClock; collectionRevision: Hash};
@@ -262,7 +324,7 @@ function discoveryHandle(value: Uint8Array | null | undefined): Uint8Array | nul
 }
 export function encodeAppBasesDiscoveryRequest(request: AppBasesDiscoveryRequest): Uint8Array {
   const limit = unsigned(request.limit, 128); if (!limit) throw bad("discovery limit must be positive");
-  return encode(new Map<number, CborValue>([[0, 1], [1, text(request.captureTimezone, 128)], [2, limit], [3, discoveryHandle(request.continuation)]]));
+  return encode(new Map<number, CborValue>([[0, request.reportUnreadable ? 2 : 1], [1, text(request.captureTimezone, 128)], [2, limit], [3, discoveryHandle(request.continuation)]]));
 }
 export function encodeAppBasesSourceRequest(request: AppBasesSourceRequest): Uint8Array {
   return encode(new Map<number, CborValue>([[0, 1], [1, uuid.enc(request.record)], [2, hash.enc(request.sourceRevision)], [3, unsigned(request.ordinal, 0xffffffff)], [4, text(request.captureTimezone, 128)]]));
@@ -283,11 +345,18 @@ function discoveryClock(value: CborValue | undefined): OpClock {
   const clock = opClock.dec(value!); if (!Number.isSafeInteger(clock.instant)) throw bad("clock instant exceeds JS-safe range");
   text(clock.tz,128); text(clock.localDate,128); return clock;
 }
-export function decodeAppBasesDiscoveryResult(bytes: Uint8Array, expectedLimit = 128): AppBasesDiscoveryResult {
+function unreadableSource(value: CborValue | undefined): AppBasesUnreadableSource {
+  const m = fields(value,[0,1,2,3,4]);
+  return {record:uuid.dec(m.get(0)!),path:text(m.get(1)),sourceRevision:hash.dec(m.get(2)!),reason:text(m.get(3),128),detail:text(m.get(4),128)};
+}
+/** `reportUnreadable` must match the request: version 2 replies carry key 5. */
+export function decodeAppBasesDiscoveryResult(bytes: Uint8Array, expectedLimit = 128, reportUnreadable = false): AppBasesDiscoveryResult {
   const limit = unsigned(expectedLimit,128); if (!limit) throw bad("discovery limit must be positive");
   const value = discoveryEnvelope(bytes);
   if (value.has(7)) {const m = fields(value,[0,7]); return {kind:"refusal",problem:problem.dec(m.get(7)!)};}
-  const m = fields(value,[0,1,2,3,4]);
+  const m = fields(value,reportUnreadable ? [0,1,2,3,4,5] : [0,1,2,3,4]);
+  const unreadable = reportUnreadable ? list(m.get(5),128).map(unreadableSource) : [];
+  for (let i = 1; i < unreadable.length; i++) if (unreadable[i-1]!.record >= unreadable[i]!.record) throw bad("unreadable sources must ascend by record");
   const views = list(m.get(1),limit).map(discoveryDescriptor);
   for (let i = 1; i < views.length; i++) {
     const previous = views[i-1]!, next = views[i]!;
@@ -295,7 +364,7 @@ export function decodeAppBasesDiscoveryResult(bytes: Uint8Array, expectedLimit =
     if (previous.record === next.record && (previous.path !== next.path || previous.sourceRevision !== next.sourceRevision)) throw bad("one source identity cannot have two revisions/paths within a page");
   }
   const token = m.get(4); if (token !== null && !(token instanceof Uint8Array)) throw bad("native discovery handle required");
-  return {kind:"success",views,clock:discoveryClock(m.get(2)),collectionRevision:hash.dec(m.get(3)!),continuation:discoveryHandle(token as Uint8Array|null)};
+  return {kind:"success",views,unreadable,clock:discoveryClock(m.get(2)),collectionRevision:hash.dec(m.get(3)!),continuation:discoveryHandle(token as Uint8Array|null)};
 }
 export function decodeAppBasesSourceResult(bytes: Uint8Array, expected?: AppBasesSourceRequest): AppBasesSourceResult {
   const value = discoveryEnvelope(bytes);

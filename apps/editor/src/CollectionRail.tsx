@@ -1,9 +1,9 @@
 import { i18n } from "@lingui/core";
 import { Trans } from "@lingui/react/macro";
-import { t, plural } from "@lingui/core/macro";
+import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { defaultCollectionCopy } from "@mdbase-dev/ui/collections";
 import {
   CaretDownIcon as ChevronDown,
@@ -21,11 +21,12 @@ import { EditorRail } from "./EditorRail";
 import { connectServerUrl } from "./connect-endpoint";
 import type { CollectionFile, ConnectionSummary, NoteSummary } from "./model";
 import type { ConnectionState, EditorSyncState } from "./app-state-types";
+import { noteAndFileCount } from "./collection-browser";
 import { folderTree, type FolderTreeNode } from "./note";
 import type { NoteFilter } from "./note-list-view";
 
 
-export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateNoteInFolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, switcher, onCollapse, onPlanFolderChange, onChangeFolder }: {
+export function CollectionRail({ collectionId, name, count, types, activeFilter, notes, files, foldersLoading, surface, connectionState, connectionIssue, directAccess, directAccessBusy, onFilter, onCreateNoteInFolder, onMoveNotes, onCopyFacet, onTypes, onSettings, onReconnect, onRequestDirectAccess, switcher, onCollapse, onCommands, onPlanFolderChange, onChangeFolder }: {
   collectionId: string;
   name: string;
   count: number;
@@ -49,11 +50,12 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   onRequestDirectAccess: () => void;
   switcher?: ReactNode;
   onCollapse: () => void;
+  onCommands: () => void;
 } & FolderChangeActions) {
   useLingui();
   const [folderChange, setFolderChange] = useState<{ from: string; parent?: string; mode: "rename" | "move" }>();
   const moveFolder = onPlanFolderChange && onChangeFolder ? (from: string, parent: string) => setFolderChange({ from, parent, mode: "move" }) : undefined;
-  const collectionFolders = useMemo(() => folderTree(notes, files.map((file) => file.path)), [files, notes, i18n.locale]);
+  const collectionFolders = useMemo(() => folderTree(notes, files), [files, notes, i18n.locale]);
   return <><EditorRail
     collectionName={name}
     noteCount={count}
@@ -64,6 +66,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
     settings={{ onClick: onSettings }}
     switcher={switcher}
     onCollapse={onCollapse}
+    onCommands={onCommands}
     onMoveNotes={onMoveNotes}
     onMoveFolder={moveFolder}
     notesSelected={surface === "notes" && !activeFilter}
@@ -164,6 +167,10 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
   });
 
   return <div className="rail-filter-section" role="group" aria-label={t`Folders`} aria-busy={loading}>
+    <div className="rail-section-header">
+      <span aria-hidden="true"><Trans>Folders</Trans></span>
+      {nameFolder && <button className="rail-new-folder" aria-label={t`New folder`} title={t`New folder`} onClick={() => nameFolder("")}><FolderPlus aria-hidden="true" /></button>}
+    </div>
     {loading && <span className="folder-loading" role="status"><Trans>Loading folders…</Trans></span>}
     <div className="rail-filter-items folder-tree">
       {items.length > 0 && <ul>
@@ -184,7 +191,7 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
       </ul>}
       {!items.length && <p className="folder-placeholder">{loading ? t`Finding folders…` : t`No folders`}</p>}
     </div>
-    {naming ? <form className="rail-folder-name" onSubmit={(event) => { event.preventDefault(); createFolder(String(new FormData(event.currentTarget).get("folder") ?? "")); }}>
+    {naming && <form className="rail-folder-name" onSubmit={(event) => { event.preventDefault(); createFolder(String(new FormData(event.currentTarget).get("folder") ?? "")); }}>
       <FolderPlus aria-hidden="true" />
       <input name="folder" autoFocus spellCheck="false" autoCapitalize="none" autoCorrect="off" enterKeyHint="go"
         aria-label={naming.parent ? t`Name of the new folder in ${naming.parent}` : t`Name of the new folder`}
@@ -192,7 +199,7 @@ function FolderFilterSection({ collectionId, items, activeFilter, loading, onFil
         onBlur={() => setNaming(undefined)}
         onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); setNaming(undefined); } }} />
       <p id="rail-folder-name-hint">{naming.parent ? t`Opens a new note in ${naming.parent}/…` : t`Opens a new note in the folder.`}</p>
-    </form> : nameFolder && <button className="rail-new-folder" onClick={() => nameFolder("")}><span><FolderPlus aria-hidden="true" /><Trans>New folder</Trans></span></button>}
+    </form>}
   </div>;
 }
 
@@ -216,7 +223,8 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
   onCopy: (path: string) => void;
 } & FolderActions) {
   useLingui();
-  const { path, count } = node;
+  const { path, noteCount, fileCount } = node;
+  const counts = noteAndFileCount(noteCount, fileCount);
   const hasChildren = node.children.length > 0;
   const isExpanded = expanded.has(node.path);
   const descendantPaths = expandableFolderPaths(node);
@@ -249,14 +257,14 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
       <button
         className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
         aria-current={activeFilter?.kind === "folder" && activeFilter.value === node.path ? "page" : undefined}
-        aria-label={loading ? t`Show notes in ${node.path}, ${node.count} or more notes` : plural(count, { one: `Show notes in ${path}, # note`, other: `Show notes in ${path}, # notes` })}
+        aria-label={loading ? t`Show notes in ${path}, ${counts} so far` : t`Show notes in ${path}, ${counts}`}
         data-folder-path={node.path}
         draggable={Boolean(folderActions.onMoveFolder)}
         onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}
         onClick={() => onFilter({ kind: "folder", value: node.path })}
       >
         <span><Folder aria-hidden="true" /><span className="rail-row-label">{node.name}</span></span>
-        <small aria-label={facetCountLabel("folder", { name: node.path, count: node.count }, loading)}>{node.count}{loading && "+"}</small>
+        <small aria-hidden="true">{noteCount + fileCount}{loading && "+"}</small>
       </button>
     </ContextMenu></RailDropTarget>
     {hasChildren && isExpanded && <ul>
@@ -305,20 +313,6 @@ function expandableFolderPaths(node: FolderTreeNode): string[] {
 function setsEqual(left: Set<string>, right: Set<string>): boolean {
   return left.size === right.size && [...left].every((value) => right.has(value));
 }
-
-function facetCountLabel(kind: NoteFilter["kind"], item: { name: string; count: number }, loading: boolean): string {
-  const count = item.count;
-  const name = item.name;
-  if (loading) {
-    if (kind === "folder") return t`${count} or more notes in ${name}`;
-    if (kind === "tag") return t`${count} or more notes tagged ${name}`;
-    return t`${count} or more notes with type ${name}`;
-  }
-  if (kind === "folder") return plural(count, { one: `# note in ${name}`, other: `# notes in ${name}` });
-  if (kind === "tag") return plural(count, { one: `# note tagged ${name}`, other: `# notes tagged ${name}` });
-  return plural(count, { one: `# note with type ${name}`, other: `# notes with type ${name}` });
-}
-
 
 export function connectWorkspaceUrl(collectionId: string): string {
   const url = new URL("/", connectServerUrl());

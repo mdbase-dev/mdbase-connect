@@ -36,6 +36,21 @@ describe("Private collection setup",()=>{
       expect(f.state.attempt).toBeUndefined();expect(f.methods).not.toContain("submit");
     }
   });
+  it.each(["plan","apply"] as const)("returns assessment before release, but fences the following %s",async(operation)=>{
+    const f=await nativeSetupFixture(JOURNAL),original=await f.setup.plan();
+    let release!:()=>void;f.state.holdCancel=reply=>{release=reply;};
+    await expect(f.setup.assess()).resolves.toBe("setup_required");
+    const next=operation==="plan"?f.setup.plan():f.setup.apply(original);
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(f.requests.map(request=>request.get(1))).toEqual(["assess","assess","cancel"]);
+    f.state.holdCancel=undefined;release();await next;
+  });
+  it("continues after an unanswered release times out",async()=>{
+    const f=await nativeSetupFixture(JOURNAL);f.state.holdCancel=()=>{};
+    await expect(f.setup.assess()).resolves.toBe("setup_required");
+    await expect(f.setup.plan()).resolves.toMatchObject({status:"setup"});
+    expect(f.state.attempt).toBeUndefined();
+  });
   it("refreshes a review retired by a second plan and applies only identical consented changes",async()=>{
     const f=await nativeSetupFixture(JOURNAL),a=await f.setup.plan();
     const b=await f.setup.plan();expect(a.digest).toBe(b.digest);
@@ -183,5 +198,19 @@ describe("Private collection setup",()=>{
       "Adjust a collection setting this app needs."]);
     expect(plan.changes.map(c => c.target)).toEqual(["_contracts/org.example.reader.source.md", "_contracts/org.example.comment/1.0.0.md", "_types/reader-source.md", "schemas/org.example.comment/1.0.0.schema.json", "include", "record extensions", "internal setting"]);
     expect(plan.changes.map(c => c.message).join(" ")).not.toMatch(/reader|comment|Internal\/|include setting|record extensions setting|internal setting/i);
+  });
+  it("routes non-installed_newer conflicts into setup_required while keeping newer major versions incompatible", async () => {
+    const f = await nativeSetupFixture(JOURNAL);
+    f.state.conflict = "adoptable";
+    expect(await f.setup.assess()).toBe("setup_required");
+    const conflictPlan = await f.setup.plan();
+    expect(conflictPlan).toMatchObject({ status: "conflict", canApply: false, refusal: { code: "setup_conflict" }, adoptable: { "_types/task.md": `sha256:${"ab".repeat(32)}` } });
+    await expect(f.setup.apply(conflictPlan)).rejects.toMatchObject({ code: "conflict", reason: "setup_conflict" });
+
+    f.state.conflict = "installed_newer";
+    expect(await f.setup.assess()).toBe("incompatible");
+    const newerPlan = await f.setup.plan();
+    expect(newerPlan).toMatchObject({ status: "conflict", canApply: false, refusal: { code: "installed_newer" } });
+    await expect(f.setup.apply(newerPlan)).rejects.toMatchObject({ code: "upgrade_required", reason: "installed_newer" });
   });
 });

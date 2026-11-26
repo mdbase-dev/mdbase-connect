@@ -5,7 +5,6 @@ import {
   ApplicationAuthorizationError,
   MalformedPersistedApplicationAuthorizationError
 } from "../../application-authorization.js";
-import { HostedProviderResponseError, HostedProviderUnavailableError, type HostedProviderClient } from "../hosted/hosted-provider.js";
 import { RelayUnavailableError } from "../relay/relay-errors.js";
 import type { RelayHub } from "../relay/relay.js";
 import { reconcileApplicationGrants } from "../grants/service.js";
@@ -57,7 +56,6 @@ export class ApplicationReconciliationWorker {
   constructor(
     private readonly db: DatabasePool,
     private readonly relay: RelayHub,
-    private readonly provider?: HostedProviderClient,
     private readonly onEvent: (event: ReconciliationEvent) => void = () => undefined,
     private readonly pollMs = RECONCILIATION_TIMING.pollMs,
     private readonly seedMs = RECONCILIATION_TIMING.seedMs,
@@ -153,7 +151,7 @@ export class ApplicationReconciliationWorker {
         try {
           // Dependencies own their abortable network bounds. Do not abandon a live
           // call with Promise.race: doing so permits a second worker to overlap it.
-          await this.reconcile(this.db, this.relay, this.provider, claim.application, grant.id);
+          await this.reconcile(this.db, this.relay, claim.application, grant.id);
           if (this.closing || !(await this.renew(claim))) return;
           await this.db.query(`DELETE FROM application_reconciliation_results
             WHERE application_id=$1 AND grant_id=$2
@@ -302,7 +300,6 @@ export class ApplicationReconciliationWorker {
 
 export function classifyError(error: unknown): ErrorClass {
   if (error instanceof Error && error.name === "AbortError") return "timeout";
-  if (error instanceof HostedProviderUnavailableError || error instanceof HostedProviderResponseError) return "provider";
   if (error instanceof RelayUnavailableError || (error instanceof Error && error.name === "ConnectorOperationError")) return "relay";
   if (error instanceof MalformedPersistedApplicationAuthorizationError) return "malformed_proof";
   if (error instanceof ApplicationAuthorizationError) return "ownership";

@@ -62,6 +62,8 @@ export interface AppWebSignInPortal {
   readonly nativeAuthorization?: AppNativeAuthorizationPort;
   navigate(uri: string): void;
   close(): void;
+  /** Optional: bring the held approval window back to the person. */
+  focus?(): void;
   /** Optional: true once the approval window is gone (the person closed it),
    * read like `Window.closed`; a getter is fine. While a held window reports
    * closed, the session reads the receipt once more, then stops waiting:
@@ -255,6 +257,9 @@ export class AppWebSignInSession<Connection> {
   private freshApproval = false;
   /** The window this session's approval (or file access request) is shown in. */
   private approvalWindow: AppWebSignInPortal | null = null;
+  /** The page went to the background while the approval window still waited
+   * for this app's part. */
+  private leftForApproval = false;
   private nativePending: {context:AppNativeAuthorizationContext;port:AppNativeAuthorizationPort;life:AbortController;prepared:AppNativePreparation|null;failed:boolean;attempted:boolean}|null = null;
   private readonly forgotten = new Set<string>();
   private readonly removedScopes = new Set<string>();
@@ -594,7 +599,7 @@ export class AppWebSignInSession<Connection> {
         else if (this.flow!.view().collectionSelection?.requestId !== consent.requestId && !this.deviceAccessWithoutPick(consent.requestedPrivateDevice === true ? consent.addedCollectionIds : [])) throw failure("response");
         this.consentPending = false; this.freshApproval = true; this.closeApprovalWindow();
         await this.refreshCollections();
-      } else { await this.prepareNativeChoice(); this.publish({status: "authorizing", problem: null}); }
+      } else { await this.prepareNativeChoice(); this.resumeApprovalWindow(); this.publish({status: "authorizing", problem: null}); }
       return;
     }
     let view: AppInstallationSignInView | null;
@@ -615,7 +620,7 @@ export class AppWebSignInSession<Connection> {
     if (view.state === "account_confirmed" || view.state === "awaiting_approval") {
       await this.openDevice(); this.check();
       if (!this.attested) { await this.host!.attestInstallation(); this.check(); this.attested = true; }
-      await this.prepareNativeChoice();
+      await this.prepareNativeChoice(); this.resumeApprovalWindow();
     }
     if (view.state === "paired") {
       const native=this.flow!.pendingNativeSelection?.();
@@ -638,6 +643,24 @@ export class AppWebSignInSession<Connection> {
   private deviceAccessWithoutPick(granted: readonly string[]): boolean {
     const view = this.flow!.view(), scopes = view.privateDeviceCollectionIds ?? [];
     return (view.collectionSelection ?? null) === null && granted.some(id => scopes.includes(id));
+  }
+  /** The approval page waits for this app's own part (attestation, then a
+   * Private collection's prepared authorization). A native app cannot do it
+   * while the system browser is in front (the OS freezes it), so the page sends
+   * the person back to the app (tasknotes-app#492). When they return and that
+   * part is done, show the same approval page again, once per return. */
+  private resumeApprovalWindow(): void {
+    if(!this.leftForApproval || !this.foreground || !this.approvalWindow || !this.appPartDone())return;
+    this.leftForApproval=false;
+    try{this.approvalWindow.focus?.();}catch{/* best-effort: the person can reopen it */}
+  }
+  /** True when the approval page has nothing left to wait for from this app:
+   * it is attested and no Private authorization is still being prepared. */
+  private appPartDone(): boolean {
+    if(!this.attested)return false;
+    if(!this.approvalWindow?.nativeAuthorization || !this.installation || !this.flow!.nativeAuthorizationContext(this.installation))return true;
+    const slot=this.nativePending;
+    return slot!==null && (slot.attempted || slot.failed);
   }
   /** Preparation is optional and never blocks a genuine Hosted approval. Only
    * the original lifecycle turn attaches after observing its matching context. */
@@ -667,7 +690,6 @@ export class AppWebSignInSession<Connection> {
   private async finishNativeChoice(selection: import("./native-sign-in.js").AppNativeSelection): Promise<void> {
     const slot=this.nativePending;
     if(!slot || !slot.prepared || !slot.attempted || slot.context.requestId!==selection.requestId || slot.prepared.authorizationId!==selection.authorizationRequestId)throw failure("recovery_required");
-    await this.openDevice();this.check();
     const completion=await slot.port.finish(selection,AbortSignal.any([this.lifetime.signal,this.flowLifetime.signal,slot.life.signal]));this.check();
     if(this.nativePending!==slot || !this.acknowledged || !this.installation)throw failure("fenced");
     await this.flow!.completeNativeAuthorization(this.installation,completion);this.check();
@@ -679,6 +701,7 @@ export class AppWebSignInSession<Connection> {
    * Resolves false when the pick was forgotten; the sign-in itself is intact.
    * A closing session, or a pick that could not be forgotten, still rejects. */
   private async settleNativeChoice(selection: import("./native-sign-in.js").AppNativeSelection): Promise<boolean> {
+    await this.openDevice(); this.check();
     try { await this.finishNativeChoice(selection); return true; }
     catch (error) {
       this.check();
@@ -703,12 +726,12 @@ export class AppWebSignInSession<Connection> {
   }
   private holdApprovalWindow(portal: AppWebSignInPortal): void {
     if (this.approvalWindow !== portal) this.closeApprovalWindow();
-    this.approvalWindow = portal;
+    this.approvalWindow = portal; this.leftForApproval = false;
   }
   /** Approval observed: the opener closes the approval window (the Connect page
    * cannot be relied on to close itself); the window adapter refocuses the app. */
   private closeApprovalWindow(): void {
-    const portal = this.approvalWindow; this.approvalWindow = null;
+    const portal = this.approvalWindow; this.approvalWindow = null; this.leftForApproval = false;
     const native=this.nativePending;this.nativePending=null;native?.life.abort();
     try{native?.port.cancel();}catch{/* cancellation cannot replace the original custody drain */}
     if (!portal) return;
@@ -799,7 +822,7 @@ export class AppWebSignInSession<Connection> {
   setForeground(active: boolean): void {
     this.check(); const resumed = active && !this.foreground;
     this.foreground = active; this.stopPolling();
-    if (!active) this.foregroundRead = null;
+    if (!active) { this.foregroundRead = null; if (this.approvalWindow && !this.appPartDone()) this.leftForApproval = true; }
     else if (resumed && this.receiptRead?.operation === this.pending) this.foregroundRead = this.receiptRead;
     if (active && this.base.status === "authorizing" && !this.pending) this.poll(() => this.advanceApproval());
     else this.schedulePoll();
@@ -817,6 +840,31 @@ export class AppWebSignInSession<Connection> {
   private approvalWindowGone(): boolean {
     const portal = this.approvalWindow;
     try { return portal?.closed === true; } catch { return false; }
+  }
+  /** The person stopped waiting for Connect (the app's Cancel). Ends the wait
+   * as a closed approval window does, without another read: the collection
+   * list when signed in, otherwise signed out. A restart no longer resumes a
+   * sent sign-in request; the next sign-in gesture sends that SAME request,
+   * so an approval given meanwhile is still received. Waits for an operation
+   * in flight (the sign-in gesture's own, or an approval read) to settle;
+   * resolves unchanged when nothing is being authorized. */
+  async cancelAuthorization(): Promise<AppWebSignInSnapshot> {
+    this.check();
+    while (this.pending) { await this.pending.catch(() => {}); this.check(); }
+    return this.operation(async () => {
+      if (this.base.status !== "authorizing") return this.getSnapshot();
+      this.closeApprovalWindow();
+      const closed = Object.freeze({outcome: "closed" as const});
+      if (this.consentPending) {
+        this.consentPending = false;
+        this.publish({status: "unselected", problem: null, approval: closed}); await this.refreshCollections();
+      } else {
+        await this.flow!.forgetSentRequest(); this.check();
+        this.restoredPending = false;
+        this.publish({status: "signed_out", problem: null, approval: closed});
+      }
+      return this.getSnapshot();
+    });
   }
   /** One scheduled approval read. If the held window was already closed, this
    * read is the final one: Connect records an approval before its window

@@ -5,7 +5,6 @@ import { canonicalJson } from "../../../canonical-json.js";
 import { lookupTimerReceipt, recordTimerReconcile } from "./receipts.js";
 import { z } from "zod";
 import type { DatabasePool, DatabaseQueryable } from "../../../database-types.js";
-import type { HostedProviderClient } from "../../hosted/hosted-provider.js";
 import { activeGrantForToken } from "../../notifications/notifications.js";
 import { apiError } from "../../../platform/http-errors.js";
 import { bearerToken } from "../../../platform/request-authentication.js";
@@ -41,7 +40,6 @@ import {
 export interface TimerRoutesOptions {
   db: DatabasePool;
   resolver?: TimerGrantResolver;
-  hostedProvider?: HostedProviderClient;
   /** Called after a committed write, so the worker can fire timers due now. */
   onWrite?: () => void;
   writesPerMinute?: number;
@@ -119,25 +117,6 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
     return grantId.data;
   };
 
-  /** The hosted replica's old-SDK shim, acting for a named grant. */
-  const hostedShimGrant: GrantSource = async (request, reply) => {
-    if (!options.hostedProvider?.authorizesInternalToken(bearerToken(request))) {
-      reply.code(401).send(apiError("unauthenticated", "Hosted provider credential is invalid."));
-      return null;
-    }
-    const grantId = z.object({ grant: z.uuid() }).parse(request.params).grant;
-    // The provider credential acts only for cloud-copy grants, never for local
-    // or end-to-end collections.
-    const grant = await resolver.resolve(options.db, grantId);
-    if (!grant || grant.state !== "cloud_copy") {
-      reply.code(403).send(apiError("forbidden", "The hosted shim may act only for cloud-copy grants.", {
-        reason: "not_cloud_copy"
-      }));
-      return null;
-    }
-    return grantId;
-  };
-
   const run = async (
     request: Request,
     reply: FastifyReply,
@@ -190,36 +169,25 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
           const fields = `g.id, g.user_id, g.application_id, g.collection_id, g.hosted_collection_id,
             g.application_origin, g.application_authorization, g.scope, g.operations, g.notification_criteria,
             g.proof_public_key, u.account_backend`;
-          let row: Record<string, unknown> | undefined;
-          if (source === appGrant) {
-            row = (await connection.query<Record<string, unknown>>(
-              `/* mdbase:timer-authority-current:v1 */ SELECT ${fields}, tok.expires_at FROM access_tokens tok
-               JOIN grants g ON g.id = tok.grant_id JOIN users u ON u.id = g.user_id
-               WHERE tok.token_hash = $1 AND g.id = $2 AND tok.revoked_at IS NULL
-                 AND tok.expires_at > clock_timestamp() AND g.revoked_at IS NULL
-                 AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
-                 AND g.user_id <> '00000000-0000-0000-0000-000000000000'::uuid
-               FOR SHARE OF tok, g, u`, [tokenHash(bearerToken(request)!), grantId])).rows[0];
-            if (!row || new Date(row.expires_at as Date).getTime() <= Date.now()) throw new TimerError(401, "unauthenticated", "The retained access token is no longer current.");
-            if (requireProof) {
-              if (typeof row.proof_public_key !== "string") throw new TimerError(401, "unauthenticated", "The retained client proof binding is unavailable.");
-              const raw = request.rawBody;
-              if (request.method !== "GET" && typeof raw !== "string") throw new Error("Timer request proof requires the original HTTP body.");
-              verifyAuthorityRequestProof(request.headers, row.proof_public_key, { method: request.method,
-                target: request.raw.url!, credential: bearerToken(request)!, body: request.method === "GET" ? undefined : raw as string });
-            }
-          } else {
-            if (!options.hostedProvider?.authorizesInternalToken(bearerToken(request))) throw new TimerError(401, "unauthenticated", "Internal credential is no longer current.");
-            row = (await connection.query<Record<string, unknown>>(
-              `/* mdbase:timer-authority-current:v1 */ SELECT ${fields} FROM grants g JOIN users u ON u.id = g.user_id
-               WHERE g.id = $1 AND g.revoked_at IS NULL AND g.activated_at IS NOT NULL
-                 AND u.suspended_at IS NULL FOR SHARE OF g, u`, [grantId])).rows[0];
-            if (!row) throw new TimerError(403, "forbidden", "The hosted grant is no longer current.");
+          const row = (await connection.query<Record<string, unknown>>(
+            `/* mdbase:timer-authority-current:v1 */ SELECT ${fields}, tok.expires_at FROM access_tokens tok
+             JOIN grants g ON g.id = tok.grant_id JOIN users u ON u.id = g.user_id
+             WHERE tok.token_hash = $1 AND g.id = $2 AND tok.revoked_at IS NULL
+               AND tok.expires_at > clock_timestamp() AND g.revoked_at IS NULL
+               AND g.activated_at IS NOT NULL AND u.suspended_at IS NULL
+               AND g.user_id <> '00000000-0000-0000-0000-000000000000'::uuid
+             FOR SHARE OF tok, g, u`, [tokenHash(bearerToken(request)!), grantId])).rows[0];
+          if (!row || new Date(row.expires_at as Date).getTime() <= Date.now()) throw new TimerError(401, "unauthenticated", "The retained access token is no longer current.");
+          if (requireProof) {
+            if (typeof row.proof_public_key !== "string") throw new TimerError(401, "unauthenticated", "The retained client proof binding is unavailable.");
+            const raw = request.rawBody;
+            if (request.method !== "GET" && typeof raw !== "string") throw new Error("Timer request proof requires the original HTTP body.");
+            verifyAuthorityRequestProof(request.headers, row.proof_public_key, { method: request.method,
+              target: request.raw.url!, credential: bearerToken(request)!, body: request.method === "GET" ? undefined : raw as string });
           }
           if (row.account_backend !== "legacy" && row.account_backend !== "next") throw new Error("Invalid timer account backend marker.");
           const current = await resolver.resolve(connection, grantId);
           if (!current) throw new TimerError(401, "unauthenticated", "The grant does not exist.");
-          if (source === hostedShimGrant && current.state !== "cloud_copy") throw new TimerError(403, "forbidden", "Hosted timer access requires a cloud copy.");
           if (collectionFromPath && !current.collectionIds.includes((request.params as { collection: string }).collection)) throw new TimerError(403, "forbidden", "The grant is no longer for this collection.");
           authorizeTimerOperation(current, operation, criterionId);
           checkDeadline();
@@ -340,7 +308,6 @@ export function registerTimerRoutes(app: FastifyInstance, options: TimerRoutesOp
 
   mount("/v1/next/collections/:collection/timers", appGrant, true);
   mount("/v1/next/collections/:collection/background-grants/:grant/timers", installationGrant, true);
-  mount("/internal/v1/next/timers/:grant", hostedShimGrant, false);
 }
 
 function parseOr400<T extends z.ZodType>(

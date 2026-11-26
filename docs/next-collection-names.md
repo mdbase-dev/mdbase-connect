@@ -10,6 +10,8 @@ Clients must capture the normalized initial-name intent in their original durabl
 
 ## Rename
 
+`mdbase collection update <collection> --name <alias>` changes the name shown by `mdbase collection list` on this computer only. To change the shared name used by `collection delete --confirm`, rename the synced collection in the Portal.
+
 `PATCH /v1/next/collections/:id/name`
 
 ```json

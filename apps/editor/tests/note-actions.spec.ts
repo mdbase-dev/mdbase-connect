@@ -88,7 +88,7 @@ for (const [theme, width, height] of [["light", 1440, 1000], ["dark", 1440, 1000
       }));
       expect(rows.length).toBeGreaterThan(0);
       for (const row of rows) {
-        expect(row.height).toBe(76);
+        expect(row.height).toBe(56);
         for (const child of row.children) {
           expect(child.contained).toBe(true);
           expect(child.fullLine).toBe(true);
@@ -105,7 +105,7 @@ for (const [theme, width, height] of [["light", 1440, 1000], ["dark", 1440, 1000
       for (const variant of ["no-excerpt", "busy", "error", "long-type"]) {
         const wrapper = document.createElement("div");
         wrapper.className = "note-row-context row-fit-fixture";
-        wrapper.style.cssText = "position:relative;height:76px;";
+        wrapper.style.cssText = "position:relative;height:56px;";
         const row = source.cloneNode(true) as HTMLElement;
         row.removeAttribute("id");
         if (variant === "no-excerpt") row.querySelector(".note-excerpt")?.remove();

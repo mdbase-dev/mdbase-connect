@@ -7,14 +7,16 @@ import type { NoteFilter } from "./note-list-view";
 function SearchHarness({ onResults = vi.fn() }: { onResults?: (first: boolean) => void }) {
   const [search, onSearch] = useState("");
   const [filter, onFilter] = useState<NoteFilter>();
-  return <NoteSearchField search={search} filter={filter} onSearch={onSearch} onFilter={onFilter} tags={[{ name: "ideas", count: 4 }, { name: "writing", count: 2 }]} types={[{ name: "note", count: 3 }]} onQuickOpen={() => {}} onResults={onResults} />;
+  return <NoteSearchField search={search} filter={filter} onSearch={onSearch} onFilter={onFilter} tags={[{ name: "ideas", count: 4 }, { name: "writing", count: 2 }]} types={[{ name: "note", count: 3 }]} onResults={onResults} />;
 }
 
 describe("Search filters", () => {
-  it("includes the visible shortcut in the commands accessible name", () => {
-    render(<SearchHarness />);
-    const button = screen.getByRole("button", { name: /Commands/ });
-    expect(button).toHaveAccessibleName(expect.stringContaining(button.textContent ?? ""));
+  it("hints the key that focuses search and offers no other command", () => {
+    const { container } = render(<SearchHarness />);
+    expect(container.querySelector(".search-shortcut")).toHaveTextContent("/");
+    expect(screen.queryByRole("button", { name: /Commands/ })).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole("combobox", { name: "Search notes and files" }), { target: { value: "garden" } });
+    expect(container.querySelector(".search-shortcut")).toBeNull();
   });
 
   it("suggests #tags and type:types, preserving text and removing the filter token", () => {
@@ -30,6 +32,8 @@ describe("Search filters", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(input).toHaveValue("");
     expect(screen.getByRole("button", { name: "Remove type filter note" })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "tag:wri" } });
+    expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual(["#writing2"]);
   });
 
   it("browses filters, supports arrow selection and Escape, and closes on outside focus", () => {
@@ -81,7 +85,7 @@ describe("Search filters", () => {
 
   it("has an explicit empty state and leaves unrelated prose alone", () => {
     const onSearch = vi.fn();
-    render(<NoteSearchField search="type:unknown" tags={[]} types={[]} onSearch={onSearch} onFilter={vi.fn()} onQuickOpen={vi.fn()} />);
+    render(<NoteSearchField search="type:unknown" tags={[]} types={[]} onSearch={onSearch} onFilter={vi.fn()} />);
     expect(screen.getByText("No matching filters")).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole("combobox"), { key: "Enter" });
     expect(onSearch).not.toHaveBeenCalled();

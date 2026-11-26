@@ -2,28 +2,6 @@
 
 use super::*;
 
-/// Read the closed mirror fence from daemon-private authoritative metadata only.
-/// Never opens a folder, host lock, FileStore, replica, or network connection.
-pub fn preopen_mirror_status(
-    private_dir: &std::path::Path,
-) -> Result<Option<crate::takeover::mirror_driver::Diagnostic>, String> {
-    let path = private_dir.join("index.sqlite");
-    if !path.exists() {
-        return Ok(None);
-    }
-    crate::fsutil::verify_owner_only(private_dir).map_err(|e| format!("private state: {e}"))?;
-    let index = Rc::new(RefCell::new(
-        SqliteIndex::open(path, IndexDurability::Durable).map_err(|e| format!("index: {e:?}"))?,
-    ));
-    let store = SqlStore::open_with_limits(index, SqlStoreLimits::DESKTOP)
-        .map_err(|e| format!("store: {e:?}"))?;
-    match crate::takeover::mirror_driver::Closed::resume(store) {
-        Ok(closed) => Ok(Some(closed.diagnostic())),
-        Err(crate::takeover::mirror_driver::Error::MissingFence) => Ok(None),
-        Err(e) => Err(e.to_string()),
-    }
-}
-
 /// The verified policy a synced collection's index already holds, checked before
 /// user-file IO. Missing/new cache is not trusted; genesis/pins must match.
 /// Reads committed private metadata, never the folder.
@@ -100,22 +78,36 @@ pub fn cached_eligibility(
 /// and no missing epoch key, and then either: online, having read up to the head
 /// heard in this connection (`caught_up`); or, only while not online, the verified
 /// cached membership checked before open (`cached`).
+///
+/// A replica fenced by its own storage ([`mdbn_replica::Fence::Store`]) is
+/// [`crate::collections::STORAGE_FAULT`], to be reopened: its `integrity`
+/// incident is then that fault's cause, which the replica keeps there, not a
+/// problem of the log. Every other terminal incident still decides first. A
+/// genesis fence is the log's integrity problem: `sync_integrity`.
 pub fn synced_ready(
     s: &mdbn_wire::client::SyncStatus,
+    fence: Option<mdbn_replica::Fence>,
     caught_up: bool,
     cached: bool,
 ) -> Result<bool, &'static str> {
+    use mdbn_replica::Fence;
     use mdbn_wire::client::{Connection, IncidentKind as K};
     for i in &s.incidents {
         match i.kind {
+            K::Integrity if fence == Some(Fence::Store) => {}
             K::Integrity | K::VerificationMismatch | K::KeyInconsistent => {
-                return Err("sync_integrity");
+                return Err(crate::collections::SYNC_INTEGRITY);
             }
             K::AccessRevoked => return Err("sync_revoked"),
             K::Gone => return Err("collection_deleted"),
             K::UpgradeRequired => return Err("sync_upgrade_required"),
             _ => {}
         }
+    }
+    match fence {
+        Some(Fence::Store) => return Err(crate::collections::STORAGE_FAULT),
+        Some(Fence::Genesis) => return Err(crate::collections::SYNC_INTEGRITY),
+        None => {}
     }
     if s.confirmed_through == 0 || s.incidents.iter().any(|i| i.kind == K::WaitingForKey) {
         return Ok(false);

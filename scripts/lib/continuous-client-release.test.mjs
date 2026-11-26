@@ -1,22 +1,22 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkoutProductionCommit, contractSensitive, nextBetaVersion, proveCompatibility, repository, requireRunning } from "./continuous-client-release.mjs";
+import { allocateVersion, checkoutProductionCommit, compareVersions, contractSensitive, latestRelease, nextVersion, productionOnlyCompatibility, proveCompatibility, repository, requireRunning } from "./continuous-client-release.mjs";
 
 const sha = value => value.repeat(40);
 const selectionEnv = { GITHUB_REPOSITORY: repository, GITHUB_REF: "refs/heads/main", GITHUB_SHA: sha("f") };
-function selection({ commits = [sha("c"), sha("b"), sha("a")], green = [sha("b"), sha("a")], production = sha("d"), provider = sha("c"), qualifyError } = {}) {
+function selection({ commits = [sha("d"), sha("c"), sha("b"), sha("a")], green = [sha("b"), sha("a")], production = sha("d"), qualifyError } = {}) {
   const calls = [];
   let head = selectionEnv.GITHUB_SHA;
   return { calls, dependencies: {
-    readProduction: async () => ({ sha: production, providerSha: provider }),
+    readProduction: async () => ({ sha: production }),
     runGit: (...args) => {
       calls.push(args);
       if (args[0] === "merge-base") {
-        assert.deepEqual(args, ["merge-base", "--octopus", "origin/main", production, provider]);
+        assert.deepEqual(args, ["merge-base", "origin/main", production]);
         return commits[0];
       }
       if (args[0] === "rev-list") {
@@ -49,13 +49,13 @@ test("newest green common production/main ancestor wins even when main and the w
     const fixture = selection();
     assert.equal(await checkoutProductionCommit({ ...selectionEnv, GITHUB_SHA: workflowSha }, fixture.dependencies), sha("b"));
     assert.deepEqual(fixture.calls.slice(-2), [["checkout", "--detach", sha("b")], ["qualify", sha("b")]]);
-    assert(!fixture.calls.some(args => args[0] === "api" && [sha("d"), sha("e"), sha("f")].includes(args[1])));
+    assert(!fixture.calls.some(args => args[0] === "api" && [sha("e"), sha("f")].includes(args[1])));
   }
 });
 
-test("production head may release immediately; provider skew caps selection and green badges never replace full CI", async () => {
-  const fixture = selection({ green: [sha("c")] });
-  assert.equal(await checkoutProductionCommit(selectionEnv, fixture.dependencies), sha("c"));
+test("production head releases immediately past older commits and green badges never replace full CI", async () => {
+  const fixture = selection({ green: [sha("d"), sha("c")] });
+  assert.equal(await checkoutProductionCommit(selectionEnv, fixture.dependencies), sha("d"));
   const failed = selection({ qualifyError: new Error("missing full artifact") });
   await assert.rejects(checkoutProductionCommit(selectionEnv, failed.dependencies), /missing full artifact/);
   assert.equal(failed.calls.filter(call => call[0] === "qualify").length, 1);
@@ -68,13 +68,13 @@ test("selection fails closed on wrong workflow origin, unhealthy production, inv
   for (const changes of [{ GITHUB_REF: "refs/tags/v1" }, { GITHUB_REPOSITORY: "other/repo" }]) {
     await assert.rejects(checkoutProductionCommit({ ...selectionEnv, ...changes }, selection().dependencies), /main workflow/);
   }
-  await assert.rejects(checkoutProductionCommit(selectionEnv, selection({ provider: "main" }).dependencies), /full commit/);
+  await assert.rejects(checkoutProductionCommit(selectionEnv, selection({ production: "main" }).dependencies), /full commit/);
   const fixture = selection();
   await assert.rejects(checkoutProductionCommit(selectionEnv, { ...fixture.dependencies, readProduction: async () => { throw new Error("not ready"); } }), /not ready/);
   await assert.rejects(checkoutProductionCommit(selectionEnv, { ...fixture.dependencies, readApi: () => { throw new Error("API unavailable"); } }), /API unavailable/);
 });
 
-test("real Git ancestry selects the production-contained source, not main's newer contract change", async t => {
+test("real Git ancestry selects production directly past retired older commits, not main's newer contract change", async t => {
   const directory = mkdtempSync(join(tmpdir(), "client-production-selection-"));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const runGit = (...args) => execFileSync("git", args, { cwd: directory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
@@ -82,7 +82,7 @@ test("real Git ancestry selects the production-contained source, not main's newe
   runGit("config", "user.email", "test@example.invalid");
   runGit("config", "user.name", "Release test");
   const commits = [];
-  for (const name of ["baseline", "provider", "server", "new main contract", "main moves again"]) {
+  for (const name of ["baseline", "retired provider", "production", "new main contract", "main moves again"]) {
     writeFileSync(join(directory, "contract.ts"), `${name}\n`);
     runGit("add", "contract.ts");
     runGit("commit", "-m", name);
@@ -90,24 +90,80 @@ test("real Git ancestry selects the production-contained source, not main's newe
   }
   runGit("remote", "add", "origin", directory);
   const selected = await checkoutProductionCommit({ ...selectionEnv, GITHUB_SHA: commits[3] }, {
-    runGit, readProduction: async () => ({ sha: commits[2], providerSha: commits[1] }),
+    runGit, readProduction: async () => ({ sha: commits[2] }),
     readApi: path => ({ workflow_runs: [{ head_sha: new URLSearchParams(path.split("?")[1]).get("head_sha"),
       head_branch: "main", event: "push", status: "completed", conclusion: "success", path: ".github/workflows/server-ci.yml" }] }),
     qualify: commit => assert.equal(runGit("rev-parse", "HEAD"), commit)
   });
-  assert.equal(selected, commits[1]);
-  for (const production of [commits[1], commits[2]]) {
-    assert.equal(proveCompatibility(selected, production, runGit).reason, "production-contains-candidate");
-  }
+  assert.equal(selected, commits[2], "production past the retired provider commit selects production itself");
+  assert.equal(proveCompatibility(selected, commits[2], runGit).reason, "production-contains-candidate");
   assert.equal(runGit("rev-parse", "origin/main"), commits[4]);
 });
 
-test("CI beta allocation advances every published and source version without numeric overflow", () => {
-  assert.equal(nextBetaVersion(["0.1.0-beta.9", "0.1.0-beta.152", "0.1.0-beta.101"]), "0.1.0-beta.153");
-  assert.equal(nextBetaVersion(["0.0.1-next.0", "0.1.0-beta.152"]), "0.1.0-beta.153");
-  assert.equal(nextBetaVersion(["0.1.0-beta.9007199254740999"]), "0.1.0-beta.9007199254741000");
-  for (const version of ["0.1.0", "0.2.0-beta.1", "garbage", "0.1.0-beta.01"]) {
-    assert.throws(() => nextBetaVersion([version]), /release-owner review/);
+test("tag publication waits until production contains provider-free compatibility", () => {
+  const show = text => (...args) => {
+    assert.deepEqual(args, ["show", `${sha("a")}:scripts/verify-client-publication.mjs`]);
+    return text;
+  };
+  assert.equal(productionOnlyCompatibility(sha("a"), show('const providerOrigin = "https://sync.mdbase.dev";\n')), false);
+  const current = readFileSync(new URL("../verify-client-publication.mjs", import.meta.url), "utf8");
+  assert.equal(productionOnlyCompatibility(sha("a"), show(current)), true);
+});
+
+test("semver orders every release above the legacy beta line and 0.0.x bootstrap versions", () => {
+  assert.equal(compareVersions("0.1.0", "0.1.0-beta.213"), 1);
+  assert.equal(compareVersions("0.1.0-beta.213", "0.1.0-beta.9"), 1);
+  assert.equal(compareVersions("0.1.0-beta.9007199254740999", "0.1.0"), -1);
+  assert.equal(compareVersions("0.0.1-next.0", "0.1.0-beta.1"), -1);
+  assert.equal(compareVersions("0.1.10", "0.1.9"), 1);
+  assert.equal(compareVersions("0.2.0", "0.1.99"), 1);
+  assert.equal(compareVersions("0.1.1", "0.1.1"), 0);
+  for (const version of ["0.2.0-beta.1", "0.1.0-rc.1", "garbage", "0.1.0-beta.01", "01.0.0", "v0.1.0"]) {
+    assert.throws(() => compareVersions(version, "0.1.0"), /release-owner review/);
+  }
+});
+
+test("the first release after the beta line is 0.1.0; later releases bump patch, or minor when breaking", () => {
+  assert.equal(latestRelease(["0.1.0-beta.215", "0.0.1-next.0"]), null);
+  assert.equal(nextVersion(["0.1.0-beta.213", "0.1.0-beta.215"], true), "0.1.0");
+  assert.equal(nextVersion(["0.1.0-beta.215", "0.1.0", "0.1.9", "0.1.10"], false), "0.1.11");
+  assert.equal(nextVersion(["0.1.10", "0.1.0-beta.215"], true), "0.2.0");
+  assert.equal(nextVersion(["0.9007199254740999.3"], true), "0.9007199254741000.0");
+  assert.throws(() => nextVersion(["1.0.0"], false), /release-owner decision/);
+  assert.throws(() => nextVersion(["0.1.0", "0.1.0-rc.1"], false), /release-owner review/);
+});
+
+test("allocation bumps by the changelog fragments added since the highest release's tag", () => {
+  const directory = mkdtempSync(join(tmpdir(), "client-version-allocation-"));
+  const runGit = (...args) => execFileSync("git", args, { cwd: directory, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }).trim();
+  const commit = (name, section) => {
+    if (name) writeFileSync(join(directory, "changelog.d", name), `## ${section}\n\n- ${section} change.\n`);
+    runGit("add", "-A");
+    runGit("commit", "--allow-empty", "-qm", name ?? "empty");
+    return runGit("rev-parse", "HEAD");
+  };
+  try {
+    runGit("init", "-q", "-b", "main");
+    runGit("config", "user.email", "ci@example.invalid");
+    runGit("config", "user.name", "CI");
+    mkdirSync(join(directory, "changelog.d"));
+    commit("old-breaking.md", "Breaking");
+    runGit("tag", "v0.1.0-beta.215");
+    assert.equal(allocateVersion(["0.1.0-beta.215"], runGit("rev-parse", "HEAD"), runGit), "0.1.0");
+    const first = commit("fixed.md", "Fixed");
+    runGit("tag", "-a", "-m", "{}", "v0.1.0");
+    const patch = commit("added.md", "Added");
+    assert.equal(allocateVersion(["0.1.0-beta.215", "0.1.0"], patch, runGit), "0.1.1", "a fragment already released never counts again");
+    assert.equal(allocateVersion(["0.1.0"], first, runGit), "0.1.1", "a selected commit at or behind the release bumps the patch");
+    const breaking = commit("removed-api.md", "Breaking");
+    assert.equal(allocateVersion(["0.1.0"], breaking, runGit), "0.2.0");
+    runGit("tag", "v0.2.0");
+    assert.equal(allocateVersion(["0.1.0", "0.2.0"], commit(), runGit), "0.2.1");
+    assert.throws(() => allocateVersion(["0.2.0", "0.2.1"], breaking, runGit), "the highest release's tag must exist");
+    writeFileSync(join(directory, "changelog.d", "malformed.md"), "Breaking things\n");
+    assert.throws(() => allocateVersion(["0.2.0"], commit(), runGit), /changelog\.d|Section/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 

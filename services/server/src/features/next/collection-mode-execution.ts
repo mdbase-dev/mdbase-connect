@@ -7,12 +7,11 @@ import type { DatabaseConnection } from "../../database-types.js";
 import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { apiError } from "../../platform/http-errors.js";
 import { authenticate, currentIdentity, enrolOp, exactEnrolment, inTransaction, CreateError, refuse, refuseRevoked, SERVICE_ACCOUNT, type Device } from "./bootstrap-common.js";
-import { authenticateOwner, isRekeyItem, ownedMode, type Owner, type Mode } from "./collection-mode-routes.js";
+import { authenticateOwner, ownedMode, scanRekeyAfterPolicy, type ControlLog, type Owner, type Mode } from "./collection-mode-routes.js";
 import { collectionModeDigest } from "./collection-mode-proof.js";
 import { generateCloudCopyServices, loadCloudCopyRecords, type CloudCopyBootstrapOptions } from "./service-cloud-copy.js";
 import { storeServiceDevice, type ServiceDeviceRecord } from "./service-devices.js";
-import { serializeOps } from "./policy-outbox.js";
-import { migrationDeployments } from "./migration-routing.js";
+import { PolicyPublicationDeferredError, serializeOps } from "./policy-outbox.js";
 import { pitrDeployments } from "./lab-pitr-config.js";
 import { chainHash, type PolicyOp } from "./policy-wire.js";
 import { armModeFloor, ModeDevicesNeedUpdate } from "./collection-mode-capability.js";
@@ -24,7 +23,8 @@ const bodySchema = z.object({ device_id: uuid, challenge: hex32, sig: z.string()
   seq: uint, chain: hex32, members: z.array(uuid).max(1024) }).strict();
 type Body = z.infer<typeof bodySchema>;
 type Change = { target_mode: Mode; source_mode: Mode; source_epoch: string | null; policy_outbox_id: string | null;
-  completed_at: Date | null; cancelled_at: Date | null; abandoned_at: Date | null; rekey_verified_at: Date | null; rekey_seq: string | null; rekey_chain: Buffer | null };
+  completed_at: Date | null; cancelled_at: Date | null; abandoned_at: Date | null; rekey_verified_at: Date | null; rekey_seq: string | null; rekey_chain: Buffer | null;
+  abandon_scanned_seq: string | number | null; abandon_rekey_seq: string | number | null };
 type NativeOwner = Owner & { connector: { id: string; user_id: string }; hash: string };
 
 async function change(client: DatabaseConnection, collection: string, request: string): Promise<Change> {
@@ -57,21 +57,28 @@ async function batch(options: CloudCopyBootstrapOptions, collection: string, out
  * observations (or an idempotent cache retirement), never activation/caught_up. */
 async function services(options: CloudCopyBootstrapOptions, collection: string, records: ServiceDeviceRecord[], operation: "ready" | "retire", epoch: string): Promise<void> {
   if (!options.next.cloudCopyBootstrap) throw new CreateError(503, "not_ready");
-  const deployments = await migrationDeployments(options.db, pitrDeployments(options.next.cloudCopyBootstrap, options.next.logService.labPitr, collection), options.next.migrationRouting, collection);
-  if (!deployments) throw new CreateError(409, "migration_routing_retired");
+  const deployments = pitrDeployments(options.next.cloudCopyBootstrap, options.next.logService.labPitr, collection);
   for (const record of records) {
     const deployment = deployments[record.kind];
     const url = new URL(`internal/v1/collection-mode/${operation}`, `${deployment.url.replace(/\/+$/u, "")}/`);
     if (deployment.token.length < 32 || (localBuild() ? !localDeployment("local", deployment.url) : url.protocol !== "https:")) throw new CreateError(503,"not_ready");
     const challenge = randomBytes(32).toString("hex");
-    const response = await (options.fetchImpl ?? fetch)(url, {
-      method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
-      body: JSON.stringify({ collection, device: record.device_id, epoch, challenge }), signal: AbortSignal.timeout(30_000)
-    });
-    if (!response.ok) { await response.body?.cancel(); throw new CreateError(503, "not_ready"); }
+    let response: Response;
+    try {
+      response = await (options.fetchImpl ?? fetch)(url, {
+        method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
+        body: JSON.stringify({ collection, device: record.device_id, epoch, challenge }), signal: AbortSignal.timeout(30_000)
+      });
+    } catch { throw new CreateError(503, "not_ready"); }
+    if (!response.ok) {
+      try { await response.body?.cancel(); } catch { /* preserve retryable 503 classification */ }
+      throw new CreateError(503, "not_ready");
+    }
     const reader = response.body?.getReader(); let size = 0; const parts: Uint8Array[] = [];
     if (!reader) throw new CreateError(503, "not_ready");
-    for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > 4096) { await reader.cancel(); throw new CreateError(503, "not_ready"); } parts.push(part.value); }
+    try {
+      for (;;) { const part = await reader.read(); if (part.done) break; size += part.value.length; if (size > 4096) { await reader.cancel(); throw new CreateError(503, "not_ready"); } parts.push(part.value); }
+    } catch (error) { if (error instanceof CreateError) throw error; throw new CreateError(503, "not_ready"); }
     let answer: unknown; try { answer = JSON.parse(Buffer.concat(parts).toString()); } catch { throw new CreateError(503, "not_ready"); }
     const result = z.object({ collection: uuid, device: uuid, epoch: uint, challenge: hex32, ready: z.literal(true) }).strict().safeParse(answer);
     if (!result.success || result.data.collection !== collection || result.data.device !== record.device_id || result.data.epoch !== epoch || result.data.challenge !== challenge)
@@ -79,29 +86,11 @@ async function services(options: CloudCopyBootstrapOptions, collection: string, 
   }
 }
 
-/** Release gate only, never service readiness: an authenticated invalid request
- * must reach the existing mode handler before execution is advertised. */
-export async function collectionModeExecutionAvailable(next: CloudCopyBootstrapOptions["next"], fetchImpl: typeof fetch = fetch): Promise<boolean> {
-  if (!next.collectionModeExecution || !next.privateBootstrap || !next.cloudCopyBootstrap) return false;
-  try {
-    for (const deployment of Object.values(next.cloudCopyBootstrap)) for (const operation of ["ready", "retire"]) {
-      const response = await fetchImpl(new URL(`internal/v1/collection-mode/${operation}`, `${deployment.url.replace(/\/+$/u, "")}/`), {
-        method: "POST", redirect: "error", headers: { authorization: `Bearer ${deployment.token}`, "content-type": "application/json" },
-        body: "{}", signal: AbortSignal.timeout(5000),
-      });
-      if (response.status !== 503 || !response.body) { await response.body?.cancel(); return false; }
-      const reader = response.body.getReader(); let text = "";
-      for (;;) { const part = await reader.read(); if (part.done) break;
-        if (text.length + part.value.length > 128) { await reader.cancel(); return false; }
-        text += Buffer.from(part.value).toString("utf8");
-      }
-      if (JSON.parse(text).error !== "not_ready") return false;
-    }
-    return true;
-  } catch { return false; }
-}
+/** Execution mounts directly from configuration when the flag and both bootstraps are on. */
+export const collectionModeExecutionEnabled = (next: CloudCopyBootstrapOptions["next"]): boolean =>
+  Boolean(next.collectionModeExecution && next.privateBootstrap && next.cloudCopyBootstrap);
 
-export function registerCollectionModeRecovery(app: FastifyInstance, options: CloudCopyBootstrapOptions): void {
+export function registerCollectionModeRecovery(app: FastifyInstance, options: CloudCopyBootstrapOptions & { log: CloudCopyBootstrapOptions["log"] & ControlLog }): void {
   // Abandon is not cancellation: the published revocations/Private policy stay
   // immutable. No epoch is created and no native key readiness is claimed.
   app.post("/v1/next/collections/:id/mode/:requestId/abandon", async (request, reply) => {
@@ -119,14 +108,17 @@ export function registerCollectionModeRecovery(app: FastifyInstance, options: Cl
       if (!row) throw new CreateError(404, "not_found");
       if (row.abandoned_at) return { request_id: requestId, phase: "abandoned" };
       if (row.target_mode !== "private" || row.completed_at || row.cancelled_at || !row.policy_outbox_id) throw new CreateError(409, "mode_not_abandonable");
+      if (row.rekey_verified_at || row.abandon_rekey_seq !== null) throw new CreateError(409, "mode_rekey_observed");
       const published = await batch(options, collection, row.policy_outbox_id);
-      const next = await options.log.controlItemAt(collection, Number(published.seq) + 1);
-      if (row.rekey_verified_at || (next && isRekeyItem(next))) throw new CreateError(409, "mode_rekey_observed");
+      const scan = await scanRekeyAfterPolicy(options.db, options.log, collection, requestId, Number(published.seq), row.abandon_scanned_seq);
+      if (scan.observed) throw new CreateError(409, "mode_rekey_observed");
+      if (!scan.exhausted) throw new CreateError(503, "not_ready");
       await inTransaction(options.db, async client => {
         await ownedMode(client, owner, collection);
         const current = (await load(client)).rows[0];
         if (current?.abandoned_at) return;
         if (!current || current.policy_outbox_id !== row.policy_outbox_id || current.completed_at || current.cancelled_at || current.rekey_verified_at) throw new CreateError(409, "mode_changed");
+        if (current.abandon_rekey_seq !== null) throw new CreateError(409, "mode_rekey_observed");
         await client.query("UPDATE next_collection_mode_changes SET abandoned_at=COALESCE(abandoned_at,now()),policy_hold_released_at=COALESCE(policy_hold_released_at,now()) WHERE collection_id=$1 AND request_id=$2", [collection, requestId]);
         await client.query("DELETE FROM next_service_devices WHERE collection_id=$1", [collection]);
         await client.query("UPDATE next_collections SET sync='private' WHERE collection_id=$1", [collection]);
@@ -208,14 +200,21 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
           return null;
         });
         if (waitUntil !== null) return reply.code(202).send({ request_id: requestId, phase: "waiting_for_token_expiry", retry_at: new Date(waitUntil).toISOString() });
-        await options.emitter.publishCommitted(collection);
+        try {
+          await options.emitter.publishCommitted(collection);
+        } catch (error) {
+          if (error instanceof PolicyPublicationDeferredError) return reply.code(202).send({ request_id: requestId, phase: "publishing_policy" });
+          throw error;
+        }
         return reply.code(202).send({ request_id: requestId, phase: "finishing" });
       }
       if (!initial.row.policy_outbox_id || !initial.row.source_epoch) throw new CreateError(409, "not_prepared");
       const policy = await batch(options, collection, initial.row.policy_outbox_id);
       const epoch = BigInt(initial.row.source_epoch);
       if (initial.row.target_mode === "private") {
-        if (BigInt(body.epoch) !== epoch + 1n || BigInt(body.seq!) !== BigInt(policy.seq) + 1n) throw new CreateError(409, "private_receipt_mismatch");
+        // The replica may accept a later first qualifying rekey when another item
+        // took the adjacent slot (#1100); the signed native receipt names it.
+        if (BigInt(body.epoch) !== epoch + 1n || BigInt(body.seq) <= BigInt(policy.seq)) throw new CreateError(409, "private_receipt_mismatch");
         const rekey = await options.log.controlItemAt(collection, Number(body.seq));
         if (!rekey || Buffer.from(chainHash(rekey)).toString("hex") !== body.chain) throw new CreateError(503, "not_ready");
         // Signature proves the current owner native device's committed acceptance;
@@ -242,7 +241,7 @@ export function registerCollectionModeExecution(app: FastifyInstance, options: C
       });
       return { request_id: requestId, phase: "complete" };
     } catch (error) {
-      if (error instanceof ModeDevicesNeedUpdate) return reply.code(error.status).send({ ...apiError(error.code, "Update or revoke these devices before switching."), devices: error.devices });
+      if (error instanceof ModeDevicesNeedUpdate) return reply.code(error.status).send({ ...apiError(error.code, "Update or revoke these devices before switching."), devices: error.devices, names: error.names });
       return refuse(reply, error, "The switch is not finished. Retry from an owner device.");
     }
   });

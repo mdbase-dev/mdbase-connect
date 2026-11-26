@@ -94,7 +94,16 @@ not a negative feature result. Absence of an unrequested marker says nothing abo
 support. Do not use a prior session's hello to certify a new session.
 
 The current Replica producer's marker list is `presence`, `validate-page-v1`
-(`validate` pages, §4) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
+(`validate` pages, §4), `file-stream-failure-v1`, `bases-discovery-unreadable-v1`
+(app Bases discovery request version 2, which skips and names records it cannot
+classify instead of refusing), `bases-row-properties-v1` (app Bases execute
+request key 7 / response key 10 projected effective row properties and catalog
+types), `contract-query-order-v1` (`query_contract_v1` key 6 `order_by` and
+page sizes up to 1000, §4.1.1), `contract-query-order-mtime-v1` (indexed
+`file.mtime` ordering and `has(file.mtime)` / `!has(file.mtime)` index
+qualification in `query_contract_v1`, plus `file.mtime` exposure in queries,
+§3.1, §4.1.1; granted only by replicas whose store maintains the query index,
+not the hosted replica's `LogCache`) and `attachment-v1` (bare codec support), plus qualified `attachment-v1.read` and
 `attachment-v1.materialize` directions when that replica admits them.
 `attachment-v1.write` is not granted by this producer. Directions are not implied
 by the bare codec marker. This source list is not a qualification of a deployed
@@ -158,11 +167,15 @@ A record whose latest change is pending reports its last confirmed time.
 Absent means unknown: the record has not changed since adoption or since a replica
 that predates the field built the snapshot this replica installed. It is never
 inferred from a host stat, sequence or snapshot time, is not part of the state
-digest, and is not exposed as `file.mtime` to queries or Bases.
+digest, and is not exposed as `file.mtime` to Bases. Ordinary and contract queries
+expose it as `file.mtime` (a CEL timestamp / RFC 3339 instant when present, absent/null
+when unknown; `order_by` orders it as a temporal value with ascending `file.path`
+tie-breaks).
 
 ## 4. Reads, live queries and change feeds
 
-All of these require `collection.read`.
+All of these require `collection.read`. The history reads (§4.4) also require
+`history.read` and a session without a folder scope.
 
 | Method | Params | Result |
 |---|---|---|
@@ -172,13 +185,15 @@ All of these require `collection.read`.
 | `get` | `{0: uuid / path, ? 1: include}` | `record-view`, or `not_found` |
 | `get_contract_v1` | `{0: 1, 1: uuid / path, 2: tstr contract, 3: tstr exact version, ? 4: tstr type}` | `{0: 1, 1: uuid id, 2: path, 3: hash revision, 4: tstr type, 5: data-map fields, 6: hash contract_digest, 7: hash implementation_digest}`: the record's valid contract view through Core's resolved mapping in the local view. `not_found` (no record; `data_contract_not_found`; `data_contract_not_implemented` when the record has no implementing type), `invalid_request`/`data_contract_ambiguous` (several of its types implement it; details: the types), `invalid_record`/`data_contract_record_invalid` (with issues). Unknown keys are `invalid_request`. READ required |
 | `map_contract_write_v1` | `{0: 1, 1: tstr contract, 2: tstr exact version, ? 3: tstr type, ? 4: uuid / path target, ? 5: data-map contract fields, ? 6: [* tstr] contract field refs to unset (≤ 256), ? 7: bool promote}` | `{0: 1, 1: tstr type, 2: data-map patch, 3: [* tstr] unset, 4: [* base-field] base, 5: hash contract_digest, 6: hash implementation_digest, ? 7: uuid id, ? 8: path, ? 9: hash revision}`: contract fields as ordinary top-level record changes, for a `create` of `type` (no target) or an `update` of the target, which must implement the selection (7–9 describe it). Nested record fields are merged with the target's current values and their observed values returned as `base`. Core refuses unmapped contract fields (`invalid_request`/`data_contract_field_unmapped`, details: the pointer), conflicting mappings (`data_contract_field_conflict`), and a write whose resulting view is invalid (`invalid_record`/`data_contract_record_invalid`); selection errors as `get_contract_v1`. With `promote` (API 1.x additive; older producers refuse key 7 as `invalid_request`), an untyped target (no type membership) is mapped through the selected implementing type and the plan also sets the first `explicit_type_keys` key to that type, with the key's observed absence in `base`, so one `update` promotes and writes. A target that already implements the selection maps as usual; one with other types is `invalid_request`/`data_contract_promote_typed`; a collection without explicit type keys is `data_contract_promote_unsupported`. Nothing is written. READ required |
-| `plan_type_pack_v1` | `{0: 1, 1: data-map provision {manifest, resources: [{source, document}], ? provides}, 2: tstr installed_by, ? 3: data-map adopt (target → "sha256:…" text, ≤ 256), ? 4: [* tstr] preserve_seed_targets (≤ 256), ? 5: data-map target_overrides (target → target, ≤ 256), ? 6: bool allow_downgrade, ? 7: hash expected_assessment_digest}` | `{0: 1, 1: data-map assessment, ? 2: [* {0: path, ? 1: tstr doc, ? 2: hash base_revision, 3: bool must_not_exist}] writes}`: a Core type pack assessment (spec 05A) over the local view; nothing is written. The assessment has `status` (`install`, `upgrade`, `downgrade`, `reconfigure`, `current`, `conflict`; `downgrade` only when refused for lack of `allow_downgrade`), `applicable`, `definitions_manage` (whether this session may submit the apply), `assessment_digest`, `? current` and `desired` receipts (`id`, `version`, `digest`, `installed_by`, `resources` with `origin_digest` for seeds), `resources` (per target: `source`, `target`, `kind`, `mode`, `action`, `? digest`, `? current_digest`, `? installed_digest`, `? adopted_from_digest`, `? upgrade_baseline {digest, ? version}`, `? reason`), `lock {target, action, digest}` and `? issues`. With key 7 the replica re-assesses and returns `writes`: one mutation's resource puts/deletes, each bound to the reviewed revision (creates are `must_not_exist`), including a same-bytes guarded put for every adopted byte-identical target and the lock; an empty list means the pack is current. `provides` is accepted and unused. Refusals: `invalid_request`/`invalid_type_pack_request` (malformed input), `invalid_request`/`invalid_type_pack` (pack or staged collection invalid), `conflict`/`type_pack_conflict` (key 7 on an inapplicable plan), `conflict`/`concurrent_modification` (key 7 no longer matches), `conflict`/`type_pack_downgrade`, `forbidden` (key 7 without `definitions.manage`), `upgrade_required`/`type_packs_unsupported` (older replica). READ on an unrestricted session required (as `list_resources`) |
+| `plan_type_pack_v1` | `{0: 1, 1: data-map provision {manifest, resources: [{source, document}], ? provides}, 2: tstr installed_by, ? 3: data-map adopt (target → "sha256:…" text, ≤ 256), ? 4: [* tstr] preserve_seed_targets (≤ 256), ? 5: data-map target_overrides (target → target, ≤ 256), ? 6: bool allow_downgrade, ? 7: hash expected_assessment_digest}` | `{0: 1, 1: data-map assessment, ? 2: [* {0: path, ? 1: tstr doc, ? 2: hash base_revision, 3: bool must_not_exist}] writes}`: a Core type pack assessment (spec 05A) over the local view; nothing is written. The assessment has `status` (`install`, `upgrade`, `downgrade`, `reconfigure`, `current`, `conflict`; `downgrade` only when refused for lack of `allow_downgrade`), `applicable`, `definitions_manage` (whether this session may submit the apply), `assessment_digest`, `? current` and `desired` receipts (`id`, `version`, `digest`, `installed_by`, `resources` with `origin_digest` for seeds), `resources` (per target: `source`, `target`, `kind`, `mode`, `action`, `? digest`, `? current_digest`, `? installed_digest`, `? adopted_from_digest`, `? upgrade_baseline {digest, ? version}`, `? reason`), `lock {target, action, digest}` and `? issues`. With key 7 the replica re-assesses and returns `writes`: one mutation's resource puts/deletes, each bound to the reviewed revision (creates are `must_not_exist`), including a same-bytes guarded put for every adopted byte-identical target and the lock; an empty list means the pack is current. Without key 5 the replica uses the collection setup installer's targets (Core `default_target_overrides`): a pack not yet installed goes into the configured `types_folder` / `contracts_folder` (schemas follow the contracts folder's parent), an installed pack keeps the targets its lock receipt records; a present key 5, even an empty map, is used as given. `provides` is accepted and unused. Refusals: `invalid_request`/`invalid_type_pack_request` (malformed input), `invalid_request`/`invalid_type_pack` (pack or staged collection invalid), `conflict`/`type_pack_conflict` (key 7 on an inapplicable plan), `conflict`/`concurrent_modification` (key 7 no longer matches), `conflict`/`type_pack_downgrade`, `forbidden` (key 7 without `definitions.manage`), `upgrade_required`/`type_packs_unsupported` (older replica). READ on an unrestricted session required (as `list_resources`) |
 | `get_resource` | `{0: path}` (exactly one field) | `resource-view`, or `not_found`; unrestricted collection READ required |
 | `new_type_file` | `{0: tstr source}` (exactly one field) | `{0: tstr name, 1: path}`: where a type file created from `source` goes in the local view, `<types_folder>/<name>.md`, for a `resource_put` with `mustNotExist` (`definitions.manage`). Core derives it: `invalid_record`/`invalid_type_definition` (with the issue) for a missing or unusable name, `conflict`/`type_conflict` (details: existing path) when the name exists under any casing, `conflict`/`path_taken` (details: revision) for an occupied path. The definition is validated when written. READ required |
 | `list_resources` | `list-resources-params` below | `list-resources-result`; unrestricted collection READ required |
 | `query` | `{0: query, ? 1: include}` | `query-result` |
 | `backlinks` | `{0: uuid / path, ? 1: include, ? 2: 1..1000 limit, ? 3: tstr cursor}` | `backlinks-result` (§4.2): the records whose links resolve to the target, one page at a time |
 | `resolve_links` | `{0: path from, 1: [1*512 tstr] links}` | `resolve-links-result` (§4.3): where each link, written in `from`, resolves in the local view |
+| `record_history` | `record-history-params` (§4.4) | `record-history` (§4.4): one record's versions in the retained log, newest first. Also requires `history.read` (API 1.4) |
+| `record_version` | `record-version-params` (§4.4) | `record-version` (§4.4): one version's exact document. Also requires `history.read` (API 1.4) |
 | `subscribe` | `{0: query, ? 1: include}` | `{0: sub ID}`, then `query-update` pushes |
 | `unsubscribe` | `{0: sub ID}` | — |
 | `changes` | `{0: cursor?, ? 1: limit, ? 2: watch: bool}` | `{0: [change], 1: cursor, 2: reset: bool}`, then `changes` pushes if `watch` |
@@ -500,6 +515,125 @@ resolve-links-result = {
 }
 ```
 
+### 4.4 Record history (API 1.4)
+
+`record_history` lists the versions of one record that the collection log still
+retains, and `record_version` returns one version's exact document. A version is
+a log entry that put or removed the record. Restoring a version needs no method:
+the app writes its document back with an ordinary revision-checked update, which
+appends a new entry.
+
+- **Where it runs.** The replica reads the retained log from the log service
+  (`log-service-api.md` §5), opens each entry and keeps a small in-memory index of
+  record, position, time, author, change and path, with no texts. It builds the
+  index on first use, extends it towards older positions as callers page back,
+  and drops it when the replica closes or its store generation changes. The index
+  is not persisted; the apply verdicts it lists from are (below).
+- **Chain.** Every page is checked against the replica's own verified chain: the
+  items read must link by `prev` to `chain(H)` at a position the replica already
+  applied. A page that does not link refuses with `unavailable` /
+  `history_integrity`. Positions above the replica's applied head are not read.
+- **Which entries are versions.** Exactly the entries this replica applied
+  (`log-entry.md` §4.4). A void entry (§4.3) is never a version. Whether an entry
+  applied depends on the state before it, so the history reader does not judge
+  entries again: the apply path records its verdicts, in the same transaction as
+  each item's head, as a device-local record of the run of positions it judged
+  and which of them were void. The run starts where this replica began applying
+  items itself: its first apply, a snapshot install, a lost-tail rollback, or a
+  store written by a build that kept no record. History stops there. When more
+  than 256 positions in the run are void, the run starts after the oldest, so the
+  record stays small. An entry that the replica applied but that no longer opens,
+  decodes or names an enrolled signer is an internal fault.
+- **Kinds.** `deleted` for `remove-record`, and for a record that becomes an
+  unindexed file. `created` for the entry that creates the record (a `create`, or
+  a promotion of an unindexed or ordinary file) and for a put after a deletion.
+  `moved` when the path differs from the version before, or for a `rename` when
+  the version before is not listed. Otherwise `edited`.
+- **Authors.** `author` resolves the entry's signer and `on_behalf` against
+  policy, which is never compacted, so revoked devices and grants still resolve.
+  `account` is the signing device's account; for the hosted device it is the
+  all-zero service account and `grant_account` names the grant's account. `app` is
+  the grant's app ID. `time` is the writer's capture clock (`intent.md` §1), so it
+  can disagree with log order; versions are ordered by position.
+- **Depth and paging.** Versions are newest first, at positions below `before`
+  (default: the replica's applied head and below). One call reads at most 10,000
+  log positions below `before`; `limit` (1–200, default 50) caps the versions.
+  `next` is present while older versions may exist: pass it as `before`. `from` is
+  the lowest position listed, and `from_time` the capture time of the oldest
+  readable entry at or above it. History stops at the log's compaction point
+  (`retained_from`), below the oldest epoch this device can open, and where this
+  replica's verdicts begin; when `next` is absent and the oldest version is not
+  `created`, the record's earlier history is no longer available here. Versions
+  the log compacts after they were listed drop out of later pages. Archived
+  segments and migrated pre-history are not read.
+- **Stale cursors.** A `before`, or a `record_version` position, more than 10,000
+  positions below the oldest position the index has read refuses with
+  `invalid_request` / `history_cursor_stale`: the index was rebuilt since it
+  issued that cursor (the replica reopened, or the log was compacted under it),
+  and reaching it would read without bound. List from the newest version again.
+- **Versions.** `record_version` takes a position from `record_history`. Each
+  version's document is read from its own entry, inline or from the entry's blob
+  text, and checked against its `revision`. It refuses with `not_found` /
+  `version_not_found` when the position is not a listed version of the record or
+  is a deletion, `not_found` / `version_compacted` when the log no longer retains
+  it, and `not_found` / `version_text_unavailable` when its blob text is missing
+  or does not authenticate.
+- **Text encodings.** Writers emit whole documents (`log-entry.md` §2.2), so no
+  version needs another to resolve. An entry whose record text is a delta refuses
+  the scan with `upgrade_required` / `history_delta_unsupported`.
+- **Waiting.** While log reads are outstanding the frame layer holds the request
+  (at most 8 at once, each at most 5 minutes) and answers when the reads finish.
+  A log read that fails refuses with `unavailable` / `history_offline`; a hold that
+  reaches its deadline refuses with `unavailable` / `history_timeout`.
+- **Capability.** Both methods require `history.read` (`policy.md` §5) as well as
+  `collection.read`: history includes text that has since been deleted, and its
+  newest version is the current document. A session whose grant has a folder
+  scope refuses with `forbidden` / `history_full_collection_required`: history
+  spans deleted records and earlier paths, which a scope cannot evaluate.
+- **Unsupported.** The hosted replica and local-only collections (which keep no
+  log) refuse with `upgrade_required` / `history_unsupported`. A replica without
+  these methods answers `invalid_request` / `unknown_method`; the SDK reports that
+  as `upgrade_required` / `history_unsupported`.
+
+```cddl
+record-history-params = {
+  0: uuid,               ; record
+  ? 1: seq,              ; before: only versions at lower positions
+  ? 2: uint,             ; limit: 1..200, default 50
+}
+record-history = {
+  0: [* history-version], ; newest first
+  1: seq,                ; from: the lowest position history covers
+  ? 2: int,              ; from_time: capture time (ms) of the oldest readable entry at or above from
+  ? 3: seq,              ; next: pass as `before` for older versions
+}
+history-version = {
+  0: seq,                ; the entry's log position
+  1: int,                ; time: the writer's capture time, ms
+  2: author-ref,
+  3: &( created: 0, edited: 1, moved: 2, deleted: 3 ),
+  4: path,               ; the path after the entry (before it, for a deletion)
+  ? 5: hash,             ; revision: SHA-256 of the document written; absent for a deletion
+  6: source,             ; intent.md §1
+  7: device-kind,        ; the signing device's kind (policy.md §4.2)
+  ? 8: tstr,             ; app: the grant's app ID
+}
+author-ref = {
+  0: uuid,               ; account: the signing device's account
+  1: uuid,               ; device: the signing device
+  ? 2: uuid,             ; grant: the app grant written through
+  ? 3: uuid,             ; grant_account: the grant's account, only when the hosted device signed
+}
+record-version-params = {
+  0: uuid,               ; record
+  1: seq,                ; a position from record_history
+}
+record-version = {
+  0: path,               ; the record's path at that version
+  1: tstr,               ; document: its exact text
+}
+```
+
 ### 4.1 Describe
 
 The existing `describe` response has the same shape across the replica frame
@@ -576,9 +710,10 @@ contract-query-v1 = {
   0: 1,
   1: tstr,                 ; exact registered contract ID, max 1024 bytes
   2: tstr,                 ; exact resolved version, max 128 bytes
-  ? 3: uint,               ; page size 1..128, default 128
+  ? 3: uint,               ; page size 1..1000 (1..128 before contract-query-order-v1), default 128
   ? 4: tstr,               ; session-bound ordinary query cursor
   ? 5: tstr,               ; CEL filter over contract fields, 1..4096 bytes
+  ? 6: [+ { "field": tstr, ? "direction": "asc" / "desc" }], ; spec 11 order_by over contract fields / file.*, 1..8 terms (contract-query-order-v1; file.mtime requires contract-query-order-mtime-v1)
 }
 contract-query-result-v1 = {
   0: 1,
@@ -600,13 +735,46 @@ mapped fields as top-level names (no types, so no defaults; `file.*` is the
 record's file). Non-matching projections are dropped, then records left with none;
 the page's query records are filtered to match, `total_count` is omitted, and the
 cursor continues the underlying walk, so a page may hold fewer than the page size.
+As a narrow exception, a filter that is strictly `has(file.mtime)` or
+`!has(file.mtime)` qualifies rows in the `st_qmtime` index before pagination so
+pages return full windows of known-mtime or unknown-mtime records.
 Producers before key 5 refuse the envelope (`invalid_request`), never ignore it.
 
-The contract/version/digest (and filter) are included in the ordinary cursor fingerprint;
-all existing session, catalog, head and view-version invalidation rules apply.
-Its pages are path-ordered, so pending local edits never take away its cursor.
-The method selects every type implementing that exact record contract, with a
-128-implementation/128-mapping cap and a fixed 1 MiB projection/response budget.
+Key 6 orders results using the spec 11 `order_by` grammar (`{ "field": tstr, ? "direction": "asc" / "desc" }`,
+1..8 terms) over contract field references and `file.*`, with the same ordering
+semantics and ascending `file.path` tie-break as ordinary record queries. Contract
+fields are resolved through the implementing types' field mappings; if implementing
+types map an ordered contract field to different record fields, the producer
+refuses with `invalid_request` / `contract_order_unsupported`. Replicas that
+support key 6 and page sizes up to 1000 advertise the `contract-query-order-v1`
+`hello` feature; older SDKs continue sending keys 0..5 with page size 1..128,
+and newer SDKs clamp page size to 128 and refuse `orderBy` with
+`upgrade_required` / `contract_query_order_unsupported` against replicas without
+that feature. Ordering by `file.mtime` additionally requires the
+`contract-query-order-mtime-v1` `hello` feature, which is granted only by
+replicas whose store supports indexed query paging (not the hosted replica's
+`LogCache`). Older producers evaluate `file.mtime` as absent/null: an `orderBy`
+naming `file.mtime` silently falls back to path order (which newer SDKs refuse
+with `upgrade_required` / `contract_query_order_mtime_unsupported`), and a
+filter-only request whose `where` references `file.mtime` (such as
+`has(file.mtime)` or `!has(file.mtime)` without an `orderBy` on `file.mtime`)
+will silently return different results on older replicas because the SDK does
+not parse `where` expressions; callers relying on `file.mtime` in `where` must
+check that `contract-query-order-mtime-v1` was negotiated in `hello`. Producers
+before key 6 refuse the envelope (`invalid_request`).
+
+The contract/version/digest (and filter and order) are included in the ordinary
+cursor fingerprint; all existing session, catalog, head and view-version
+invalidation rules apply. Path-ordered pages (no `order_by`) merge pending local
+edits and keep their cursor. Ordered pages (`order_by` present) do not currently
+merge pending local edits into keyset continuations: while any pending local
+edit exists on the replica, an ordered request whose match count exceeds `limit`
+— or a full page at `limit` when pending edits leave the ordered result without
+a continuation witness — refuses with `upgrade_required` /
+`contract_query_cursor_required`, and consumers should fall back to an
+unordered (`order_by` omitted) load on that refusal. The method selects every type implementing that exact
+record contract, with a 128-implementation/128-mapping cap, a 1 MiB projection
+copy budget, and a 2 MiB encoded response cap.
 A valid registered contract with no implementations returns a complete empty
 page; a missing contract is `not_found` / `data_contract_not_found`. Invalid
 catalogs are `collection_invalid`. No cursor is fabricated for whole-scan stores:
@@ -1464,12 +1632,72 @@ in the grant at consent time.
 SHA-256 and a strict `mdb-cbor/1` codec. That is a few tens of KiB of JS. It does not
 need the WASM core.
 
+### 12.4 Operator-paired browser (self-hosted)
+
+This transport is separate from managed IPC and relay sessions. The operator
+chooses a single collection and exact HTTPS UI origins. The browser connects
+to a different, explicitly selected backend. Neither the UI publisher nor a
+relay proxies the frames. The following transport bindings are distinct:
+
+- **Pinned WebTransport.** An invitation identifies one literal private IPv4
+  address, UDP port and SHA-256 hash of the DER leaf certificate. The browser
+  requires this hash in `serverCertificateHashes`; it is not part of the
+  CONNECT URL. End-to-end TLS 1.3 terminates on the host. A session targets one
+  exact path and one allowed browser Origin, and uses one bidirectional stream.
+  Each application message below is wrapped in `u32be(byte_length) ‖ bytes`;
+  text messages are ASCII, and replica records retain the inner frame prefix.
+  No application datagrams, additional streams or redirects are used.
+- **WSS gateway.** A bare HTTPS backend origin selects the existing WebSocket
+  binding. A trusted private TLS terminator forwards only the two endpoints to
+  the loopback listener, preserving `Origin`. One application message is one
+  WebSocket message; there is no outer stream-length prefix.
+
+- `/_mdbase/pair`: the first text message is an eight-digit, single-use code.
+  A successful WSS redemption returns one text message (a 32-byte random
+  browser secret as lowercase hex) and closes. The pinned binding returns
+  the bounded ASCII message `WTP1.<secret>.<first-slot>.<pin0>...<pin31>`.
+  A slot is a canonical nonnegative decimal number counting twelve-day periods
+  since the Unix epoch. Each pin is a distinct SHA-256 DER leaf certificate
+  hash (64 lowercase hex digits), in ascending slot order. The enrollment
+  connection verifies only the original invitation pin; the authenticated
+  calendar authorizes its successor certificates **only at the same endpoint**.
+  The host finishes the response stream. After reading exactly one complete
+  response and its FIN, the browser closes the session. The host allows up to
+  five seconds for this before closing it itself: a session-close capsule must
+  not race the reply's FIN on the browser's receive path.
+  Calendar material is never supplied by an unauthenticated refresh, redirect
+  or a new invitation. An expired calendar requires explicit re-enrollment.
+  The code and resulting authorization are scoped to the collection and UI origin.
+- `/_mdbase/replica`: the first text message is the browser secret. Subsequent
+  messages are binary, each containing exactly one `u32be(length) ‖ frame`
+  record (§12.2), beginning with the ordinary replica `hello`. The existing
+  version and feature negotiation applies. No Connect grant, Noise identity,
+  task-specific method, cookie or URL credential is required.
+- Policy close `1008` means authorization was refused. Ordinary transport
+  loss or an unavailable credential database is not a revocation signal;
+  those likewise close the session without granting access. Never fall back to a different transport,
+  app identity or server. See the [operator guide](../self-hosted.md) for
+  storage, revocation, scope and recovery.
+- The direct SDK reports the local reason `browser_unsupported` with
+  `unavailable` when WebTransport is absent or ignores the certificate-hash
+  option. No stream is opened and no credential is sent. A network or TLS
+  failure leaves the specific cause to the browser. The app can point users
+  to its site’s local-network permission settings while preserving the grant.
+- `pairDirect` reports the local reason `code_not_sent` with `unavailable`
+  when the pairing connection failed before the code left the browser. The
+  code is unused, so the app can ask for the same code again. A pairing
+  `unavailable` without that reason may have been redeemed.
+- The server holds one deadline of ten seconds from accepting a connection to
+  receiving its code or credential. Only a submitted candidate counts against
+  the code's five attempts; a peer that closes or times out first does not.
+
 ## 13. Versioning and the version-skew rule
 
 **API versions.**
 - `hello` negotiates the highest common version.
 - A replica serves its current minor and the two previous minors of its major
-  (`00-overview.md` §6.4); 1.3 also retains 1.0 for published clients.
+  (`00-overview.md` §6.4); 1.4 also retains 1.0 and 1.1 for published clients
+  that offer nothing newer.
 - New methods, push types and optional fields are minor changes. Clients ignore unknown
   push types and unknown fields.
 - Removing or changing behaviour is a major change, shipped with one release that

@@ -12,7 +12,7 @@ import {
   PasswordLoginRejectedError
 } from "./password-auth.js";
 import { tokenHash } from "../../security.js";
-import { flipEvidenceDigest } from "../next/migration-rollout.js";
+import { flipEvidenceDigest } from "../next/account-backend-flip.js";
 import {
   PASSWORD_HASH_PARAMETERS,
   passwordHashNeedsUpgrade

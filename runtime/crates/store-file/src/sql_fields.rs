@@ -35,6 +35,19 @@ pub(crate) const BODY_SCHEMA: &[&str] = &[
     "CREATE VIRTUAL TABLE IF NOT EXISTS st_qbody USING fts5(t, tokenize='trigram case_sensitive 1', content='', contentless_delete=1)",
 ];
 
+/// The mtime index: each live record's `file.mtime` sort atom and exact path,
+/// with ascending and descending B-tree indexes ending in `path ASC`.
+///
+/// Created at every open, not by a schema version, like [`BODY_SCHEMA`]: it is
+/// derived, so an older runtime ignores it and keeps the store openable. Its
+/// rows are populated under projection version 4, which makes a newer runtime
+/// rebuild an earlier index once.
+pub(crate) const MTIME_SCHEMA: &[&str] = &[
+    "CREATE TABLE IF NOT EXISTS st_qmtime(id BLOB PRIMARY KEY,kind INTEGER NOT NULL,sort BLOB NOT NULL,path BLOB NOT NULL) WITHOUT ROWID",
+    "CREATE INDEX IF NOT EXISTS st_qmtime_asc ON st_qmtime(kind,sort,path)",
+    "CREATE INDEX IF NOT EXISTS st_qmtime_desc ON st_qmtime(kind DESC,sort DESC,path ASC)",
+];
+
 /// Schema version 2 replaces the field index: each row carries its record's
 /// exact path, so one B-tree seek yields a field's order with the final
 /// ascending path tie-break. Version 1 rows (ID tie-break) are dropped with
@@ -45,6 +58,7 @@ pub(crate) const FIELD_SCHEMA: &[&str] = &[
     "CREATE INDEX st_field_asc ON st_field(source,field,kind,sort,path)",
     "CREATE INDEX st_field_desc ON st_field(source,field,kind DESC,sort DESC,path ASC)",
     "DELETE FROM st_qrecord",
+    "DELETE FROM st_qmtime",
     "DELETE FROM st_qtype",
     "UPDATE st_qstate SET ready=0 WHERE slot=0",
 ];
@@ -69,6 +83,7 @@ pub(crate) fn invalidate() -> Vec<Stmt> {
     let mut out = vec![
         Stmt::new("DELETE FROM st_field", vec![]),
         Stmt::new("DELETE FROM st_qrecord", vec![]),
+        Stmt::new("DELETE FROM st_qmtime", vec![]),
         Stmt::new("DELETE FROM st_qtype", vec![]),
     ];
     clear_bodies(&mut out);
@@ -151,16 +166,17 @@ pub fn state<I: IndexStorage>(index: &Rc<RefCell<I>>) -> StoreResult<Option<Quer
 }
 
 /// Coverage of one record ID, given complete coverage before the transaction:
-/// a live record has exactly one `st_qrecord` row and one `st_field` row per
-/// declared spec, all of them declared; a removed record has none.
-const TOUCHED_COVERAGE: &str = "UPDATE st_qstate SET ready=0 WHERE slot=0 AND (EXISTS(SELECT 1 FROM st_rec WHERE id=?) IS NOT EXISTS(SELECT 1 FROM st_qrecord WHERE id=?) OR (SELECT count(*) FROM st_field WHERE id=?) IS NOT CASE WHEN EXISTS(SELECT 1 FROM st_rec WHERE id=?) THEN (SELECT count(*) FROM st_qspec) ELSE 0 END OR EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field WHERE f.id=? AND s.field IS NULL) OR (SELECT count(*) FROM st_qrecord WHERE id=?) > 1)";
+/// a live record has exactly one `st_qrecord` row, one `st_qmtime` row, and
+/// one `st_field` row per declared spec, all of them declared; a removed record
+/// has none.
+const TOUCHED_COVERAGE: &str = "UPDATE st_qstate SET ready=0 WHERE slot=0 AND (EXISTS(SELECT 1 FROM st_rec WHERE id=?) IS NOT EXISTS(SELECT 1 FROM st_qrecord WHERE id=?) OR EXISTS(SELECT 1 FROM st_rec WHERE id=?) IS NOT EXISTS(SELECT 1 FROM st_qmtime WHERE id=?) OR (SELECT count(*) FROM st_field WHERE id=?) IS NOT CASE WHEN EXISTS(SELECT 1 FROM st_rec WHERE id=?) THEN (SELECT count(*) FROM st_qspec) ELSE 0 END OR EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field WHERE f.id=? AND s.field IS NULL) OR (SELECT count(*) FROM st_qrecord WHERE id=?) > 1)";
 
 pub(crate) fn delete_row(id: &[u8], stmts: &mut Vec<Stmt>) {
     delete_fields(id, stmts);
     delete_bodies(&[id], stmts);
 }
 fn delete_fields(id: &[u8], stmts: &mut Vec<Stmt>) {
-    for table in ["st_field", "st_qrecord", "st_qtype"] {
+    for table in ["st_field", "st_qrecord", "st_qmtime", "st_qtype"] {
         stmts.push(Stmt::new(
             format!("DELETE FROM {table} WHERE id=?"),
             vec![blob(id)],
@@ -264,17 +280,24 @@ pub(crate) fn maintenance<I: IndexStorage>(
     let mut body_bytes = 0usize;
     let mut statement_count = 32 + body_statements(update.rows.len());
     for r in &update.rows {
-        statement_count = match statement_count.checked_add(4 + r.types.len() + r.fields.len()) {
+        statement_count = match statement_count.checked_add(6 + r.types.len() + r.fields.len()) {
             Some(n) if n <= 8192 => n,
             _ => return Ok(invalidate()),
         };
         if !ids.insert(r.id)
             || r.fields.len() != fields.len()
             || r.types.len() > 64
+            || !matches!(r.mtime.kind, 3 | 255)
+            || SortAtom::from_parts(r.mtime.kind, &r.mtime.key, 12).is_err()
             || r.fields
                 .iter()
                 .any(|v| v.field.source > 1 || v.field.path_key.len() > 1024)
-            || put.get(&r.id).is_some_and(|base| base.path != r.path)
+            || put.get(&r.id).is_some_and(|base| {
+                let expected = SortAtom::from_mtime(base.mtime);
+                base.path != r.path
+                    || r.mtime.kind != expected.kind() as u8
+                    || r.mtime.key.as_slice() != expected.key()
+            })
         {
             return Ok(invalidate());
         }
@@ -296,11 +319,12 @@ pub(crate) fn maintenance<I: IndexStorage>(
                 return Ok(invalidate());
             }
         }
-        // The path is written once in `st_qrecord` and once per field row.
+        // The path is written in `st_qrecord`, `st_qmtime`, and once per field row.
         bytes = match r
             .path
             .len()
-            .checked_mul(1 + r.fields.len())
+            .checked_mul(2 + r.fields.len())
+            .and_then(|n| n.checked_add(r.mtime.key.len()))
             .and_then(|n| bytes.checked_add(n))
         {
             Some(n) => n,
@@ -335,7 +359,13 @@ pub(crate) fn maintenance<I: IndexStorage>(
     }
     let mut out = Vec::new();
     if update.replace_specs.is_some() {
-        for table in ["st_field", "st_qtype", "st_qrecord", "st_qspec"] {
+        for table in [
+            "st_field",
+            "st_qtype",
+            "st_qrecord",
+            "st_qmtime",
+            "st_qspec",
+        ] {
             out.push(Stmt::new(format!("DELETE FROM {table}"), vec![]));
         }
         clear_bodies(&mut out);
@@ -358,6 +388,15 @@ pub(crate) fn maintenance<I: IndexStorage>(
         out.push(Stmt::new(
             "INSERT INTO st_qrecord(id,path) VALUES(?,?)",
             vec![blob(&r.id.0), blob(r.path.as_bytes())],
+        ));
+        out.push(Stmt::new(
+            "INSERT INTO st_qmtime(id,kind,sort,path) VALUES(?,?,?,?)",
+            vec![
+                blob(&r.id.0),
+                SqlValue::Integer(i64::from(r.mtime.kind)),
+                blob(&r.mtime.key),
+                blob(r.path.as_bytes()),
+            ],
         ));
         // Core's closed profile resolves query spelling to these exact canonical
         // catalogue membership names; the backend invents no folding semantics.
@@ -400,7 +439,7 @@ pub(crate) fn maintenance<I: IndexStorage>(
         && update.replace_specs.is_none()
         && existing.as_ref().is_some_and(|s| s.ready)
     {
-        out.push(Stmt::new("UPDATE st_qstate SET ready=0 WHERE slot=0 AND (EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r ON r.id=q.id WHERE r.id IS NULL) OR EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field LEFT JOIN st_rec r ON r.id=f.id WHERE s.field IS NULL OR r.id IS NULL))", vec![]));
+        out.push(Stmt::new("UPDATE st_qstate SET ready=0 WHERE slot=0 AND (EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r ON r.id=q.id WHERE r.id IS NULL) OR EXISTS(SELECT 1 FROM st_qmtime m LEFT JOIN st_rec r ON r.id=m.id WHERE r.id IS NULL) OR EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field LEFT JOIN st_rec r ON r.id=f.id WHERE s.field IS NULL OR r.id IS NULL))", vec![]));
     }
     if let Some(head) = update.publish_at {
         let expected = if let Some(h) = tx.head {
@@ -448,7 +487,7 @@ pub(crate) fn maintenance<I: IndexStorage>(
                 .chain(tx.records_del.iter().copied())
                 .collect();
             for id in &touched {
-                out.push(Stmt::new(TOUCHED_COVERAGE, vec![blob(&id.0); 6]));
+                out.push(Stmt::new(TOUCHED_COVERAGE, vec![blob(&id.0); 8]));
             }
             out.push(Stmt::new(
                 "UPDATE st_qstate SET ready=0 WHERE slot=0 AND generation IS NOT ?",
@@ -458,7 +497,7 @@ pub(crate) fn maintenance<I: IndexStorage>(
         }
         // Exact cardinality + unique PK + declared-field/live-record membership
         // establish complete coverage, not a caller-provided ready boolean.
-        out.push(Stmt::new("UPDATE st_qstate SET ready=CASE WHEN (SELECT count(*) FROM st_qrecord)=(SELECT count(*) FROM st_rec) AND NOT EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r ON r.id=q.id WHERE r.id IS NULL) AND (SELECT count(*) FROM st_field)=(SELECT count(*) FROM st_rec)*(SELECT count(*) FROM st_qspec) AND NOT EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field LEFT JOIN st_rec r ON r.id=f.id WHERE s.field IS NULL OR r.id IS NULL) THEN 1 ELSE 0 END WHERE slot=0 AND generation=?", vec![blob(&update.generation)]));
+        out.push(Stmt::new("UPDATE st_qstate SET ready=CASE WHEN (SELECT count(*) FROM st_qrecord)=(SELECT count(*) FROM st_rec) AND NOT EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r ON r.id=q.id WHERE r.id IS NULL) AND (SELECT count(*) FROM st_qmtime)=(SELECT count(*) FROM st_rec) AND NOT EXISTS(SELECT 1 FROM st_qmtime m LEFT JOIN st_rec r ON r.id=m.id WHERE r.id IS NULL) AND (SELECT count(*) FROM st_field)=(SELECT count(*) FROM st_rec)*(SELECT count(*) FROM st_qspec) AND NOT EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field LEFT JOIN st_rec r ON r.id=f.id WHERE s.field IS NULL OR r.id IS NULL) THEN 1 ELSE 0 END WHERE slot=0 AND generation=?", vec![blob(&update.generation)]));
     }
     Ok(out)
 }

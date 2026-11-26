@@ -24,12 +24,11 @@ import {
   supersededLegacyGrant, unmigratedLocalCollection, unmigratedLocalCollections
 } from "./native-grant-target.js";
 import { CutoverProblemError } from "./cutover-problems.js";
-import type { MigrationRouting } from "./migration-routing.js";
 
 /** Whether the app can open the collection now and, if not, why (SDK describeError reasons). */
 export type RouteAvailability =
   | { state: "available" }
-  | { state: "unavailable"; reason: "device_offline" | "desktop_update_required" | "old_connector_running" | "sync_required" | "access_removed" | "no_device_registered" | "collection_not_yet_migrated" };
+  | { state: "unavailable"; reason: "device_offline" | "device_not_serving" | "desktop_update_required" | "old_connector_running" | "sync_required" | "access_removed" | "no_device_registered" | "collection_not_yet_migrated" };
 
 const routeGrant = (collection: string, row: { grant_id: string; authorization_grant: string }) => ({
   collection, grant: row.grant_id,
@@ -39,29 +38,31 @@ const unavailableRoute = (collection: string, row: { grant_id: string; authoriza
   ({ ...routeGrant(collection, row), targets: [] as RouteTarget[], availability: { state: "unavailable", reason } satisfies RouteAvailability });
 
 type RouteDevice = { device_id: string; kind: RegisteredDeviceKind; noise_pk: Buffer; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean; local_id: string };
-type Candidate = { value: RouteTarget; serving: boolean; oldConnectorRunning: boolean; updateRequired: boolean; lastActive: number; presence: "responded" | "unreachable" | "failed" };
+type Candidate = { value: RouteTarget; serving: boolean; oldConnectorRunning: boolean; notServing: boolean; updateRequired: boolean; lastActive: number; presence: "responded" | "unreachable" | "failed" };
 
 /** Presence of each device from the relay owner, sorted serving first. */
 export async function deviceCandidates(broker: Pick<RelayBroker, "request">, devices: readonly RouteDevice[], url: string): Promise<Candidate[]> {
   const candidates = await Promise.all(devices.map(async (target) => {
     let online = false;
     let oldConnectorRunning = false;
+    let notServing = false;
     let presenceStatus: Candidate["presence"] = "failed";
     try {
       // Ask the actual owner, not this HTTP instance's local socket map or a
       // recent policy ACK. No daemon operation, policy push, or pipe is opened.
       const presence = await broker.request(target.connector_id, String(target.relay_generation),
-        { version: 1, kind: "device_presence", message: { device_id: target.device_id } }, 1_000);
+        { version: 1, kind: "device_presence", message: { device_id: target.device_id, collection_id: target.local_id } }, 1_000);
       online = presence.ok && presence.value === true;
       presenceStatus = presence.ok ? typeof presence.value === "boolean" ? "responded" : "failed"
         : presence.error.kind === "unavailable" ? "unreachable" : "failed";
       oldConnectorRunning = online && presence.ok && presence.detail?.old_connector_running === true;
+      notServing = online && presence.ok && presence.detail?.not_serving === true;
     } catch (error) {
       if (!(error instanceof RelayBrokerUnavailableError)) throw error;
       presenceStatus = error.ownerUnavailable ? "unreachable" : "failed";
     }
     const value: RouteTarget = { kind: target.kind, device: target.device_id, noise_pk: target.noise_pk.toString("hex"), url, online, relay_collection: target.local_id };
-    return { value, serving: online && !oldConnectorRunning, oldConnectorRunning, updateRequired: !online && target.update_required, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY, presence: presenceStatus };
+    return { value, serving: online && !oldConnectorRunning && !notServing, oldConnectorRunning, notServing, updateRequired: !online && target.update_required, lastActive: target.last_active_ms ?? Number.NEGATIVE_INFINITY, presence: presenceStatus };
   }));
   // Serving first, then online, then desktop/CLI daemons before other kinds, then
   // latest activity. UUID is the stable final tie-breaker. Current local authority
@@ -85,6 +86,7 @@ export function deviceAvailability(candidates: readonly Candidate[]): RouteAvail
   }
   if (candidates.some((candidate) => candidate.serving)) return { state: "available" };
   if (candidates.some((candidate) => candidate.oldConnectorRunning)) return { state: "unavailable", reason: "old_connector_running" };
+  if (candidates.some((candidate) => candidate.notServing)) return { state: "unavailable", reason: "device_not_serving" };
   if (candidates.some((candidate) => candidate.updateRequired)) return { state: "unavailable", reason: "desktop_update_required" };
   return { state: "unavailable", reason: "device_offline" };
 }
@@ -116,21 +118,8 @@ async function unmigratedHostedGrant(db: DatabaseQueryable, tokenDigest: string,
   return result.rows.length > 0;
 }
 
-export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig; migrationRouting?: MigrationRouting;
-  /** Moves a taken-over collection's eligible legacy grants to it; never throws. */
-  carryOver?: (collection: string) => Promise<number> }): void {
+export function registerNextRouteRoutes(app: FastifyInstance, options: { db: DatabaseQueryable; publicUrl: string; broker: Pick<RelayBroker, "request">; hostedClientUrl?: string; labPitr?: LabPitrConfig }): void {
   const hostedOrigin = options.hostedClientUrl ? hostedClientOrigin(options.hostedClientUrl) : undefined;
-  // At most one carry-over attempt per collection a minute: a grant that cannot
-  // move stays superseded, and its app may keep asking.
-  const attempted = new Map<string, number>();
-  const carryOver = async (collection: string): Promise<number> => {
-    if (!options.carryOver) return 0;
-    const now = Date.now();
-    if ((attempted.get(collection) ?? 0) > now - 60_000) return 0;
-    if (attempted.size >= 10_000) attempted.clear();
-    attempted.set(collection, now);
-    return options.carryOver(collection);
-  };
   // Always `wss:`, except for a loopback development server (SDK request).
   const relayUrl = new URL("/v1/next/relay/client", options.publicUrl);
   const loopback = ["localhost", "127.0.0.1", "[::1]"].includes(relayUrl.hostname);
@@ -142,7 +131,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     const token = bearerToken(request);
     if (!token) return reply.code(401).send(apiError("invalid_token", "Bearer token required."));
     const origin = pitrCollection(options.labPitr, id) ? options.labPitr!.hostedUrl : hostedOrigin;
-    const hosted = origin || options.migrationRouting ? await hostedRouteTarget(options.db, tokenHash(token), id, origin, options.migrationRouting) : null;
+    const hosted = origin ? await hostedRouteTarget(options.db, tokenHash(token), id, origin) : null;
     const hash = tokenHash(token);
     const grant = await options.db.query<{ user_id: string; grant_id: string; authorization_grant: string; policy_required: boolean; policy_active: boolean; has_client_key: boolean; device_id: string | null; kind: RegisteredDeviceKind | null; noise_pk: Buffer | null; local_id: string; connector_id: string; relay_generation: string; last_active_ms: number | null; update_required: boolean }>(
       `SELECT g.user_id, COALESCE(binding.log_grant_id, g.id) AS grant_id, g.id AS authorization_grant,
@@ -172,14 +161,10 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
     // A native collection: the grant targets the collection itself and is served
     // by the granting account's enrolled desktop/CLI devices (and, for a cloud
     // copy, by the hosted replica found above).
-    let native = grant.rows[0] ? null : await nativeGrant(options.db, hash, id);
+    const native = grant.rows[0] ? null : await nativeGrant(options.db, hash, id);
     if (!grant.rows[0] && !hosted?.grant && !native) {
-      // Taken over by a native collection: an eligible grant moves to it (normally
-      // already done when Private sync was turned on); otherwise the app must be
-      // set up again for it.
       const superseded = await supersededLegacyGrant(options.db, hash, id);
-      if (superseded && await carryOver(id) > 0) native = await nativeGrant(options.db, hash, id);
-      if (!native && superseded) return unavailableRoute(id, superseded, "sync_required");
+      if (superseded) return unavailableRoute(id, superseded, "sync_required");
     }
     const row = grant.rows[0] ?? (native ? { ...native, policy_required: true } : hosted?.grant);
     if (!row && await unmigratedHostedGrant(options.db, hash, id)) {

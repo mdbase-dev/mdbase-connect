@@ -2,7 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { describe, expect, it } from "vitest";
 import type { ConnectGateway } from "./connect.js";
-import { createMcpServer } from "./mcp.js";
+import { createMcpServer, VIEW_URI } from "./mcp.js";
 import type { OAuthService } from "./oauth.js";
 
 // Hosts and directory review read these without the plugin's skill, so the
@@ -11,15 +11,18 @@ async function connect(scopes: Parameters<typeof createMcpServer>[0]["scopes"]) 
   const server = createMcpServer(
     { clientId: "metadata-test", connectionSetId: "metadata-test", scopes },
     {} as ConnectGateway,
-    {} as OAuthService
+    {} as OAuthService,
+    { html: "<!doctype html><title>view</title>", origin: "https://mcp.example" }
   );
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
   const client = new Client({ name: "metadata-test", version: "0" });
   await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
   const tools = (await client.listTools()).tools;
   const instructions = client.getInstructions();
+  const resources = (await client.listResources()).resources;
+  const view = await client.readResource({ uri: VIEW_URI });
   await client.close();
-  return { tools, instructions };
+  return { tools, instructions, resources, view };
 }
 
 describe("MCP server metadata", () => {
@@ -89,5 +92,27 @@ describe("MCP server metadata", () => {
       expect(instructions).toContain("list_connections");
       expect(instructions).toContain("add_connection");
     }
+  });
+
+  // MCP Apps hosts render the view for these tools; others keep the JSON text.
+  it("links the record and query tools to one MCP App view that loads only its own files from the gateway", async () => {
+    const { tools, resources, view } = await connect(["mdbase:read", "mdbase:write"]);
+    const linked = tools.filter((tool) => tool._meta?.ui).map((tool) => tool.name).sort();
+    expect(linked).toEqual(["create_record", "query_records", "read_record", "rename_record", "update_record"]);
+    for (const tool of tools.filter((candidate) => candidate._meta?.ui)) {
+      expect(tool._meta, tool.name).toEqual({ ui: { resourceUri: VIEW_URI }, "ui/resourceUri": VIEW_URI });
+    }
+    expect(resources).toEqual([expect.objectContaining({ uri: VIEW_URI, mimeType: "text/html;profile=mcp-app" })]);
+    expect(view.contents).toEqual([{
+      uri: VIEW_URI,
+      mimeType: "text/html;profile=mcp-app",
+      text: "<!doctype html><title>view</title>",
+      _meta: { ui: { csp: { connectDomains: [], resourceDomains: ["https://mcp.example"] }, prefersBorder: true } }
+    }]);
+  });
+
+  it("links the view to the read tools of a read-only connection", async () => {
+    const { tools } = await connect(["mdbase:read"]);
+    expect(tools.filter((tool) => tool._meta?.ui).map((tool) => tool.name).sort()).toEqual(["query_records", "read_record"]);
   });
 });

@@ -123,12 +123,13 @@ export class RecordsApi implements Records {
         const policy = JSON.stringify([
             options.autosave ? options.autosave.idleMs : false,
             options.timeoutMs ?? 30_000,
+            options.requireLive ?? false,
         ]);
         let slot = this.slots.get(current.id);
         if (slot && slot.leases > 0 && slot.policy !== policy)
             throw mdbaseError(
                 "invalid_request",
-                "active record leases must use the same autosave policy",
+                "active record leases must use the same editing policy",
                 "record_lease_policy",
             );
         if (!slot) {

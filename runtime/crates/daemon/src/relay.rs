@@ -44,6 +44,12 @@ use crate::secrets::{self, DeviceIdentity};
 pub const MAX_LEASE_MS: u64 = 60_000;
 /// How long the server gives us for the first pipe frame.
 pub const PIPE_HANDSHAKE: Duration = Duration::from_secs(30);
+/// How long a pipe waits for one grant check from the host. An open that gets
+/// no answer is refused as `not_served` (retryable); an open pipe whose check
+/// gets none is kept, and its runtime's own grant re-check still closes it.
+pub const GRANT_CHECK_WAIT: Duration = Duration::from_secs(2);
+/// How often each open pipe re-checks its grant (and after each feed commit).
+const GRANT_SWEEP: Duration = Duration::from_secs(1);
 
 /// Capabilities offered in `relay_hello`.
 pub const CAPABILITIES: &[&str] = &[
@@ -55,15 +61,16 @@ pub const CAPABILITIES: &[&str] = &[
     "policy-freshness-lease-v1",
     "application-declaration-evidence-v1",
     "next_device_v1",
-    "collection_mode_switch_v1",
+    "collection_mode_switch_v2",
     "next_account_v1",
     "noise_pipe_v1",
 ];
 
 /// The `relay_hello` message. `old_connector_running`: an old mdbase Connect daemon
 /// runs on this device, so Connect reports its collections as unavailable for that
-/// reason (sent only when true).
-pub fn hello(old_connector_running: bool) -> Value {
+/// reason (sent only when true). `serving_collections`: canonical lowercase UUIDs
+/// this daemon is currently serving (routing hint only, never authorization).
+pub fn hello(old_connector_running: bool, serving_collections: Option<&[String]>) -> Value {
     let mut hello = json!({
         "type": "relay_hello",
         "protocol_version": 1,
@@ -78,6 +85,9 @@ pub fn hello(old_connector_running: bool) -> Value {
     });
     if old_connector_running {
         hello["old_connector_running"] = Value::Bool(true);
+    }
+    if let Some(collections) = serving_collections {
+        hello["serving_collections"] = json!(collections);
     }
     hello
 }
@@ -311,10 +321,10 @@ pub trait RelayHost: crate::session::Handler {
     }
     /// Report connection state for status.
     fn set_online(&self, online: bool);
-    /// Whether an old mdbase Connect daemon runs on this device (reported in
-    /// `relay_hello`; a change reconnects so Connect sees it).
-    fn old_connector_running(&self) -> bool {
-        false
+    /// Canonical lowercase collection IDs this daemon is currently serving
+    /// (`None` when the host does not report serving state).
+    fn serving_collections(&self) -> crate::session::BoxFuture<'_, Option<Vec<String>>> {
+        Box::pin(async { None })
     }
 }
 
@@ -341,12 +351,10 @@ pub enum Ended {
     Terminal(String),
 }
 
+/// An open pipe: its inbound frames and its task, which admits it, serves it
+/// and closes it when its grant is no longer live.
 struct Pipe {
     tx: mpsc::Sender<Vec<u8>>,
-    collection: String,
-    grant: String,
-    waiting_for_grant: Arc<std::sync::atomic::AtomicBool>,
-    activation_guard: Option<GrantActivationGuard>,
     task: tokio::task::JoinHandle<()>,
 }
 
@@ -463,9 +471,11 @@ async fn session<H: RelayHost>(
         Err(_) => return Ended::Retry("connect timed out".into()),
     };
     let (mut tx, mut rx) = ws.split();
-    let old_connector_running = host.old_connector_running();
+    let mut last_serving = host.serving_collections().await;
     if tx
-        .send(Message::text(hello(old_connector_running).to_string()))
+        .send(Message::text(
+            hello(false, last_serving.as_deref()).to_string(),
+        ))
         .await
         .is_err()
     {
@@ -516,7 +526,20 @@ async fn session<H: RelayHost>(
 
     host.set_online(true);
     tracing::info!(session = %session_id, "relay connected");
+    // This loop never waits on the host: the socket is always read. Snapshots
+    // are checked here on receipt (so a lease runs from when it arrived) and
+    // committed by one policy task, which keeps only the latest one pending; it
+    // is not aborted with the session, so a commit is never cut short. Each pipe
+    // checks its own grant in its own task.
     let (out_tx, mut out_rx) = mpsc::channel::<PipeOut>(256);
+    let (policy_tx, policy_rx) = tokio::sync::watch::channel(None::<Snapshot>);
+    let (applied_tx, applied_rx) = tokio::sync::watch::channel(());
+    tokio::spawn(commit_policies(
+        host.clone(),
+        policy_rx,
+        out_tx.clone(),
+        applied_tx,
+    ));
     let mut open: BTreeMap<[u8; 16], Pipe> = BTreeMap::new();
     let mut sweep = tokio::time::interval(Duration::from_secs(1));
     let ended = loop {
@@ -531,27 +554,38 @@ async fn session<H: RelayHost>(
                     Message::Text(t) => {
                         let Ok(v) = serde_json::from_str::<Value>(&t) else { continue };
                         match v.get("type").and_then(Value::as_str) {
-                            Some("policy_snapshot") => {
-                                let reply = apply_snapshot(host, cfg, &v).await;
-                                if tx.send(Message::text(reply.to_string())).await.is_err() {
-                                    break Ended::Retry("send ack".into());
+                            Some("policy_snapshot") => match receive_snapshot(cfg, &v) {
+                                Ok(snapshot) => {
+                                    policy_tx.send_replace(Some(snapshot));
                                 }
-                                if reply.get("error").and_then(|e| e.get("code")).and_then(Value::as_str)
-                                    == Some("policy_authority_mismatch")
-                                {
-                                    break Ended::Terminal("policy_authority_mismatch".into());
+                                Err(refusal) => {
+                                    let reply = policy_applied(&v, Err(&refusal));
+                                    if tx.send(Message::text(reply.to_string())).await.is_err() {
+                                        break Ended::Retry("send ack".into());
+                                    }
+                                    if refusal.code == "policy_authority_mismatch" {
+                                        break Ended::Terminal("policy_authority_mismatch".into());
+                                    }
                                 }
-                                close_dead(host, &mut open, &out_tx).await;
-                            }
+                            },
                             Some("device_bound") => {
                                 pipes_enabled = v.get("noise_pipes").and_then(Value::as_bool).unwrap_or(false);
                                 tracing::info!(noise_pipes = pipes_enabled, "device bound");
+                                if let Some(current) = host.serving_collections().await
+                                    && last_serving.as_ref() != Some(&current)
+                                {
+                                    let msg = json!({ "type": "serving_collections", "collections": &current });
+                                    if tx.send(Message::text(msg.to_string())).await.is_err() {
+                                        break Ended::Retry("send serving_collections".into());
+                                    }
+                                    last_serving = Some(current);
+                                }
                             }
                             Some("device_bind_failed") => {
                                 tracing::warn!(reason = ?v.get("reason"), "device bind failed; pipes unavailable");
                             }
                             Some("pipe_open") if pipes_enabled => {
-                                open_pipe(host, identity, &v, &mut open, &out_tx).await;
+                                open_pipe(host, identity, &v, &mut open, &out_tx, &applied_rx);
                             }
                             Some("pipe_close") => {
                                 if let Some(id) = v.get("pipe_id").and_then(Value::as_str).and_then(attest::uuid_bytes) {
@@ -592,16 +626,23 @@ async fn session<H: RelayHost>(
                         open.remove(&id);
                         tx.send(Message::text(close_msg(&id, &why))).await
                     }
+                    PipeOut::Control(text) => tx.send(Message::text(text)).await,
                 };
                 if sent.is_err() {
                     break Ended::Retry("send".into());
                 }
             }
             _ = sweep.tick() => {
-                if host.old_connector_running() != old_connector_running {
-                    break Ended::Retry("old connector state changed".into());
+                if pipes_enabled
+                    && let Some(current) = host.serving_collections().await
+                    && last_serving.as_ref() != Some(&current)
+                {
+                    let msg = json!({ "type": "serving_collections", "collections": &current });
+                    if tx.send(Message::text(msg.to_string())).await.is_err() {
+                        break Ended::Retry("send serving_collections".into());
+                    }
+                    last_serving = Some(current);
                 }
-                close_dead(host, &mut open, &out_tx).await;
                 open.retain(|_, p| !p.task.is_finished());
             }
         }
@@ -639,102 +680,88 @@ where
     }
 }
 
-async fn apply_snapshot<H: RelayHost>(host: &Arc<H>, cfg: &mut CloudConfig, v: &Value) -> Value {
+/// Check a `policy_snapshot` on receipt and advance `cfg`'s high-water to it
+/// (kept even if the commit later fails, so an older one is never applied).
+fn receive_snapshot(cfg: &mut CloudConfig, v: &Value) -> Result<Snapshot, Refused> {
     let now = crate::fsutil::now_ms() as u64;
-    let request_id = v.get("request_id").cloned().unwrap_or(Value::Null);
-    let revision = v.get("revision").cloned().unwrap_or(Value::Null);
-    let fail = |r: Refused| {
-        json!({
-            "type": "policy_applied", "protocol_version": 1, "request_id": request_id,
-            "revision": revision, "ok": false,
-            "error": { "code": r.code, "message": r.message }
-        })
-    };
-    let snap = match check_snapshot(v, cfg, now) {
-        Ok(s) => s,
-        Err(r) => {
-            let age_ms = v
-                .get("lease_issued_at_ms")
-                .and_then(Value::as_u64)
-                .map(|issued| now.saturating_sub(issued));
-            tracing::warn!(code = r.code, reason = %r.message, ?age_ms, "policy snapshot refused");
-            return fail(r);
-        }
-    };
-    let mut by_collection: BTreeMap<String, Vec<CachedGrant>> = BTreeMap::new();
-    for g in &snap.grants {
-        match to_cached(g) {
-            Ok(c) => by_collection
-                .entry(c.collection.clone())
-                .or_default()
-                .push(c),
-            Err(e) => {
-                tracing::warn!(grant = ?g.get("id"), reason = e.reason(), "grant dropped: key not verified");
-            }
-        }
-    }
-    let mut next = cfg.clone();
-    next.connector_id = Some(snap.connector_id.clone());
-    next.policy_sequence = snap.sequence;
-    next.policy_revision = snap.revision.clone();
+    let snapshot = check_snapshot(v, cfg, now).inspect_err(|r| {
+        let age_ms = v
+            .get("lease_issued_at_ms")
+            .and_then(Value::as_u64)
+            .map(|issued| now.saturating_sub(issued));
+        tracing::warn!(code = r.code, reason = %r.message, ?age_ms, "policy snapshot refused");
+    })?;
     // The host persists this cursor with the access cache in one document. No
     // separate cloud.json cursor write can fail after authorization publication.
-    // Also retain the attempted high-water in memory on persistence failure.
-    *cfg = next;
-    if let Err(e) = host.commit_feed(&snap, &by_collection).await {
-        return fail(refused("policy_apply_failed", e));
-    }
-    json!({
+    cfg.connector_id = Some(snapshot.connector_id.clone());
+    cfg.policy_sequence = snapshot.sequence;
+    cfg.policy_revision = snapshot.revision.clone();
+    Ok(snapshot)
+}
+
+/// The `policy_applied` reply to snapshot `v`.
+fn policy_applied(v: &Value, outcome: Result<(), &Refused>) -> Value {
+    let mut reply = json!({
         "type": "policy_applied", "protocol_version": 1,
-        "request_id": snap.request_id, "revision": snap.revision, "ok": true
-    })
+        "request_id": v.get("request_id").cloned().unwrap_or(Value::Null),
+        "revision": v.get("revision").cloned().unwrap_or(Value::Null),
+        "ok": outcome.is_ok(),
+    });
+    if let Err(r) = outcome {
+        reply["error"] = json!({ "code": r.code, "message": r.message });
+    }
+    reply
 }
 
-async fn close_dead<H: RelayHost>(
-    host: &Arc<H>,
-    open: &mut BTreeMap<[u8; 16], Pipe>,
-    out: &mpsc::Sender<PipeOut>,
+/// Commit accepted snapshots one at a time, the latest first: one received
+/// while another commits replaces any still waiting (the server has stopped
+/// waiting for the one replaced). Each commit is acknowledged through the
+/// socket writer, then the open pipes re-check their grants.
+async fn commit_policies<H: RelayHost>(
+    host: Arc<H>,
+    mut latest: tokio::sync::watch::Receiver<Option<Snapshot>>,
+    out: mpsc::Sender<PipeOut>,
+    applied: tokio::sync::watch::Sender<()>,
 ) {
-    let mut dead = Vec::new();
-    for (id, p) in open.iter() {
-        let reason = if p
-            .waiting_for_grant
-            .load(std::sync::atomic::Ordering::SeqCst)
-        {
-            let allowed = match &p.activation_guard {
-                Some(current) => current().await,
-                None => false,
-            };
-            if allowed {
-                None
-            } else {
-                Some(
-                    host.grant_refusal(&p.collection, &p.grant)
-                        .await
-                        .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into()),
-                )
-            }
-        } else {
-            host.grant_refusal(&p.collection, &p.grant).await
+    while latest.changed().await.is_ok() {
+        let Some(snapshot) = latest.borrow_and_update().clone() else {
+            continue;
         };
-        if let Some(reason) = reason {
-            dead.push((*id, reason));
+        let mut by_collection: BTreeMap<String, Vec<CachedGrant>> = BTreeMap::new();
+        for g in &snapshot.grants {
+            match to_cached(g) {
+                Ok(c) => by_collection
+                    .entry(c.collection.clone())
+                    .or_default()
+                    .push(c),
+                Err(e) => {
+                    tracing::warn!(grant = ?g.get("id"), reason = e.reason(), "grant dropped: key not verified");
+                }
+            }
         }
-    }
-    for (id, reason) in dead {
-        if open.remove(&id).is_some() {
-            let _ = out.try_send(PipeOut::Close(id, reason));
+        let committed = host
+            .commit_feed(&snapshot, &by_collection)
+            .await
+            .map_err(|e| refused("policy_apply_failed", e));
+        let echo = json!({ "request_id": snapshot.request_id, "revision": snapshot.revision });
+        let reply = policy_applied(&echo, committed.as_ref().copied());
+        applied.send_replace(());
+        if out.send(PipeOut::Control(reply.to_string())).await.is_err() {
+            return;
         }
     }
 }
 
-async fn open_pipe<H: RelayHost>(
+/// Register a pipe at once; its task does the grant checks (see [`run_pipe`]).
+fn open_pipe<H: RelayHost>(
     host: &Arc<H>,
     identity: &Arc<DeviceIdentity>,
     v: &Value,
     open: &mut BTreeMap<[u8; 16], Pipe>,
     out: &mpsc::Sender<PipeOut>,
+    applied: &tokio::sync::watch::Receiver<()>,
 ) {
+    use crate::session_diagnostics::{PreLive, pre_live};
     let get = |k: &str| {
         v.get(k)
             .and_then(Value::as_str)
@@ -743,46 +770,95 @@ async fn open_pipe<H: RelayHost>(
     let (Some(pipe), Some(collection), Some(grant)) =
         (get("pipe_id"), get("collection_id"), get("grant_id"))
     else {
-        crate::session_diagnostics::pre_live("invalid_open_ids");
+        pre_live(PreLive::InvalidOpenIds);
         return;
     };
-    let close = |why: &str| {
-        let _ = out.try_send(PipeOut::Close(pipe, why.into()));
-    };
     if grant == [0u8; 16] {
-        crate::session_diagnostics::pre_live("nil_grant");
-        return close("unauthenticated"); // never Host
+        pre_live(PreLive::NilGrant);
+        let _ = out.try_send(PipeOut::Close(pipe, "unauthenticated".into())); // never Host
+        return;
     }
     if open.contains_key(&pipe) {
         return;
     }
-    let (col_s, grant_s) = (
-        secrets::uuid_string(&collection),
-        secrets::uuid_string(&grant),
-    );
-    let mut live = host.grant_live(&col_s, &grant_s).await;
-    let activation = if live {
-        None
-    } else {
-        host.grant_activation(&col_s, &grant_s).await
-    };
-    if !live && activation.is_none() {
-        if let Some(reason) = host.grant_refusal(&col_s, &grant_s).await {
-            crate::session_diagnostics::pre_live("grant_not_live");
-            return close(&reason);
-        }
-        live = true;
-    }
-    let activation_guard = activation.as_ref().map(|a| a.current.clone());
-    let waiting_for_grant = Arc::new(std::sync::atomic::AtomicBool::new(!live));
     let (in_tx, in_rx) = mpsc::channel(64);
-    let mut carrier = PipeCarrier::new(pipe, in_rx, out.clone());
-    let prologue = pipes::prologue(&collection, &grant, &identity.device_id);
-    let (h, id, out2) = (host.clone(), identity.clone(), out.clone());
-    let waiting = waiting_for_grant.clone();
-    let task = tokio::spawn(async move {
-        // The registered bounded FIFO keeps the relay read/feed loop live while
-        // this original pipe waits. No Noise work or session admission yet.
+    let task = tokio::spawn(run_pipe(
+        host.clone(),
+        identity.clone(),
+        PipeIds {
+            pipe,
+            collection,
+            grant,
+        },
+        in_rx,
+        out.clone(),
+        applied.clone(),
+    ));
+    open.insert(pipe, Pipe { tx: in_tx, task });
+}
+
+#[derive(Clone, Copy)]
+struct PipeIds {
+    pipe: [u8; 16],
+    collection: [u8; 16],
+    grant: [u8; 16],
+}
+
+/// A pipe's grant is live, or it may become live (a pending activation).
+async fn admit<H: RelayHost>(
+    host: &Arc<H>,
+    collection: &str,
+    grant: &str,
+) -> Result<Option<GrantActivation>, String> {
+    if host.grant_live(collection, grant).await {
+        return Ok(None);
+    }
+    if let Some(activation) = host.grant_activation(collection, grant).await {
+        return Ok(Some(activation));
+    }
+    match host.grant_refusal(collection, grant).await {
+        Some(reason) => Err(reason),
+        None => Ok(None),
+    }
+}
+
+/// Admit the pipe (each check bounded by [`GRANT_CHECK_WAIT`]), wait for a
+/// pending grant, serve the Noise session, and close the pipe with the host's
+/// refusal as soon as its grant is no longer live.
+async fn run_pipe<H: RelayHost>(
+    host: Arc<H>,
+    identity: Arc<DeviceIdentity>,
+    ids: PipeIds,
+    inbound: mpsc::Receiver<Vec<u8>>,
+    out: mpsc::Sender<PipeOut>,
+    applied: tokio::sync::watch::Receiver<()>,
+) {
+    use crate::session_diagnostics::{PreLive, pre_live};
+    let (collection, grant) = (
+        secrets::uuid_string(&ids.collection),
+        secrets::uuid_string(&ids.grant),
+    );
+    let refuse = |reason: String| {
+        pre_live(PreLive::Refused(&reason));
+        out.send(PipeOut::Close(ids.pipe, reason))
+    };
+    let activation =
+        match tokio::time::timeout(GRANT_CHECK_WAIT, admit(&host, &collection, &grant)).await {
+            Ok(Ok(activation)) => activation,
+            Ok(Err(reason)) => {
+                let _ = refuse(reason).await;
+                return;
+            }
+            Err(_) => {
+                let _ = refuse(crate::access::Refusal::NotServed.reason().into()).await;
+                return;
+            }
+        };
+    let waiting = std::sync::atomic::AtomicBool::new(activation.is_some());
+    let guard = activation.as_ref().map(|a| a.current.clone());
+    let serve = async {
+        // The bounded inbound FIFO keeps the relay read/feed loop live while this
+        // original pipe waits. No Noise work or session admission yet.
         if let Some(activation) = activation {
             let activated = tokio::time::timeout(Duration::from_secs(20), async {
                 activation.wait.await && (activation.current)().await
@@ -790,46 +866,89 @@ async fn open_pipe<H: RelayHost>(
             .await
                 == Ok(true);
             if !activated {
-                crate::session_diagnostics::pre_live("grant_not_live");
-                let reason = h
-                    .grant_refusal(
-                        &secrets::uuid_string(&collection),
-                        &secrets::uuid_string(&grant),
-                    )
-                    .await
-                    .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into());
-                let _ = out2.send(PipeOut::Close(pipe, reason)).await;
+                let reason = match tokio::time::timeout(
+                    GRANT_CHECK_WAIT,
+                    host.grant_refusal(&collection, &grant),
+                )
+                .await
+                {
+                    Ok(refusal) => refusal
+                        .unwrap_or_else(|| crate::access::Refusal::Unavailable.reason().into()),
+                    Err(_) => crate::access::Refusal::NotServed.reason().into(),
+                };
+                let _ = refuse(reason).await;
                 return;
             }
         }
         waiting.store(false, std::sync::atomic::Ordering::SeqCst);
+        let mut carrier = PipeCarrier::new(ids.pipe, inbound, out.clone());
+        let prologue = pipes::prologue(&ids.collection, &ids.grant, &identity.device_id);
         let r = crate::session::serve_session(
             &mut carrier,
             &prologue,
             crate::session::Origin::RelayPipe,
-            id.noise_secret(),
-            id.device_id,
-            h.as_ref(),
+            identity.noise_secret(),
+            identity.device_id,
+            host.as_ref(),
         )
         .await;
         if let Err(e) = r {
             tracing::debug!(error = %e, "pipe session ended");
-            let _ = out2
-                .send(PipeOut::Close(pipe, "unauthenticated".into()))
+            let _ = out
+                .send(PipeOut::Close(ids.pipe, "unauthenticated".into()))
                 .await;
         }
-    });
-    open.insert(
-        pipe,
-        Pipe {
-            tx: in_tx,
-            collection: col_s,
-            grant: grant_s,
-            waiting_for_grant,
-            activation_guard,
-            task,
-        },
-    );
+    };
+    let revoked = grant_lost(&host, &collection, &grant, &waiting, guard, applied);
+    tokio::select! {
+        () = serve => {}
+        reason = revoked => {
+            let _ = out.send(PipeOut::Close(ids.pipe, reason)).await;
+        }
+    }
+}
+
+/// Resolve with the refusal once the pipe's grant is no longer live: checked
+/// every [`GRANT_SWEEP`] and after each feed commit. While the pipe waits for a
+/// pending grant, its captured original context must stay current. A check that
+/// gets no answer within [`GRANT_CHECK_WAIT`] keeps the pipe.
+async fn grant_lost<H: RelayHost>(
+    host: &Arc<H>,
+    collection: &str,
+    grant: &str,
+    waiting: &std::sync::atomic::AtomicBool,
+    guard: Option<GrantActivationGuard>,
+    mut applied: tokio::sync::watch::Receiver<()>,
+) -> String {
+    let mut sweep =
+        tokio::time::interval_at(tokio::time::Instant::now() + GRANT_SWEEP, GRANT_SWEEP);
+    loop {
+        tokio::select! {
+            _ = sweep.tick() => {}
+            Ok(()) = applied.changed() => {}
+        }
+        let check = async {
+            match &guard {
+                Some(current) if waiting.load(std::sync::atomic::Ordering::SeqCst) => {
+                    if current().await {
+                        None
+                    } else {
+                        Some(
+                            host.grant_refusal(collection, grant)
+                                .await
+                                .unwrap_or_else(|| {
+                                    crate::access::Refusal::Unavailable.reason().into()
+                                }),
+                        )
+                    }
+                }
+                _ => host.grant_refusal(collection, grant).await,
+            }
+        };
+        if let Ok(Some(reason)) = tokio::time::timeout(GRANT_CHECK_WAIT, check).await {
+            return reason;
+        }
+    }
 }
 
 #[cfg(test)]
@@ -852,8 +971,17 @@ mod tests {
 
     #[test]
     fn hello_reports_a_running_old_connector_only_when_true() {
-        assert_eq!(hello(true)["old_connector_running"], Value::Bool(true));
-        assert!(hello(false).get("old_connector_running").is_none());
+        assert_eq!(
+            hello(true, None)["old_connector_running"],
+            Value::Bool(true)
+        );
+        assert!(hello(false, None).get("old_connector_running").is_none());
+        assert!(hello(false, None).get("serving_collections").is_none());
+        let cols = vec!["01900000-0000-7000-8000-000000000001".to_string()];
+        assert_eq!(
+            hello(false, Some(&cols))["serving_collections"],
+            json!(cols)
+        );
     }
 
     #[test]
@@ -965,6 +1093,8 @@ mod tests {
         );
         assert!(CAPABILITIES.contains(&"next_account_v1"));
         assert!(CAPABILITIES.contains(&"next_device_v1"));
+        assert!(CAPABILITIES.contains(&"collection_mode_switch_v2"));
+        assert!(!CAPABILITIES.contains(&"collection_mode_switch_v1"));
         assert!(CAPABILITIES.contains(&"policy-freshness-lease-v1"));
         assert!(!CAPABILITIES.contains(&"lease_v1"));
     }
@@ -1092,15 +1222,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn declared_setup_native_source_requires_synced_account_custody_consent_and_lease() {
+    /// An authority with an account, this device and `cached`'s collection
+    /// registered as synced Private.
+    fn native_authority(
+        cached: &CachedGrant,
+    ) -> (crate::authority::Authority, crate::registry::Entry) {
         use crate::{
-            access::AccessList,
             authority::Authority,
             cloud::AccountRecord,
-            registry::{Entry, Origin, Registry, SyncMode},
+            registry::{Entry, Origin, SyncMode},
         };
-        let cached = to_cached(&declared_setup_grant()).unwrap();
         let authority = Authority::default();
         let identity = crate::secrets::DeviceIdentity::generate().unwrap();
         let record = AccountRecord {
@@ -1118,7 +1249,7 @@ mod tests {
         authority
             .publish_account_identity(&record, &config, &identity)
             .unwrap();
-        let mut registration = Entry {
+        let registration = Entry {
             id: cached.collection.clone(),
             name: "test".into(),
             root: "/not-opened".into(),
@@ -1132,13 +1263,23 @@ mod tests {
             owner_account: None,
             device: Some(secrets::uuid_string(&identity.device_id)),
         };
-        let publish_registry = |entry: &Entry| {
-            authority.publish_registry(&Registry {
-                collections: vec![entry.clone()],
-                ..Default::default()
-            })
-        };
-        publish_registry(&registration);
+        publish_registry(&authority, &registration);
+        (authority, registration)
+    }
+
+    fn publish_registry(authority: &crate::authority::Authority, entry: &crate::registry::Entry) {
+        authority.publish_registry(&crate::registry::Registry {
+            collections: vec![entry.clone()],
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn declared_setup_native_source_requires_synced_account_custody_consent_and_lease() {
+        use crate::access::AccessList;
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        let (authority, mut registration) = native_authority(&cached);
+        let publish_registry = |entry: &crate::registry::Entry| publish_registry(&authority, entry);
         let mut access = AccessList::default();
         let now = crate::fsutil::now_ms() as u64;
         access.sync_from_control_plane(
@@ -1146,7 +1287,7 @@ mod tests {
             std::slice::from_ref(&cached),
             now,
             now + 50_000,
-            false,
+            true,
         );
         authority.publish_access(&access);
         let grant = mdbn_wire::common::B16(attest::uuid_bytes(&cached.grant).unwrap());
@@ -1169,7 +1310,7 @@ mod tests {
             std::slice::from_ref(&cached),
             now,
             now + 50_000,
-            false,
+            true,
         );
         authority.publish_access(&access);
         assert_eq!(
@@ -1186,7 +1327,7 @@ mod tests {
             std::slice::from_ref(&cached),
             now,
             now + 50_000,
-            false,
+            true,
         );
         authority.publish_access(&access);
         assert!(source.declared_setup(&grant).unwrap().lease_generation > current.lease_generation);
@@ -1231,6 +1372,282 @@ mod tests {
             .unwrap()
             .push(json!("create_type"));
         assert!(to_cached(&unsigned).is_err());
+    }
+
+    /// mdbase-connect#1717: seven TaskNotes grants overflowed the 1 MiB
+    /// control frame of `access.list` with their stored setup.
+    #[test]
+    fn access_list_summaries_leave_out_declared_setup() {
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        assert!(cached.declared_setup.is_some());
+        let mut access = crate::access::AccessList::default();
+        access.sync_from_control_plane(
+            &cached.collection,
+            std::slice::from_ref(&cached),
+            1,
+            1000,
+            true,
+        );
+        let summaries = access.summaries(None);
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].grant.grant, cached.grant);
+        let value = serde_json::to_value(&summaries).unwrap();
+        assert!(value[0].get("declared_setup").is_none());
+        assert!(access.list(None)[0].grant.declared_setup.is_some());
+    }
+
+    /// A local collection's grant keeps no declaration, and re-listing it is
+    /// still not a change of terms.
+    #[test]
+    fn a_local_grant_keeps_no_setup_declaration() {
+        use crate::access::{AccessEvent, AccessList};
+        let feed = declared_setup_grant();
+        let cached = to_cached(&feed).unwrap();
+        let mut access = AccessList::default();
+        let mut events = Vec::new();
+        for now in 1..=3 {
+            events.push(access.sync_from_control_plane(
+                &cached.collection,
+                std::slice::from_ref(&cached),
+                now,
+                1000,
+                false,
+            ));
+        }
+        assert!(matches!(&events[0][..], [AccessEvent::NewAccess { .. }]));
+        assert!(events[1].is_empty() && events[2].is_empty(), "{events:?}");
+        assert_eq!(access.entries.len(), 1);
+        assert_eq!(access.entries[0].generation, 1);
+        assert_eq!(access.generation, 1);
+        let kept = access.entries[0].grant.declared_setup.as_ref().unwrap();
+        assert!(kept.declaration_dropped());
+        assert!(kept.core_setup().is_err(), "no setup is served from it");
+        let persisted = serde_json::to_value(&access).unwrap();
+        assert_eq!(
+            persisted["entries"][0]["declared_setup"]["declaration"],
+            Value::Null
+        );
+        let declaration = serde_json::to_vec(&feed["application_declaration"]).unwrap();
+        assert!(serde_json::to_vec(&access).unwrap().len() < declaration.len());
+    }
+
+    #[test]
+    fn a_relisted_refusal_keeps_no_setup_declaration() {
+        use crate::access::{AccessList, AccessState, Refusal};
+        let cached = to_cached(&declared_setup_grant()).unwrap();
+        let pk = crate::noise::public_key(&[9; 32]);
+        for synced_private in [false, true] {
+            let mut access = AccessList::default();
+            let c = &cached.collection;
+            access.sync_from_control_plane(
+                c,
+                std::slice::from_ref(&cached),
+                1,
+                1000,
+                synced_private,
+            );
+            assert_eq!(
+                access.entries[0]
+                    .grant
+                    .declared_setup
+                    .as_ref()
+                    .unwrap()
+                    .declaration_dropped(),
+                !synced_private
+            );
+            access.revoke(&cached.grant).unwrap();
+            let revoked = access.entries[0].clone();
+            assert!(
+                revoked
+                    .grant
+                    .declared_setup
+                    .as_ref()
+                    .unwrap()
+                    .declaration_dropped()
+            );
+            for now in 2..=3 {
+                let events = access.sync_from_control_plane(
+                    c,
+                    std::slice::from_ref(&cached),
+                    now,
+                    1000,
+                    synced_private,
+                );
+                assert!(events.is_empty());
+            }
+            assert_eq!(access.entries, vec![revoked]);
+            assert_eq!(access.entries[0].state, AccessState::RevokedLocally);
+            assert_eq!(
+                access.authorize(c, &cached.grant, &pk, 10).unwrap_err(),
+                Refusal::RevokedLocally
+            );
+        }
+    }
+
+    /// Dropping the declaration changes no outcome: the same terms are never
+    /// new consent, whichever mode the collection was in when they were cached,
+    /// and an in-place narrowing of the approved operations still is.
+    #[test]
+    fn dropping_setup_declarations_keeps_every_outcome() {
+        use crate::access::{AccessEvent, AccessList, AccessState};
+        use crate::registry::SyncMode;
+        let feed = declared_setup_grant();
+        let full = to_cached(&feed).unwrap();
+        let narrowed = {
+            let mut feed = feed.clone();
+            feed["operations"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|op| op != "rename");
+            to_cached(&feed).unwrap()
+        };
+        let no_setup = {
+            let mut feed = feed.clone();
+            feed["operations"]
+                .as_array_mut()
+                .unwrap()
+                .retain(|op| !op.as_str().unwrap().ends_with("_collection_setup"));
+            to_cached(&feed).unwrap()
+        };
+        assert!(no_setup.declared_setup.is_none());
+        let (authority, mut registration) = native_authority(&full);
+        let source = authority
+            .source(mdbn_wire::common::B16(
+                attest::uuid_bytes(&full.collection).unwrap(),
+            ))
+            .unwrap();
+        let grant = mdbn_wire::common::B16(attest::uuid_bytes(&full.grant).unwrap());
+        let pk = crate::noise::public_key(&[9; 32]);
+        let c = full.collection.clone();
+        let mut access = AccessList::default();
+        enum Step<'a> {
+            Feed(SyncMode, &'a CachedGrant),
+            Revoke,
+        }
+        // (step, new access event, generation, state, setup served)
+        let table = [
+            (
+                Step::Feed(SyncMode::Local, &full),
+                true,
+                1,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &full),
+                false,
+                1,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                1,
+                AccessState::Active,
+                true,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                1,
+                AccessState::Active,
+                true,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &full),
+                false,
+                1,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                1,
+                AccessState::Active,
+                true,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &narrowed),
+                true,
+                2,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &no_setup),
+                true,
+                3,
+                AccessState::Active,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                true,
+                4,
+                AccessState::Active,
+                true,
+            ),
+            (Step::Revoke, false, 4, AccessState::RevokedLocally, false),
+            (
+                Step::Feed(SyncMode::SyncedE2e, &full),
+                false,
+                4,
+                AccessState::RevokedLocally,
+                false,
+            ),
+            (
+                Step::Feed(SyncMode::Local, &full),
+                false,
+                4,
+                AccessState::RevokedLocally,
+                false,
+            ),
+        ];
+        let now = crate::fsutil::now_ms() as u64;
+        for (i, (step, new_access, generation, state, served)) in table.into_iter().enumerate() {
+            let events = match step {
+                Step::Feed(mode, listed) => {
+                    registration.mode = mode;
+                    publish_registry(&authority, &registration);
+                    access.sync_from_control_plane(
+                        &c,
+                        std::slice::from_ref(listed),
+                        now,
+                        now + 50_000,
+                        mode == SyncMode::SyncedE2e,
+                    )
+                }
+                Step::Revoke => {
+                    access.revoke(&full.grant).unwrap();
+                    Vec::new()
+                }
+            };
+            authority.publish_access(&access);
+            assert_eq!(
+                matches!(&events[..], [AccessEvent::NewAccess { .. }]),
+                new_access,
+                "step {i}: {events:?}"
+            );
+            assert!(new_access || events.is_empty(), "step {i}: {events:?}");
+            assert_eq!(access.entries.len(), 1, "step {i}");
+            let entry = &access.entries[0];
+            assert_eq!(
+                (entry.generation, entry.state),
+                (generation, state),
+                "step {i}"
+            );
+            assert_eq!(
+                access.authorize(&c, &full.grant, &pk, now).is_ok(),
+                state == AccessState::Active,
+                "step {i}"
+            );
+            assert_eq!(source.declared_setup(&grant).is_some(), served, "step {i}");
+            if let Some(setup) = &entry.grant.declared_setup {
+                assert_eq!(setup.declaration_dropped(), !served, "step {i}");
+            }
+        }
     }
 
     #[test]

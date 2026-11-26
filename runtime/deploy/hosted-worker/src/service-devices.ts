@@ -105,6 +105,25 @@ export async function serviceCollection(request: Request, serviceToken?: string)
   } catch { return error(400, "invalid_request"); }
 }
 
+export async function serviceInitialization(request: Request, serviceToken?: string): Promise<{
+  collection: string; request_id: string; timezone: string; region?: DurableObjectLocationHint;
+} | Response> {
+  const denied = serviceAuthorization(request, serviceToken);
+  if (denied) return denied;
+  const text = await boundedText(request, MAX_BODY_BYTES);
+  try {
+    const body = text === null ? null : JSON.parse(text);
+    if (!body || typeof body !== "object" || Object.keys(body).length !== ("region" in body ? 4 : 3) ||
+        typeof body.collection !== "string" || !UUID.test(body.collection) ||
+        typeof body.request_id !== "string" || !UUID.test(body.request_id) || body.request_id === "00000000-0000-0000-0000-000000000000" ||
+        typeof body.timezone !== "string" || !/^[a-z0-9_+/-]{1,100}$/iu.test(body.timezone)) return error(400, "invalid_request");
+    const region = parseRegion(body.region);
+    if (region === null) return error(400, "invalid_request");
+    new Intl.DateTimeFormat("en", {timeZone: body.timezone});
+    return {collection: body.collection, request_id: body.request_id, timezone: body.timezone, ...(region ? {region} : {})};
+  } catch { return error(400, "invalid_request"); }
+}
+
 /** Activation body: `{collection, region?}`. `region` only places a new actor. */
 export async function serviceActivation(request: Request, serviceToken?: string): Promise<{ collection: string; region?: DurableObjectLocationHint } | Response> {
   const denied = serviceAuthorization(request, serviceToken);

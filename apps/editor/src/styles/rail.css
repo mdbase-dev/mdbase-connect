@@ -3,7 +3,7 @@
   container-type: inline-size;
   display: flex;
   flex-direction: column;
-  padding: var(--space-6) 10px var(--space-4);
+  padding: 0 10px var(--space-3);
   border-right: 1px solid var(--line);
 }
 
@@ -15,13 +15,19 @@
   padding: 0 1px 0 var(--space-2);
 }
 
+/* The wordmark sits in the pane bar; the collection is named under it. */
 .rail-header > .rail-collection-heading {
   min-width: 0;
   flex: 1;
   display: grid;
-  gap: var(--space-3);
+  grid-template-rows: var(--pane-bar) auto;
+  align-items: center;
   padding: 0;
   text-align: left;
+}
+
+.rail-header > .desktop-pane-control {
+  margin-top: calc((var(--pane-bar) - 28px) / 2);
 }
 
 .rail-current-collection {
@@ -64,7 +70,7 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  margin-top: var(--space-6);
+  margin-top: var(--space-4);
 }
 
 .rail-scroll {
@@ -89,6 +95,7 @@
   justify-content: space-between;
   gap: var(--space-2);
   padding: 7px var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--muted);
   font-size: var(--font-size-ui);
   text-align: left;
@@ -114,12 +121,17 @@
 }
 
 .collection-rail nav button:hover,
-.collection-rail nav .editor-rail-link:hover { background: var(--hover); }
+.collection-rail nav .editor-rail-link:hover { background: var(--hover); color: var(--ink); }
 
 .collection-rail nav button.selected,
 .collection-rail nav .editor-rail-link.selected {
-  font-weight: var(--font-weight-semibold);
+  background: var(--selected);
+  color: var(--ink);
+  font-weight: var(--font-weight-medium);
 }
+
+.collection-rail nav button.selected svg,
+.collection-rail nav .editor-rail-link.selected svg { color: var(--muted); }
 
 .collection-rail nav small {
   flex: 0 0 auto;
@@ -145,12 +157,38 @@
 .collection-rail nav .rail-feedback {
   font: inherit;
   font-size: var(--font-size-ui);
-  border-radius: 0;
 }
 
-.rail-filter-section { margin-top: var(--space-1); }
+.collection-rail nav kbd { color: var(--faint); }
+
+.rail-filter-section { margin-top: var(--space-4); }
 .rail-filter-items { display: grid; }
-.collection-rail nav .rail-new-folder { color: var(--muted); }
+
+/* Names the folder tree and carries its one action, which shows when the rail is in use. */
+.rail-section-header {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-left: var(--space-2);
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.collection-rail nav .rail-new-folder {
+  width: 24px;
+  min-height: 24px;
+  justify-content: center;
+  padding: 0;
+  color: var(--faint);
+  opacity: 0;
+  transition: opacity var(--motion-fast) var(--ease-standard), background-color var(--motion-fast) var(--ease-standard), color var(--motion-fast) var(--ease-standard);
+}
+
+.collection-rail:hover .rail-new-folder,
+.collection-rail:focus-within .rail-new-folder { opacity: 1; }
+@media (hover: none) { .collection-rail nav .rail-new-folder { opacity: 1; } }
 
 /* Naming a folder happens where the folder will appear. */
 .rail-folder-name {
@@ -270,13 +308,12 @@
 }
 
 .collection-rail .connection-footer {
-  min-height: 44px;
+  min-height: 32px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: var(--space-3) 1px 0;
-  border-top: 1px solid var(--line);
+  padding: var(--space-1) 1px 0 11px;
 }
 .connection-footer p {
   min-width: 0;
@@ -290,6 +327,10 @@
   white-space: nowrap;
 }
 .status-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--faint); }
+.status-dot.connected { background: var(--success); }
+.status-dot.reconnecting { animation: status-pulse var(--motion-pulse) var(--ease-standard) infinite alternate; }
+@keyframes status-pulse { from { opacity: 1; } to { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .status-dot.reconnecting { animation: none; } }
 
 .folder-change-dialog form { display: grid; gap: var(--space-3); }
 .folder-change-dialog .mdbase-select { width: 100%; }

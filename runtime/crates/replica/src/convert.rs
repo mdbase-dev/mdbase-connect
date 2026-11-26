@@ -478,7 +478,8 @@ pub fn op(o: &wi::Op, t: TextResolver<'_>) -> CResult<ci::Op> {
             body: opt_text(&c.body, t)?,
             document: opt_text(&c.document, t)?,
         }),
-        wi::Op::Update(u) => ci::Op::Update(ci::Update {
+        wi::Op::Update(u) | wi::Op::UpdateLive(u) => ci::Op::Update(ci::Update {
+            require_live: matches!(o, wi::Op::UpdateLive(_)),
             update_refs: u.update_refs,
             id: uuid(&u.id),
             patch: u.patch.as_ref().map(map).transpose()?,

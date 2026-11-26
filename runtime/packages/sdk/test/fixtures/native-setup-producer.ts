@@ -13,7 +13,7 @@ function cbor(v:unknown):CborValue {if(Array.isArray(v))return v.map(cbor);if(v&
 export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{support?:boolean;capabilities?:string[];dropApply?:boolean;dropCode?:"conflict"|"not_found";oversized?:boolean;pending?:boolean;pendingForever?:boolean;receiptPending?:boolean}={}) {
  const bytes=Uint8Array.from((await manifestDigest(manifest)).match(/../g)!,v=>parseInt(v,16));
  const replica=new MemoryReplica({capabilities:o.capabilities??["collection.read","records.create","records.edit"]}),base=replica.connector();
- const state={installed:false,stale:false as boolean|string,staleOnce:false,drop:!!o.dropApply,digest:3,promoted:0,retireOnApply:0,mid:undefined as string|undefined,attempt:undefined as string|undefined};
+ const state={installed:false,conflict:null as null|"adoptable"|"installed_newer",stale:false as boolean|string,staleOnce:false,drop:!!o.dropApply,digest:3,promoted:0,retireOnApply:0,mid:undefined as string|undefined,attempt:undefined as string|undefined,holdCancel:undefined as ((reply:()=>void)=>void)|undefined};
  let activeTicket:Uint8Array|undefined,ticketSequence=0,lastPort:{onclose?:((e:unknown)=>void)|null}|undefined;
  const matches=(ticket:unknown)=>ticket instanceof Uint8Array&&activeTicket!==undefined&&ticket.length===activeTicket.length&&ticket.every((v,i)=>v===activeTicket![i]);
  const methods:string[]=[],requests:Map<number,CborValue>[]=[];
@@ -32,7 +32,7 @@ export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{supp
      if(f.method!=="app_collection_setup_v1")return send(raw);
      const m=decode((f.params as Map<number,CborValue>).get(0) as Uint8Array) as Map<number,CborValue>;requests.push(m);
      const action=m.get(1);
-     if(action==="cancel"){if(matches(m.get(2)))activeTicket=undefined;respond(encode(new Map<number,CborValue>([[0,1],[1,"cancelled"]])));return;}
+     if(action==="cancel"){if(matches(m.get(2)))activeTicket=undefined;const reply=()=>respond(encode(new Map<number,CborValue>([[0,1],[1,"cancelled"]])));if(state.holdCancel)state.holdCancel(reply);else reply();return;}
      if(action==="apply"){
        if(state.retireOnApply>0){state.retireOnApply--;activeTicket=undefined;}
        if(!matches(m.get(2))){queueMicrotask(()=>opened.port.onframe?.(clientFrame.enc({kind:"response",id:f.id,problem:mdbaseError("not_found","Setup review not found.").toProblem()})));return;}
@@ -44,9 +44,14 @@ export async function nativeSetupFixture(manifest:Record<string,unknown>,o:{supp
      if(action==="assess"){jobRecords=(m.get(4)??[]) as Map<number,CborValue>[];activeTicket=new Uint8Array(16);new DataView(activeTicket.buffer).setUint32(12,++ticketSequence);}
      if(o.pendingForever||o.pending&&action==="assess"){respond(encode(new Map<number,CborValue>([[0,1],[1,"pending"],[2,activeTicket!]])));return;}
      const rows=jobRecords;
-     const review={configuration:[],staged:state.installed?[]:[{path:"_types/task.md",document:"---\nname: task\n---\n"}],packs:[{id:"tasks",version:"1.0.0",status:state.installed?"current":"install",installedVersion:state.installed?"1.0.0":null,resources:state.installed?[]:[{target:"_types/task.md",kind:"type",mode:"managed",action:"create",installed:false}]}]};
+     const review=state.conflict==="adoptable"
+       ?{configuration:[],staged:[],packs:[{id:"tasks",version:"1.0.0",status:"conflict",installedVersion:null,resources:[{target:"_types/task.md",kind:"type",mode:"managed",action:"conflict",installed:false,currentDigest:`sha256:${"ab".repeat(32)}`}]}]}
+       :state.conflict==="installed_newer"
+         ?{configuration:[],staged:[],packs:[{id:"tasks",version:"1.0.0",status:"conflict",installedVersion:"2.0.0",resources:[{target:"_types/task.md",kind:"type",mode:"managed",action:"update",installed:true}]}]}
+         :{configuration:[],staged:state.installed?[]:[{path:"_types/task.md",document:"---\nname: task\n---\n"}],packs:[{id:"tasks",version:"1.0.0",status:state.installed?"current":"install",installedVersion:state.installed?"1.0.0":null,resources:state.installed?[]:[{target:"_types/task.md",kind:"type",mode:"managed",action:"create",installed:false}]}]};
+     const reviewStatus=state.conflict?"incompatible":state.installed?"ready":"setup_required";
      respond(o.oversized?new Uint8Array(256*1024+1):encode(new Map<number,CborValue>([
-       [0,1],[1,"review"],[2,activeTicket!],[3,state.installed?"ready":"setup_required"],[4,new Uint8Array(32).fill(2)],[5,new Uint8Array(32).fill(state.digest)],[6,cbor(review)],[7,bytes],[8,manifest.id as string],[9,new Map([[0,state.promoted],[1,0]])],[10,rows.map(r=>new Map<number,CborValue>([[0,r.get(0)!],[1,state.installed?"skip":"create"]]))],
+       [0,1],[1,"review"],[2,activeTicket!],[3,reviewStatus],[4,new Uint8Array(32).fill(2)],[5,new Uint8Array(32).fill(state.digest)],[6,cbor(review)],[7,bytes],[8,manifest.id as string],[9,new Map([[0,state.promoted],[1,0]])],[10,rows.map(r=>new Map<number,CborValue>([[0,r.get(0)!],[1,state.installed?"skip":"create"]]))],
      ])));
    };return opened;
  }};

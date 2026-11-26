@@ -28,24 +28,6 @@ const TIMEOUT_MS = 10_000;
 const CURRENT_TIMEOUT_MS = 5000;
 const MAX_CURRENT_BYTES = 4096;
 const MAX_READS = 64;
-const CPP_HEX32 = /^[0-9a-f]{64}(?![\s\S])/;
-const CPP_HEX64 = /^[0-9a-f]{128}(?![\s\S])/;
-const CPP_UUID = /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}(?![\s\S])/;
-const cppUuid = (s: unknown): s is string => typeof s === "string" && CPP_UUID.test(s) && s !== "00000000-0000-0000-0000-000000000000";
-const cppObject = (value: unknown, keys: readonly string[]): value is Record<string, unknown> => value !== null && typeof value === "object"
-  && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every(k => Object.hasOwn(value, k));
-
-/** Authenticated channel response DATA; never a physical/native/pending permit. */
-export interface MigrationClaimData {
-  schema: "mdbase-migration-claim/1";
-  collection_id: string;
-  owner_account: string;
-  started_us: string;
-  target: { runtime: "shadow"; root_key_id: string; hosted: {
-    device_id: string; sign_pk: string; kem_pk: string; noise_pk: string;
-  } };
-}
-export interface MigrationClaimReadProof { device_id: string; challenge: string; sig: string; }
 
 /** Public ORIGINAL identity verified by the caller before checking current CP.
  * No permission flags, substituted issuer, or restored positive permit. */
@@ -216,7 +198,6 @@ function fetchFailure(cause: unknown, signal: AbortSignal): string {
 
 export class ControlClient {
   readonly #base: string;
-  readonly #cppOrigin: string | null;
   private readonly token: string;
   private readonly tokens = new Map<string, LogToken>();
   private readonly kind: "hosted" | "escrow";
@@ -233,11 +214,6 @@ export class ControlClient {
       throw new Error("the control plane URL must match the compiled deployment scope");
     if (config.token.length < 32) throw new Error("the control plane token must be at least 32 characters");
     this.#base = url.toString().replace(/\/+$/, "");
-    // Immutable configuration DATA only. Actual provenance comes separately
-    // from productionParts' private, compiled-release-verified object brand.
-    this.#cppOrigin = (config.kind ?? "hosted") === "hosted" && !url.username && !url.password
-      && url.pathname === "/" && !url.search && !url.hash && this.#base === url.origin
-      && url.origin.length <= 255 && /^[\x21-\x7e]+$/.test(url.origin) ? url.origin : null;
     this.token = config.token;
     this.kind = config.kind ?? "hosted";
     if (config.pitr !== undefined) {
@@ -250,9 +226,6 @@ export class ControlClient {
       this.pitr = Object.freeze({ binding, token: config.pitr.token });
     }
   }
-
-  /** Configuration DATA, never an admission/provenance result or secret getter. */
-  cppClaimOriginData(): string | null { return this.#cppOrigin; }
 
   private async call(path: string, init: { method: "GET" | "POST"; body?: unknown }, limit: number,
     signal: AbortSignal, current = false, timeoutMs = current ? CURRENT_TIMEOUT_MS : TIMEOUT_MS): Promise<unknown> {
@@ -319,50 +292,6 @@ export class ControlClient {
       } else if (response?.body) { try { await bounded(response.body.cancel()); } catch { /* Closed. */ } }
       clearTimeout(timer!); signal.removeEventListener("abort", stop); abort.abort();
     }
-  }
-
-  /** One request, no nonce renewal/replay/redirect, only the existing hosted
-   * role credential. Native supplies the collection/device; this is transport
-   * DATA and does not establish actual factory/native/physical provenance. */
-  async migrationClaimChallenge(collection: string, device: string, signal: AbortSignal): Promise<Uint8Array> {
-    this.requireCppSubject(collection, device);
-    const r = await this.call(`/internal/v1/next/migration/collections/${collection}/claim/challenge`,
-      { method: "POST", body: { device_id: device } }, 1024, signal, false, CURRENT_TIMEOUT_MS);
-    if (!cppObject(r, ["challenge"]) || typeof r.challenge !== "string" || !CPP_HEX32.test(r.challenge) || signal.aborted)
-      throw new ControlError("invalid", "migration_claim_challenge_invalid");
-    return fromHex(r.challenge);
-  }
-
-  /** One fresh uncached read. Caller owns post-await native/physical/pending
-   * checks and compares this DATA to its accepted originals, not JS flags. */
-  async migrationClaimRead(collection: string, proof: MigrationClaimReadProof, signal: AbortSignal): Promise<MigrationClaimData> {
-    if (!cppObject(proof, ["device_id", "challenge", "sig"]) || !cppUuid(proof.device_id)
-      || typeof proof.challenge !== "string" || !CPP_HEX32.test(proof.challenge)
-      || typeof proof.sig !== "string" || !CPP_HEX64.test(proof.sig)) throw new ControlError("invalid", "migration_claim_proof_invalid");
-    this.requireCppSubject(collection, proof.device_id);
-    const body = { device_id: proof.device_id, challenge: proof.challenge, sig: proof.sig };
-    const r = await this.call(`/internal/v1/next/migration/collections/${collection}/claim/read`,
-      { method: "POST", body }, MAX_CURRENT_BYTES, signal, false, CURRENT_TIMEOUT_MS);
-    if (!cppObject(r, ["schema", "collection_id", "owner_account", "started_us", "target"])
-      || r.schema !== "mdbase-migration-claim/1" || r.collection_id !== collection || !cppUuid(r.owner_account)
-      || typeof r.started_us !== "string" || !/^[1-9][0-9]{0,23}(?![\s\S])/.test(r.started_us)
-      || !cppObject(r.target, ["runtime", "root_key_id", "hosted"]) || r.target.runtime !== "shadow"
-      || typeof r.target.root_key_id !== "string" || !/^[0-9a-f]{32}(?![\s\S])/.test(r.target.root_key_id)
-      || !cppObject(r.target.hosted, ["device_id", "sign_pk", "kem_pk", "noise_pk"])
-      || r.target.hosted.device_id !== body.device_id
-      || ![r.target.hosted.sign_pk, r.target.hosted.kem_pk, r.target.hosted.noise_pk].every(k => typeof k === "string" && CPP_HEX32.test(k) && k !== "0".repeat(64))
-      || signal.aborted) throw new ControlError("invalid", "migration_claim_data_invalid");
-    // Construct only the bounded known fields; nested response metadata never
-    // grants a reusable permission and cannot smuggle a custody envelope.
-    return { schema: "mdbase-migration-claim/1", collection_id: collection, owner_account: r.owner_account,
-      started_us: r.started_us, target: { runtime: "shadow", root_key_id: r.target.root_key_id,
-        hosted: { device_id: body.device_id, sign_pk: r.target.hosted.sign_pk as string,
-          kem_pk: r.target.hosted.kem_pk as string, noise_pk: r.target.hosted.noise_pk as string } } };
-  }
-
-  private requireCppSubject(collection: string, device: string): void {
-    if (this.kind !== "hosted" || !this.#cppOrigin || !cppUuid(collection) || !cppUuid(device)
-      || !/^[a-z0-9.-]+$/.test(new URL(this.#cppOrigin).hostname)) throw new ControlError("invalid", "migration_claim_subject_invalid");
   }
 
   /** Fresh point check only: no cached response or returned reusable permit.
@@ -486,7 +415,7 @@ export class ControlClient {
     const cached = this.tokens.get(key);
     if (cached && cached.expiresAt - REFRESH_MARGIN_MS > now) return cached;
     this.tokens.delete(key);
-    const r = (await this.call(`/internal/v1/next/service-devices/${device}/log-token`, { method: "POST", body: { collection, capabilities: ["collection_mode_switch_v1"] } }, MAX_TOKEN_BYTES, signal)) as Record<string, unknown>;
+    const r = (await this.call(`/internal/v1/next/service-devices/${device}/log-token`, { method: "POST", body: { collection, capabilities: ["collection_mode_switch_v2"] } }, MAX_TOKEN_BYTES, signal)) as Record<string, unknown>;
     const ok = r && typeof r === "object" && typeof r.token === "string" && /^[0-9a-f]+\.[0-9a-f]{128}$/.test(r.token)
       && typeof r.expires_at === "number" && Number.isSafeInteger(r.expires_at)
       && r.expires_at > now + REFRESH_MARGIN_MS && r.expires_at <= now + TOKEN_LIFETIME_MS + REFRESH_MARGIN_MS;

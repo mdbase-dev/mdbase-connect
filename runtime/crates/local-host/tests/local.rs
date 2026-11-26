@@ -180,6 +180,7 @@ fn contract_request(cursor: Option<String>) -> ContractQuery {
         version: "2.0.0".into(),
         limit: 2,
         cursor,
+        order_by: None,
     }
 }
 
@@ -263,10 +264,122 @@ fn native_contract_query_has_real_indexed_complete_pages_and_exact_projection_bi
             "people/4.md"
         ]
     );
+    // Ordered contract query over the real SQLite `st_field` index: contract
+    // field `name` maps to record field `full_name`.
+    let desc_order = Value::List(vec![Value::Map(vec![
+        ("field".into(), Value::Text("name".into())),
+        ("direction".into(), Value::Text("desc".into())),
+    ])]);
+    let asc_order = Value::List(vec![Value::Map(vec![
+        ("field".into(), Value::Text("name".into())),
+        ("direction".into(), Value::Text("asc".into())),
+    ])]);
+    let o1 = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: None,
+                where_: None,
+                order_by: Some(desc_order.clone()),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        o1.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["people/4.md", "people/3.md"]
+    );
+    let cursor = o1.page.cursor.clone().expect("ordered keyset cursor");
+    // Changing `order_by` with the same cursor is refused explicitly.
+    let mismatch = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: Some(cursor.clone()),
+                where_: None,
+                order_by: Some(asc_order),
+            },
+        )
+        .unwrap_err();
+    assert_eq!(
+        mismatch.problem().reason.as_deref(),
+        Some("invalid_query_cursor")
+    );
+    // Continuing with the same `order_by` resumes in exact DESC order.
+    let o2 = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: Some(cursor),
+                where_: None,
+                order_by: Some(desc_order.clone()),
+            },
+        )
+        .unwrap();
+    let o3 = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 2,
+                cursor: o2.page.cursor.clone(),
+                where_: None,
+                order_by: Some(desc_order.clone()),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        [&o1, &o2, &o3]
+            .into_iter()
+            .flat_map(|p| p.page.records.iter().map(|r| r.path.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            "people/4.md",
+            "people/3.md",
+            "people/2.md",
+            "people/1.md",
+            "people/0.md"
+        ]
+    );
+    assert!(o3.page.cursor.is_none());
+    // Larger page sizes (up to 1000) fetch all 5 records in one ordered call.
+    let all_desc = rep
+        .replica()
+        .query_contract(
+            session,
+            ContractQuery {
+                contract: "mdbase.person".into(),
+                version: "2.0.0".into(),
+                limit: 500,
+                cursor: None,
+                where_: None,
+                order_by: Some(desc_order),
+            },
+        )
+        .unwrap();
+    assert_eq!(all_desc.page.records.len(), 5);
+    assert!(all_desc.page.cursor.is_none());
     assert_eq!(
         rep.replica_ref().query_stats().indexed,
-        3,
-        "actual maintained SQLite path, not a fake cursor"
+        7,
+        "actual maintained SQLite path for both path-ordered and field-ordered contract pages"
     );
     let _ = std::fs::remove_dir_all(root);
 }
@@ -473,4 +586,233 @@ fn symlinks_above_the_collection_and_explicit_state_dirs_open() {
     std::os::unix::fs::symlink(&state, dir.join("state-link")).unwrap();
     drop(open_folder_at(&real, Some(dir.join("state-link"))).unwrap());
     assert!(state.join("index.sqlite").is_file());
+}
+
+/// TaskNotes pages its whole task index by path with fresh queries (no
+/// continuation cursor), so an edit between pages cannot invalidate the scan:
+/// `types` + `order_by: file.path asc` + `where: file.path > <last>`. Both
+/// query profiles answer it, in path order, with every task exactly once.
+#[test]
+fn path_keyset_pages_survive_edits_between_pages() {
+    for profile in [
+        mdbn_replica::QueryExecutionProfile::Desktop,
+        mdbn_replica::QueryExecutionProfile::MemoryConstrained,
+    ] {
+        let root = test_dir(&format!("path-keyset-{profile:?}"));
+        std::fs::write(root.join("mdbase.yaml"), "spec_version: \"0.3.0\"\n").unwrap();
+        std::fs::create_dir_all(root.join("_types")).unwrap();
+        std::fs::write(
+            root.join("_types/task.md"),
+            "---\nkind: mdbase.type\nname: task\nversion: 1\nmatch:\n  path_glob: \"tasks/**/*.md\"\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      status: { type: string }\n---\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(root.join("tasks/ü")).unwrap();
+        std::fs::create_dir_all(root.join("notes")).unwrap();
+        let mut expected = Vec::new();
+        for i in 0..2500 {
+            let path = if i % 10 == 0 {
+                format!("tasks/ü/t{i:04} it's.md")
+            } else {
+                format!("tasks/t{i:04}.md")
+            };
+            std::fs::write(
+                root.join(&path),
+                format!("---\nstatus: open\n---\nTask {i}\n"),
+            )
+            .unwrap();
+            expected.push(path);
+        }
+        for i in 0..50 {
+            std::fs::write(root.join(format!("notes/n{i}.md")), "plain\n").unwrap();
+        }
+        expected.sort();
+        let (_lock, mut rep) = open(&root);
+        rep.rescan().unwrap();
+        rep.replica().set_query_execution_profile(profile);
+        let session = rep.session();
+        let mut seen: Vec<String> = Vec::new();
+        let mut after: Option<String> = None;
+        for page in 0.. {
+            assert!(page < 10, "{profile:?}: too many pages");
+            let mut q = vec![
+                (
+                    "types".into(),
+                    Value::List(vec![Value::Text("task".into())]),
+                ),
+                (
+                    "order_by".into(),
+                    Value::List(vec![Value::Map(vec![
+                        ("field".into(), Value::Text("file.path".into())),
+                        ("direction".into(), Value::Text("asc".into())),
+                    ])]),
+                ),
+                ("limit".into(), Value::Int(1000)),
+            ];
+            if let Some(after) = &after {
+                q.push((
+                    "where".into(),
+                    Value::Text(format!(
+                        "file.path > {}",
+                        serde_json::to_string(after).unwrap()
+                    )),
+                ));
+            }
+            let out = rep
+                .replica()
+                .query(session, Value::Map(q), include())
+                .unwrap_or_else(|e| panic!("{profile:?} page {page}: {e:?}"));
+            assert!(out.complete);
+            seen.extend(out.records.iter().map(|r| r.path.to_string()));
+            if out.cursor.is_none() {
+                break;
+            }
+            after = seen.last().cloned();
+            // An outside edit between pages.
+            std::fs::write(
+                root.join(format!("tasks/t{:04}.md", 1 + page)),
+                format!("---\nstatus: done\n---\nEdited {page}\n"),
+            )
+            .unwrap();
+            rep.rescan().unwrap();
+        }
+        assert_eq!(seen, expected, "{profile:?}");
+        eprintln!("{profile:?}: {:?}", rep.replica_ref().query_stats());
+        let _ = std::fs::remove_dir_all(root);
+    }
+}
+
+#[test]
+fn read_only_volume_reads_ingested_files_and_refuses_writes_including_wait_published() {
+    use mdbn_replica::Store as _;
+    use mdbn_replica::api::SessionAuth;
+    use mdbn_replica::frames::Frames;
+    use mdbn_wire::Wire;
+    use mdbn_wire::cbor;
+    use mdbn_wire::client::{
+        ClientFrame, ClientRequest, ClientResponse, HelloParams, IncidentKind, WaitFor,
+    };
+    use mdbn_wire::common::Version;
+
+    let root = test_dir("read-only-volume");
+    std::fs::write(root.join("mdbase.yaml"), "spec_version: \"0.3.0\"\n").unwrap();
+    std::fs::create_dir_all(root.join("notes")).unwrap();
+    std::fs::write(
+        root.join("notes/existing.md"),
+        "---\ntitle: Existing\n---\nBody.\n",
+    )
+    .unwrap();
+
+    let opts = StoreOptions {
+        force_read_only: true,
+        ..StoreOptions::default()
+    };
+    let _lock = HostLock::try_acquire(
+        &root,
+        &opts.private_dir,
+        Some(Descriptor::new(HostKind::Library, 1)),
+    )
+    .unwrap();
+    let state = opts.state_dir(&root);
+    std::fs::create_dir_all(&state).unwrap();
+    let identity =
+        Identity::load_or_create(&state.join("identity.json"), 1, &mut OsEntropy).unwrap();
+    let store = open_store(&root, &opts, Box::new(SystemClock)).unwrap();
+    assert!(store.files_read_only());
+    let mut rep = LocalReplica::open(store, &identity, ReplicaOptions::default()).unwrap();
+    rep.rescan().unwrap();
+
+    let session = rep.session();
+    assert!(
+        rep.replica()
+            .status(session)
+            .unwrap()
+            .incidents
+            .iter()
+            .any(|i| i.kind == IncidentKind::ReadOnly)
+    );
+    let rec = rep
+        .replica()
+        .get(session, Target::Path("notes/existing.md".into()), include())
+        .unwrap();
+    assert_eq!(rec.body.as_deref(), Some("Body.\n"));
+
+    let submit = SubmitParams {
+        ops: vec![Op::Create(Create {
+            id: B16(mdbn_local_host::host::uuid_v7(
+                1_700_000_000_000,
+                &mut OsEntropy,
+            )),
+            path: Some("notes/blocked.md".into()),
+            type_name: None,
+            frontmatter: Some(DataMap(vec![(
+                "title".into(),
+                Value::Text("Blocked".into()),
+            )])),
+            body: Some(Text::Inline("Should not land.\n".into())),
+            document: None,
+        })],
+        mutation_id: None,
+        conflict_mode: None,
+        timezone: None,
+        allow_partial: None,
+        mutation_ids: None,
+        dry_run: None,
+        include: None,
+        wait: Some(WaitFor::Published),
+        validation: None,
+    };
+
+    // Direct API submit refuses immediately without mutating SQLite or disk.
+    let err = rep.replica().submit(session, submit.clone()).unwrap_err();
+    assert_eq!(err.problem().code, "forbidden");
+    assert_eq!(err.problem().reason.as_deref(), Some("read_only_volume"));
+    assert_eq!(rep.replica_ref().store().record_count().unwrap(), 1);
+    assert_eq!(rep.replica_ref().sync_status().pending, 0);
+    assert!(!root.join("notes/blocked.md").exists());
+
+    // The framed WaitFor::Published path (used by CLI) responds immediately instead of timing out.
+    let mut frames = Frames::new();
+    let hello_bytes = ClientFrame::Request(ClientRequest {
+        id: 0,
+        method: "hello".into(),
+        params: HelloParams {
+            versions: vec![Version { major: 1, minor: 0 }],
+            client_name: "test-cli".into(),
+            client_version: "0".into(),
+            features: None,
+            timezone: None,
+        }
+        .to_cbor(),
+    })
+    .to_bytes()
+    .unwrap();
+    let framed_session = frames
+        .hello(rep.replica(), SessionAuth::Host, &hello_bytes)
+        .session
+        .unwrap();
+    let req_bytes = ClientFrame::Request(ClientRequest {
+        id: 1,
+        method: "submit".into(),
+        params: submit.to_cbor(),
+    })
+    .to_bytes()
+    .unwrap();
+    frames.on_frame(rep.replica(), framed_session, &req_bytes);
+    frames.pump(rep.replica());
+    let outgoing = frames.take_outgoing();
+    assert_eq!(outgoing.len(), 1);
+    let ClientFrame::Response(ClientResponse {
+        id: 1,
+        problem: Some(problem),
+        ..
+    }) = ClientFrame::from_cbor(&cbor::decode(&outgoing[0].1).unwrap()).unwrap()
+    else {
+        panic!("expected immediate problem response");
+    };
+    assert_eq!(problem.code, "forbidden");
+    assert_eq!(problem.reason.as_deref(), Some("read_only_volume"));
+    assert_eq!(rep.replica_ref().store().record_count().unwrap(), 1);
+    assert!(!root.join("notes/blocked.md").exists());
+
+    let _ = std::fs::remove_dir_all(&root);
 }

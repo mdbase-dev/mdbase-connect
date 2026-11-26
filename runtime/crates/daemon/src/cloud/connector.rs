@@ -27,7 +27,7 @@ pub async fn pairing_start(
         .json(&json!({ "connector_name": name }))
         .send()
         .await
-        .map_err(|e| CloudError::Network(e.to_string()))?;
+        .map_err(CloudError::network)?;
     let (_, v) = json_response(r).await?;
     let get = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     let uri = get("verification_uri").ok_or_else(|| CloudError::Server(200, "malformed".into()))?;
@@ -90,7 +90,7 @@ pub async fn pairing_exchange(
         .bearer_auth(&p.secret)
         .send()
         .await
-        .map_err(|e| CloudError::Network(e.to_string()))?;
+        .map_err(CloudError::network)?;
     let (status, v) = json_response(r).await?;
     if status == 202 {
         return Ok(None);
@@ -160,7 +160,7 @@ impl Cloud {
             .json(&json!({ "name": name }))
             .send()
             .await
-            .map_err(|e| CloudError::Network(e.to_string()))?;
+            .map_err(CloudError::network)?;
         let (status, v) = json_response(r).await?;
         v.pointer("/connector/name")
             .and_then(Value::as_str)
@@ -178,7 +178,7 @@ impl Cloud {
             .bearer_auth(self.token.as_str())
             .send()
             .await
-            .map_err(|e| CloudError::Network(e.to_string()))?;
+            .map_err(CloudError::network)?;
         let (status, v) = json_response(r).await?;
         parse_account_applications(v).ok_or_else(|| CloudError::Server(status, "malformed".into()))
     }
@@ -207,7 +207,7 @@ impl Cloud {
             .bearer_auth(self.token.as_str())
             .send()
             .await
-            .map_err(|e| CloudError::Network(e.to_string()))?;
+            .map_err(CloudError::network)?;
         json_response(r).await?;
         Ok(())
     }

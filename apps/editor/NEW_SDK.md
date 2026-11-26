@@ -28,7 +28,8 @@ publication is implied.
   inventory, including collections needing synchronization, remains available.
   The SDK owns Native clients and sign-out cleanup; the editor never closes them.
   Custom adapters and their fenced client lifetimes are isolated test seams,
-  ignored outside test builds. Native owner-delete parity is not yet qualified.
+  ignored outside test builds. Owner collection deletion is wired for both
+  cloud-copy and Private collections through the SDK's confirmation flow.
 
 ## Work before connecting
 
@@ -61,19 +62,11 @@ switcher, and people cannot name it or make several.
   original ID, and reports created/updated/renamed/deleted/reset changes. A
   resumed watch triggers one complete reread. Optimistic overlays are
   presentation only.
-- Permissions come from the native grant: `records.create` → create,
-  `records.edit` → update/rename, `records.delete` → delete. Type install and
-  type management stay off; file upload stays off because the public grant has
-  no file action set.
-- Files list/read by native digest; people use `people.directory({ members:
-  "omit" })`; contracts use `queryContract`; validation and preflights use the
-  native operations.
-- `describe()` is marked `typing: "names_only"`: native describe has type names,
-  paths and contract bindings, but no type schemas/versions or contract
-  schemas/implementation digests. Those fields are empty and the Person starter
-  upgrade check is skipped.
-- Type sources are read with `resources.get`. Creating/editing types and type
-  packs are refused without writing; collection setup belongs to SDK `configure`.
+- Permissions come from the native grant: `collection.read` → inspect/read/query/validate/read_type, `records.create` → create, `records.edit` → update/rename, `records.delete` → delete, `definitions.manage` → create_type/update_type/assess_type_pack/apply_type_pack, and explicit file grant actions (`list`/`read`/`add`) control file browsing, preview, and uploads (`uploadFile`).
+- `describe()` requests full definitions (`client.describe({ definitions: true })`) for typed schemas, versions, and contract bindings, falling back to `typing: "names_only"` only when an older replica or describe budget returns `upgrade_required` or `too_large`.
+- Type sources are read with `resources.get`, created with `client.createType`, updated with revision-guarded `resources.put`, and type packs install through `client.typePacks.plan` / `apply`.
+- Files list/read/upload through `connection.files` (`listPage`, `downloadStream`, `upload` + confirmed receipt readback); people use `people.directory({ members: "omit" })`; contracts use `queryContract`; validation and preflights use the native operations.
+- Collection deletion is available to owners for both cloud-copy and Private collections (`allowDelete` in `CollectionSwitcher` and Private row actions in `SdkEditorRoot`), guarded by name confirmation and SDK/control-plane checks.
 
 # Native SDK record adapter
 
@@ -111,7 +104,7 @@ Staging uses the same version's attested `sdk-staging.tgz` release asset, never
 the production archive or rewritten trust. See [NATIVE_PUBLISHER.md](./NATIVE_PUBLISHER.md).
 
 Editor imports the exact npm UI version in `package.json`; the ordinary frozen
-lock pins its integrity, and the style-token gate checks installed UI CSS.
+lock pins its integrity.
 Shared UI owns opening progress, slow warnings, focus, storage warnings and
 Private entry; there is no app-side progress shim. SDK sign-out attempts
 whole-store grant cleanup and reports incomplete cleanup. Account-bound routing
@@ -122,17 +115,11 @@ the canonical `https://editor-lab.mdbase.dev/` declaration and requires a
 separately authenticated LAB SDK. A production SDK refuses that declaration.
 The ordinary build retains production defaults.
 
-This native entry replaces the legacy `ConnectCollectionGateway` bootstrap for
-this lane. The old OAuth collection chooser does not expose next `cloud_copy`
-collections; widening its eligibility filter would not install a native client.
-No collection version or consent policy is relaxed. The pin and offline build
-are not per-app trust/origin/runtime/session/operation approval, publication, or
-live qualification. Publishing the LAB candidate requires separate approval.
-
-Native record-session recovery, typed schemas, file uploads and file change
-notifications still require public SDK APIs or qualification. Direct access is
-hidden in native mode. Do not copy TaskNotes' Worker, lease, authentication or
-SQL-bootstrap glue into the editor.
+This native entry is the editor's sole live collection gateway; the legacy
+`ConnectCollectionGateway` and `@mdbase-dev/connect` dependency have been
+removed. No collection version or consent policy is relaxed. Direct local
+loopback access stays hidden in browser native mode. Do not copy TaskNotes'
+Worker, lease, authentication or SQL-bootstrap glue into the editor.
 
 Unit tests use SDK MemoryReplica and are not native/LAB evidence. SDK811 now honors
 `create.document` through its shared synthetic parser; restore verifies the actual

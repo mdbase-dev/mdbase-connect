@@ -14,8 +14,6 @@ import { createTestApplicationIdentity, testApplicationAuthorization } from "../
 import { clientNoiseKeyMessage, storeRequestClientNoiseKey, verifiedClientNoiseKey } from "../next/client-key.js";
 import { approveNativeAuthorization } from "../authorizations/native-approval-service.js";
 import { fileRequestForRequirements } from "../applications/application-requirements.js";
-import { acceptCohortArchive, addToCohort, cohortArchiveBinding, createCohort, flipAccountBackend, flipEvidenceDigest, releaseCohort, setCohortFrozen, setPaused, startAccountMigration } from "../next/migration-rollout.js";
-import { ZERO_HOSTED_ARCHIVE_SCHEMA } from "../next/migration-archive-profile.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { pruneUsageHistory } from "../usage/usage-report.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
@@ -34,10 +32,7 @@ import { registerConnectorPairingRoutes } from "./pairing-routes.js";
 import { registerInstallationSignOutRoute } from "./installation-signout.js";
 import { backgroundTimerGrantResolver, dataPermitted } from "../next/timers/grants.js";
 import { registerTimerRoutes } from "../next/timers/routes.js";
-import { importTimer, lockNamespace, putTimer, reconcileTimers } from "../next/timers/store.js";
-import { fakeLegacyProvider } from "../next/legacy-provider.test-helper.js";
-import { importHostedCollectionTimers } from "../next/timers/hosted-import.js";
-import { recordCollectionCutover } from "../next/migration-rollout.js";
+import { lockNamespace, putTimer, reconcileTimers } from "../next/timers/store.js";
 import { desiredTimer } from "../next/timers/model.js";
 import { TimerWorker, notificationsConsumer, timerEventId } from "../next/timers/worker.js";
 import { PushTargetSealer } from "../next/push-target-seal.js";
@@ -343,29 +338,6 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
     const upgrading = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
     expect(upgrading.json().error).toMatchObject({ message: expect.stringMatching(/being upgraded/), details: { upgrade: "in_progress" } });
-    // A receipted rollback keeps the start claim; the denial stops saying "being upgraded".
-    const hosted = randomUUID();
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Notes','mdbase')", [hosted, owner.user]);
-    const step = (type: string, at: string) => db.query(
-      "INSERT INTO audit_events(id,user_id,event_type,subject_id,metadata,created_at) VALUES($1,$2,$3,$4,'{}',$5)",
-      [randomUUID(), owner.user, type, hosted, at]);
-    await step("next_migration.fence", "2026-10-18T01:00:00Z");
-    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).json().error.details).toEqual({ upgrade: "in_progress" });
-    // Intent/provider binding and a queued/appended abort barrier are not a rollback receipt.
-    for (const event of ["next_migration.rollback_intent", "next_migration.rollback_provider_binding", "next_migration.appendbase_abort_barrier"]) {
-      await step(event, "2026-10-18T01:30:00Z");
-      expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
-    }
-    await step("next_migration.rollback", "2026-10-18T02:00:00Z");
-    expect((await inspect()).json().pairing.account_upgrade).toBe("postponed");
-    const postponed = await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers });
-    expect(postponed.statusCode).toBe(409);
-    expect(postponed.json().error).toMatchObject({ code: "installation_legacy_backend", message: expect.stringMatching(/paused/), details: { upgrade: "postponed" } });
-    expect(postponed.json().error.message).not.toMatch(/being upgraded|try again|legacy|backend|migrat/i);
-    // An operator restart fences again: the upgrade is in progress once more.
-    await step("next_migration.fence", "2026-10-18T03:00:00Z");
-    expect((await inspect()).json().pairing.account_upgrade).toBe("in_progress");
-    expect((await app.inject({ method: "POST", url: `${flow.base}/select-account`, headers: owner.headers })).json().error.details).toEqual({ upgrade: "in_progress" });
     expect((await flow.exchange()).json()).toEqual({ status: "pending" });
     expect((await db.query("SELECT user_id FROM pairing_requests WHERE id=$1", [input.installation.request_id])).rows[0].user_id).toBeNull();
     expect((await db.query("SELECT device_id FROM installation_device_credentials WHERE pairing_id=$1", [input.installation.request_id])).rows).toEqual([]);
@@ -661,31 +633,6 @@ describePg("installation device sign-in on daemon pairing", () => {
       expect((await db.query("SELECT id FROM grants WHERE next_collection_id=$1",[collection])).rows).toEqual([{id:grant}]);
       expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[],native_selection:{authorization_request_id:n.id,collection_id:collection}});
     }finally{acknowledgeNativePush=async()=>{};}
-  });
-  it("allows a migrated account to approve an app after completed zero-Hosted migration without thawing its archive",async()=>{
-    const p=await privatePrepared(), collection=await scopeCollection(p.owner.user,p.owner.user,"private");
-    const cohort=`approve-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
-    // Isolated fixture starts legacy, then uses the normal accepted-archive/start/flip lifecycle.
-    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[p.owner.user]);
-    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[p.owner.user],actor);await releaseCohort(db,cohort,actor);
-    await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
-    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
-    const archive={schema:ZERO_HOSTED_ARCHIVE_SCHEMA,environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/14/${cohort}`,backup_id:cohort,
-      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"c".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
-      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"d".repeat(64),count:"2"}};
-    await acceptCohortArchive(db,cohort,archive,"lab");await setPaused(db,false,"synthetic migration",actor);
-    await startAccountMigration(db,p.owner.user,"lab");await flipAccountBackend(db,p.owner.user,[],flipEvidenceDigest([]),{enabled:true},"lab");
-    const frozen=(await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0];
-    expect(frozen.frozen_at).not.toBeNull();expect(frozen.completed_at).not.toBeNull();
-    const n=await nativeCompanion(p);expect((await n.attach()).statusCode).toBe(200);
-    const result=await approvePrivate(p,collection);expect(result.statusCode,result.body).toBe(200);
-    expect((await p.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[],native_selection:{authorization_request_id:n.id,collection_id:collection}});
-    const hosted=await scopeCollection(p.owner.user),q=await prepared("app-runtime",false,p.owner,undefined,p.input.installation.app_id);
-    expect((await approveDevice(q.flow,q.owner,undefined,{collection_ids:[hosted],create_collections:false,selected_collection_id:hosted})).statusCode).toBe(200);
-    expect((await q.flow.exchange()).json()).toMatchObject({status:"paired",collection_ids:[hosted],selected_collection_id:hosted});
-    expect((await db.query("SELECT frozen_at,completed_at,completed_revision FROM next_migration_cohorts WHERE name=$1",[cohort])).rows[0]).toEqual(frozen);
-    expect((await db.query("SELECT verified_result FROM next_migration_archive_acceptances WHERE cohort=$1",[cohort])).rows[0].verified_result).toEqual(archive);
-    await expect(setCohortFrozen(db,cohort,false,"must stay frozen",actor)).rejects.toMatchObject({code:"migration_frozen"});
   });
   it("atomically approves a Private choice and genuine original zero-scope installation",async()=>{
     const p=await privatePrepared(true), collection=await scopeCollection(p.owner.user,p.owner.user,"private"), n=await nativeCompanion(p);
@@ -1575,6 +1522,18 @@ describePg("installation device sign-in on daemon pairing", () => {
   async function approvePicked(p:Awaited<ReturnType<typeof prepared>>,flow:ReturnType<typeof channel>,ids:string[],selected:string,timers?:boolean) {
     return app.inject({method:"POST",url:`${flow.base}/approve`,headers:p.owner.headers,payload:{fingerprint:clientFingerprint(Buffer.from(p.proof.payload.sign_pk,"hex")),collection_ids:ids,selected_collection_id:selected,...(timers!==undefined?{timer_consent:timers}:{})}});
   }
+  it.each(["approval", "exchange"] as const)("refuses a cloud copy deleted before %s without issuing scope or credentials", async boundary => {
+    const pairing = await prepared(), collection = await scopeCollection(pairing.owner.user);
+    const approve = () => approvePicked(pairing,pairing.flow,[collection],collection);
+    if (boundary === "exchange") expect((await approve()).statusCode).toBe(200);
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')",[collection,randomUUID()]);
+    const refused = boundary === "approval" ? await approve() : await pairing.flow.exchange();
+    expect([refused.statusCode,refused.json().error.code]).toEqual([403,"installation_collection_unavailable"]);
+    const state = (await db.query("SELECT approved_at IS NOT NULL AS approved, consumed_at IS NOT NULL AS consumed FROM pairing_requests WHERE id=$1",[pairing.input.installation.request_id])).rows[0];
+    expect(state).toEqual({approved:boundary === "exchange",consumed:false});
+    expect(await scopes(pairing.selected.connector_id)).toEqual([]);
+    expect((await db.query("SELECT 1 FROM installation_device_credentials WHERE connector_id=$1",[pairing.selected.connector_id])).rows).toEqual([]);
+  });
   async function timerApp(nativeDelivery?: {mode:"managed_fcm";firebase_project_id:string}|{mode:"webhook";url:string}) {
     const id = await registeredApp(`bundle:synthetic.reminders.${randomUUID()}`);
     await db.query("UPDATE applications SET requirements=$2::jsonb,notifications=$3::jsonb WHERE id=$1", [id,
@@ -1808,81 +1767,6 @@ describePg("installation device sign-in on daemon pairing", () => {
     }
     for(const record of preserved) expect(sent.filter(payload=>payload.includes(record.signalId))).toHaveLength(2);
   });
-  it("preserves real imported overdue/fired history only after the original hosted account completion",async()=>{
-    const f=await tasknotesRetirementFixture(),owner=f.p.owner.user,cohort=`reminders-${randomUUID().slice(0,8)}`,actor="synthetic-local-pg";
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template,provider_url,authority_state) VALUES($1,$2,'Synthetic original','mdbase','https://provider.example.test','active')",[f.collection,owner]);
-    await db.query("UPDATE grants SET collection_id=NULL,hosted_collection_id=$2 WHERE id=ANY($1::uuid[])",[[f.first,f.second],f.collection]);
-    const grant=(await f.resolver.resolve(db,f.first))!;
-    const records:Array<Record<string,unknown>>=[];
-    for(const [id,status,fire] of [["imported-overdue","scheduled",f.past],["imported-fired","fired",f.future],["imported-completed","scheduled",f.past]] as const) {
-      const runtime_id=`connect:${f.first}:task-reminders:timer.${Buffer.from(id).toString("hex")}`,runtime_namespace=`connect-hosted:${f.collection}:notifications`;
-      const record={id:runtime_id,generation:7,status,fire_at:fire,created_at:"2020-01-01T00:00:00.000Z",updated_at:"2020-01-02T00:00:00.000Z",fired_at:status==="fired"?fire:null,
-        event_contract:MDBASE_TIMER_FIRED_CONTRACT,event_source:{application:"connect",implementation:"notifications",version:"1.0.0"},source_uri:"urn:test:timer",subject:null,
-        data:{grant_id:f.first,namespace:"task-reminders",timer_id:id,criterion_id:"task.reminder",data:null}};
-      records.push(record);
-      await timerTransaction(connection=>importTimer(connection,grant,{grant_id:f.first,namespace:"task-reminders",id,criterion_id:"task.reminder",fire_at:fire,data:null,generation:"7",status,
-        created_at:record.created_at,updated_at:record.updated_at,fired_at:record.fired_at,runtime_namespace,runtime_id,record_json:JSON.stringify(record)}));
-    }
-    const desired=[{id:"imported-fired",fire_at:f.future},{id:"imported-overdue",fire_at:f.past}];
-    const denied=await f.reconcile(desired);expect(denied.statusCode,denied.body).toBe(409);
-    expect((await db.query("SELECT 1 FROM next_tasknotes_legacy_reminder_retirements WHERE user_id=$1",[owner])).rows).toHaveLength(0);
-    // Qualify the existing completion guard through its normal lifecycle. The
-    // importer above exercised real SQL, original metadata and all timestamps;
-    // this provider fixture supplies only the cutover/flip test boundary.
-    await db.query("UPDATE users SET account_backend='legacy' WHERE id=$1",[owner]);
-    await db.query("UPDATE next_collections SET runtime='shadow' WHERE collection_id=$1",[f.collection]);
-    await createCohort(db,cohort,actor);await addToCohort(db,cohort,[owner],actor);await releaseCohort(db,cohort,actor);await setCohortFrozen(db,cohort,true,"synthetic archive",actor);
-    const binding=await cohortArchiveBinding(db,cohort),clock=new Date((await db.query("SELECT date_trunc('milliseconds',clock_timestamp()) AS now")).rows[0].now).toISOString();
-    const component=(name:string,hex:string)=>({commit:hex.repeat(40),image_digest:`sha256:${hex.repeat(64)}`,service_id:`srv-synthetic${name}`});
-    await acceptCohortArchive(db,cohort,{schema:"mdbase-recovery-set/lab-cohort-v1",environment:"lab",bucket:"synthetic-archives",prefix:`legacy-archive/lab/2026/10/23/${cohort}`,backup_id:cohort,
-      complete_sha256:"a".repeat(64),manifest_sha256:"b".repeat(64),source_commit:"f".repeat(40),migration_batch:binding,archive_created_at:clock,archive_completed_at:clock,
-      retention:{mode:"GOVERNANCE",days:116,retain_until:new Date(Date.parse(clock)+116*86_400_000).toISOString(),inventory_digest:"c".repeat(64),count:"1"},
-      runtime_provenance:{connect:component("connect","a"),hosted_provider:component("provider","b"),relay:component("relay","c"),mcp:component("mcp","d")}},"lab");
-    await setPaused(db,false,"synthetic migration",actor);await startAccountMigration(db,owner,"lab");
-    const facts={s_final:7,cutover_seq:11,barrier_f:13,final_digest:"e".repeat(64)};
-    await recordCollectionCutover(db,f.collection,facts);
-    // Real schema2 source SQL and the actual importer/manifest readback. Only
-    // the provider HTTP drain boundary is synthetic, never the database.
-    await db.query(`CREATE TABLE hosted_provider_collections(id uuid PRIMARY KEY,state text,legacy_migration_id uuid,legacy_migration_started_at timestamptz,head bigint);
-      CREATE TABLE mdbase_runtime_schema(singleton boolean PRIMARY KEY,version integer);
-      INSERT INTO mdbase_runtime_schema VALUES(true,2);
-      CREATE TABLE mdbase_runtime_timers(namespace text,id text,generation bigint,status text,fire_at timestamptz,record_json jsonb,lease_token text,lease_worker text,lease_expires_at timestamptz);
-      CREATE TABLE mdbase_runtime_runs(namespace text,status text,lease_token text,lease_worker text,lease_expires_at timestamptz,record_json jsonb);
-      CREATE TABLE hosted_provider_runtime_outbox(collection_id uuid,processed_at timestamptz,lease_token text,leased_until timestamptz);
-      CREATE TABLE hosted_provider_mutation_journal(replica_id uuid,state text,lease_expires_at timestamptz);
-      CREATE TABLE hosted_provider_replicas(id uuid,collection_id uuid)`);
-    const provider=fakeLegacyProvider(f.collection,{state:"migrated",retain_until:"2027-01-12T00:00:00.000Z"});
-    await db.query("INSERT INTO hosted_provider_collections VALUES($1,'migrated',$2,$3,$4)",[f.collection,provider.source.migration_id,provider.source.started_at,provider.source.head]);
-    for(const record of records) await db.query("INSERT INTO mdbase_runtime_timers(namespace,id,generation,status,fire_at,record_json) VALUES($1,$2,7,$3,$4,$5::jsonb)",
-      [`connect-hosted:${f.collection}:notifications`,record.id,record.status,record.fire_at,JSON.stringify(record)]);
-    await importHostedCollectionTimers({db,source:db,provider,resolver:f.resolver,collection:f.collection,actor});
-    await flipAccountBackend(db,owner,[f.collection],flipEvidenceDigest([{collection_id:f.collection,barrier_f:facts.barrier_f,final_digest:facts.final_digest}]),{enabled:true,provider},"lab");
-    const origins=(await db.query("SELECT timer_id,legacy_import_origin FROM next_timers WHERE grant_id=$1 ORDER BY timer_id",[f.first])).rows;
-    const response=await f.reconcile(desired);expect(response.statusCode,response.body).toBe(200);
-    expect((await f.reconcile(desired)).statusCode).toBe(200);
-    const transferred=(await db.query("SELECT timer_id,status,generation,created_at,updated_at,fired_at,legacy_import_origin FROM next_timers WHERE grant_id=$1 ORDER BY timer_id",[f.grantId])).rows;
-    expect(transferred.map(t=>({id:t.timer_id,status:t.status,generation:t.generation}))).toEqual([
-      {id:"imported-fired",status:"fired",generation:"7"},{id:"imported-overdue",status:"scheduled",generation:"7"}]);
-    for(const timer of transferred) {
-      expect(new Date(timer.created_at).toISOString()).toBe("2020-01-01T00:00:00.000Z");
-      expect(new Date(timer.updated_at).toISOString()).toBe("2020-01-02T00:00:00.000Z");
-      expect(timer.legacy_import_origin).toBeNull();
-    }
-    expect((await db.query("SELECT timer_id,legacy_import_origin FROM next_timers WHERE grant_id=$1 ORDER BY timer_id",[f.first])).rows).toEqual(origins);
-    expect((await db.query("SELECT fired_at FROM next_timers WHERE grant_id=$1 AND timer_id='imported-fired'",[f.grantId])).rows[0].fired_at.toISOString()).toBe(f.future);
-    expect((await db.query("SELECT 1 FROM next_timers WHERE grant_id=$1 AND timer_id='imported-completed'",[f.grantId])).rows).toHaveLength(0);
-    // Completing/deleting the current task before the worker runs cancels even
-    // imported overdue work; no omission exception can resurrect it.
-    expect((await f.reconcile([])).statusCode).toBe(200);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1 AND timer_id='imported-overdue'",[f.grantId])).rows).toEqual([{status:"cancelled"}]);
-    const registered=await app.inject({method:"POST",url:channelPath(f),headers:{authorization:`Bearer ${f.token}`},payload:{...webChannel(f),criteria:["task.reminder"]}});
-    expect(registered.statusCode,registered.body).toBe(201);
-    const consumer=notificationsConsumer(()=>undefined,f.resolver),worker=new TimerWorker(db,[consumer],{resolver:f.resolver}),sent:string[]=[];
-    await worker.fireDue();await worker.drainConsumer(consumer);
-    const service=new NotificationService(db,{webPush:{send:async(_target,payload)=>{sent.push(payload);}}},1000,()=>undefined,channelSealer,f.resolver);
-    await service.drainOnce();expect(sent.some(payload=>payload.includes(timerEventId(f.grantId,"task-reminders","imported-overdue",7)))).toBe(false);
-    expect((await db.query("SELECT 1 FROM next_timer_events WHERE grant_id=$1",[f.grantId])).rows).toHaveLength(0);
-  });
 
   async function timerTransaction<T>(body:(connection:Awaited<ReturnType<DatabasePool["connect"]>>)=>Promise<T>):Promise<T> {
     const connection=await db.connect();
@@ -2014,7 +1898,6 @@ describePg("installation device sign-in on daemon pairing", () => {
     expect((await app.inject({method:"GET",url:base.replace(f.collection,other.collection),headers})).statusCode).toBe(403);
     expect((await app.inject({method:"GET",url:base.replace(f.grantId,other.grantId),headers})).statusCode).toBe(401);
     expect((await app.inject({method:"GET",url:`/v1/next/collections/${f.collection}/timers/reminders`,headers})).statusCode).toBe(401);
-    expect((await app.inject({method:"GET",url:`/internal/v1/next/timers/${f.grantId}/reminders`,headers})).statusCode).toBe(401);
     const p=await prepared("app-runtime",false,undefined,undefined,await timerApp()),collection=await scopeCollection(p.owner.user);
     expect((await approvePicked(p,p.flow,[collection],collection,false)).statusCode).toBe(200);
     const receipt=(await p.flow.exchange()).json();

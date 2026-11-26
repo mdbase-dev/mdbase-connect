@@ -1,5 +1,5 @@
 import { t } from "@lingui/core/macro";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor, JsonObject } from "./connect-types";
 import { declaredFields } from "./field-reference";
 import type { NoteDocument, NoteSummary } from "./model";
 import { pendingNoteRequestId } from "./pending-note-mutation";

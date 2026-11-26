@@ -1,24 +1,6 @@
-import type {
-  CollectionDescription,
-  DescribeOptions,
-  CollectionFileDescriptor,
-  CollectionTypeDocument,
-  MdbaseFileProgress,
-  MdbaseFileSource,
-  JsonObject,
-  MdbaseDiagnostic,
-  MutationProgress,
-  MdbaseUnavailableReason,
-  RenamePreflightResult,
-  DeletePreflightResult,
-  DirectAccessStatus,
-  RecordDocument,
-  QueryRecord,
-  TypePackProvision,
-  TypePackAssessment
-} from "@mdbase-dev/connect";
+import type { CollectionDescription, DescribeOptions, CollectionFileDescriptor, CollectionTypeDocument, MdbaseFileProgress, MdbaseFileSource, JsonObject, MdbaseDiagnostic, MutationProgress, MdbaseUnavailableReason, RenamePreflightResult, DeletePreflightResult, DirectAccessStatus, RecordDocument, QueryRecord, TypePackProvision, TypePackAssessment } from "./connect-types";
 
-export type TypePackApplyResult = import("@mdbase-dev/connect").TypePackApplyResult;
+export type TypePackApplyResult = import("./connect-types").TypePackApplyResult;
 
 export type NoteFrontmatter = JsonObject;
 
@@ -172,8 +154,66 @@ export type LinkTarget =
   /** Not a link the collection can follow (for example, it leaves the collection). */
   | { kind: "invalid" };
 
+/** A note that links to another. */
+export interface Backlink {
+  path: string;
+  /** The properties holding its links, in the note's order; none when every
+   * link is in the note's text. */
+  fields: string[];
+}
+
+/** Who wrote a note version: the signing device and its account, and the app
+ * grant the write went through. */
+export interface NoteVersionAuthor {
+  /** The all-zero service account when the hosted device signed. */
+  account: string;
+  device: string;
+  grant?: string;
+  /** The grant's account, only when the hosted device signed. */
+  grantAccount?: string;
+}
+
+/** One version of a note that the collection log still keeps. */
+export interface NoteVersion {
+  /** Its log position: what `NoteHistoryReader.version` reads, and `before` pages past. */
+  seq: number;
+  /** The writer's capture time (ms). */
+  time: number;
+  author: NoteVersionAuthor;
+  kind: "created" | "edited" | "moved" | "deleted";
+  /** The note's path after this version (before it, for a deletion). */
+  path: string;
+  /** Absent for a deletion. */
+  revision?: string;
+  /** `external`: an edit made in the folder, outside mdbase. */
+  source: "api" | "external";
+  /** The signing device's kind, such as `desktop`, `mobile` or `app_runtime`. */
+  deviceKind: string;
+  /** The grant's app ID. */
+  app?: string;
+}
+
+/** One page of a note's versions, newest first. */
+export interface NoteHistory {
+  versions: NoteVersion[];
+  /** The lowest log position read. */
+  from: number;
+  /** When the oldest kept entry was written (ms), if known. */
+  fromTime?: number;
+  /** Present while older versions may exist: pass it as `before`. */
+  next?: number;
+}
+
+/** A note's history, read from the collection log by the note's current path. */
+export interface NoteHistoryReader {
+  /** One page of the note's kept versions, newest first. */
+  list(path: string, options?: { before?: number; signal?: AbortSignal }): Promise<NoteHistory>;
+  /** The exact text of the note's version at log position `seq`. */
+  version(path: string, seq: number, options?: { signal?: AbortSignal }): Promise<string>;
+}
+
 export interface CollectionGateway {
-  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[];
+  pendingNoteMutations(): readonly import("./connect-types").PendingMutationSummary[];
   /** Undefined only when the exact recovered operation was a confirmed delete. */
   recoverNoteMutation(requestId: string): Promise<NoteDocument | undefined>;
   sessionSnapshot(): CollectionSessionSnapshot;
@@ -188,13 +228,16 @@ export interface CollectionGateway {
   ): Promise<void>;
   forgetConnection(collectionId: string): void | Promise<void>;
   describe(options?: DescribeOptions): Promise<CollectionDescription>;
-  /** Demo collections have no authenticated account. Members are never read here. */
-  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("@mdbase-dev/connect").PeopleDirectory>;
+  /** Demo collections have no authenticated account. Members are never read here.
+   * Native collections also report the account's ID, which history authors carry. */
+  peopleDirectory?(options?: { signal?: AbortSignal }): Promise<import("./connect-types").PeopleDirectory & { account: { accountId?: string } }>;
+  /** Absent where the gateway serves no history. */
+  readonly noteHistory?: NoteHistoryReader;
   /** Every page of one contract/type projection. */
   queryContract?(
-    contract: import("@mdbase-dev/connect").DataContractSelector,
+    contract: import("./connect-types").DataContractSelector,
     options?: { signal?: AbortSignal }
-  ): Promise<Array<{ path: string; values: import("@mdbase-dev/connect").JsonObject }>>;
+  ): Promise<Array<{ path: string; values: import("./connect-types").JsonObject }>>;
   /** Absent where sync is not the gateway's to report (demo, Connect). */
   syncState?(): import("./app-state-types").EditorSyncState;
   onSyncState?(listener: () => void): () => void;
@@ -203,9 +246,13 @@ export interface CollectionGateway {
    * runtime's `file.body.lower().contains(term)`, answered from its full-text
    * index for a lower-case term of three or more characters. */
   searchBodies(term: string, options?: { signal?: AbortSignal }): Promise<string[]>;
-  /** Paths of the notes whose links resolve to `path`, from the collection's
-   * link index (Core resolution; the note's links to itself excluded). */
-  backlinks(path: string, options?: { signal?: AbortSignal }): Promise<string[]>;
+  /** Paths of every note with `tag` or a tag nested under it, among its
+   * frontmatter `tags` and inline `#tags`: the runtime's `file.hasTag(tag)`.
+   * Record views carry no tags, so this is how inline tags are found. */
+  searchTag(tag: string, options?: { signal?: AbortSignal }): Promise<string[]>;
+  /** The notes whose links resolve to `path`, from the collection's link
+   * index (Core resolution; the note's links to itself excluded). */
+  backlinks(path: string, options?: { signal?: AbortSignal }): Promise<Backlink[]>;
   /** Resolve links as written in the note at `from`, one result per link, in
    * order, by the collection's own rules (Core resolution; `from` may be unsaved). */
   resolveLinks(from: string, links: readonly string[], options?: { signal?: AbortSignal }): Promise<LinkTarget[]>;
@@ -219,7 +266,7 @@ export interface CollectionGateway {
    * the same restore is retried, so it lands once. */
   restore(document: NoteDocument, id?: string): Promise<NoteDocument>;
   /** Revision-checked write of only the changed parts, against `base`. */
-  update(base: NoteDocument, change: import("@mdbase-dev/connect/advanced").MdbaseRecordChange): Promise<NoteDocument>;
+  update(base: NoteDocument, change: import("./connect-types").MdbaseRecordChange): Promise<NoteDocument>;
   updateProperties(path: string, patch: JsonObject, revision: string): Promise<NoteDocument>;
   updateDocument(path: string, document: string, revision: string): Promise<NoteDocument>;
   preflightRename(from: string, to: string, revision: string): Promise<RenamePreflight>;
@@ -248,7 +295,7 @@ export interface NativeObservationProblem {
   message: string;
   error: unknown;
 }
-export type ObservationProblem = import("@mdbase-dev/connect").ConnectProblem | NativeObservationProblem;
+export type ObservationProblem = import("./connect-types").ConnectProblem | NativeObservationProblem;
 export type ObservationOutcome = { ok: true } | { ok: false; problem: ObservationProblem };
 /** Presentation subset of watch state; the Connect observer's status satisfies it. */
 export type ObservationWatchStatus =
@@ -262,13 +309,14 @@ export interface NoteObservationSnapshot {
   readonly problem: ObservationProblem | null;
   readonly watchStatus: ObservationWatchStatus | null;
 }
-/** Record membership changes reported by a native observation. Its reset
+/** Collection changes reported by a native observation. Its reset
  * carries no Connect event cursor or raw wire payload. */
 export type NativeCollectionChange =
   | { source: "native"; kind: "record.created" | "record.updated" | "record.deleted"; path: string; revision?: string }
   | { source: "native"; kind: "record.renamed"; from: string; to: string; revision?: string }
+  | { source: "native"; kind: "file.changed"; path: string }
   | { source: "native"; kind: "reset" };
-export type EditorCollectionChange = import("@mdbase-dev/connect").CollectionChange | NativeCollectionChange;
+export type EditorCollectionChange = import("./connect-types").CollectionChange | NativeCollectionChange;
 /** The collection-owned index observation the editor consumes. Implemented by
  * the Connect observer and by the native SDK observation; not a second index. */
 export interface NoteObservation {

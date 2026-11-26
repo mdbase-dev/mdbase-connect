@@ -756,6 +756,7 @@ export type Op =
       base?: BaseField[];
       ifRevision?: Hash;
       updateRefs?: boolean;
+      requireLive?: boolean;
     }
   | { kind: "document"; id: Uuid; base?: DocVersion; new?: DocVersion; ifRevision?: Hash }
   | { kind: "delete"; id: Uuid; baseRevision?: Hash; ifRevision?: Hash }
@@ -770,7 +771,22 @@ export type Op =
 
 const listsByField = dataMap(list(value));
 
-export const op = union<Op>("op", [
+const updateFields: Field[] = [
+  [1, "id", uuid],
+  [2, "patch", fmMap, "opt"],
+  [3, "unset", list(tstr), "opt1"],
+  [4, "add", listsByField, "opt"],
+  [5, "remove", listsByField, "opt"],
+  [6, "body", tstr, "opt"],
+  [7, "bodyEdits", list(bodyEdit), "opt1"],
+  [8, "bodyBase", hash, "opt"],
+  [9, "bodyBaseText", tstr, "opt"],
+  [10, "base", list(baseField), "opt1"],
+  [11, "ifRevision", hash, "opt"],
+  [12, "updateRefs", bool, "opt"],
+];
+type LiveUpdate = Omit<Extract<Op, { kind: "update" }>, "kind"> & { kind: "update_live" };
+const taggedOp = union<Op | LiveUpdate>("op", [
   [
     1,
     "create",
@@ -783,24 +799,8 @@ export const op = union<Op>("op", [
       [6, "document", tstr, "opt"],
     ],
   ],
-  [
-    2,
-    "update",
-    [
-      [1, "id", uuid],
-      [2, "patch", fmMap, "opt"],
-      [3, "unset", list(tstr), "opt1"],
-      [4, "add", listsByField, "opt"],
-      [5, "remove", listsByField, "opt"],
-      [6, "body", tstr, "opt"],
-      [7, "bodyEdits", list(bodyEdit), "opt1"],
-      [8, "bodyBase", hash, "opt"],
-      [9, "bodyBaseText", tstr, "opt"],
-      [10, "base", list(baseField), "opt1"],
-      [11, "ifRevision", hash, "opt"],
-      [12, "updateRefs", bool, "opt"],
-    ],
-  ],
+  [2, "update", updateFields],
+  [19, "update_live", updateFields],
   [
     3,
     "document",
@@ -891,6 +891,11 @@ export const op = union<Op>("op", [
   ],
   [12, "sync_settings", [[1, "inclusion", fileInclusion]]],
 ]);
+
+export const op = mapped<Op | LiveUpdate, Op>("op", taggedOp,
+  v => v.kind === "update_live" ? { ...v, kind: "update", requireLive: true } : v,
+  v => v.kind === "update" && v.requireLive ? { ...v, kind: "update_live" } : v,
+);
 
 // ------------------------------------------------------------------ writes (§5, §6)
 

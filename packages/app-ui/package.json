@@ -80,10 +80,46 @@
       "types": "./dist/CollectionModeControl.d.ts",
       "import": "./dist/CollectionModeControl.js"
     },
-    "./confirm-dialog": { "types": "./dist/ConfirmDialog.d.ts", "import": "./dist/ConfirmDialog.js" },
-    "./menu": { "types": "./dist/Menu.d.ts", "import": "./dist/Menu.js" },
-    "./tooltip": { "types": "./dist/Tooltip.d.ts", "import": "./dist/Tooltip.js" },
-    "./overlay": { "types": "./dist/overlay.d.ts", "import": "./dist/overlay.js" },
+    "./confirm-dialog": {
+      "types": "./dist/ConfirmDialog.d.ts",
+      "import": "./dist/ConfirmDialog.js"
+    },
+    "./anchored-popover": {
+      "types": "./dist/AnchoredPopover.d.ts",
+      "import": "./dist/AnchoredPopover.js"
+    },
+    "./combo": {
+      "types": "./dist/Combo.d.ts",
+      "import": "./dist/Combo.js"
+    },
+    "./date-picker": {
+      "types": "./dist/DatePicker.d.ts",
+      "import": "./dist/DatePicker.js"
+    },
+    "./filter-builder": {
+      "types": "./dist/filter-builder.d.ts",
+      "import": "./dist/filter-builder.js"
+    },
+    "./properties": {
+      "types": "./dist/properties.d.ts",
+      "import": "./dist/properties.js"
+    },
+    "./link-picker": {
+      "types": "./dist/LinkPicker.d.ts",
+      "import": "./dist/LinkPicker.js"
+    },
+    "./menu": {
+      "types": "./dist/Menu.d.ts",
+      "import": "./dist/Menu.js"
+    },
+    "./tooltip": {
+      "types": "./dist/Tooltip.d.ts",
+      "import": "./dist/Tooltip.js"
+    },
+    "./overlay": {
+      "types": "./dist/overlay.d.ts",
+      "import": "./dist/overlay.js"
+    },
     "./dialog": {
       "types": "./dist/Dialog.d.ts",
       "import": "./dist/Dialog.js"
@@ -100,6 +136,10 @@
       "types": "./dist/popover.d.ts",
       "import": "./dist/popover.js"
     },
+    "./quick-create": {
+      "types": "./dist/QuickCreate.d.ts",
+      "import": "./dist/QuickCreate.js"
+    },
     "./save-notice": {
       "types": "./dist/SaveNotice.d.ts",
       "import": "./dist/SaveNotice.js"
@@ -112,9 +152,17 @@
       "types": "./dist/opening-page.d.ts",
       "import": "./dist/opening-page.js"
     },
+    "./segmented": {
+      "types": "./dist/Segmented.d.ts",
+      "import": "./dist/Segmented.js"
+    },
     "./select": {
       "types": "./dist/Select.d.ts",
       "import": "./dist/Select.js"
+    },
+    "./switch": {
+      "types": "./dist/Switch.d.ts",
+      "import": "./dist/Switch.js"
     },
     "./text-diff": {
       "types": "./dist/text-diff.d.ts",
@@ -131,12 +179,15 @@
     "./brand.css": "./css/brand.css",
     "./collections.css": "./css/collections.css",
     "./controls.css": "./css/controls.css",
+    "./date-picker.css": "./css/date-picker.css",
     "./comments.css": "./css/comments.css",
     "./fonts.css": "./css/fonts.css",
     "./live-preview.css": "./css/live-preview.css",
     "./feedback.css": "./css/feedback.css",
+    "./filter-builder.css": "./css/filter-builder.css",
     "./motion.css": "./css/motion.css",
     "./palette.css": "./css/palette.css",
+    "./properties.css": "./css/properties.css",
     "./screens.css": "./css/screens.css",
     "./tokens.css": "./css/tokens.css"
   },
@@ -191,7 +242,7 @@
     "@lingui/react": "6.9.0",
     "@lingui/vite-plugin": "6.9.0",
     "@mdbase-dev/i18n": "workspace:*",
-    "@mdbase-dev/sdk": "0.1.0-beta.188",
+    "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-b86ceff0-production-0.2.33.tgz",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.0.0",

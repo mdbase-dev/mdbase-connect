@@ -21,6 +21,7 @@ import { list, uint, uuid as uuidCodec, uuidFromBytes } from "./codec.js";
 import {recordValidations, captureValidation, bindValidation, type RecordValidation} from "./validation.js";
 import { isMdbaseError, mdbaseError, MdbaseError } from "./errors.js";
 import { FilesApi } from "./files.js";
+import { recordHistory, recordHistoryParams, recordVersion, recordVersionParams, type HistoryOptions, type RecordHistory, type RecordVersion } from "./history.js";
 import { settleWrite, type Settlement, type SettleOptions } from "./settle.js";
 import { readMany as readManyRecords, queryPages as readQueryPages, type ReadManyOptions } from "./read-helpers.js";
 import {RecordsApi, type Records, type RecordOpenOptions, type RecordLease} from "./records.js";
@@ -113,7 +114,7 @@ export interface ClientOptions {
   features?: string[];
   /** Reconnect after the link drops (default on). */
   reconnect?: false | { minDelayMs?: number; maxDelayMs?: number };
-  /** Private collections: wait for a device replica to come online instead of failing. */
+  /** Private collections: wait for a device replica to come online and serve the collection instead of failing. */
   waitForDevice?: boolean;
   /** Called while waiting for a device or the original Native grant to become live. */
   onWaiting?: (why: MdbaseError) => void;
@@ -147,11 +148,20 @@ export interface ChangesWatch {
   readonly ready: Promise<void>;
   readonly state: ChangesWatchState;
   readonly error: MdbaseError | null;
+  /** The feed position this watch has delivered up to: the last batch's
+   * cursor, or the last catch-up page's when it had nothing to deliver.
+   * `undefined` until the first catch-up read. A cache that has applied every
+   * delivered batch can stop the watch and later resume with
+   * `watchChanges(onChanges, { cursor })`; a cursor the replica can no longer
+   * serve resumes with `reset: true`. */
+  readonly cursor: string | undefined;
   subscribe(listener: (state: ChangesWatchState, error: MdbaseError | null) => void): () => void;
 }
 
 /** Changes asked for at a time while a watch catches up from its cursor. */
 const CHANGES_PAGE = 1000;
+/** With `waitForDevice`: the computer is offline, or online but not serving the collection yet. */
+const DEVICE_WAITS = new Set(["no_device_online", "not_served", "device_not_serving"]);
 
 /** A spec 11 query object. Plain objects are converted to data maps. */
 export type Query = {
@@ -218,11 +228,25 @@ function accountSecret(secret: Uint8Array): void {
 
 /** The `hello` feature that lets `validate` page through every record. */
 const VALIDATE_PAGE = "validate-page-v1";
+const BASES_DISCOVERY_UNREADABLE = "bases-discovery-unreadable-v1";
+const BASES_ROW_PROPERTIES = "bases-row-properties-v1";
+const CONTRACT_QUERY_ORDER = "contract-query-order-v1";
+const CONTRACT_QUERY_ORDER_MTIME = "contract-query-order-mtime-v1";
 
 function params(entries: [number, CborValue | undefined][]): Map<number, CborValue> {
   const m = new Map<number, CborValue>();
   for (const [k, v] of entries) if (v !== undefined) m.set(k, v);
   return m;
+}
+
+/** A replica that predates record history answers `unknown_method` (§4.4). */
+function historyRead<T>(read: Promise<T>): Promise<T> {
+  return read.catch((e: unknown) => {
+    if (isMdbaseError(e, "invalid_request") && e.reason === "unknown_method") {
+      throw mdbaseError("upgrade_required", "This collection's replica has no record history.", "history_unsupported");
+    }
+    throw e;
+  });
 }
 
 function withCurrentGrant(hello: HelloResult, grant: HelloResult["grant"] | undefined): HelloResult {
@@ -252,6 +276,8 @@ export interface CreateInput {
 }
 
 export interface UpdateInput {
+  /** Refuse with not_found/deleted rather than restoring a tombstone at replay. */
+  requireLive?: boolean;
   /** Rewrite inbound links on path-stored field moves (default true). */
   updateRefs?: boolean;
   /** Set these top-level keys. */
@@ -546,7 +572,7 @@ const READ_METHODS = new Set([
   "get", "query", "query_contract_v1", "subscribe", "changes", "backlinks", "list_resources", "get_resource",
   "describe", "describe_typing", "list_files", "get_file", "read_file",
   "list_holds", "list_conflicts", "validate", "new_type_file", "get_contract_v1", "map_contract_write_v1",
-  "plan_type_pack_v1",
+  "plan_type_pack_v1", "record_history", "record_version",
 ]);
 
 export class MdbaseClient {
@@ -646,8 +672,9 @@ export class MdbaseClient {
   }
 
   /**
-   * Connect to a replica and say hello. With `waitForDevice`, a private collection with
-   * no device online keeps retrying (calling `onWaiting`) instead of failing.
+   * Connect to a replica and say hello. With `waitForDevice`, a private collection whose
+   * computer is offline or not serving it right now keeps retrying (calling `onWaiting`)
+   * instead of failing.
    * A next-relay pre-live grant waits up to 30 seconds on this same connector.
    * This is initial hello only: no application request or unknown write is replayed.
    */
@@ -685,7 +712,7 @@ export class MdbaseClient {
           if (signal?.aborted) throw stopped();
           const pending = nextRelay && isMdbaseError(e, "unavailable")
             && (e.reason === "grant_lease_expired" || e.reason === "authorization_unavailable");
-          if (!(pending || opts.waitForDevice && isMdbaseError(e, "unavailable") && e.reason === "no_device_online")) throw e;
+          if (!(pending || opts.waitForDevice && isMdbaseError(e, "unavailable") && DEVICE_WAITS.has(e.reason ?? ""))) throw e;
           if (pending && !deadline) {
             deadline = new AbortController();
             timeout = mdbaseError("unavailable", "The approved grant did not become live within 30 seconds", { reason: "grant_activation_timeout", details: e.toProblem().details });
@@ -712,7 +739,7 @@ export class MdbaseClient {
       versions: API_VERSIONS,
       clientName: opts.app.name,
       clientVersion: opts.app.version,
-      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE])],
+      features: [...new Set([...(opts.features ?? []), "declared-collection-setup-v1", "file-stream-failure-v1", VALIDATE_PAGE, BASES_DISCOVERY_UNREADABLE, BASES_ROW_PROPERTIES, CONTRACT_QUERY_ORDER, CONTRACT_QUERY_ORDER_MTIME])],
       ...(tz ? { timezone: tz } : {}),
     };
   }
@@ -1325,17 +1352,44 @@ export class MdbaseClient {
   }
 
   /** Canonical contract projections with validation issues and ordinary cursor
-   * metadata. Positive page sizes above the producer's 128-record maximum clamp
-   * to 128; use the returned cursor for the remaining records. Old producers
-   * refuse; there is no SDK projection fallback. */
+   * metadata. Positive page sizes clamp to the producer's maximum (1000 when
+   * `contract-query-order-v1` is negotiated, 128 on older producers); use the
+   * returned cursor for the remaining records. `orderBy` uses the spec 11
+   * `order_by` grammar over contract fields and `file.*`, bound to the cursor;
+   * older producers refuse `orderBy` with `upgrade_required`. Ordering by
+   * `file.mtime` additionally requires `contract-query-order-mtime-v1`. */
   async queryContract(contract: ContractRef, options: ContractQueryOptions = {}): Promise<ContractQueryResult> {
     const requested = options.pageSize ?? 128;
     if (!Number.isInteger(requested) || requested < 1 || !contract.id || contract.id.length > 1024 || !contract.version || contract.version.length > 128
       || (options.where !== undefined && (!options.where || options.where.length > 4096)))
       throw mdbaseError("invalid_request", "invalid contract page selection");
-    const limit = Math.min(requested, 128);
+    let orderWire: CborValue | undefined;
+    let ordersByMtime = false;
+    if (options.orderBy !== undefined) {
+      if (!Array.isArray(options.orderBy) || options.orderBy.length < 1 || options.orderBy.length > 8)
+        throw mdbaseError("invalid_request", "invalid contract order_by", "invalid_query");
+      const terms: { field: string; direction?: "asc" | "desc" }[] = [];
+      for (const term of options.orderBy) {
+        if (!term || typeof term !== "object" || Array.isArray(term))
+          throw mdbaseError("invalid_request", "invalid contract order_by term", "invalid_query");
+        const keys = Object.keys(term);
+        if (keys.some(k => k !== "field" && k !== "direction") || typeof term.field !== "string" || !term.field || term.field.length > 256
+          || (term.direction !== undefined && term.direction !== "asc" && term.direction !== "desc"))
+          throw mdbaseError("invalid_request", "invalid contract order_by term", "invalid_query");
+        if (term.field === "file.mtime") ordersByMtime = true;
+        terms.push(term.direction === undefined ? { field: term.field } : { field: term.field, direction: term.direction });
+      }
+      orderWire = toValue(terms);
+    }
+    const session = await this.readyForRead(options.signal);
+    const extended = session.hello.features.includes(CONTRACT_QUERY_ORDER);
+    if (orderWire !== undefined && !extended)
+      throw mdbaseError("upgrade_required", "This replica does not support ordered contract queries.", "contract_query_order_unsupported");
+    if (ordersByMtime && !session.hello.features.includes(CONTRACT_QUERY_ORDER_MTIME))
+      throw mdbaseError("upgrade_required", "This replica does not support ordering contract queries by file.mtime.", "contract_query_order_mtime_unsupported");
+    const limit = Math.min(requested, extended ? 1000 : 128);
     const result = await this.call("query_contract_v1", params([
-      [0, 1], [1, contract.id], [2, contract.version], [3, limit], [4, options.cursor], [5, options.where],
+      [0, 1], [1, contract.id], [2, contract.version], [3, limit], [4, options.cursor], [5, options.where], [6, orderWire],
     ]), { codec: contractQueryResult, retry: true, ...(options.signal ? { signal: options.signal } : {}) });
     if (result.version !== 1) throw mdbaseError("upgrade_required", "unsupported contract query result", "contract_query_version");
     if (result.records.length !== result.page.records.length || result.records.some((record, i) => record.id !== result.page.records[i]?.id))
@@ -1402,6 +1456,28 @@ export class MdbaseClient {
       throw e;
     });
   }
+
+  /**
+   * Record history (§4.4, API 1.4): the versions of a record that the log still
+   * retains. Needs `collection.read` and `history.read` through a grant without
+   * a folder scope. A replica without history,
+   * the hosted replica and a local-only collection refuse with
+   * `upgrade_required` / `history_unsupported`.
+   */
+  readonly history = {
+    /** One page of a record's versions, newest first. Pass `next` as `before`
+     * for older ones. `o.signal` cancels the read. */
+    list: (record: Uuid, o: HistoryOptions = {}): Promise<RecordHistory> =>
+      historyRead(this.call("record_history", recordHistoryParams.enc({ record, before: o.before, limit: o.limit }), {
+        codec: recordHistory, retry: true, ...(o.signal ? { signal: o.signal } : {}),
+      })),
+    /** The exact document of the version at log position `seq`, checked
+     * against its revision. `o.signal` cancels the read. */
+    version: (record: Uuid, seq: number, o: ReadOptions = {}): Promise<RecordVersion> =>
+      historyRead(this.call("record_version", recordVersionParams.enc({ record, seq }), {
+        codec: recordVersion, retry: true, ...(o.signal ? { signal: o.signal } : {}),
+      })),
+  };
 
   /** Definitions: `mdbase.yaml`, type files, contract files (§4.1). */
   readonly resources = {
@@ -1525,13 +1601,15 @@ export class MdbaseClient {
     return r.preflight ?? { rewrites: [], broken: [] };
   }
 
-  /** Every page of a query. `o.include` and `o.signal` apply to every page.
+  /** Every cursor page of a query. The page size defaults to 500 when `limit`
+   * is omitted. `o.include` and `o.signal` apply to every page.
    * Cursor resets require explicit caller clearing through `o.onReset`;
    * otherwise cursor_expired/cursor_stale is thrown unchanged. The query and
    * `o` are captured when iteration starts. */
   async *pages(query: Query, o: RecordReadOptions & PagesOptions = {}): AsyncGenerator<QueryResult> {
     const { include, signal, onReset } = o;
     const original = snapshotQueryValue(query) as Query;
+    if (original.limit === undefined) original.limit = 500;
     const originalInclude = include ? { ...include } : undefined;
     const read: RecordReadOptions = { ...(originalInclude ? { include: originalInclude } : {}), ...(signal ? { signal } : {}) };
     let cursor = original.cursor, restarted = false, pagesYielded = 0;
@@ -1773,7 +1851,7 @@ export class MdbaseClient {
       notify(listener);
       return () => { listeners.delete(listener); };
     } });
-    Object.defineProperties(watch, { state: { get: () => state }, error: { get: () => error } });
+    Object.defineProperties(watch, { state: { get: () => state }, error: { get: () => error }, cursor: { get: () => last } });
     return Object.freeze(watch) as ChangesWatch;
   }
 
@@ -1807,15 +1885,21 @@ export class MdbaseClient {
 
   /** Independent native app-host Bases READ, exact original held session.
    * Unsupported transports refuse: no generic execute_view/data fallback.
+   * Passing `request.rowProperties` projects catalog `types` and those effective
+   * frontmatter properties onto each returned row in the same read; older
+   * replicas without `bases-row-properties-v1` refuse with `upgrade_required`.
    * `o.signal` cancels the read. */
   async executeAppBases(request: AppBasesRequest, o: ReadOptions = {}): Promise<AppBasesResult> {
     const signal = o.signal;
     const window = request.window === undefined ? null : {...request.window};
-    const bytes = encodeAppBasesRequest({...request, ...(window === null ? {} : {window})});
+    const rowProperties = request.rowProperties === undefined ? undefined : [...request.rowProperties];
+    const bytes = encodeAppBasesRequest({...request, ...(window === null ? {} : {window}), ...(rowProperties === undefined ? {} : {rowProperties})});
     const session = await this.readyForRead(signal);
+    if (rowProperties !== undefined && !session.hello.features.includes(BASES_ROW_PROPERTIES))
+      throw mdbaseError("upgrade_required", "This replica does not support projected Bases row properties.", "bases_row_properties_unsupported");
     const reply = await session.readAppBases(bytes, signal);
     if (session !== this.session || session.closed || this.readFencedAt !== null) throw mdbaseError("unavailable", "original Bases session is no longer current");
-    try { return decodeAppBasesResult(reply, window); }
+    try { return decodeAppBasesResult(reply, window, rowProperties ?? null); }
     catch (error) { throw schemaToError(error, "app Bases result"); }
   }
 
@@ -1828,15 +1912,22 @@ export class MdbaseClient {
 
   /** One bounded native discovery page. Empty views do not mean EOF when a
    * continuation is present. Supplied handles never silently restart/retry.
+   * With `reportUnreadable`, a replica that grants
+   * `bases-discovery-unreadable-v1` skips records it cannot classify and names
+   * them in `unreadable`; an older replica refuses the discovery as before, so
+   * an empty `unreadable` on success always means none were skipped.
    * `o.signal` cancels the read. */
   async listAppBasesViews(request: AppBasesDiscoveryRequest, o: ReadOptions = {}): Promise<AppBasesDiscoveryResult> {
     const signal = o.signal;
-    const limit = request.limit, bytes = encodeAppBasesDiscoveryRequest(request);
+    const limit = request.limit;
+    encodeAppBasesDiscoveryRequest(request); // Refuse bad input before waiting for a session.
     const session = await this.readyForRead(signal);
+    const reportUnreadable = request.reportUnreadable === true && session.hello.features.includes(BASES_DISCOVERY_UNREADABLE);
+    const bytes = encodeAppBasesDiscoveryRequest({...request, reportUnreadable});
     const reply = await session.readAppBasesDiscovery("list-views",bytes,signal);
     try {
       if (session !== this.session || session.closed || this.readFencedAt !== null) throw mdbaseError("unavailable", "original Bases session is no longer current");
-      return decodeAppBasesDiscoveryResult(reply,limit);
+      return decodeAppBasesDiscoveryResult(reply,limit,reportUnreadable);
     } catch (error) { throw schemaToError(error,"app Bases discovery"); }
     finally { reply.fill(0); }
   }
@@ -1959,6 +2050,7 @@ export class MdbaseClient {
     if (plan.patch.size) op.patch = plan.patch;
     if (plan.unset.length) op.unset = plan.unset;
     if (plan.base.length) op.base = plan.base;
+    if (c.requireLive) op.requireLive = true;
     if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.ifRevision) op.ifRevision = c.ifRevision;
     return this.record(op, o);
@@ -1969,6 +2061,7 @@ export class MdbaseClient {
     if (c.contract || c.promote) throw mdbaseError("invalid_request", "contract updates are mapped by the replica; use update()");
     const op: Op & { kind: "update" } = { kind: "update", id: refId(target) };
     const seen = typeof target === "object" && "frontmatter" in target ? (target as RecordView) : null;
+    if (c.requireLive) op.requireLive = true;
     if (c.updateRefs !== undefined) op.updateRefs = c.updateRefs;
     if (c.patch) op.patch = toFmMap(c.patch);
     if (c.unset?.length) op.unset = c.unset;

@@ -176,12 +176,16 @@ fn deliver_chunk(r: &mut Replica<crate::mem::MemStore>, chunk: &ChunkPayload) {
         plain_size: plain.len() as u64,
         bucket: 0,
     };
-    r.install = Some(Install::Chunks {
+    r.install = Some(Install::Chunks(ChunkInstall {
         manifest: Box::new(manifest()),
         queue: vec![(chunk.section, reference)],
         next: 0,
-    });
-    r.test_on_native_snapshot_reply(response(bytes));
+        next_fetch: 1,
+        in_flight: BTreeMap::from([(CallId(1), 0)]),
+        ready: BTreeMap::new(),
+        retry: BTreeSet::new(),
+    }));
+    r.test_on_native_snapshot_reply(CallId(1), response(bytes));
 }
 
 #[test]

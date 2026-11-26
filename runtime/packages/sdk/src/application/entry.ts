@@ -145,6 +145,14 @@ export interface MdbaseSignInOpener {
    * private-use scheme derived from the manifest ID (RFC 8252), e.g.
    * `dev.example.app://auth/mdbase/callback` for ID `dev.example.app`. */
   readonly returnUrl?:string;
+  /** Where a Private collection grant returns when its approval runs in this
+   * opener's window rather than a popup of this page (a native shell's system
+   * browser cannot reach the page's callback channel). Must exactly equal one
+   * of the manifest's `redirect_uris` on the homepage origin. The app's page at
+   * this URL hands the result back to the waiting page (for example through
+   * `returnUrl`), which passes the https URL to `deliverAppGrantCallback`.
+   * Without it, grants return to the first declared redirect on the origin. */
+  readonly grantReturnUrl?:string;
 }
 export interface MdbaseOptions {
   readonly signIn?:MdbaseSignInOpener;
@@ -240,7 +248,7 @@ function unavailableApplication(messages:DescribeErrorOptions["messages"]):Mdbas
   const base={status:"blocked" as const,signIn:null,collections:Object.freeze([]),selectedCollectionId:null,problem:problem.code,timing:null,readiness,selection:noSelection};
   const snapshot:MdbaseSnapshot=Object.freeze({...base,phase:applicationPhase(base,messages?{messages}:{}),sync:null,writes:null,links:null});
   const refuse=()=>Promise.reject(unavailable());
-  return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,signIn:refuse,addCollection:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
+  return Object.freeze({getSnapshot:()=>snapshot,subscribe:()=>()=>{},start:refuse,signIn:refuse,addCollection:refuse,cancelAuthorization:refuse,select:refuse,approve:refuse,reauthorize:refuse,refreshCollectionList:refuse,requestAccess:refuse,chooseAnother:refuse,
     assess:refuse,configure:refuse,setup:Object.freeze({plan:refuse,apply:refuse}),forget:refuse,deleteCollection:refuse,unlock:refuse,connection:()=>null,setForeground(){throw unavailable();},close:refuse,signOut:refuse,
     unsynced:Object.freeze({open:refuse,planTransfer:refuse,transfer:refuse,discard:refuse})});
 }
@@ -259,12 +267,15 @@ function signInOpener(value:MdbaseSignInOpener|undefined,declaration:Application
   if(value===undefined)return null;
   const fail=():never=>{throw mdbaseError("invalid_request","Invalid sign-in opener","application_sign_in_opener");};
   if(!value||typeof value!=="object"||typeof value.open!=="function"||(value.close!==undefined&&typeof value.close!=="function"))return fail();
-  const returnUrl=value.returnUrl;
+  const returnUrl=value.returnUrl,grantReturnUrl=value.grantReturnUrl;
   if(returnUrl!==undefined){
     if(!declaredReturnUrl(returnUrl,declaration.manifest))fail();
   }
+  // The grant's redirect binds the application origin (PKCE, Native completion):
+  // only a declared URL on the app's own origin, never a private-use scheme.
+  if(grantReturnUrl!==undefined&&(!declaredReturnUrl(grantReturnUrl,declaration.manifest)||new URL(grantReturnUrl).origin!==declaration.origin))fail();
   const open=value.open.bind(value),close=value.close?.bind(value);
-  return Object.freeze({open,...(close?{close}:{}),...(returnUrl!==undefined?{returnUrl}:{})});
+  return Object.freeze({open,...(close?{close}:{}),...(returnUrl!==undefined?{returnUrl}:{}),...(grantReturnUrl!==undefined?{grantReturnUrl}:{})});
 }
 /** Page-side sign-out follow-up: the app's Web Push subscription (created on
  * the page by `registerWebPush`) and console diagnostics. Never throws. */
@@ -349,7 +360,7 @@ export class MdbaseEntry {
     if(options.followVisibility!==false)this.followVisibility();
     this.followPageLifecycle();this.followFocus();this.followStoragePolicy();this.followNetwork();
     this.memory=selectionMemory(this.declaration.storage.applicationNamespace);
-    if(options.privateCollections!==false)this.privates=new ApplicationPrivateCollections({declaration:this.declaration,onChange:()=>{this.revision++;this.notify();}});
+    if(options.privateCollections!==false)this.privates=new ApplicationPrivateCollections({declaration:this.declaration,...(this.signIn?.grantReturnUrl?{grantRedirectUri:this.signIn.grantReturnUrl}:{}),onChange:()=>{this.revision++;this.notify();}});
     this.selection=new ApplicationCollectionSelection({browser:new ApplicationBrowserSelection(this.declaration.origin,{},options.urlSelection===false?null:browserApplicationSelectionPort()),
       session:this.selectionSession(),memory:this.memory});
     this.selection.subscribe(()=>{this.unforgetApproved();this.notify(false);});
@@ -389,6 +400,13 @@ export class MdbaseEntry {
         return id?this.approve(id,options):selection.reauthorize(options);
       }),
       addCollection:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.approve(null,options)),
+      cancelAuthorization:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>this.call(async runtime=>{
+        await runtime.queue(()=>runtime.cancelAuthorization(options));
+        // Work before connecting is where a signed-out app starts: go back to it.
+        const after=runtime.getNativeSnapshot();
+        if(this.unsyncedFirst&&after.status==="signed_out"&&!after.unsynced&&this.choose().getSnapshot().requested.collectionId===null)
+          await runtime.queue(()=>runtime.openUnsynced(options));
+      })),
       refreshCollectionList:(options?:MdbaseApplicationRequestOptions)=>this.track(()=>Promise.all([this.call(runtime=>runtime.queue(()=>runtime.refreshCollections(options))),this.privates?.refresh(this.account()).catch(()=>{})])),
       requestAccess:(request:MdbaseAccessRequest,options:MdbaseAccessRequestOptions)=>this.requestAccess(request,options),
       // The person switching collections: a pushed history entry, so Back
@@ -884,8 +902,12 @@ export class MdbaseEntry {
     win.addEventListener("pageshow",this.pageShown,{signal:this.lifetime.signal});
     // A frozen page (a background tab the browser froze) runs no script, so it
     // can serve no other tab: stop like a parked page, start again on resume.
-    const doc=globalThis.document;
-    if(doc&&typeof doc.addEventListener==="function"){
+    // A native app shell (its opener returns to a private-use scheme) is one
+    // document that the OS freezes with the whole app while the system browser
+    // is in front; nothing else waits on it, and stopping would lose the
+    // approval the person comes back to finish (tasknotes-app#492).
+    const doc=globalThis.document,nativeShell=this.signIn?.returnUrl!==undefined&&!/^https?:/i.test(this.signIn.returnUrl);
+    if(doc&&typeof doc.addEventListener==="function"&&!nativeShell){
       doc.addEventListener("freeze",()=>this.pageHidden(),{signal:this.lifetime.signal});
       doc.addEventListener("resume",()=>this.pageShown({persisted:true} as PageTransitionEvent),{signal:this.lifetime.signal});
     }

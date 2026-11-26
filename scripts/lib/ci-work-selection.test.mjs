@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 import { bundledImporterOnlyChange, desktopTestPlan } from "../ci/desktop-test-plan.mjs";
 import { serverTestPlan } from "../ci/server-test-plan.mjs";
 
@@ -117,78 +121,91 @@ test("native selection retains explicit dispatch checks and includes Rust input 
   }
 });
 
-test("same-configuration Rust checks run once and remain required for qualification", () => {
-  const server = workflow("server-ci");
-  const rust = server.split("  hosted-provider-rust:\n")[1].split("  hosted-provider-system:\n")[0];
-  const shards = server.split("  hosted-provider-system:\n")[1].split("  qualification:\n")[0];
-  for (const command of ["cargo fmt --all --check", "scripts/check-cargo-features", "cargo clippy --locked --workspace --all-targets -- -D warnings", "node scripts/ci/cargo-test.mjs --locked --workspace"]) {
-    assert.ok(rust.includes(command), command);
-    assert.ok(!shards.includes(command), command);
+test("pull requests select only the Server CI suites touched by their diff", () => {
+  const none = {
+    container: false,
+    log_postgres: false,
+    log_do: false,
+    relay: false,
+    linux_packages: false,
+    native: false
+  };
+  const all = {
+    container: true,
+    log_postgres: true,
+    log_do: true,
+    relay: true,
+    linux_packages: true,
+    native: true
+  };
+  for (const paths of [[], ["apps/editor/src/App.tsx"], ["docs/ci-qualification.md"], ["packages/client/src/index.ts"],
+    ["services/server/src/features/next/policy-outbox.ts"], ["services/server/src/features/next/log-service-client.ts"]]) {
+    assert.deepEqual(serverTestPlan(paths), none, paths.join());
   }
-  // The ignored PostgreSQL provider tests run in the same required job.
-  assert.match(rust, /image: postgres:18-alpine/);
-  assert.match(rust, /run: scripts\/ci\/hosted-provider-postgres-tests\n/);
-  const postgresTests = readFileSync(new URL("../ci/hosted-provider-postgres-tests", import.meta.url), "utf8");
-  assert.match(postgresTests, /--test mutation_abandon --test lifecycle_diagnostics --test sync_stored_errors\s+\\\s+--test file_control_stored_errors --test file_upload_retries\s+\\\s+--test migration_rollback_compat\s+\\\s+"\$@" -- --ignored/);
-  for (const block of [rust, shards]) {
-    assert.ok(block.includes("cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock"));
-    assert.ok(block.includes("cargo build --locked --workspace"));
-    assert.ok(block.includes("1.94.0"));
-  }
-  const gate = server.split("  qualification:\n")[1];
-  assert.match(gate, /- hosted-provider-rust/);
-  assert.match(gate, /- hosted-provider-system/);
-  assert.match(gate, /"\$PROVIDER_RUST"/);
-  assert.match(gate, /"\$PROVIDER_SYSTEM"/);
-  assert.doesNotMatch(shards, /needs: hosted-provider-rust/);
-});
-
-test("only system shards that start the provider or its cargo tests build Rust", () => {
-  const shards = workflow("server-ci").split("  hosted-provider-system:\n")[1].split("  runtime-native:\n")[0];
-  const entries = [...shards.matchAll(/- shard: ([\w-]+)\n\s+suites: [\w-]+\n\s+rust: (true|false)\n/g)];
-  assert.deepEqual(Object.fromEntries(entries.map(([, shard, rust]) => [shard, rust === "true"])), {
-    relay: false, sync: false, provider: true, files: true, "files-adversarial": true,
-    "projection-scale": true, "linux-packages": false
+  assert.deepEqual(serverTestPlan(["docs/readme.md", "deploy/docker/Dockerfile.server"]), {
+    ...none, container: true, native: true
   });
-  for (const step of ["repository: callumalpass/mdbase-rs", "rustup toolchain install 1.94.0", "rustup override set 1.94.0",
-    "cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock", "Swatinem/rust-cache@", "cargo build --locked --workspace"]) {
-    const at = shards.indexOf(step);
-    assert.ok(at >= 0, step);
-    const block = shards.slice(shards.lastIndexOf("\n      - ", at), at);
-    assert.match(block, /if: matrix\.rust\n/, step);
+  assert.deepEqual(serverTestPlan(["deploy/docker/Dockerfile.nats"]), {
+    ...none, container: true, relay: true, native: true
+  });
+  assert.deepEqual(serverTestPlan(["runtime/deploy/cloudflare-do/tests/runtime.mjs"]), {
+    ...none, log_do: true, native: true
+  });
+  for (const path of ["rust-toolchain.toml", "runtime/crates/log-conformance/src/suite.rs",
+    "runtime/crates/log-server/src/pg.rs", "runtime/crates/log-service/src/service.rs",
+    "runtime/crates/wire/src/log_service.rs", "runtime/Cargo.toml", "runtime/Cargo.lock",
+    "runtime/rust-toolchain.toml"]) {
+    assert.deepEqual(serverTestPlan([path]), {
+      ...none, log_postgres: true, log_do: true, native: true
+    }, path);
   }
-});
-
-test("pull requests changing native or system-suite inputs run full Server CI", () => {
-  for (const path of ["crates/connect-runtime/src/lib.rs", "Cargo.lock", "Cargo.toml", "rust-toolchain.toml",
-    "deploy/docker/mdbase-rs-revision", "deploy/docker/Cargo.lock.hosted-provider", "deploy/postgres/schema.sql",
-    "test/system/suites.mjs", "test/upgrade/lib.sh",
-    "scripts/hosted-file-adversarial-e2e.mjs", "scripts/hosted-projection-scale-e2e.mjs",
-    ".github/workflows/server-ci.yml"]) {
-    assert.deepEqual(serverTestPlan(["docs/readme.md", path]), { native: true }, path);
+  for (const path of ["scripts/relay-e2e.mjs", "services/server/src/features/relay/relay-broker.ts"]) {
+    assert.deepEqual(serverTestPlan([path]), { ...none, relay: true, native: true }, path);
   }
-  for (const path of ["runtime/crates/log-conformance/src/suite.rs", "runtime/crates/log-server/src/pg.rs",
-    "runtime/crates/log-service/src/service.rs", "runtime/deploy/cloudflare-do/tests/runtime.mjs",
-    "services/server/src/features/next/policy-outbox.ts", "services/server/src/features/next/policy-outbox.postgres.test.ts",
-    "services/server/src/features/next/log-service-client.ts", "runtime/crates/wire/src/log_service.rs",
-    "runtime/Cargo.toml", "runtime/Cargo.lock", "runtime/rust-toolchain.toml"]) {
-    assert.deepEqual(serverTestPlan([path]), { native: true }, path);
-  }
-  for (const paths of [[], ["apps/editor/src/App.tsx"], ["docs/ci-qualification.md"], ["packages/client/src/index.ts"]]) {
-    assert.deepEqual(serverTestPlan(paths), { native: false }, paths.join());
+  assert.deepEqual(serverTestPlan(["apps/desktop/test/linux-packages/run.mjs"]), {
+    ...none, linux_packages: true, native: true
+  });
+  assert.deepEqual(serverTestPlan(["test/system/suites.mjs"]), {
+    ...none, container: true, relay: true, linux_packages: true, native: true
+  });
+  for (const path of [".github/workflows/server-ci.yml", "scripts/ci/server-test-plan.mjs"]) {
+    assert.deepEqual(serverTestPlan(["docs/readme.md", path]), all, path);
   }
   const classify = workflow("server-ci").split("  classify:\n")[1].split("  node:\n")[0];
+  assert.match(classify, /fetch-depth: \$\{\{ github\.event_name != 'pull_request' && 1 \|\| 0 \}\}/);
   assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs "\$BASE" "\$HEAD"/);
-  assert.match(classify, /if \[\[ \$NATIVE_CHANGES == true \]\] \|\|/);
+  assert.match(classify, /node scripts\/ci\/server-test-plan\.mjs --full/);
+  assert.match(classify, /node scripts\/ci\/runtime-reuse\.mjs classify-native/);
+  assert.match(classify, /elif \[\[ "\$PLAN_FALLBACK_FULL" == true \]\]; then[\s\S]+?echo 'run_full=true'/);
+  assert.doesNotMatch(classify, /NATIVE_CHANGES == true/);
+});
+
+test("server-test-plan fails safe to full qualification if git diff fails", (t) => {
+  const dir = mkdtempSync(join(tmpdir(), "server-test-plan-"));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const outputPath = join(dir, "github-output");
+  const script = fileURLToPath(new URL("../ci/server-test-plan.mjs", import.meta.url));
+  const result = spawnSync(process.execPath, [script, "0".repeat(40), "f".repeat(40)], {
+    env: { ...process.env, GITHUB_OUTPUT: outputPath },
+    encoding: "utf8"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const outputs = readFileSync(outputPath, "utf8");
+  assert.match(outputs, /^fallback_full=true$/m);
+  assert.match(outputs, /^container=true$/m);
+  assert.match(outputs, /^log_postgres=true$/m);
+  assert.match(outputs, /^log_do=true$/m);
+  assert.match(outputs, /^has_system_suites=true$/m);
+  assert.match(outputs, /^system_suites_matrix=\{"include":\[.*relay.*linux-packages.*\]\}$/m);
 });
 
 test("protocol-only packaging selection leaves Node and full merge-queue qualification intact", () => {
   const server = workflow("server-ci");
   const classify = server.split("  classify:\n")[1].split("  node:\n")[0];
-  assert.match(classify, /if \[\[ "\$GITHUB_EVENT_NAME" == merge_group \]\]; then\s+echo 'run_full=true'/);
+  assert.match(classify, /if \[\[ "\$GITHUB_EVENT_NAME" == merge_group \]\]; then[\s\S]+?echo 'run_full=true'/);
   const node = server.split("  node:\n")[1].split("  server-container-full:\n")[0];
   assert.doesNotMatch(node, /needs.select-tests|outputs.bundle|outputs.windows|outputs.headless/);
-  for (const job of ["node", "server-container-full", "hosted-provider-system", "hosted-provider-rust"]) {
+  for (const job of ["node", "server-container-full", "system-suites", "log-postgres-conformance", "log-do-conformance"]) {
     assert.ok(server.split("  qualification:\n")[1].includes(`- ${job}`), job);
   }
 });
@@ -206,9 +223,8 @@ test("Rust caches are restored by CI jobs and written only by rust-caches.yml fr
       assert.ok(warmed.has(key), `${name} restores ${key}, which rust-caches.yml does not write`);
     }
   }
-  // hosted-provider-rust, the migration rollback gate's previous release,
-  // and the system and desktop consumers.
-  assert.equal(consumers, 5);
+  // Desktop release consumers (headless-package-smoke and windows-package-smoke).
+  assert.equal(consumers, 2);
 });
 
 test("Windows headless smoke reuses the Store package job's daemon build", () => {

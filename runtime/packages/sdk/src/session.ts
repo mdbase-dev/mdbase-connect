@@ -11,10 +11,11 @@ import { isMdbaseError, mdbaseError, MdbaseError, type MdbaseErrorContext } from
 import { supportsNativeBasesRpc, type Connector, type FramePort } from "./transport/port.js";
 import { NativeBasesReads } from "./transport/bases-rpc.js";
 import { inheritOriginalAppGrant } from "./transport/original-session.js";
+import { usesNextRelayFence } from "./transport/read-fence-policy.js";
 import { clientFrame, helloParams, HelloParams, helloResult, HelloResult, Problem, problem } from "./wire.js";
 
 /** API versions this SDK speaks, highest first. */
-export const API_VERSIONS = [{ major: 1, minor: 3 }, { major: 1, minor: 2 }, { major: 1, minor: 1 }, { major: 1, minor: 0 }];
+export const API_VERSIONS = [{ major: 1, minor: 4 }, { major: 1, minor: 3 }, { major: 1, minor: 2 }, { major: 1, minor: 1 }, { major: 1, minor: 0 }];
 
 export type PushHandler = (payload: CborValue) => void;
 export type RequestHandler = (params: CborValue) => Promise<CborValue> | CborValue;
@@ -85,7 +86,11 @@ export class Session {
     try {
       const f = clientFrame.dec(opened.helloResponse);
       if (f.kind !== "response" || f.id !== 0) throw mdbaseError("internal", "replica answered hello with another frame");
-      if (f.problem) throw new MdbaseError(f.problem);
+      if (f.problem) {
+        if (f.problem.code === "unavailable" && f.problem.reason === "not_serving" && usesNextRelayFence(connector))
+          throw new MdbaseError({ ...f.problem, reason: "not_served" });
+        throw new MdbaseError(f.problem);
+      }
       hello = helloResult.dec(f.result ?? null);
     } catch (e) {
       opened.port.close();

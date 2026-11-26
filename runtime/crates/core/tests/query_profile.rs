@@ -36,6 +36,7 @@ fn atom(c: &Catalog, r: &QueryRecord<'_>, col: &Column) -> SortAtom {
         Column::Path => {
             SortAtom::from_value(Some(&Value::string(r.path)), TemporalHint::None, 1024).unwrap()
         }
+        Column::Mtime => SortAtom::from_mtime(r.mtime),
         Column::Field(f) => {
             indexed::project_index_fields(c, r, &[query::FieldRef::Effective(f.path.clone())], 1024)
                 .unwrap()
@@ -104,6 +105,7 @@ fn priority_numeric_kind_gate_matches_real_cel_for_all_value_kinds_and_defaults(
                 types: &names,
                 frontmatter: &fm,
                 body: None,
+                mtime: None,
             };
             assert_eq!(
                 holds(&profile.predicate, &c, &r),
@@ -130,6 +132,7 @@ fn exact_large_numbers_do_not_round_to_adjacent_integer() {
             types: &[],
             frontmatter: &fm,
             body: None,
+            mtime: None,
         };
         assert_eq!(holds(&q.predicate, &c, &r), want);
     }
@@ -156,6 +159,7 @@ fn temporal_fields_and_plain_text_ranges_use_kind_gates_not_shape_inference() {
                     types,
                     frontmatter: &fm,
                     body: None,
+                    mtime: None,
                 };
                 assert_eq!(
                     holds(&q.predicate, &c, &r),
@@ -180,6 +184,7 @@ fn date_sort_atoms_are_not_cel_timestamp_values() {
         types: &names,
         frontmatter: &fm,
         body: None,
+        mtime: None,
     };
     assert_eq!(p.matches(&r, &env()), Verdict::Match);
     assert_eq!(profile::lower(&p, &c), Err(Unsupported::Field));
@@ -199,6 +204,7 @@ fn decisive_boolean_branches_suppress_errors_like_core_cel() {
         types: &[],
         frontmatter: &fm,
         body: None,
+        mtime: None,
     };
     // Canonical CEL eval::logic allows decisive RHS true to suppress LHS error.
     assert_eq!(p.matches(&r, &env()), Verdict::Match);
@@ -256,6 +262,7 @@ fn nested_monotone_boolean_membership_and_path_scalars_match_cel() {
                     types: &[],
                     frontmatter: &fm,
                     body: None,
+                    mtime: None,
                 };
                 assert_eq!(
                     holds(&q.predicate, &c, &r),
@@ -339,6 +346,7 @@ fn explicit_missing_record_keys_require_presence_proof_for_null_and_residual_dia
             types: &[],
             frontmatter: &missing,
             body: None,
+            mtime: None,
         };
         let null = QueryRecord {
             frontmatter: &present,
@@ -358,6 +366,7 @@ fn explicit_missing_record_keys_require_presence_proof_for_null_and_residual_dia
             types: &[],
             frontmatter: fm,
             body: None,
+            mtime: None,
         };
         assert_eq!(p.matches(&r, &env()), Verdict::Match);
         assert!(holds(&q.predicate, &c, &r));
@@ -378,6 +387,7 @@ fn explicit_missing_record_keys_require_presence_proof_for_null_and_residual_dia
                 types: &[],
                 frontmatter: fm,
                 body: None,
+                mtime: None,
             };
             assert_eq!(
                 holds(&q.predicate, &c, &r),
@@ -399,6 +409,7 @@ fn type_filter_maps_mixed_case_requests_to_exact_canonical_stored_names() {
         types: &names,
         frontmatter: &fm,
         body: None,
+        mtime: None,
     };
     for requested in ["TASK", "task", "TaSk"] {
         let q = Query {
@@ -507,6 +518,7 @@ fn negation_and_in_lists_match_real_cel_for_every_value_kind() {
                     types: &names,
                     frontmatter: &fm,
                     body: None,
+                    mtime: None,
                 };
                 assert_eq!(
                     holds(&profile.predicate, &c, &r),
@@ -589,6 +601,7 @@ fn lower_cased_body_searches_match_real_cel() {
                     types: &[],
                     frontmatter: &fm,
                     body: Some(body),
+                    mtime: None,
                 };
                 assert_eq!(
                     holds(&profile.predicate, &c, &r),
@@ -605,5 +618,175 @@ fn lower_cased_body_searches_match_real_cel() {
         "file.path.lower().contains('notes')",
     ] {
         assert!(profile::lower(&plan(expr, &c), &c).is_err(), "{expr}");
+    }
+}
+
+#[test]
+fn file_mtime_lowers_for_ordering_and_evaluates_in_filters_and_select() {
+    let c = catalog();
+    let q = query("order_by: [{field: file.mtime, direction: desc}, {field: priority}]\n");
+    let p = query::compile(&q, &c).unwrap();
+    assert!(p.requirements.mtime);
+    let lowered = profile::lower(&p, &c).unwrap();
+    assert_eq!(lowered.order.len(), 2);
+    assert_eq!(lowered.order[0].column, Column::Mtime);
+    assert_eq!(lowered.order[0].direction, query::Direction::Desc);
+    assert!(matches!(lowered.order[1].column, Column::Field(_)));
+
+    // Sort order matches SortAtom::from_mtime across present, tied, negative, and absent mtimes.
+    let fm = Map::new();
+    let rows = [
+        QueryRecord {
+            path: "a-null.md",
+            types: &[],
+            frontmatter: &fm,
+            body: None,
+            mtime: None,
+        },
+        QueryRecord {
+            path: "b-neg.md",
+            types: &[],
+            frontmatter: &fm,
+            body: None,
+            mtime: Some(-500),
+        },
+        QueryRecord {
+            path: "c-tie1.md",
+            types: &[],
+            frontmatter: &fm,
+            body: None,
+            mtime: Some(1_700_000_000_000),
+        },
+        QueryRecord {
+            path: "d-tie2.md",
+            types: &[],
+            frontmatter: &fm,
+            body: None,
+            mtime: Some(1_700_000_000_000),
+        },
+        QueryRecord {
+            path: "e-new.md",
+            types: &[],
+            frontmatter: &fm,
+            body: None,
+            mtime: Some(1_700_000_060_000),
+        },
+    ];
+    for (dir, expected) in [
+        (
+            "asc",
+            [
+                "b-neg.md",
+                "c-tie1.md",
+                "d-tie2.md",
+                "e-new.md",
+                "a-null.md",
+            ],
+        ),
+        (
+            "desc",
+            [
+                "a-null.md",
+                "e-new.md",
+                "c-tie1.md",
+                "d-tie2.md",
+                "b-neg.md",
+            ],
+        ),
+    ] {
+        let plan = query::compile(
+            &query(&format!(
+                "order_by: [{{field: file.mtime, direction: {dir}}}]"
+            )),
+            &c,
+        )
+        .unwrap();
+        let mut sorted: Vec<_> = rows.iter().collect();
+        sorted.sort_by(|a, b| plan.compare(a, b));
+        let paths: Vec<_> = sorted.iter().map(|r| r.path).collect();
+        assert_eq!(paths, expected, "direction={dir}");
+        // Atom ordering agrees with plan.compare on every pair.
+        let desc = dir == "desc";
+        let mut by_atom: Vec<_> = rows.iter().collect();
+        by_atom.sort_by(|a, b| {
+            let cmp = SortAtom::from_mtime(a.mtime).cmp(&SortAtom::from_mtime(b.mtime));
+            let cmp = if desc { cmp.reverse() } else { cmp };
+            cmp.then_with(|| a.path.cmp(b.path))
+        });
+        assert_eq!(
+            by_atom.iter().map(|r| r.path).collect::<Vec<_>>(),
+            expected,
+            "atom direction={dir}"
+        );
+    }
+
+    // CEL `where` and `select` see `file.mtime` as a native Timestamp / RFC 3339 string.
+    let filter_plan = query::compile(
+        &query("where: \"has(file.mtime) && file.mtime >= timestamp('2023-11-14T22:13:20Z')\"\nselect: [file.mtime]\n"),
+        &c,
+    )
+    .unwrap();
+    assert!(filter_plan.requirements.mtime);
+    let ev_null = filter_plan.evaluate(&rows[0], &env(), None);
+    assert_eq!(ev_null.verdict, Verdict::NoMatch);
+    let ev_old = filter_plan.evaluate(&rows[1], &env(), None);
+    assert_eq!(ev_old.verdict, Verdict::NoMatch);
+    let ev_hit = filter_plan.evaluate(&rows[2], &env(), None);
+    assert_eq!(ev_hit.verdict, Verdict::Match);
+    assert_eq!(
+        ev_hit.values.get("mtime"),
+        Some(&Value::string("2023-11-14T22:13:20Z"))
+    );
+
+    // Narrow index lowering for `has(file.mtime)` and `!has(file.mtime)`.
+    for (expr, want_presence) in [
+        ("has(file.mtime)", Some(true)),
+        ("!has(file.mtime)", Some(false)),
+        (" ( has(file.mtime) ) ", Some(true)),
+        ("! has(file.mtime)", Some(false)),
+    ] {
+        let p = plan(expr, &c);
+        assert!(p.requirements.mtime, "{expr}");
+        assert_eq!(p.where_mtime_presence(), want_presence, "{expr}");
+        let prof = profile::lower(&p, &c).expect(expr);
+        assert!(prof.diagnostics_exact, "{expr}");
+        for row in &rows {
+            let expected = p.matches(row, &env()) == Verdict::Match;
+            let actual = holds(&prof.predicate, &c, row);
+            assert_eq!(actual, expected, "{expr} on {}", row.path);
+        }
+    }
+    // Conjunction lowers in profile, but `where_mtime_presence` stays narrow.
+    let conj = plan("has(file.mtime) && priority == 1", &c);
+    assert_eq!(conj.where_mtime_presence(), None);
+    assert!(profile::lower(&conj, &c).is_ok());
+    // Direct comparisons or other `has(file.*)` predicates stay out of the profile.
+    for expr in [
+        "file.mtime == null",
+        "file.mtime != null",
+        "has(file.name)",
+        "has(file.body)",
+    ] {
+        let p = plan(expr, &c);
+        assert_eq!(p.where_mtime_presence(), None, "{expr}");
+        assert!(profile::lower(&p, &c).is_err(), "{expr}");
+    }
+
+    // `in file`, key iteration, and map-size checks on `file` set `requirements.mtime`
+    // so per-record evaluation supplies confirmed mtime across pending edits.
+    for expr in [
+        "\"mtime\" in file",
+        "\"m\" + \"time\" in file",
+        "raw.key in file",
+        "[file].exists(f, \"mtime\" in f)",
+        "file.exists(k, k == \"mtime\")",
+        "size(file) > 0",
+    ] {
+        let p = plan(expr, &c);
+        assert!(p.requirements.mtime, "{expr}");
+    }
+    for expr in ["\"path\" in file", "file.path == \"a.md\""] {
+        let p = plan(expr, &c);
+        assert!(!p.requirements.mtime, "{expr}");
     }
 }

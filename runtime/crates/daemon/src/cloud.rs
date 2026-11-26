@@ -11,7 +11,7 @@
 //! (`<namespace>:connector-token`) and never appears in files, logs, status or
 //! process arguments.
 //!
-//! **TLS** uses rustls with the OS trust store (`rustls-native-certs`). Plain
+//! **TLS** uses rustls with the OS certificate verifier (`rustls-platform-verifier`). Plain
 //! `http` is accepted only for loopback hosts (tests and LAB tunnels).
 
 use std::path::Path;
@@ -36,11 +36,8 @@ mod collections;
 mod config;
 mod connector;
 mod mode;
-mod rollout;
 mod transport;
 
-#[cfg(test)]
-use rollout::*;
 use transport::*;
 
 pub use account_key::{AccountKeyRecord, RecoveryDevices};
@@ -50,7 +47,6 @@ pub use connector::{
     AccountApplication, AccountApplicationCollection, AppDistribution, Paired, Pairing,
     device_bind_sig, pairing_exchange, pairing_start,
 };
-pub use rollout::{AccountBackend, Rollout};
 pub use transport::{canonical_server_url, tls_config};
 
 /// Keychain entry of the connector token.
@@ -88,6 +84,22 @@ impl std::fmt::Display for CloudError {
 
 impl std::error::Error for CloudError {}
 
+impl CloudError {
+    /// A transport failure with its cause chain. reqwest's own message names
+    /// only the request; the connect or TLS cause (an untrusted issuer, say) is
+    /// in its sources.
+    pub(crate) fn network(e: impl std::error::Error) -> CloudError {
+        let mut m = e.to_string();
+        let mut source = e.source();
+        while let Some(s) = source {
+            m.push_str(": ");
+            m.push_str(&s.to_string());
+            source = s.source();
+        }
+        CloudError::Network(m)
+    }
+}
+
 /// An authenticated connector client.
 pub struct Cloud {
     http: reqwest::Client,
@@ -104,14 +116,3 @@ impl std::fmt::Debug for Cloud {
             .finish_non_exhaustive()
     }
 }
-
-#[path = "cloud_migration_record.rs"]
-pub mod migration_record;
-
-#[cfg(test)]
-#[path = "cloud_rollout_tests.rs"]
-mod rollout_tests;
-
-#[cfg(test)]
-#[path = "cloud_retirement_tests.rs"]
-mod retirement_tests;

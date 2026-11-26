@@ -132,6 +132,13 @@ impl Error {
                     .collect::<Vec<_>>()
                     .join("; ")
             ),
+            Error::Rejected {
+                reason: Some(reason),
+                ..
+            } if reason == "read_only_volume" => {
+                "This volume does not support atomic file replacement, so the collection is read-only. Move it to a supported filesystem (for example ext4, btrfs, xfs, APFS, or NTFS)."
+                    .into()
+            }
             Error::Rejected { .. } => "Check the operation's arguments against the docs.".into(),
             Error::Conflict { reason, .. } if reason == "revision" => {
                 "The record changed since you read it. Read it again and retry with the new revision, or drop the `if_revision` guard.".into()
@@ -280,3 +287,36 @@ impl From<mdbn_replica::api::ApiError> for Error {
 
 /// `Result` with [`Error`].
 pub type Result<T, E = Error> = std::result::Result<T, E>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_only_volume_problem_maps_to_rejected_with_volume_guidance() {
+        let err = from_problem(
+            &mdbn_wire::client::Problem {
+                code: "forbidden".into(),
+                recovery: mdbn_wire::client::Recovery::None,
+                message: "this volume does not support atomic file replacement, so changes cannot be saved"
+                    .into(),
+                reason: Some("read_only_volume".into()),
+                details: None,
+                issues: None,
+                retry_after_ms: None,
+                trace_id: None,
+            },
+            None,
+        );
+        assert_eq!(err.code(), "forbidden");
+        assert!(matches!(
+            &err,
+            Error::Rejected {
+                code,
+                reason: Some(reason),
+                ..
+            } if code == "forbidden" && reason == "read_only_volume"
+        ));
+        assert!(err.help().contains("atomic file replacement"));
+    }
+}

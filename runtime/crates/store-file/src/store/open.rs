@@ -79,6 +79,7 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
             appeared: BTreeMap::new(),
             rescan: true,
             deferred: false,
+            deferral_fault: None,
             commit_active: Rc::new(Cell::new(false)),
             queued: deferred::Deferred::default(),
             immediate: false,

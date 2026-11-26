@@ -8,6 +8,7 @@ import { cpCustody } from "../src/cp-custody.ts";
 
 const collection = "10000000-0000-4000-8000-000000000001";
 const device = "20000000-0000-4000-8000-000000000002";
+const unfinishedKey = "service-open-unfinished";
 const S = 1000, start = 1_000_000_000_000;
 const head = [...encode(new Map([[2, "subscribe"], [3, new Map()]]))];
 const read = [...encode(new Map([[2, "read"], [3, new Map()]]))];
@@ -22,7 +23,7 @@ const compiled = await build({ entryPoints: [new URL("../src/worker.ts", import.
       constructor(storage) { this.f = storage.fixture; this.f.constructs++; this.logBound = false; this.refresh(); }
       open() { this.queued.push({ id: 2, frame: new Uint8Array(${JSON.stringify(read)}) }); }
       noiseKey() { return false; } serving() { return this.f.serving; }
-      needsReset() { if (this.f.endFail) throw new Error("synthetic post-sync failure"); return false; }
+      cacheRecovery() { if (this.f.endFail) throw new Error("synthetic post-sync failure"); return null; }
       appliedHead() { return String(this.f.applied); }
       refresh() { this.queued = [{ id: 1, frame: new Uint8Array(${JSON.stringify(head)}) }]; }
       tick() {} installStatus() { return null; } snapshotDeclined() { return false; } nextWakeup() { return this.f.deadline; } attachmentObject() { return null; } poll() { return []; }
@@ -40,6 +41,7 @@ function state() {
   const storage = { fixture: f,
     get: async k => Array.isArray(k) ? new Map(k.filter(x => data.has(x)).map(x => [x, data.get(x)])) : data.get(k),
     put: async (k, v) => { data.set(k, v); }, delete: async k => data.delete(k),
+    sync: async () => {},
     getAlarm: async () => alarm, setAlarm: async at => { f.alarms.push(at); alarm = at; }, deleteAlarm: async () => { alarm = null; },
   };
   return { data, f, storage, alarm: () => alarm, fire: () => { alarm = null; } };
@@ -121,17 +123,66 @@ test("new native progress during a cold read resets the persisted idle streak", 
   }
 });
 
-test("failed cold custody open retains the durable retry", async ctx => {
+test("caught custody failures clear unfinished attempts and keep retrying at capped backoff", async ctx => {
   const set = clock(ctx); set(start);
   const t = state(); t.f.fail = true;
-  await assert.rejects(actor(t, false).alarm(), /synthetic open failure/);
-  assert.equal(t.alarm(), start + 30 * S); assert.equal(t.f.mints.length, 0);
+  t.data.set(unfinishedKey, { version: "", count: 1 });
+  for (const [index, seconds] of [60, 60, 120, 240, 480, 960, 960].entries()) {
+    t.fire();
+    await assert.rejects(actor(t, false).alarm(), /synthetic open failure/);
+    assert.equal(t.alarm(), start + seconds * S);
+    assert.equal(t.data.has(unfinishedKey), false);
+    assert.equal(t.data.get("service-open-failures"), index + 1);
+  }
+  assert.equal(t.f.mints.length, 0);
+});
+
+test("interrupted opens back off, then park until a different version opens", async ctx => {
+  clock(ctx);
+  const warn = ctx.mock.method(console, "warn", () => {});
+  for (const escrow of [false, true]) {
+    const t = state();
+    for (const [index, seconds] of [30, 60, 120].entries()) {
+      const o = actor(t, escrow), entered = Promise.withResolvers();
+      o.env.CF_VERSION_METADATA = { id: "one" };
+      // Abandon this isolate in open-time sync: neither catch nor finally runs.
+      o.sync = () => { entered.resolve(); return new Promise(() => {}); };
+      t.fire(); await Promise.race([entered.promise, o.alarm()]);
+      assert.deepEqual(t.data.get(unfinishedKey), { version: "one", count: index + 1 });
+      assert.equal(t.alarm(), start + seconds * S);
+    }
+    const parked = actor(t, escrow);
+    parked.env.CF_VERSION_METADATA = { id: "one" };
+    parked.custody.openSealer = () => assert.fail("parked actor opened custody");
+    const priorWarnings = warn.mock.callCount();
+    await parked.alarm();
+    assert.equal(warn.mock.callCount(), priorWarnings + 1);
+    assert.deepEqual(JSON.parse(warn.mock.calls.at(-1).arguments[0]),
+      { event: "hosted_open_parked", role: escrow ? "escrow" : "hosted", unfinished: 3, version: "one" });
+    assert.equal(t.alarm(), null); assert.equal(t.f.constructs, 3);
+    assert.deepEqual(t.data.get(unfinishedKey), { version: "one", count: 3 });
+    assert.equal(t.data.has("service-open-failures"), false);
+    const token = "s".repeat(40); parked.env.HOSTED_SERVICE_TOKEN = token;
+    const post = (path, body) => new Request(`https://w.test/v1/hosted/${path}?collection=${collection}`, {
+      method: "POST", headers: { authorization: `Bearer ${token}` }, body: JSON.stringify(body) });
+    const requests = [post("activate", { collection }), post("collection-mode/ready", { collection, device, epoch: "1", challenge: "a".repeat(64) })];
+    if (!escrow) requests.push(new Request(`https://w.test/app?collection=${collection}`, { headers: { upgrade: "websocket" } }));
+    for (const request of requests) assert.equal((await parked.fetch(request)).status, 503);
+    assert.equal(t.alarm(), null); assert.equal(t.f.constructs, 3);
+    const fresh = actor(t, escrow); fresh.env.CF_VERSION_METADATA = { id: "two" };
+    t.f.duringOpen = () => {
+      assert.deepEqual(t.data.get(unfinishedKey), { version: "two", count: 1 });
+      assert.equal(t.alarm(), start + 30 * S);
+    };
+    await fresh.ready(collection);
+    assert.equal(t.data.has(unfinishedKey), false);
+  }
 });
 
 test("a failing post-sync native open check still has the original failure retry", async ctx => {
   const set = clock(ctx); set(start);
   for (const escrow of [false, true]) {
-    const t = state(); t.f.endFail = true;
+    const t = state(); t.f.endFail = true; t.f.deadline = start + S;
     await assert.rejects(actor(t, escrow).alarm(), /synthetic post-sync failure/);
     assert.equal(t.alarm(), start + 30 * S);
   }

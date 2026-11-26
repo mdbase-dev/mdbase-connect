@@ -53,7 +53,7 @@ The curated inventory in `scripts/ci/stress.mjs` covers:
   (local-relay failure in PR #560, run 37062508709/job 111022335299);
 - client base64/crypto, request coordination, startup, session startup and leases;
 - editor lazy-mount focus, session lifecycle and type-definition lifecycle;
-- sync mirror/promotion fault injection and materialization;
+- sync mirror fault injection and materialization;
 - server collection/capability lifecycle, relay timeout/broker and notifications.
 
 Linux uses inherited affinity to two allowed CPUs; Windows uses CPUs 0 and 1.

@@ -13,17 +13,24 @@ use local_source::LocalRecord;
 use mdbn_core::{
     doc::{Document, RecordFormat},
     intent::OpClock,
-    views::bases::{BASES_CONTRACT, EvaluationFailure, WorkBudget, discover_base_record},
+    views::bases::{
+        BASES_CONTRACT, BaseRecord, EvaluationFailure, WorkBudget, classify_base_record,
+        discover_base_record,
+    },
 };
 use mdbn_wire::common::{B32, Hash, Uuid};
 use sha2::{Digest, Sha256};
 pub(in crate::replica) mod discovery;
 mod execution;
-pub use discovery::{BasesDiscoveryHandle, BasesDiscoveryPage, BasesViewSource};
+pub use discovery::{
+    BasesDiscoveryHandle, BasesDiscoveryPage, BasesUnreadableSource, BasesViewSource,
+    UnreadableSources,
+};
 pub use execution::{
     BasesExecutionGroup, BasesExecutionPolicies, BasesExecutionResult, BasesExecutionRow,
-    BasesExecutionWindow, BasesGroupPlacement, BasesReadRequest, BasesViewSelection,
-    BasesWindowInfo, CapturedBasesExecutionInputs,
+    BasesExecutionWindow, BasesGroupPlacement, BasesReadRequest, BasesRowProperties,
+    BasesViewSelection, BasesWindowInfo, CapturedBasesExecutionInputs, MAX_ROW_PROPERTIES,
+    MAX_ROW_PROPERTY_BYTES, MAX_ROW_PROPERTY_NAME,
 };
 /// Resolved implementation identity. Passive metadata grants no execution.
 #[derive(Clone)]

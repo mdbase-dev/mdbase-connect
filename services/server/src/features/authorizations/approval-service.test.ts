@@ -1,288 +1,47 @@
 import { randomUUID } from "node:crypto";
-import { operationsForApplicationCapabilities, type CollectionContractDescriptor, type CollectionOperation, type ContractSetupChoice } from "@mdbase-dev/connect-protocol";
+import { operationsForApplicationCapabilities, type CollectionOperation, type ContractSetupChoice } from "@mdbase-dev/connect-protocol";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testApplicationAuthorization, LEGACY_READ_CAPABILITIES, LEGACY_READ_OPERATIONS } from "../../application-authorization.test-helper.js";
 import type { CollectionAccessContext } from "../collections/collection-access.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { pkceChallenge } from "../../security.js";
 import type { RelayHub } from "../relay/relay.js";
 import { approvePortalAuthorization } from "./approval-service.js";
-import { approveHostedAuthorization } from "./hosted-approval-service.js";
 
 const databases: DatabasePool[] = [];
-const providers: HostedProviderClient[] = [];
 
 afterEach(async () => {
   while (databases.length > 0) await databases.pop()!.end();
-  for (const provider of providers.splice(0)) expect(provider.registerReplica).not.toHaveBeenCalled();
 });
 
 describe("fresh issuance policy for seeded pending requests", () => {
-  it.each(["local", "hosted"] as const)("denies unknown-version %s approval before any cleanup or provider effects", async (kind) => {
+  it("denies unknown-version local approval before any cleanup or relay effects", async () => {
     const fixture = await retainedReplicaFixture({ version: 2 });
     // Corrupt only the pending application's declaration; retained authority stays intact.
     const application = (await fixture.db.query("SELECT id, requirements FROM applications WHERE id=$1", [fixture.applicationId])).rows[0];
     application.requirements.capabilities.contract_version = 3;
     await fixture.db.query("UPDATE applications SET requirements = $2::jsonb WHERE id = $1",
       [application.id, JSON.stringify(application.requirements)]);
-    if (kind === "local") {
-      await fixture.db.query(
-        "UPDATE authorization_requests SET grant_id = $2, activation_started_at = now() - interval '2 minutes' WHERE id = $1",
-        [fixture.input.requestId, fixture.grantId]
-      );
-    }
+    await fixture.db.query(
+      "UPDATE authorization_requests SET grant_id = $2, activation_started_at = now() - interval '2 minutes' WHERE id = $1",
+      [fixture.input.requestId, fixture.grantId]
+    );
     const before = await fixture.db.query("SELECT * FROM grants");
     const pendingBefore = await fixture.db.query("SELECT * FROM authorization_requests");
-    const provider = providerStub({ updateApplicationReplica: vi.fn(), revokeReplica: vi.fn(), revokeNotificationGrant: vi.fn() });
     const relay = { pushPolicy: vi.fn(), activateGrant: vi.fn() };
     const connection = await fixture.db.connect();
     const queries = vi.spyOn(connection, "query");
     const connect = vi.spyOn(fixture.db, "connect").mockResolvedValueOnce(connection);
-    const approval = kind === "hosted"
-      ? approveHostedAuthorization(fixture.db, provider, fixture.input)
-      : approvePortalAuthorization(fixture.db, relay as unknown as RelayHub, { ...fixture.input, offerId: randomUUID() }, { connectorId: randomUUID(), generation: "1" });
+    const approval = approvePortalAuthorization(fixture.db, relay as unknown as RelayHub, { ...fixture.input, offerId: randomUUID() }, { connectorId: randomUUID(), generation: "1" });
     await expect(approval).rejects.toThrow("Unsupported semantic capability contract version.");
-    expect(queries.mock.calls.map(([sql]) => String(sql).trim().split(/\s+/)[0])).toEqual(kind === "hosted" ? ["BEGIN", "SELECT", "SELECT", "ROLLBACK"] : ["BEGIN", "SELECT", "ROLLBACK"]);
+    expect(queries.mock.calls.map(([sql]) => String(sql).trim().split(/\s+/)[0])).toEqual(["BEGIN", "SELECT", "ROLLBACK"]);
     queries.mockRestore();
     connect.mockRestore();
     expect((await fixture.db.query("SELECT * FROM grants")).rows).toEqual(before.rows);
     expect((await fixture.db.query("SELECT * FROM authorization_requests")).rows).toEqual(pendingBefore.rows);
-    for (const method of Object.values(provider)) expect(method).not.toHaveBeenCalled();
     for (const method of Object.values(relay)) expect(method).not.toHaveBeenCalled();
   });
 });
-
-// Semantic-neutral fault coverage uses genuine v1 old and replacement policies.
-// Retained v2 evidence validation is tested directly in hosted-replica-policy.test.ts.
-describe("approveHostedAuthorization prelude v1 retained replica recovery", () => {
-  it("restores the complete prior provider policy after a later approval failure", async () => {
-    const fixture = await retainedReplicaFixture();
-    const originalError = new Error("notification policy update failed");
-    const updateApplicationReplica = vi.fn().mockResolvedValue(undefined);
-    const revokeReplica = vi.fn().mockResolvedValue(undefined);
-    const provider = providerStub({
-      updateApplicationReplica,
-      revokeReplica,
-      revokeNotificationGrant: vi.fn().mockRejectedValue(originalError)
-    });
-
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input))
-      .rejects.toBe(originalError);
-
-    expect(updateApplicationReplica).toHaveBeenCalledTimes(2);
-    expect(updateApplicationReplica.mock.calls[1]).toEqual([
-      fixture.replicaId,
-      fixture.priorPolicy
-    ]);
-    expect(revokeReplica).not.toHaveBeenCalled();
-  });
-
-  it("restores after the first provider update takes effect but its response is lost", async () => {
-    const fixture = await retainedReplicaFixture();
-    const originalError = new Error("provider update response lost");
-    const updateApplicationReplica = vi.fn()
-      .mockRejectedValueOnce(originalError)
-      .mockResolvedValueOnce(undefined);
-    const revokeReplica = vi.fn().mockResolvedValue(undefined);
-    const provider = providerStub({
-      updateApplicationReplica,
-      revokeReplica,
-      revokeNotificationGrant: vi.fn()
-    });
-
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input))
-      .rejects.toBe(originalError);
-
-    expect(updateApplicationReplica).toHaveBeenCalledTimes(2);
-    expect(updateApplicationReplica.mock.calls[1]).toEqual([
-      fixture.replicaId,
-      fixture.priorPolicy
-    ]);
-    expect(revokeReplica).not.toHaveBeenCalled();
-  });
-
-  it("revokes after a lost first update response when exact restoration fails", async () => {
-    const fixture = await retainedReplicaFixture();
-    const originalError = new Error("provider update response lost");
-    const restoreError = new Error("provider policy restore failed");
-    const updateApplicationReplica = vi.fn()
-      .mockRejectedValueOnce(originalError)
-      .mockRejectedValueOnce(restoreError);
-    const revokeReplica = vi.fn().mockResolvedValue(undefined);
-    const provider = providerStub({
-      updateApplicationReplica,
-      revokeReplica,
-      revokeNotificationGrant: vi.fn()
-    });
-
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input))
-      .rejects.toBe(originalError);
-
-    expect(updateApplicationReplica).toHaveBeenCalledTimes(2);
-    expect(updateApplicationReplica.mock.calls[1]).toEqual([
-      fixture.replicaId,
-      fixture.priorPolicy
-    ]);
-    expect(revokeReplica).toHaveBeenCalledOnce();
-    expect(revokeReplica).toHaveBeenCalledWith(fixture.replicaId);
-  });
-
-  it("restores the stored exact origin for a prior custom-scheme authorization", async () => {
-    const fixture = await retainedReplicaFixture({
-      priorFlow: "authorization_code",
-      priorRedirectUri: "dev.mdbase.restore-test://auth/mdbase/callback",
-      priorApplicationOrigin: "https://homepage.example"
-    });
-    const originalError = new Error("notification policy update failed");
-    const updateApplicationReplica = vi.fn().mockResolvedValue(undefined);
-    const revokeReplica = vi.fn().mockResolvedValue(undefined);
-    const provider = providerStub({
-      updateApplicationReplica,
-      revokeReplica,
-      revokeNotificationGrant: vi.fn().mockRejectedValue(originalError)
-    });
-
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input))
-      .rejects.toBe(originalError);
-
-    expect(updateApplicationReplica.mock.calls[1]).toEqual([
-      fixture.replicaId,
-      {
-        ...fixture.priorPolicy,
-        allowedOrigin: "https://homepage.example",
-        fileCapability: undefined
-      }
-    ]);
-    expect(revokeReplica).not.toHaveBeenCalled();
-  });
-
-  it("revokes without masking the original error when retained v1 proof is unavailable", async () => {
-    const fixture = await retainedReplicaFixture();
-    await fixture.db.query(
-      "UPDATE grants SET application_authorization = NULL WHERE id = $1",
-      [fixture.grantId]
-    );
-    const originalError = new Error("notification policy update failed");
-    const updateApplicationReplica = vi.fn().mockResolvedValue(undefined);
-    const revokeReplica = vi.fn().mockRejectedValue(new Error("replica revoke failed"));
-    const provider = providerStub({
-      updateApplicationReplica,
-      revokeReplica,
-      revokeNotificationGrant: vi.fn().mockRejectedValue(originalError)
-    });
-
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input))
-      .rejects.toBe(originalError);
-
-    expect(updateApplicationReplica).toHaveBeenCalledOnce();
-    expect(revokeReplica).toHaveBeenCalledWith(fixture.replicaId);
-  });
-});
-
-describe("hosted setup after partial approval", () => {
-  it("reconciles committed definitions after grant failure, then requires a fresh review without replaying stale setup", async () => {
-    const fixture = await contractSetupFixture();
-    let installed: CollectionContractDescriptor[] = [];
-    const originalError = new Error("application origin rejected after setup");
-    const setup = vi.fn(async (_id, input) => {
-      installed = [fixture.contract];
-      return { contracts: installed, contractSetups: input.contractSetups };
-    });
-    const update = vi.fn().mockRejectedValueOnce(originalError).mockResolvedValue(undefined);
-    const provider = providerStub({
-      collectionContracts: vi.fn(async () => installed), provisionApplicationSetup: setup,
-      updateApplicationReplica: update, revokeReplica: vi.fn(), revokeNotificationGrant: vi.fn()
-    });
-    const before = (await fixture.db.query("SELECT * FROM grants")).rows;
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input)).rejects.toBe(originalError);
-    expect((await fixture.db.query("SELECT contracts FROM hosted_collections")).rows[0].contracts).toEqual(installed);
-    expect((await fixture.db.query("SELECT * FROM grants")).rows).toEqual(before);
-    expect((await fixture.db.query("SELECT completed_at, grant_id FROM authorization_requests")).rows[0]).toEqual({ completed_at: null, grant_id: null });
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input)).rejects.toThrow("reload the approval page");
-    expect(setup).toHaveBeenCalledOnce();
-    expect(update).toHaveBeenCalledTimes(2); // Failed replacement plus exact restoration only.
-    await expect(approveHostedAuthorization(fixture.db, provider, { ...fixture.input, contractSetups: [] })).resolves.toBe(true);
-    expect(setup).toHaveBeenLastCalledWith(fixture.input.collectionId, expect.objectContaining({ contractSetups: [] }));
-  });
-
-  it.each(["starter", "existing"] as const)("repairs an already stale cache but never reapplies a %s mapping", async (mode) => {
-    const fixture = await contractSetupFixture();
-    if (mode === "existing") fixture.input.contractSetups = [{
-      contract: fixture.required, mode, type_name: "another-type",
-      type_revision: `sha256:${"b".repeat(64)}`, fields: { title: "different" }
-    }];
-    const setup = vi.fn();
-    const update = vi.fn();
-    const provider = providerStub({
-      collectionContracts: vi.fn().mockResolvedValue([fixture.contract]), provisionApplicationSetup: setup,
-      updateApplicationReplica: update, revokeReplica: vi.fn(), revokeNotificationGrant: vi.fn()
-    });
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input)).rejects.toThrow("reload the approval page");
-    expect(setup).not.toHaveBeenCalled(); expect(update).not.toHaveBeenCalled();
-    expect((await fixture.db.query("SELECT contracts FROM hosted_collections")).rows[0].contracts).toEqual([fixture.contract]);
-  });
-
-  it("reconciles a committed setup whose response was lost without retrying it in compensation", async () => {
-    const fixture = await contractSetupFixture();
-    const originalError = new Error("setup response lost");
-    const provider = providerStub({
-      collectionContracts: vi.fn().mockResolvedValueOnce([]).mockResolvedValue([fixture.contract]),
-      provisionApplicationSetup: vi.fn().mockRejectedValue(originalError),
-      updateApplicationReplica: vi.fn(), revokeReplica: vi.fn(), revokeNotificationGrant: vi.fn()
-    });
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input)).rejects.toBe(originalError);
-    expect(provider.provisionApplicationSetup).toHaveBeenCalledOnce();
-    expect(provider.updateApplicationReplica).not.toHaveBeenCalled();
-    expect((await fixture.db.query("SELECT contracts FROM hosted_collections")).rows[0].contracts).toEqual([fixture.contract]);
-  });
-
-  it("keeps the original failure if reconciliation is offline and reads fresh authority on the next attempt", async () => {
-    const fixture = await contractSetupFixture();
-    const originalError = new Error("setup response lost");
-    const provider = providerStub({
-      collectionContracts: vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new Error("offline")).mockResolvedValue([fixture.contract]),
-      provisionApplicationSetup: vi.fn().mockRejectedValue(originalError),
-      updateApplicationReplica: vi.fn(), revokeReplica: vi.fn(), revokeNotificationGrant: vi.fn()
-    });
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input)).rejects.toBe(originalError);
-    expect((await fixture.db.query("SELECT contracts FROM hosted_collections")).rows[0].contracts).toEqual([]);
-    await expect(approveHostedAuthorization(fixture.db, provider, fixture.input)).rejects.toThrow("reload the approval page");
-    expect(provider.provisionApplicationSetup).toHaveBeenCalledOnce();
-  });
-});
-
-async function contractSetupFixture() {
-  const fixture = await retainedReplicaFixture();
-  const required = { id: "dev.mdbase.test", version: "1.0.0", digest: `sha256:${"a".repeat(64)}` };
-  const contract: CollectionContractDescriptor = { ...required, contract_type: "record", schema: { type: "object" },
-    implementations: [{ type_name: "test", type_version: 1, digest: `sha256:${"b".repeat(64)}`, fields: {} }] };
-  const app = (await fixture.db.query("SELECT id, requirements FROM applications WHERE id=$1", [fixture.applicationId])).rows[0];
-  await fixture.db.query("UPDATE applications SET requirements = $2::jsonb, provisions = $3::jsonb WHERE id = $1", [
-    app.id, JSON.stringify({ ...app.requirements, contracts: [required] }),
-    JSON.stringify({ type_packs: [{ provides: [required] }], configuration: [] })
-  ]);
-  fixture.input.contractSetups = [{ contract: required, mode: "starter" }];
-  return { ...fixture, contract, required };
-}
-
-function providerStub(overrides: {
-  updateApplicationReplica: ReturnType<typeof vi.fn>;
-  revokeReplica: ReturnType<typeof vi.fn>;
-  revokeNotificationGrant: ReturnType<typeof vi.fn>;
-  collectionContracts?: ReturnType<typeof vi.fn>;
-  provisionApplicationSetup?: ReturnType<typeof vi.fn>;
-}): HostedProviderClient {
-  const provider = {
-    provisionApplicationSetup: vi.fn(),
-    collectionContracts: vi.fn().mockResolvedValue([]),
-    registerReplica: vi.fn(),
-    upsertNotificationGrant: vi.fn(),
-    ...overrides
-  } as unknown as HostedProviderClient;
-  providers.push(provider);
-  return provider;
-}
 
 async function retainedReplicaFixture(options: {
   version?: 1 | 2;

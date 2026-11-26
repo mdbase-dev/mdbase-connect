@@ -38,6 +38,7 @@ function fixture(initial: AppInstallationSignInView["state"] = "pending", autoSe
     signOutInstallation: vi.fn(async (): Promise<"revoked" | "already_signed_out"> => {trace.push("cp-sign-out"); return "revoked";}),
     hasWebPushChannel: vi.fn(() => false),
     requestSent: vi.fn(() => false),
+    forgetSentRequest: vi.fn(async () => {trace.push("forget-sent");}),
   };
   const flowOpen = vi.spyOn(AppProtectedInstallationSignIn, "open").mockImplementation(async p => {
     flowSignal = p.signal; expect(p.mode).toBe("open"); expect(p.appId).toBe("independent-app"); expect(p.origin).toBe("https://notes.example.test"); return flow as unknown as AppProtectedInstallationSignIn;
@@ -190,6 +191,38 @@ describe("unified Native choice lifecycle", () => {
     expect(complete).toHaveBeenCalledOnce();expect(f.closePortal).toHaveBeenCalledOnce();expect(f.openPortal).toHaveBeenCalledOnce();
     await f.session.close();
   });
+  it("reopens the approval page once the app has prepared in the foreground, and not again without progress (tasknotes-app#492)", async () => {
+    const f=fixture("pending","never"), requestId=f.flow.view().requestId, authorizationId="77777777-7777-4777-8777-777777777777";
+    const attach=vi.fn(async()=>{});
+    Object.assign(f.flow,{nativeAuthorizationContext:()=>({requestId,appId:"independent-app",accountId:account,challenge:"ab".repeat(32)}),attachNativeAuthorization:attach,pendingNativeSelection:()=>null,completeNativeAuthorization:vi.fn()});
+    const prepare=vi.fn(async()=>({authorizationId,applicationId:"independent-app",manifestDigest:"cc".repeat(32)})),focus=vi.fn();
+    f.openPortal.mockReturnValue({navigate:f.navigatePortal,close:f.closePortal,focus,nativeAuthorization:{prepare,finish:vi.fn(),cancel:vi.fn()}} as AppWebSignInPortal);
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    await f.session.start();f.selectOnPortal();await f.session.authorize();
+    // Leaving for the approval page and coming back prepares and attaches here.
+    await Promise.resolve(); await approvalTick(f.session); await approvalTick(f.session);
+    expect(attach).toHaveBeenCalledOnce();expect(focus).toHaveBeenCalledOnce();
+    // Nothing left for the app: later returns do not reopen it.
+    await approvalTick(f.session);await approvalTick(f.session);
+    expect(attach).toHaveBeenCalledOnce();expect(focus).toHaveBeenCalledOnce();
+    await f.session.close();
+  });
+  it("does not reopen an approval page that never waited on the app (tasknotes-app#492)", async () => {
+    vi.useFakeTimers();
+    const f=fixture("pending","never"), requestId=f.flow.view().requestId, authorizationId="77777777-7777-4777-8777-777777777777";
+    const attach=vi.fn(async()=>{});
+    Object.assign(f.flow,{nativeAuthorizationContext:()=>({requestId,appId:"independent-app",accountId:account,challenge:"ab".repeat(32)}),attachNativeAuthorization:attach,pendingNativeSelection:()=>null,completeNativeAuthorization:vi.fn()});
+    const prepare=vi.fn(async()=>({authorizationId,applicationId:"independent-app",manifestDigest:"cc".repeat(32)})),focus=vi.fn();
+    f.openPortal.mockReturnValue({navigate:f.navigatePortal,close:f.closePortal,focus,nativeAuthorization:{prepare,finish:vi.fn(),cancel:vi.fn()}} as AppWebSignInPortal);
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    await f.session.start();f.selectOnPortal();await f.session.authorize();
+    await vi.advanceTimersByTimeAsync(5000);
+    // The app's part was done before the person left: nothing to come back for.
+    f.session.setForeground(false);await vi.advanceTimersByTimeAsync(30000);
+    f.session.setForeground(true);await vi.advanceTimersByTimeAsync(5000);
+    expect(attach).toHaveBeenCalledOnce();expect(focus).not.toHaveBeenCalled();
+    await f.session.close();
+  });
   /** A Private pick the flow stored; `abandon` forgets it as the real ledger does. */
   function nativePick(f: ReturnType<typeof fixture>, requestId: string) {
     const authorizationId="77777777-7777-4777-8777-777777777777";
@@ -235,6 +268,20 @@ describe("unified Native choice lifecycle", () => {
     // The same session can ask again: a new window, not a refusal.
     await f.session.authorize();expect(f.flow.startCollectionConsent).toHaveBeenCalledTimes(2);expect(f.openPortal).toHaveBeenCalledTimes(2);
     expect(f.session.getSnapshot()).toMatchObject({problem:null,signIn:{state:"paired"}});
+    await f.session.close();
+  });
+  it("returns to the chooser when the first receipt after reload contains an unfinished Private pick", async () => {
+    const f=fixture("awaiting_approval"), n=nativePick(f,f.flow.view().requestId);
+    const originalView=f.flow.view, exchange=f.flow.exchange.getMockImplementation()!;
+    f.flow.view=()=>({...originalView(),collectionSelection:null,collectionIds:[]});
+    f.flow.exchange.mockImplementation(async()=>{await exchange();n.pick();return f.flow.view();});
+    f.flow.listApprovedCollections.mockResolvedValue([]);
+    f.approve();
+    expect(await f.session.start()).toMatchObject({status:"authorizing"});
+    await approvalTick(f.session);
+    expect(f.session.getSnapshot()).toMatchObject({status:"unselected",problem:null,approval:{outcome:"closed"},signIn:{state:"paired"},collections:[]});
+    expect(n.abandon).toHaveBeenCalledOnce();expect(n.finish).not.toHaveBeenCalled();
+    expect(f.openPortal).not.toHaveBeenCalled();expect(f.openCollection).not.toHaveBeenCalled();
     await f.session.close();
   });
   it("starts past a Private pick an earlier page stored without its grant, instead of blocking every reload", async () => {
@@ -778,6 +825,35 @@ describe("shared first-party web sign-in", () => {
     popup.gone = true; await vi.advanceTimersByTimeAsync(1000);
     expect(seen.length).toBeGreaterThan(0); expect(seen).not.toContain("authorizing");
     expect(f.session.viewFor(collectionId, {bystander: true})).toMatchObject({status: "ready", selectedCollectionId: collectionId}); await f.session.close();
+  });
+  it("cancelling a sign-in signs out at once, stops reading, and Sign in sends the same request again", async () => {
+    vi.useFakeTimers(); const f = fixture(); await f.session.start(); f.selectOnPortal(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing"); const reads = f.flow.exchange.mock.calls.length;
+    await f.session.cancelAuthorization();
+    expect(f.session.snapshot()).toMatchObject({status: "signed_out", problem: null, approval: {outcome: "closed"}});
+    expect(f.closePortal).toHaveBeenCalledOnce(); expect(f.flow.forgetSentRequest).toHaveBeenCalledOnce(); expect(f.flow.exchange).toHaveBeenCalledTimes(reads);
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchange).toHaveBeenCalledTimes(reads);
+    await f.session.authorize(); expect(f.flow.start).toHaveBeenCalledTimes(2); expect(f.flow.renewExpiredPairing).not.toHaveBeenCalled();
+    f.approve(); await vi.advanceTimersByTimeAsync(1000); expect(f.session.snapshot().status).toBe("ready"); await f.session.close();
+  });
+  it("cancels a sign-in a restart resumed, with no window to close", async () => {
+    vi.useFakeTimers(); const f = fixture(); f.flow.requestSent.mockReturnValue(true);
+    await f.session.start(); expect(f.session.snapshot().status).toBe("authorizing");
+    await f.session.cancelAuthorization();
+    expect(f.session.snapshot()).toMatchObject({status: "signed_out", problem: null}); expect(f.flow.forgetSentRequest).toHaveBeenCalledOnce();
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchange).not.toHaveBeenCalled(); expect(f.openPortal).not.toHaveBeenCalled(); await f.session.close();
+  });
+  it("cancelling an add-collection window keeps the person signed in on their collections", async () => {
+    vi.useFakeTimers(); const f = fixture("paired"); await f.session.start(); await f.session.authorize();
+    expect(f.session.snapshot().status).toBe("authorizing"); const reads = f.flow.exchangeCollectionConsent.mock.calls.length;
+    await f.session.cancelAuthorization();
+    expect(f.session.snapshot()).toMatchObject({status: "ready", problem: null, selectedCollectionId: collectionId, approval: {outcome: "closed"}, signIn: {state: "paired"}});
+    expect(f.closePortal).toHaveBeenCalledOnce(); expect(f.flow.forgetSentRequest).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(30000); expect(f.flow.exchangeCollectionConsent).toHaveBeenCalledTimes(reads); await f.session.close();
+  });
+  it("cancelling while nothing is being authorized changes nothing", async () => {
+    const f = fixture("paired"); await f.session.start(); const before = f.session.snapshot();
+    expect(await f.session.cancelAuthorization()).toBe(before); expect(f.flow.forgetSentRequest).not.toHaveBeenCalled(); await f.session.close();
   });
   it.each(["refused", "expired"] as const)("a re-consent %s in Connect cancels back to the collections, never blocked", async reason => {
     vi.useFakeTimers(); const f = fixture("paired"); await f.session.start(); await f.session.authorize();

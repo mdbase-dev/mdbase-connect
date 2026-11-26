@@ -16,9 +16,7 @@ import {
   matchesMembershipBinding,
   membershipBindingForAccess
 } from "../collections/collection-membership-binding.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { randomToken, tokenHash } from "../../security.js";
-import { authorityUrl } from "../../platform/authority-url.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
 import { normalizedApplicationOrigin } from "./redirects.js";
 import { CutoverProblemError } from "../next/cutover-problems.js";
@@ -28,7 +26,6 @@ import { nativeTokenCompletion, type NativeTokenCompletion } from "./native-cred
 
 export async function issueApplicationTokens(
   db: DatabaseQueryable,
-  hostedProvider: HostedProviderClient | undefined,
   grantId: string
 ): Promise<{
   access_token: string;
@@ -187,33 +184,7 @@ export async function issueApplicationTokens(
     proof_public_key?: string;
   } | undefined;
   if (grant.rows[0].hosted_collection_id) {
-    if (!hostedProvider || !grant.rows[0].hosted_replica_id || !grant.rows[0].provider_url) {
-      throw new RequestValidationError("The hosted application capability is unavailable.");
-    }
-    const providerToken = randomToken("hsa");
-    await hostedProvider.rotateReplicaToken(grant.rows[0].hosted_replica_id, providerToken, 3_600);
-    authority = {
-      operations_url: authorityUrl(
-        grant.rows[0].provider_url,
-        grant.rows[0].collection_id,
-        "operations"
-      ),
-      sync_url: authorityUrl(
-        grant.rows[0].provider_url,
-        grant.rows[0].collection_id,
-        "sync"
-      ),
-      files_url: authorityUrl(
-        grant.rows[0].provider_url,
-        grant.rows[0].collection_id,
-        "files"
-      ),
-      replica_id: grant.rows[0].hosted_replica_id,
-      access_token: providerToken,
-      ...(grant.rows[0].proof_public_key
-        ? { proof_public_key: grant.rows[0].proof_public_key }
-        : {})
-    };
+    throw new RequestValidationError("The hosted application capability is unavailable.");
   }
   await db.query(
     `INSERT INTO access_tokens (id, token_hash, grant_id, expires_at)

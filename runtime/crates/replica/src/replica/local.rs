@@ -11,10 +11,10 @@ use mdbn_wire::common::{Text, Uuid, Value, Version};
 use mdbn_wire::entry::EntryPayload;
 use mdbn_wire::intent::Op;
 
-use super::Replica;
 use super::apply::Outcome;
 use super::apply_checkpoint::Checkpoint;
 use super::submit::rejection_problem;
+use super::{Replica, local_web};
 use crate::api::ErrorCode;
 #[cfg(test)]
 use crate::api::Push;
@@ -91,6 +91,16 @@ impl<S: Store> Replica<S> {
     }
 
     fn local_row_check(&self, row: &PendingRow) -> Result<(), GrantError> {
+        if let Some(owner) = super::local_web::pending_owner(row) {
+            if row.mutation.origin != self.cfg.replica_id || !self.local_web_live(owner) {
+                return Err(GrantError::Denied(local_web::revoked().0));
+            }
+            let mutation = super::attachment_runtime::legacy_mutation(row.mutation.clone())
+                .map_err(|_| GrantError::Denied(local_web::scope().0))?;
+            return self
+                .local_web_validate_ops(&mutation.ops, self.local_web_has_body(owner, &mutation.id))
+                .map_err(|err| GrantError::Denied(err.0));
+        }
         if row.grant != row.mutation.on_behalf || row.mutation.origin != self.cfg.replica_id {
             return Err(GrantError::Denied(Box::new(
                 ErrorCode::InvalidRequest
@@ -185,10 +195,14 @@ impl<S: Store> Replica<S> {
         payload: &mdbn_wire::attachment_runtime_v1::EntryPayload,
         reason: &'static str,
     ) -> Result<Outcome, StoreError> {
+        let owner = self
+            .store
+            .pending_get(&payload.mutation.id)?
+            .and_then(|row| row.grant);
         self.commit_local_rejections(
             vec![(
                 payload.mutation.id,
-                payload.mutation.on_behalf,
+                owner.or(payload.mutation.on_behalf),
                 ErrorCode::InvalidRequest.problem_with_reason("local_void", reason),
             )],
             Some(head),
@@ -206,7 +220,7 @@ impl<S: Store> Replica<S> {
     }
 
     fn local_commit_batch(&mut self) -> Result<(), StoreError> {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Ok(());
         }
         // A typed known abort retries ONLY existing pending work. Public Store
@@ -220,7 +234,7 @@ impl<S: Store> Replica<S> {
                 Ok(rows) => rows,
                 Err(e) => {
                     let checkpoint = Checkpoint::capture(self);
-                    self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false);
+                    self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false, &e);
                     self.apply_deferred_changed.extend(changed);
                     return Err(e);
                 }
@@ -233,8 +247,9 @@ impl<S: Store> Replica<S> {
                 let position = match self.head.seq.checked_add(1) {
                     Some(p) => p,
                     None => {
-                        self.failed_apply(checkpoint, self.head.seq, false);
-                        return Err(StoreError::Corrupt("local position exhausted".into()));
+                        let e = StoreError::Corrupt("local position exhausted".into());
+                        self.failed_apply(checkpoint, self.head.seq, false, &e);
+                        return Err(e);
                     }
                 };
                 let before_changed = changed.clone();
@@ -245,10 +260,12 @@ impl<S: Store> Replica<S> {
                         checkpoint,
                         position,
                         matches!(&e, StoreError::CommitAborted(_)),
+                        &e,
                     );
                     self.apply_deferred_changed.extend(changed);
                     return Err(e);
                 }
+                self.local_web_retire_body(&row.mutation.id);
                 changed.extend(row.touches.iter().cloned());
                 if self
                     .apply_blocked
@@ -272,7 +289,7 @@ impl<S: Store> Replica<S> {
             if let Err(e) = result {
                 // A committed prefix precedes this maintenance failure. Reopen
                 // rather than roll back derived state to a pre-prefix checkpoint.
-                self.failed_apply(checkpoint, self.head.seq, false);
+                self.failed_apply(checkpoint, self.head.seq, false, &e);
                 return Err(e);
             }
         }
@@ -345,7 +362,9 @@ impl<S: Store> Replica<S> {
         };
         let mut mutation = legacy;
         for fill in &planned.base_text_fills {
-            if let Some(Op::Update(update)) = mutation.ops.get_mut(fill.op_index as usize) {
+            if let Some(Op::Update(update) | Op::UpdateLive(update)) =
+                mutation.ops.get_mut(fill.op_index as usize)
+            {
                 update.body_base_text = Some(Text::Inline(fill.text.clone()));
             }
         }

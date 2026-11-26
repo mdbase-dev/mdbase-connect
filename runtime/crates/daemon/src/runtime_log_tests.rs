@@ -246,7 +246,7 @@ fn deletion_push_on_an_idle_session_is_terminal() {
     })
     .unwrap();
     assert_eq!(
-        synced_ready(&rep.sync_status(), false, true),
+        synced_ready(&rep.sync_status(), rep.fence(), false, true),
         Err("collection_deleted")
     );
 }

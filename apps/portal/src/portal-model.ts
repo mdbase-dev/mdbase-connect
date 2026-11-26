@@ -1,11 +1,17 @@
 import { t } from "@lingui/core/macro";
 import { i18n } from "@mdbase-dev/ui/i18n";
+import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import type {
   AvailableCollection,
   ContractRequirement,
   PendingAuthorization,
   TypePackProvision
 } from "./api";
+
+/** This portal's managed environment origins, or undefined on a custom server. */
+export function managedOriginsFor(origin: string = location.origin) {
+  return Object.values(managedAppOrigins).find((origins) => origins.connectOrigin === origin);
+}
 
 export function installationAccountLabel(pairing: {
   account_selection_confirmed?: boolean;
@@ -52,6 +58,22 @@ export function pairingInspectionPath(pairingId: string, search: string): string
 export function readRememberedCollection(): string | null {
   try { return localStorage.getItem(`mdbase-connect:last-collection:${location.origin}`); } catch { return null; }
 }
+
+/** The person's own pick on one approval page, kept while an app sends them
+ * away and opens the same page again (tasknotes-app#492). Never app consent:
+ * the person still confirms it on the page. */
+export const pendingPairingChoice = {
+  key: (pairingId: string) => `mdbase-connect:pairing-choice:${pairingId}`,
+  read(pairingId: string): string | null {
+    try { return localStorage.getItem(this.key(pairingId)); } catch { return null; }
+  },
+  write(pairingId: string, collectionId: string): void {
+    try { if (collectionId) localStorage.setItem(this.key(pairingId), collectionId); else localStorage.removeItem(this.key(pairingId)); } catch { /* Storage is optional. */ }
+  },
+  clear(pairingId: string): void {
+    try { localStorage.removeItem(this.key(pairingId)); } catch { /* Storage is optional. */ }
+  },
+};
 
 export function rememberCollection(collectionId: string): void {
   try { localStorage.setItem(`mdbase-connect:last-collection:${location.origin}`, collectionId); } catch { /* Storage is optional. */ }

@@ -26,6 +26,7 @@ use mdbn_wire::log_service::SeqItem;
 use mdbn_wire::schema::{SchemaError, Wire};
 use mdbn_wire::snapshot::EntityKind;
 
+use super::verdicts::Verdict;
 use super::{Replica, i64_meta};
 use crate::api::{ClientApi, ErrorCode, Push};
 use crate::convert::{self, CResult, ConvertError};
@@ -61,6 +62,15 @@ pub(crate) enum Outcome {
     Void(&'static str),
     /// Applied.
     Applied,
+}
+
+/// The verdict a control item's outcome records: it is `Applied` or `Void` here.
+fn verdict(o: &Outcome) -> Verdict {
+    if matches!(o, Outcome::Void(_)) {
+        Verdict::Void
+    } else {
+        Verdict::Applied
+    }
 }
 
 fn text_resolver<'a>(
@@ -104,6 +114,9 @@ struct EffectStage {
 /// What staging the entry's metadata and receipt rows decides for the commit.
 struct MetaStage {
     catalog: std::sync::Arc<mdbn_core::types::Catalog>,
+    /// The record-meta stamp of the catalog the entry leaves, when it differs
+    /// from the stored one: records must be indexed again.
+    reindex_stamp: Option<Vec<u8>>,
     receipt_conflicts: Vec<mdbn_wire::entry::Conflict>,
     log_time: i64,
     ratchet: u64,
@@ -114,6 +127,7 @@ struct OwnResolution {
     own: bool,
     own_match: bool,
     relocated_from: Option<u64>,
+    local_web_owner: Option<Uuid>,
 }
 
 /// What the entry changes, for the caller's rebase keys and the after-commit work.
@@ -125,15 +139,36 @@ struct ChangeStage {
 
 impl<S: Store> Replica<S> {
     /// Apply items in log order, starting at the first one after the head.
+    ///
+    /// While a hosted record-metadata repair runs, only control items other than
+    /// a `base` apply: policy and keys do not depend on record metadata, so a
+    /// newly enrolled device is keyed without waiting for the repair's alarm
+    /// slices (connect#1850). Apply stops before the first entry until the
+    /// repair finishes.
     pub(crate) fn apply_items(&mut self, items: Vec<SeqItem>) {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return;
         }
+        self.discard_staged_key_grants();
         let mut changed: BTreeSet<String> = BTreeSet::new();
+        let mut revoked_sessions: std::collections::BTreeMap<
+            crate::api::SessionId,
+            mdbn_wire::client::Problem,
+        > = std::collections::BTreeMap::new();
         let mut any = false;
         for it in items {
             if it.seq <= self.head.seq {
                 continue;
+            }
+            if self.hosted_reindex_pending() && !repair_independent(&it) {
+                self.hosted_reindex_hold();
+                break;
+            }
+            if let Some(hosted) = self.hosted.as_mut() {
+                if hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS {
+                    break;
+                }
+                hosted.applied_since_tick += 1;
             }
             if it.seq != self.head.seq + 1 {
                 // A gap: read what's missing.
@@ -149,7 +184,7 @@ impl<S: Store> Replica<S> {
                 item: it.item.0.clone(),
                 applied_at: self.now(),
             });
-            let result = self.apply_one(it.seq, &it.item, &mut changed);
+            let result = self.apply_one(it.seq, &it.item, &mut changed, &mut revoked_sessions);
             self.retaining = None;
             // Only an applied or void entry leaves the window open for the next
             // item. Every way of stopping here (a failed commit, a stall, a
@@ -168,6 +203,7 @@ impl<S: Store> Replica<S> {
                             checkpoint,
                             it.seq,
                             matches!(&e, StoreError::CommitAborted(_)),
+                            &e,
                         );
                     }
                     self.incident(
@@ -230,7 +266,7 @@ impl<S: Store> Replica<S> {
                     break;
                 }
             }
-            if self.apply_fault {
+            if self.apply_fault.is_some() {
                 break;
             }
         }
@@ -240,8 +276,11 @@ impl<S: Store> Replica<S> {
         if self.close_apply_window().is_err() || !any {
             return;
         }
+        self.close_sessions_with_problems(revoked_sessions);
+        self.close_revoked_sessions();
         if self.head.seq >= self.head_known {
             self.head_known = self.head.seq;
+            self.flush_query_index();
         }
         // A restored revocation clears its latch (and may let planning resume);
         // a restored orphan clears too.
@@ -251,7 +290,7 @@ impl<S: Store> Replica<S> {
                 Some(Value::Text(format!("store: {e}"))),
             );
         }
-        if self.apply_fault || self.is_apply_recovering() {
+        if self.apply_fault.is_some() || self.is_apply_recovering() {
             self.apply_deferred_changed.extend(changed);
             self.status_dirty = true;
             return;
@@ -275,28 +314,28 @@ impl<S: Store> Replica<S> {
         }
     }
 
-    /// Open the deferred-durability window of the call's entries, if the store
-    /// has such a mode (the native index; every other store keeps each commit
-    /// durable and this does nothing).
+    /// Open the deferred-durability window of the call's items, if the store
+    /// has such a mode (the desktop's native index and the app's browser
+    /// index; every other store commits each item on its own and this does
+    /// nothing).
     ///
-    /// Inside it an applied entry is atomic and ordered but not yet durable, so
-    /// a crash takes back a suffix of the call's entries. That is safe because
+    /// Inside it an applied item is atomic and ordered but not yet durable, so
+    /// a crash takes back a suffix of the call's items. That is safe because
     /// nothing outside the store can have seen them:
     ///
     /// - the store closes the window itself before any outside effect (a file
     ///   written, moved or removed, an attachment staged, a keychain entry);
-    /// - everything this replica emits (log calls, pushes, receipts) is queued
-    ///   in memory and taken by the host only after the call returns, and the
-    ///   call closes the window first (`apply_items`), fencing the instance and
-    ///   dropping those outputs if the barrier's outcome is unknown;
+    /// - everything this replica emits (log calls, pushes, receipts, own
+    ///   key-grant approval dispositions) is queued or staged in memory and
+    ///   delivered only after the barrier succeeds (`close_apply_window`),
+    ///   fencing the instance and dropping those outputs if the barrier's
+    ///   outcome is unknown;
     /// - what a crash loses is re-read from the log at the durable head and
     ///   applied again to the same result, own pending mutations included
     ///   (their rows and receipts roll back with the head).
     ///
-    /// Only entries are inside one. A control item (policy, rekey, key grant,
-    /// grant approval) or a base closes the window first and commits durably on
-    /// its own, as before: authorization and key state never run ahead of what
-    /// is durable.
+    /// Entries and control items share one window per `apply_items` call; a
+    /// `base` item closes the window first before beginning its staged install.
     fn open_apply_window(&mut self) -> Result<(), StoreError> {
         self.store.defer_durability(true)
     }
@@ -306,9 +345,15 @@ impl<S: Store> Replica<S> {
     /// the instance is fenced until reopen, as after any commit whose outcome
     /// is unknown, and nothing queued from them is delivered.
     fn close_apply_window(&mut self) -> Result<(), StoreError> {
-        self.store.defer_durability(false).inspect_err(|_| {
+        let r = self.store.defer_durability(false);
+        if r.is_ok() {
+            // Durable: only now do own approval grants from the window count as applied.
+            self.publish_staged_key_grants();
+        } else {
+            self.discard_staged_key_grants();
             self.terminal_store_fault("apply_window_barrier_failed");
-        })
+        }
+        r
     }
 
     /// A `base` item (`snapshot.md` §7): check it, then install its generation 0.
@@ -418,6 +463,7 @@ impl<S: Store> Replica<S> {
                     .collect(),
                 ..Tx::default()
             },
+            Verdict::Void,
         )?;
         self.note_genesis(head);
         Ok(Outcome::Void(reason))
@@ -487,10 +533,10 @@ impl<S: Store> Replica<S> {
             self.store.commit(tx)?;
             self.head = head;
         } else {
-            self.commit_retained(head, tx)?;
+            self.commit_retained(head, tx, Verdict::Void)?;
         }
         self.note_genesis(head);
-        if own && !self.apply_fault {
+        if own && self.apply_fault.is_none() {
             if let Some(row) = pending {
                 changed.extend(row.touches);
             }
@@ -540,8 +586,8 @@ impl<S: Store> Replica<S> {
     }
 
     /// A genesis mismatch is terminal: nothing is served, sealed or appended.
-    pub(super) fn genesis_fault(&mut self) {
-        self.apply_fault = true;
+    pub(super) fn genesis_fault(&mut self, why: String) {
+        self.raise_fence(super::Fence::Genesis, why);
         self.calls.clear();
         self.inflight.clear();
         self.append = super::append::AppendState::Stopped;
@@ -595,11 +641,18 @@ impl<S: Store> Replica<S> {
         p: u64,
         head: Head,
         item: &Item,
+        revoked_sessions: &mut std::collections::BTreeMap<
+            crate::api::SessionId,
+            mdbn_wire::client::Problem,
+        >,
     ) -> Result<Outcome, StoreError> {
-        self.discard_staged_key_grants();
+        let staged_before = self.staged_key_grants_len();
+        let track_keyring = matches!(item.kind, ItemKind::Rekey | ItemKind::KeyGrant)
+            && self.store.keyring_persistence() != crate::store::KeyringPersistence::RebuildOnOpen;
+        let keyring_before = track_keyring.then(|| self.sealer.export()).flatten();
         let outcome = match self.evaluate_control(p, &head.chain, item, &[], true) {
             Err(stall) => {
-                self.discard_staged_key_grants();
+                self.truncate_staged_key_grants(staged_before);
                 return Ok(Outcome::Stall(IncidentKind::UpgradeRequired, stall));
             }
             Ok(None) => Outcome::Applied,
@@ -622,7 +675,14 @@ impl<S: Store> Replica<S> {
         if let Some(bytes) = next_history.as_ref().and_then(|h| h.hint_bytes()) {
             meta.push((super::original_history::META.into(), Some(bytes)));
         }
-        meta.extend(self.keyring_meta());
+        if track_keyring {
+            let keyring_after = self.sealer.export();
+            if keyring_after != keyring_before
+                && let Some(bytes) = keyring_after
+            {
+                meta.push((meta_keys::KEYRING.to_string(), Some(bytes.to_vec())));
+            }
+        }
         meta.extend(self.genesis_meta(head));
         let committed = self.commit_retained(
             head,
@@ -631,22 +691,26 @@ impl<S: Store> Replica<S> {
                 meta,
                 ..Tx::default()
             },
+            verdict(&outcome),
         );
         if let Err(e) = committed {
-            self.discard_staged_key_grants();
+            self.truncate_staged_key_grants(staged_before);
             return Err(e);
         }
-        if !self.apply_fault
+        if self.apply_fault.is_none()
             && !self.is_apply_recovering()
             && let Some(history) = next_history
         {
             self.original_history = history;
         }
-        // Durable: only now does an own approval grant count as applied.
-        self.publish_staged_key_grants();
+        // Durable now if no deferred-durability window is open (otherwise
+        // `close_apply_window` publishes once the barrier succeeds).
+        if !self.store.durability_deferred() {
+            self.publish_staged_key_grants();
+        }
         self.note_genesis(head);
         self.status_dirty = true;
-        self.close_revoked_sessions();
+        self.collect_revoked_sessions(revoked_sessions);
         Ok(outcome)
     }
 
@@ -761,48 +825,119 @@ impl<S: Store> Replica<S> {
         Ok(r)
     }
 
-    /// A control item read during a snapshot install (`snapshot.md` §8 step 1):
-    /// evaluated into policy and keys and persisted; the head is set by the install.
-    pub(crate) fn evaluate_control_bytes(&mut self, p: u64, raw: &[u8]) -> Result<(), String> {
+    /// Roll back in-memory mutations from earlier items in a control page when
+    /// a later item in the same page fails before the page commits.
+    fn rollback_control_page(
+        &mut self,
+        checkpoint: super::apply_checkpoint::Checkpoint,
+        mutated: bool,
+        why: String,
+    ) -> String {
+        self.discard_staged_key_grants();
+        if mutated && let Err(reason) = checkpoint.restore(self, true) {
+            self.terminal_store_fault(&format!("{reason}: {why}"));
+        }
+        why
+    }
+
+    /// A page of control items read during a snapshot install (`snapshot.md` §8
+    /// step 1): evaluated in memory into policy and keys, then persisted in one
+    /// commit. The head is set by the install.
+    ///
+    /// Returns the policy snapshot after each newly evaluated item so the
+    /// manifest can be verified at its own position. On any error before or
+    /// during commit, no half-applied state from the page remains in memory or
+    /// in the store.
+    pub(crate) fn evaluate_control_page(
+        &mut self,
+        items: &[SeqItem],
+    ) -> Result<Vec<super::snapshot::ControlPoint>, String> {
         // Read-ahead has no settled applied prefix. Its persisted policy/hints
         // cannot recreate an original observation, even after a typed abort.
         self.original_history.invalidate();
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err("apply state is faulted; reopen required".into());
         }
-        if let Err(why) = self.check_genesis(p, raw) {
-            self.genesis_fault();
-            return Err(format!("control {why}"));
-        }
-        let item = Item::from_bytes(raw).map_err(|e| format!("control item {p}: {e}"))?;
-        if item.seq != Some(p) || item.collection != self.cfg.collection || !item.kind.is_control()
-        {
-            return Err(format!("control item {p}: position, collection or kind"));
-        }
-        let chain = mdbn_wire::hash::chain_hash(raw);
         let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
         self.discard_staged_key_grants();
-        if let Err(e) = self.evaluate_control(p, &chain, &item, raw, false) {
-            self.discard_staged_key_grants();
-            return Err(e);
+        let mut points = Vec::new();
+        let mut genesis_head = None;
+        let mut last_seq = None;
+        for it in items {
+            let p = it.seq;
+            if p <= self.policy.seq {
+                continue;
+            }
+            let raw = &it.item.0;
+            if let Err(why) = self.check_genesis(p, raw) {
+                let why = self.rollback_control_page(
+                    checkpoint,
+                    last_seq.is_some(),
+                    format!("control {why}"),
+                );
+                self.genesis_fault(why.clone());
+                return Err(why);
+            }
+            let item = match Item::from_bytes(raw) {
+                Ok(item) => item,
+                Err(e) => {
+                    return Err(self.rollback_control_page(
+                        checkpoint,
+                        last_seq.is_some(),
+                        format!("control item {p}: {e}"),
+                    ));
+                }
+            };
+            if item.seq != Some(p)
+                || item.collection != self.cfg.collection
+                || !item.kind.is_control()
+            {
+                return Err(self.rollback_control_page(
+                    checkpoint,
+                    last_seq.is_some(),
+                    format!("control item {p}: position, collection or kind"),
+                ));
+            }
+            let chain = mdbn_wire::hash::chain_hash(raw);
+            if let Err(e) = self.evaluate_control(p, &chain, &item, raw, false) {
+                return Err(self.rollback_control_page(checkpoint, last_seq.is_some(), e));
+            }
+            let at = Head { seq: p, chain };
+            if p == 1 {
+                genesis_head = Some(at);
+                self.note_genesis(at);
+            }
+            last_seq = Some(p);
+            points.push(super::snapshot::ControlPoint {
+                seq: p,
+                policy: self.policy.clone(),
+            });
         }
-        let at = Head { seq: p, chain };
-        let mut meta = vec![self.policy_meta(), self.account_key_meta()];
-        meta.extend(self.keyring_meta());
-        meta.extend(self.genesis_meta(at));
         // Read-ahead (snapshot install) persists policy but restores no applied
         // prefix: an own approval grant seen here never counts as Applied. The
         // pending grant stays Sent and resolves conservatively later (refused or
         // cancelled once the device is keyed in the applied policy).
         self.discard_staged_key_grants();
+        let Some(last_seq) = last_seq else {
+            return Ok(points);
+        };
+        let mut meta = vec![self.policy_meta(), self.account_key_meta()];
+        meta.extend(self.keyring_meta());
+        if let Some(at) = genesis_head {
+            meta.extend(self.genesis_meta(at));
+        }
         if let Err(e) = self.store.commit(Tx {
             meta,
             ..Tx::default()
         }) {
-            self.failed_apply(checkpoint, p, matches!(&e, StoreError::CommitAborted(_)));
+            self.failed_apply(
+                checkpoint,
+                last_seq,
+                matches!(&e, StoreError::CommitAborted(_)),
+                &e,
+            );
             return Err(format!("store: {e}"));
         }
-        self.note_genesis(at);
         // Persisted read-ahead policy alone does not restore the applied prefix.
         if self
             .apply_blocked
@@ -810,7 +945,7 @@ impl<S: Store> Replica<S> {
         {
             self.apply_blocked = None;
         }
-        Ok(())
+        Ok(points)
     }
 
     /// A sealed `grant_approval` (`policy.md` §5.1).
@@ -843,6 +978,7 @@ impl<S: Store> Replica<S> {
                     .collect(),
                 ..Tx::default()
             },
+            verdict(&outcome),
         )?;
         self.note_genesis(head);
         Ok(outcome)
@@ -925,10 +1061,14 @@ impl<S: Store> Replica<S> {
         p: u64,
         bytes: &Bytes,
         changed: &mut BTreeSet<String>,
+        revoked_sessions: &mut std::collections::BTreeMap<
+            crate::api::SessionId,
+            mdbn_wire::client::Problem,
+        >,
     ) -> Result<Outcome, StoreError> {
         // The host's genesis pin, on the raw bytes before anything is decoded.
         if let Err(why) = self.check_genesis(p, &bytes.0) {
-            self.genesis_fault();
+            self.genesis_fault(why.clone());
             return Ok(Outcome::Integrity(why));
         }
         // A prior successful commit's accounting read may have failed. Refresh
@@ -968,10 +1108,10 @@ impl<S: Store> Replica<S> {
             seq: p,
             chain: mdbn_wire::hash::chain_hash(&bytes.0),
         };
-        if item.kind == ItemKind::Entry {
-            self.open_apply_window()?;
-        } else {
+        if item.kind == ItemKind::Base {
             self.close_apply_window()?;
+        } else {
+            self.open_apply_window()?;
         }
         if item.kind.is_control() && p <= self.policy.seq {
             self.original_history.invalidate();
@@ -982,13 +1122,14 @@ impl<S: Store> Replica<S> {
                     head: Some(head),
                     ..Tx::default()
                 },
+                Verdict::Applied,
             )?;
             return Ok(Outcome::Applied);
         }
         match item.kind {
             ItemKind::Entry => self.apply_entry(p, head, &item, &bytes.0, changed),
             ItemKind::Policy | ItemKind::Rekey | ItemKind::KeyGrant => {
-                self.apply_control_item(p, head, &item)
+                self.apply_control_item(p, head, &item, revoked_sessions)
             }
             ItemKind::GrantApproval => self.apply_grant_approval_item(p, head, &item, &bytes.0),
             ItemKind::Base => self.apply_base(p, head, &item, &bytes.0),
@@ -1647,7 +1788,7 @@ impl<S: Store> Replica<S> {
         tx: &mut Tx,
     ) -> Result<MetaStage, StoreError> {
         // Record metadata under the catalog after this entry's resource effects.
-        let catalog = if catalog_changed {
+        let (catalog, reindex_stamp) = if catalog_changed {
             let mut rs: std::collections::BTreeMap<String, String> =
                 self.store.resources()?.into_iter().collect();
             for p in &tx.resources_del {
@@ -1656,11 +1797,21 @@ impl<S: Store> Replica<S> {
             for (p, d) in &tx.resources_put {
                 rs.insert(p.clone(), d.clone());
             }
-            std::sync::Arc::new(mdbn_core::types::Catalog::load(
-                rs.iter().map(|(a, b)| (a.as_str(), b.as_str())),
-            ))
+            let resources: Vec<_> = rs.into_iter().collect();
+            let catalog = crate::plan::compile_catalog(&resources);
+            // A change that leaves every input of `record_meta` alone (a schema,
+            // a contract) leaves every record's metadata as it is.
+            let stamp = crate::plan::record_meta_stamp(&catalog);
+            let stamp = (self.store.meta(meta_keys::RECORD_META)?.as_ref() != Some(&stamp))
+                .then_some(stamp);
+            if stamp.is_some() && !self.is_hosted() {
+                // The device reindexes right after this commit. Until it stamps
+                // the new catalog, no stamp claims the rows it has not reached.
+                tx.meta.push((meta_keys::RECORD_META.into(), None));
+            }
+            (std::sync::Arc::new(catalog), stamp)
         } else {
-            self.catalog.clone()
+            (self.catalog.clone(), None)
         };
         for r in &mut tx.records_put {
             r.meta = record_meta(&catalog, &r.path, &r.doc);
@@ -1708,6 +1859,7 @@ impl<S: Store> Replica<S> {
             .push((meta_keys::LOG_STATE.into(), log_state(log_time, ratchet)));
         Ok(MetaStage {
             catalog,
+            reindex_stamp,
             receipt_conflicts,
             log_time,
             ratchet,
@@ -1734,6 +1886,10 @@ impl<S: Store> Replica<S> {
         // never confirmed with someone else's result. Every applied entry records
         // its log-derived receipt so a cold rebuild restores grant-scoped receipts.
         let hosted = self.is_hosted();
+        let local_web_owner = pending
+            .as_ref()
+            .filter(|_| self.local_only())
+            .and_then(super::local_web::pending_owner);
         let own_match = own
             && (!hosted || pending.as_ref().map(|r| r.grant) == Some(payload.mutation.on_behalf));
         let relocated_from = if own_match {
@@ -1765,13 +1921,16 @@ impl<S: Store> Replica<S> {
                 conflicts: receipt_conflicts.to_vec(),
                 problem: None,
                 resolved_at: self.now(),
-                grant: mediated_grant.or(payload.mutation.on_behalf),
+                grant: local_web_owner
+                    .or(mediated_grant)
+                    .or(payload.mutation.on_behalf),
             });
         }
         Ok(OwnResolution {
             own,
             own_match,
             relocated_from,
+            local_web_owner,
         })
     }
 
@@ -1859,6 +2018,7 @@ impl<S: Store> Replica<S> {
     ) -> Result<Outcome, StoreError> {
         let MetaStage {
             catalog,
+            reindex_stamp,
             receipt_conflicts,
             log_time,
             ratchet,
@@ -1867,6 +2027,7 @@ impl<S: Store> Replica<S> {
             own,
             own_match,
             relocated_from,
+            local_web_owner,
         } = resolution;
         let ChangeStage {
             legacy_effects,
@@ -1891,14 +2052,35 @@ impl<S: Store> Replica<S> {
                 StoreError::CommitAborted(reason) => StoreError::Io(reason),
                 other => other,
             })?;
+        let deferred_projection = query_context.is_some() && tx.query_index.is_none();
         if self.local_only() {
-            // Local confirmation has no synced log bytes or retention material.
-            self.store.commit(tx)?;
+            let temporary_blob = if let Some(owner) = local_web_owner {
+                self.stage_local_web_publish(owner, &payload.mutation.id, &mut tx)?
+            } else {
+                None
+            };
+            if let Some(owner) = local_web_owner {
+                if !self.local_web_live(owner) {
+                    return self.commit_local_void(head, payload, "local bearer is no longer live");
+                }
+                self.wait_published(payload.mutation.id, &legacy_effects);
+            }
+            let file_publish = !tx.publish.is_empty();
+            let report = self.store.commit(tx)?;
             self.head = head;
+            if file_publish && !report.drifts.is_empty() {
+                self.mark_local_web_unpublished(payload.mutation.id);
+            }
+            if let Some(digest) = temporary_blob {
+                self.store.commit(Tx {
+                    blobs_del: vec![digest],
+                    ..Tx::default()
+                })?;
+            }
         } else {
-            self.commit_retained(head, tx)?;
+            self.commit_retained(head, tx, Verdict::Applied)?;
         }
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             // The head/receipt/own handover committed, but a defensive read
             // failed. No follow-up indexing/hold writes or queued output now.
             return Ok(Outcome::Applied);
@@ -1906,11 +2088,32 @@ impl<S: Store> Replica<S> {
         self.query_context = query_context;
         self.log_time = log_time;
         self.sem_ratchet_set(ratchet);
+        // The entry is committed: a later typed abort cannot certify that the
+        // apply changed nothing.
+        let committed = |error| match error {
+            StoreError::CommitAborted(reason) => StoreError::Io(reason),
+            other => other,
+        };
         if catalog_changed {
             self.catalog = catalog;
-            self.reindex()?;
+            if let Some(hosted) = self.hosted.as_mut() {
+                hosted.reindex_stamp = reindex_stamp;
+                hosted.reindex_hold = None;
+            } else {
+                // Records whose metadata the catalog changes are written back
+                // with the projection the index's new generation needs.
+                let rederive = reindex_stamp.map(|_| super::query_index::Reindex::Changed);
+                self.reindex(rederive).map_err(committed)?;
+            }
+            self.reset_feed();
             // Every pending row plans under the new catalog.
             changed.extend(self.pending_keys.values().flatten().cloned());
+        }
+        // A device whose rebuild met a value too long for an index key narrows
+        // the index here.
+        if deferred_projection || (catalog_changed && !self.is_hosted()) {
+            self.backfill_query_index_within_budget()
+                .map_err(committed)?;
         }
         if relocated_from.is_some() {
             self.resurrected.remove(&payload.mutation.id);
@@ -2605,55 +2808,6 @@ impl<S: Store> Replica<S> {
         Ok(ControlFlow::Continue(()))
     }
 
-    /// Recompute every record's index entries under the current catalog, then
-    /// stamp which catalog they were derived under. The pages and the stamp share
-    /// one deferred-durability window: the stamp is written last, so a crash
-    /// leaves it missing and the next open reindexes again.
-    pub(super) fn reindex(&mut self) -> Result<(), StoreError> {
-        self.with_deferred_durability(Self::reindex_pages)
-    }
-
-    fn reindex_pages(&mut self) -> Result<(), StoreError> {
-        let mut after = None;
-        loop {
-            let page = self
-                .store
-                .records(crate::store::Page { after, limit: 128 })?;
-            let Some(l) = page.last() else {
-                break;
-            };
-            after = Some(l.id);
-            let rows: Vec<RecordRow> = page
-                .into_iter()
-                .map(|mut r| {
-                    r.meta = record_meta(&self.catalog, &r.path, &r.doc);
-                    r
-                })
-                .collect();
-            self.stats.reindexed += rows.len() as u64;
-            for rows in super::query_index::byte_batches(rows) {
-                let mut tx = Tx {
-                    records_put: rows,
-                    ..Tx::default()
-                };
-                let context = self
-                    .prepare_query_index(&mut tx)
-                    .map_err(|error| match error {
-                        StoreError::CommitAborted(reason) => StoreError::Io(reason),
-                        other => other,
-                    })?;
-                self.store.commit(tx)?;
-                self.query_context = context;
-            }
-        }
-        let stamp = crate::plan::record_meta_stamp(&self.store.resources()?);
-        self.store.commit(Tx {
-            meta: vec![(crate::store::meta_keys::RECORD_META.into(), Some(stamp))],
-            ..Tx::default()
-        })?;
-        Ok(())
-    }
-
     /// Count and report a re-planned entry whose recorded results differ.
     fn verify_mismatch(&mut self, p: u64) {
         self.stats.verify_mismatch += 1;
@@ -2787,6 +2941,15 @@ fn is_unknown_deep(e: &SchemaError) -> bool {
 
 #[allow(dead_code)]
 fn _unused(_: B16) {}
+
+/// A control item that neither reads nor writes record metadata: everything
+/// but a `base`, which installs records.
+fn repair_independent(it: &SeqItem) -> bool {
+    use mdbn_wire::envelope::{Item, ItemKind};
+    use mdbn_wire::schema::Wire;
+    Item::from_bytes(&it.item.0)
+        .is_ok_and(|item| item.kind.is_control() && item.kind != ItemKind::Base)
+}
 
 #[cfg(test)]
 impl<S: Store> Replica<S> {

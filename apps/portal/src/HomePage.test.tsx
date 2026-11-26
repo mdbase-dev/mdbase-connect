@@ -1,5 +1,6 @@
 import { render, screen, within } from "./test/render";
 import type { ManagementOverview } from "@mdbase/connect-management";
+import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import { applicationGroups } from "./ApplicationAccess";
@@ -116,5 +117,30 @@ describe("HomePage", () => {
     const yours = screen.getByRole("region", { name: "Your apps" });
     expect(within(yours).getByText("Plain")).toBeInTheDocument();
     expect(within(yours).queryByRole("link")).not.toBeInTheDocument();
+  });
+
+  it("shows the AI clients MCP row on managed environments and copies the endpoint", async () => {
+    const user = userEvent.setup();
+    const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    renderHome({ origins: managedAppOrigins.production });
+
+    expect(screen.getByText("Claude, ChatGPT & Codex")).toBeInTheDocument();
+    expect(screen.getByText("AI clients via mdbase plugins & MCP")).toBeInTheDocument();
+    expect(screen.getByText("https://mcp.mdbase.dev/mcp")).toBeInTheDocument();
+    const setup = screen.getByRole("link", { name: "Set up" });
+    expect(setup).toHaveAttribute("href", "https://mdbase.dev/apps/mcp/");
+    expect(setup).toHaveAttribute("target", "_blank");
+    expect(setup).toHaveAttribute("rel", "noopener noreferrer");
+
+    await user.click(screen.getByRole("button", { name: "Copy" }));
+    expect(writeText).toHaveBeenCalledWith("https://mcp.mdbase.dev/mcp");
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+  });
+
+  it("never shows the AI clients MCP row on a custom server", () => {
+    renderHome({ origins: null });
+
+    expect(screen.queryByText("Claude, ChatGPT & Codex")).not.toBeInTheDocument();
+    expect(screen.queryByText("https://mcp.mdbase.dev/mcp")).not.toBeInTheDocument();
   });
 });

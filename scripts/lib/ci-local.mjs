@@ -22,24 +22,10 @@ export const localSteps = [
   { tier: "node", command: "pnpm check:generated" },
   { tier: "node", command: "pnpm check:architecture" },
   { tier: "node", command: "pnpm build" },
-  { tier: "browser", command: "pnpm test:browser-storage", fullOnly: true },
   { tier: "browser", command: "pnpm test:accessibility", fullOnly: true },
   { tier: "node", command: "pnpm typecheck" },
   { tier: "node", command: "pnpm test" },
-  { tier: "node", command: "pnpm package:audit", fullOnly: true },
-  { tier: "rust", command: "cargo fmt --all --check" },
-  { tier: "rust", command: "scripts/check-cargo-features" },
-  {
-    tier: "rust",
-    command: "cargo clippy --locked --workspace --all-targets -- -D warnings",
-    remote: "rcargo clippy --locked --workspace --all-targets -- -D warnings"
-  },
-  { tier: "rust", command: "node --test scripts/ci/*.test.mjs" },
-  {
-    tier: "rust",
-    command: "node scripts/ci/cargo-test.mjs --locked --workspace",
-    remote: "rcargo test --locked --workspace --no-fail-fast"
-  }
+  { tier: "node", command: "pnpm package:audit", fullOnly: true }
 ];
 
 /**
@@ -64,17 +50,13 @@ export const ciOnlySteps = [
   { prefix: "node scripts/performance-report.mjs", reason: "main-only observations require Actions run provenance; collector regressions run in pnpm test" },
   { prefix: "node scripts/ci/prefetch-worker-tools.mjs", reason: "authenticated binary bootstrap for worker-build; local LAB uses the ops front door" },
   { prefix: "if [[ \"$GITHUB_EVENT_NAME\" == pull_request ]]", reason: "merge-queue qualification reuse" },
-  { prefix: "echo \"revision=$(tr -d", reason: "exports the mdbase-rs pin for checkout; local builds use the sibling ../mdbase-rs" },
-  { prefix: "pnpm check:mdbase-rs-pin", reason: "merge queue only; a PR may pin an engine commit that is not on mdbase-rs main yet" },
   { prefix: "rustup ", reason: "toolchain setup; rust-toolchain.toml selects it locally" },
-  { prefix: "node scripts/ci/server-test-plan.mjs", reason: "pull-request path selection; ci:local applies serverTestPlan to its own diff" },
+  { prefix: "node scripts/ci/server-test-plan.mjs", reason: "pull-request path selection and full-suite matrix; ci:local applies serverTestPlan to its own diff" },
+  { prefix: "node scripts/ci/runtime-reuse.mjs classify-native", reason: "merge-queue reuse of exact-tree native runtime test results" },
   { prefix: "cargo install worker-build", reason: "pinned Worker build tool for the local DO lane" },
   { prefix: "worker-build --release --locked", reason: "separate wasm32 DO workspace; build with rcargo and package locally before running the harness" },
   { prefix: "cargo build --locked -p mdbn-log-conformance --bin logsvc-bench", reason: "separate runtime workspace; build and pull with rcargo for the DO harness" },
   { prefix: "cargo test --locked -p mdbn-log-conformance --test conformance postgres_backend", reason: "requires disposable Postgres and MDBN_REQUIRE_REAL_BACKENDS=1; run a freshly pulled test binary locally" },
-  { prefix: "scripts/ci/hosted-provider-postgres-tests", reason: "ignored hosted-provider tests need disposable Postgres; run freshly pulled test binaries locally with --ignored and the destructive-test approvals" },
-  { prefix: "scripts/ci/provider-migration-rollback-gate", reason: "classifies a PR's or merge-queue entry's new provider migrations against its base; run it locally as scripts/ci/provider-migration-rollback-gate origin/main HEAD" },
-  { prefix: "git -C mdbase-connect worktree add", reason: "checks out the previous release for the migration rollback gate's PostgreSQL tests" },
   { prefix: "node tests/runtime.mjs", reason: "requires the built DO Worker and LOGSVC_BENCH; runs isolated local Wrangler with MDBN_REQUIRE_REAL_BACKENDS=1" },
   { prefix: "npm ci", reason: "installs pinned dependencies for the local DO harness" },
   { prefix: "echo 'Playwright cache", reason: "cache marker" },
@@ -82,15 +64,9 @@ export const ciOnlySteps = [
   { prefix: "mkdir -p \"$RUNNER_TEMP/npm-packages\"", reason: "packs tarballs for publication; package:audit checks them locally" },
   { prefix: "docker build", reason: "container lane; run with pnpm test:system -- --suite container" },
   { prefix: "MDBASE_CONNECT_E2E_BUILD=0 node test/system/run.mjs --suite container", reason: "container lane; run with pnpm test:system -- --suite container" },
-  { prefix: "test/upgrade/", reason: "published predecessor images and PostgreSQL" },
   { prefix: "pnpm --filter @mdbase/connect-server exec vitest run src/features/next", reason: "needs the CI PostgreSQL service; locally set MDBASE_CONNECT_TEST_DATABASE_URL and the destructive-test approval, then run the same command" },
-  { prefix: "env -u DATABASE_URL -u UPGRADE_SERVER_URL test/upgrade/", reason: "published predecessor images and PostgreSQL" },
-  { prefix: "source .github/", reason: "pulls and verifies immutable predecessor images" },
-  { prefix: "pnpm --filter @mdbase-dev/connect-protocol build", reason: "subset of pnpm build" },
-  { prefix: "cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock", reason: "release lock pins the engine by git revision; local builds use the sibling path and the development lock" },
-  { prefix: "cargo build --locked --workspace", reason: "implied by cargo test --workspace" },
   { prefix: "node test/system/run.mjs --suite", reason: "system suites need PostgreSQL and services; run with pnpm test:system" },
-  { prefix: "if [[ \"$RUN_FULL\" == true ]]", reason: "aggregates the CI lanes into one required check" },
+  { prefix: "[[ \"$CLASSIFY\" == success ]]", reason: "aggregates the CI lanes into one required check" },
   { prefix: "kind=fast", reason: "records qualification inputs" }
 ];
 

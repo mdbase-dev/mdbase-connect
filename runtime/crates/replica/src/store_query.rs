@@ -46,6 +46,8 @@ pub struct QueryIndexedRow {
     /// The body's [`mdbn_core::query::body_index_text`], at most
     /// [`MAX_ROW_BODY_BYTES`], when the generation indexes bodies.
     pub body: Option<String>,
+    /// Canonical `file.mtime` sort atom (`Temporal` when present, `Null` when absent).
+    pub mtime: QueryAtom,
 }
 /// Longest body index text one record may have; a collection with a longer
 /// body is indexed without bodies. Well inside a hosted 2 MB SQLite value.
@@ -87,6 +89,8 @@ pub struct QueryIndexTx {
 pub enum QueryColumn {
     /// Exact UTF-8 path bytes.
     Path,
+    /// Materialized `file.mtime` atom (`Temporal` or `Null`).
+    Mtime,
     /// Explicitly materialized metadata source/path.
     Field(QueryField),
 }
@@ -204,6 +208,7 @@ impl QueryIndexRequest {
         ) -> StoreResult<QueryColumn> {
             match c {
                 p::Column::Path => Ok(QueryColumn::Path),
+                p::Column::Mtime => Ok(QueryColumn::Mtime),
                 p::Column::Field(f) => {
                     let field = QueryField {
                         source: match f.source {
@@ -471,6 +476,10 @@ pub struct QueryProjectionRequest {
     pub fields: Vec<String>,
     /// Whether to return the qualified `file.tags` observation.
     pub tags: bool,
+    /// Whether to return the complete decoded raw frontmatter map on each row
+    /// (for computing catalog membership and effective row properties on final
+    /// matched/windowed rows without reading document bodies).
+    pub full_frontmatter: bool,
 }
 
 impl QueryProjectionRequest {
@@ -485,6 +494,8 @@ impl QueryProjectionRequest {
             || self.fields.len() > MAX_PROJECTION_FIELDS
             || !sorted
             || self.fields.iter().any(|f| f.is_empty() || f.len() > 256)
+            || (self.full_frontmatter
+                && (self.predicate != QueryPredicate::All || self.bases_candidate.is_some()))
             || self.bases_records.as_ref().is_some_and(|ids| {
                 self.predicate != QueryPredicate::All
                     || self.bases_candidate.is_some()
@@ -529,6 +540,8 @@ pub struct QueryProjectionRow {
     /// Qualified `file.tags`: `None` when unavailable (never "no tags"), an
     /// exact empty set when known empty. Always `None` unless requested.
     pub tags: Option<mdbn_core::views::bases::SourceTags>,
+    /// Complete decoded raw frontmatter map when `request.full_frontmatter` is true.
+    pub raw_frontmatter: Option<mdbn_core::value::Map>,
 }
 
 /// A bounded projection page.
@@ -576,6 +589,9 @@ impl QueryProjectionPage {
             if !request.tags && row.tags.is_some() {
                 return Err("projection row carries unrequested tags");
             }
+            if row.raw_frontmatter.is_some() != request.full_frontmatter {
+                return Err("projection row frontmatter differs from the request");
+            }
         }
         Ok(())
     }
@@ -599,6 +615,7 @@ mod projection_tests {
             max_bytes: 100,
             fields: vec!["due".into(), "status".into()],
             tags: false,
+            full_frontmatter: false,
         }
     }
 
@@ -613,6 +630,7 @@ mod projection_tests {
                 RawField::Present(mdbn_core::value::Value::Null),
             ],
             tags: None,
+            raw_frontmatter: None,
         }
     }
 

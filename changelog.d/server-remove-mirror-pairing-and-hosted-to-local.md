@@ -1,0 +1,5 @@
+## Removed
+
+- The control-plane routes for legacy mirror pairing (`/v1/mirror-pairing-requests` create, read, approve and exchange, and the desktop approval route) and for moving a hosted collection's main copy to a computer (`/v1/authority-transfers`). Obsidian plugin releases 0.4.2 and earlier and the deprecated `mdbase-mirror` CLI now get 404 when they try to pair a folder or move the main copy. A folder that is already paired keeps syncing: `POST /v1/mirror-pairing-requests/:id/renew` stays so it can renew its access token. Existing hosted collections and their synced folders are still shown and can still be disconnected, and moves already in progress still expire as before.
+- The portal's "Sync a folder" and "Sync folder" actions, which opened an `mdbase-connect://mirror` link that the desktop app no longer acted on, and the desktop's handling of that link.
+- From this repository's copy of the deprecated `mdbase-mirror` CLI: the `connect` and `promote` commands, access-token renewal for folders those commands set up, and the `@mdbase-dev/connect-sync/enrollment` and `/promotion` entry points. `init`, `sync`, `watch`, `status` and `resolve` remain.

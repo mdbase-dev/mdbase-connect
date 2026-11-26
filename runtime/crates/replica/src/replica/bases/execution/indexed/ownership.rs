@@ -70,11 +70,63 @@ pub(super) fn frame(
                 bytes += 32 + tag.len() as u64;
             }
         }
+        if let Some(raw_fm) = &row.raw_frontmatter {
+            for (name, value) in raw_fm.iter() {
+                work(budget, 1 + name.len() as u64, 0)?;
+                bytes += 48 + name.len() as u64 + value_bytes(value, 1, budget)?;
+            }
+        }
         if bytes > MAX_FRAME_BYTES {
             return Err(EvaluationFailure::BudgetExceeded("incremental_frame"));
         }
     }
     Ok(())
+}
+
+/// Project catalog membership (`types`) and requested effective frontmatter
+/// properties for one output row under the captured catalog, charging work
+/// and retained bytes before copying values.
+pub(super) fn project_row_properties(
+    catalog: &mdbn_core::types::Catalog,
+    path: &str,
+    raw_fm: &mdbn_core::value::Map,
+    requested: &[String],
+    ledger: &mut IncrementalBasesBudget,
+) -> ApiResult<BasesRowProperties> {
+    let types = catalog.membership(path, raw_fm).types;
+    let effective = catalog.effective_values(path, &types, raw_fm);
+    let mut retained = 128u64;
+    for t in &types {
+        retained = retained
+            .checked_add(32 + t.len() as u64)
+            .ok_or_else(|| failure(EvaluationFailure::BudgetExceeded("resident_bytes")))?;
+    }
+    ledger
+        .admit(|budget| {
+            work(budget, 1 + types.len() as u64 + requested.len() as u64, 0)?;
+            for name in requested {
+                if let Some(val) = effective.get(name) {
+                    work(budget, 1 + name.len() as u64, 0)?;
+                    let vb = value_bytes(val, 1, budget)?;
+                    retained = retained
+                        .checked_add(48 + name.len() as u64 + vb)
+                        .ok_or(EvaluationFailure::BudgetExceeded("resident_bytes"))?;
+                }
+            }
+            Ok(())
+        })
+        .map_err(failure)?;
+    ledger.retain(retained).map_err(failure)?;
+    let mut properties = Vec::new();
+    for name in requested {
+        if let Some(val) = effective.get(name) {
+            properties.push((name.clone(), crate::convert::wvalue(val)));
+        }
+    }
+    Ok(BasesRowProperties {
+        types,
+        properties: mdbn_wire::common::DataMap(properties),
+    })
 }
 pub(super) fn fields(
     names: &[String],

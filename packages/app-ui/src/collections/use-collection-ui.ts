@@ -111,7 +111,7 @@ export interface CollectionUiOptions {
 }
 
 /** `add_private` remains available to legacy track callers; both add APIs now emit `add`. */
-export type CollectionActionName = "sign_in" | "add" | "add_private" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup" | "open_unsynced" | "bring_in" | "discard_unsynced";
+export type CollectionActionName = "sign_in" | "add" | "add_private" | "approve" | "select" | "choose_another" | "assess" | "start" | "sign_out" | "setup" | "open_unsynced" | "bring_in" | "discard_unsynced" | "cancel";
 
 interface ActionError { readonly kind: CollectionView["kind"]; readonly notice: CollectionNotice }
 
@@ -148,7 +148,9 @@ export interface CollectionActions {
   chooseAnother(): void;
   /** Open the Connect window again for the authorization in progress. */
   reopen(): void;
-  /** Abandon the authorization this page started. */
+  /** Stop waiting for Connect: signed out again (or back to work before
+   * connecting), or the collection list when signed in. On an SDK without
+   * `cancelAuthorization` it only abandons the call this page started. */
   cancel(): void;
   assess(): void;
   start(): void;
@@ -173,6 +175,18 @@ export interface CollectionActions {
 }
 
 const popupActions: ReadonlySet<CollectionActionName> = new Set(["sign_in", "add", "add_private", "approve"]);
+
+type CancelAuthorization = (options: { readonly signal?: AbortSignal }) => Promise<unknown>;
+
+/**
+ * `mdbase.cancelAuthorization`, or null on an SDK release that predates it.
+ * Read structurally because this package builds against the vendored
+ * production SDK; drop it once that SDK and the peer floor include it.
+ */
+export function cancelAuthorizationApi(mdbase: Mdbase): CancelAuthorization | null {
+  const cancel = (mdbase as { readonly cancelAuthorization?: unknown }).cancelAuthorization;
+  return typeof cancel === "function" ? (options) => (cancel as CancelAuthorization).call(mdbase, options) : null;
+}
 
 /** The first current item across the app's sections. */
 export function appOpenItem(sections: readonly CollectionSection[] | undefined): OpenSectionItem | null {
@@ -318,6 +332,8 @@ export function useCollectionUi(options: CollectionUiOptions): CollectionUi {
       cancel: () => {
         const current = running.current;
         if (current && popupActions.has(current.name)) current.controller.abort();
+        const cancel = cancelAuthorizationApi(mdbase);
+        if (cancel) void run("cancel", (signal) => cancel({ signal }), true);
       },
       assess: () => { void run("assess", (signal) => mdbase.assess({ signal })); },
       start: () => {

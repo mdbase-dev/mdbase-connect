@@ -224,6 +224,11 @@ type VerificationCursor = { after: string; through?: string };
 /** Counts since the previous sweep; `tipBacklog` is the tip checks still queued when the new sweep is seeded. */
 interface PolicyVerificationSweep { recentCollections: number; tipProbes: number; historyProbes: number; tipBacklog: number }
 
+/** Foreground publish wake was deferred; the durable outbox row will publish. */
+export class PolicyPublicationDeferredError extends Error {
+  constructor() { super("policy publication deferred"); }
+}
+
 export class PolicyEmitter {
   private timer: NodeJS.Timeout | undefined;
   private inFlight: Promise<number> | undefined;
@@ -235,6 +240,7 @@ export class PolicyEmitter {
   private readonly verificationQueue = new Map<string, VerificationCursor | undefined>();
   private readonly tipQueue = new Set<string>();
   private readonly wakeWork = new Map<string, Promise<void>>();
+  private readonly wakeAgain = new Set<string>();
   private readonly committedWork = new Map<string, Promise<void>>();
   private closed = false;
 
@@ -272,6 +278,7 @@ export class PolicyEmitter {
 
   async close(): Promise<void> {
     this.closed = true;
+    this.wakeAgain.clear();
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
     // A failed global drain must not orphan admitted wakes or their DB writes.
@@ -288,26 +295,37 @@ export class PolicyEmitter {
     if (this.closed) return Promise.reject(new Error("policy emitter closed"));
     const existing = this.committedWork.get(collectionId);
     if (existing) return existing;
-    if (this.committedWork.size >= MAX_BACKGROUND_WAKES) return Promise.reject(new Error("policy publication deferred"));
+    if (this.committedWork.size >= MAX_BACKGROUND_WAKES) return Promise.reject(new PolicyPublicationDeferredError());
     const work = Promise.resolve().then(async () => {
       await this.drainCollection(collectionId);
       const pending = await this.db.query(
         `SELECT 1 FROM next_policy_outbox o LEFT JOIN next_policy_batches b ON b.id=o.batch_id
          WHERE o.collection_id=$1 AND (o.batch_id IS NULL OR b.state<>'appended' OR b.lost_at IS NOT NULL) LIMIT 1`, [collectionId]
       );
-      if (pending.rows.length) throw new Error("policy publication deferred");
+      if (pending.rows.length) throw new PolicyPublicationDeferredError();
     }).finally(() => { if (this.committedWork.get(collectionId) === work) this.committedWork.delete(collectionId); });
     this.committedWork.set(collectionId, work);
     return work;
   }
 
   private wakeCommittedCollection(collectionId: string): void {
-    if (this.closed || this.wakeWork.has(collectionId) || this.wakeWork.size >= MAX_BACKGROUND_WAKES) return;
+    if (this.closed) return;
+    if (this.wakeWork.has(collectionId)) {
+      // A commit landed after the in-flight wake started (and may have captured an
+      // older batch): run one coalesced follow-up wake once it settles.
+      this.wakeAgain.add(collectionId);
+      return;
+    }
+    if (this.wakeWork.size >= MAX_BACKGROUND_WAKES) return;
     // Only a wake hint, not activation/keying evidence. The original callback
     // retains its 30s transport/body bound and captured-batch ACK/CAS protections.
     const work = Promise.resolve().then(() => this.activateServices(collectionId))
       .catch(error => this.reportFailure(error, collectionId))
-      .finally(() => { if (this.wakeWork.get(collectionId) === work) this.wakeWork.delete(collectionId); });
+      .finally(() => {
+        if (this.wakeWork.get(collectionId) !== work) return;
+        this.wakeWork.delete(collectionId);
+        if (this.wakeAgain.delete(collectionId) && !this.closed) this.wakeCommittedCollection(collectionId);
+      });
     this.wakeWork.set(collectionId, work);
     // The failure was delivered to onError; a throwing diagnostic callback must
     // not create an unhandled rejection or fail an already committed append.

@@ -8,8 +8,6 @@ const packagesRoot = resolve(root, "packages");
 // Dependency order matters when a release is only partly complete and retried.
 export const publicPackageDirectories = [
   "packages/protocol",
-  "packages/client",
-  "packages/devkit",
   "packages/app-ui",
   "packages/i18n"
 ];

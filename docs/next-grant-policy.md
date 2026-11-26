@@ -32,11 +32,15 @@ the grant's enforcement authority has not yet confirmed completion:
 - **Hosted-provider grants**: completion follows their existing hosted authority's
   confirmation, not a local connector acknowledgement.
 
+Once a native grant is revoked and its collection has a permanent deletion fact,
+the account overview omits it and the account revoke endpoints treat it as
+`grant_not_found`. Its enforcement history retains the actual append status.
+
 Retries retain the original barrier and confirmation timestamp. Neither a queued
 trigger nor an HTTP success response proves that log policy has appended.
 
 ## No authority broadening
-A synced next grant must have a nonempty **exact union** of semantic capability v2 operation groups, a full-collection scope, a valid installation UUID and an attested 32-byte Noise key. Collection setup's paired assess/apply operations are accepted only with definitions.manage. offline.replica is not a thin-client grant.
+A synced next grant must have a nonempty **exact union** of semantic capability v2 operation groups, a full-collection scope, a valid installation UUID and an attested 32-byte Noise key. Collection setup's paired assess/apply operations are accepted only with definitions.manage. offline.replica is not a thin-client grant. history.read (`record_history`, `record_version`) is offered only to owners and editors: memberships created from preset 3 carry it, earlier editor memberships do not, and the legacy hosted provider never receives it.
 
 File actions must also match that union exactly:
 
@@ -86,6 +90,19 @@ signed policy use `4000 / authorization_unavailable`. Both are `unavailable`;
 `4403 / grant_inactive` remains terminal. The SDK's existing 30-second first-open
 wait accepts those actual retryable reasons, including Noise hello Problems,
 and resumes without another consent once both arrive.
+A device that is not serving a Private collection right now (paused, opening,
+recovering, failed, or no longer registered locally) closes with
+`4000 / not_served`, not `authorization_unavailable` (unless a local refusal
+tombstone applies). It is retryable; with `waitForDevice` (the default for
+Private collections an application opens) the SDK shows `device_not_serving`
+and keeps retrying, then opens once the device serves the collection, with no
+new consent. The relay sends every refusal reason in a `pipe_close` text frame
+before closing the WebSocket, so the client doesn't depend on an intermediary
+preserving the WebSocket close code or reason. Daemons also report their
+currently serving collection IDs in `relay_hello` and via incremental
+`serving_collections` frames (held in memory on the relay socket only) so route
+availability can prefer serving devices and report `device_not_serving` before
+opening a pipe.
 After restart a newer snapshot sequence is required: replaying the persisted
 cursor does not renew a feed lease.
 
@@ -99,6 +116,7 @@ Routing for a Private grant considers only desktop and CLI devices of the granti
 | `unavailable`, `no_device_registered` | No device can serve this collection. |
 | `unavailable`, `approval_required` | Private: no device has approved the grant yet. |
 | `unavailable`, `old_connector_running` | The device is online but an older connector still holds its collections (reported by the daemon in `relay_hello`). |
+| `unavailable`, `device_not_serving` | At least one device is online, but none of the online devices is currently serving this collection (reported by the daemon via `serving_collections`). |
 | `unavailable`, `desktop_update_required` | The device's last relay connection was refused as incompatible. |
 | `unavailable`, `device_offline` | The devices are offline. |
 | `unavailable`, `access_removed` | The account is no longer a member of the collection. |

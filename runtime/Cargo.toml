@@ -27,11 +27,7 @@ mdbn-log-conformance = { path = "crates/log-conformance" }
 mdbn-wasm = { path = "crates/wasm" }
 mdbn-hosted-worker = { path = "crates/hosted-worker" }
 mdbn-sim = { path = "crates/sim" }
-mdbn-legacy = { path = "crates/legacy" }
 mdbn-noise = { path = "crates/noise" }
-mdbn-migrate = { path = "crates/migrate" }
-mdbn-migrate-portable = { path = "crates/migrate-portable" }
-mdbn-takeover = { path = "crates/takeover" }
 mdbn-local-host = { path = "crates/local-host" }
 mdbase = { path = "crates/mdbase" }
 mdbn-trust = { path = "crates/trust" }

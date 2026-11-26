@@ -16,8 +16,8 @@ for (const group of ["apps", "packages", "services"]) {
   }
 }
 const recipe = await readFile(resolve(root, "deploy/docker/Dockerfile.server"), "utf8");
-function checkWorkspaceClosure(dockerfile) {
-  const pending = ["@mdbase/connect-server", "@mdbase/connect-portal"], seen = new Set();
+function checkWorkspaceClosure(dockerfile, roots = ["@mdbase/connect-server", "@mdbase/connect-portal"], { buildOnly = [] } = {}) {
+  const pending = [...roots], seen = new Set();
   while (pending.length) {
     const name = pending.pop();
     if (seen.has(name)) continue;
@@ -25,14 +25,35 @@ function checkWorkspaceClosure(dockerfile) {
     const { directory, manifest } = packages.get(name);
     assert.ok(dockerfile.slice(0, dockerfile.indexOf("RUN pnpm install")).includes(`COPY ${directory}/package.json ${directory}/package.json`), `${name}: manifest must exist before frozen install`);
     assert.ok(dockerfile.includes(`COPY ${directory} ${directory}`), `${name}: source must be copied for the build`);
-    for (const [dependency, version] of Object.entries({ ...manifest.dependencies, ...manifest.optionalDependencies })) {
+    // A package the image builds from also needs the workspace packages its build uses.
+    const development = buildOnly.includes(name) ? manifest.devDependencies : {};
+    for (const [dependency, version] of Object.entries({ ...manifest.dependencies, ...manifest.optionalDependencies, ...development })) {
       if (version.startsWith("workspace:")) pending.push(dependency);
     }
   }
 }
 test("server container includes the full runtime workspace dependency closure", () => checkWorkspaceClosure(recipe));
+test("MCP container includes the gateway's and its view build's workspace closure", async () => {
+  const mcp = await readFile(resolve(root, "deploy/docker/Dockerfile.mcp"), "utf8");
+  checkWorkspaceClosure(mcp, ["@mdbase/connect-mcp"], { buildOnly: ["@mdbase/connect-mcp", "@mdbase-dev/ui"] });
+  assert.throws(() => checkWorkspaceClosure(mcp.replace("COPY packages/app-ui packages/app-ui", ""), ["@mdbase/connect-mcp"], { buildOnly: ["@mdbase/connect-mcp"] }), /@mdbase-dev\/ui/);
+});
 test("missing management manifest or source fails the container closure guard", () => {
   for (const copy of ["COPY packages/management/package.json packages/management/package.json", "COPY packages/management packages/management"]) {
     assert.throws(() => checkWorkspaceClosure(recipe.replace(copy, "")), /@mdbase\/connect-management/);
+  }
+});
+test("container recipes copy every file-pinned archive the lockfile resolves", async () => {
+  const lock = await readFile(resolve(root, "pnpm-lock.yaml"), "utf8");
+  const pinned = new Set([...lock.matchAll(/tarball: file:(apps\/editor\/vendor\/[^,}\s]+)/g)].map(match => match[1]));
+  assert.ok(pinned.size > 0);
+  for (const name of ["server", "mcp"]) {
+    const dockerfile = await readFile(resolve(root, `deploy/docker/Dockerfile.${name}`), "utf8");
+    const copied = dockerfile.slice(0, dockerfile.indexOf("RUN pnpm install")).split("\n")
+      .filter(line => line.startsWith("COPY apps/editor/vendor/")).flatMap(line => line.split(" ").slice(1, -1))
+      .map(source => new RegExp(`^${source.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", "[^/]*")}$`));
+    for (const file of pinned) {
+      assert.ok(copied.some(source => source.test(file)), `Dockerfile.${name} must copy ${file} before the frozen install`);
+    }
   }
 });

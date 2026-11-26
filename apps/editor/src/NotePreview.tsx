@@ -3,7 +3,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import type { CollectionGateway, NoteDocument, NoteSummary } from "./model";
 import { noteTitle } from "./note";
 import { ReadOnlyMarkdown } from "./read-only-markdown";

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { DatabaseQueryable } from "../../database-types.js";
 import { LogServiceError } from "./log-service-client.js";
-import { allocateFileQuotas, nextFileBytes, sweepObjects } from "./storage-usage.js";
+import { allocateFileQuotas, FileQuotaWorker, nextFileBytes, sweepObjects } from "./storage-usage.js";
 
 const ids = (...collections: string[]) => collections.map(collection_id => ({ collection_id }));
 const database = (...pages: Array<Array<Record<string, unknown>>>) => {
@@ -122,10 +122,38 @@ describe("allocateFileQuotas", () => {
     expect(service.calls).toEqual([]);
   });
 
+  it("records the account's file bytes in both modes", async () => {
+    for (const mode of ["report", "enforce"] as const) {
+      const { db, query } = database(ids("a", "b"), plan(500));
+      const service = log({ a: { fileBytes: 100, fileQuotaBytes: 600 }, b: { fileBytes: 300, fileQuotaBytes: 400 } });
+      await allocateFileQuotas(db, service, "owner", mode);
+      const [sql, values] = query.mock.calls[2] as unknown as [string, unknown[]];
+      expect(sql).toContain("INSERT INTO account_file_usage");
+      expect(values).toEqual(["owner", 400]);
+    }
+  });
+
   it("only reports in report mode", async () => {
     const service = log({ a: { fileBytes: 900, fileQuotaBytes: 1000 } });
     const allocation = await allocateFileQuotas(database(ids("a"), plan(500)).db, service, "owner", "report");
     expect(allocation.fileBytes).toBeGreaterThan(allocation.limitBytes);
     expect(service.setFileHeadroom).not.toHaveBeenCalled();
+  });
+});
+
+describe("FileQuotaWorker", () => {
+  it("drops measurements of accounts that no longer hold a collection after each pass", async () => {
+    const { db, query } = database([{ owner_user_id: "owner" }], ids("a"), []);
+    const storageStatus = vi.fn(async () => ({ usedBytes: 0, quotaBytes: 0, fileBytes: 5, fileQuotaBytes: 5 }));
+    const onAllocation = vi.fn();
+    const onError = vi.fn();
+    const worker = new FileQuotaWorker(db as never, { storageStatus, setFileHeadroom: vi.fn() }, "report", onAllocation, onError);
+    worker.start();
+    await worker.close();
+    expect(onError).not.toHaveBeenCalled();
+    expect(onAllocation).toHaveBeenCalledWith(expect.objectContaining({ owner: "owner", fileBytes: 5 }));
+    const last = query.mock.calls.at(-1) as unknown as [string];
+    expect(last[0]).toContain("DELETE FROM account_file_usage");
+    expect(last[0]).toContain("next_collection_deletion_facts");
   });
 });

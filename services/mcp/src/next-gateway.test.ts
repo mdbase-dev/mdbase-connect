@@ -1,7 +1,7 @@
 import { createPublicKey, verify } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { keyPairFromSecret, mdbaseError, type KeyPair, type MdbaseClient } from "@mdbase-dev/sdk/thin-client";
-import type { GrantKeyRecord, GrantKeyStore } from "@mdbase-dev/connect/crypto";
+import type { GrantKeyRecord, GrantKeyStore } from "./grant-crypto.js";
 import { LEGACY, NextGateway, type NextConnection } from "./next-gateway.js";
 import { clientKeyAttachMessage, clientNoiseKeyMessage, type NoiseKeyStore } from "./next-keys.js";
 
@@ -119,6 +119,16 @@ describe("NextGateway", () => {
       const setup = await writing({ update, find });
       await expect(setup.gateway.run(native, "access", "update", { path: "notes/a.md", body: "Body" }, "req-1")).resolves.toMatchObject({ path: "notes/a.md" });
       expect(find).toHaveBeenLastCalledWith(record.id, { include: { effective: true, body: true }, signal: undefined });
+      setup.gateway.close();
+    });
+
+    it("removes the fields an update unsets, beside the ones it patches", async () => {
+      const update = vi.fn(async (..._args: Parameters<MdbaseClient["update"]>) => writeOf([], undefined));
+      const setup = await writing({ update, find: vi.fn(async () => record) });
+      await setup.gateway.run(native, "access", "update", { path: "notes/a.md", patch: { status: "done" }, unset: ["due"], if_revision: "rev1" }, "req-1");
+      expect(update.mock.calls[0]![1]).toEqual({ patch: { status: "done" }, unset: ["due"], ifRevision: "rev1" });
+      await expect(setup.gateway.run(native, "access", "update", { path: "notes/a.md", unset: ["due"], document: "---\n---\n" }, "req-2"))
+        .rejects.toMatchObject({ code: "invalid_request" });
       setup.gateway.close();
     });
 

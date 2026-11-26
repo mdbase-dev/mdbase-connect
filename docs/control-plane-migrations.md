@@ -33,6 +33,11 @@ Production changes follow expand-and-contract:
 5. Remove the old representation only in a later release, after the rollback
    window closes.
 
+Pending removals:
+- Drop `next_devices.mode_switch_advertised` in a later migration once no
+  Connect server older than migration `0110_next_collection_mode_capability_v2`
+  is still serving.
+
 Application rollback does not roll back database migrations. Consequently,
 every migration in a deploy must remain compatible with the previously live
 application release. `mdbase-cloud-ops/bin/check-release-safety` enforces that

@@ -5,12 +5,14 @@
 //! (`store-file/src/sql_schema.rs`); rows are canonical CBOR blobs. The dumps
 //! here hold the schema and rows, not that number.
 //!
-//! - `fixtures/store-format-v3.sql` is a dump of the current on-disk format
+//! - `fixtures/store-format-v4.sql` is a dump of the current on-disk format
 //!   (schema and rows), pinned. [`current_writer_still_produces_the_pinned_format`]
 //!   fails as soon as the schema or any row encoding changes. Whoever changes
 //!   it must keep this file as the N-1 fixture (with an open test like the one
 //!   below pointing at it, so the upgrade path is proven), and pin a new one.
 //!   A virtual table's shadow tables are left out: SQLite creates and owns them.
+//! - `fixtures/store-format-v3.sql` is the format before the `file.mtime` index
+//!   (store schema version 2, which the derived mtime table does not change).
 //! - `fixtures/store-format-v2.sql` is the format before the body search
 //!   index (store schema version 2, which the body index tables do not change).
 //! - `fixtures/store-format-v1.sql` is the format before the field index
@@ -44,8 +46,10 @@ use mdbn_wire::intent::{Delete, Mutation, Op, OpClock, Source};
 use mdbn_wire::snapshot::EntityKind;
 
 /// The format the current code writes.
-const PINNED: &str = include_str!("fixtures/store-format-v3.sql");
+const PINNED: &str = include_str!("fixtures/store-format-v4.sql");
 /// The format before it (N-1).
+const V3: &str = include_str!("fixtures/store-format-v3.sql");
+/// The format before that.
 const V2: &str = include_str!("fixtures/store-format-v2.sql");
 /// The format before that.
 const V1: &str = include_str!("fixtures/store-format-v1.sql");
@@ -372,9 +376,9 @@ fn current_writer_still_produces_the_pinned_format() {
         );
         panic!(
             "the on-disk store format changed (schema or row encoding). Do not just \
-             re-pin: keep tests/fixtures/store-format-v3.sql as the N-1 fixture with \
+             re-pin: keep tests/fixtures/store-format-v4.sql as the N-1 fixture with \
              a test proving the current code opens it and keeps its data and head \
-             (an upgrade path), then pin the new format as store-format-v4.sql. The \
+             (an upgrade path), then pin the new format as store-format-v5.sql. The \
              current dump is printed above."
         );
     }
@@ -383,7 +387,7 @@ fn current_writer_still_produces_the_pinned_format() {
 #[test]
 fn pinned_earlier_states_open_with_data_and_sync_position() {
     // The v1 schema exists unversioned and as store schema version 1.
-    for (fixture, version) in [(V1, 0), (V1, 1), (V2, 2)] {
+    for (fixture, version) in [(V1, 0), (V1, 1), (V2, 2), (V3, 2)] {
         let dir = scratch("earlier");
         let path = dir.join("index.sqlite");
         load(&path, statements(fixture));

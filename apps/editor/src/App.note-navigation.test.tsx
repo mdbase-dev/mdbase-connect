@@ -3,14 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type { CreateNoteInput } from "./model";
-import { activeTab, loadWorkspace, tabNote } from "./workspace";
+import { activeTab, loadWorkspace, paneTab, tabNote } from "./workspace";
 
 const TABS_KEY = "mdbase-editor:tabs:demo";
+const PANELS_KEY = "mdbase-editor:panels:demo";
 /** Saves one tab on `path` as this device's tabs for the collection. */
 function rememberNote(path: string, collectionId = "demo") {
   localStorage.setItem(`mdbase-editor:tabs:${collectionId}`, JSON.stringify({ tabs: [{ paths: [path], index: 0 }], active: 0 }));
 }
 const rememberedNote = (collectionId = "demo") => tabNote(activeTab(loadWorkspace(collectionId)));
+/** The panes saved for the demo collection: each one's tab histories, its active tab, and whether it has the focus. */
+const rememberedPanes = () => {
+  const workspace = loadWorkspace("demo");
+  return workspace.panes.map((pane, index) => ({ tabs: pane.tabs.map((tab) => tab.history), active: pane.tabs.indexOf(paneTab(pane)), focused: index === workspace.focused }));
+};
+/** Where each pane is drawn, in reading order. */
+/** The editor pane with the focus, and the others. */
+const focusedPane = () => document.querySelector<HTMLElement>(".editor-pane[data-focused]")!;
+const otherPanes = () => [...document.querySelectorAll<HTMLElement>(".editor-pane:not([data-focused])")];
+const paneCorners = () => [...document.querySelectorAll<HTMLElement>(".mp-stack")].map((stack) => ({ left: parseFloat(stack.style.left), top: parseFloat(stack.style.top) }));
 
 vi.mock("./CodeEditor", () => ({ CodeEditor: () => null }));
 vi.mock("./MarkdownNoteEditor", () => ({
@@ -209,11 +220,13 @@ describe("note navigation ownership and recovery", () => {
     render(<App gateway={gateway} />);
     await waitFor(() => expect(read).toHaveBeenCalledWith(path));
     localStorage.removeItem(TABS_KEY);
+    localStorage.removeItem(PANELS_KEY);
 
     await act(async () => descriptionGate.reject(new Error("Metadata unavailable")));
     await screen.findByText("Metadata unavailable");
     await act(async () => readGate.resolve());
     expect(localStorage.getItem(TABS_KEY)).toBeNull();
+    expect(localStorage.getItem(PANELS_KEY)).toBeNull();
     expect(screen.queryByRole("textbox", { name: "Note title" })).not.toBeInTheDocument();
   });
 
@@ -312,7 +325,7 @@ describe("note navigation ownership and recovery", () => {
     expect(tabs().map((tab) => [tab.textContent, tab.getAttribute("aria-selected")])).toEqual([["Garden notes 2", "false"], ["A quiet interface 3", "true"]]);
     expect(historyButton("Back in note history")).toBeDisabled();
 
-    fireEvent.click(tabs()[0]!);
+    fireEvent.pointerDown(tabs()[0]!, { button: 0 });
     await screen.findByDisplayValue("Garden notes 2");
     expect(historyButton("Back in note history")).toHaveAttribute("title", expect.stringContaining(first.path));
     fireEvent.keyDown(window, { key: "PageDown", altKey: true });
@@ -323,7 +336,7 @@ describe("note navigation ownership and recovery", () => {
     fireEvent.click(within(screen.getByRole("menu", { name: /note actions$/ })).getByRole("menuitem", { name: "Open in new tab" }));
     await screen.findByDisplayValue("The shape of useful tools");
     expect(tabs().map((tab) => tab.textContent)).toEqual(["Garden notes 2", "A quiet interface 3", "The shape of useful tools"]);
-    fireEvent.click(screen.getByRole("button", { name: "Close The shape of useful tools" }));
+    fireEvent.keyDown(tabs()[2]!, { key: "Delete" });
     await screen.findByDisplayValue("A quiet interface 3");
 
     // A background tab goes back past a deleted note, and closes once it showed no other.
@@ -335,13 +348,13 @@ describe("note navigation ownership and recovery", () => {
     await waitFor(() => expect(tabs().map((tab) => tab.textContent)).toEqual(["The shape of useful tools", "A quiet interface 3"]));
     deleteRow(/The shape of useful tools/);
     await waitFor(() => expect(screen.queryByRole("tablist")).not.toBeInTheDocument());
-    expect(JSON.parse(localStorage.getItem(TABS_KEY)!)).toEqual({ tabs: [{ paths: [third.path], index: 0 }], active: 0 });
+    expect(rememberedPanes()).toEqual([{ tabs: [{ paths: [third.path], index: 0 }], active: 0, focused: true }]);
   });
 
   it("splits the editor into two panes that keep their own notes and tabs, and reopens them", async () => {
     const { first, second, third, select } = await harness();
-    const focusedTitle = () => within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note title" });
-    const otherPane = () => screen.getByRole("region", { name: "Note editor" });
+    const focusedTitle = () => within(focusedPane()).getByRole("textbox", { name: "Note title" });
+    const otherPane = () => otherPanes()[0]!;
     select(/Garden notes 2/);
     await screen.findByDisplayValue("Garden notes 2");
 
@@ -363,17 +376,18 @@ describe("note navigation ownership and recovery", () => {
     expect(within(otherPane()).getByRole("textbox", { name: "Note body" })).toHaveValue("Written beside");
     fireEvent.keyDown(window, { key: "o", code: "KeyO", altKey: true });
     expect(focusedTitle()).toHaveValue("A quiet interface 3");
-    expect(within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note body" })).toHaveValue("Written beside");
+    expect(within(focusedPane()).getByRole("textbox", { name: "Note body" })).toHaveValue("Written beside");
 
-    expect(JSON.parse(localStorage.getItem(TABS_KEY)!)).toEqual({
-      tabs: [{ paths: [first.path, second.path, first.path], index: 2 }], active: 0,
-      split: { tabs: [{ paths: [third.path], index: 0 }], active: 0, direction: "right", focused: true }
-    });
-    fireEvent.click(screen.getByRole("button", { name: "Close A quiet interface 3" }));
-    await waitFor(() => expect(screen.queryByRole("region", { name: "Note editor" })).not.toBeInTheDocument());
+    expect(rememberedPanes()).toEqual([
+      { tabs: [{ paths: [first.path, second.path, first.path], index: 2 }], active: 0, focused: false },
+      { tabs: [{ paths: [third.path], index: 0 }], active: 0, focused: true }
+    ]);
+    expect(paneCorners()[1]!.left).toBeGreaterThan(0);
+    fireEvent(within(screen.getAllByRole("tablist", { name: "Open tabs" })[1]!).getByRole("tab", { name: "A quiet interface 3" }), new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+    await waitFor(() => expect(otherPanes()).toHaveLength(0));
     expect(focusedTitle()).toHaveValue("The shape of useful tools");
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
-    expect(JSON.parse(localStorage.getItem(TABS_KEY)!)).toEqual({ tabs: [{ paths: [first.path, second.path, first.path], index: 2 }], active: 0 });
+    expect(rememberedPanes()).toEqual([{ tabs: [{ paths: [first.path, second.path, first.path], index: 2 }], active: 0, focused: true }]);
   });
 
   it("reopens a saved split with each pane's own note", async () => {
@@ -383,9 +397,10 @@ describe("note navigation ownership and recovery", () => {
       split: { tabs: [{ paths: [notes[2]!.path], index: 0 }], active: 0, direction: "down", focused: false }
     }));
     await harness();
-    expect(within(screen.getByRole("main", { name: "Note editor" })).getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
-    await waitFor(() => expect(within(screen.getByRole("region", { name: "Note editor" })).getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3"));
-    expect(document.querySelector(".editor-split")).toHaveClass("is-split", "split-down");
+    expect(within(focusedPane()).getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
+    await waitFor(() => expect(within(otherPanes()[0]!).getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3"));
+    expect(paneCorners()).toEqual([{ left: 0, top: 0 }, { left: 0, top: expect.any(Number) }]);
+    expect(paneCorners()[1]!.top).toBeGreaterThan(0);
   });
 
   it("does not surface a stale read failure after a newer note has opened", async () => {

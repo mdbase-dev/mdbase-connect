@@ -95,15 +95,53 @@ pub(crate) fn problem_code(code: &str) -> &'static str {
     }
 }
 
-pub(crate) fn pre_live(class: &'static str) {
+/// The pre-live class for a grant refusal reason: a collection this device is not
+/// serving is not an inactive grant.
+fn refusal_class(reason: &str) -> &'static str {
+    if reason == crate::access::Refusal::NotServed.reason() {
+        "not_served"
+    } else {
+        "grant_not_live"
+    }
+}
+
+/// A grant refusal reason as its own fixed string; anything else is `other`.
+fn refusal_code(reason: &str) -> &'static str {
+    use crate::access::Refusal;
+    [
+        Refusal::UnknownGrant,
+        Refusal::KeyMismatch,
+        Refusal::PendingApproval,
+        Refusal::RevokedLocally,
+        Refusal::LeaseExpired,
+        Refusal::Unavailable,
+        Refusal::NotServed,
+    ]
+    .into_iter()
+    .map(Refusal::reason)
+    .chain(["grant_inactive"])
+    .find(|known| *known == reason)
+    .unwrap_or("other")
+}
+
+/// A relay pipe closed before its session went live: a malformed or nil-grant
+/// open (fixed code), or a grant refusal with its exact reason.
+pub(crate) enum PreLive<'a> {
+    /// `pipe_open` without valid IDs.
+    InvalidOpenIds,
+    /// `pipe_open` for the nil grant (never Host).
+    NilGrant,
+    /// The grant was refused for this reason.
+    Refused(&'a str),
+}
+
+pub(crate) fn pre_live(why: PreLive<'_>) {
     let mut trace = SessionTrace::new(Origin::RelayPipe);
     trace.phase = "pre_live";
-    trace.class = class;
-    trace.code = match class {
-        "grant_not_live" => "grant_inactive",
-        "nil_grant" => "unauthenticated",
-        "invalid_open_ids" => "invalid_request",
-        _ => "other",
+    (trace.class, trace.code) = match why {
+        PreLive::InvalidOpenIds => ("invalid_open_ids", "invalid_request"),
+        PreLive::NilGrant => ("nil_grant", "unauthenticated"),
+        PreLive::Refused(reason) => (refusal_class(reason), refusal_code(reason)),
     };
     trace.finish(None);
 }
@@ -144,14 +182,30 @@ mod tests {
     }
     #[test]
     fn pre_live_has_no_noise_or_admission_claim() {
-        let text = captured(|| pre_live("grant_not_live"));
+        let text = captured(|| pre_live(PreLive::Refused("grant_lease_expired")));
         assert!(text.contains("phase=\"pre_live\""));
         assert!(text.contains("class=\"grant_not_live\""));
+        assert!(text.contains("code=\"grant_lease_expired\""));
         assert!(text.contains("m1_received=false"));
         assert!(text.contains("m2_queued=false"));
         assert!(text.contains("admitted=false"));
         assert_eq!(text.matches("native session ended").count(), 1);
     }
+    #[test]
+    fn pre_live_logs_the_refusal_reason_and_never_unknown_text() {
+        let text = captured(|| {
+            pre_live(PreLive::Refused("not_served"));
+            pre_live(PreLive::Refused("grant_inactive"));
+            pre_live(PreLive::Refused("[test] /private/path"));
+            pre_live(PreLive::NilGrant);
+        });
+        assert!(text.contains("class=\"not_served\" code=\"not_served\""));
+        assert!(text.contains("class=\"grant_not_live\" code=\"grant_inactive\""));
+        assert!(text.contains("class=\"grant_not_live\" code=\"other\""));
+        assert!(text.contains("class=\"nil_grant\" code=\"unauthenticated\""));
+        assert!(!text.contains("/private/path"));
+    }
+
     #[test]
     fn refusal_and_io_keep_only_static_classes() {
         let secret = "[test] forbidden payload identifier /private/path";

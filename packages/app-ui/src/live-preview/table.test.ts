@@ -34,7 +34,8 @@ function editor(source: string) {
     type(insert: string, from = state.selection.main.from, to = state.selection.main.to) {
       view.dispatch({ changes: { from, to, insert }, selection: { anchor: from + insert.length }, userEvent: insert ? "input.type" : "delete" });
     },
-    apply(edit: TableEdit | null) { if (edit) view.dispatch({ changes: edit.changes, selection: { anchor: edit.anchor } }); }
+    apply(edit: TableEdit | null) { if (edit) view.dispatch({ changes: edit.changes, selection: { anchor: edit.anchor } }); },
+    select(anchor: number) { view.dispatch({ selection: { anchor }, userEvent: "select" }); }
   };
 }
 
@@ -172,6 +173,17 @@ it("binds a caret at a cell's edges to the cell, not to the hidden pipe beside i
   expect(view.state.selection.main.assoc).toBe(-1);
   view.key("Tab");
   expect(view.state.selection.main.assoc).toBe(1);
+});
+
+it("puts a caret arriving at a row's hidden leading pipe in its first cell, and lets one leave past it", () => {
+  const view = editor("Above¦\n| A | B |\n| --- | --- |\n| a | b |");
+  view.select(6);
+  expect(view.doc).toBe("Above\n| ¦A | B |\n| --- | --- |\n| a | b |");
+  view.select(6);
+  expect(view.doc).toBe("Above\n¦| A | B |\n| --- | --- |\n| a | b |");
+  const quoted = editor("> Above¦\n> | A |\n> | --- |");
+  quoted.select(10);
+  expect(quoted.doc).toBe("> Above\n> | ¦A |\n> | --- |");
 });
 
 it("ends a block in a row's missing cells, which have no text to select", () => {

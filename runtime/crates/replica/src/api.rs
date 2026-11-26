@@ -248,6 +248,18 @@ impl std::error::Error for ApiError {}
 /// API result.
 pub type ApiResult<T> = Result<T, ApiError>;
 
+/// The `unavailable` reason of a history read still waiting on log reads. The
+/// frame layer holds such a request; it never reaches a client.
+pub const HISTORY_LOADING: &str = "history_loading";
+
+/// Refusal of a replica that serves no record history (`replica-client-api.md` §4.4).
+pub fn history_unsupported() -> ApiError {
+    ErrorCode::UpgradeRequired.err_with_reason(
+        "history_unsupported",
+        "this replica does not serve record history",
+    )
+}
+
 // ------------------------------------------------------------------ sessions
 
 /// A client session on this replica.
@@ -261,6 +273,9 @@ pub enum SessionAuth {
     /// that owns the shared runtime). Needs no grant; may approve devices and set
     /// materialization.
     Host,
+    /// A native host's locally authorized web client, scoped to a local-only
+    /// collection's data API. Not a Connect grant or a Noise-authenticated peer.
+    LocalWeb(Uuid),
     /// A client whose Noise static key matched this grant's `client_pk`.
     Grant {
         /// Grant ID.
@@ -268,6 +283,15 @@ pub enum SessionAuth {
         /// The client's static public key, as authenticated.
         client_pk: [u8; 32],
     },
+}
+
+impl SessionAuth {
+    pub(crate) fn local_web_owner(&self) -> Option<Uuid> {
+        match self {
+            Self::LocalWeb(owner) => Some(*owner),
+            _ => None,
+        }
+    }
 }
 
 /// What to read: a record or file by ID or by path.
@@ -796,6 +820,11 @@ pub trait ClientApi {
     /// Close a session: drops its subscriptions, presence and streams.
     fn close(&mut self, session: SessionId);
 
+    /// Authorize a wire method before any frame dispatch or bookkeeping.
+    fn authorize_frame(&self, _session: SessionId, _method: &str) -> ApiResult<()> {
+        Ok(())
+    }
+
     // ---- reads (§3, §4) ----
 
     /// Declaration-bound setup on the original authenticated app session.
@@ -880,6 +909,26 @@ pub trait ClientApi {
         session: SessionId,
         request: Backlinks,
     ) -> ApiResult<mdbn_wire::client::BacklinksResult>;
+    /// One record's versions in the retained log, newest first
+    /// (`replica-client-api.md` §4.4). While log reads are outstanding this
+    /// answers `unavailable` / [`HISTORY_LOADING`]; the frame layer holds the
+    /// request and asks again.
+    fn record_history(
+        &mut self,
+        _session: SessionId,
+        _params: mdbn_wire::client::RecordHistoryParams,
+    ) -> ApiResult<mdbn_wire::client::RecordHistory> {
+        Err(history_unsupported())
+    }
+    /// One version's exact document, read from its own log entry. Pending
+    /// like [`ClientApi::record_history`].
+    fn record_version(
+        &mut self,
+        _session: SessionId,
+        _params: mdbn_wire::client::RecordVersionParams,
+    ) -> ApiResult<mdbn_wire::client::RecordVersion> {
+        Err(history_unsupported())
+    }
     /// A query (spec 11 query object) over the local view.
     fn query(
         &mut self,

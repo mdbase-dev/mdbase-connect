@@ -158,22 +158,32 @@ pub struct KeychainStore {
 impl KeychainStore {
     fn entry(&self, name: &str) -> Result<keyring::Entry, SecretError> {
         keyring::Entry::new(KEYCHAIN_SERVICE, &format!("{}:{name}", self.namespace))
-            .map_err(|e| SecretError::Unavailable(safe_keyring_error(&e)))
+            .map_err(|error| keychain_error("open", &error))
     }
 }
 
-fn safe_keyring_error(e: &keyring::Error) -> String {
-    // Classify; never echo platform payloads.
-    match e {
-        keyring::Error::PlatformFailure(_) => "platform failure".into(),
-        keyring::Error::NoStorageAccess(_) => "no storage access (locked or denied)".into(),
-        keyring::Error::NoEntry => "no entry".into(),
-        keyring::Error::BadEncoding(_) => "bad encoding".into(),
-        keyring::Error::TooLong(..) => "value too long".into(),
-        keyring::Error::Invalid(..) => "invalid attribute".into(),
-        keyring::Error::Ambiguous(_) => "ambiguous entry".into(),
-        _ => "unknown keyring error".into(),
+fn keychain_error(operation: &str, error: &keyring::Error) -> SecretError {
+    // Report only fixed classifications and typed Windows error codes. Platform
+    // error messages and other payloads may contain credential data.
+    let reason = match error {
+        keyring::Error::PlatformFailure(_) => "platform failure",
+        keyring::Error::NoStorageAccess(_) => "no storage access (locked or denied)",
+        keyring::Error::NoEntry => "no entry",
+        keyring::Error::BadEncoding(_) => "bad encoding",
+        keyring::Error::TooLong(..) => "value too long",
+        keyring::Error::Invalid(..) => "invalid attribute",
+        keyring::Error::Ambiguous(_) => "ambiguous entry",
+        _ => "unknown keyring error",
+    };
+    #[cfg(windows)]
+    if let keyring::Error::PlatformFailure(source) | keyring::Error::NoStorageAccess(source) = error
+        && let Some(keyring::windows::Error(code)) = source.downcast_ref()
+    {
+        return SecretError::Unavailable(format!(
+            "{operation} failed: {reason} (Windows error {code})"
+        ));
     }
+    SecretError::Unavailable(format!("{operation} failed: {reason}"))
 }
 
 impl SecretStore for KeychainStore {
@@ -181,26 +191,51 @@ impl SecretStore for KeychainStore {
         match self.entry(name)?.get_secret() {
             Ok(v) => Ok(Some(Zeroizing::new(v))),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(SecretError::Unavailable(safe_keyring_error(&e))),
+            Err(error) => Err(keychain_error("read", &error)),
         }
     }
 
     fn set(&self, name: &str, value: &[u8]) -> Result<(), SecretError> {
         self.entry(name)?
             .set_secret(value)
-            .map_err(|e| SecretError::Unavailable(safe_keyring_error(&e)))
+            .map_err(|error| keychain_error("write", &error))
     }
 
     fn delete(&self, name: &str) -> Result<(), SecretError> {
         match self.entry(name)?.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(SecretError::Unavailable(safe_keyring_error(&e))),
+            Err(error) => Err(keychain_error("delete", &error)),
         }
     }
 
     fn backend(&self) -> &'static str {
         "keychain"
     }
+}
+
+#[test]
+fn keychain_error_reports_operation_without_platform_message() {
+    let error = keyring::Error::PlatformFailure(Box::new(std::io::Error::other("private payload")));
+    assert_eq!(
+        keychain_error("read", &error).to_string(),
+        "credential store unavailable: read failed: platform failure"
+    );
+}
+
+#[cfg(all(test, windows))]
+#[test]
+fn keychain_error_reports_typed_windows_error_codes() {
+    let error = keyring::Error::PlatformFailure(Box::new(keyring::windows::Error(5)));
+    assert_eq!(
+        keychain_error("write", &error).to_string(),
+        "credential store unavailable: write failed: platform failure (Windows error 5)"
+    );
+
+    let error = keyring::Error::NoStorageAccess(Box::new(keyring::windows::Error(1312)));
+    assert_eq!(
+        keychain_error("read", &error).to_string(),
+        "credential store unavailable: read failed: no storage access (locked or denied) (Windows error 1312)"
+    );
 }
 
 /// Owner-only JSON file of hex secrets. Not present in release artifacts.

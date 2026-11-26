@@ -382,6 +382,29 @@ describe("fixed protected model pack setup intent", () => {
       expect(await row()).toEqual(before);
     },
   );
+  it("accepts canonical capacitor:// app origins and refuses malformed ones", () => {
+    for (const origin of ["capacitor://localhost", "capacitor://app.tasknotes.dev"]) {
+      const capJournal = new AppCollectionSetupJournal({
+        databaseName: "tasknotes.native-model-setup.v1",
+        applicationNamespace: "obsidian-vault-ios",
+        scope,
+        appOrigin: origin,
+        cpOrigin,
+        isCurrent: () => true,
+      });
+      capJournal.close();
+    }
+    for (const bad of ["capacitor://localhost:8080", "capacitor://localhost/", "null", "blob:capacitor://localhost/uuid"]) {
+      expect(() => new AppCollectionSetupJournal({
+        databaseName: "tasknotes.native-model-setup.v1",
+        applicationNamespace: "obsidian-vault-ios",
+        scope,
+        appOrigin: bad,
+        cpOrigin,
+        isCurrent: () => true,
+      })).toThrow();
+    }
+  });
   it("refuses unknown plaintext versions or added intent fields", () => {
     const intent = {
       version: 2,

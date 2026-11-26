@@ -9,7 +9,7 @@ publishers for their packages. Each runs in two roles:
   production servers, enabled Workers and Editor verify, ops Server CD
   dispatches both coordinators on main with `dry_run=false`. Dispatch failure is
   advisory, never a server-release failure or rollback.
-- On a coordinator-reserved **`v0.1.0-beta.N` tag** it is the *publisher*. Only
+- On a coordinator-reserved **`v<version>` tag** it is the *publisher*. Only
   tag runs build, pack and publish.
 
 A coordinator selects the production commit and decides what changed. When a
@@ -27,7 +27,10 @@ tag or `production_verified_commit` is accepted.
 
 ## Package selection and versions
 
-Workspace publication covers the packages listed in `scripts/public-packages.mjs`.
+Workspace publication covers the packages listed in the checked-out candidate's
+`scripts/public-packages.mjs` (never `main`'s cached list, so legitimately added
+or deleted packages on `main` do not break planning of an older production
+tree).
 Each package is compared with **its own highest published npm version**, not a
 dist-tag, server release or global release counter. The planner verifies the
 baseline npm Sigstore/SLSA provenance, publisher workflow, fixed repository,
@@ -73,14 +76,17 @@ is edited by SDK repins. Effective dependency changes they cause also appear in
 the lockfile.
 
 Every package a tag publishes carries that tag's version, so a package version
-always names the tag it was built from. The coordinator allocates
-`0.1.0-beta.N` above every published version and source manifest version of
-the line's packages and above every existing `v0.1.0-beta.*` tag; Desktop,
-retired server trains and these reservations share that namespace, and each tag
-is used once. Versions may therefore skip numbers; they never go backwards. The
-tag run refuses with `publication-version-superseded` if any selected package
-has since published a higher version. A published stable or another
-incompatible version line stops this beta allocator for release-agent review.
+always names the tag it was built from. The coordinator allocates the next
+semver version above every published version of the line's packages and every
+existing `v<version>` tag; Desktop and these reservations share that namespace,
+and each tag is used once. The first release after the `0.1.0-beta.N` line is
+`0.1.0`. After that, a `## Breaking` `changelog.d` fragment added since the
+highest version's tag bumps the minor version (pre-1.0) and anything else the
+patch. Versions may therefore skip numbers; they never go backwards. The tag
+run refuses with `publication-version-superseded` if any selected package has
+since published a higher version. A version form it cannot order, or a 1.0
+release, stops the allocator for release-agent review. Every release publishes
+to npm `latest`, and its plain-semver `sdk-v<version>` GitHub release is not a prerelease.
 Versions are stamped only into CI outputs; no release-version commits/PRs are
 created.
 
@@ -90,7 +96,7 @@ The tag message is a one-line JSON record
 version for a production commit, not for a line: a tag run requires an annotated
 reservation at its own commit, made by either line. Both coordinators allocate
 from the same namespace, so after a promotion both usually choose the same
-`v0.1.0-beta.N` for the same commit. Whichever creates the ref first makes the
+`v<version>` for the same commit. Whichever creates the ref first makes the
 reservation. The other coordinator finds that tag among the commit's
 reservations, or loses the ref creation to it, and dispatches its own publisher
 on the same tag. A tag at any other commit, or one that is not an annotated
@@ -99,7 +105,7 @@ so until production contains shared reservations, a coordinator uses only its
 own line's tags (transition guard; remove once production contains them).
 Sharing is safe because the lines publish disjoint
 packages, each line's npm provenance names its own workflow file at
-`refs/tags/v<version>`, the SDK's GitHub prerelease uses its own `sdk-v<version>`
+`refs/tags/v<version>`, the SDK's GitHub release uses its own `sdk-v<version>`
 tag, and run history and "already published" checks are per workflow. The
 `Protect release tags` ruleset forbids updating or deleting `v*` tags.
 
@@ -116,7 +122,7 @@ WASM/SQLite/trust integrity checks, cold consumers and extracted-package checks
 remain. CI stamps the root and SDK version only **after** frozen tool installs.
 The three environment archives are built once from the same source and bytes.
 Production goes only to npmjs `latest`; staging and LAB retain private manifests
-and their individually attested `sdk-v<computed-version>` immutable prerelease
+and their individually attested `sdk-v<computed-version>` immutable release
 assets. All assets are uploaded to the draft before publication. The original
 trust roots, pins, policy keys and consumer admission rules are not modified.
 
@@ -129,16 +135,16 @@ require a separate approved source-build/qualification contract.
 ## Qualification and compatibility
 
 Coordinators observe live production and select the newest green first-parent
-commit in the common ancestry of main, Connect/MCP and the provider. They check
+commit in the common ancestry of main and Connect/MCP. They check
 out that source and require its exact successful **full Server CI main-push**
 qualification artifact; a source-SDK coordinator reserves only once the same
 commit's exact Runtime CI has passed. A green badge alone, PR,
 documentation-only successor or stale qualification cannot substitute.
 Missing/unreadable evidence fails closed. However far main has moved, the
 coordinator plans the production commit itself; it never waits for production
-to reach main's tip. A tag run executes the workflow committed at its tag, so
-until production contains tag publication the coordinator reserves nothing and
-reports `waiting for production to contain tag publication`.
+to reach main's tip. A tag run executes the workflow and compatibility check
+committed at its tag, so until production contains tag publication and
+provider-free compatibility the coordinator reserves nothing and waits.
 
 A tag run qualifies its own commit again: the exact Server CI artifact (which
 names the workspace tarballs it packs) and, for the SDK build, exact Runtime CI.
@@ -160,10 +166,9 @@ events are restricted to successful main pushes from this repository, and
 publishers never consume artifacts from the triggering run as arbitrary input.
 All plan/build transfers belong to this run and identify its selected source SHA.
 
-`continuous-client-release.mjs` retains the fixed production Connect/MCP and
-provider readiness observations. It proves compatibility independently against
-Connect/MCP's revision and the revision the provider reports in `/ready`:
-each must contain the client commit, or its exact tree diff to the client must
+`continuous-client-release.mjs` retains the fixed production Connect/MCP
+readiness observations. It proves compatibility against Connect/MCP's revision:
+it must contain the client commit, or its exact tree diff to the client must
 be off the contract axis. Unknown paths, authorization/protocol, server, shared
 runtime, dependency-lock and trust changes fail closed. Only documentation/tests,
 known release tooling, static visual assets and locale data are off-axis;
@@ -173,13 +178,12 @@ version numbers is required. Readiness/compatibility and workflow-active state
 are rechecked immediately before every npm publication.
 
 Nonempty workspace planning runs this same `verifyCompatibility` proof before
-packing, for **every** public workspace package, including `@mdbase-dev/connect`, protocol,
-devkit and webhooks. There are no server-independent
+packing, for **every** public workspace package. There are no server-independent
 exemptions: i18n, UI and newly added public packages are gated too. The existing
 fail-closed contract-path classification is shared unchanged with the source SDK.
 
 The workspace `npm-release-plan.json` records `compatibility.status` as `passed`
-with the exact Connect/MCP and provider commit evidence, or `blocked` with the
+with the exact Connect/MCP commit evidence, or `blocked` with the
 fixed reason `production-compatibility-unproven`. The Actions job summary also
 shows the result. A manual `dry_run: true` reports incompatibility or unavailable proof without failing the
 plan, so operators can still inspect and pack the proposed versions. A live
@@ -213,8 +217,12 @@ order. Coordinators use a separate group and never displace a pending tag run.
 A coordinator that finds its production commit already reserved, by either
 line, reuses that tag: it dispatches nothing while its own workflow's run on the
 tag is in flight, redispatches it if the
-run ended without publishing, and fails with `publication-reservation-unconsumed`
-if that run succeeded yet the change is still unpublished. Existing Actions run/job history is the attempt journal; there is no new
+run ended without publishing, and stands down ("already published; nothing
+dispatched") if that run succeeded and every planned package reads as published
+with verified provenance for the reserved commit. npm can serve a stale version
+list for minutes after a publish, so a coordinator can plan a tag its run has
+already published; `reserve` rechecks for about three minutes and then fails
+with `publication-reservation-unconsumed` if the change is still unpublished. Existing Actions run/job history is the attempt journal; there is no new
 release database. Authorization failures and timeouts are not absence proof. An
 exact npm-version **404** is required before publishing. Concurrency is
 non-cancelling and global per existing publishing workflow, so a run can queue
@@ -254,8 +262,7 @@ Publication uses the existing grants. npm trusted publishers bind owner,
 repository, workflow file and environment, not the ref; workspace versions
 beta.118 to beta.149 were published through OIDC from version tags under the
 same `publish-npm.yml`/`npm` publisher. The `npm`
-environment's deployment policy admits `v*` tags and `npm-sdk`'s admits
-`v0.1.0-beta.*` tags. The coordinator's `reserve` job uses the workflow token
+and `npm-sdk` environments' deployment policies must admit `v*` tags. The coordinator's `reserve` job uses the workflow token
 with `contents: write` and `actions: write`, as the Desktop coordinator does;
 it installs no dependencies. For unattended operation these environments must
 not require a human approval per run. Keep npm token publication disabled.

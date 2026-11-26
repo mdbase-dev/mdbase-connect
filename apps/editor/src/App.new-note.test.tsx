@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { act, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import type { CollectionDescription, CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionDescription, CollectionTypeDescriptor } from "./connect-types";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
@@ -109,7 +109,7 @@ describe("a new note", () => {
     await startNote(user);
     expect(noteTitle()).toHaveFocus();
     expect(pendingPath()).toBe("Untitled.md");
-    expect(within(screen.getByRole("main", { name: "Note editor" })).getByRole("status")).toHaveTextContent("Not saved yet");
+    expect(within(screen.getByRole("main", { name: "Note editor" })).getByText("Not saved yet")).toHaveAttribute("role", "status");
     expect(within(unsavedNotes()!).getByRole("button", { name: /Untitled/ })).toHaveAttribute("aria-current", "true");
     expect(screen.queryByRole("button", { name: "Create note" })).not.toBeInTheDocument();
 

@@ -104,6 +104,9 @@ pub struct Registry {
     pub schema_version: u32,
     /// Collections, in registration order.
     pub collections: Vec<Entry>,
+    /// Last cloud replica explicitly unregistered here, until its next registration.
+    #[serde(default, skip_serializing_if = "std::collections::BTreeMap::is_empty")]
+    pub removed_cloud_replicas: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Registry {
@@ -111,6 +114,7 @@ impl Default for Registry {
         Registry {
             schema_version: SCHEMA_VERSION,
             collections: Vec::new(),
+            removed_cloud_replicas: Default::default(),
         }
     }
 }
@@ -202,6 +206,7 @@ impl Registry {
     /// Add an entry, enforcing the invariants.
     pub fn add(&mut self, entry: Entry) -> Result<(), RegistryError> {
         let mut next = self.clone();
+        next.removed_cloud_replicas.remove(&entry.id);
         next.collections.push(entry);
         next.check()?;
         *self = next;

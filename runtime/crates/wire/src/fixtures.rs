@@ -299,6 +299,14 @@ pub fn all() -> Vec<Fixture> {
         })]),
     ));
     v.push(fx("mutation", "update", mutation(vec![update_op()])));
+    let Op::Update(update) = update_op() else {
+        unreachable!()
+    };
+    v.push(fx(
+        "mutation",
+        "update-live",
+        mutation(vec![Op::UpdateLive(update)]),
+    ));
     let mut ext = mutation(vec![Op::Document(Document {
         id: b16(RECORD),
         base: Some(DocVersion {
@@ -984,6 +992,74 @@ pub fn all() -> Vec<Fixture> {
             applied_through: 9,
             seq: 1,
             chain: Some(confirmed.chain),
+        },
+    ));
+    v.push(fx(
+        "client",
+        "record-history-params",
+        RecordHistoryParams {
+            record: b16(RECORD),
+            before: Some(120),
+            limit: Some(50),
+        },
+    ));
+    v.push(fx(
+        "client",
+        "record-history",
+        RecordHistory {
+            versions: vec![
+                HistoryVersion {
+                    seq: 119,
+                    time: 1_791_400_060_000,
+                    author: AuthorRef {
+                        account: B16([0; 16]),
+                        device: b16(DEVICE),
+                        grant: Some(b16(COLLECTION)),
+                        grant_account: Some(b16(RECORD)),
+                    },
+                    kind: VersionKind::Moved,
+                    path: "notes/renamed.md".into(),
+                    revision: Some(b32(0x5a)),
+                    source: Source::Api,
+                    device_kind: DeviceKind::Hosted,
+                    app: Some("dev.mdbase.editor".into()),
+                },
+                HistoryVersion {
+                    seq: 43,
+                    time: 1_791_400_000_000,
+                    author: AuthorRef {
+                        account: b16(RECORD),
+                        device: b16(DEVICE),
+                        grant: None,
+                        grant_account: None,
+                    },
+                    kind: VersionKind::Deleted,
+                    path: "notes/a.md".into(),
+                    revision: None,
+                    source: Source::External,
+                    device_kind: DeviceKind::Desktop,
+                    app: None,
+                },
+            ],
+            from: 21,
+            from_time: Some(1_791_390_000_000),
+            next: Some(43),
+        },
+    ));
+    v.push(fx(
+        "client",
+        "record-version-params",
+        RecordVersionParams {
+            record: b16(RECORD),
+            seq: 119,
+        },
+    ));
+    v.push(fx(
+        "client",
+        "record-version",
+        RecordVersion {
+            path: "notes/renamed.md".into(),
+            document: "---\ntitle: A\n---\nBody\n".into(),
         },
     ));
 

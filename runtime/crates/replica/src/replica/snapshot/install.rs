@@ -197,6 +197,17 @@ impl<S: Store> Replica<S> {
         if mdbn_wire::hash::sha256(bytes) != cref.address {
             return Err(ChunkError::Bad("chunk address mismatch"));
         }
+        self.open_verified_chunk(bytes, kind, cref)
+    }
+
+    /// Open a chunk whose outer content address (`sha256(bytes) == cref.address`)
+    /// has already been verified.
+    fn open_verified_chunk(
+        &self,
+        bytes: &[u8],
+        kind: SectionKind,
+        cref: &ChunkRef,
+    ) -> Result<ChunkPayload, ChunkError> {
         let plain = Item::from_bytes(bytes)
             .ok()
             .and_then(|i| self.sealer.open(&i, bytes).ok())
@@ -253,7 +264,22 @@ impl<S: Store> Replica<S> {
         self.install_fail_as(IncidentKind::Integrity, why);
     }
 
+    fn cancel_install_chunks(&mut self, in_flight: BTreeMap<CallId, usize>) {
+        if in_flight.is_empty() {
+            return;
+        }
+        self.calls.retain(|c| !in_flight.contains_key(&c.id));
+        for id in in_flight.into_keys() {
+            self.inflight.remove(&id);
+            self.forget_log_reply_scope(id);
+        }
+    }
+
     fn install_fail_as(&mut self, kind: IncidentKind, why: &str) {
+        self.install_retry = false;
+        if let Some(Install::Chunks(chunks)) = self.install.take() {
+            self.cancel_install_chunks(chunks.in_flight);
+        }
         let older = self.install_offer.as_mut().and_then(|o| o.older.take());
         if let Some(older) = older
             && self.install_reset().is_ok()
@@ -283,7 +309,10 @@ impl<S: Store> Replica<S> {
     /// Abandon the install and report why: no snapshot is left to try, or the
     /// failure is this replica's (its store), not a snapshot's.
     fn install_abort(&mut self, mut kind: IncidentKind, why: &str) {
-        self.install = None;
+        self.install_retry = false;
+        if let Some(Install::Chunks(chunks)) = self.install.take() {
+            self.cancel_install_chunks(chunks.in_flight);
+        }
         self.install_offer = None;
         if let Some(b) = self.install_base.take() {
             self.base_install_failed = Some(b.seq);
@@ -318,7 +347,7 @@ impl<S: Store> Replica<S> {
         // A control-read failure may have an unknown committed outcome. Do not
         // issue a staging cleanup transaction after the terminal fail-stop.
         // Known-abort recovery can still discard/refetch and finish an install.
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(StoreError::Io("apply_reopen_required".into()));
         }
         self.install_staged = Tx::default();
@@ -343,7 +372,7 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
-    fn install_start_chunks(&mut self, manifest: Box<ManifestPayload>) {
+    pub(in crate::replica) fn install_start_chunks(&mut self, manifest: Box<ManifestPayload>) {
         if let Err(e) = self.install_reset() {
             self.install = Some(Install::Reset(manifest));
             self.install_retry = true;
@@ -355,25 +384,36 @@ impl<S: Store> Replica<S> {
         }
         let queue = chunk_queue(&manifest);
         self.install_progress = (0, queue.len() as u64);
-        self.install = Some(Install::Chunks {
+        self.install = Some(Install::Chunks(ChunkInstall {
             manifest,
             queue,
             next: 0,
-        });
+            next_fetch: 0,
+            in_flight: BTreeMap::new(),
+            ready: BTreeMap::new(),
+            retry: BTreeSet::new(),
+        }));
         self.install_next();
     }
 
-    pub(crate) fn on_install_reply(&mut self, reply: crate::log::LogReply) {
-        self.on_install_reply_body(reply, true);
+    pub(crate) fn on_install_reply(&mut self, id: CallId, reply: crate::log::LogReply) {
+        self.on_install_reply_body(id, reply, true);
     }
     #[cfg(test)]
-    pub(crate) fn test_on_native_snapshot_reply(&mut self, reply: crate::log::LogReply) {
-        self.on_install_reply_body(reply, true);
+    pub(crate) fn test_on_native_snapshot_reply(
+        &mut self,
+        id: CallId,
+        reply: crate::log::LogReply,
+    ) {
+        self.on_install_reply_body(id, reply, true);
     }
-    fn on_install_reply_body(&mut self, reply: crate::log::LogReply, native: bool) {
+    fn on_install_reply_body(&mut self, id: CallId, reply: crate::log::LogReply, native: bool) {
         let Some(state) = self.install.take() else {
             return;
         };
+        if let Install::Chunks(chunks) = state {
+            return self.on_chunk_reply(id, reply, native, chunks);
+        }
         let resp = match reply {
             Ok(r) => r,
             Err(e) => {
@@ -391,19 +431,11 @@ impl<S: Store> Replica<S> {
         };
         match (state, resp) {
             (Install::Control, LogResponse::Read(r)) => {
-                for it in r.items {
-                    if it.seq <= self.policy.seq {
-                        continue;
-                    }
-                    match self.evaluate_control_bytes(it.seq, &it.item.0) {
-                        Ok(()) => {}
-                        Err(why) => return self.install_fail(&why),
-                    }
-                    self.install_points.push(ControlPoint {
-                        seq: it.seq,
-                        policy: self.policy.clone(),
-                    });
-                }
+                let points = match self.evaluate_control_page(&r.items) {
+                    Ok(points) => points,
+                    Err(why) => return self.install_fail(&why),
+                };
+                self.install_points.extend(points);
                 self.install = Some(Install::Control);
                 if r.more {
                     return self.request_control_read();
@@ -536,55 +568,132 @@ impl<S: Store> Replica<S> {
                 // Confirmed state stays untouched until the verified swap.
                 self.install_start_chunks(m);
             }
-            (
-                Install::Chunks {
-                    manifest,
-                    queue,
-                    next,
-                },
-                LogResponse::GetObject { bytes, .. },
-            ) => {
-                let Some((kind, cref)) = queue.get(next).cloned() else {
+            _ => self.install_fail("unexpected reply"),
+        }
+    }
+
+    fn on_chunk_reply(
+        &mut self,
+        id: CallId,
+        reply: crate::log::LogReply,
+        native: bool,
+        mut chunks: ChunkInstall,
+    ) {
+        let Some(idx) = chunks.in_flight.remove(&id) else {
+            self.install = Some(Install::Chunks(chunks));
+            return;
+        };
+        match reply {
+            Ok(LogResponse::GetObject { bytes, .. }) => {
+                let Some((_, cref)) = chunks.queue.get(idx) else {
+                    self.cancel_install_chunks(chunks.in_flight);
                     return self.install_fail("chunk out of order");
                 };
-                let chunk = match self.open_chunk(&bytes, kind, &cref) {
+                if mdbn_wire::hash::sha256(&bytes) != cref.address {
+                    self.cancel_install_chunks(chunks.in_flight);
+                    return self.install_fail("chunk address mismatch");
+                }
+                chunks.ready.insert(idx, bytes);
+            }
+            Ok(_) => {
+                self.cancel_install_chunks(chunks.in_flight);
+                return self.install_fail("unexpected reply");
+            }
+            Err(e) if e.object_missing() => {
+                self.cancel_install_chunks(chunks.in_flight);
+                return self.install_fail("the service does not have a chunk");
+            }
+            Err(_) => {
+                chunks.retry.insert(idx);
+            }
+        }
+        if !chunks.in_flight.is_empty() {
+            self.install = Some(Install::Chunks(chunks));
+            return;
+        }
+        let mut batch = Vec::new();
+        while let Some(bytes) = chunks.ready.remove(&chunks.next) {
+            let Some((kind, cref)) = chunks.queue.get(chunks.next).cloned() else {
+                return self.install_fail("chunk out of order");
+            };
+            batch.push((kind, cref, bytes));
+            chunks.next += 1;
+        }
+        if !batch.is_empty() {
+            if let Err((kind, why)) = self.stage_chunk_batch(&batch, native) {
+                return self.install_fail_as(kind, &why);
+            }
+            self.install_progress.0 += batch.len() as u64;
+            self.status_dirty = true;
+        }
+        if chunks.next >= chunks.queue.len() {
+            self.install_finish(chunks.manifest);
+            return;
+        }
+        let has_retry = !chunks.retry.is_empty();
+        self.install = Some(Install::Chunks(chunks));
+        if has_retry {
+            self.install_retry = true;
+        } else {
+            self.install_next();
+        }
+    }
+
+    /// Open, validate, decode and stage a manifest-ordered batch of
+    /// address-verified chunks synchronously inside one deferred-durability
+    /// window (when the store stages persistently). The window always closes
+    /// before this returns; it is never held across fetches or host ticks.
+    fn stage_chunk_batch(
+        &mut self,
+        batch: &[(SectionKind, ChunkRef, Vec<u8>)],
+        native: bool,
+    ) -> Result<(), (IncidentKind, String)> {
+        let stage_all = |r: &mut Self| -> Result<(), (IncidentKind, String)> {
+            for (kind, cref, bytes) in batch {
+                let chunk = match r.open_verified_chunk(bytes, *kind, cref) {
                     Ok(chunk) => chunk,
                     Err(ChunkError::NewerCodec) => {
-                        return self.install_fail_as(
+                        return Err((
                             IncidentKind::UpgradeRequired,
-                            "chunk payload requires a newer codec",
-                        );
+                            "chunk payload requires a newer codec".into(),
+                        ));
                     }
-                    Err(ChunkError::Bad(why)) => return self.install_fail(why),
+                    Err(ChunkError::Bad(why)) => {
+                        return Err((IncidentKind::Integrity, why.into()));
+                    }
                 };
                 let extended = matches!(
                     chunk.section,
                     SectionKind::UnindexedMarkdownFiles | SectionKind::UnindexedMarkdownTombstones
                 ) || (chunk.section == SectionKind::Legacy(L::Conflicts)
                     && chunk.rows_as::<WConflictRow>().is_ok_and(|rows| {
-                        rows.iter().any(|r| {
-                            super::attachment_runtime::extended_conflict_not_yet(&r.conflict)
+                        rows.iter().any(|row| {
+                            super::attachment_runtime::extended_conflict_not_yet(&row.conflict)
                         })
                     }));
                 if extended && !native {
-                    return self.install_fail_as(
+                    return Err((
                         IncidentKind::UpgradeRequired,
-                        "unindexed_markdown_snapshot_not_yet",
-                    );
+                        "unindexed_markdown_snapshot_not_yet".into(),
+                    ));
                 }
-                if let Err(e) = self.install_chunk(&chunk) {
-                    return self.install_fail(&e);
+                if let Err(e) = r.install_chunk(&chunk) {
+                    return Err((IncidentKind::Integrity, e));
                 }
-                self.install_progress.0 += 1;
-                self.status_dirty = true;
-                self.install = Some(Install::Chunks {
-                    manifest,
-                    queue,
-                    next: next + 1,
-                });
-                self.install_next();
             }
-            _ => self.install_fail("unexpected reply"),
+            Ok(())
+        };
+        if !self.store.stages() {
+            return stage_all(self);
+        }
+        match self.with_deferred_durability(|r| Ok(stage_all(r))) {
+            Ok(outcome) => outcome,
+            Err(e) => {
+                if !matches!(e, StoreError::CommitAborted(_)) {
+                    self.committed_read_fault();
+                }
+                Err((IncidentKind::Integrity, format!("staging: {e}")))
+            }
         }
     }
 
@@ -623,7 +732,7 @@ impl<S: Store> Replica<S> {
                 }
                 return;
             }
-            Some(Install::Chunks { .. }) => return self.install_next(),
+            Some(Install::Chunks(_)) => return self.install_next(),
             Some(Install::Reset(_)) | None => return,
         };
         let id = self.queue(request);
@@ -631,29 +740,39 @@ impl<S: Store> Replica<S> {
     }
 
     fn install_next(&mut self) {
-        let Some(Install::Chunks {
-            manifest,
-            queue,
-            next,
-        }) = self.install.take()
-        else {
+        let Some(Install::Chunks(mut chunks)) = self.install.take() else {
             return;
         };
-        if let Some((_, c)) = queue.get(next) {
+        if chunks.next >= chunks.queue.len() {
+            self.install_finish(chunks.manifest);
+            return;
+        }
+        while let Some(idx) = chunks.retry.pop_first() {
+            let Some((_, c)) = chunks.queue.get(idx) else {
+                continue;
+            };
             let id = self.queue(LogRequest::GetObject {
                 collection: self.cfg.collection,
                 address: c.address,
                 range: None,
             });
             self.inflight.insert(id, Inflight::Install);
-            self.install = Some(Install::Chunks {
-                manifest,
-                queue,
-                next,
-            });
-            return;
+            chunks.in_flight.insert(id, idx);
         }
-        self.install_finish(manifest);
+        while chunks.next_fetch < chunks.queue.len()
+            && chunks.next_fetch - chunks.next < CHUNKS_IN_FLIGHT
+        {
+            let idx = chunks.next_fetch;
+            chunks.next_fetch += 1;
+            let id = self.queue(LogRequest::GetObject {
+                collection: self.cfg.collection,
+                address: chunks.queue[idx].1.address,
+                range: None,
+            });
+            self.inflight.insert(id, Inflight::Install);
+            chunks.in_flight.insert(id, idx);
+        }
+        self.install = Some(Install::Chunks(chunks));
     }
     fn install_finish(&mut self, manifest: Box<ManifestPayload>) {
         self.install = Some(Install::Sources(manifest.clone()));
@@ -698,6 +817,8 @@ impl<S: Store> Replica<S> {
         };
         // Finish only after complete source authentication and the exact digest.
         let digest = self.install_rows.index.digest();
+        let catalog = self.install_rows.catalog();
+        let record_stamp = crate::plan::record_meta_stamp(&catalog);
         self.install_rows.clear();
         if digest != manifest.state_digest {
             return self.install_fail("state digest mismatch");
@@ -747,11 +868,19 @@ impl<S: Store> Replica<S> {
             staged.clear_confirmed = true;
         }
         staged.head = Some(head);
+        staged
+            .meta
+            .push((meta_keys::RECORD_META.into(), Some(record_stamp)));
         staged.meta.extend(source_meta);
         staged.meta.push((
             meta_keys::LOG_STATE.into(),
             log_state(log_time, sem_ratchet),
         ));
+        if self.is_hosted() {
+            staged
+                .meta
+                .push((meta_keys::HOSTED_RECORD_META_CURSOR.into(), None));
+        }
         staged
             .meta
             .push((LAST_MANIFEST.into(), manifest.to_bytes().ok()));
@@ -795,26 +924,21 @@ impl<S: Store> Replica<S> {
         // after `seq` are applied already and only advance the head on the tail read.
         self.install_points.clear();
         self.stats.snapshots_installed += 1;
-        match crate::plan::load_catalog(&self.store) {
-            Ok(c) => {
-                self.catalog = std::sync::Arc::new(c);
-                // Invalidate the cached query context after snapshot install.
-                self.query_context = None;
-            }
-            Err(e) => return self.install_abort(IncidentKind::Integrity, &format!("store: {e}")),
+        self.catalog = std::sync::Arc::new(catalog);
+        if let Some(hosted) = self.hosted.as_mut() {
+            hosted.reindex_stamp = None;
+            hosted.reindex_hold = None;
         }
-        // The install replaced confirmed state; the derived query index follows.
-        // A failure leaves it unready (queries use the per-record path) and is
-        // reported, never swallowed.
-        let backfill = self.backfill_query_index();
+        self.reset_feed();
+        self.query_context = None;
         self.clear_incident(IncidentKind::Integrity);
         self.clear_incident(IncidentKind::WaitingForKey);
-        if let Err(e) = backfill {
-            self.query_context = None;
-            self.incident(
-                IncidentKind::Integrity,
-                Some(Value::Text(format!("store: query index backfill: {e}"))),
-            );
+        // The install replaced confirmed state; the derived query index follows,
+        // on a device once it has applied the tail it knows of, or sooner when
+        // a query needs it (`flush_query_index`).
+        self.query_index_deferred = true;
+        if self.is_hosted() || self.head.seq >= self.head_known {
+            self.flush_query_index();
         }
         let all: std::collections::BTreeSet<String> =
             self.pending_keys.values().flatten().cloned().collect();

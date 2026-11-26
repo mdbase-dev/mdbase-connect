@@ -16,6 +16,10 @@ pub(super) async fn run_command(
     out: &Output,
 ) -> Result<ExitCode, ClientError> {
     match cmd {
+        #[cfg(unix)]
+        Command::SelfHost(_) | Command::PairApp { .. } => {
+            unreachable!("handled before resolving a managed profile")
+        }
         Command::Daemon(DaemonCmd::Run) | Command::Companion => {
             unreachable!("handled before the runtime starts")
         }
@@ -112,12 +116,13 @@ pub(super) async fn run_command(
             path,
             name,
             private,
+            recover_removed,
         }) => {
             let path = std::path::absolute(&path).map_err(ClientError::Io)?;
             let v = call(
                 profile,
                 Method::COLLECTION_JOIN,
-                json!({ "collection": collection, "path": path, "name": name, "private": private }),
+                json!({ "collection": collection, "path": path, "name": name, "private": private, "recover_removed": recover_removed }),
             )
             .await?;
             if out.json {
@@ -189,7 +194,13 @@ pub(super) async fn run_command(
                 &collection,
                 Value::Object(extra),
             )
-            .await
+            .await?;
+            if !out.json {
+                println!(
+                    "Updated on this computer only. The shared name in the Portal is unchanged."
+                );
+            }
+            Ok(ExitCode::SUCCESS)
         }
         Command::Collection(CollectionCmd::Pause { collection }) => {
             simple(
@@ -321,39 +332,8 @@ pub(super) async fn run_command(
             }
             Ok(ExitCode::SUCCESS)
         }
-        Command::Sync(SyncCmd::Enable {
-            collection,
-            mode,
-            accept_takeover_holds,
-        }) => {
-            if accept_takeover_holds {
-                // Say exactly what is being accepted without review.
-                let id = resolve(profile, &collection).await?;
-                let holds = call(
-                    profile,
-                    Method::COLLECTION_HOLDS,
-                    json!({ "collection": id }),
-                )
-                .await
-                .ok()
-                .and_then(|v| serde_json::from_value::<Vec<HoldSummary>>(v).ok())
-                .unwrap_or_default();
-                let taken: Vec<&HoldSummary> = holds
-                    .iter()
-                    .filter(|h| h.id.starts_with(crate::takeover::held::ID_PREFIX))
-                    .collect();
-                if !taken.is_empty() {
-                    eprintln!(
-                        "Accepting this computer's version of {} file(s) held at the takeover; \
-                         the old connector's versions stay in mdbase's state directory:",
-                        taken.len()
-                    );
-                    for h in taken {
-                        eprintln!("  {}", h.path);
-                    }
-                }
-            }
-            let mut params = json!({ "accept_takeover_holds": accept_takeover_holds });
+        Command::Sync(SyncCmd::Enable { collection, mode }) => {
+            let mut params = json!({});
             if let Some(mode) = mode {
                 params["mode"] = json!(match mode {
                     SyncKind::Private => SyncMode::SyncedE2e,
@@ -365,31 +345,32 @@ pub(super) async fn run_command(
         Command::Sync(SyncCmd::Mode {
             collection,
             mode,
-            resume,
             cancel,
         }) => {
-            let target = match mode {
+            let col = resolve_collection(profile, &collection).await?;
+            let target = mode.map(|m| match m {
                 SyncKind::Private => "private",
                 SyncKind::CloudCopy => "cloud_copy",
-            };
-            simple(
-                profile,
-                out,
-                Method::COLLECTION_MODE,
-                &collection,
-                json!({"target_mode":target,"resume":resume,"cancel":cancel}),
-            )
-            .await
+            });
+            let mut params =
+                json!({"collection": col.id, "cancel": cancel, "include_local": !out.json});
+            if let Some(target) = target {
+                params["target_mode"] = json!(target);
+            }
+            let value = call(profile, Method::COLLECTION_MODE, params).await?;
+            print_mode(out, &col, &value, false);
+            Ok(ExitCode::SUCCESS)
         }
         Command::Sync(SyncCmd::ModeStatus { collection }) => {
-            simple(
+            let col = resolve_collection(profile, &collection).await?;
+            let value = call(
                 profile,
-                out,
                 Method::COLLECTION_MODE_STATUS,
-                &collection,
-                json!({}),
+                json!({"collection": col.id, "include_local": !out.json}),
             )
-            .await
+            .await?;
+            print_mode(out, &col, &value, true);
+            Ok(ExitCode::SUCCESS)
         }
         Command::Sync(SyncCmd::Files {
             collection,
@@ -417,9 +398,6 @@ pub(super) async fn run_command(
                 json!({ "include": include, "exclude": exclude, "max_size": max_size }),
             )
             .await
-        }
-        Command::Sync(SyncCmd::Disable { collection }) => {
-            simple(profile, out, Method::SYNC_DISABLE, &collection, json!({})).await
         }
         Command::Device(DeviceCmd::Pending { collection }) => {
             let collection = match collection {
@@ -727,37 +705,6 @@ pub(super) async fn run_command(
             Ok(ExitCode::SUCCESS)
         }
         Command::Service(cmd) => Ok(crate::service::run(cmd, profile, out.json).await),
-        Command::Migrate(MigrateCmd::Status) => {
-            let v = match call(profile, Method::MIGRATE_STATUS, json!({})).await {
-                Ok(v) => v,
-                Err(ClientError::NotRunning) => {
-                    let path =
-                        crate::takeover::Paths::new(&profile.state_dir, profile.store_ids_file())
-                            .record;
-                    let record = crate::takeover::record::Record::load(&path).map_err(|e| {
-                        ClientError::Remote(ControlError::internal(format!("takeover record: {e}")))
-                    })?;
-                    let waiting = record.is_none()
-                        && crate::takeover::old_state_dir(profile)
-                            .is_some_and(|p| p.join("connector.sqlite").is_file());
-                    json!({ "record": record, "daemon": "not_running", "waiting_for_migration_batch": waiting,
-                        "held_interrupted_writes": record.as_ref().map(|r| r.held_interrupted_writes()).unwrap_or(0) })
-                }
-                Err(e) => return Err(e),
-            };
-            migrate_print(out, &v);
-            Ok(ExitCode::SUCCESS)
-        }
-        Command::Migrate(MigrateCmd::Start { stop_mirrors }) => {
-            let v = call(
-                profile,
-                Method::MIGRATE_START,
-                json!({ "stop_mirrors": stop_mirrors }),
-            )
-            .await?;
-            migrate_print(out, &v);
-            Ok(ExitCode::SUCCESS)
-        }
         Command::Paths => {
             let v = serde_json::to_value(profile).unwrap_or_default();
             if out.json {

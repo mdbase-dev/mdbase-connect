@@ -47,6 +47,11 @@ it("ready holds through re-checks and transient results; a settled non-ready out
   expect(busy).toMatchObject({kind:"ready",problem:{key:"busy"}});
   // Settled: setup is needed now.
   expect(applicationPhase(snap({status:"setup_required",readiness:readiness({assessment:{status:"setup_required",problem:null}})}),{connection,previous:busy}).kind).toBe("needs_setup");
+  // Settled setup_conflict enters needs_setup (for setup.plan() review), never the configuration_conflict dead end; installed_newer stays a problem.
+  expect(applicationPhase(snap({status:"setup_required",readiness:readiness({assessment:{status:"setup_required",problem:{code:"setup_conflict"}},problem:{code:"setup_conflict"}})}),{connection,previous:ready}))
+    .toMatchObject({kind:"needs_setup",collectionId:A});
+  expect(applicationPhase(snap({status:"setup_required",readiness:readiness({assessment:{status:"incompatible",problem:{code:"installed_newer"}},problem:{code:"installed_newer"}})}),{connection}))
+    .toMatchObject({kind:"problem",collectionId:A,problem:{key:"installed_newer",action:"update_app"}});
   // Durable problem (access removed) replaces ready.
   expect(applicationPhase(snap({status:"blocked",problem:"access_removed"}),{connection,previous:ready})).toMatchObject({kind:"problem",problem:{key:"access_removed"}});
   // A stale connection never holds ready.

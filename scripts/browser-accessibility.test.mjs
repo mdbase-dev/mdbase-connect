@@ -144,7 +144,7 @@ async function auditPortalLogin() {
   await auditPage(page, "portal signup", { keyboard: true });
   await assertAuthDesign(page, "portal signup");
   assert.equal(await page.locator("html").getAttribute("data-theme"), null, "portal signup: theme follows the operating system");
-  assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1, "portal signup: System/Light/Dark remains available");
+  assert.equal(await page.getByRole("radiogroup", { name: "Color theme" }).getByRole("radio").count(), 3, "portal signup: System/Light/Dark remains available");
   const authAlignment = await page.locator(".minimal-auth-page > .product-brand, .minimal-auth-footer").evaluateAll(
     (elements) => elements.map((element) => element.getBoundingClientRect().left)
   );
@@ -314,7 +314,7 @@ async function auditPortalSignup() {
           edges: [".minimal-auth-page > .product-brand", ".auth-providers", ".google-provider", ".github-button", ".password-auth-form", ".minimal-auth-footer"].map(bounds),
           providersBottom: document.querySelector(".auth-providers").getBoundingClientRect().bottom,
           emailTop: document.querySelector(".password-auth-form").getBoundingClientRect().top,
-          googleScheme: getComputedStyle(document.querySelector(".google-provider")).colorScheme,
+          googleScheme: getComputedStyle(document.querySelector(".google-button")).colorScheme,
           overflow: document.documentElement.scrollWidth > innerWidth
         };
       });
@@ -378,10 +378,9 @@ async function auditPortalRecovery() {
     await page.getByRole("heading", { name: "Sign in" }).waitFor();
     assert.equal(await page.getByRole("alert").count(), 0, "successful config clears obsolete identification error");
     assert.equal(await page.locator("html").getAttribute("data-theme"), saved);
-    const theme = page.getByRole("combobox", { name: "Color theme" });
-    assert.equal(await theme.getAttribute("data-value"), saved, "the theme control shows the saved choice");
-    await theme.click();
-    await page.getByRole("option", { name: "System", exact: true }).click();
+    const theme = page.getByRole("radiogroup", { name: "Color theme" });
+    assert.equal(await theme.getByRole("radio", { checked: true }).getAttribute("value"), saved, "the theme control shows the saved choice");
+    await theme.getByText("System", { exact: true }).click();
     assert.equal(await page.locator("html").getAttribute("data-theme"), null);
     await page.goto(`${servers[0].origin}/login?auth_error=cancelled`);
     await page.getByRole("heading", { name: "Sign in", exact: true }).waitFor();
@@ -392,32 +391,29 @@ async function auditPortalRecovery() {
     assert.equal(await page.getByRole("alert").innerText(), "Something went wrong on mdbase. Try again.", "configuration failure remains visible");
     await page.close();
   }
-  for (const [path, endpoint, data, heading] of [
-    ["pair", "pairing-requests", { pairing: { connector_name: "Retry computer", approved_at: null } }, "Retry computer"],
-    ["mirror", "mirror-pairing-requests", { pairing: { mirror_name: "Retry mirror", mode: "read_only", approved_at: null, consumed_at: null, collection_id: null }, collections: [{ id: "collection", display_name: "Notes" }] }, "Retry mirror"]
-  ]) {
-    const page = await localPage();
-    let calls = 0;
-    let releaseRetry;
-    const retryResponse = new Promise((resolveRetry) => { releaseRetry = resolveRetry; });
-    await page.route(`**/v1/${endpoint}/*`, async (route) => {
-      calls += 1;
-      if (calls > 1) await retryResponse;
-      await route.fulfill(calls === 1 ? { status: 500, json: { error: "temporary_failure" } } : { json: data });
-    });
-    await page.goto(`${servers[0].origin}/${path}/11111111-1111-4111-8111-111111111111`);
-    await page.getByRole("alert").waitFor();
-    const retried = page.waitForRequest(`**/v1/${endpoint}/*`);
-    await page.getByRole("button", { name: "Try again" }).click();
-    await retried;
-    await page.locator('.request-shell[aria-busy="true"], main[aria-busy="true"]').waitFor();
-    assert.equal(await page.getByRole("button", { name: "Try again" }).count(), 0, `${path}: cannot retry during a pending request`);
-    releaseRetry();
-    await page.getByRole("heading", { name: heading }).waitFor();
-    assert.equal(calls, 2, `${path}: one guarded retry`);
-    assert.equal(await page.getByRole("alert").count(), 0);
-    await page.close();
-  }
+  const page = await localPage();
+  let calls = 0;
+  let releaseRetry;
+  const retryResponse = new Promise((resolveRetry) => { releaseRetry = resolveRetry; });
+  await page.route("**/v1/pairing-requests/*", async (route) => {
+    calls += 1;
+    if (calls > 1) await retryResponse;
+    await route.fulfill(calls === 1
+      ? { status: 500, json: { error: "temporary_failure" } }
+      : { json: { pairing: { connector_name: "Retry computer", approved_at: null } } });
+  });
+  await page.goto(`${servers[0].origin}/pair/11111111-1111-4111-8111-111111111111`);
+  await page.getByRole("alert").waitFor();
+  const retried = page.waitForRequest("**/v1/pairing-requests/*");
+  await page.getByRole("button", { name: "Try again" }).click();
+  await retried;
+  await page.locator('.request-shell[aria-busy="true"]').waitFor();
+  assert.equal(await page.getByRole("button", { name: "Try again" }).count(), 0, "pair: cannot retry during a pending request");
+  releaseRetry();
+  await page.getByRole("heading", { name: "Retry computer" }).waitFor();
+  assert.equal(calls, 2, "pair: one guarded retry");
+  assert.equal(await page.getByRole("alert").count(), 0);
+  await page.close();
 }
 
 async function auditPortalUnsubscribe() {
@@ -937,7 +933,7 @@ async function auditPortalColdStartAuthorization({ atomic = false } = {}) {
     await page.reload();
     await page.getByRole("button", { name: "Allow access" }).waitFor();
     assert.equal(await page.locator("html").getAttribute("data-theme"), saved, "authorization honors explicit theme despite OS preference");
-    assert.equal(await page.getByRole("combobox", { name: "Color theme" }).count(), 1);
+    assert.equal(await page.getByRole("radiogroup", { name: "Color theme" }).count(), 1);
   }
   authorization.distribution = "portable";
   authorization.user_code = "ABCD-EFGH";
@@ -1218,11 +1214,14 @@ async function assertKeyboardReachability(page, label) {
         && bounds.width > 0
         && bounds.height > 0;
     };
+    // A radio group is one Tab stop, on its checked radio; arrow keys reach the others.
+    const arrowKeyRadio = (element) => element.matches('input[type="radio"]:not(:checked)')
+      && document.querySelector(`input[type="radio"][name="${CSS.escape(element.name)}"]:checked`) !== null;
     return [
       ...(document.querySelector("dialog:modal") ?? document).querySelectorAll(
         "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), summary"
       )
-    ].filter(visible).map((element, index) => {
+    ].filter(visible).filter((element) => !arrowKeyRadio(element)).map((element, index) => {
       const id = `a11y-${index}`;
       element.setAttribute("data-a11y-test", id);
       return { id, element: element.outerHTML.slice(0, 180) };

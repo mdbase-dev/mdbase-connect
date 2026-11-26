@@ -668,7 +668,7 @@ impl<S: Store> Replica<S> {
     pub(crate) fn attachment_fetch_step(&mut self) {
         if !self.materializes_attachments()
             || self.log_move != super::LogMove::None
-            || self.apply_fault
+            || self.apply_fault.is_some()
         {
             return;
         }

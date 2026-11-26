@@ -15,6 +15,8 @@
 .mdbase-app-mark.is-editor { --app: var(--app-editor); }
 .mdbase-app-mark.is-reader { --app: var(--app-reader); }
 .mdbase-app-mark.is-writer { --app: var(--app-writer); }
+.mdbase-app-mark.is-journal { --app: var(--app-journal); }
+.mdbase-app-mark.is-tasknotes { --app: var(--app-tasknotes); }
 
 .mdbase-mark .mdbase-mark-segment,
 .mdbase-mark .mdbase-mark-row,

@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url";
 // Deliberately fixed: staging, redirects and caller-supplied origins cannot qualify.
 const connectOrigin = "https://connect.mdbase.dev";
 const mcpOrigin = "https://mcp.mdbase.dev";
-const providerOrigin = "https://sync.mdbase.dev";
 
 export function verifyPublicationSource({ event, ref, sha, head, version, verifiedCommit }) {
   if (event !== "workflow_dispatch" || !/^[0-9a-f]{40}$/.test(sha ?? "") ||
@@ -22,8 +21,8 @@ export async function verifyProductionReadiness(sha, version, fetchImpl = global
     throw new Error("Exact publication source and version are required before production reads.");
   }
   const release = await readProductionRelease(fetchImpl);
-  if (release.sha !== sha || release.version !== version) {
-    throw new Error("Canonical production release does not match the publication source and version.");
+  if (release.sha !== sha) {
+    throw new Error("Canonical production release does not match the publication source.");
   }
 }
 
@@ -77,23 +76,13 @@ async function observeProductionRelease(fetchImpl) {
     const Failure = ready?.service === "mdbase-connect" ? ProductionInTransition : Error;
     throw new Failure("Canonical production Connect is not ready.");
   }
-  const provider = await get(providerOrigin, "/ready");
-  if (provider?.status !== "ready" || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(provider.provider?.version ?? "") ||
-      !/^[0-9a-f]{40}$/.test(provider.provider?.revision ?? "") ||
-      provider.notifications?.recovery !== "ok" || provider.notifications?.consecutive_failures !== 0 ||
-      !Array.isArray(provider.provider?.capabilities) ||
-      !provider.provider.capabilities.every((item) => typeof item === "string") ||
-      !provider.provider.capabilities.includes("application-authorization-v2-issuance")) {
-    const Failure = typeof provider?.status === "string" && provider.status !== "ready" ? ProductionInTransition : Error;
-    throw new Failure("Canonical production provider version, recovery or fresh-v2 issuance evidence is absent or mismatched.");
-  }
   const mcp = await get(mcpOrigin, "/health");
   if (mcp?.ok !== true || mcp.service !== "mdbase-mcp" || mcp.revision !== connect.revision) {
     const Failure = mcp?.ok === true && mcp.service === "mdbase-mcp" && /^[0-9a-f]{40}$/.test(mcp.revision ?? "")
       ? ProductionInTransition : Error;
     throw new Failure("Canonical production MCP identity is absent or mismatched.");
   }
-  return { sha: connect.revision, version: provider.provider.version, providerSha: provider.provider.revision };
+  return { sha: connect.revision };
 }
 
 export function verifyRemotePublicationTag({ ref, version, sha }, api) {

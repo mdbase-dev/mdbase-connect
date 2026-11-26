@@ -10,12 +10,6 @@ import {
   EmailDeliveryError,
   type EmailTransport
 } from "./features/email/email.js";
-import {
-  HostedProviderResponseError,
-  type HostedAccountLimits,
-  type HostedAccountUsage,
-  type HostedProviderClient
-} from "./features/hosted/hosted-provider.js";
 import { tokenHash } from "./security.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -567,34 +561,6 @@ describe("authentication operator command", () => {
       { user_id: userId, subject_id: userId },
       { user_id: userId, subject_id: userId }
     ]);
-
-    const provider = fakeHostedProvider();
-    const reconciled = await runAuthAdminCommand([
-      "entitlements", "reconcile",
-      "--user", userId,
-      "--operation-id", "20000000-0000-4000-8000-000000000090",
-      "--actor", "operator:test",
-      "--reason", "Reconcile private beta storage"
-    ], { ...context, hostedProvider: provider }) as {
-      reconciled: Array<{ user_id: string; reconciled_collections: number }>;
-    };
-    expect(reconciled.reconciled).toEqual([{
-      user_id: userId,
-      provider_account_id: expect.any(String),
-      entitlement_revision: 1,
-      reconciled_collections: 0,
-      usage: expect.objectContaining({ account_id: expect.any(String) })
-    }]);
-    const reconciledAudit = await context.db.query<{
-      user_id: string;
-      subject_id: string;
-    }>(
-      `SELECT user_id, subject_id FROM audit_events
-       WHERE event_type = 'entitlement.reconciled'`
-    );
-    expect(reconciledAudit.rows).toEqual([
-      { user_id: userId, subject_id: userId }
-    ]);
   });
 
   it("grants a next account the operator plan without the legacy provider", async () => {
@@ -605,15 +571,12 @@ describe("authentication operator command", () => {
        VALUES ($1, 'operator@example.com', 'Operator', 'next')`,
       [userId]
     );
-    const provider = fakeHostedProvider();
-    const upsert = vi.spyOn(provider, "upsertAccount");
     const result = await runAuthAdminCommand([
       "entitlements", "grant", "--user", userId, "--profile", "operator_v1",
       "--operation-id", "20000000-0000-4000-8000-000000000087",
       "--actor", "operator:test", "--reason", "Operator account storage"
-    ], { ...context, hostedProvider: provider });
+    ], context);
     expect(result).toMatchObject({ user_id: userId, changed: true, reconciliation: null });
-    expect(upsert).not.toHaveBeenCalled();
     const shown = await runAuthAdminCommand([
       "entitlements", "show", "--user", userId
     ], context) as { effective: { hostedStorageBytes: number; maxHostedCollections: number; maxSingleFileBytes: number } };
@@ -622,215 +585,6 @@ describe("authentication operator command", () => {
       maxHostedCollections: 100,
       maxSingleFileBytes: 1024 ** 3
     });
-  });
-
-  it.each([
-    { revision: 0, status: 404, code: "hosted_account_not_found", pending: true },
-    { revision: 1, status: 404, code: "hosted_account_not_found", pending: false },
-    { revision: 0, status: 404, code: "not_found", pending: false },
-    { revision: 0, status: 503, code: "hosted_account_not_found", pending: false }
-  ])("inspects an unprovisioned account without hiding provider failures: $revision/$status/$code", async ({ revision, status, code, pending }) => {
-    const context = await fixture();
-    const userId = "10000000-0000-4000-8000-000000000088";
-    await context.db.query("INSERT INTO users (id, name) VALUES ($1, 'Legacy signup')", [userId]);
-    // Reading a legacy storage-less account does not silently grant it access.
-    const missing = await runAuthAdminCommand([
-      "entitlements", "show", "--user", userId
-    ], context);
-    expect(missing).toMatchObject({ effective: null, storage_account: null, grants: [] });
-    await runAuthAdminCommand([
-      "entitlements", "grant", "--user", userId, "--profile", "open_beta_v1",
-      "--operation-id", "20000000-0000-4000-8000-000000000088",
-      "--actor", "operator:test", "--reason", "Explicit legacy signup repair"
-    ], context);
-    await context.db.query("UPDATE account_storage_accounts SET provider_revision = $2 WHERE user_id = $1", [userId, revision]);
-    const provider = fakeHostedProvider();
-    const error = new HostedProviderResponseError(status, code, "Provider lookup failed.");
-    vi.spyOn(provider, "accountUsage").mockRejectedValue(error);
-    const upsert = vi.spyOn(provider, "upsertAccount");
-    const result = runAuthAdminCommand([
-      "entitlements", "show", "--user", userId
-    ], { ...context, hostedProvider: provider });
-    if (pending) {
-      await expect(result).resolves.toMatchObject({
-        effective: { profileCodes: ["open_beta_v1"] },
-        storage_account: { provider_revision: 0 },
-        grants: [expect.objectContaining({ profile_code: "open_beta_v1" })],
-        provider_usage: null
-      });
-    } else {
-      await expect(result).rejects.toBe(error);
-    }
-    expect(upsert).not.toHaveBeenCalled();
-    expect((await context.db.query("SELECT provider_revision FROM account_storage_accounts WHERE user_id = $1", [userId])).rows[0]?.provider_revision).toBe(revision);
-  });
-
-  it("reconciles active hosted accounts as one resumable private batch", async () => {
-    const context = await fixture();
-    const activeA = "10000000-0000-4000-8000-000000000091";
-    const activeB = "10000000-0000-4000-8000-000000000092";
-    const suspended = "10000000-0000-4000-8000-000000000093";
-    const empty = "10000000-0000-4000-8000-000000000094";
-    for (const [id, status] of [
-      [activeA, "active"],
-      [activeB, "active"],
-      [suspended, "suspended"],
-      [empty, "active"]
-    ]) {
-      await context.db.query(
-        `INSERT INTO users (id, email, name, suspended_at)
-         VALUES ($1, $2, 'Batch account', $3)`,
-        [id, `${id}@example.com`, status === "suspended" ? new Date() : null]
-      );
-    }
-    let grantSequence = 100;
-    for (const userId of [activeA, activeB, suspended]) {
-      grantSequence += 1;
-      await runAuthAdminCommand([
-        "entitlements", "grant",
-        "--user", userId,
-        "--profile", "beta_v1",
-        "--operation-id", `20000000-0000-4000-8000-000000000${grantSequence}`,
-        "--actor", "operator:test",
-        "--reason", "Prepare batch fixture"
-      ], context);
-    }
-    for (const [id, userId] of [
-      ["40000000-0000-4000-8000-000000000091", activeA],
-      ["40000000-0000-4000-8000-000000000092", activeA],
-      ["40000000-0000-4000-8000-000000000093", activeB],
-      ["40000000-0000-4000-8000-000000000094", suspended]
-    ]) {
-      await context.db.query(
-        `INSERT INTO hosted_collections (id, user_id, display_name, template)
-         VALUES ($1, $2, 'Batch collection', 'blank')`,
-        [id, userId]
-      );
-    }
-    const accounts = await context.db.query<{
-      user_id: string;
-      provider_account_id: string;
-    }>(
-      `SELECT user_id, provider_account_id FROM account_storage_accounts
-       WHERE user_id IN ($1, $2)`,
-      [activeA, activeB]
-    );
-    const accountByUser = new Map(
-      accounts.rows.map((row) => [row.user_id, row.provider_account_id])
-    );
-    const missingCollectionId = "40000000-0000-4000-8000-000000000091";
-    const calls: string[] = [];
-    const usage = new Map<string, HostedAccountUsage>();
-    let failOnce = true;
-    const provider = {
-      async upsertAccount(
-        accountId: string,
-        entitlementRevision: number,
-        limits: HostedAccountLimits
-      ) {
-        calls.push(accountId);
-        if (accountId === accountByUser.get(activeB) && failOnce) {
-          failOnce = false;
-          throw new Error("provider interruption");
-        }
-        const next = {
-          account_id: accountId,
-          entitlement_revision: entitlementRevision,
-          collection_count: 0,
-          live_content_bytes: 0,
-          live_file_bytes: 0,
-          retained_file_bytes: 0,
-          limits
-        };
-        usage.set(accountId, next);
-        return next;
-      },
-      async reconcileCollectionAccount(accountId: string, collectionId: string) {
-        if (collectionId === missingCollectionId) {
-          throw new HostedProviderResponseError(
-            404,
-            "hosted_collection_not_found",
-            "Hosted collection not found."
-          );
-        }
-        const current = usage.get(accountId);
-        if (!current) throw new Error("Account was not reconciled.");
-        usage.set(accountId, {
-          ...current,
-          collection_count: current.collection_count + 1
-        });
-      },
-      async accountUsage(accountId: string) {
-        const current = usage.get(accountId);
-        if (!current) throw new Error("Account was not reconciled.");
-        return current;
-      }
-    } as unknown as HostedProviderClient;
-    const command = [
-      "entitlements", "reconcile",
-      "--active-hosted", "enabled",
-      "--operation-id", "20000000-0000-4000-8000-000000000199",
-      "--actor", "operator:test",
-      "--reason", "Release reconciliation"
-    ];
-
-    await expect(runAuthAdminCommand(command, {
-      ...context,
-      hostedProvider: provider
-    })).rejects.toThrow("provider interruption");
-    expect(calls).toEqual([
-      accountByUser.get(activeA),
-      accountByUser.get(activeB)
-    ]);
-
-    const result = await runAuthAdminCommand(command, {
-      ...context,
-      hostedProvider: provider
-    });
-    expect(result).toEqual({
-      operation_id: "20000000-0000-4000-8000-000000000199",
-      scope: "active_hosted",
-      reconciled_accounts: 2,
-      hosted_collections: 3,
-      reconciled_collections: 2,
-      users_inspected: 4,
-      migration_frozen_accounts: 0
-    });
-    expect(JSON.stringify(result)).not.toContain(activeA);
-    expect(JSON.stringify(result)).not.toContain(activeB);
-    expect(calls).toEqual([
-      accountByUser.get(activeA),
-      accountByUser.get(activeB),
-      accountByUser.get(activeB)
-    ]);
-
-    expect(await runAuthAdminCommand(command, {
-      ...context,
-      hostedProvider: provider
-    })).toEqual(result);
-    expect(calls).toHaveLength(3);
-    const audits = await context.db.query<{ user_id: string }>(
-      `SELECT user_id FROM audit_events
-       WHERE event_type = 'entitlement.reconciled' ORDER BY user_id`
-    );
-    expect(audits.rows).toEqual([
-      { user_id: activeA },
-      { user_id: activeB }
-    ]);
-    expect((await context.db.query(
-      `SELECT quarantine_reason FROM hosted_collections
-       WHERE id = $1 AND quarantined_at IS NOT NULL`,
-      [missingCollectionId]
-    )).rows).toEqual([{
-      quarantine_reason: "provider_collection_missing"
-    }]);
-    await expect(runAuthAdminCommand([
-      ...command.slice(0, -1),
-      "Different request"
-    ], {
-      ...context,
-      hostedProvider: provider
-    })).rejects.toThrow(/different request/);
   });
 
   it("reports privacy-minimal compatibility usage and fail-closed sunset gates", async () => {
@@ -892,26 +646,9 @@ describe("authentication operator command", () => {
        SET applied_at = now() - interval '31 days'
        WHERE id = '0020_protocol_usage_telemetry'`
     );
-    const now = new Date().toISOString();
-    const provider = {
-      ...fakeHostedProvider(),
-      async protocolUsage() {
-        return {
-          entries: [{
-            account_id: providerAccountId,
-            protocol_version: 2,
-            sample_count: 2,
-            first_seen_at: now,
-            last_seen_at: now
-          }],
-          unbound_application_replicas: 1,
-          v2_recovery_application_replicas: 1
-        };
-      }
-    } as unknown as HostedProviderClient;
     const report = await runAuthAdminCommand([
       "compatibility", "report", "--days", "30"
-    ], { ...context, hostedProvider: provider }) as {
+    ], context) as {
       telemetry: Array<{
         surface: string;
         protocol_version: number;
@@ -936,12 +673,6 @@ describe("authentication operator command", () => {
         protocol_version: 2,
         samples: 3,
         users: 1
-      }),
-      expect.objectContaining({
-        surface: "hosted",
-        protocol_version: 2,
-        samples: 2,
-        users: 1
       })
     ]));
     expect(report.connectors).toMatchObject({
@@ -950,16 +681,12 @@ describe("authentication operator command", () => {
     });
     expect(report.grants.legacy_v4_users).toBe(1);
     expect(report.grants.recovery_v2_users).toBe(0);
-    expect(report.hosted.unbound_application_replicas).toBe(1);
-    expect(report.hosted.v2_recovery_application_replicas).toBe(1);
     expect(report.sunset_gates).toEqual(expect.arrayContaining([
       { name: "observation_window_complete", pass: true, value: expect.any(String) },
-      { name: "no_recent_v2_usage", pass: false, value: 5 },
+      { name: "no_recent_v2_usage", pass: false, value: 3 },
       { name: "no_active_pre_beta57_connectors", pass: false, value: 1 },
       { name: "no_active_v4_or_unknown_grants", pass: false, value: 1 },
-      { name: "no_active_v2_recovery_grants", pass: true, value: 0 },
-      { name: "no_unbound_hosted_application_replicas", pass: false, value: 1 },
-      { name: "no_v2_recovery_hosted_application_replicas", pass: false, value: 1 }
+      { name: "no_active_v2_recovery_grants", pass: true, value: 0 }
     ]));
     expect(report.ready_to_remove_compatibility).toBe(false);
     expect(JSON.stringify(report)).not.toContain(userId);
@@ -968,40 +695,6 @@ describe("authentication operator command", () => {
     expect(JSON.stringify(report)).not.toContain(grantId);
   });
 });
-
-function fakeHostedProvider(): HostedProviderClient {
-  let usage: HostedAccountUsage | undefined;
-  return {
-    async upsertAccount(
-      accountId: string,
-      entitlementRevision: number,
-      limits: HostedAccountLimits
-    ) {
-      usage = {
-        account_id: accountId,
-        entitlement_revision: entitlementRevision,
-        collection_count: 0,
-        live_content_bytes: 0,
-        live_file_bytes: 0,
-        retained_file_bytes: 0,
-        limits
-      };
-      return usage;
-    },
-    async reconcileCollectionAccount() {},
-    async accountUsage() {
-      if (!usage) throw new Error("Hosted account was not reconciled.");
-      return usage;
-    },
-    async protocolUsage() {
-      return {
-        entries: [],
-        unbound_application_replicas: 0,
-        v2_recovery_application_replicas: 0
-      };
-    }
-  } as unknown as HostedProviderClient;
-}
 
 let messageSequence = 0;
 function randomMessageId(): string {

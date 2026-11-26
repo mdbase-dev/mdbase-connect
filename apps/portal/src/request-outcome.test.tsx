@@ -1,9 +1,14 @@
 import { act } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { render, screen } from "./test/render";
+import userEvent from "@testing-library/user-event";
+import { fireEvent, render, screen, within } from "./test/render";
+import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
 import { RequestOutcome } from "./authorization-view";
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
 
 it("names the return step without duplicating it, and gives a next step without a return URL", () => {
   const view = render(<RequestOutcome status="approved" applicationName="Reader" returnUrl="/reader" />);
@@ -54,4 +59,107 @@ it("returns after three seconds, but never auto-returns a portable approval", ()
   act(() => vi.advanceTimersByTime(5_000));
   expect(replace).not.toHaveBeenCalled();
   expect(document.querySelector("output")).toBeNull();
+});
+
+it("shows other official apps and MCP on approved receipts without auto-return", async () => {
+  const user = userEvent.setup();
+  const writeText = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+
+  render(<RequestOutcome
+    status="approved"
+    applicationName="Reader"
+    applicationOrigin="https://reader.mdbase.dev"
+    collectionId="c-notes"
+    collectionName="Field notes"
+    collectionKind="hosted"
+    origins={managedAppOrigins.production}
+  />);
+
+  const section = screen.getByRole("region", { name: "Also works with Field notes" });
+  expect(within(section).getAllByRole("link", { name: /^Open / }).map((link) => link.getAttribute("href"))).toEqual([
+    "https://editor.mdbase.dev/?collection=c-notes",
+    "https://writer.mdbase.dev/?collection=c-notes",
+    "https://journal.mdbase.dev/?collection=c-notes",
+    "https://app.tasknotes.dev/?collection=c-notes"
+  ]);
+  for (const link of within(section).getAllByRole("link")) {
+    expect(link).toHaveAttribute("target", "_blank");
+    expect(link).toHaveAttribute("rel", "noopener noreferrer");
+  }
+  expect(within(section).getByText("Claude, ChatGPT & Codex")).toBeInTheDocument();
+  expect(within(section).getByText("https://mcp.mdbase.dev/mcp")).toBeInTheDocument();
+  expect(within(section).getByRole("link", { name: "Set up" })).toHaveAttribute("href", "https://mdbase.dev/apps/mcp/");
+  expect(within(section).getByText("Each app asks for your approval before accessing Field notes. Your files remain ordinary Markdown.")).toBeInTheDocument();
+
+  await user.click(within(section).getByRole("button", { name: "Copy" }));
+  expect(writeText).toHaveBeenCalledWith("https://mcp.mdbase.dev/mcp");
+  expect(within(section).getByRole("button", { name: "Copied" })).toBeInTheDocument();
+});
+
+it("shows app discovery for portable approvals even with a return URL, and hides it when auto-returning or on custom servers", () => {
+  const view = render(<RequestOutcome
+    status="approved"
+    applicationName="Reader"
+    collectionId="c-notes"
+    collectionName="Field notes"
+    returnUrl="/reader"
+    origins={managedAppOrigins.production}
+  />);
+  expect(screen.queryByRole("region", { name: "Also works with Field notes" })).not.toBeInTheDocument();
+
+  view.rerender(<RequestOutcome
+    status="approved"
+    applicationName="Reader"
+    collectionId="c-notes"
+    collectionName="Field notes"
+    returnUrl="/reader"
+    portable
+    origins={managedAppOrigins.production}
+  />);
+  expect(screen.getByRole("region", { name: "Also works with Field notes" })).toBeInTheDocument();
+
+  view.rerender(<RequestOutcome
+    status="approved"
+    applicationName="Reader"
+    collectionId="c-notes"
+    collectionName="Field notes"
+    portable
+  />);
+  expect(screen.queryByRole("region", { name: "Also works with Field notes" })).not.toBeInTheDocument();
+
+  view.rerender(<RequestOutcome
+    status="denied"
+    applicationName="Reader"
+    collectionId="c-notes"
+    collectionName="Field notes"
+    origins={managedAppOrigins.production}
+  />);
+  expect(screen.queryByRole("region", { name: "Also works with Field notes" })).not.toBeInTheDocument();
+});
+
+it("omits the MCP row when MCP itself was just approved", () => {
+  render(<RequestOutcome
+    status="approved"
+    applicationName="Claude"
+    applicationOrigin="https://mcp.mdbase.dev"
+    collectionId="c-notes"
+    collectionName="Field notes"
+    origins={managedAppOrigins.production}
+  />);
+
+  const section = screen.getByRole("region", { name: "Also works with Field notes" });
+  expect(within(section).getAllByRole("link", { name: /^Open / })).toHaveLength(5);
+  expect(within(section).queryByText("Claude, ChatGPT & Codex")).not.toBeInTheDocument();
+});
+
+it("cancels automatic return and ignores repeat clicks once the user clicks the return link", () => {
+  vi.useFakeTimers();
+  const replace = vi.fn();
+  vi.stubGlobal("location", { ...location, replace });
+  render(<RequestOutcome status="approved" applicationName="Reader" returnUrl="/reader" />);
+  const link = screen.getByRole("link", { name: "Return to Reader" });
+  expect(fireEvent.click(link)).toBe(true);
+  expect(fireEvent.click(link)).toBe(false);
+  act(() => vi.advanceTimersByTime(5_000));
+  expect(replace).not.toHaveBeenCalled();
 });

@@ -178,6 +178,7 @@ fn links_stay_written_text_and_answer_only_observed_questions() {
         "note[\"projects\"] > 1",
         "note[\"projects\"].length",
         "note[\"projects\"].contains(\"P\")",
+        "[projects].contains(projects)",
         "\"P\".contains(note[\"projects\"])",
         "duration(note[\"projects\"])",
         "number(note[\"projects\"])",
@@ -191,6 +192,10 @@ fn links_stay_written_text_and_answer_only_observed_questions() {
     }
     for source in [
         "note[\"projects\"].contains(\"[[P]]\")",
+        "projects.contains(projects)",
+        "projects.contains(1)",
+        "projects.containsAny(\"plain\")",
+        "projects.containsAll(\"plain\")",
         "note[\"projects\"].join(\",\")",
         "note[\"projects\"].map(value)",
         "note[\"projects\"].toString()",
@@ -200,6 +205,58 @@ fn links_stay_written_text_and_answer_only_observed_questions() {
             run(source, listed()),
             Err(EvaluationFailure::UnsupportedConstruct("link_property")),
             "{source}"
+        );
+    }
+}
+
+#[test]
+fn link_list_contains_text_matches_the_written_target_not_the_alias_or_basename() {
+    let state = state(&["dir/planning.md"]);
+    let memo = BasesLinkMemo::default();
+    for (members, needle, expected) in [
+        (vec!["[[Other]]", "planning"], "planning", true),
+        (vec!["planning", "[[Other]]"], "planning", true),
+        (vec!["[[planning|Alias]]"], "planning", true),
+        (vec!["[[Other|planning]]", "Planning"], "planning", false),
+        (
+            vec!["[[dir/planning.md]]", "[[planning#H]]"],
+            "planning",
+            false,
+        ),
+        (vec!["[[Other|part|alias]]"], "Other|part", true),
+    ] {
+        let property = Value::List(members.into_iter().map(Value::string).collect());
+        assert_eq!(
+            eval(
+                &format!("projects.contains(\"{needle}\")"),
+                "row.md",
+                property,
+                &state,
+                &memo
+            ),
+            Ok(RuntimeValue::Bool(expected))
+        );
+    }
+    for property in [
+        Value::List(vec![
+            Value::string("planning"),
+            Value::List(vec![Value::string("[[Other]]")]),
+        ]),
+        Value::List(vec![
+            Value::string("planning"),
+            Value::string("[[Other]]"),
+            Value::Bool(true),
+        ]),
+    ] {
+        assert_eq!(
+            eval(
+                "projects.contains(\"planning\")",
+                "row.md",
+                property,
+                &state,
+                &memo
+            ),
+            Err(EvaluationFailure::UnsupportedConstruct("link_property"))
         );
     }
 }

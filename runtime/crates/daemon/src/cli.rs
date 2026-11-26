@@ -19,8 +19,8 @@ use serde_json::{Value, json};
 
 use crate::client::{self, ClientError, ControlClient};
 use crate::control::{
-    AddCollection, Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus,
-    HoldSummary, Method, PendingDevice,
+    AddCollection, Check, CollectionStatus, ConflictSummary, ControlError, DaemonStatus, Method,
+    PendingDevice,
 };
 use crate::paths::Profile;
 use crate::registry::SyncMode;
@@ -37,6 +37,9 @@ mod daemon;
 mod output;
 mod private_commands;
 mod requests;
+#[cfg(unix)]
+#[path = "self_host/mod.rs"]
+mod self_host;
 mod system;
 
 use access::*;
@@ -56,6 +59,27 @@ pub const START_TIMEOUT: Duration = Duration::from_secs(20);
 /// Entry point for the `mdbase` binary.
 pub fn main() -> ExitCode {
     let cli = Cli::parse();
+    #[cfg(unix)]
+    {
+        let direct_exit =
+            |command: &str, result: Result<(), Box<dyn std::error::Error>>| match result {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("mdbase {command}: {error}");
+                    ExitCode::FAILURE
+                }
+            };
+        match cli.command {
+            Command::SelfHost(args) => return direct_exit("self-host", self_host::run(args)),
+            Command::PairApp { folder } => {
+                return direct_exit(
+                    "pair-app",
+                    self_host::setup::start(folder, cli.state_dir.as_deref()),
+                );
+            }
+            _ => (),
+        }
+    }
     let profile = match Profile::resolve(cli.state_dir.as_deref()) {
         Ok(p) => p,
         Err(e) => {

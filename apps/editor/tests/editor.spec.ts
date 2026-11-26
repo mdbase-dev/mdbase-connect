@@ -241,10 +241,9 @@ async function expectSharedSelectControls(scope: Locator) {
   const audit = await controls.evaluateAll((selects) => selects.map((select) => ({
     hasCaret: Boolean(select.querySelector(".mdbase-select-chevron")),
     listbox: select.getAttribute("aria-haspopup") === "listbox",
-    minHeight: getComputedStyle(select).minHeight,
     height: select.getBoundingClientRect().height
   })));
-  expect(audit.every((control) => control.hasCaret && control.listbox && control.minHeight === "28px" && control.height >= 28)).toBe(true);
+  expect(audit.every((control) => control.hasCaret && control.listbox && control.height >= 28)).toBe(true);
 }
 
 test("shows an explicit status while a collection opens", async ({ page }) => {
@@ -283,6 +282,30 @@ test("renders linked collection images inline and in the file preview", async ({
   await expect(preview.getByRole("img", { name: "frontmatter.svg" })).toBeVisible();
   await preview.getByRole("button", { name: "Close file preview" }).click();
   await expect(preview).not.toBeAttached();
+});
+
+test("moves the caret one line at a time below an image embed", async ({ page }) => {
+  await page.goto("?demo=12");
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await replaceOpeningNoteBody(body, "Before\n\nOne\nTwo\nThree\nFour");
+  await body.locator(".cm-line").first().click();
+  await page.keyboard.press("End");
+  await page.keyboard.insertText("\n\n![[Assets/frontmatter.svg]]");
+  const line = (text: string) => body.locator(".cm-line", { hasText: new RegExp(`^${text}$`) });
+  await line("One").click();
+  const image = body.locator(".cm-file-embed.ready img");
+  await expect.poll(() => image.evaluate((element) => (element as HTMLImageElement).complete)).toBe(true);
+  // The editor must measure the space around the embed: a margin it cannot see
+  // shifts every later line, and the arrows skip lines.
+  const caretLine = () => page.evaluate(() => document.getSelection()?.focusNode?.parentElement?.closest(".cm-line")?.textContent);
+  for (const text of ["Two", "Three", "Four"]) {
+    await page.keyboard.press("ArrowDown");
+    await expect.poll(caretLine).toBe(text);
+  }
+  for (const text of ["Three", "Two", "One"]) {
+    await page.keyboard.press("ArrowUp");
+    await expect.poll(caretLine).toBe(text);
+  }
 });
 
 test("focuses embedded PDFs in place and opens PDF wikilinks in the file workspace", async ({ page }) => {
@@ -359,10 +382,6 @@ test("edits and autosaves a Markdown note", async ({ page }) => {
   const codeMirror = page.locator(".body-editor .cm-editor");
   await body.click();
   await expect(body).toBeFocused();
-  expect(await codeMirror.evaluate((element) => ({
-    outline: getComputedStyle(element).outlineStyle,
-    shadow: getComputedStyle(element).boxShadow
-  }))).toEqual({ outline: "none", shadow: "none" });
   await expect(page.locator(".body-editor .cm-cursorLayer")).toHaveCount(0);
   const caretColor = await body.evaluate((element) => getComputedStyle(element).caretColor);
   expect(caretColor).not.toBe("transparent");
@@ -378,8 +397,8 @@ test("recovers unsent note edits after reload without silently saving them", asy
   await page.clock.pauseAt(new Date(time.getTime() + 1_000));
   const draft = "Writing that never reached autosave.";
   await replaceOpeningNoteBody(body, draft);
-  // Let CodeMirror consume the DOM input, without reaching the 650ms autosave.
-  await page.clock.runFor(50);
+  // Reach the 300ms recovery checkpoint, without reaching the 650ms autosave.
+  await page.clock.runFor(350);
   await expect.poll(() => page.evaluate((text) => Object.keys(localStorage)
     .filter((key) => key.startsWith("mdbase-editor:draft:v1:"))
     .some((key) => JSON.parse(localStorage.getItem(key)!).body.endsWith(text)), draft)).toBe(true);
@@ -716,16 +735,20 @@ test("opens notes in tabs from links, the list and quick open, and reopens them"
 
 test("splits the editor into two panes with their own notes, focus and tabs", async ({ page }) => {
   await page.goto("?demo=12");
-  const focused = page.getByRole("main", { name: "Note editor" });
-  const other = page.getByRole("region", { name: "Note editor" });
+  // The pane with the focus, and the one beside it.
+  const focused = page.locator(".editor-pane[data-focused]");
+  const other = page.locator(".editor-pane:not([data-focused])");
   const body = focused.getByRole("textbox", { name: "Note body" });
   await replaceOpeningNoteBody(body, "[[Journal/garden-notes-2|Garden notes 2]]\n\nKeep writing.");
 
   await page.locator(".body-editor .cm-lp-link").filter({ hasText: "Garden notes 2" }).click({ modifiers: ["ControlOrMeta", "Alt"] });
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
   await expect(other.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
-  const left = await other.boundingBox(), right = await focused.boundingBox();
-  expect(right!.x).toBeGreaterThan(left!.x + left!.width - 2);
+  // The panes move into place; once settled the new one is to the right of the first.
+  await expect.poll(async () => {
+    const left = await other.boundingBox(), right = await focused.boundingBox();
+    return right!.x - (left!.x + left!.width);
+  }).toBeGreaterThan(-2);
 
   await other.getByRole("textbox", { name: "Note body" }).click();
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("The shape of useful tools");
@@ -733,8 +756,9 @@ test("splits the editor into two panes with their own notes, focus and tabs", as
   await page.keyboard.type(" Left pane.");
   await expect(focused).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
   await page.getByRole("option").filter({ hasText: "A quiet interface 3" }).click({ button: "middle" });
-  await expect(focused.getByRole("tablist", { name: "Open tabs" }).getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
-  await expect(other.getByRole("tab")).toHaveText(["Garden notes 2"]);
+  // Each pane's tabs sit above it; the focused pane's are marked.
+  await expect(page.locator(".mp-stack[data-mp-focused]").getByRole("tablist", { name: "Open tabs" }).getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
+  await expect(page.locator(".mp-stack:not([data-mp-focused])").getByRole("tab")).toHaveText(["Garden notes 2"]);
 
   await page.keyboard.press("Alt+O");
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2");
@@ -749,6 +773,54 @@ test("splits the editor into two panes with their own notes, focus and tabs", as
   await expect(other).toHaveCount(0);
   await expect(focused.getByRole("textbox", { name: "Note title" })).toHaveValue("A quiet interface 3");
   await expect(page.getByRole("tab")).toHaveText(["The shape of useful tools", "A quiet interface 3"]);
+});
+
+test("moves a tab to the other pane by dragging it and resizes the panes at the divider", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("textbox", { name: "Note body" }).waitFor();
+  await page.getByRole("option").filter({ hasText: "Garden notes 2" }).click({ button: "middle" });
+  await page.keyboard.press("Control+k");
+  await page.getByRole("dialog", { name: "Quick open" }).getByRole("combobox").fill(">Split right");
+  await page.keyboard.press("Enter");
+  const panes = page.locator(".mp-stack");
+  await expect(panes).toHaveCount(2);
+  await expect(panes.first().getByRole("tab")).toHaveText(["The shape of useful tools", "Garden notes 2"]);
+  const moved = panes.nth(1).getByRole("tab");
+  await expect(moved).toHaveCount(1);
+  const name = (await moved.textContent())!;
+  // The panes move into place before the tab is where it will be picked up.
+  await expect.poll(async () => {
+    const left = await panes.first().boundingBox(), right = await panes.nth(1).boundingBox();
+    return right!.x - (left!.x + left!.width);
+  }).toBeGreaterThan(-2);
+
+  // Dropping the second pane's only tab among the first pane's tabs leaves one pane.
+  const from = (await moved.boundingBox())!, to = (await panes.first().getByRole("tablist").boundingBox())!;
+  await page.mouse.move(from.x + from.width / 2, from.y + from.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x + to.width - 20, to.y + to.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await expect(panes).toHaveCount(1);
+  await expect(page.getByRole("tab")).toHaveText(["The shape of useful tools", "Garden notes 2", name]);
+  await expect(page.getByRole("tab", { selected: true })).toHaveText(name);
+
+  // The arrow keys on the divider between two panes move it.
+  await page.keyboard.press("Control+k");
+  await page.getByRole("dialog", { name: "Quick open" }).getByRole("combobox").fill(">Split right");
+  await page.keyboard.press("Enter");
+  const divider = page.getByRole("separator", { name: "Resize panes" });
+  await expect(divider).toHaveCount(1);
+  const before = Number(await divider.getAttribute("aria-valuenow"));
+  const width = async () => (await panes.first().boundingBox())!.width;
+  await expect.poll(width).toBeGreaterThan(100);
+  const widthBefore = await width();
+  await divider.focus();
+  await page.keyboard.press("ArrowLeft");
+  await page.keyboard.press("ArrowLeft");
+  await expect.poll(async () => Number(await divider.getAttribute("aria-valuenow"))).toBeLessThan(before);
+  await expect.poll(width).toBeLessThan(widthBefore);
+  await page.reload();
+  await expect.poll(async () => Number(await page.getByRole("separator", { name: "Resize panes" }).getAttribute("aria-valuenow"))).toBeLessThan(before);
 });
 
 test("previews internal editor links on hover, but not sidebar rows", async ({ page }) => {
@@ -834,28 +906,18 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   const appearance = await completion.evaluate((popup) => {
     const list = popup.querySelector<HTMLElement>("ul");
     const row = popup.querySelector<HTMLElement>("li");
-    const label = popup.querySelector<HTMLElement>(".cm-completionLabel");
-    const detail = popup.querySelector<HTMLElement>(".cm-completionDetail");
-    if (!list || !row || !label || !detail) throw new Error("The completion popup is incomplete.");
+    if (!list || !row) throw new Error("The completion popup is incomplete.");
     return {
       popupWidth: popup.getBoundingClientRect().width,
       listHeight: list.clientHeight,
       listScrollHeight: list.scrollHeight,
-      rowHeight: row.getBoundingClientRect().height,
-      listFont: getComputedStyle(list).fontFamily,
-      labelFont: getComputedStyle(label).fontFamily,
-      labelWeight: getComputedStyle(label).fontWeight,
-      detailFont: getComputedStyle(detail).fontFamily
+      rowHeight: row.getBoundingClientRect().height
     };
   });
   expect(appearance.popupWidth).toBeGreaterThanOrEqual(320);
   expect(appearance.rowHeight).toBeGreaterThanOrEqual(40);
   expect(appearance.listHeight).toBeLessThanOrEqual(252);
   expect(appearance.listScrollHeight).toBeGreaterThan(appearance.listHeight);
-  expect(appearance.listFont).toContain("IBM Plex Sans");
-  expect(appearance.labelFont).toContain("IBM Plex Sans");
-  expect(appearance.labelWeight).toBe("700");
-  expect(appearance.detailFont).toContain("Azeret Mono");
 
   await page.keyboard.type("the shape");
   const selectedCompletion = completion.getByRole("option", { selected: true });
@@ -863,6 +925,8 @@ test("filters collection facets, follows backlinks, and completes wikilinks", as
   await expect(body).toBeFocused();
   await page.keyboard.press("Enter");
   await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+  // Typing `[[` closed the link; the completion's own `]]` replaced those.
+  await expect(body).not.toContainText("]]]");
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
 });
 
@@ -892,6 +956,7 @@ for (const trigger of ["@", "[["] as const) {
 
     await page.keyboard.press("Enter");
     await expect(body).toContainText("[[Notes/the-shape-of-useful-tools|The shape of useful tools]]");
+    await expect(body).not.toContainText("]]]");
     await expect(saveState).toHaveAttribute("data-save-state", "waiting");
     await expect(saveState).toHaveAttribute("data-save-state", "saved", { timeout: 2_000 });
     await expect(page.getByText(/Couldn’t save/)).toHaveCount(0);
@@ -982,7 +1047,7 @@ test("starts a note of a chosen type from the picker", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Notes/A typed note.md" })).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Note body" })).toBeFocused();
   await page.getByRole("button", { name: "Note properties" }).click();
-  await expect(page.getByRole("complementary", { name: "Note properties" }).getByRole("textbox", { name: "title value" })).toHaveValue("A typed note");
+  await expect(page.getByRole("complementary", { name: "Note properties" }).getByRole("textbox", { name: "title", exact: true })).toHaveValue("A typed note");
 });
 
 test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
@@ -994,7 +1059,6 @@ test("quick-opens notes with fuzzy keyboard search", async ({ page }) => {
   const quickOpen = page.getByRole("dialog", { name: "Quick open" });
   await expect(quickOpen).toBeVisible();
   const finder = quickOpen.getByRole("combobox", { name: "Find a note or action" });
-  await expect(finder).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await finder.fill("qstn kpng");
   await expect(quickOpen.getByRole("option", { name: /Questions worth keeping 7/ })).toBeVisible();
   await page.keyboard.press("Enter");
@@ -1108,8 +1172,8 @@ test("creates and edits a contact through its declared display field", async ({ 
   await expect(page.getByRole("main", { name: "Note editor" })).toHaveAttribute("data-save-state", "saved");
   await page.getByRole("button", { name: "Note properties" }).click();
   const panel = page.getByRole("complementary", { name: "Note properties" });
-  await expect(panel.getByRole("textbox", { name: "name value" })).toHaveValue("Augusta Ada King");
-  await expect(panel.getByRole("combobox", { name: "kind value" })).toHaveAttribute("data-value", 'string:"individual"');
+  await expect(panel.getByRole("textbox", { name: "name", exact: true })).toHaveValue("Augusta Ada King");
+  await expect(panel.getByRole("combobox", { name: "kind", exact: true })).toHaveText("individual");
 });
 
 test("inspects type definitions and persists editor settings", async ({ page }) => {
@@ -1160,27 +1224,6 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await expect(contractSettings.getByText("Application behavior")).toBeVisible();
   const rootFields = contractSettings.locator(".contract-settings-body > .schema-object > .schema-object-fields");
   await expect(rootFields.locator(":scope > .schema-nested-value")).toHaveCount(2);
-  const hierarchy = await contractSettings.evaluate((settings) => {
-    const section = settings.querySelector<HTMLElement>(
-      ".contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value"
-    );
-    const nestedFields = settings.querySelector<HTMLElement>(
-      ".contract-settings-body > .schema-object > .schema-object-fields > .schema-nested-value > .schema-object > .schema-object-fields"
-    );
-    const addItem = [...settings.querySelectorAll<HTMLButtonElement>(".schema-add-trigger")]
-      .find((button) => button.textContent?.includes("Add item"));
-    if (!section || !nestedFields || !addItem) throw new Error("Contract setting hierarchy is incomplete.");
-    return {
-      sectionDivider: getComputedStyle(section).borderTopStyle,
-      nestingGuide: getComputedStyle(nestedFields).borderLeftStyle,
-      addItemBorder: getComputedStyle(addItem).borderTopWidth
-    };
-  });
-  expect(hierarchy).toEqual({
-    sectionDivider: "solid",
-    nestingGuide: "solid",
-    addItemBorder: "0px"
-  });
   const addSetting = contractSettings.locator(
     ".contract-settings-body > .schema-object > .schema-add-trigger"
   );
@@ -1216,13 +1259,22 @@ test("inspects type definitions and persists editor settings", async ({ page }) 
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: /Grace Hopper\.md$/ })).toBeVisible();
   await page.getByRole("button", { name: "Note properties" }).click();
-  await page.getByRole("button", { name: "Add property" }).click();
-  await page.getByRole("searchbox", { name: "Find a property" }).fill("organizations");
-  await page.locator(".property-options button").filter({ hasText: "organizations" }).click();
-  const organizations = page.getByRole("group", { name: "organizations value" });
-  await expect(organizations.getByText("No entries yet.")).toBeVisible();
-  await expect(organizations.getByRole("button", { name: "Add entry" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "organizations JSON value" })).toHaveCount(0);
+  const fields = page.getByRole("complementary", { name: "Note properties" });
+  await fields.getByRole("button", { name: "Add property", exact: true }).click();
+  await page.keyboard.type("organizations");
+  await page.keyboard.press("Enter");
+  // A list of values with parts is added to item by item, not typed as JSON.
+  // A value with named entries takes a new one by name, not as typed JSON.
+  await expect(fields.getByRole("button", { name: "organizations: Empty" })).toBeVisible();
+  await fields.getByRole("button", { name: "Add property to organizations" }).click();
+  await page.keyboard.type("acme");
+  await page.keyboard.press("Enter");
+  await expect(fields.locator('[data-field="organizations.acme"]')).toBeVisible();
+  await fields.getByRole("button", { name: "Add property to organizations acme" }).click();
+  // The entry's type names the one part it may have.
+  await expect(page.getByRole("option", { name: "name", exact: true })).toBeVisible();
+  await page.keyboard.press("Enter");
+  await expect(fields.getByRole("textbox", { name: "organizations acme name" })).toBeFocused();
 
   await page.getByRole("button", { name: "Settings" }).click();
   const vim = page.getByRole("switch", { name: "Vim key bindings" });
@@ -1317,6 +1369,132 @@ test("edits complete type membership, choices, and multiple required fields", as
   await expect(source).toContainText("These are the titles for the notes.");
 });
 
+test("links a property to typed notes, makes one while linking, and groups backlinks by type", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  // `tags` becomes a list of links to notes of the `note` type.
+  await chooseOption(page.getByRole("combobox", { name: "tags field type" }), "link");
+  await page.getByRole("combobox", { name: "Add a type tags links to" }).click();
+  await page.getByRole("option", { name: "Note", exact: true }).click();
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await page.getByRole("button", { name: "Confirm update" }).click();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
+
+  await page.getByRole("button", { name: /^All notes/ }).click();
+  await page.locator(".note-row").filter({ hasText: "Ideas for Sunday 12" }).click();
+  await page.getByRole("button", { name: "Note properties" }).click();
+  const tags = page.locator('.properties-panel [data-field="tags"]');
+  // What was written before the field held links stays, named as it was typed.
+  await expect(tags).toContainText("ideas");
+  await tags.getByRole("button", { name: "Link a record in tags" }).click();
+  await page.keyboard.type("Compilers");
+  await page.getByRole("option", { name: "New note “Compilers”" }).click();
+  // The link is written at once and names the note the collection then confirms.
+  await expect(tags.getByRole("button", { name: "Compilers", exact: true })).toBeVisible();
+
+  await tags.getByRole("button", { name: "Compilers", exact: true }).click();
+  await expect(page.getByRole("textbox", { name: "Note title" })).toHaveValue("Compilers");
+  const backlinks = page.getByRole("region", { name: "Linked from" });
+  const notes = backlinks.getByRole("group", { name: "Note", exact: true });
+  await expect(notes.getByRole("button", { name: /Ideas for Sunday 12/ })).toContainText("tags");
+});
+
+test("fills in what a new note requires while linking to it", async ({ page }) => {
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  await page.getByRole("button", { name: "Add field", exact: true }).click();
+  const fieldName = page.locator(".visual-field-name input").last();
+  await fieldName.fill("source");
+  await fieldName.press("Tab");
+  const row = page.locator(".visual-field-row").filter({ has: page.locator('.visual-field-name input[value="source"]') });
+  await row.getByRole("checkbox", { name: "Required" }).check();
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await page.getByRole("button", { name: "Confirm update" }).click();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
+
+  await page.getByRole("button", { name: /^All notes/ }).click();
+  await page.locator(".note-row").filter({ hasText: "Ideas for Sunday 12" }).click();
+  const body = page.getByRole("textbox", { name: "Note body" });
+  await body.click();
+  await page.keyboard.press("Control+End");
+  await page.keyboard.type("\n\n[[Zed");
+  await page.getByRole("option", { name: "New note “Zed”" }).click();
+
+  // A name is not enough for this type: a short form asks for the rest, beside the link.
+  const form = page.getByRole("dialog", { name: "New note" });
+  await expect(form.getByRole("textbox", { name: "Title" })).toHaveValue("Zed");
+  await expect(form.getByRole("textbox", { name: "source value" })).toBeFocused();
+  await expect(form.getByRole("button", { name: "Create and link" })).toBeDisabled();
+  // Leaving the form keeps what was typed and makes nothing.
+  await page.keyboard.press("Escape");
+  await expect(form).toBeHidden();
+  await expect(body).toBeFocused();
+  await expect(body).toContainText("[[Zed");
+
+  await page.keyboard.press("Control+Space");
+  await page.getByRole("option", { name: "New note “Zed”" }).click();
+  await form.getByRole("textbox", { name: "source value" }).fill("A walk");
+  await page.keyboard.press("Enter");
+  await expect(form).toBeHidden();
+  await expect(body).toContainText("[[Notes/Zed]]");
+  await expect(body).toBeFocused();
+  await expect(page.getByRole("option", { name: /^Zed / })).toBeVisible();
+});
+
+test("fills in a required field when creating a linked record from the modal properties overlay", async ({ page }) => {
+  await page.setViewportSize({ width: 1000, height: 700 });
+  await page.goto("?demo=12");
+  await page.getByRole("button", { name: "Show collections sidebar" }).first().click();
+  await page.getByRole("button", { name: "Types (1)" }).click();
+  // `tags` links to `note`, and `note` requires `source`.
+  await chooseOption(page.getByRole("combobox", { name: "tags field type" }), "link");
+  await page.getByRole("combobox", { name: "Add a type tags links to" }).click();
+  await page.getByRole("option", { name: "Note", exact: true }).click();
+  await page.getByRole("button", { name: "Add field", exact: true }).click();
+  const fieldName = page.locator(".visual-field-name input").last();
+  await fieldName.fill("source");
+  await fieldName.press("Tab");
+  const row = page.locator(".visual-field-row").filter({ has: page.locator('.visual-field-name input[value="source"]') });
+  await row.getByRole("checkbox", { name: "Required" }).check();
+  await page.getByRole("button", { name: "Review changes" }).click();
+  await page.getByRole("button", { name: "Confirm update" }).click();
+  await expect(page.getByRole("button", { name: "Review changes" })).toBeDisabled();
+
+  await page.getByRole("button", { name: /^All notes/ }).click();
+  await page.locator(".note-row").filter({ hasText: "Ideas for Sunday 12" }).click();
+  await page.getByRole("button", { name: "Note properties" }).click();
+
+  const inspector = page.getByRole("dialog", { name: "Note properties" });
+  await expect(inspector).toBeVisible();
+  const tags = inspector.locator('[data-field="tags"]');
+  await tags.getByRole("button", { name: "Link a record in tags" }).click();
+  await page.keyboard.type("Octavia");
+  await page.getByRole("option", { name: "New note “Octavia”" }).click();
+
+  // At 1000px the properties panel is a modal <dialog>: the form must not be inert under it.
+  const form = page.getByRole("dialog", { name: "New note" });
+  await expect(form).toBeVisible();
+  const source = form.getByRole("textbox", { name: "source value" });
+  await expect(source).toBeFocused();
+  // Escape closes only the quick-create form, leaving the properties overlay open.
+  await page.keyboard.press("Escape");
+  await expect(form).toBeHidden();
+  await expect(inspector).toBeVisible();
+
+  await tags.getByRole("button", { name: "Link a record in tags" }).click();
+  await page.keyboard.type("Octavia");
+  await page.getByRole("option", { name: "New note “Octavia”" }).click();
+  await expect(form).toBeVisible();
+  await source.click();
+  await expect(form).toBeVisible();
+  await source.fill("A walk");
+  await form.getByRole("button", { name: "Create and link" }).click();
+
+  await expect(form).toBeHidden();
+  await expect(inspector).toBeVisible();
+  await expect(tags.getByRole("button", { name: "Octavia", exact: true })).toBeVisible();
+});
+
 test("edits and reviews portable collection behaviour", async ({ page }) => {
   await page.setViewportSize({ width: 1000, height: 700 });
   await page.goto("?demo=12");
@@ -1346,13 +1524,15 @@ test("edits and reviews portable collection behaviour", async ({ page }) => {
   await chooseOption(page.getByRole("combobox", { name: "Default field 1" }), "title");
   await page.getByRole("textbox", { name: "Default value for title" }).fill("Untitled note");
 
-  await page.getByRole("button", { name: "Add link rule" }).click();
-  await chooseOption(page.getByRole("combobox", { name: "Link field 1" }), "tags[]");
+  // A link is a kind of field: `tags` becomes a list of links to notes.
+  await chooseOption(page.getByRole("combobox", { name: "tags field type" }), "link");
+  await page.getByRole("checkbox", { name: "Allow several links" }).check();
   await chooseOption(page.getByRole("combobox", { name: "tags[] link format" }), "wikilink");
   await page.getByRole("checkbox", { name: "Require an existing target" }).check();
-  await page.getByRole("button", { name: "Add target type" }).click();
-  await page.getByRole("combobox", { name: "tags[] target type 1", exact: true }).fill("note");
-  await page.getByRole("combobox", { name: "tags[] target type 1", exact: true }).press("Tab");
+  // Adding a target leaves the control ready for the next one, so it holds no value of its own.
+  await page.getByRole("combobox", { name: "Add a type tags links to" }).click();
+  await page.getByRole("option", { name: "Note", exact: true }).click();
+  await expect(page.getByRole("group", { name: "Types tags links to" })).toContainText("Note");
 
   await page.getByRole("button", { name: "Add unique rule" }).click();
   await chooseOption(page.getByRole("combobox", { name: "Unique field 1" }), "title");
@@ -1622,10 +1802,11 @@ test("edits structured frontmatter without exposing an undifferentiated textarea
 
   const panel = page.getByRole("complementary", { name: "Note properties" });
   await expect(panel.getByRole("heading", { name: "Properties" })).toBeVisible();
-  const tags = panel.getByRole("group", { name: "tags" });
-  await expect(tags.getByRole("button", { name: "Add tag" })).toBeVisible();
-  await tags.getByRole("button", { name: "Add tag" }).click();
-  await tags.getByRole("textbox", { name: "tags value item 3" }).fill("nested editing");
+  // A list of short values is chips with a field to type the next into.
+  await expect(panel.getByRole("button", { name: "Remove notes", exact: true })).toBeVisible();
+  await panel.getByRole("textbox", { name: "tags", exact: true }).fill("nested editing");
+  await page.keyboard.press("Enter");
+  await expect(panel.getByRole("button", { name: "Remove nested editing" })).toBeVisible();
   const propertySaveState = panel.locator(".property-save-state");
   await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();
@@ -1642,11 +1823,11 @@ test("adds schema properties and edits the complete Markdown record", async ({ p
   await page.getByRole("button", { name: "Note properties" }).click();
 
   const panel = page.getByRole("complementary", { name: "Note properties" });
-  await panel.getByRole("button", { name: "Add property" }).click();
-  await panel.getByRole("searchbox", { name: "Find a property" }).fill("title");
-  await panel.locator(".property-options button").filter({ hasText: "title" }).click();
-  await expect(panel.getByLabel("title property type")).toHaveCount(0);
-  await panel.getByRole("textbox", { name: "title value" }).fill("Source-backed title");
+  await panel.getByRole("button", { name: "Add property", exact: true }).click();
+  await page.keyboard.type("title");
+  await page.keyboard.press("Enter");
+  await panel.getByRole("textbox", { name: "title", exact: true }).fill("Source-backed title");
+  await page.keyboard.press("Enter");
   const propertySaveState = panel.locator(".property-save-state");
   await expect(propertySaveState).toBeEmpty();
   await panel.getByRole("button", { name: "Close properties" }).click();

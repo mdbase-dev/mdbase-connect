@@ -9,7 +9,6 @@ const legacyCatalog = JSON.parse(readFileSync(legacyCatalogPath, "utf8"));
 const operationCatalogPath = resolve(root, "packages/protocol/schemas/operation-catalog.v1.json");
 const manifestSchemaPath = resolve(root, "packages/protocol/schemas/mdbase-app.schema.json");
 const typescriptPath = resolve(root, "packages/protocol/src/capabilities.ts");
-const rustPath = resolve(root, "crates/connect-protocol/src/application_capabilities_generated.rs");
 const catalog = JSON.parse(readFileSync(catalogPath, "utf8"));
 const operationCatalog = JSON.parse(readFileSync(operationCatalogPath, "utf8"));
 const manifestSchema = JSON.parse(readFileSync(manifestSchemaPath, "utf8"));
@@ -30,7 +29,6 @@ if (issuancePolicy.policy_version !== 1 || !(
 validateCatalog(catalog, operationCatalog, manifestSchema);
 validateLegacyCatalog(legacyCatalog, operationCatalog);
 emit(typescriptPath, typescriptSource(catalog) + legacyTypescriptSource(legacyCatalog) + issuanceTypescriptSource());
-emit(rustPath, rustSource(catalog) + legacyRustSource(legacyCatalog) + issuanceRustSource());
 
 function issuanceTypescriptSource() {
   return `

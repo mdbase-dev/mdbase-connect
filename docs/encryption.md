@@ -256,7 +256,9 @@ provider while the collection key is available to that provider.
 
 Managed-database volume encryption and encrypted backups form the deployment
 baseline. They complement, but do not replace, the application-level collection
-encryption below. Deployment verification and restore drills are release gates.
+encryption below. Deployment verification is a release gate. The restore-drill
+release gate was retired on 2026-11-17 by the release owner as a stale
+requirement; no drill was recorded.
 
 ### Collection envelope encryption
 

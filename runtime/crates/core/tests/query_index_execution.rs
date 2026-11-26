@@ -60,6 +60,7 @@ fn trusted_projection_uses_defaults_nulls_and_all_matched_schema_types() {
         types: &types,
         frontmatter: &empty,
         body: None,
+        mtime: None,
     };
     let fields = vec![
         FieldRef::Effective(vec!["at".into()]),
@@ -122,12 +123,14 @@ fn prepared_and_direct_comparators_match_row_atoms_then_path_ties() {
         types: &types,
         frontmatter: &left,
         body: None,
+        mtime: None,
     };
     let b = QueryRecord {
         path: "tasks/a.md",
         types: &types,
         frontmatter: &right,
         body: None,
+        mtime: None,
     };
     for (direction, name) in [(Direction::Asc, "asc"), (Direction::Desc, "desc")] {
         let plan = query::compile(
@@ -283,6 +286,7 @@ fn per_record_hints_preserve_total_kind_order_and_plain_string_classification() 
             types: if i == 3 { &untyped } else { &typed },
             frontmatter,
             body: None,
+            mtime: None,
         })
         .collect();
     for direction in ["asc", "desc"] {
@@ -325,12 +329,14 @@ fn native_timestamp_order_terms_remain_typed_but_string_casts_do_not() {
         types: &types,
         frontmatter: &left,
         body: None,
+        mtime: None,
     };
     let b = QueryRecord {
         path: "tasks/a.md",
         types: &types,
         frontmatter: &right,
         body: None,
+        mtime: None,
     };
     for query in [
         "projections: {when: {expr: at}}\norder_by: [{field: projection.when}]",
@@ -373,6 +379,7 @@ fn projected_temporal_type_lookup_matches_catalog_unicode_case_rules() {
         types: &types,
         frontmatter: &persisted,
         body: None,
+        mtime: None,
     };
     let fields = [FieldRef::Effective(vec!["at".into()])];
     let projected = indexed::project_index_fields(&c, &record, &fields, 128).unwrap();

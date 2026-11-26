@@ -140,6 +140,7 @@ fn contract_page(
             version: version.into(),
             limit: 128,
             cursor,
+            order_by: None,
         },
     )
 }
@@ -341,6 +342,7 @@ fn contract_query_refuses_unindexed_full_windows_and_checks_session_and_selectio
                 version: "1.0.0".into(),
                 limit: 1,
                 cursor: None,
+                order_by: None,
             }
         )
         .unwrap_err()
@@ -370,8 +372,9 @@ fn contract_query_refuses_unindexed_full_windows_and_checks_session_and_selectio
                 where_: None,
                 contract: "acme.task".into(),
                 version: "1.0.0".into(),
-                limit: 129,
-                cursor: None
+                limit: 1001,
+                cursor: None,
+                order_by: None,
             }
         )
         .unwrap_err()
@@ -686,6 +689,7 @@ fn contract_query_filters_on_contract_fields() {
                 version: "1.0.0".into(),
                 limit,
                 cursor,
+                order_by: None,
             },
         )
     };
@@ -707,5 +711,390 @@ fn contract_query_filters_on_contract_fields() {
             .reason
             .as_deref(),
         Some("invalid_query")
+    );
+}
+
+#[test]
+fn contract_query_orders_by_mapped_field_and_rejects_heterogeneous_or_invalid_order() {
+    let (_, mut a) = configured(resources());
+    a.create(1, "rows/a.md", "---\ntype: Zebra\ncompleted: false\n---\n");
+    a.create(2, "rows/b.md", "---\ntype: Zebra\ncompleted: true\n---\n");
+    a.create(3, "rows/c.md", "---\ntype: Zebra\ncompleted: false\n---\n");
+    settle(&mut [&mut a]);
+    let order = |field: &str, dir: &str| {
+        Value::List(vec![Value::Map(vec![
+            ("field".into(), Value::Text(field.into())),
+            ("direction".into(), Value::Text(dir.into())),
+        ])])
+    };
+    let run = |a: &mut Node, order_by: Option<Value>, limit: u32| {
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit,
+                cursor: None,
+                where_: None,
+                order_by,
+            },
+        )
+    };
+    // `done` maps to `completed`; DESC puts true (`b.md`) before false (`a.md`, `c.md`),
+    // with ascending `file.path` tie-break. Larger page sizes (up to 1000) are admitted.
+    let desc = run(&mut a, Some(order("done", "desc")), 500).unwrap();
+    let paths: Vec<_> = desc.page.records.iter().map(|r| r.path.as_str()).collect();
+    assert_eq!(paths, ["rows/b.md", "rows/a.md", "rows/c.md"]);
+    let path_desc = run(&mut a, Some(order("file.path", "desc")), 1000).unwrap();
+    let desc_paths: Vec<_> = path_desc
+        .page
+        .records
+        .iter()
+        .map(|r| r.path.as_str())
+        .collect();
+    assert_eq!(desc_paths, ["rows/c.md", "rows/b.md", "rows/a.md"]);
+    // Invalid order terms fail with `invalid_query`.
+    for bad in [
+        Value::List(vec![]),
+        Value::Text("done".into()),
+        order("raw.completed", "asc"),
+        order("done", "sideways"),
+    ] {
+        assert_eq!(
+            run(&mut a, Some(bad), 128)
+                .unwrap_err()
+                .problem()
+                .reason
+                .as_deref(),
+            Some("invalid_query")
+        );
+    }
+    // A second implementing type mapping `done` to a different record field refuses explicitly.
+    let mut mixed = resources();
+    mixed.push((
+        "_types/other.md".to_string(),
+        "---\nkind: mdbase.type\nname: Other\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    properties:\n      finished: { type: boolean }\nimplements:\n  - contract: acme.task\n    version: '1.0.0'\n    fields: {'/done': '/finished'}\n---\n"
+            .into(),
+    ));
+    let (_, mut b) = configured(mixed);
+    b.create(1, "rows/x.md", "---\ntype: Zebra\ncompleted: true\n---\n");
+    b.create(2, "rows/y.md", "---\ntype: Other\nfinished: false\n---\n");
+    settle(&mut [&mut b]);
+    assert_eq!(
+        run(&mut b, Some(order("done", "desc")), 128)
+            .unwrap_err()
+            .problem()
+            .reason
+            .as_deref(),
+        Some("contract_order_unsupported")
+    );
+}
+
+#[test]
+fn contract_query_orders_by_file_mtime_and_omits_feature_without_query_index() {
+    let (_, mut a) = configured(resources());
+    let (_, hello) =
+        a.r.hello(
+            crate::api::SessionAuth::Host,
+            mdbn_wire::client::HelloParams {
+                versions: vec![mdbn_wire::common::Version { major: 1, minor: 0 }],
+                client_name: "mtime-test".into(),
+                client_version: "1".into(),
+                features: Some(vec![
+                    "contract-query-order-v1".into(),
+                    "contract-query-order-mtime-v1".into(),
+                ]),
+                timezone: None,
+            },
+        )
+        .unwrap();
+    // MemStore does not maintain the query index (`query_index_supported() == false`),
+    // so `hello` must not advertise `contract-query-order-mtime-v1`.
+    assert!(
+        hello
+            .features
+            .contains(&"contract-query-order-v1".to_owned()),
+        "{:?}",
+        hello.features
+    );
+    assert!(
+        !hello
+            .features
+            .contains(&"contract-query-order-mtime-v1".to_owned()),
+        "non-indexed store must not advertise contract-query-order-mtime-v1: {:?}",
+        hello.features
+    );
+
+    let t0 = a.clock.get();
+    a.clock.set(t0 + 1_000);
+    a.create(
+        1,
+        "rows/oldest.md",
+        "---\ntype: Zebra\ncompleted: false\n---\n",
+    );
+    settle(&mut [&mut a]);
+    a.clock.set(t0 + 2_000);
+    // Two records created in one mutation share the exact same capture clock instant (mtime tie).
+    a.r.submit(
+        a.s,
+        mdbn_wire::client::SubmitParams {
+            ops: vec![
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([2; 16]),
+                    path: Some("rows/tie-b.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: false\n---\n".into(),
+                    )),
+                }),
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([3; 16]),
+                    path: Some("rows/tie-a.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: true\n---\n".into(),
+                    )),
+                }),
+            ],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+            validation: None,
+        },
+    )
+    .expect("submit tie pair");
+    settle(&mut [&mut a]);
+    let tie_a_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([3; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    let tie_b_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([2; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    assert_eq!(tie_a_mtime, tie_b_mtime);
+    assert!(tie_a_mtime.is_some());
+    a.clock.set(t0 + 3_000);
+    a.create(
+        4,
+        "rows/newest.md",
+        "---\ntype: Zebra\ncompleted: true\n---\n",
+    );
+    settle(&mut [&mut a]);
+
+    let order = |direction: &str| {
+        Value::List(vec![Value::Map(vec![
+            ("field".into(), Value::Text("file.mtime".into())),
+            ("direction".into(), Value::Text(direction.into())),
+        ])])
+    };
+    let desc =
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit: 10,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("desc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        desc.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "rows/newest.md",
+            "rows/tie-a.md",
+            "rows/tie-b.md",
+            "rows/oldest.md",
+        ]
+    );
+    let asc =
+        a.r.query_contract(
+            a.s,
+            crate::api::ContractQuery {
+                contract: "acme.task".into(),
+                version: "1.0.0".into(),
+                limit: 10,
+                cursor: None,
+                where_: None,
+                order_by: Some(order("asc")),
+            },
+        )
+        .unwrap();
+    assert_eq!(
+        asc.page
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "rows/oldest.md",
+            "rows/tie-a.md",
+            "rows/tie-b.md",
+            "rows/newest.md",
+        ]
+    );
+}
+
+#[test]
+fn in_file_mtime_predicate_preserves_confirmed_mtime_across_pending_edit() {
+    let (_, mut a) = configured(resources());
+    let t0 = a.clock.get();
+    a.clock.set(t0 + 1_000);
+    a.create(
+        1,
+        "rows/confirmed.md",
+        "---\ntype: Zebra\ncompleted: false\n---\n",
+    );
+    settle(&mut [&mut a]);
+    let confirmed_mtime =
+        a.r.store()
+            .record(&mdbn_wire::common::B16([1; 16]))
+            .unwrap()
+            .unwrap()
+            .mtime;
+    assert!(confirmed_mtime.is_some());
+
+    let query_in_file = || {
+        Value::Map(vec![(
+            "where".into(),
+            Value::Text("\"mtime\" in file".into()),
+        )])
+    };
+    let include = mdbn_wire::client::Include {
+        effective: None,
+        body: None,
+        document: None,
+        diagnostics: None,
+    };
+
+    let before = a.r.query(a.s, query_in_file(), include.clone()).unwrap();
+    assert_eq!(
+        before
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["rows/confirmed.md"]
+    );
+    assert_eq!(before.records[0].mtime, confirmed_mtime);
+
+    // Edit the confirmed record and create a new record, both pending (unsettled).
+    a.clock.set(t0 + 2_000);
+    a.r.submit(
+        a.s,
+        mdbn_wire::client::SubmitParams {
+            ops: vec![
+                mdbn_wire::intent::Op::Update(mdbn_wire::intent::Update {
+                    id: mdbn_wire::common::B16([1; 16]),
+                    patch: Some(mdbn_wire::common::DataMap(vec![(
+                        "completed".into(),
+                        Value::Bool(true),
+                    )])),
+                    unset: None,
+                    add: None,
+                    remove: None,
+                    body: None,
+                    body_edits: None,
+                    body_base: None,
+                    body_base_text: None,
+                    base: None,
+                    if_revision: None,
+                    update_refs: None,
+                }),
+                mdbn_wire::intent::Op::Create(mdbn_wire::intent::Create {
+                    id: mdbn_wire::common::B16([2; 16]),
+                    path: Some("rows/pending-only.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(mdbn_wire::common::Text::Inline(
+                        "---\ntype: Zebra\ncompleted: false\n---\n".into(),
+                    )),
+                }),
+            ],
+            mutation_id: None,
+            conflict_mode: None,
+            timezone: None,
+            allow_partial: None,
+            mutation_ids: None,
+            dry_run: None,
+            include: None,
+            wait: None,
+            validation: None,
+        },
+    )
+    .expect("submit pending edit and create");
+
+    let during_pending = a.r.query(a.s, query_in_file(), include).unwrap();
+    assert_eq!(
+        during_pending
+            .records
+            .iter()
+            .map(|r| r.path.as_str())
+            .collect::<Vec<_>>(),
+        ["rows/confirmed.md"],
+        "pending edit on a confirmed record must still match `\"mtime\" in file`"
+    );
+    assert_eq!(during_pending.records[0].mtime, confirmed_mtime);
+}
+
+/// A confirmed catalog change re-derives every record's types, which the feed
+/// cannot name: older cursors reset and watchers are told to re-read.
+#[test]
+fn a_confirmed_catalog_change_resets_the_change_feed() {
+    use crate::api::Push;
+    let (_, mut a) = configured(resources());
+    let before = a.r.changes(a.s, None, None, true).unwrap().cursor;
+    a.r.take_pushes();
+    a.create(1, "rows/a.md", "---\ntype: Zebra\n---\n");
+    settle(&mut [&mut a]);
+    let record = a.r.changes(a.s, Some(before.clone()), None, false).unwrap();
+    assert!(!record.reset, "a record change does not reset: {record:?}");
+    assert!(
+        !a.r.take_pushes()
+            .iter()
+            .any(|(_, p)| matches!(p, Push::Changes(c) if c.reset))
+    );
+    pending_resources(
+        &mut a,
+        vec![("_types/zebra.md", type_source("Zebra", "2.0.0", false))],
+    );
+    settle(&mut [&mut a]);
+    assert!(a.r.layer.catalog().is_none(), "the definition is confirmed");
+    let pushes = a.r.take_pushes();
+    let reset = pushes
+        .iter()
+        .find_map(|(s, p)| match p {
+            Push::Changes(c) if *s == a.s && c.reset => Some(c.clone()),
+            _ => None,
+        })
+        .unwrap_or_else(|| panic!("watcher told to re-read: {pushes:?}"));
+    assert!(reset.changes.is_empty());
+    let old = a.r.changes(a.s, Some(record.cursor), None, false).unwrap();
+    assert!(old.reset, "a cursor from before the catalog change resets");
+    let current = a.r.changes(a.s, Some(reset.cursor), None, false).unwrap();
+    assert!(
+        !current.reset,
+        "the reset's own cursor continues: {current:?}"
     );
 }

@@ -16,20 +16,24 @@ pub(super) async fn call(
     // dispatch is attempted, a missing/invalid reply cannot prove refusal.
     let result = c.call_within(method, params, call_timeout(method)).await;
     match (result, unknown_outcome(method)) {
-        (
-            Err(ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Timeout),
-            Some(message),
-        ) => Err(ClientError::Remote(ControlError::unavailable(
-            "outcome_unknown",
-            message,
-        ))),
+        (Err(e), Some(message)) if reply_missing(&e) => Err(ClientError::Remote(
+            ControlError::unavailable("outcome_unknown", message),
+        )),
         (other, _) => other,
+    }
+}
+
+/// No readable reply arrived, including one too large to deliver.
+fn reply_missing(e: &ClientError) -> bool {
+    match e {
+        ClientError::Io(_) | ClientError::Protocol(_) | ClientError::Timeout => true,
+        ClientError::Remote(e) => e.reason.as_deref() == Some("response_too_large"),
+        ClientError::NotRunning => false,
     }
 }
 
 fn call_timeout(method: &str) -> Duration {
     match method {
-        Method::MIGRATE_START => MIGRATE_START_TIMEOUT,
         Method::DEVICE_APPROVE => DEVICE_APPROVE_TIMEOUT,
         Method::COLLECTION_MODE => COLLECTION_MODE_TIMEOUT,
         Method::ACCESS_APPROVE | Method::SETTINGS_SET => CONFIRM_TIMEOUT,
@@ -50,12 +54,6 @@ fn unknown_outcome(method: &str) -> Option<&'static str> {
         _ => None,
     }
 }
-
-/// `migrate start` answers only after the takeover run: the journal drain alone may
-/// take [`crate::takeover::DRAIN`], so the ordinary call bound would report a
-/// still-running takeover as an unreachable daemon.
-const MIGRATE_START_TIMEOUT: Duration = Duration::from_secs(600);
-const _: () = assert!(MIGRATE_START_TIMEOUT.as_secs() > crate::takeover::DRAIN.as_secs() * 2);
 
 /// `device approve` answers once the other computer has answered (its challenge
 /// lives two minutes) and the key grant is applied.
@@ -122,8 +120,16 @@ pub(crate) async fn collections(profile: &Profile) -> Result<Vec<CollectionStatu
 }
 
 /// Resolve a collection argument: exact ID, unique ID prefix, or exact name.
+pub(super) async fn resolve_collection(
+    profile: &Profile,
+    arg: &str,
+) -> Result<CollectionStatus, ClientError> {
+    Ok(pick(&collections(profile).await?, arg)?.clone())
+}
+
+/// Resolve a collection argument to its ID.
 pub(super) async fn resolve(profile: &Profile, arg: &str) -> Result<String, ClientError> {
-    Ok(pick(&collections(profile).await?, arg)?.id.clone())
+    Ok(resolve_collection(profile, arg).await?.id)
 }
 
 /// The collection `arg` names: exact ID, unique ID prefix, or exact name.
@@ -168,6 +174,15 @@ pub(super) async fn simple(
         print_collection(&c);
     } else {
         println!("{}", serde_json::to_string_pretty(&v).unwrap_or_default());
+        if method == Method::COLLECTION_HOLDS
+            && v.as_array().is_some_and(|holds| {
+                holds
+                    .iter()
+                    .any(|hold| hold["reason"] == "unknown_provenance")
+            })
+        {
+            eprintln!("{UNKNOWN_PROVENANCE_GUIDANCE}");
+        }
     }
     Ok(ExitCode::SUCCESS)
 }
@@ -239,21 +254,13 @@ mod mode_cli_tests {
         assert_eq!(max_size, Some(10));
     }
     #[test]
-    fn mode_commands_preserve_explicit_target_and_resume() {
-        let cli = Cli::try_parse_from([
-            "mdbase",
-            "sync",
-            "mode",
-            "collection",
-            "private",
-            "--resume",
-        ])
-        .unwrap();
+    fn mode_commands_accept_target_and_cancel_without_resume() {
+        let cli = Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "private"]).unwrap();
         assert!(matches!(
             cli.command,
             Command::Sync(SyncCmd::Mode {
-                mode: SyncKind::Private,
-                resume: true,
+                mode: Some(SyncKind::Private),
+                cancel: false,
                 ..
             })
         ));
@@ -262,11 +269,50 @@ mod mode_cli_tests {
         assert!(matches!(
             cli.command,
             Command::Sync(SyncCmd::Mode {
-                mode: SyncKind::CloudCopy,
-                resume: false,
+                mode: Some(SyncKind::CloudCopy),
+                cancel: false,
                 ..
             })
         ));
+        let cli =
+            Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "--cancel"]).unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Mode {
+                mode: None,
+                cancel: true,
+                ..
+            })
+        ));
+        let cli = Cli::try_parse_from([
+            "mdbase",
+            "sync",
+            "mode",
+            "collection",
+            "private",
+            "--cancel",
+        ])
+        .unwrap();
+        assert!(matches!(
+            cli.command,
+            Command::Sync(SyncCmd::Mode {
+                mode: Some(SyncKind::Private),
+                cancel: true,
+                ..
+            })
+        ));
+        assert!(Cli::try_parse_from(["mdbase", "sync", "mode", "collection"]).is_err());
+        assert!(
+            Cli::try_parse_from([
+                "mdbase",
+                "sync",
+                "mode",
+                "collection",
+                "private",
+                "--resume"
+            ])
+            .is_err()
+        );
         assert!(Cli::try_parse_from(["mdbase", "sync", "mode", "collection", "public"]).is_err());
         assert!(Cli::try_parse_from(["mdbase", "sync", "mode-status", "collection"]).is_ok());
     }

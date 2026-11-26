@@ -79,10 +79,10 @@ if it appears in that account's current approvable collection list; otherwise it
 is `null`. Foreign, private, left, device-revoked and nonexistent targets have the
 same response as no hint. No target-specific existence lookup or error is made.
 
-The portal does not preselect a hint, including on reconsent: a fresh approval
-starts with no collection chosen, and the person picks one explicitly (#904).
-Only the request's server-recorded selection or its pending or completed
-creation is restored. Explicit Approve and its authoritative
+The portal does not preselect a URL hint, including on reconsent (#904).
+A recovery request opens with its server-bound recovery collection selected if
+the account can approve it. Other requests start with no collection chosen or
+restore the person's previous choice or creation. Explicit Approve and its authoritative
 `selected_collection_id`/collection scope remain required and revalidated.
 Changing a URL hint never grants access.
 

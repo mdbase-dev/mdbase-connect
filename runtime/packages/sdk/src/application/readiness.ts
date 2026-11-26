@@ -111,7 +111,13 @@ export class ApplicationReadiness {
       problem=failed?facets[failed].problem:null;
       if(failed&&problem?.code==="readiness_fenced"&&!problem.detail)problem=Object.freeze({...problem,detail:`${failed}_facet`});
       if(values.every(value=>value.assessment!==null)){
-        const incompatible=values.find(value=>value.assessment?.status==="incompatible"),setup=values.find(value=>value.assessment?.status==="setup_required"),selected=incompatible??setup;
+        // A required contract whose bytes differ is setup-reviewable when configuration
+        // also reports setup_required (for example an unmanaged _contracts/... file that
+        // setup.plan() can inspect or adopt). Without a setup step it stays incompatible.
+        const setupConfig=facets.configuration.assessment?.status==="setup_required";
+        const isIncompatible=(value:MdbaseApplicationFacetSnapshot)=>value.assessment?.status==="incompatible"
+          &&!(setupConfig&&value===native&&value.assessment.problem?.code==="readiness_contract_mismatch");
+        const incompatible=values.find(isIncompatible),setup=values.find(value=>value.assessment?.status==="setup_required"),selected=incompatible??setup;
         const types=native.assessment?.unavailableTypes;
         assessment=Object.freeze({status:incompatible?"incompatible":setup?"setup_required":"ready",problem:selected?.assessment?.problem??null,...(types?.length?{unavailableTypes:types}:{})});
       }

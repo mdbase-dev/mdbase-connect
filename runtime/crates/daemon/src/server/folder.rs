@@ -103,78 +103,24 @@ fn strip_verbatim(p: std::path::PathBuf) -> std::path::PathBuf {
 /// collection identity (`x-mdbase-connect.collection_id`).
 pub(super) const LEGACY_IDENTITY_KEY: &str = "x-mdbase-connect";
 
-/// Who manages a folder, from its role marker and `mdbase.yaml`.
+/// Who manages a folder, from its `mdbase.yaml`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FolderClaim {
     /// Nobody: adopt it.
     Free,
-    /// Claimed by this daemon (v2 marker naming a store ID it issued in
-    /// `store-ids.json`, the takeover's `Daemon::store_id`).
-    Ours {
-        /// Collection ID (kept from Connect).
-        collection: String,
-        /// This daemon's store ID for it.
-        replica_id: String,
-    },
-    /// Today's connector (a v1 marker, or a Connect identity in `mdbase.yaml` for a
-    /// folder the old connector state on this device lists): the takeover runs first.
-    Connect(&'static str),
-    /// A Connect identity in `mdbase.yaml` for a folder no old connector state on
-    /// this device lists (a copied folder, one removed before the migration, or a
-    /// device without the old connector). The takeover never reaches it, so it is
-    /// adopted only once the user confirms removing that key.
+    /// A legacy Connect identity (`x-mdbase-connect`) in `mdbase.yaml`. Adopted
+    /// only once the user confirms removing that key.
     OrphanedIdentity,
 }
 
-/// Classify a folder against the old connector state in `old_state` (if any). A
-/// v2 claim by another runtime or device, or an invalid marker, is refused (fail
-/// closed).
-pub fn classify_folder(
-    root: &std::path::Path,
-    profile: &Profile,
-    old_state: Option<&std::path::Path>,
-) -> Result<FolderClaim, ControlError> {
-    use mdbn_legacy::marker::{self, Marker};
-    let m = marker::read(root)
-        .map_err(|e| ControlError::invalid("unreadable_marker", e.to_string()))?;
-    match m {
-        Marker::Claimed {
-            collection,
-            replica_id,
-        } => {
-            let ids = crate::registry::StoreIds::load(&profile.store_ids_file())
-                .map_err(|e| ControlError::internal(e.to_string()))?;
-            if ids.get(&collection) == Some(replica_id.as_str()) {
-                Ok(FolderClaim::Ours {
-                    collection,
-                    replica_id,
-                })
-            } else {
-                Err(ControlError::new(
-                    "conflict",
-                    "claimed_by_other_replica",
-                    "this folder is claimed by mdbase on another device or profile",
-                ))
-            }
-        }
-        Marker::Mirror { .. } => Ok(FolderClaim::Connect("hosted mirror marker")),
-        Marker::Invalid(why) => Err(ControlError::invalid(
-            "invalid_marker",
-            format!("the folder's .mdbase/connect-role.json is invalid ({why})"),
-        )),
-        Marker::Absent => {
-            let identity = read_config(root)?
-                .is_some_and(|(_, config)| config.contains_key(LEGACY_IDENTITY_KEY));
-            if !identity {
-                Ok(FolderClaim::Free)
-            } else if crate::takeover::old_state_lists(old_state, root)
-                .map_err(|e| ControlError::unavailable("legacy_state_unreadable", e))?
-            {
-                Ok(FolderClaim::Connect("collection identity in mdbase.yaml"))
-            } else {
-                Ok(FolderClaim::OrphanedIdentity)
-            }
-        }
+/// Classify a folder by inspecting its `mdbase.yaml`.
+pub fn classify_folder(root: &std::path::Path) -> Result<FolderClaim, ControlError> {
+    let identity =
+        read_config(root)?.is_some_and(|(_, config)| config.contains_key(LEGACY_IDENTITY_KEY));
+    if identity {
+        Ok(FolderClaim::OrphanedIdentity)
+    } else {
+        Ok(FolderClaim::Free)
     }
 }
 

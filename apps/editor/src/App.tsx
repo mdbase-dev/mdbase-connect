@@ -15,15 +15,18 @@ import {
   MagnifyingGlassIcon as Search,
   InfoIcon as Info,
   ChatTextIcon as ChatText,
+  ClockCounterClockwiseIcon as ClockCounterClockwise,
   LinkIcon as Link2,
   PencilSimpleIcon as Pencil,
   TrashIcon as Trash2,
   TagIcon as Tag,
   PushPinIcon as Pin,
+  WarningCircleIcon as CircleAlert,
   XIcon as X,
   BrowsersIcon as Browsers, ColumnsIcon as Columns
 } from "./icons";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type MdbaseRecordSessionSnapshot } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor } from "./connect-types";
+import { type MdbaseRecordSessionSnapshot } from "./record-session";
 import {
   useCallback,
   useDeferredValue,
@@ -42,6 +45,7 @@ import {
 import type { ActionMenuItem } from "./ContextMenu";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
 import { MoveNoteDialog } from "./MoveNoteDialog";
+import { QuickCreateRecord } from "./QuickCreateRecord";
 import { bulkFields, type BulkPropertyChange } from "./bulk-note-actions";
 import { useNoteActions } from "./use-note-actions";
 import { AttachmentTransfer, attachmentMenuItem, useAttachmentUpload } from "./AttachmentUpload";
@@ -91,7 +95,7 @@ import {
   createdBody,
   editableNote,
   noteHeadings,
-  noteTags,
+  noteHasType,
   noteTitle,
   noteNeedsBodyTitle,
   summaryFromDocument,
@@ -114,7 +118,6 @@ import { filterLabel, filterScopeLabel, loadPinnedNotes, savePinnedNotes, noteVi
 import { defaultNoteSort, loadNoteSort, resolveNoteSort, saveNoteSort, sortableFields, type NoteSortPreference } from "./note-sort";
 import { isObject } from "./field-reference";
 import { NoteList } from "./NoteList";
-import { NoteTabs } from "./NoteTabs";
 import {
   beginNewNote,
   changedNewNote,
@@ -131,6 +134,8 @@ import {
   type NewNoteContext
 } from "./new-note";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
+import type { LinkCreation, NewLinkTarget, RecordLinking } from "./LinkPropertyEditor";
+import { recordLinkProperties } from "./record-links";
 import { noteRowStatus } from "./note-mutation-presentation";
 import {
   NotePreviewCard,
@@ -141,7 +146,8 @@ import {
   IncrementalNoteSearchIndex,
   searchNoteResults
 } from "./note-search";
-import { BodySearch, bodySearchTerms, EXCERPT_READS } from "./body-search";
+import { BodySearch, bodySearchTerms, EXCERPT_READS, searchBudgetExceeded } from "./body-search";
+import { parseSearchQuery } from "./search-query";
 import { initialEditorSurface, loadPreferences, savePreferences, type EditorPreferences } from "./preferences";
 import { takeQuickCapture } from "./quick-capture";
 import { activeEditorSelection, revealMarkdownLine } from "./code-editor-reveal";
@@ -154,18 +160,25 @@ import { SettingsView } from "./settings/SettingsView";
 import { buildToastItems } from "./Toasts";
 type ToastTone = NonNullable<ToastItem["tone"]>;
 import { NEW_TYPE_SOURCE } from "./type-presentation";
+import { composeRecordSource } from "./record-source";
 import { useCollectionIndex } from "./use-collection-index";
 import { CollectionSaveWarning } from "@mdbase-dev/ui/collections";
 import { signalMdbaseMark } from "@mdbase-dev/ui/mark-activity";
 import { useCollectionWatch } from "./use-collection-watch";
 import { useCollectionTransition } from "./use-collection-transition";
 import { useFileInventory } from "./use-file-inventory";
-import { useFileAsset, useFileAssetStore } from "./use-file-assets";
+import { useFileAssetStore } from "./use-file-assets";
 import { useFileWorkspace } from "./use-file-workspace";
-import { useNoteSurface } from "./use-note-surface";
+import { Workspace as PanelWorkspace } from "@mdbase-dev/panels/react";
+import "@mdbase-dev/panels/styles.css";
+import { PaneSurface } from "./PaneSurface";
+import type { FileAssetSnapshot } from "./file-asset-store";
+import { useLinkTargets } from "./collection-links";
+import type { NoteSurface } from "./use-note-surface";
 import { useSessionLifecycle } from "./use-session-lifecycle";
+import { takeRequestedNote } from "./requested-note";
 import {
-  activeTab, adjacentTab, changeActiveHistory, closePane, closeTab, emptyWorkspace, focusedPane, focusPane, historyStep, loadWorkspace, openBeside, openTab,
+  activeTab, adjacentTab, backgroundNotes, changeActiveHistory, closePane, closeTab, emptyWorkspace, focusedPane, focusPane, historyStep, loadWorkspace, nextPane, openBeside, openTab,
   paneTab, renameInWorkspace, returnToNote, saveWorkspace, selectTab, splitPane, tabNote, useWorkspace, visitNote, type NoteTab, type Pane, type SplitDirection,
   type Workspace
 } from "./workspace";
@@ -189,10 +202,18 @@ const TypeInspector = lazy(() => import("./TypeBrowser").then((module) => ({ def
 const TypePackBrowser = lazy(() => import("./TypeBrowser").then((module) => ({ default: module.TypePackBrowser })));
 const NoteCommentsPanel = lazy(() => import("./NoteCommentsPanel").then((module) => ({ default: module.NoteCommentsPanel })));
 const PropertiesPanel = lazy(() => import("./PropertiesPanel").then((module) => ({ default: module.PropertiesPanel })));
+const NoteHistoryPanel = lazy(() => import("./NoteHistoryPanel").then((module) => ({ default: module.NoteHistoryPanel })));
 const FileViewer = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileViewer })));
 const FileWorkspace = lazy(() => import("./FileViewer").then((module) => ({ default: module.FileWorkspace })));
 const emptyTypeDescriptors: CollectionTypeDescriptor[] = [];
 const noop = () => undefined;
+
+type InspectorKind = "properties" | "comments" | "history";
+
+function inspectorLabel(kind: InspectorKind | undefined): string {
+  return kind === "comments" ? t`Comments` : kind === "history" ? t`Version history` : t`Note properties`;
+}
+
 interface Confirmation {
   title: string;
   body: ReactNode;
@@ -240,6 +261,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [description, setDescription] = useState<CollectionDescription>();
   const [sessionSnapshot, setSessionSnapshot] = useState<CollectionSessionSnapshot>(() => gateway.sessionSnapshot());
   const connectionSummary = sessionSnapshot.status === "ready" ? sessionSnapshot.connection : null;
+  /** A viewer's grant can never include `history.read` (policy.md §5), so asking for it again can't help. */
+  const noteHistory = connectionSummary?.role === "viewer" ? undefined : gateway.noteHistory;
   const [connectionState, setConnectionState] = useState<ConnectionState>("connected");
   const [connectionIssue, setConnectionIssue] = useState<string>();
   const subscribeSyncState = useCallback((listener: () => void) => gateway.onSyncState?.(listener) ?? noop, [gateway]);
@@ -277,6 +300,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [search, setSearch] = useState("");
   const deferredSearch = useDeferredValue(search);
   const [noteFilter, setNoteFilter] = useState<NoteFilter>();
+  const [changingFolder, setChangingFolder] = useState(false);
   const [surface, setSurface] = useState<Surface>(initialEditorSurface);
   useEffect(() => { setSelection((current) => current?.anchor === selectedPath ? current : undefined); setBulkPropertyKind(undefined); }, [selectedPath]);
   useEffect(() => { setSelection(undefined); setBulkPropertyKind(undefined); }, [search, noteFilter, surface]);
@@ -291,7 +315,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const [mutationsFrozen, setMutationsFrozen] = useState(false);
   const { canCreateNotes, canEditNotes, canRenameNotes, canDeleteNotes, canManageTypes, canInstallTypes, canAttachFiles } = editorPermissions(connectionSummary);
   const [notice, setNoticeState] = useState<{ message: string; tone: ToastTone } | undefined>();
-  const [inspector, setInspector] = useState<"properties" | "comments">();
+  const [inspector, setInspector] = useState<InspectorKind>();
   const [mentionsOpen, setMentionsOpen] = useState(false);
   const [editingPath, setEditingPath] = useState(false);
   const [pathDraft, setPathDraft] = useState("");
@@ -308,7 +332,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const paletteCommands = useRef<EditorCommand[]>([]);
   const [confirmation, setConfirmation] = useState<Confirmation>();
   const [recentPaths, setRecentPaths] = useRecentPaths(description?.collectionId);
-  const { workspace, latest: latestWorkspace, changeWorkspace } = useWorkspace();
+  const { workspace, latest: latestWorkspace, changeWorkspace, onUserChange, store: panelStore } = useWorkspace();
   const [mobilePane, setMobilePane] = useState<MobilePane>("notes");
   const [preferences, setPreferences] = useState<EditorPreferences>(loadPreferences);
   // Labels and palette shortcuts follow this device's shortcuts as Settings changes them.
@@ -325,10 +349,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const typeDescriptorsRef = useRef<CollectionTypeDescriptor[]>(emptyTypeDescriptors);
   const workspaceCollectionId = useRef<string | undefined>(undefined);
   const noteSessions = useRef(new NoteSessionStore());
-  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft);
+  const noteReadOnly = mutationsFrozen || !canEditNotes || Boolean(noteSessions.current.active?.recoveryDraft) || Boolean(noteSessions.current.active?.deletedElsewhere)
+    || Boolean(noteSessions.current.active?.restoring);
   const privateCollection = connectionSummary?.private === true;
   const draftRecovery = useDraftRecovery(connectServerUrl, privateCollection ? connectionSummary.collectionId : undefined);
   const linkCreations = useRef(new Set<string>());
+  /** The record being filled in beside the link that will point at it. */
+  const [quickCreate, setQuickCreate] = useState<{ note: NewNote; creation: LinkCreation }>();
   /** One record ID per link target until its create is confirmed: following the
    * same link after a lost reply reuses it as the intent, so the note lands once. */
   const linkCreationIds = useRef(new Map<string, string>());
@@ -347,6 +374,15 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNoticeState(message ? { message, tone } : undefined);
     if (message && tone !== "info") signalMdbaseMark(tone === "error" ? "error" : "saved");
   }, []);
+  const folderInventoryReady = structureComplete && !foldersLoading && !structureError && fileInventory.complete;
+  useLayoutEffect(() => {
+    if (noteFilter?.kind !== "folder" || !folderInventoryReady || changingFolder) return;
+    const prefix = `${noteFilter.value}/`;
+    if (allNotes.some(note => note.path.startsWith(prefix)) || fileInventory.files.some(file => file.path.startsWith(prefix))) return;
+    // Remote events identify individual records and files, not the directory they belonged to.
+    setNoteFilter(undefined);
+    setNotice(t`The folder “${noteFilter.value}” is no longer listed. Folder filter cleared.`, "info");
+  }, [noteFilter, folderInventoryReady, changingFolder, allNotes, fileInventory.files, setNotice]);
   const publishTypeDescription = useCallback((next: CollectionDescription) => {
     workspaceCollectionId.current = next.collectionId;
     typeDescriptorsRef.current = next.types;
@@ -369,29 +405,22 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [loadTypeSource, phase, selectedTypeName, surface, typeCreating, typeDocument, typeError, typeLoading, typeWorkspace]);
 
   const notePreviewController = useNotePreview(gateway, allNotes, typeDescriptors);
-  // Each pane's editor has its own surface. The focused pane shows the editor's note; the other, its own tab's.
-  const backgroundPane = workspace.panes.length > 1 ? workspace.panes[1 - workspace.focused] : undefined;
-  const backgroundPath = backgroundPane && tabNote(paneTab(backgroundPane));
-  const backgroundSession = backgroundPath ? noteSessions.current.get(backgroundPath) : undefined;
+  // Each pane's editor has its own surface (see PaneSurface). The focused pane shows the editor's note;
+  // every other pane, its own tab's.
+  const backgroundPaths = backgroundNotes(workspace);
   const embedOwner = { collectionId: workspaceCollectionId.current, epoch: collectionEpoch.current };
-  const paneSurface = (focused: boolean) => focused
-    ? { path: notePath, source: noteBody }
-    : { path: backgroundSession?.document.path, source: backgroundSession?.draft.body ?? "" };
-  const surfaces = [
-    useNoteSurface({ gateway, assets: fileAssetStore, owner: embedOwner, ...paneSurface(workspace.focused === 0), revision: collectionRevision,
-      files: fileInventory.files, notes: allNotes, types: typeDescriptors }),
-    useNoteSurface({ gateway, assets: fileAssetStore, owner: embedOwner, ...paneSurface(workspace.focused === 1), revision: collectionRevision,
-      files: fileInventory.files, notes: allNotes, types: typeDescriptors })
-  ];
+  const focusedLinkTargets = useLinkTargets(gateway, notePath, collectionRevision, fileInventory.files);
   const fileWorkspace = useFileWorkspace(fileAssetStore, fileInventory.files, notePath);
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
     pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset } = fileWorkspace;
-  /** The file the pane without the focus shows over its active tab, kept while the other pane has the focus. */
-  const [backgroundFile, setBackgroundFile] = useState<{ tab: string; file: CollectionFile }>();
-  const backgroundFileShown = backgroundPane && backgroundFile?.tab === backgroundPane.active
-    ? fileInventory.files.find((file) => file.fileId === backgroundFile.file.fileId) : undefined;
-  const backgroundFileAsset = useFileAsset(fileAssetStore, backgroundFileShown);
-  const [backgroundFailure, setBackgroundFailure] = useState<{ path: string; message: string }>();
+  /** The file a pane without the focus shows over its active tab, by tab, kept while another pane has the focus. */
+  const [backgroundFiles, setBackgroundFiles] = useState<Readonly<Record<string, CollectionFile>>>({});
+  const backgroundFile = (pane: Pane) => {
+    const held = backgroundFiles[pane.active];
+    return held && fileInventory.files.find((file) => file.fileId === held.fileId);
+  };
+  /** Why a pane without the focus could not read its note, by path. */
+  const [backgroundFailures, setBackgroundFailures] = useState<Readonly<Record<string, string>>>({});
   const attachments = useAttachmentUpload({ gateway, inventory: fileController, scope: mutationScope.current,
     activeSession: () => noteReadOnly ? undefined : noteSessions.current.active, setNotice });
   useEffect(() => { savePreferences(preferences); }, [preferences]);
@@ -551,7 +580,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       reportError({ code: "save_failed" });
       const message = gatewayError(new MdbaseConnectError(snapshot.problem));
       session.error = message;
-      setNotice(active ? message : t`Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
+      if (active) setNotice(undefined);
+      else setNotice(t`Couldn’t save “${session.draft.title || session.document.path}”. ${message}`);
     } else if (snapshot.state === "saved" && previous.state !== "saved") {
       session.error = undefined;
     }
@@ -564,8 +594,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     let previous = session.record.snapshot;
     const collection = mutationScope.current.token().collectionId!;
     try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
-    catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
-    if (!draftRecovery && !privateCollection) session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
+    catch { session.recoveryError = recoveryUnavailable(); }
+    if (!draftRecovery && !privateCollection) session.recoveryError = recoveryUnavailable();
+    const checkpointed = (ok: boolean) => {
+      const error = ok ? undefined : recoveryUnavailable();
+      if (session.recoveryError === error) return;
+      session.recoveryError = error;
+      touchSession(session);
+    };
     session.record.subscribe(() => {
       const current = session.record.snapshot;
       if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
@@ -573,24 +609,27 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       }
       if (!session.recoveryDraft) {
         try {
+          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
           if (current.dirty) draftRecovery?.write(collection, current.record.path, {
             body: current.body, baseBody: current.record.body ?? "",
             patch: frontmatterPatch(current.record.frontmatter, current.frontmatter),
             baseFrontmatter: current.record.frontmatter
-          });
-          else draftRecovery?.remove(collection, current.record.path, current.record);
-          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
-          if (draftRecovery) session.recoveryError = undefined;
-        } catch { session.recoveryError = t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`; }
+          }, checkpointed);
+          else {
+            draftRecovery?.remove(collection, current.record.path, current.record);
+            if (draftRecovery) session.recoveryError = undefined;
+          }
+        } catch { session.recoveryError = recoveryUnavailable(); }
       }
       sessionChanged(session, previous);
       previous = current;
     });
     return session;
-  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords]);
+  }, [draftRecovery, privateCollection, sessionChanged, sessionRecords, touchSession]);
 
   const activateSession = useCallback((session: NoteSession) => {
     const previous = noteSessions.current.active;
+    if (previous !== session) draftRecovery?.flush();
     // The old editor remains usable during a read. Save any edits made after
     // navigation started before adopting the newly loaded session.
     if (previous && previous !== session && sessionDirty(previous)) {
@@ -606,36 +645,46 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setNoteOpenFailure(undefined);
     closeNewNote();
     setEditingPath(false);
-    setNotice(session.error);
+    setNotice(session.saveState === "error" && !session.remoteDocument ? undefined : session.error);
     setRecentPaths((current) => rememberRecentPath(current, session.document.path));
-  }, [closeNewNote]);
+  }, [closeNewNote, draftRecovery]);
 
   const adoptDocument = useCallback((next: NoteDocument) => {
     activateSession(createSession(next));
   }, [activateSession, createSession]);
 
-  // The pane without the focus reads its note itself; it becomes the editor's when the pane takes the focus.
-  const backgroundFailed = backgroundFailure?.path === backgroundPath;
+  // A pane without the focus reads its note itself; it becomes the editor's when the pane takes the focus.
+  // A note that is no longer in such a pane when its read arrives is left unread.
+  const backgroundReads = useRef(new Set<string>());
+  const unreadBackground = backgroundPaths.filter((path) => !noteSessions.current.has(path) && !Object.hasOwn(backgroundFailures, path)).join("\n");
   useEffect(() => {
-    const path = backgroundPath;
-    if (phase !== "ready" || !path || backgroundFailed || noteSessions.current.has(path)) return;
+    if (phase !== "ready" || !unreadBackground) return;
     const epoch = collectionEpoch.current;
-    let current = true;
-    gateway.read(path).then((next) => {
-      if (!current || epoch !== collectionEpoch.current) return;
-      if (!noteSessions.current.has(next.path)) createSession(next);
-      setSessionTick((value) => value + 1);
-    }, (error: unknown) => {
-      if (current && epoch === collectionEpoch.current) setBackgroundFailure({ path, message: t`Couldn’t open “${path}”. ${gatewayError(error)}` });
-    });
-    return () => { current = false; };
-  }, [backgroundFailed, backgroundPath, createSession, gateway, phase]);
+    const wanted = () => epoch === collectionEpoch.current;
+    for (const path of unreadBackground.split("\n")) {
+      if (backgroundReads.current.has(path)) continue;
+      backgroundReads.current.add(path);
+      gateway.read(path).then((next) => {
+        if (!wanted() || !backgroundNotes(latestWorkspace.current).includes(path)) return;
+        if (!noteSessions.current.has(next.path)) createSession(next);
+        setSessionTick((value) => value + 1);
+      }, (error: unknown) => {
+        if (wanted()) setBackgroundFailures((current) => ({ ...current, [path]: t`Couldn’t open “${path}”. ${gatewayError(error)}` }));
+      }).finally(() => { backgroundReads.current.delete(path); });
+    }
+  }, [createSession, gateway, latestWorkspace, phase, unreadBackground]);
 
   const refreshCachedNote = useCallback(async (path: string, revision?: string) => {
     const session = noteSessions.current.get(path);
     if (!session || session.deleted || (revision !== undefined && session.document.revision === revision)) return;
     // Read behind this note's own writes; the session classifies the result.
     requireSaved(await session.record.refresh());
+  }, []);
+
+  const noteDeleted = useCallback((path: string) => {
+    const session = noteSessions.current.get(path);
+    // A delete made here stages its own tombstone; only one made elsewhere is news.
+    if (session && !session.deleted) session.record.markDeleted();
   }, []);
 
   const refreshChangedNote = useCallback(async (path: string) => {
@@ -731,8 +780,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       const descriptionLoad = refreshDescription(current);
       const restored = loadWorkspace(mutationScope.current.token().collectionId!);
       changeWorkspace(() => restored);
-      const remembered = tabNote(activeTab(restored));
-      // Open the active tab's note alongside description; otherwise query the newest.
+      // A record another app linked to comes first, then the active tab's note.
+      const remembered = takeRequestedNote(mutationScope.current.token().collectionId!) ?? tabNote(activeTab(restored));
+      // Open that note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
       const [nextDescription, newestPath] = await Promise.all([
         descriptionLoad, remembered ? undefined : gateway.mostRecentNote().catch(() => undefined)
@@ -779,10 +829,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     void loadContentIndex();
   }, [allNotes, mentionsOpen, contentComplete, contentError, contentIndexing, listLoading, loadContentIndex, phase, structureComplete, typeDescriptors]);
 
-  // The list's body matches are the runtime's, asked again whenever a record changes.
+  // The list's body matches and tag filters are the runtime's, asked again
+  // whenever a record changes: record views carry no inline tags.
+  const filterTag = noteFilter?.kind === "tag" ? noteFilter.value : undefined;
   useEffect(() => {
-    if (phase === "ready") bodySearch.search(bodySearchTerms(deferredSearch), collectionRevision);
-  }, [bodySearch, collectionRevision, deferredSearch, phase]);
+    if (phase !== "ready") return;
+    const tags = parseSearchQuery(deferredSearch).tags;
+    bodySearch.search(bodySearchTerms(deferredSearch), filterTag === undefined ? tags : [...tags, filterTag], collectionRevision);
+  }, [bodySearch, collectionRevision, deferredSearch, filterTag, phase]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -792,7 +846,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [connectionSummary?.collectionId, gateway, phase]);
 
   useCollectionWatch({ phase, index: indexController, files: fileController, assets: fileAssetStore,
-    refreshCachedNote, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
+    refreshCachedNote, noteDeleted, refreshDescription, setConnectionState, setConnectionIssue, setNotice });
 
   const flushSession = useCallback(
     async (session: NoteSession) => { requireSaved(await session.record.flush()); },
@@ -907,6 +961,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     cancelNoteNavigation();
     saveCurrentInBackground();
     closeNewNote();
+    draftRecovery?.flush();
     noteSessions.current.deactivate();
     setDocument(undefined);
     setDraft(undefined);
@@ -914,22 +969,31 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }
 
   /** Changes the tabs or panes, and shows what the focused pane's active tab holds if that changed. A file
-   * open in a pane stays there while the other pane has the focus. */
+   * open in a pane stays there while another pane has the focus. */
   function changeTabs(change: (current: Workspace) => Workspace) {
     const previous = latestWorkspace.current;
     changeWorkspace(change);
-    const next = latestWorkspace.current;
+    tabsChanged(previous, latestWorkspace.current);
+  }
+
+  /** Shows what the focused pane's active tab holds after the tabs or panes changed, here or in the
+   * panel workspace (a tab clicked, dragged or closed there). */
+  function tabsChanged(previous: Workspace, next: Workspace) {
     const leaving = activeTab(previous), arriving = activeTab(next);
-    if (next.panes.length === 1) setBackgroundFile(undefined);
-    if (leaving.id === arriving.id) return;
     const paneChanged = !focusedPane(previous).tabs.some((tab) => tab.id === arriving.id);
-    const restored = paneChanged && backgroundFile?.tab === arriving.id ? backgroundFile.file : undefined;
-    if (paneChanged && next.panes.length > 1) {
-      setBackgroundFile(selectedCollectionFile && paneTab(next.panes[1 - next.focused]!).id === leaving.id ? { tab: leaving.id, file: selectedCollectionFile } : undefined);
-    }
+    const restored = leaving.id !== arriving.id && paneChanged ? backgroundFiles[arriving.id] : undefined;
+    // Only the active tab of a pane without the focus keeps a file; the pane the focus leaves hands its own over.
+    const behind = new Set(next.panes.filter((_, index) => index !== next.focused).map((pane) => pane.active));
+    setBackgroundFiles((current) => {
+      const held = Object.entries(current).filter(([tab]) => behind.has(tab));
+      const handed = leaving.id !== arriving.id && paneChanged && selectedCollectionFile && behind.has(leaving.id);
+      if (!handed && held.length === Object.keys(current).length) return current;
+      return { ...Object.fromEntries(held), ...(handed ? { [leaving.id]: selectedCollectionFile } : {}) };
+    });
+    if (leaving.id === arriving.id) return;
     const path = tabNote(arriving);
     const cached = path ? noteSessions.current.get(path) : undefined;
-    // A pane that gains the focus shows its own note, never the other pane's while its own loads.
+    // A pane that gains the focus shows its own note, never another pane's while its own loads.
     if (!path || paneChanged && (!cached || cached.deleted)) showNoNote();
     if (path) navigateToNote(path, { historyIndex: arriving.history.index, keepList: paneChanged });
     if (restored) {
@@ -946,6 +1010,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     changeTabs((current) => closeTab(current, tab.id));
   }
 
+  // A tab clicked, dragged or closed in the panel workspace changes it there; the editor follows.
+  const heardTabChange = useRef(tabsChanged);
+  useEffect(() => { heardTabChange.current = tabsChanged; });
+  useEffect(() => onUserChange((previous, next) => heardTabChange.current(previous, next)), [onUserChange]);
+  // Tabs show once there is more than one, or more than one pane. A phone shows the focused pane alone.
+  const tabsShown = !mobileLayout && (workspace.panes.length > 1 || workspace.panes[0]!.tabs.length > 1);
+  const panelLayout = useMemo(() => ({ compactBelow: mobileLayout ? Number.MAX_SAFE_INTEGER : 0, compactHeaderHeight: 0, headerHeight: tabsShown ? 37 : 0 }), [mobileLayout, tabsShown]);
+
   /** Phones show one note at a time, so a note asked for in a new tab opens in place there. */
   function openInNewTab(path: string) {
     if (mobileLayout) {
@@ -955,7 +1027,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     changeTabs((current) => openTab(current, path));
   }
 
-  /** Opens a note in the other pane, splitting the editor if it has one pane, and focuses it. */
+  /** Opens a note in the next pane, splitting the editor if it has one pane, and focuses it. */
   function openNoteBeside(path: string) {
     if (mobileLayout) {
       navigateToNote(path);
@@ -972,7 +1044,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   /** Tabs and panes are for notes, on screens wide enough to show them. */
   function tabCommands(): Partial<Record<CommandId, () => void>> {
     if (surface !== "notes" || mobileLayout) return {};
-    const { panes, focused, split } = latestWorkspace.current;
+    const { panes, focused } = latestWorkspace.current;
     const splitTo = (direction: SplitDirection) => () => changeTabs((current) => splitPane(current, direction, tabNote(activeTab(current))));
     return {
       "new-tab": () => { setShortcutsOpen(false); setPaletteMode("tab"); setQuickOpen(true); },
@@ -981,11 +1053,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         "next-tab": () => switchTab(adjacentTab(latestWorkspace.current, 1)),
         "previous-tab": () => switchTab(adjacentTab(latestWorkspace.current, -1))
       } : {}),
-      ...(panes.length === 1 || split !== "right" ? { "split-right": splitTo("right") } : {}),
-      ...(panes.length === 1 || split !== "down" ? { "split-down": splitTo("down") } : {}),
+      "split-right": splitTo("right"),
+      "split-down": splitTo("down"),
       ...(panes.length > 1 ? {
         "focus-other-pane": () => {
-          focusEditorPane(1 - latestWorkspace.current.focused);
+          focusEditorPane(nextPane(latestWorkspace.current));
           requestAnimationFrame(focusPaneEditor);
         },
         "close-pane": () => changeTabs((current) => closePane(current, current.focused))
@@ -1040,9 +1112,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       : noteFilter.kind === "folder"
         ? searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`))
         : noteFilter.kind === "tag"
-          ? searchedNotes.filter((note) => noteTags(note).includes(noteFilter.value))
-          : searchedNotes.filter((note) => note.types.includes(noteFilter.value));
-  }, [noteFilter, searchedNotes, i18n.locale]);
+          ? searchedNotes.filter((note) => bodySearch.tagged(noteFilter.value)?.has(note.path) === true)
+          : searchedNotes.filter((note) => noteHasType(note, noteFilter.value));
+  }, [bodySearch, bodySearchState.version, noteFilter, searchedNotes, i18n.locale]);
   const noteSortFields = useMemo(() => sortableFields(visibleNotes, typeDescriptors), [visibleNotes, typeDescriptors, i18n.locale]);
   const noteSort = useMemo(() => resolveNoteSort(noteSortPreference, noteSortFields), [noteSortFields, noteSortPreference]);
   const chooseNoteSort = useCallback((preference: NoteSortPreference) => {
@@ -1074,12 +1146,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     selection: () => activeEditorSelection(paneDocumentId(focusedPane(latestWorkspace.current), noteSessions.current.active?.editorSessionKey)),
     applyBody: (body) => changeActiveDraft((current) => ({ ...current, body }))
   } });
+  // What every link property and link suggestion of this collection works with.
+  const linking: RecordLinking = {
+    suggestions: linkOptions,
+    types: typeDescriptors,
+    recentPaths,
+    onOpen: (path) => navigateToNote(path),
+    ...(canCreateNotes && !mutationsFrozen ? { onCreate: createLinkedRecord } : {})
+  };
   const focusMode = preferences.focusMode && surface === "notes" && Boolean(document || openNew) && !selectedCollectionFile;
 
   function closeSidePanels() { setInspector(undefined); setMentionsOpen(false); }
   function endRename() { setRenamePlan(undefined); clearRenameRequest(); }
   /** Shows an inspector panel beside the note; `toggle` closes the one already showing. */
-  function showInspector(kind: "properties" | "comments", toggle = false) {
+  function showInspector(kind: InspectorKind, toggle = false) {
     if (focusMode) toggleFocus();
     setMentionsOpen(false);
     setInspector((current) => toggle && current === kind ? undefined : kind);
@@ -1113,7 +1193,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   }, [touchSession]);
 
   const { recoveryMessage, togglePin, renameNote, duplicateNote, linkUnlinkedMention, applyBulkProperties, deleteSelectedNotes,
-    onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource,
+    onMoveNotes, requestRename, performRename, cancelRename, saveProperties, saveRecordSource, restoreVersion,
     validateNote, requestDelete, undoRecovery, propertiesError, setPropertiesError, pendingRenameRecovery,
     bulkBusy, recoveryAction, setRecoveryAction, recoveryBusy, setRecoveryBusy, linkingMention,
     clearRenameRequest, resetNoteActions } = useNoteActions({
@@ -1168,7 +1248,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   async function flushCollectionWork() {
     await Promise.all([...noteSessions.current.values()]
-      .filter((session) => !session.deleted)
+      .filter((session) => !session.deleted && !session.deletedElsewhere)
       .map((session) => flushSession(session)));
     await mutationScope.current.drain();
   }
@@ -1183,6 +1263,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     searchIndexCache.current.clear();
     navigationGeneration.current += 1;
     documentGeneration.current += 1;
+    draftRecovery?.flush();
     noteSessions.current.clear();
     changeWorkspace(() => emptyWorkspace());
     linkCreations.current.clear();
@@ -1197,8 +1278,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setSelectedCollectionFile(undefined);
     setPendingFilePath(undefined);
     setOpenFileAsset(undefined);
-    setBackgroundFile(undefined);
-    setBackgroundFailure(undefined);
+    setBackgroundFiles({});
+    setBackgroundFailures({});
     newNoteWrites.current.clear();
     publishNewNotes({ notes: [] });
     closeSidePanels();
@@ -1468,6 +1549,58 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       .catch(() => setNotice(t`Couldn’t copy ${label}.`));
   }
 
+  /**
+   * Makes a record to link to without leaving the note the link is written in.
+   * One that needs only its name is written and linked at once. One whose type
+   * requires more opens a short form beside the link, and is linked when that
+   * form is submitted.
+   */
+  function createLinkedRecord(typeName: string | undefined, title: string, creation: LinkCreation) {
+    if (mutationScope.current.isFrozen || !canCreateNotes) return;
+    const types = typeDescriptorsRef.current;
+    const note = beginNewNote({ ...(typeName ? { type: typeName } : {}), title }, types);
+    const form = newNoteForm(note.type, types);
+    // A required number or checkbox starts filled in (0, off), which nobody chose: the form shows it.
+    if (!form.required.length && !newNoteBlocker(note, form)) creation.link(writeLinkedRecord(note));
+    else if (!quickCreate) setQuickCreate({ note, creation });
+    else {
+      // One form at a time: a link inside the form is to a record that exists, or one that needs only a name.
+      const typeLabel = typeDisplayName(note.type ?? "");
+      setNotice(t`${typeLabel} notes need more than a name. Create one from New note, then link to it.`);
+    }
+  }
+
+  /** Writes `note` in the background and says where it will be, so the link to it can be written first. */
+  function writeLinkedRecord(note: NewNote): NewLinkTarget {
+    const occupied = new Set(takenPaths);
+    for (const path of linkCreations.current) occupied.add(path.toLocaleLowerCase());
+    const input = newNoteInput(note, newNoteForm(note.type, typeDescriptorsRef.current), occupied);
+    linkCreations.current.add(input.path);
+    const token = mutationScope.current.token();
+    void mutationScope.current.register(token, gateway.create(input)).then((created) => {
+      if (mutationScope.current.isCurrent(token)) indexController.create(summaryFromDocument(created));
+    }).catch((error: unknown) => {
+      if (mutationScope.current.isCurrent(token)) setNotice(t`Couldn’t create “${input.path}”. ${gatewayError(error)}`);
+    }).finally(() => {
+      if (mutationScope.current.isCurrent(token)) linkCreations.current.delete(input.path);
+    });
+    return { path: input.path, title: input.title };
+  }
+
+  function closeQuickCreate(refocus: boolean) {
+    if (refocus) quickCreate?.creation.restoreFocus();
+    setQuickCreate(undefined);
+  }
+
+  /** The form's record, linked where the form was opened from, unless that place has gone meanwhile. */
+  function submitQuickCreate(note: NewNote) {
+    const creation = quickCreate?.creation;
+    setQuickCreate(undefined);
+    if (!creation?.anchor() || mutationScope.current.isFrozen || !canCreateNotes) return;
+    creation.link(writeLinkedRecord(note));
+    creation.restoreFocus();
+  }
+
   function createLinkedNote(target: string, label: string | undefined, format: "wikilink" | "markdown") {
     if (mutationScope.current.isFrozen || !canCreateNotes) return;
     const open = newNoteState.current.notes.find((note) => note.id === newNoteState.current.open);
@@ -1522,7 +1655,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   async function planFolderChange(from: string, to: string): Promise<FolderChangePlan> {
     if (mutationScope.current.isFrozen || !canRenameNotes) throw new Error(t`Moving notes is not available with this collection’s current access.`);
-    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+    if (!folderInventoryReady) {
       throw new Error(t`Wait for the complete note and attachment index before changing a folder.`);
     }
     const token = mutationScope.current.token();
@@ -1553,11 +1686,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     if (mutationScope.current.isFrozen || !canRenameNotes || token.epoch !== plan.epoch || token.collectionId !== plan.collectionId) {
       throw new Error(t`The collection changed. Review the folder change again.`);
     }
-    if (!structureComplete || foldersLoading || structureError || fileInventory.loading || fileInventory.error) {
+    if (!folderInventoryReady) {
       throw new Error(t`The note or attachment index is refreshing. Wait for it to finish, then review the folder change again.`);
     }
     const latestMoves = folderChangeMoves(plan.from, plan.to, allNotes.map((note) => note.path), fileInventory.files.map((file) => file.path));
     if (JSON.stringify(latestMoves) !== JSON.stringify(plan.moves)) throw new Error(t`The folder’s notes changed. Review the folder change again.`);
+    setChangingFolder(true);
     return mutationScope.current.register(token, (async () => {
       const result: FolderChangeResult = { moved: 0, failures: [] };
       for (const [index, move] of plan.moves.entries()) {
@@ -1612,7 +1746,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       if (!mutationScope.current.isCurrent(token)) throw new StaleCollectionOperationError();
       if (noteFilter?.kind === "folder" && result.moved > 0) setNoteFilter({ kind: "folder", value: result.failures.length ? plan.from : plan.to });
       return result;
-    })());
+    })()).finally(() => setChangingFolder(false));
   }
 
   function menuCommand(id: CommandId, icon: ReactNode, run: () => void, disabled = false, label?: string): ActionMenuItem {
@@ -2090,6 +2224,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       focus: toggleFocus,
       properties: () => showInspector("properties", true),
       comments: noteComments.available ? () => showInspector("comments", true) : undefined,
+      "version-history": noteHistory ? () => showInspector("history", true) : undefined,
       comment: noteComments.canWrite ? noteComments.start : undefined,
       outline: () => setOutlineOpen((value) => !value),
       backlinks: () => { window.document.getElementById(paneIds(workspace.focused).backlinks)?.focus(); },
@@ -2133,7 +2268,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const focused = pane === workspace.panes[workspace.focused];
     if (tab.id === pane.active && focused && selectedCollectionFile) return collectionFileTitle(selectedCollectionFile);
     if (tab.id === pane.active && focused && openNew) return openNew.title.trim() || t`New note`;
-    if (tab.id === pane.active && !focused && backgroundFileShown) return collectionFileTitle(backgroundFileShown);
+    const behind = tab.id === pane.active && !focused ? backgroundFile(pane) : undefined;
+    if (behind) return collectionFileTitle(behind);
     const path = tabNote(tab);
     if (!path) return t`No note`;
     if (path === document?.path && draft?.title.trim()) return draft.title;
@@ -2164,44 +2300,62 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     detail={noteSessions.current.active?.activityDetail}
     onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
   /></>;
-  /** One editor pane. The focused one shows the editor's note, file or new note; the other, its own tab's note or file. */
+  const panelTitle = (panel: { id: string }) => {
+    const pane = workspace.panes.find((candidate) => candidate.tabs.some((tab) => tab.id === panel.id));
+    return pane ? tabLabel(pane, pane.tabs.find((tab) => tab.id === panel.id)!) : "";
+  };
+  /** The note a pane without the focus shows: its active tab's, once read. */
+  const backgroundSession = (pane: Pane) => {
+    const path = tabNote(paneTab(pane));
+    return path ? noteSessions.current.get(path) : undefined;
+  };
+  /** One editor pane, with the surface and the file its editor reads for itself. */
   const editorPane = (pane: Pane, index: number) => {
     const focused = index === workspace.focused;
-    const session = focused ? noteSessions.current.active : backgroundSession;
-    const around = surfaces[index]!;
+    const session = focused ? undefined : backgroundSession(pane);
+    return <PaneSurface key={pane.id} file={focused ? undefined : backgroundFile(pane)} assets={fileAssetStore} surface={{
+      gateway, assets: fileAssetStore, owner: embedOwner, revision: collectionRevision, files: fileInventory.files, notes: allNotes, types: typeDescriptors,
+      ...(focused ? { path: notePath, source: noteBody } : { path: session?.document.path, source: session?.draft.body ?? "" })
+    }}>{(around, backgroundAsset) => paneBody(pane, index, around, backgroundAsset)}</PaneSurface>;
+  };
+  /** The name of the file in the focused pane, when it shows one. */
+  const filename = selectedCollectionFile && selectedFileAsset ? collectionFileTitle(selectedCollectionFile) : undefined;
+  /** What a pane shows. The focused one shows the editor's note, file or new note; any other, its own tab's note or file. */
+  const paneBody = (pane: Pane, index: number, around: NoteSurface, backgroundAsset: FileAssetSnapshot | undefined) => {
+    const focused = index === workspace.focused;
+    const session = focused ? noteSessions.current.active : backgroundSession(pane);
+    const backgroundPath = focused ? undefined : tabNote(paneTab(pane));
+    const backgroundFileShown = focused ? undefined : backgroundFile(pane);
     const ids = paneIds(index);
     const isNew = focused ? openNew : undefined;
     const { history } = paneTab(pane);
     const historyBackPath = historyStep(history, -1)?.path, historyForwardPath = historyStep(history, 1)?.path;
     const file = focused
       ? selectedCollectionFile && selectedFileAsset && { file: selectedCollectionFile, asset: selectedFileAsset }
-      : backgroundFileShown && backgroundFileAsset && { file: backgroundFileShown, asset: backgroundFileAsset };
+      : backgroundFileShown && backgroundAsset && { file: backgroundFileShown, asset: backgroundAsset };
     const shown = focused ? editing : session && !session.deleted
       ? { key: session.editorSessionKey, path: session.document.path, title: session.draft.title, body: session.draft.body } : undefined;
-    const loading = focused ? noteLoading : Boolean(backgroundPath && !session && backgroundFailure?.path !== backgroundPath);
-    const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft);
+    const backgroundFailure = backgroundPath === undefined ? undefined : backgroundFailures[backgroundPath];
+    const loading = focused ? noteLoading : Boolean(backgroundPath && !session && backgroundFailure === undefined);
+    const deletedElsewhere = !isNew && Boolean(session?.deletedElsewhere);
+    const readOnly = focused ? (openNew ? mutationsFrozen || !canCreateNotes : noteReadOnly) : mutationsFrozen || !canEditNotes || Boolean(session?.recoveryDraft) || deletedElsewhere;
     const leadingActions = index === 0 ? editorLeadingActions : undefined;
-    const tabs = !mobileLayout && (workspace.panes.length > 1 || pane.tabs.length > 1)
-      ? <NoteTabs tabs={pane.tabs} active={pane.active} label={(tab) => tabLabel(pane, tab)} onSelect={switchTab} onClose={closeNoteTab} />
-      : undefined;
     /** An edit reaches the note this pane shows, even one that arrives before the pane has the focus. */
     const editPane = (change: Partial<Pick<Draft, "title" | "body">>) => {
       if (focused) editNote(change);
       else if (session) changeSessionDraft(session, (current) => ({ ...current, ...change }));
     };
     // A click or the keyboard reaching a pane gives it the focus first, so what follows acts in it.
-    return <div key={pane.id} className="editor-slot" onPointerDownCapture={() => focusEditorPane(index)} onFocusCapture={() => focusEditorPane(index)}>
+    return <div className="editor-slot" onPointerDownCapture={() => focusEditorPane(index)} onFocusCapture={() => focusEditorPane(index)}>
       {file ? <Suspense fallback={<PaneSkeleton label={t`Loading file viewer`} leadingActions={leadingActions} variant="canvas" />}><FileWorkspace
         file={file.file}
         asset={file.asset}
-        tabs={tabs}
         background={!focused}
         leadingActions={leadingActions}
         onBack={() => returnToMobilePane("notes")}
         onRetry={() => void fileAssetStore.retry(file.file)}
-      /></Suspense> : <section role={focused ? "main" : "region"} className={`editor-pane${tabs ? " has-tabs" : ""}`} data-focused={focused || undefined} aria-label={t`Note editor`}
+      /></Suspense> : <section className="editor-pane" data-focused={focused || undefined}
         data-save-state={isNew ? "saved" : focused ? saveState : session?.saveState ?? "saved"}>
-        {tabs}
         {loading && !shown ? <NoteSkeleton leadingActions={leadingActions} /> : shown ? <>
           <header className="editor-bar mdbase-settle-host">
             <button className="mobile-back icon-button" aria-label={t`Back to notes`} onClick={() => { closeNewNote(); returnToMobilePane("notes"); }}><ArrowLeft aria-hidden="true" /></button>
@@ -2233,6 +2387,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             </div>}
             {!mobileLayout && !isNew && <button className={`icon-button${focused && inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
             {!mobileLayout && !isNew && noteComments.available && <button className={`icon-button comments-toggle${focused && inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{focused && noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
+            {!mobileLayout && !isNew && noteHistory && <button className={`icon-button${focused && inspector === "history" ? " active" : ""}`} aria-label={t`Version history`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "history"} onClick={() => showInspector("history", true)}><ClockCounterClockwise aria-hidden="true" /></button>}
             {focused && focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
             {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => openNewNote()}><FilePlus2 aria-hidden="true" /></button>}
             <div className="note-actions">
@@ -2252,6 +2407,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               menuCommand("focus", <ListBullets aria-hidden="true" />, toggleFocus, false, focusMode ? t`Exit focus mode` : undefined),
               ...(mobileLayout ? [menuCommand("properties", <Info aria-hidden="true" />, () => showInspector("properties"))] : []),
               ...(mobileLayout && noteComments.available ? [menuCommand("comments", <ChatText aria-hidden="true" />, () => showInspector("comments"))] : []),
+              ...(mobileLayout && noteHistory ? [menuCommand("version-history", <ClockCounterClockwise aria-hidden="true" />, () => showInspector("history"))] : []),
               { ...attachFileAction, separatorBefore: true },
               { ...menuCommand("shortcuts", <Keyboard aria-hidden="true" />, () => setShortcutsOpen(true)), separatorBefore: true },
               menuCommand("check-note", <Check aria-hidden="true" />, () => void validateNote(), mutationsFrozen)
@@ -2263,6 +2419,10 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             </div>
           </header>
           {focused && connectionSummary?.role === "viewer" && <p role="status"><Trans>You have view access, so changes can't be saved.</Trans></p>}
+          {!isNew && session?.saveState === "error" && session.error && !session.remoteDocument && <div className="notice save-error-notice" role="alert">
+            <CircleAlert aria-hidden="true" />
+            <span>{session.error}</span>
+          </div>}
           {focused && !isNew && noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
           {focused && !isNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
             <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>
@@ -2291,6 +2451,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
               } catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
             }}><Trans>Discard recovered edits</Trans></button>
           </section>}
+          {deletedElsewhere && session && <section className="conflict-resolver" role="status" aria-label={t`Note deleted elsewhere`}>
+            <strong><Trans>This note was deleted in another app or on another device.</Trans></strong>
+            <p><Trans>It is no longer in the collection. Its last text is shown here so you can copy it.</Trans></p>
+            <button onClick={() => void navigator.clipboard.writeText(session.record.snapshot.body)
+              .then(() => setNotice(t`Copied the note’s text.`, "success"), () => setNotice(t`The note’s text could not be copied. Select it in the editor instead.`))}><Trans>Copy text</Trans></button>
+          </section>}
           {focused && <AttachmentTransfer controller={attachments} />}
           {focused && !isNew && draft && activeRemoteDraft && <ConflictResolver local={draft} remote={activeRemoteDraft} onUseRemote={useRemoteVersion} onKeepLocal={keepLocalVersion} />}
           {focused && !isNew && renamePlan && renamePlan.session === noteSessions.current.active && <div className="rename-confirm" role="alert">
@@ -2299,7 +2465,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
           </div>}
           {/* A new note and the saved note it becomes share this editor: same place, same key, so the caret stays where it is. */}
-          <MarkdownNoteEditor footer={<BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
+          <MarkdownNoteEditor footer={deletedElsewhere ? undefined : <BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
             draft={shown} preferences={preferences} documentId={paneDocumentId(pane, shown.key)} readOnly={readOnly}
             provenance={mobileLayout ? <>
               {notePathControl}
@@ -2310,14 +2476,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             titlePlaceholder={isNew ? openNewForm?.titleLabel : undefined} focusTitle={isNew && !editorAutoFocus ? isNew.id : undefined}
             titleProperties={isNew && openNewForm && openNewForm.required.length > 0 ? <section aria-label={t`Required properties`}>
               <StructuredPropertiesEditor value={isNew.properties} contract={{ properties: openNewForm.properties, required: openNewForm.required }}
-                propertyNames={openNewForm.required} recordPaths={allNotes.map((note) => note.path)} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+                propertyNames={openNewForm.required} links={{ ...linking, targets: around.linkTargets, properties: recordLinkProperties(isNew.type ? [isNew.type] : [], typeDescriptors) }} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
                 readOnly={mutationsFrozen}
                 onChange={(properties) => editNewNote(isNew.id, { properties })}
                 onValidityChange={(propertiesValid) => editNewNote(isNew.id, { propertiesValid })} />
             </section> : undefined}
             onTitleCommit={isNew ? () => void writeNewNote(isNew.id) : focused ? nameUntitledNote : undefined}
             remoteApplyToken={session?.replaced} autoFocus={focused && editorAutoFocus}
-            currentPath={shown.path} linkTargets={around.linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames}
+            currentPath={shown.path} linkTargets={around.linkTargets} recentPaths={recentPaths} linkSuggestions={linkOptions} linkTypes={linkTypeNames} onCreateLinked={linking.onCreate}
             embeddedFiles={around.embeddedFiles} embeddedNotes={around.embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={focused && !isNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={focused && !isNew && attachments.insertion?.editorKey === shown.key ? attachments.insertion : undefined} onTitleVisibilityChange={focused ? setNoteTitleVisible : noop}
@@ -2334,9 +2500,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           onRetry={() => noteOpenFailure ? navigateToNote(noteOpenFailure.path, noteOpenFailure.options) : void start()}
         /> : <EmptyEditor
           leadingActions={leadingActions}
-          notice={backgroundFailure?.path === backgroundPath ? backgroundFailure?.message : undefined}
+          notice={backgroundFailure}
           onCreate={canCreateNotes ? () => openNewNote() : undefined}
-          onRetry={() => setBackgroundFailure(undefined)}
+          onRetry={() => setBackgroundFailures(({ [backgroundPath ?? ""]: _failed, ...others }) => others)}
         />}
       </section>}
     </div>;
@@ -2373,6 +2539,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       onCopyFacet={copyFacet}
       onTypes={() => selectSurface("types")}
       onSettings={() => selectSurface("settings")}
+      onCommands={() => { setPaletteMode("commands"); setQuickOpen(true); }}
       connectionState={shownConnection}
       connectionIssue={connectionIssue}
       directAccess={connectionSummary?.directAccess}
@@ -2437,9 +2604,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         compact={layout.compactList}
         onCompact={(compactList) => setLayout((current) => ({ ...current, compactList }))}
         onClearScope={() => setNoteFilter(undefined)}
-        onQuickOpen={() => { setPaletteMode("commands"); setQuickOpen(true); }}
         onRetryStructure={() => void loadIndex().catch(() => undefined)}
-        onRetrySearch={() => bodySearch.retry()}
+        onRetrySearch={searchBudgetExceeded(bodySearchState.error) ? undefined : () => bodySearch.retry()}
         onRetryContent={() => void loadContentIndex()}
         onRetryFiles={() => void fileController.reload().catch(() => undefined)}
         onSelect={(path, options) => {
@@ -2474,24 +2640,49 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         leadingActions={layout.collectionCollapsed && <PaneControl pane="collections" label={t`Show collections sidebar`} visibility="show" onClick={() => setLayout((current) => ({ ...current, collectionCollapsed: false }))} />}
         trailingActions={<PaneControl pane="list" label={t`Hide notes sidebar`} visibility="hide" onClick={() => setLayout((current) => ({ ...current, listCollapsed: true }))} />}
       />}
-      <div className={`editor-split${!mobileLayout && workspace.panes.length > 1 ? ` is-split split-${workspace.split}` : ""}`}>
-        {workspace.panes.map((pane, index) => (!mobileLayout || index === workspace.focused) && editorPane(pane, index))}
-      </div>
-      {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={inspector === "comments" ? t`Comments` : t`Note properties`} width={inspectorTrack} onClose={() => setInspector(undefined)}>{document ? <Suspense fallback={<InspectorPanelLoading label={inspector === "comments" ? t`Comments` : t`Note properties`} />}>
+      {/* The panes are the page's main content, named and marked for what the focused one shows. Each pane is the panel of its tab, which names it. */}
+      <main className="editor-panels" aria-label={filename === undefined ? t`Note editor` : t`File viewer, ${filename}`}
+        data-save-state={openNew ? "saved" : saveState}>
+        <PanelWorkspace
+          store={panelStore}
+          layout={panelLayout}
+          renderPanel={(panel, info) => {
+            // A pane draws its active tab; the editor behind another tab is not kept.
+            const index = workspace.panes.findIndex((pane) => pane.id === info.stack);
+            const pane = workspace.panes[index];
+            return info.visible && pane?.active === panel.id ? editorPane(pane, index) : null;
+          }}
+          tabTitle={panelTitle}
+          renderTab={(panel, info) => <>
+            <span className="mp-tab-label">{panelTitle(panel)}</span>
+            {/* Delete on the tab and the Close tab command close it from the keyboard. */}
+            <span className="mp-tab-close" aria-hidden="true" title={t`Close tab`} onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => { event.stopPropagation(); info.close(); }}><X aria-hidden="true" /></span>
+          </>}
+          onRequestClose={(tabs) => { for (const tab of tabs) changeTabs((current) => closeTab(current, tab)); }}
+          labels={{ workspace: t`Editor panes`, tabs: t`Open tabs`, resize: t`Resize panes`, closeTab: t`Close tab` }}
+        />
+      </main>
+      {inspectorVisible && <InspectorFrame overlay={inspectorOverlay} label={inspectorLabel(inspector)} width={inspectorTrack} onClose={() => setInspector(undefined)}>{document ? <Suspense fallback={<InspectorPanelLoading label={inspectorLabel(inspector)} />}>
         {inspector === "comments" ? <NoteCommentsPanel key={document.path} title={draft?.title || t`Untitled`} comments={noteComments}
-          onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} /> : <PropertiesPanel
+          onOpenRecord={navigateToNote} onOpenSettings={() => selectSurface("settings")} onClose={() => setInspector(undefined)} />
+        : inspector === "history" && noteHistory ? <NoteHistoryPanel key={document.path} history={noteHistory} gateway={gateway}
+          path={document.path} title={draft?.title || t`Untitled`} current={document.document ?? composeRecordSource(document.frontmatter, document.body ?? "")}
+          onRestore={noteReadOnly ? undefined : (source) => restoreVersion(document.path, source)}
+          onAuthorize={() => void connectCollection()} onClose={() => setInspector(undefined)} />
+        : <PropertiesPanel
           key={document.path}
           note={document}
           body={draft?.body}
           types={description.types}
-          recordPaths={allNotes.map((note) => note.path)}
+          linking={{ ...linking, targets: focusedLinkTargets, currentPath: document.path }}
           error={propertiesError}
           readOnly={noteReadOnly}
           onClose={() => setInspector(undefined)}
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />}
-      </Suspense> : noteLoading ? <InspectorPanelLoading label={t`Note properties`} /> : null}</InspectorFrame>}
+      </Suspense> : noteLoading ? <InspectorPanelLoading label={inspectorLabel(inspector)} /> : null}</InspectorFrame>}
     </>}
 
     {surface === "types" && <Suspense fallback={<TypeWorkspaceLoading />}>{missingTypeCapabilities(connectionSummary).length > 0 ? <TypeAccessPrompt
@@ -2618,12 +2809,19 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       selectSurface("settings");
       requestAnimationFrame(() => globalThis.document.getElementById("keyboard-shortcuts")?.scrollIntoView({ block: "start" }));
     }} />}
+    {quickCreate && <QuickCreateRecord key={quickCreate.note.id} note={quickCreate.note} types={typeDescriptors}
+      linking={{ ...linking, targets: focusedLinkTargets }} anchor={quickCreate.creation.anchor}
+      onCreate={submitQuickCreate} onClose={closeQuickCreate} />}
     {movePaths && <MoveNoteDialog paths={movePaths} folders={[...new Set([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)].flatMap((path) => { const parts = path.split("/"); return parts.slice(0, -1).map((_, index) => parts.slice(0, index + 1).join("/")); }))].sort()} onMove={onMoveNotes} onClose={() => setMovePaths(undefined)} />}
     {confirmationDialog}
     {openFileAsset && <Suspense fallback={null}><FileViewer asset={openFileAsset} onClose={() => setOpenFileAsset(undefined)} /></Suspense>}
     <NotePreviewCard preview={notePreviewController.preview} />
     <Toaster items={activeToasts} onDismiss={dismissToast} />
   </div>;
+}
+
+function recoveryUnavailable(): string {
+  return t`Unsaved edits cannot be backed up in this browser. Keep this tab open until saving finishes.`;
 }
 
 function collectionExplicitTypeKeys(configuration: unknown): string[] {
@@ -2637,7 +2835,7 @@ function paneIds(index: number): { title: string; backlinks: string } {
   return index === 0 ? { title: "note-title", backlinks: "linked-from" } : { title: `note-title-${index + 1}`, backlinks: `linked-from-${index + 1}` };
 }
 
-/** An editor's identity in its pane: the same note open in both panes keeps a place in each. */
+/** An editor's identity in its tab: the same note open in two tabs keeps a place in each, wherever the tabs go. */
 function paneDocumentId(pane: Pane, editorKey: string | undefined): string | undefined {
-  return editorKey && `${pane.id}/${editorKey}`;
+  return editorKey && `${pane.active}/${editorKey}`;
 }

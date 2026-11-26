@@ -3,22 +3,11 @@ name: Rust caches
 # Caches saved on a merge-queue or pull-request ref are invisible to every
 # other ref, and a push to main reuses the merge-queue qualification without
 # building. This workflow is therefore the only writer of the Rust dependency
-# caches that Server CI and Desktop Release restore; those jobs
-# never save.
-#
-# rust-cache keeps dependencies only, so a cache changes when its key inputs
-# change: the lock files, crate manifests, toolchain or pinned engine. The
-# weekly run keeps unchanged entries from expiring.
+# caches that Desktop Release restores; those jobs never save.
 on:
   push:
     branches: [main]
     paths:
-      - "Cargo.toml"
-      - "Cargo.lock"
-      - "crates/*/Cargo.toml"
-      - "rust-toolchain.toml"
-      - "deploy/docker/Cargo.lock.hosted-provider"
-      - "deploy/docker/mdbase-rs-revision"
       - "runtime/Cargo.toml"
       - "runtime/Cargo.lock"
       - "runtime/crates/*/Cargo.toml"
@@ -42,15 +31,8 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
-      # Each entry reproduces one consumer's toolchain, lock file and builds so
-      # its shared-key and environment hash match exactly.
       matrix:
         include:
-          # server-ci.yml: hosted-provider-rust and hosted-provider-system.
-          - cache: hosted-provider
-            os: ubuntu-latest
-          # desktop-release.yml: headless-package-smoke, windows-package-smoke
-          # (the daemon in runtime/, its own workspace and toolchain file).
           - cache: mdbase-daemon-release
             os: ubuntu-24.04
           - cache: mdbase-daemon-release
@@ -68,48 +50,15 @@ jobs:
         with:
           path: mdbase-connect
           persist-credentials: false
-      - id: mdbase_revision
-        run: echo "revision=$(tr -d '\r\n' < deploy/docker/mdbase-rs-revision)" >> "$GITHUB_OUTPUT"
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          repository: callumalpass/mdbase-rs
-          ref: ${{ steps.mdbase_revision.outputs.revision }}
-          path: mdbase-rs
-          persist-credentials: false
-      - name: Install Rust
-        if: matrix.cache != 'mdbase-daemon-release'
-        run: |
-          rustup toolchain install 1.94.0 --profile minimal --component rustfmt --component clippy
-          cp deploy/docker/Cargo.lock.hosted-provider Cargo.lock
-          rustup override set 1.94.0
       - name: Install the runtime/ toolchain
-        if: matrix.cache == 'mdbase-daemon-release'
         working-directory: mdbase-connect/runtime
         run: rustup toolchain install
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        if: matrix.cache != 'mdbase-daemon-release'
-        with:
-          workspaces: |
-            mdbase-connect -> target
-          shared-key: ${{ matrix.cache }}-${{ steps.mdbase_revision.outputs.revision }}
-          save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        if: matrix.cache == 'mdbase-daemon-release'
         with:
           workspaces: |
             mdbase-connect/runtime -> target
           shared-key: mdbase-daemon-release-${{ hashFiles('mdbase-connect/runtime/Cargo.lock') }}
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Build the consumers' dependency graph
-        run: |
-          case ${{ matrix.cache }} in
-            hosted-provider)
-              cargo clippy --locked --workspace --all-targets
-              cargo test --locked --workspace --no-run
-              cargo build --locked --workspace
-              ;;
-            mdbase-daemon-release)
-              cd runtime
-              cargo build --locked --release -p mdbn-daemon --bin mdbase
-              ;;
-          esac
+        working-directory: mdbase-connect/runtime
+        run: cargo build --locked --release -p mdbn-daemon --bin mdbase

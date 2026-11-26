@@ -47,8 +47,8 @@ mod enable_sync;
 mod folder;
 mod grants;
 mod holds;
-mod legacy_takeover;
 mod lifecycle;
+mod rejoin;
 mod relay_host;
 mod runtime_calls;
 mod startup;
@@ -61,12 +61,12 @@ use grants::*;
 use lifecycle::*;
 use runtime_calls::*;
 use startup::*;
-use status::*;
 
 pub use app_sessions::LINK_ALLOWED;
 pub(crate) use folder::local_bootstrap_folder_is_empty;
 pub use folder::{FolderClaim, classify_folder};
 pub use startup::{run, run_with};
+#[cfg(test)]
 pub(crate) use status::bound_file_notices;
 
 /// How long shutdown waits for collections to close.
@@ -147,10 +147,8 @@ pub struct Daemon {
     online: std::sync::atomic::AtomicBool,
     /// AK1: per-collection account-key keying (background pass, status).
     account_keys: private_key::AccountKeys,
-    /// Local takeover runs one at a time; whether the old connector came back.
-    takeover: crate::takeover::Gate,
-    /// Private sync turned on automatically for taken-over collections.
-    auto_private: crate::auto_private::State,
+    /// Background mode-switch driver state and collection notices (RAM only).
+    mode_driver: collection_mode::ModeDriver,
     /// This build's verified environment trust (`None`: synced collections report
     /// `trust_missing`). Embedded only; no file, flag or environment override.
     trust: Option<Arc<crate::trust::Trust>>,
@@ -325,10 +323,12 @@ impl Daemon {
     }
 
     /// The registered collection `raw` names, as the registry spells it. Only
-    /// the exact canonical ID of a registered collection is accepted, before
-    /// anything (a takeover directory above all) is derived from it.
+    /// the exact canonical lowercase UUID of a registered collection is accepted.
     async fn registered_collection(&self, raw: &str) -> Result<String, ControlError> {
-        if !crate::takeover::held::is_collection_id(raw) {
+        let canonical = crate::attest::uuid_bytes(raw)
+            .map(|b| secrets::uuid_string(&b))
+            .is_some_and(|s| s == raw);
+        if !canonical {
             return Err(ControlError::invalid(
                 "invalid_collection",
                 "collection is not a collection ID",
@@ -342,17 +342,6 @@ impl Daemon {
             .map(|e| e.id.clone())
             .filter(|id| id == raw)
             .ok_or_else(|| ControlError::not_found(format!("no registered collection {raw}")))
-    }
-
-    /// The registered folder of `id`.
-    async fn entry_root(&self, id: &str) -> Result<std::path::PathBuf, ControlError> {
-        self.inner
-            .lock()
-            .await
-            .registry
-            .get(id)
-            .map(|e| e.root.clone())
-            .ok_or_else(|| ControlError::not_found(format!("no registered collection {id}")))
     }
 
     async fn e2e_collection(&self, id: &str) -> Result<(), ControlError> {
@@ -402,7 +391,56 @@ fn registry_error(e: RegistryError) -> ControlError {
     }
 }
 
+/// How often the daemon checks for collections due an automatic reopen.
+const RECOVERY_POLL: std::time::Duration = std::time::Duration::from_secs(5);
+
 impl Daemon {
+    async fn watch_sync_recovery(self: Arc<Self>) {
+        loop {
+            tokio::time::sleep(RECOVERY_POLL).await;
+            self.recover_sync_hosts(std::time::Instant::now()).await;
+        }
+    }
+
+    async fn recover_sync_hosts(self: &Arc<Self>, now: std::time::Instant) {
+        let due: Vec<_> = {
+            let mut inner = self.inner.lock().await;
+            inner
+                .hosts
+                .iter_mut()
+                .filter_map(|host| host.recover_due(now))
+                .collect()
+        };
+        for stop in due {
+            stop.clone().await;
+            let d = self.clone();
+            // Refresh reads local configuration and starts the background opener.
+            // Track the whole publication so shutdown joins it before closing hosts.
+            self.run_blocking(move || {
+                let _gate = d.account_gate.blocking_lock();
+                // Registration changes hold account_gate, so the index stays valid
+                // until publication. A removal or explicit retry may already have won.
+                let candidate = d
+                    .inner
+                    .blocking_lock()
+                    .hosts
+                    .iter()
+                    .enumerate()
+                    .find_map(|(index, h)| h.next_after_stop(&stop).map(|next| (index, next)));
+                let Some((index, mut next)) = candidate else {
+                    return;
+                };
+                next.refresh();
+                let mut inner = d.inner.blocking_lock();
+                next.publish_grants(&inner.access);
+                inner.hosts[index] = next;
+                drop(inner);
+                d.bump();
+            })
+            .await;
+        }
+    }
+
     /// Open runtimes that can now open (account published), or report why not.
     async fn reopen_hosts(&self) {
         let ctx = self.host_ctx();
@@ -430,7 +468,6 @@ impl Daemon {
                 .ok()
                 .flatten()
                 .and_then(|c| c.computer_name),
-            old_connector_running: self.takeover.old_running.clone(),
         })
     }
 
@@ -452,6 +489,8 @@ impl Daemon {
         })
     }
 }
+
+pub(crate) use collection_mode::{format_mode_devices, format_wait_phrase, mode_label};
 
 #[path = "collection_mode.rs"]
 mod collection_mode;

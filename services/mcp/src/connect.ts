@@ -1,4 +1,5 @@
 import { randomBytes, randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
 import {
   applicationInstallationId,
@@ -8,7 +9,7 @@ import {
   signApplicationAuthorization,
   type GrantKeyRecord,
   type GrantKeyStore
-} from "@mdbase-dev/connect/crypto";
+} from "./grant-crypto.js";
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   APPLICATION_CAPABILITY_DEFINITIONS,
@@ -111,6 +112,12 @@ export interface ConnectionSummary {
   authority: "local" | "remote";
 }
 
+/** The Editor a Connect server names: where it runs, and the server origin it opens collections from. */
+interface EditorEntry {
+  readonly origin: string;
+  readonly server: string;
+}
+
 interface ConnectionRow {
   id: string;
   connection_set_id: string;
@@ -128,10 +135,14 @@ interface ConnectionRow {
   refresh_expires_at: Date | string;
 }
 
+const { version: MCP_PACKAGE_VERSION } = createRequire(import.meta.url)("../package.json") as { version: string };
+
 export class ConnectGateway {
   private readonly applicationOrigin: string;
   private readonly noise: NoiseKeyStore;
   readonly next: NextGateway;
+  /** Each Connect server's Editor, as its UI configuration names it, for five minutes. */
+  private readonly editors = new Map<string, { readonly expires: number; readonly editor: Promise<EditorEntry | null> }>();
 
   constructor(
     private readonly db: DatabasePool,
@@ -144,7 +155,7 @@ export class ConnectGateway {
   ) {
     this.applicationOrigin = new URL(callbackUrl).origin;
     this.noise = new NoiseKeyStore(db, secrets);
-    this.next = new NextGateway({ keyStore, noise: this.noise, version: "0.1.0-beta.129" });
+    this.next = new NextGateway({ keyStore, noise: this.noise, version: MCP_PACKAGE_VERSION });
   }
 
   async registerApplication(): Promise<{ id: string; manifestDigest: string }> {
@@ -295,6 +306,45 @@ export class ConnectGateway {
     return result.rows.map(summary);
   }
 
+  /**
+   * Each connection's link to its collection in the Editor its Connect server names, or null when
+   * the server names none or cannot say right now (the link is a convenience, not access).
+   */
+  async editorLinks(connectionSetId: string): Promise<Map<string, string | null>> {
+    const result = await this.db.query<Pick<ConnectionRow, "id" | "upstream_url" | "collection_id">>(
+      "SELECT id, upstream_url, collection_id FROM mcp_connections WHERE connection_set_id = $1",
+      [connectionSetId]
+    );
+    return new Map(await Promise.all(result.rows.map(async (row): Promise<[string, string | null]> => {
+      const editor = await this.editor(new URL(row.upstream_url).origin).catch((error: unknown) => {
+        this.warn({ event: "editor_link_unavailable", reason: error instanceof Error ? error.message : String(error) });
+        return null;
+      });
+      if (!editor) return [row.id, null];
+      const link = new URL("/", editor.origin);
+      link.searchParams.set("server", editor.server);
+      link.searchParams.set("collection", row.collection_id);
+      return [row.id, link.href];
+    })));
+  }
+
+  private editor(server: string): Promise<EditorEntry | null> {
+    const cached = this.editors.get(server);
+    if (cached && cached.expires > Date.now()) return cached.editor;
+    const editor = fetch(`${server}/v1/ui-configuration`, { signal: AbortSignal.timeout(3_000) }).then(async (response) => {
+      if (!response.ok) throw new Error(`${server} UI configuration answered ${response.status}`);
+      const { editor_url: url } = await response.json() as { editor_url?: unknown };
+      if (url === null) return null;
+      if (typeof url !== "string") throw new Error(`${server} UI configuration has no editor_url`);
+      const named = new URL(url);
+      return { origin: named.origin, server: named.searchParams.get("server") ?? server };
+    });
+    this.editors.set(server, { expires: Date.now() + 300_000, editor });
+    // A server that could not answer is asked again next time.
+    editor.catch(() => this.editors.delete(server));
+    return editor;
+  }
+
   async operation<Result>(
     connectionSetId: string,
     connectionId: string,
@@ -325,6 +375,10 @@ export class ConnectGateway {
         );
         if (next !== LEGACY) return next as Result;
         if (completion) throw new GatewayOperationError("control_error", "Native collection routing is unavailable. Try again shortly.");
+        // Legacy authorities predate field removal; refuse rather than let them ignore it.
+        if (operation === "update" && (input as { unset?: unknown } | undefined)?.unset !== undefined) {
+          throw new GatewayOperationError("unsupported_operation", `${connection.display_name} cannot remove fields through unset. Pass the whole file as document instead.`);
+        }
         await this.requireQueryOutput(connection, operation, input, options.signal);
         const attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
         if (attempt.status === 401 && !force) continue;
@@ -520,10 +574,12 @@ export class ConnectGateway {
         refresh_token: credentials.refreshToken,
         client_id: connection.upstream_client_id
       }).toString();
-      const proof = credentials.authority
+      const proofPublicKey = credentials.authority?.proofPublicKey
+        ?? credentials.nativeCompletion?.grant_signing_public_key;
+      const proof = proofPublicKey
         ? await this.authorityProof(
             connection,
-            credentials.authority.proofPublicKey,
+            proofPublicKey,
             "POST",
             refreshUrl,
             refreshBody,
@@ -793,8 +849,16 @@ function summary(connection: ConnectionRow): ConnectionSummary {
 
 function upstreamError(body: any, fallback: string): GatewayOperationError {
   return new GatewayOperationError(
-    typeof body?.error?.code === "string" ? body.error.code : "upstream_error",
-    typeof body?.error?.message === "string" ? body.error.message : fallback,
+    typeof body?.error?.code === "string"
+      ? body.error.code
+      : typeof body?.error === "string"
+        ? body.error
+        : "upstream_error",
+    typeof body?.error?.message === "string"
+      ? body.error.message
+      : typeof body?.error_description === "string"
+        ? body.error_description
+        : fallback,
     body?.error?.details && typeof body.error.details === "object" && !Array.isArray(body.error.details)
       ? body.error.details as Record<string, unknown>
       : undefined

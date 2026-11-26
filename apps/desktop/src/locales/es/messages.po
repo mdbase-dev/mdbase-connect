@@ -150,10 +150,6 @@ msgid "{collection} now syncs{0}"
 msgstr "{collection} ahora se sincroniza{0}"
 
 #: src/renderer/daemon-view.mts
-msgid "{collection} stopped syncing"
-msgstr "{collection} dejó de sincronizarse"
-
-#: src/renderer/daemon-view.mts
 msgid "{collection} was added"
 msgstr "Se añadió {collection}"
 
@@ -258,6 +254,11 @@ msgstr "Ya existe una carpeta llamada «{0}» ahí. Elige otro nombre o usa Aña
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
 msgstr "una colección privada"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "Un cambio de modo de almacenamiento espera confirmación en esta computadora."
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
@@ -489,10 +490,6 @@ msgid "change record types"
 msgstr "cambiar tipos de registros"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "Modificado por un programa que mdbase no reconoce"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "Modificado aquí y en otro lugar"
 
@@ -609,6 +606,10 @@ msgstr "Elige qué archivos sincroniza esta colección en todos los dispositivos
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Borrar filtro"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "Cerrar"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -895,6 +896,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "Estos datos corresponden al último intento de sincronización, no a una comprobación actual de los archivos."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "Recibir actualizaciones antes"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "Ir a {label}"
 
@@ -938,6 +944,11 @@ msgstr "Imágenes"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "Instalar {0}"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "Instala cada versión en cuanto empiece su despliegue. Si no, las versiones llegan a los ordenadores por etapas y mdbase se actualiza como máximo una vez al día."
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -1157,6 +1168,10 @@ msgstr "mdbase aún no ha podido registrar este ordenador. Seguirá intentándol
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "mdbase no ha podido guardar la configuración de la cuenta en este ordenador. Comprueba que haya espacio libre en disco y reinicia mdbase."
 
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "mdbase no pudo determinar en qué versión se basaba este archivo"
+
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
 msgstr "mdbase no pudo verificar el servicio de sincronización de este ordenador. Actualiza mdbase o escribe a support@mdbase.dev. {unchanged}"
@@ -1236,8 +1251,8 @@ msgstr "mdbase solo guarda cambios cifrados. Las aplicaciones web y los agentes 
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase podrá leer la colección, incluido su historial existente, y ofrecer acceso mientras tus dispositivos estén apagados."
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase podrá leer la colección, incluido su historial existente, y servirla mientras tus dispositivos estén apagados. Las aplicaciones conectadas a esta colección deberán volver a conectarse después."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1398,8 +1413,8 @@ msgstr "Permite el acceso solo si este código coincide con el de {who}"
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "Solo tus dispositivos podrán leer el contenido nuevo cuando finalice el cambio. Es posible que mdbase aún pueda leer contenido anterior."
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "Solo tus dispositivos podrán leer el contenido nuevo cuando finalice el cambio. Es posible que mdbase aún pueda leer contenido anterior. Las aplicaciones conectadas a esta colección deberán volver a conectarse después."
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1504,6 +1519,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "leer y añadir archivos"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "leer versiones anteriores de los registros"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"
@@ -1592,6 +1612,11 @@ msgstr "Revisar {0, plural, one {# archivo} other {# archivos}}"
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "Revisar {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "Revisar cambio"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1800,6 +1825,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "El almacenamiento de esta colección está lleno, así que algunos archivos no se han sincronizado. Libera espacio para sincronizarlos. Si es tu colección y tienes el plan Free, puedes mejorar a Plus para tener más almacenamiento."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "Modo de almacenamiento"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "Cambiando el modo de almacenamiento…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1957,6 +1992,11 @@ msgstr "El servidor no ha confirmado que el antiguo mdbase Connect de este orden
 msgid "The sign-in request expired. Start again."
 msgstr "La solicitud de inicio de sesión ha caducado. Empieza de nuevo."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "Se detuvo el cambio a Privado y requiere atención."
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -2026,6 +2066,16 @@ msgstr "Este ordenador ahora se llama {0}."
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "Este ordenador trasladó tus colecciones al nuevo motor de sincronización, pero tu cuenta de mdbase aún no se ha actualizado o la actualización está en pausa. Tus archivos están seguros en sus carpetas, pero es posible que los cambios hechos en este ordenador no lleguen a tus otras aplicaciones de mdbase hasta que se actualice tu cuenta."
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "Este ordenador ahora recibe cada versión en cuanto empieza su despliegue."
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "Este ordenador ahora recibe las versiones por etapas, como máximo una vez al día."
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "Este ordenador inició sesión"
@@ -2054,6 +2104,10 @@ msgstr "Este archivo no es una nota: restaura la otra versión manualmente si la
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "Esta carpeta tiene una identidad antigua de mdbase Connect"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "Este archivo solo está retenido en este equipo. Si se editó en otro equipo, allí no aparecerá como retenido. Elige «Conservar ambas» aquí para conservar las dos versiones. Cuando los equipos tengan los mismos archivos, mueve la versión editada a la carpeta deseada si todavía está en la carpeta anterior."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2196,20 +2250,39 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "La versión {0} está disponible en el canal de paquetes firmados."
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "La versión {0} se está distribuyendo al {1}% de las instalaciones."
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "La versión {0} está verificada y lista para instalarse."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "La versión {version} está disponible primero para las instalaciones con acceso anticipado."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "La versión {version} está disponible. mdbase se actualiza como máximo una vez al día, así que se actualizará después de {after}."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "La versión {version} todavía no se está desplegando."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "La versión {version} está publicada, pero no se pudo verificar su despliegue. mdbase volverá a comprobarlo más tarde."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "La versión {version} se está desplegando en el {percentage} % de las instalaciones."
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "Vídeo"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "Ver progreso"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

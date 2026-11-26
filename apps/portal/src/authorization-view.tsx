@@ -4,7 +4,8 @@ import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { provisionedContract, type SetupType } from "@mdbase/connect-ui/contract-setup";
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { AppTile, McpConnectRow, collectionDiscoveryApps, type ManagedAppOrigins } from "@mdbase/connect-ui/home";
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { APPLICATION_SETUP_OPERATIONS } from "@mdbase-dev/connect-protocol";
 import {
   api,
@@ -53,6 +54,7 @@ import {
   formatDeviceCode,
   host,
   initials,
+  managedOriginsFor,
   message,
   neededProvisions,
   provisionNames,
@@ -236,7 +238,7 @@ export function Authorization({ requestId }: { requestId: string }) {
   return (
     <RequestShell>
         {(status === "pending" || status === "setting_up") && <RequestIdentity request={authorization} showClientKey={!request.collections.some((collection) => collection.kind === "private" || collection.kind === "cloud_copy")} />}
-        {status === "pending" && continuingInDesktop ? (
+        {status === "pending" && continuingInDesktop && authorization.account_backend !== "next" ? (
           <DesktopContinuation
             request={authorization}
             onReviewHere={() => continueInDesktop(false)}
@@ -266,10 +268,13 @@ export function Authorization({ requestId }: { requestId: string }) {
         </> : <RequestOutcome
           status={status}
           applicationName={authorization.application_name}
+          applicationOrigin={authorization.application_origin || authorization.homepage || undefined}
           portable={authorization.distribution === "portable"}
           returnUrl={returnUrl}
+          collectionId={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.id ?? authorization.collection_id ?? undefined}
           collectionName={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.display_name}
           collectionKind={(approvedCollection ?? request.collections.find(collection => collection.id === authorization.collection_id))?.kind}
+          origins={managedOriginsFor()}
         />}
     </RequestShell>
   );
@@ -278,38 +283,62 @@ export function Authorization({ requestId }: { requestId: string }) {
 const RETURN_LINK_DELAY_MS = 4_000;
 const SLOW_SETUP_MS = 20_000;
 
-export function RequestOutcome({ status, applicationName, collectionName, collectionKind, portable = false, returnUrl = "", standalone = false }: {
+export function RequestOutcome({ status, applicationName, applicationOrigin, collectionId, collectionName, collectionKind, origins, portable = false, returnUrl = "", standalone = false }: {
   status: Exclude<RequestStatus, "pending">;
   applicationName: string;
+  applicationOrigin?: string;
+  collectionId?: string;
   collectionName?: string;
   collectionKind?: "local" | "hosted" | "private" | "cloud_copy";
+  origins?: ManagedAppOrigins;
   portable?: boolean;
   returnUrl?: string;
   // Without a loaded request there is no application heading above the outcome.
   standalone?: boolean;
 }) {
   useLocaleRevision();
+  const discoveryHeadingId = useId();
   const Heading = standalone ? "h1" : "h2";
   // Show a manual return link or a slow-setup note only if the automatic step
   // has not already taken the user away.
   const [late, setLate] = useState(false);
   const [seconds, setSeconds] = useState(3);
   const outcome = useRef<HTMLDivElement>(null);
+  const navigated = useRef(false);
+  const timerRef = useRef<number | null>(null);
   useLayoutEffect(() => { outcome.current?.querySelector<HTMLElement>("h1, h2")?.focus(); }, [status]);
   useEffect(() => {
+    navigated.current = false;
     if (!returnUrl || portable || (status !== "approved" && status !== "denied")) return;
     if (status === "denied") {
-      const timer = window.setTimeout(() => location.replace(returnUrl), 0);
-      return () => window.clearTimeout(timer);
+      timerRef.current = window.setTimeout(() => {
+        timerRef.current = null;
+        if (navigated.current) return;
+        navigated.current = true;
+        location.replace(returnUrl);
+      }, 0);
+      return () => {
+        if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+        timerRef.current = null;
+      };
     }
     let remaining = 3;
     setSeconds(remaining);
-    const timer = window.setInterval(() => {
+    timerRef.current = window.setInterval(() => {
       remaining -= 1;
       setSeconds(remaining);
-      if (remaining === 0) { window.clearInterval(timer); location.replace(returnUrl); }
+      if (remaining === 0) {
+        if (timerRef.current !== null) window.clearInterval(timerRef.current);
+        timerRef.current = null;
+        if (navigated.current) return;
+        navigated.current = true;
+        location.replace(returnUrl);
+      }
     }, 1_000);
-    return () => window.clearInterval(timer);
+    return () => {
+      if (timerRef.current !== null) window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    };
   }, [returnUrl, portable, status]);
   useEffect(() => {
     setLate(false);
@@ -317,8 +346,20 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
     const timer = window.setTimeout(() => setLate(true), delay);
     return () => window.clearTimeout(timer);
   }, [status]);
+  function handleManualReturn(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (navigated.current) {
+      event.preventDefault();
+      return;
+    }
+    navigated.current = true;
+    if (timerRef.current !== null) {
+      window.clearInterval(timerRef.current);
+      window.clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
+  }
   const returnLink = late && returnUrl
-    ? <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>
+    ? <a className="mdbase-button outcome-return" href={returnUrl} onClick={handleManualReturn}>{t(i18n)`Return to ${applicationName}`}</a>
     : null;
   if (status === "expired") return <div className="request-outcome" role="status">
     <p className="eyebrow outcome-label"><Trans>Request unavailable</Trans></p>
@@ -333,12 +374,15 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
     {late && <p><Trans>This is taking longer than usual. Keep this page open; it continues automatically when setup finishes.</Trans></p>}
   </div>;
   const approved = status === "approved";
+  const discovery = approved && (!returnUrl || portable) && collectionId && collectionName && origins
+    ? collectionDiscoveryApps(origins, collectionId, [{ name: applicationName, origin: applicationOrigin }])
+    : null;
   return <div className="request-outcome" role="status" ref={outcome}>
     {approved && collectionName ? <GrantMoment applicationName={applicationName} collectionName={collectionName} collectionKind={collectionKind} />
       : <h1 tabIndex={-1}>{approved ? t(i18n)({ message: "Access approved", context: "Application access approval" }) : t(i18n)({ message: "Access denied", context: "Application access approval" })}</h1>}
     {approved && collectionName && <p className="mdbase-visually-hidden"><Trans>Access approved</Trans></p>}
     {approved && !portable && returnUrl && <p>{t(i18n)`Returning to ${applicationName}…`}<span className="request-return-countdown" aria-hidden="true" /><output className="mdbase-visually-hidden" aria-live="polite">{i18n.number(seconds, { style: "unit", unit: "second", unitDisplay: "long" })}</output></p>}
-    {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl}>{t(i18n)`Return to ${applicationName}`}</a>}
+    {approved && returnUrl && <a className="mdbase-button outcome-return" href={returnUrl} onClick={handleManualReturn}>{t(i18n)`Return to ${applicationName}`}</a>}
     {(portable || !approved || !returnUrl) && <p>{portable
       ? approved
         ? t(i18n)({ message: "The app will finish connecting with its one-time device code. You can close this window." })
@@ -347,6 +391,26 @@ export function RequestOutcome({ status, applicationName, collectionName, collec
         ? t(i18n)`Continue in ${applicationName} to use this collection.`
         : t(i18n)({ message: "The app will show that access was not granted." })}</p>}
     {!approved && returnLink}
+    {discovery && collectionName && (discovery.apps.length > 0 || discovery.showMcp) && (
+      <section className="outcome-discovery" aria-labelledby={discoveryHeadingId}>
+        <h2 id={discoveryHeadingId}>{t(i18n)`Also works with ${collectionName}`}</h2>
+        {discovery.apps.length > 0 && (
+          <ul className="app-grid">
+            {discovery.apps.map((app) => (
+              <AppTile key={app.key} app={app}>
+                {app.url && (
+                  <a className="mdbase-button" href={app.url} target="_blank" rel="noopener noreferrer" aria-label={t(i18n)`Open ${app.name}`}>
+                    <Trans>Open</Trans>
+                  </a>
+                )}
+              </AppTile>
+            ))}
+          </ul>
+        )}
+        {discovery.showMcp && <McpConnectRow />}
+        <p className="outcome-discovery-note">{t(i18n)`Each app asks for your approval before accessing ${collectionName}. Your files remain ordinary Markdown.`}</p>
+      </section>
+    )}
   </div>;
 }
 /** Plain label for an exact non-web app origin shown on the consent screen. */
@@ -796,7 +860,9 @@ function SupportedApprovalForm({
             ? t(i18n)({ message: "The collection requested by this app is not available." })
             : request.requirements.collection_kind === "hosted"
               ? t(i18n)({ message: "This app needs a collection hosted by mdbase, and none is ready yet." })
-              : t(i18n)({ message: "No compatible collection is ready." })}</p>}
+              : request.account_backend === "next" && unavailable.length === 0 && unavailableConnectors.length === 0
+                ? t(i18n)({ message: "Create a new collection below, or sync an existing folder in mdbase Desktop first." })
+                : t(i18n)({ message: "No compatible collection is ready." })}</p>}
           {(unavailable.length > 0
             || unavailableConnectors.length > 0
             || (request.requirements.collection_kind !== "hosted" && !request.collection_id)
@@ -819,7 +885,8 @@ function SupportedApprovalForm({
                   ? t(i18n)`${connector.connector_name} has remote access paused.`
                   : t(i18n)`${connector.connector_name} is offline.`).join(" "))} Those local collections cannot be selected until their computer is available.
               </Trans></p>}
-              {request.requirements.collection_kind !== "hosted"
+              {request.account_backend !== "next"
+                && request.requirements.collection_kind !== "hosted"
                 && !request.collection_id
                 && <div className="alternate-collection-row">
                   <div>
@@ -886,6 +953,21 @@ function SupportedApprovalForm({
                   ><Trans>New collection</Trans></button>
                 </div>
               ))}
+              {request.account_backend === "next"
+                && request.requirements.collection_kind !== "hosted"
+                && !request.collection_id
+                && <div className="alternate-collection-row">
+                  <div>
+                    <strong><Trans>Use an existing folder or Obsidian vault</Trans></strong>
+                    <small><Trans>Add and sync your folder in mdbase Desktop, then return to this page. If this request expires while you set up Desktop, connect again from {literal(request.application_name)}.</Trans></small>
+                  </div>
+                  <a
+                    className="mdbase-button is-tertiary"
+                    href="https://mdbase.dev/downloads/"
+                    target="_blank"
+                    rel="noreferrer"
+                  ><Trans>Get mdbase Desktop</Trans></a>
+                </div>}
             </div>
           </details>}
           {error && <div className="mdbase-message is-error compact" role="alert">{error}</div>}

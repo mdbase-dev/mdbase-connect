@@ -72,6 +72,7 @@ pub fn plain_capability(capability: &str) -> &str {
         "definitions.manage" => "manage types and collection setup",
         "background.schedule" => "run scheduled background tasks",
         "offline.replica" => "keep an offline copy",
+        "history.read" => "read earlier versions of records",
         other => other,
     }
 }
@@ -86,6 +87,14 @@ pub fn plain_capabilities(capabilities: &[String]) -> String {
 }
 
 impl CachedGrant {
+    /// Keep only the identity of the declared setup evidence: no setup is
+    /// served from this grant.
+    fn drop_setup_declaration(&mut self) {
+        if let Some(setup) = &mut self.declared_setup {
+            setup.drop_declaration();
+        }
+    }
+
     /// The short fingerprint shown to the user and on the app's consent screen
     /// (`policy.md` §5.1), in the one shared display form
     /// ([`mdbn_replica::crypto::proof::client_fingerprint_display`]).
@@ -187,19 +196,29 @@ pub enum Refusal {
     LeaseExpired,
     /// Private authorization has not reached the local cache yet.
     Unavailable,
+    /// The grant is current, but this device is not serving the collection right
+    /// now (paused, opening, recovering or failed): retry, no new consent.
+    NotServed,
 }
 
 impl Refusal {
     /// Client-facing refusal; a renewable lease lapse is not revoked consent.
     pub fn problem(self) -> mdbn_wire::client::Problem {
-        let retryable = matches!(self, Self::LeaseExpired | Self::Unavailable);
+        let retryable = matches!(
+            self,
+            Self::LeaseExpired | Self::Unavailable | Self::NotServed
+        );
         let code = if retryable {
             mdbn_replica::api::ErrorCode::Unavailable
         } else {
             mdbn_replica::api::ErrorCode::Forbidden
         };
-        let mut problem =
-            code.problem_with_reason(self.reason(), "this app has no active access here");
+        let message = if self == Self::NotServed {
+            "this device is not serving the collection right now"
+        } else {
+            "this app has no active access here"
+        };
+        let mut problem = code.problem_with_reason(self.reason(), message);
         if retryable {
             problem.retry_after_ms = Some(1000);
         }
@@ -215,6 +234,7 @@ impl Refusal {
             Refusal::RevokedLocally => "grant_revoked_on_device",
             Refusal::LeaseExpired => "grant_lease_expired",
             Refusal::Unavailable => "authorization_unavailable",
+            Refusal::NotServed => "not_served",
         }
     }
 }
@@ -343,6 +363,10 @@ impl AccessList {
     /// show the user. The caller saves before serving. `account_approved` is
     /// true only for synced Private grants: account consent replaces the local
     /// opt-in approval setting, including for a fresh grant after revocation.
+    /// Those are also the only grants setup is served from
+    /// (`authority::Source::declared_setup`), so only their unrefused entries
+    /// keep the declaration of their declared setup; every other entry keeps
+    /// just its identity, which still tells changed terms apart.
     ///
     /// Local refusals are **tombstones**. A denied or locally revoked
     /// grant is kept when the control plane stops listing it, and a grant that
@@ -396,6 +420,12 @@ impl AccessList {
         for g in grants.iter().filter(|g| g.collection == collection) {
             match self.find(&g.grant) {
                 Some(i) if self.entries[i].grant == *g => {
+                    // Same terms; a collection that turned synced Private takes
+                    // back the declaration it dropped while local.
+                    let kept = &mut self.entries[i].grant.declared_setup;
+                    if account_approved && kept.as_ref().is_some_and(|s| s.declaration_dropped()) {
+                        kept.clone_from(&g.declared_setup);
+                    }
                     // Upgrade the old computer-approval waiting state. Account
                     // consent is the only user decision for Private grants.
                     if account_approved && self.entries[i].state == AccessState::PendingApproval {
@@ -453,6 +483,11 @@ impl AccessList {
                     });
                     self.entries.push(entry);
                 }
+            }
+        }
+        for e in self.entries.iter_mut() {
+            if e.grant.collection == collection && (!account_approved || e.is_refused()) {
+                e.grant.drop_setup_declaration();
             }
         }
         events
@@ -515,6 +550,35 @@ impl AccessList {
                 .is_some_and(|exp| std::time::Instant::now() < *exp)
     }
 
+    /// Whether replacing this list with `next` can refuse a session this list
+    /// admits: an active grant is gone, or its consent changed (terms, key or
+    /// generation), or a collection's lease ends sooner on either clock. Only
+    /// then must open sessions be re-checked before the change is acknowledged.
+    /// A renewal, a new grant or an approval only widens. Refusals are never
+    /// lifted by `next` here: they are tombstones the feed keeps.
+    pub fn narrowed_by(&self, next: &AccessList) -> bool {
+        let consent_lost = self
+            .entries
+            .iter()
+            .filter(|e| e.state == AccessState::Active)
+            .any(|e| {
+                !next.entries.iter().any(|n| {
+                    n.state == AccessState::Active
+                        && n.generation == e.generation
+                        && n.grant == e.grant
+                })
+            });
+        let lease_shorter = self
+            .leases
+            .iter()
+            .any(|(c, exp)| next.leases.get(c).is_none_or(|n| n < exp))
+            || self
+                .monotonic_leases
+                .iter()
+                .any(|(c, exp)| next.monotonic_leases.get(c).is_none_or(|n| n < exp));
+        consent_lost || lease_shorter
+    }
+
     /// Mark a collection as having been end-to-end: approval is
     /// required from now on for it.
     pub fn force_approval(&mut self, collection: &str) {
@@ -529,6 +593,7 @@ impl AccessList {
             AccessState::Active | AccessState::PendingApproval => {
                 e.state = AccessState::RevokedLocally;
                 e.acknowledged = true;
+                e.grant.drop_setup_declaration();
                 Ok(e)
             }
             s => Err(AccessError::WrongState(s)),
@@ -556,6 +621,7 @@ impl AccessList {
         }
         e.state = AccessState::Denied;
         e.acknowledged = true;
+        e.grant.drop_setup_declaration();
         Ok(e)
     }
 
@@ -566,6 +632,24 @@ impl AccessList {
         Ok(&self.entries[i])
     }
 
+    /// Acknowledge every new-access notification of `collection`, as
+    /// [`AccessList::summaries`]. A grant waiting for approval needs a
+    /// decision instead and stays as it is.
+    pub fn acknowledge_collection(&mut self, collection: &str) -> Vec<AccessEntry> {
+        self.entries
+            .iter_mut()
+            .filter(|e| {
+                e.grant.collection == collection
+                    && e.state == AccessState::Active
+                    && !e.acknowledged
+            })
+            .map(|e| {
+                e.acknowledged = true;
+                summary(e)
+            })
+            .collect()
+    }
+
     /// Entries for one collection (or all).
     pub fn list(&self, collection: Option<&str>) -> Vec<&AccessEntry> {
         self.entries
@@ -574,12 +658,26 @@ impl AccessList {
             .collect()
     }
 
+    /// The entries `access.list` returns: [`AccessList::list`] without each
+    /// grant's declared-setup evidence. No list reader shows it, and a few app
+    /// declarations (hundreds of kB each) overflow one control frame.
+    pub fn summaries(&self, collection: Option<&str>) -> Vec<AccessEntry> {
+        self.list(collection).into_iter().map(summary).collect()
+    }
+
     /// Drop every entry of an unregistered collection.
     pub fn forget_collection(&mut self, collection: &str) {
         self.entries.retain(|e| e.grant.collection != collection);
         self.leases.remove(collection);
         self.monotonic_leases.remove(collection);
     }
+}
+
+/// An entry without its declared-setup evidence.
+fn summary(entry: &AccessEntry) -> AccessEntry {
+    let mut entry = entry.clone();
+    entry.grant.declared_setup = None;
+    entry
 }
 
 #[cfg(test)]
@@ -636,6 +734,47 @@ mod tests {
             AccessState::Active
         );
         assert!(list.require_grant_approval);
+    }
+
+    #[test]
+    fn only_lost_consent_or_a_shorter_lease_narrows() {
+        let read = g("g1", 1, &["collection.read"]);
+        let mut base = AccessList::default();
+        base.sync_from_control_plane("c", std::slice::from_ref(&read), 1_000, 60_000, false);
+        let next = |grants: &[CachedGrant], expires: u64| {
+            let mut next = base.clone();
+            next.sync_from_control_plane("c", grants, 2_000, expires, false);
+            next
+        };
+        // A renewal and a new grant only widen.
+        assert!(!base.narrowed_by(&next(std::slice::from_ref(&read), 70_000)));
+        let other = g("g2", 2, &["collection.read"]);
+        assert!(!base.narrowed_by(&next(&[read.clone(), other], 70_000)));
+        // Revocation, changed terms or key, and a sooner lease narrow.
+        assert!(base.narrowed_by(&next(&[], 70_000)));
+        let wider = g("g1", 1, &["collection.read", "records.edit"]);
+        assert!(base.narrowed_by(&next(&[wider], 70_000)));
+        assert!(base.narrowed_by(&next(&[g("g1", 3, &["collection.read"])], 70_000)));
+        assert!(base.narrowed_by(&next(std::slice::from_ref(&read), 50_000)));
+        let mut cleared = base.clone();
+        cleared.monotonic_leases.clear();
+        assert!(base.narrowed_by(&cleared));
+        // Pending and refused entries admit nothing, so losing them narrows nothing.
+        let mut pending = AccessList {
+            require_grant_approval: true,
+            ..Default::default()
+        };
+        pending.sync_from_control_plane("c", std::slice::from_ref(&read), 1_000, 60_000, false);
+        let mut renewed = pending.clone();
+        renewed.sync_from_control_plane("c", &[], 2_000, 70_000, false);
+        assert!(!pending.narrowed_by(&renewed));
+        // Approval on this device widens; revoking on it narrows.
+        let mut approved = pending.clone();
+        approved.approve("g1").unwrap();
+        assert!(!pending.narrowed_by(&approved));
+        let mut revoked = approved.clone();
+        revoked.revoke("g1").unwrap();
+        assert!(approved.narrowed_by(&revoked));
     }
 
     #[test]

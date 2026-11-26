@@ -1,8 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-const SOURCE_ROOTS = ["apps", "crates", "packages", "services"];
-const SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".mts", ".rs", ".ts", ".tsx"]);
+const SOURCE_ROOTS = ["apps", "packages", "services"];
+const SOURCE_EXTENSIONS = new Set([".js", ".mjs", ".mts", ".ts", ".tsx"]);
 const TYPESCRIPT_EXTENSIONS = new Set([".js", ".mjs", ".mts", ".ts", ".tsx"]);
 const IGNORED_DIRECTORIES = new Set(["dist", "node_modules", "out", "target"]);
 
@@ -151,58 +151,9 @@ async function workspacePackageGraph(root) {
   return graph;
 }
 
-async function cargoManifests(root) {
-  const manifests = [];
-  const workspace = await readOptional(path.join(root, "Cargo.toml"));
-  if (workspace !== null) manifests.push(["Cargo.toml", workspace]);
-  for (const entry of await entriesOf(path.join(root, "crates"))) {
-    if (!entry.isDirectory()) continue;
-    const file = `crates/${entry.name}/Cargo.toml`;
-    const source = await readOptional(path.join(root, file));
-    if (source !== null) manifests.push([file, source]);
-  }
-  return manifests;
-}
-
-// Canonical operation outcomes are constructed and read only through mdbase's
-// typed API; Connect must not build wire-only values or reach into fields.
-const FORBIDDEN_RUST = [
-  [/\b(?:CanonicalOperationValue::WireOnly|WireOnlyOperationValue::)\b/g, "direct wire-only operation value constructor"],
-  [/\bCanonicalOperationOutcome\s*\{\s*(?:valid|value|diagnostics)\s*:/g, "direct CanonicalOperationOutcome struct literal"],
-  [/\boperation\.(?:valid|value|diagnostics)\b(?!\s*\()/g, "private canonical outcome field access"]
-];
-
-const PROJECTION_ASSERTION =
-  /const\s+_\s*:\s*\(\)\s*=\s*assert!\(\s*mdbase::runtime::SEMANTIC_PROJECTION_FORMAT_VERSION\s*==\s*CONNECT_SEMANTIC_PROJECTION_FORMAT_VERSION\s*\)\s*;/s;
-
 export async function evaluateArchitecture(root) {
   const sources = await productionSources(root);
   const failures = [];
-
-  for (const [file, source] of sources) {
-    if (!file.endsWith(".rs")) continue;
-    for (const [pattern, description] of FORBIDDEN_RUST) {
-      const count = matchCount(source, pattern);
-      if (count > 0) failures.push(`${file} has ${count} forbidden ${description}(s).`);
-    }
-  }
-
-  for (const [manifest, source] of await cargoManifests(root)) {
-    if (/\bfeatures\s*=\s*\[[^\]]*["']legacy-collection-mutation["'][^\]]*\]/s.test(source)) {
-      failures.push(`${manifest} enables the legacy-collection-mutation feature.`);
-    }
-    for (const dependency of source.matchAll(/^\s*mdbase\s*=\s*\{([^}]*)\}/gm)) {
-      const options = dependency[1];
-      if (!/\bworkspace\s*=\s*true\b/.test(options) && !/\bdefault-features\s*=\s*false\b/.test(options)) {
-        failures.push(`${manifest} mdbase dependency must set default-features = false.`);
-      }
-    }
-  }
-
-  const provider = sources.get("crates/connect-hosted-provider/src/provider.rs");
-  if (provider !== undefined && !PROJECTION_ASSERTION.test(provider)) {
-    failures.push("hosted provider must compile-assert the upstream semantic projection format.");
-  }
 
   for (const cycle of graphCycles(relativeImportGraph(sources))) {
     failures.push(`Relative import cycle: ${cycle.join(" -> ")}`);

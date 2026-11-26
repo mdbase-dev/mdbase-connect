@@ -776,7 +776,7 @@ fn in_process(root: &Path) -> Result<Transport, ClientError> {
     })
 }
 
-fn folder_error(e: FolderError) -> ControlError {
+pub(crate) fn folder_error(e: FolderError) -> ControlError {
     match e {
         FolderError::NotACollection { root } => ControlError::new(
             "collection_invalid",

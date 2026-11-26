@@ -8,13 +8,12 @@ const source = { event: "workflow_dispatch", ref: "refs/tags/v0.1.0-beta.96", sh
 const responses = [
   { ok: true, service: "mdbase-connect", revision: sha, environment: "production", public_origin: "https://connect.mdbase.dev", protocol_version: 1, capabilities: ["application-authorization-v2-issuance"] },
   { ok: true, service: "mdbase-connect" },
-  { status: "ready", provider: { version: source.version, revision: "c".repeat(40), capabilities: ["application-authorization-v2-issuance"] }, notifications: { recovery: "ok", consecutive_failures: 0 } },
   { ok: true, service: "mdbase-mcp", revision: sha }
 ];
 function fakeFetch(values = structuredClone(responses)) {
   let index = 0;
   return async (url, options) => {
-    assert.equal(url, ["https://connect.mdbase.dev/health", "https://connect.mdbase.dev/ready", "https://sync.mdbase.dev/ready", "https://mcp.mdbase.dev/health"][index]);
+    assert.equal(url, ["https://connect.mdbase.dev/health", "https://connect.mdbase.dev/ready", "https://mcp.mdbase.dev/health"][index]);
     assert.equal(options.redirect, "error");
     assert.equal(options.cache, "no-store");
     assert.ok(options.signal instanceof AbortSignal);
@@ -40,13 +39,8 @@ test("missing, stale, disabled, staging and wrong-service evidence fails closed"
     [0, { capabilities: [] }], [0, { capabilities: undefined }],
     [0, { capabilities: ["application-authorization-v2-issuance", null] }],
     [1, { ok: false }], [1, { service: "other" }],
-    [2, { status: "not_ready" }], [2, { provider: undefined }],
-    [2, { notifications: { recovery: "failed", consecutive_failures: 1 } }],
-    [2, { provider: { version: "0.1.0-beta.95", capabilities: [] } }],
-    [2, { provider: { version: source.version, capabilities: [] } }],
-    [2, { provider: { version: source.version, capabilities: ["application-authorization-v2-issuance", null] } }],
-    [3, { revision: undefined }], [3, { revision: "b".repeat(40) }],
-    [3, { service: "mdbase-connect" }], [3, { ok: false }]
+    [2, { revision: undefined }], [2, { revision: "b".repeat(40) }],
+    [2, { service: "mdbase-connect" }], [2, { ok: false }]
   ]) {
     const values = structuredClone(responses);
     Object.assign(values[index], change);
@@ -70,7 +64,8 @@ function promotion(rounds) {
   let round = -1;
   const fetchImpl = async (url) => {
     calls.push(url);
-    const index = ["https://connect.mdbase.dev/health", "https://connect.mdbase.dev/ready", "https://sync.mdbase.dev/ready", "https://mcp.mdbase.dev/health"].indexOf(url);
+    const index = ["https://connect.mdbase.dev/health", "https://connect.mdbase.dev/ready", "https://mcp.mdbase.dev/health"].indexOf(url);
+    assert.notEqual(index, -1, `unexpected production read: ${url}`);
     if (index === 0) round++;
     const value = rounds[Math.min(round, rounds.length - 1)][index];
     return typeof value === "number" ? { ok: false, status: value } : { ok: true, json: async () => value };
@@ -80,21 +75,19 @@ function promotion(rounds) {
   const options = { settleMs: 25 * 60_000, pollMs: 45_000, now: () => clock, sleep: async (ms) => { sleeps.push(ms); clock += ms; } };
   return { fetchImpl, calls, sleeps, options };
 }
-const skewed = () => { const values = structuredClone(responses); values[3].revision = "b".repeat(40); return values; };
+const skewed = () => { const values = structuredClone(responses); values[2].revision = "b".repeat(40); return values; };
 test("an immediate consistent production identity makes no extra calls", async () => {
   const fake = promotion([structuredClone(responses)]);
-  assert.deepEqual(await readProductionRelease(fake.fetchImpl, fake.options), { sha, version: source.version, providerSha: "c".repeat(40) });
-  assert.equal(fake.calls.length, 4);
+  assert.deepEqual(await readProductionRelease(fake.fetchImpl, fake.options), { sha });
+  assert.equal(fake.calls.length, 3);
   assert.deepEqual(fake.sleeps, []);
 });
 test("a rolling promotion is re-observed until Connect and MCP agree", async () => {
   const connectRestarting = structuredClone(responses);
   connectRestarting[1] = 503;
-  const providerStarting = structuredClone(responses);
-  providerStarting[2].status = "starting";
-  const fake = promotion([skewed(), connectRestarting, providerStarting, skewed(), structuredClone(responses)]);
-  assert.deepEqual(await readProductionRelease(fake.fetchImpl, fake.options), { sha, version: source.version, providerSha: "c".repeat(40) });
-  assert.deepEqual(fake.sleeps, [45_000, 45_000, 45_000, 45_000]);
+  const fake = promotion([skewed(), connectRestarting, skewed(), structuredClone(responses)]);
+  assert.deepEqual(await readProductionRelease(fake.fetchImpl, fake.options), { sha });
+  assert.deepEqual(fake.sleeps, [45_000, 45_000, 45_000]);
 });
 test("a promotion that never converges fails with the same message within the bound", async () => {
   const fake = promotion([skewed()]);
@@ -105,8 +98,7 @@ test("a promotion that never converges fails with the same message within the bo
 test("waiting never retries an identity that a promotion cannot explain", async () => {
   for (const [index, change] of [
     [0, { environment: "staging" }], [0, { capabilities: [] }], [1, { service: "other" }],
-    [2, { provider: undefined }], [2, { notifications: { recovery: "failed", consecutive_failures: 1 } }],
-    [3, { service: "mdbase-connect" }], [3, { revision: undefined }], [3, { ok: false }]
+    [2, { service: "mdbase-connect" }], [2, { revision: undefined }], [2, { ok: false }]
   ]) {
     const values = structuredClone(responses);
     Object.assign(values[index], change);
@@ -116,7 +108,7 @@ test("waiting never retries an identity that a promotion cannot explain", async 
   }
   const fake = promotion([skewed()]);
   await assert.rejects(readProductionRelease(fake.fetchImpl), /MCP identity/);
-  assert.equal(fake.calls.length, 4, "without settleMs the observation stays single-shot");
+  assert.equal(fake.calls.length, 3, "without settleMs the observation stays single-shot");
 });
 const workflow = async (name) => readFile(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
 test("client publishers retain qualified source guards and cannot publish on an unqualified tag push", async () => {
@@ -157,15 +149,32 @@ test("contract-sensitive commits get images of their own", async () => {
 
 test("Editor publishes only through main-ref immutable-source dispatch; pushes never deploy", async () => {
   const text = await workflow("editor-pages");
-  // Tests and publication have disjoint triggers; there is one protected uploader.
+  // Tests and publication have disjoint triggers. There are exactly two protected
+  // uploaders: the managed Editor, and the production self-hosted Editor after it.
   assert.doesNotMatch(text, /deploy-cloudflare/);
   assert.doesNotMatch(text, /production_verified_commit/);
   const jobs = text.split("\njobs:\n")[1];
   const deploys = [...jobs.matchAll(/wrangler"? pages deploy|"\$cli" pages deploy/g)];
-  assert.equal(deploys.length, 1);
+  assert.equal(deploys.length, 2);
   const upload = jobs.split("  native-deploy:\n")[1];
   assert.match(upload, /pages deploy artifact\/publish/);
   assert.match(upload, /needs: \[native-inputs, native-build\]/);
+  const managed = upload.split("\n  smoke:\n")[0];
+  assert.equal([...managed.matchAll(/pages deploy/g)].length, 1);
+  assert.match(managed, /pages deploy artifact\/publish --no-bundle --project-name mdbase-editor --branch "\$branch" --commit-hash "\$SOURCE_SHA" --commit-dirty=false/);
+  const selfHosted = jobs.split("  self-hosted:\n")[1].split("\n  deployment-record:\n")[0];
+  assert.equal([...selfHosted.matchAll(/pages deploy/g)].length, 1);
+  assert.match(selfHosted, /needs: \[native-inputs, native-build, native-deploy, smoke\]/);
+  // Production only, after the managed upload and its smoke, and only when planned.
+  assert.match(selfHosted, /if: inputs\.target == 'production' && needs\.native-build\.outputs\.self-hosted == 'true' && needs\.smoke\.result == 'success'/);
+  assert.match(selfHosted, /node "\$cli" pages deploy artifact\/self-hosted\/publish --no-bundle --project-name mdbase-editor-self-hosted --branch main --commit-hash "\$SOURCE_SHA" --commit-dirty=false/);
+  assert.match(selfHosted, /test "\$GITHUB_RUN_ATTEMPT" = 1/);
+  assert.match(selfHosted, /ref: \$\{\{ github\.sha \}\}/);
+  // The plan is false, so the job is skipped, when ops sets skip_self_hosted.
+  const plan = jobs.split("  native-build:\n")[1].split("\n  native-deploy:\n")[0];
+  assert.match(plan, /SKIP_SELF_HOSTED: \$\{\{ inputs\.skip_self_hosted && 'true' \|\| 'false' \}\}/);
+  assert.match(plan, /planned=false\n\s*if \[ "\$SKIP_SELF_HOSTED" != true \]; then planned=\$\(node apps\/editor\/scripts\/native\/self-hosted\.mjs planned\); fi/);
+  assert.match(text, /skip_self_hosted:\n\s+description: [^\n]+\n\s+type: boolean\n\s+default: false/);
   const dispatch = jobs.split("  native-dispatch:\n")[1].split("  native-inputs:\n")[0];
   assert.match(dispatch, /if: github.event_name == 'workflow_dispatch'/);
   assert.match(dispatch, /\[\[ "\$GITHUB_REF" == refs\/heads\/main \]\]/);

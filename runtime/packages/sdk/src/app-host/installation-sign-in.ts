@@ -73,6 +73,10 @@ function portalMetadata(v: Record<string, unknown>, stored = false): PortalMetad
   }
   return {accountEmail: accountEmail(email), portalConfirmed: true};
 }
+function withoutPortalMetadata<T extends PortalMetadata>(value: T): T {
+  const {accountEmail: _email, portalConfirmed: _confirmed, accountProvider: _provider, accountLogin: _login, ...kept} = value;
+  return kept as T;
+}
 function assertOriginalPortal(before: PortalMetadata, after: PortalMetadata): void {
   if (before.portalConfirmed && (after.portalConfirmed !== true || before.accountEmail !== after.accountEmail || before.accountProvider !== after.accountProvider || before.accountLogin !== after.accountLogin)) throw fail("binding");
 }
@@ -299,7 +303,7 @@ export class AppProtectedInstallationSignIn {
   private closed = false;
   private busy = false;
   private nativeAcknowledged = false;
-  private expiredRequestId: string | null = null;
+  private closedPairing: {requestId: string; reason: "expired" | "refused"} | null = null;
   /** Definite authenticated pre-proof refusal only, never an HTTP unknown. */
   private wrongAccountRequestId: string | null = null;
   private readonly lifetime = new AbortController();
@@ -504,8 +508,9 @@ export class AppProtectedInstallationSignIn {
             ((error as Record<string,unknown>).code === "installation_pairing_expired" || (error as Record<string,unknown>).code === "installation_pairing_denied")) {
           // Expired or cancelled in the portal: the SAME actor may renew this
           // window from an explicit user retry. Any other 404 stays terminal.
-          this.expiredRequestId = this.state.requestId;
-          throw fail((error as Record<string,unknown>).code === "installation_pairing_expired" ? "expired" : "refused");
+          const reason = (error as Record<string,unknown>).code === "installation_pairing_expired" ? "expired" : "refused";
+          this.closedPairing = {requestId: this.state.requestId, reason};
+          throw fail(reason);
         }
         const server = appServerProblem(response.status, value, response.headers);
         const refusal = new AppInstallationSignInError(appServerOutcome(server) ?? "refused", server);
@@ -536,14 +541,19 @@ export class AppProtectedInstallationSignIn {
   renewExpiredPairing(): Promise<AppInstallationSignInView> {
     return this.exclusive(async () => {
       const s = this.state;
-      if (s.token || this.expiredRequestId !== s.requestId) throw fail("recovery_required");
+      if (s.token || this.closedPairing?.requestId !== s.requestId) throw fail("recovery_required");
       const bytes = crypto.getRandomValues(new Uint8Array(32));
       try {
         const requestId = crypto.randomUUID(), secret = `pair_${btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "")}`;
         if (requestId === s.requestId || requestId === s.renewal?.requestId || secret === s.secret) throw fail("binding");
         const {requestSent: _sent, ...unsent} = s;
-        await this.save({...unsent, requestId, secret, renewal: {requestId:s.requestId, secret:s.secret}});
-        this.expiredRequestId = null;
+        // Connect carries the chosen account into the renewed window but not the
+        // portal's confirmation of it: that belongs to the expired request. Keep
+        // the account (selected() still requires the SAME one) and wait for the
+        // renewed window's own confirmation.
+        const selection = s.selection ? withoutPortalMetadata(s.selection) : s.selection;
+        await this.save({...unsent, selection, requestId, secret, renewal: {requestId:s.requestId, secret:s.secret}});
+        this.closedPairing = null;
         return await this.startRequest();
       } finally { bytes.fill(0); }
     });
@@ -551,6 +561,7 @@ export class AppProtectedInstallationSignIn {
   private async startRequest(hint: string | null = null): Promise<AppInstallationSignInView> {
       if (this.state.token) return this.view(); const s = this.state;
       if (s.recoveryFor && hint !== null && hint !== s.recoveryFor.collectionId) throw fail("binding");
+      if (this.closedPairing?.requestId === s.requestId) throw fail(this.closedPairing.reason);
       let reply: {status: number; value: Record<string, unknown>};
       try {
         reply = await this.json("/v1/pairing-requests", false, {installation: {app_id: s.appId, request_id: s.requestId, pairing_secret: s.secret, installation_id: s.installationId, device_id: s.deviceId, kind: s.kind, requested_create_collections: s.requestedCreateCollections, ...(s.requestedPrivateDevice === true ? {requested_private_device: true} : {}), ...(s.recoveryFor ? {recovery_collection_id: s.recoveryFor.collectionId} : {}), ...(s.renewal ? {renewal:{request_id:s.renewal.requestId, pairing_secret:s.renewal.secret}} : {})}, ...(hint ? {collection_hint: hint} : {})});
@@ -568,7 +579,6 @@ export class AppProtectedInstallationSignIn {
       this.assertRecoveryTarget(v);
       const uri = verificationUri(v.verification_uri, `${s.cpOrigin}/pair/${s.requestId}`, hint);
       if (v.pairing_id !== s.requestId || v.pairing_secret !== s.secret || uri === null || v.installation_device !== true || v.app_id !== s.appId || v.app_origin !== s.origin || v.app_name !== this.options.appName || !Number.isSafeInteger(v.expires_in) || (v.expires_in as number) < 0 || (v.expires_in as number) > 600) throw fail("response");
-      this.expiredRequestId = null;
       // One commit per accepted START: a restarted session keeps reading this request.
       if (this.state.requestSent !== s.requestId) await this.save({...this.state, requestSent: s.requestId});
       return Object.freeze({...this.view(), verificationUri: uri});
@@ -1048,6 +1058,15 @@ export class AppProtectedInstallationSignIn {
   /** A sign-in gesture sent this pending request and Connect accepted it: a
    * restarted session may keep reading it. False once signed in. */
   requestSent(): boolean { this.check(); return !this.state.token && this.state.requestSent === this.state.requestId; }
+  /** The person stopped waiting for this sign-in: a restart no longer resumes
+   * it. The request itself is kept, so the next gesture sends it again. */
+  forgetSentRequest(): Promise<void> {
+    return this.exclusive(async () => {
+      if (this.state.token || this.state.requestSent === undefined) return;
+      const {requestSent: _sent, ...unsent} = this.state;
+      await this.save(unsent);
+    });
+  }
   /** True when this installation registered a Web Push channel (so a browser
    * push subscription exists for the app). Metadata only. */
   hasWebPushChannel(): boolean { this.check(); return this.state.timerChannel?.kind === "web_push"; }
@@ -1076,14 +1095,18 @@ export class AppProtectedInstallationSignIn {
     const s = this.confirmedSelection(); if (installation.isCurrent() !== true || installation.scope.account !== s.accountId || installation.scope.installation !== s.installationId) throw fail("fenced");
   }
   /** Commit the explicit original native attempt BEFORE KEK/provider/keys/native.
-   * Once attempted, even missing/partial stores require EXISTING restore or visible
-   * recovery; never infer fresh from a null key/Noise record. */
+   * The durable proof decides the mode, never a null key/Noise record: once the
+   * device signed its enrolment (proof saved before the attest request), its
+   * keys are the installation's and only an EXISTING restore may use them.
+   * Before that nothing of the device has left this browser, so an attempt that
+   * was cut off (a reload, a closed tab, an aborted request) starts over FRESH
+   * from empty stores instead of being stuck with half of them. */
   prepareOriginalDevice(installation: AppInstallationCustodyAuthority): Promise<Readonly<{mode: "fresh" | "existing"; pin: AppDeviceKeyCustodyPin}>> {
     const callback = installation.isCurrent;
     const current = () => { try { this.check(); this.owned(installation); return installation.isCurrent === callback; } catch { return false; } };
     return this.exclusive(async () => {
       if (!current()) throw fail("fenced");
-      const mode = this.state.nativeStarted ? "existing" : "fresh";
+      const mode = this.state.proof ? "existing" : "fresh";
       if (!this.state.nativeStarted) await this.save({...this.state, nativeStarted: true});
       if (!current()) throw fail("fenced");
       return Object.freeze({mode, pin: Object.freeze({...this.confirmedSelection(), isCurrent: current, installationOwned: current})});

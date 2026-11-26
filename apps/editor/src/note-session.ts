@@ -1,7 +1,10 @@
 import { t } from "@lingui/core/macro";
-import { MdbaseConnectError, MdbaseRecordSession, type CollectionTypeDescriptor, type ConnectOutcome } from "@mdbase-dev/connect";
-import { connectFailure, connectProblem, connectSuccess, type MdbaseRecordSessionAdapter } from "@mdbase-dev/connect/advanced";
+import { MdbaseConnectError, type CollectionTypeDescriptor, type ConnectOutcome } from "./connect-types";
+import { MdbaseRecordSession } from "./record-session";
+import { connectFailure, connectProblem, connectSuccess } from "./connect-types";
+import { type MdbaseRecordSessionAdapter } from "./record-session";
 import type { CollectionGateway, NoteDocument, TitleSource } from "./model";
+import { gatewayError } from "./gateway";
 import { editableNote, persistedBody, titlePatch } from "./note";
 import type { RecoveryDraft } from "./draft-recovery";
 
@@ -36,6 +39,8 @@ export class NoteSession {
   recoveryError?: string;
   /** Staged tombstone: set when deletion starts, cleared if it fails. */
   deleted?: boolean;
+  /** An earlier version is being written over the note; the editor takes no typing meanwhile. */
+  restoring?: boolean;
   /** How many times the record session replaced the text itself; an editor showing the note takes each in whole. */
   replaced = 0;
 
@@ -61,6 +66,11 @@ export class NoteSession {
 
   get pendingRequestId(): string | undefined {
     return this.record.snapshot.pendingRequestId;
+  }
+
+  /** Deleted by another app or device; the session keeps the last text it had. */
+  get deletedElsewhere(): boolean {
+    return this.record.snapshot.state === "deleted";
   }
 
   get saveState(): SaveState {
@@ -125,7 +135,7 @@ async function outcome(operation: () => Promise<NoteDocument>): Promise<ConnectO
     return connectSuccess(await operation());
   } catch (error) {
     if (error instanceof MdbaseConnectError) return connectFailure(error.problem);
-    if (error instanceof Error) return connectFailure(connectProblem("operation_failed", error.message));
+    if (error instanceof Error) return connectFailure(connectProblem("operation_failed", gatewayError(error)));
     throw error;
   }
 }

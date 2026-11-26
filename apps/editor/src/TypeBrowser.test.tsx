@@ -1,6 +1,6 @@
 import { act, render, screen, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
-import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionContractDescriptor, CollectionTypeDescriptor } from "./connect-types";
 import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { ContractCatalog } from "./contract-catalog";
@@ -100,7 +100,7 @@ describe("recursive type builder", () => {
     expect(behaviour).not.toHaveAttribute("open");
     expect(contracts).not.toHaveAttribute("open");
     expect(within(membership).getByText("No automatic matching rules")).toBeInTheDocument();
-    expect(within(behaviour).getByText(/Display · 1 default · 1 link · 1 unique rule · Path policy/)).toBeInTheDocument();
+    expect(within(behaviour).getByText(/Display · 1 default · 1 unique rule · Path policy/)).toBeInTheDocument();
     expect(within(contracts).getByText("No connections")).toBeInTheDocument();
     expect(membership).not.toContainElement(screen.getByRole("heading", { name: "Fields" }));
 
@@ -244,6 +244,38 @@ describe("recursive type builder", () => {
     expect(screen.queryByText("People/other.md")).not.toBeInTheDocument();
   });
 
+  it("makes a field a link to a type, then several links, then text again", async () => {
+    const user = userEvent.setup();
+    render(<InspectorHarness />);
+    const links = () => readVisualType(screen.getByTestId("source").textContent ?? "").collection.links;
+
+    await chooseOption(user, screen.getByRole("combobox", { name: "title field type" }), "link");
+    expect(links()).toEqual([expect.objectContaining({ field: "title", targetTypes: [] })]);
+    expect(within(screen.getByRole("group", { name: "Types title links to" })).getByText("Any note")).toBeInTheDocument();
+
+    await chooseOption(user, screen.getByRole("combobox", { name: "Add a type title links to" }), "organisation");
+    await user.click(screen.getByRole("checkbox", { name: "Allow several links" }));
+    expect(links()).toEqual([expect.objectContaining({ field: "title[]", targetTypes: ["organisation"] })]);
+    expect(screen.getByRole("combobox", { name: "title field type" })).toHaveAttribute("data-value", "link");
+    expect(screen.queryByText("List items")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Stop linking title to organisation" }));
+    expect(links()).toEqual([expect.objectContaining({ field: "title[]", targetTypes: [] })]);
+
+    await chooseOption(user, screen.getByRole("combobox", { name: "title field type" }), "array");
+    expect(links()).toEqual([]);
+    expect(screen.getByText("List items")).toBeInTheDocument();
+  });
+
+  it("points to YAML for link rules that no field shows", () => {
+    render(<InspectorHarness source={recursiveSource.replace("schema:", `collection:
+  links:
+    missing: { target_type: person }
+schema:`)} />);
+    expect(screen.getByText("More link rules in YAML")).toBeInTheDocument();
+    expect(screen.getByText(/^missing\./)).toBeInTheDocument();
+  });
+
   it("edits collection display, defaults, links, uniqueness, and path policy", async () => {
     const user = userEvent.setup();
     render(<InspectorHarness source={collectionSource} />);
@@ -259,13 +291,12 @@ describe("recursive type builder", () => {
     await user.clear(defaultValue);
     await user.type(defaultValue, "A quiet default");
 
+    // A link is a kind of field: its rule is edited with the field, not as a separate rule.
+    await user.click(screen.getByRole("button", { name: "Expand category field" }));
+    expect(screen.getByRole("combobox", { name: "category field type" })).toHaveAttribute("data-value", "link");
     await chooseOption(user, screen.getByRole("combobox", { name: "category link format" }), "markdown");
     await user.click(screen.getByRole("checkbox", { name: "Require an existing target" }));
-    const targetType = screen.getByRole("combobox", { name: "category target type 1" });
-    await user.clear(targetType);
-    const targetSuggestions = screen.getByRole("listbox", { name: "category target type suggestions" });
-    expect(targetSuggestions).toHaveClass("combobox-popover");
-    await user.click(within(targetSuggestions).getByRole("option", { name: "any" }));
+    await chooseOption(user, screen.getByRole("combobox", { name: "Add a type category links to" }), "organisation");
 
     await chooseOption(user, screen.getByRole("combobox", { name: "title uniqueness scope" }), "path_glob");
     await user.type(screen.getByRole("textbox", { name: "title uniqueness path pattern" }), "People/**/*.md");
@@ -278,7 +309,7 @@ describe("recursive type builder", () => {
     expect(definition.collection).toMatchObject({
       display: { nameField: "category", icon: "notebook" },
       readDefaults: [{ field: "category", value: "A quiet default" }],
-      links: [expect.objectContaining({ field: "category", format: "markdown", validateExists: true })],
+      links: [expect.objectContaining({ field: "category", format: "markdown", validateExists: true, targetTypes: ["person", "organisation"] })],
       unique: [expect.objectContaining({ field: "title", scope: "path_glob", pathGlob: "People/**/*.md" })],
       path: expect.objectContaining({ pattern: "People/title.md" })
     });

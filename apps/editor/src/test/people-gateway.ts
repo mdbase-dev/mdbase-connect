@@ -1,11 +1,20 @@
-import { MdbaseConnectError, MdbasePeopleClient, type AccountProfile, type CollectionDescription, type DataContractSelector, type JsonObject } from "@mdbase-dev/connect";
-import { connectSuccess } from "@mdbase-dev/connect/advanced";
+import {
+  PERSON_CONTRACT,
+  sameIdentity,
+  type AccountIdentity,
+  type AccountProfile,
+  type CollectionDescription,
+  type DataContractSelector,
+  type JsonObject,
+  type PeopleDirectory,
+  type PersonRecord,
+  type PersonResolution
+} from "../connect-types";
 import { readFieldReference } from "../field-reference";
 import type { NoteSummary } from "../model";
 
 /**
- * Gateway people methods backed by fixture notes and the real SDK resolver, so
- * editor tests exercise the same resolution rules as production.
+ * Gateway people methods backed by fixture notes for Editor tests.
  */
 export function peopleGateway(account: AccountProfile, description: () => CollectionDescription, notes: () => NoteSummary[]) {
   const queryContract = async ({ id, version, type }: DataContractSelector) => {
@@ -20,20 +29,58 @@ export function peopleGateway(account: AccountProfile, description: () => Collec
       })) as JsonObject
     }));
   };
-  const people = new MdbasePeopleClient({
-    request: async () => account,
-    describe: async () => connectSuccess(description()),
-    queryPages: async function* (input) {
-      const results = (await queryContract(input.contract!)).map((record) => ({ path: record.path, frontmatter: record.values }));
-      yield connectSuccess({ results, page: 0, offset: 0, loaded: results.length, complete: true });
-    }
-  } as ConstructorParameters<typeof MdbasePeopleClient>[0]);
   return {
     queryContract,
-    peopleDirectory: async (options?: { signal?: AbortSignal }) => {
-      const outcome = await people.directory({ members: "omit", signal: options?.signal });
-      if (!outcome.ok) throw new MdbaseConnectError(outcome.problem);
-      return outcome.value;
+    peopleDirectory: async (_options?: { signal?: AbortSignal }): Promise<PeopleDirectory> => {
+      const contract = description().contracts.find((c) => c.id === PERSON_CONTRACT.id && c.version === PERSON_CONTRACT.version);
+      const byPath = new Map<string, { name: string; identities: AccountIdentity[]; typeNames: string[] }>();
+      const invalid: PeopleDirectory["invalid"] = [];
+      const invalidClaimPaths = new Set<string>();
+      for (const implementation of contract?.implementations ?? []) {
+        const rows = await queryContract({ id: PERSON_CONTRACT.id, version: PERSON_CONTRACT.version, type: implementation.typeName });
+        for (const row of rows) {
+          const rawName = row.values.name;
+          const rawIdentities = row.values.identities;
+          const claims: AccountIdentity[] = Array.isArray(rawIdentities)
+            ? rawIdentities.flatMap((entry) => {
+                if (!entry || typeof entry !== "object") return [];
+                const obj = entry as Record<string, unknown>;
+                return typeof obj.issuer === "string" && typeof obj.subject === "string"
+                  ? [{ issuer: obj.issuer, subject: obj.subject }]
+                  : [];
+              })
+            : [];
+          const hasInvalidClaim = rawIdentities !== undefined
+            && (!Array.isArray(rawIdentities) || claims.length !== rawIdentities.length || claims.some((c) => !c.subject.trim()));
+          if (typeof rawName !== "string" || !rawName.trim() || hasInvalidClaim) {
+            invalid.push({
+              id: row.path,
+              path: row.path,
+              reason: typeof rawName !== "string" || !rawName.trim()
+                ? "It needs a non-blank name."
+                : "Each account identity needs an exact issuer and subject."
+            });
+            if (claims.some((c) => sameIdentity(c, account))) invalidClaimPaths.add(row.path);
+            continue;
+          }
+          const existing = byPath.get(row.path);
+          if (existing) {
+            if (!existing.typeNames.includes(implementation.typeName)) existing.typeNames.push(implementation.typeName);
+          } else {
+            byPath.set(row.path, { name: rawName, identities: claims, typeNames: [implementation.typeName] });
+          }
+        }
+      }
+      const people: PersonRecord[] = [...byPath.entries()].map(([path, entry]) => ({ id: path, path, ...entry }));
+      const matching = people.filter((p) => p.identities.some((id) => sameIdentity(id, account)));
+      const me: PersonResolution = invalidClaimPaths.size > 0
+        ? { status: "invalid", paths: [...invalidClaimPaths] }
+        : matching.length === 1
+          ? { status: "linked", person: matching[0]! }
+          : matching.length > 1
+            ? { status: "ambiguous", paths: matching.map((p) => p.path) }
+            : { status: "unlinked" };
+      return { account, me, people, invalid };
     }
   };
 }

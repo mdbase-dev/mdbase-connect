@@ -704,3 +704,105 @@ fn a_stale_seed_adoption_is_refused() {
     };
     assert!(assess_type_pack(&state, &seed_pack(2), &other).is_err());
 }
+
+/// A contract at `_contracts/…` and a type implementing it at `_types/…`, as the
+/// bundled packs declare them.
+fn canonical_contract_pack() -> mdbn_core::packs::Pack {
+    let resources = [
+        ("contract", "_contracts/example.note/1.0.0.md", CONTRACT),
+        ("type", "_types/note.md", SEED_V1),
+    ];
+    let mut manifest =
+        "kind: mdbase.type-pack\nid: example.notes\nversion: 1.0.0\nresources:\n".to_owned();
+    for (kind, target, document) in resources {
+        manifest.push_str(&format!(
+            "  - kind: {kind}\n    mode: managed\n    source: {target}\n    target: {target}\n    digest: {}\n",
+            revision(document)
+        ));
+    }
+    load_pack(&manifest, &|source| {
+        resources
+            .iter()
+            .find(|(_, path, _)| *path == source)
+            .map(|(_, _, document)| (*document).to_owned())
+    })
+    .unwrap()
+}
+
+#[test]
+fn default_overrides_install_canonical_targets_into_nested_definition_folders() {
+    // The hosted layout: `_contracts/…` and `_types/…` are not resource paths.
+    let pack = canonical_contract_pack();
+    let mut state = MemState::new();
+    state.insert_resource(
+        "mdbase.yaml",
+        "spec_version: '0.3.0'\nsettings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n",
+    );
+    let overrides = mdbn_core::packs::default_target_overrides(&state, &pack).unwrap();
+    assert_eq!(
+        overrides.into_iter().collect::<Vec<_>>(),
+        vec![
+            (
+                "_contracts/example.note/1.0.0.md".to_owned(),
+                "_mdbase/contracts/example.note/1.0.0.md".to_owned()
+            ),
+            (
+                "_types/note.md".to_owned(),
+                "_mdbase/types/note.md".to_owned()
+            ),
+        ]
+    );
+    let options = AssessOptions {
+        target_overrides: mdbn_core::packs::default_target_overrides(&state, &pack).unwrap(),
+        ..opts()
+    };
+    let a = assess_type_pack(&state, &pack, &options).unwrap();
+    assert!(a.applicable(), "{:?}", a.issues);
+    let (_, ops) = apply_type_pack(&state, &pack, &options, &a.assessment_digest).unwrap();
+    apply(&mut state, ops);
+    assert!(
+        state
+            .resource("_mdbase/contracts/example.note/1.0.0.md")
+            .is_some()
+    );
+    assert_eq!(
+        state.catalog().types()[0].source_path,
+        "_mdbase/types/note.md"
+    );
+    assert_eq!(state.catalog().contracts().len(), 1);
+    assert!(state.resource("_contracts/example.note/1.0.0.md").is_none());
+
+    // Installed: the receipt's targets are the default, so the pack is current.
+    let installed = AssessOptions {
+        target_overrides: mdbn_core::packs::default_target_overrides(&state, &pack).unwrap(),
+        ..opts()
+    };
+    assert_eq!(installed.target_overrides, options.target_overrides);
+    assert_eq!(
+        assess_type_pack(&state, &pack, &installed).unwrap().status,
+        PackStatus::Current
+    );
+}
+
+#[test]
+fn default_overrides_leave_root_layout_targets_unchanged() {
+    let pack = canonical_contract_pack();
+    let mut state = MemState::new();
+    state.insert_resource("mdbase.yaml", "spec_version: '0.3.0'\n");
+    assert!(
+        mdbn_core::packs::default_target_overrides(&state, &pack)
+            .unwrap()
+            .is_empty()
+    );
+    let a = assess_type_pack(&state, &pack, &opts()).unwrap();
+    let (_, ops) = apply_type_pack(&state, &pack, &opts(), &a.assessment_digest).unwrap();
+    apply(&mut state, ops);
+    assert!(state.resource("_contracts/example.note/1.0.0.md").is_some());
+    assert_eq!(state.catalog().types()[0].source_path, "_types/note.md");
+    // Installed at the canonical targets: still no overrides.
+    assert!(
+        mdbn_core::packs::default_target_overrides(&state, &pack)
+            .unwrap()
+            .is_empty()
+    );
+}

@@ -1,6 +1,16 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { appsByCollection, homeApps, letterMark, officialAppsAt } from "./dist/home.js";
+import {
+  MCP_ENDPOINT_URL,
+  MCP_SETUP_URL,
+  appsByCollection,
+  collectionAppUrl,
+  collectionDiscoveryApps,
+  homeApps,
+  isMcpApp,
+  letterMark,
+  officialAppsAt
+} from "./dist/home.js";
 
 const official = [
   { id: "editor", name: "Editor", url: "https://editor.mdbase.dev", description: "Edit" },
@@ -58,4 +68,46 @@ test("only a managed environment has official apps", () => {
     ["editor", "https://editor.lab.example"], ["reader", "https://reader.lab.example"], ["writer", "https://writer.lab.example"],
     ["journal", "https://journal.lab.example"], ["tasknotes", "https://tasks.lab.example"]
   ]);
+});
+
+test("collectionAppUrl appends the collection query parameter cleanly", () => {
+  assert.equal(collectionAppUrl("https://reader.mdbase.dev", "c-notes"), "https://reader.mdbase.dev/?collection=c-notes");
+  assert.equal(collectionAppUrl("https://writer.mdbase.dev/app?view=drafts", "c-notes"), "https://writer.mdbase.dev/app?view=drafts&collection=c-notes");
+  assert.equal(collectionAppUrl("https://editor.mdbase.dev/?collection=old", "c-new"), "https://editor.mdbase.dev/?collection=c-new");
+  assert.equal(MCP_ENDPOINT_URL, "https://mcp.mdbase.dev/mcp");
+  assert.equal(MCP_SETUP_URL, "https://mdbase.dev/apps/mcp/");
+});
+
+test("isMcpApp identifies MCP by origin or name", () => {
+  assert.equal(isMcpApp({ origin: "https://mcp.mdbase.dev", name: "Claude" }), true);
+  assert.equal(isMcpApp({ origin: "https://mcp-lab.mdbase.dev", name: "Codex" }), true);
+  assert.equal(isMcpApp({ name: "mdbase MCP" }), true);
+  assert.equal(isMcpApp({ name: "MCP" }), true);
+  assert.equal(isMcpApp({ origin: "https://reader.mdbase.dev", name: "Reader" }), false);
+});
+
+test("collectionDiscoveryApps filters out approved official apps and MCP and scopes links to the collection", () => {
+  const origins = {
+    editorOrigin: "https://editor.mdbase.dev",
+    readerOrigin: "https://reader.mdbase.dev",
+    writerOrigin: "https://writer.mdbase.dev",
+    journalOrigin: "https://journal.mdbase.dev",
+    tasknotesOrigin: "https://app.tasknotes.dev"
+  };
+  assert.deepEqual(collectionDiscoveryApps(undefined, "c-notes", []), { apps: [], showMcp: false });
+
+  const filtered = collectionDiscoveryApps(origins, "c-notes", [
+    { origin: "https://reader.mdbase.dev", name: "mdbase Reader" },
+    { origin: "capacitor://localhost", name: "tasknotes" }
+  ]);
+  assert.deepEqual(filtered.apps.map(app => [app.key, app.url]), [
+    ["editor", "https://editor.mdbase.dev/?collection=c-notes"],
+    ["writer", "https://writer.mdbase.dev/?collection=c-notes"],
+    ["journal", "https://journal.mdbase.dev/?collection=c-notes"]
+  ]);
+  assert.equal(filtered.showMcp, true);
+
+  const afterMcp = collectionDiscoveryApps(origins, "c-notes", [{ origin: "https://mcp.mdbase.dev", name: "Claude" }]);
+  assert.equal(afterMcp.apps.length, 5);
+  assert.equal(afterMcp.showMcp, false);
 });

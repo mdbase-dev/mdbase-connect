@@ -27,6 +27,7 @@ The runtime crate map and checks are in [`../README.md`](../README.md).
 
 ## Daemon and CLI
 
+- [self-hosted.md](self-hosted.md) — serve a private collection to paired TaskNotes and Editor browsers without a Connect account.
 - [cli-data-commands.md](cli-data-commands.md) — data commands in the `mdbase` CLI.
 - [backup-verification.md](backup-verification.md) — offline native backup verification.
 - [bases-list-grouping.md](bases-list-grouping.md) — Bases list grouping.

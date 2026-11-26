@@ -2,11 +2,15 @@ import { isMdbaseError, MdbaseError } from "@mdbase-dev/sdk";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { editorPermissions } from "./gateway";
 import { CollectionIndexController } from "./collection-index-controller";
+import { FileAssetStore } from "./file-asset-store";
+import { FileInventoryController } from "./file-inventory-controller";
 import type { EditorCollectionChange, NoteObservationSnapshot } from "./model";
 import { NativeEditorGateway } from "./native-gateway";
 import { summaryFromDocument } from "./note";
 import { outdatedPersonStarter } from "./person-setup";
 import { closeNativeFixtures, readyFixture } from "./test/native-fixture";
+import { renderHook } from "./test/locale";
+import { useCollectionWatch } from "./use-collection-watch";
 import manifest from "../public/.well-known/mdbase-app.json";
 
 const declaration = { id: manifest.id, name: manifest.name, origin: "https://editor.mdbase.dev", environment: "lab" as const, manifest };
@@ -50,7 +54,8 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     const permissions = editorPermissions(snapshot.status === "ready" ? snapshot.connection : null);
     expect(permissions).toMatchObject({ canCreateNotes: true, canEditNotes: true, canRenameNotes: true, canDeleteNotes: true });
     expect(permissions).toMatchObject({ canManageTypes: true, canInstallTypes: true, canAttachFiles: true });
-    expect(snapshot.status === "ready" && snapshot.connection.missingCapabilities).toBeFalsy();
+    // The replica's grant predates record history, the one declared group it lacks.
+    expect(snapshot.status === "ready" && snapshot.connection.missingCapabilities).toEqual(["history.read"]);
     expect(f.gateway.selectConnection(f.replica.collection).collectionId).toBe(f.replica.collection);
     expect(() => f.gateway.selectConnection("another-collection")).toThrow("not ready");
     expect(await f.gateway.checkDirectAccess()).toBeNull();
@@ -318,13 +323,13 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
       replica.seed({ path: "notes/gamma.md", types: ["note"], frontmatter: {}, body: "# Gamma\n\nMentions alpha without a link." });
     });
     // No hydration: backlinks come from the collection, not from loaded bodies.
-    expect(await f.gateway.backlinks("notes/alpha.md")).toEqual(["notes/beta.md"]);
-    expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
+    expect(await f.gateway.backlinks("notes/alpha.md")).toEqual([{ path: "notes/beta.md", fields: [] }]);
+    expect(await f.gateway.backlinks("notes/beta.md")).toEqual([{ path: "notes/alpha.md", fields: [] }]);
 
     const beta = await f.gateway.read("notes/beta.md");
     await f.gateway.update(beta, { body: "# Beta note\n\nNo outgoing link." });
     expect(await f.gateway.backlinks("notes/alpha.md")).toEqual([]);
-    expect(await f.gateway.backlinks("notes/beta.md")).toEqual(["notes/alpha.md"]);
+    expect(await f.gateway.backlinks("notes/beta.md")).toEqual([{ path: "notes/alpha.md", fields: [] }]);
   });
 
   it("asks the replica's body query and collects every page of paths", async () => {
@@ -351,6 +356,72 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(await f.gateway.searchBodies('"launch"')).toEqual(["notes/quoted.md"]);
   });
 
+  it("finds a note whose only tag is inline by asking the replica's hasTag, since its record view has no tags", async () => {
+    // MemoryReplica is not the runtime: this evaluator stands in for its
+    // `file.hasTag` (platform-native `inline_body_tags_are_found_by_has_tag`
+    // checks the runtime itself) and only checks the query the gateway sends.
+    const asked: string[] = [];
+    const where = (expr: string, record: { body: string }) => {
+      asked.push(expr);
+      const tag = JSON.parse(/^file\.hasTag\((.*)\)$/.exec(expr)![1]) as string;
+      return record.body.includes(`#${tag}`);
+    };
+    const f = await fixture({ where }, replica => {
+      for (let index = 0; index < 1002; index++) {
+        replica.seed({ path: `notes/${String(index).padStart(4, "0")}.md`, types: ["note"], frontmatter: {}, body: index % 2 ? "Inline #inlinemarker here." : "Nothing here." });
+      }
+    });
+    const observation = f.gateway.observe();
+    await observation.ready;
+    const held = observation.getSnapshot().records.find((record) => record.path === "notes/0001.md")!;
+    // What the page holds cannot answer it: no tags, and no text until hydrated.
+    expect(held.file.tags).toBeUndefined();
+    expect(held.body).toBeUndefined();
+    observation.close();
+
+    const paths = await f.gateway.searchTag("inlinemarker");
+    // More matches than one page holds.
+    expect(paths).toHaveLength(501);
+    expect(paths).toContain("notes/0001.md");
+    expect(new Set(asked)).toEqual(new Set(['file.hasTag("inlinemarker")']));
+  });
+
+  it("reports the properties a backlink is written in, each once", async () => {
+    const f = await fixture({}, replica => {
+      replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });
+      replica.seed({ path: "notes/a.md", types: ["note"], frontmatter: {}, body: "[[target]]" });
+    });
+    const link = { raw: "[[target]]", embed: false, resolution: { kind: "record" } };
+    vi.spyOn(f.connection.records, "backlinks").mockResolvedValueOnce({
+      backlinks: [{ record: { path: "notes/a.md" }, links: [{ ...link, field: "author" }, { ...link, field: "author" }, link, { ...link, field: "editor" }] }],
+      complete: true,
+      asOf: 1
+    } as never);
+    expect(await f.gateway.backlinks("notes/target.md")).toEqual([{ path: "notes/a.md", fields: ["author", "editor"] }]);
+  });
+
+  it("reads a note's history by the record its current path names", async () => {
+    const f = await fixture({}, seedNotes);
+    const { id } = await f.connection.records.get({ path: "notes/plan.md" });
+    const version = { seq: 7, time: 1_762_000_000_000, author: { account: id, device: id }, kind: "edited" as const,
+      path: "notes/plan.md", revision: "sha256:1", source: "api" as const, deviceKind: "desktop" as const };
+    const list = vi.spyOn(f.connection.records.history, "list").mockResolvedValueOnce({ versions: [version], from: 3, next: 3 });
+    const read = vi.spyOn(f.connection.records.history, "version").mockResolvedValueOnce({ path: "notes/plan.md", document: "# Plan, then\n" });
+
+    expect(await f.gateway.noteHistory.list("notes/plan.md", { before: 9 })).toEqual({ versions: [version], from: 3, next: 3 });
+    expect(list).toHaveBeenCalledWith(id, expect.objectContaining({ before: 9, signal: expect.any(AbortSignal) }));
+    expect(await f.gateway.noteHistory.version("notes/plan.md", 7)).toBe("# Plan, then\n");
+    expect(read).toHaveBeenCalledWith(id, 7, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
+
+  it("passes a replica's history refusal through for the panel to explain", async () => {
+    const f = await fixture({}, seedNotes);
+    vi.spyOn(f.connection.records.history, "list").mockRejectedValueOnce(
+      new MdbaseError({ code: "upgrade_required", recovery: "none", reason: "history_unsupported", message: "no history" }));
+    const refused = await f.gateway.noteHistory.list("notes/plan.md").catch((error: unknown) => error);
+    expect(isMdbaseError(refused, "upgrade_required") && refused.reason).toBe("history_unsupported");
+  });
+
   it("restarts backlink paging when the view changes between pages", async () => {
     const f = await fixture({}, replica => {
       replica.seed({ path: "notes/target.md", types: ["note"], frontmatter: {}, body: "# Target" });
@@ -358,7 +429,7 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     });
     const backlinks = vi.spyOn(f.connection.records, "backlinks")
       .mockRejectedValueOnce(new MdbaseError({ code: "invalid_request", recovery: "fix_request", reason: "cursor_stale", message: "stale" }));
-    expect(await f.gateway.backlinks("notes/target.md")).toEqual(["notes/a.md"]);
+    expect(await f.gateway.backlinks("notes/target.md")).toEqual([{ path: "notes/a.md", fields: [] }]);
     expect(backlinks).toHaveBeenCalledTimes(2);
   });
 
@@ -533,6 +604,32 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(planned.map((p) => [p.get(2), p.has(3), p.has(7)])).toEqual([["dev.mdbase.editor", false, false], ["dev.mdbase.editor", true, false], ["dev.mdbase.editor", true, true]]);
     expect((await f.client.resources.get("mdbase.lock.yaml")).text).toBe("lock\n");
     expect((await f.client.resources.get("_types/note.md")).text).toBe(document);
+  });
+
+  it("updates the open file inventory when another client moves or deletes an attachment", async () => {
+    const f = await fixture();
+    const writer = await f.replica.client();
+    const index = new CollectionIndexController(f.gateway);
+    const files = new FileInventoryController(f.gateway);
+    const input = { phase: "ready", index, files, assets: new FileAssetStore(f.gateway),
+      refreshCachedNote: vi.fn(async () => {}), noteDeleted: vi.fn(), refreshDescription: vi.fn(async () => {}),
+      setConnectionState: vi.fn(), setConnectionIssue: vi.fn(), setNotice: vi.fn() };
+    const hook = renderHook(() => useCollectionWatch(input));
+    const paths = () => files.getSnapshot().files.map(file => file.path);
+    try {
+      const upload = await writer.files.upload("img/old.bin", new Uint8Array([1]));
+      await Promise.all([index.reload(), files.reload()]);
+      await vi.waitFor(() => expect(index.getWatchStatus()?.state).toBe("connected"));
+      expect(paths()).toEqual(["img/old.bin"]);
+      const find = vi.spyOn(f.client, "find");
+      await writer.files.move(await writer.files.get(upload.fileId), "img/new.bin");
+      await vi.waitFor(() => expect(paths()).toEqual(["img/new.bin"]));
+      await writer.files.delete(upload.fileId);
+      await vi.waitFor(() => expect(paths()).toEqual([]));
+      expect(find).not.toHaveBeenCalled();
+    } finally {
+      hook.unmount(); index.reset(); files.reset(); writer.close();
+    }
   });
 
   it("lists and reads files by native digest and never uploads with an unknown file grant", async () => {

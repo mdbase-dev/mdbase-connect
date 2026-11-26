@@ -28,11 +28,6 @@ test("requires a full qualification bound to the exact checkout", async () => {
     join(fixture, ".github/workflows/server-ci.yml"),
   );
   await writeFile(join(fixture, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n");
-  await writeFile(join(fixture, "deploy/docker/Cargo.lock.hosted-provider"), "lock\n");
-  await writeFile(
-    join(fixture, "deploy/docker/mdbase-rs-revision"),
-    "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
-  );
   run("git", ["init", "--quiet"], { cwd: fixture });
   run("git", ["config", "user.email", "ci@example.test"], { cwd: fixture });
   run("git", ["config", "user.name", "CI"], { cwd: fixture });
@@ -53,10 +48,6 @@ test("requires a full qualification bound to the exact checkout", async () => {
       upstream_run_id: null,
       inputs: {
         pnpm_lock_sha256: await sha256(join(fixture, "pnpm-lock.yaml")),
-        cargo_lock_sha256: await sha256(
-          join(fixture, "deploy/docker/Cargo.lock.hosted-provider"),
-        ),
-        mdbase_rs_revision: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         workflow_sha256: await sha256(join(fixture, ".github/workflows/server-ci.yml")),
       },
     })}\n`,
@@ -102,7 +93,6 @@ fi
   run("git", ["config", "core.autocrlf", "true"], { cwd: fixture });
   for (const path of [
     "pnpm-lock.yaml",
-    "deploy/docker/Cargo.lock.hosted-provider",
     ".github/workflows/server-ci.yml",
   ]) {
     const absolutePath = join(fixture, path);

@@ -58,7 +58,7 @@ text-index = uint      ; index into the enclosing log entry's text table (log-en
 
 ; from docs/contracts/intent.md
 ; ---- operations (intent.md §3) ----
-op = create / update / document / delete / rename
+op = create / update / update-live / document / delete / rename
    / resource-put / resource-delete
    / file-put / file-delete / file-move
    / conflict-dismiss / sync-settings / file-attach-v1
@@ -93,8 +93,9 @@ create = {
 }
 
 ; from docs/contracts/intent.md
-update = {
-  0: 2,
+update = { 0: 2, update-fields }
+update-live = { 0: 19, update-fields }
+update-fields = (
   1: uuid,                          ; id
   ? 2: fm-map,                      ; patch: set these top-level keys
   ? 3: [+ field-ref],               ; unset: remove these keys
@@ -107,7 +108,7 @@ update = {
   ? 10: [+ base-field],             ; base: observed values of the touched keys
   ? 11: hash,                       ; if_revision: opt-in CAS on the whole document
   ? 12: bool,                       ; update_refs: rewrite inbound links on path-stored moves (default true)
-}
+)
 body-edit = [start: uint, end: uint, insert: tstr]   ; offsets in Unicode scalar values of the base body
 
 ; from docs/contracts/intent.md
@@ -971,6 +972,44 @@ resolve-links-result = {
 }
 
 ; from docs/contracts/replica-client-api.md
+record-history-params = {
+  0: uuid,               ; record
+  ? 1: seq,              ; before: only versions at lower positions
+  ? 2: uint,             ; limit: 1..200, default 50
+}
+record-history = {
+  0: [* history-version], ; newest first
+  1: seq,                ; from: the lowest position history covers
+  ? 2: int,              ; from_time: capture time (ms) of the oldest readable entry at or above from
+  ? 3: seq,              ; next: pass as `before` for older versions
+}
+history-version = {
+  0: seq,                ; the entry's log position
+  1: int,                ; time: the writer's capture time, ms
+  2: author-ref,
+  3: &( created: 0, edited: 1, moved: 2, deleted: 3 ),
+  4: path,               ; the path after the entry (before it, for a deletion)
+  ? 5: hash,             ; revision: SHA-256 of the document written; absent for a deletion
+  6: source,             ; intent.md §1
+  7: device-kind,        ; the signing device's kind (policy.md §4.2)
+  ? 8: tstr,             ; app: the grant's app ID
+}
+author-ref = {
+  0: uuid,               ; account: the signing device's account
+  1: uuid,               ; device: the signing device
+  ? 2: uuid,             ; grant: the app grant written through
+  ? 3: uuid,             ; grant_account: the grant's account, only when the hosted device signed
+}
+record-version-params = {
+  0: uuid,               ; record
+  1: seq,                ; a position from record_history
+}
+record-version = {
+  0: path,               ; the record's path at that version
+  1: tstr,               ; document: its exact text
+}
+
+; from docs/contracts/replica-client-api.md
 ; ---- describe (replica-client-api.md §4.1) ----
 describe-result = {
   0: tstr,                   ; spec_version the collection declares
@@ -1011,9 +1050,10 @@ contract-query-v1 = {
   0: 1,
   1: tstr,                 ; exact registered contract ID, max 1024 bytes
   2: tstr,                 ; exact resolved version, max 128 bytes
-  ? 3: uint,               ; page size 1..128, default 128
+  ? 3: uint,               ; page size 1..1000 (1..128 before contract-query-order-v1), default 128
   ? 4: tstr,               ; session-bound ordinary query cursor
   ? 5: tstr,               ; CEL filter over contract fields, 1..4096 bytes
+  ? 6: [+ { "field": tstr, ? "direction": "asc" / "desc" }], ; spec 11 order_by over contract fields / file.*, 1..8 terms (contract-query-order-v1; file.mtime requires contract-query-order-mtime-v1)
 }
 contract-query-result-v1 = {
   0: 1,

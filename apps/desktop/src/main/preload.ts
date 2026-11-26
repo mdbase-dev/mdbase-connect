@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   updateStatus: () => ipcRenderer.invoke("connect:updates:status"),
   checkForUpdates: () => ipcRenderer.invoke("connect:updates:check"),
   installUpdate: () => ipcRenderer.invoke("connect:updates:install"),
+  setEarlyAccess: (enabled: boolean) => ipcRenderer.invoke("connect:updates:early-access", enabled === true),
   migrationStatus: () => ipcRenderer.invoke("connect:migration:status"),
   startMigration: (stopMirrors: boolean) => ipcRenderer.invoke("connect:migration:start", { stopMirrors }),
   listCollections: () => ipcRenderer.invoke("connect:collections:list"),
@@ -21,12 +22,15 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   enableSync: (collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean) =>
     ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode, acceptTakeoverHolds }),
   collectionModeStatus: (collectionId: string) => ipcRenderer.invoke("connect:collections:mode-status", collectionId),
-  changeCollectionMode: (collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean, cancel = false) =>
-    ipcRenderer.invoke("connect:collections:mode-change", { collectionId, targetMode, resume, cancel }),
+  changeCollectionMode: (collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }) =>
+    ipcRenderer.invoke("connect:collections:mode-change", {
+      collectionId,
+      ...(targetMode === undefined ? {} : { targetMode }),
+      options
+    }),
   syncFiles: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-files", collectionId),
   setSyncFiles: (collectionId: string, files: { include: string[]; exclude: string[]; max_size?: number }) =>
     ipcRenderer.invoke("connect:collections:sync-files-set", { collectionId, ...files }),
-  disableSync: (collectionId: string) => ipcRenderer.invoke("connect:collections:sync-disable", collectionId),
   listHolds: (collectionId: string) => ipcRenderer.invoke("connect:collections:holds", collectionId),
   resolveHold: (collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete") =>
     ipcRenderer.invoke("connect:collections:resolve-hold", { collectionId, id, how }),

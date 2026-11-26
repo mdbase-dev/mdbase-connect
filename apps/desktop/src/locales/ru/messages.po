@@ -150,10 +150,6 @@ msgid "{collection} now syncs{0}"
 msgstr "Коллекция {collection} теперь синхронизируется{0}"
 
 #: src/renderer/daemon-view.mts
-msgid "{collection} stopped syncing"
-msgstr "Синхронизация коллекции {collection} остановлена"
-
-#: src/renderer/daemon-view.mts
 msgid "{collection} was added"
 msgstr "Добавлена коллекция {collection}"
 
@@ -258,6 +254,11 @@ msgstr "Папка с именем «{0}» уже существует в это
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
 msgstr "закрытая коллекция"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "Переключение режима хранения ожидает подтверждения на этом компьютере."
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
@@ -489,10 +490,6 @@ msgid "change record types"
 msgstr "изменять типы записей"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "Изменено неизвестной mdbase программой"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "Изменено здесь и в другом месте"
 
@@ -609,6 +606,10 @@ msgstr "Выберите, какие файлы эта коллекция син
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "Сбросить фильтр"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "Закрыть"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -895,6 +896,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "Эти сведения относятся к последней попытке синхронизации, а не к текущей проверке файлов."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "Получать обновления раньше"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "Перейти: {label}"
 
@@ -938,6 +944,11 @@ msgstr "Изображения"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "Установить {0}"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "Устанавливать каждый выпуск сразу после начала его распространения. Иначе выпуски приходят на компьютеры поэтапно, а mdbase обновляется не чаще раза в день."
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -1157,6 +1168,10 @@ msgstr "mdbase пока не удалось зарегистрировать э�
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "mdbase не удалось сохранить настройки аккаунта на этом компьютере. Проверьте свободное место на диске и перезапустите mdbase."
 
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "mdbase не удалось определить, на какой версии основан этот файл"
+
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
 msgstr "mdbase не удалось проверить сервис синхронизации для этого компьютера. Обновите mdbase или напишите на support@mdbase.dev. {unchanged}"
@@ -1236,8 +1251,8 @@ msgstr "mdbase хранит только зашифрованные измене
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase сможет читать коллекцию, включая её существующую историю, и предоставлять к ней доступ, когда ваши устройства выключены."
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase сможет читать коллекцию, включая её существующую историю, и предоставлять доступ к ней, пока ваши устройства выключены. Приложения, подключённые к этой коллекции, потребуется переподключить после переключения."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1398,8 +1413,8 @@ msgstr "Разрешайте доступ, только если этот код
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "После завершения переключения только ваши устройства смогут читать новые данные. mdbase по-прежнему может иметь доступ к старым данным."
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "После завершения переключения читать новое содержимое смогут только ваши устройства. mdbase по-прежнему может иметь доступ к более старому содержимому. Приложения, подключённые к этой коллекции, потребуется переподключить после переключения."
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1504,6 +1519,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "читать и добавлять файлы"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "читать прежние версии записей"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"
@@ -1592,6 +1612,11 @@ msgstr "Проверить {0, plural, one {# файл} few {# файла} many 
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "Проверить {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "Проверить переключение"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1800,6 +1825,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "Хранилище этой коллекции заполнено, поэтому некоторые файлы не синхронизированы. Освободите место, чтобы синхронизировать их. Если это ваша коллекция и у вас тариф Free, перейдите на Plus, чтобы получить больше места."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "Режим хранения"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "Переключение режима хранения…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1957,6 +1992,11 @@ msgstr "Сервер ещё не подтвердил, что старый mdbas
 msgid "The sign-in request expired. Start again."
 msgstr "Срок действия запроса на вход истёк. Начните заново."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "Переключение в Приватный режим остановлено и требует внимания."
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -2026,6 +2066,16 @@ msgstr "Теперь имя этого компьютера — {0}."
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "Этот компьютер перенёс ваши коллекции на новый механизм синхронизации, но учётная запись mdbase ещё не обновлена или обновление приостановлено. Файлы в папках в безопасности, однако изменения с этого компьютера могут не дойти до других ваших приложений mdbase до обновления учётной записи."
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "Теперь этот компьютер получает каждый выпуск сразу после начала его распространения."
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "Теперь этот компьютер получает выпуски поэтапно, не чаще раза в день."
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "На этом компьютере выполнен вход"
@@ -2054,6 +2104,10 @@ msgstr "Этот файл не является заметкой: при нео�
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "У этой папки есть старый идентификатор mdbase Connect"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "Этот файл удерживается только на этом компьютере. Если его редактировали на другом компьютере, там он не будет отображаться как удерживаемый. Выберите здесь «Сохранить обе», чтобы сохранить обе версии. Когда файлы на компьютерах совпадут, переместите отредактированную версию в нужную папку, если она всё ещё в старой папке."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2196,20 +2250,39 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "Версия {0} доступна через канал подписанных пакетов."
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "Версия {0} развёртывается для {1}% установок."
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "Версия {0} проверена и готова к установке."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "Версия {version} сначала доступна установкам с ранним доступом."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "Доступна версия {version}. mdbase обновляется не чаще раза в день, поэтому обновление произойдёт после {after}."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "Версия {version} ещё не распространяется."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "Версия {version} опубликована, но проверить её распространение не удалось. mdbase проверит ещё раз позже."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "Версия {version} распространяется на {percentage} % установок."
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "Видео"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "Показать прогресс"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

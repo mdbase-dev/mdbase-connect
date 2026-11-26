@@ -18,13 +18,8 @@ test("authorization links preserve the exact request route", () => {
   assert.equal(routeForDeepLink("mdbase-connect://authorize"), "access");
 });
 
-test("other supported links retain their existing routes", () => {
+test("pairing confirmation links open the paired route", () => {
   assert.equal(routeForDeepLink("mdbase-connect://paired"), "paired");
-  assert.equal(
-    routeForDeepLink("mdbase-connect://mirror?collection=collection-1"),
-    "collections:mirror:collection-1"
-  );
-  assert.equal(routeForDeepLink("mdbase-connect://mirror"), "collections");
 });
 
 test("malformed and unrelated links are ignored", () => {
@@ -32,4 +27,6 @@ test("malformed and unrelated links are ignored", () => {
   assert.equal(routeForDeepLink("not a url"), null);
   assert.equal(routeForDeepLink("https://connect.mdbase.dev/authorize"), null);
   assert.equal(routeForDeepLink("mdbase-connect://unknown"), null);
+  // The legacy folder-sync link is no longer produced or handled.
+  assert.equal(routeForDeepLink("mdbase-connect://mirror?collection=collection-1"), null);
 });

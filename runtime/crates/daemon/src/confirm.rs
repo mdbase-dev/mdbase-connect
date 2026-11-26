@@ -118,10 +118,10 @@ impl Prompt {
                 format!("Let Obsidian on this computer use \"{collection}\"?")
             }
             Prompt::CollectionMode { collection, private: true } => format!(
-                "Make \"{collection}\" private?\n\nOnly your devices will read new content after the switch finishes. mdbase may still read older content."
+                "Make \"{collection}\" private?\n\nOnly your devices will read new content after the switch finishes. mdbase may still read older content.\n\nApps connected to this collection will need to be reconnected afterwards."
             ),
             Prompt::CollectionMode { collection, private: false } => format!(
-                "Turn on cloud copy for \"{collection}\"?\n\nmdbase will be able to read and serve this collection, including its existing history, even when your devices are off."
+                "Turn on cloud copy for \"{collection}\"?\n\nmdbase will be able to read and serve this collection, including its existing history, even when your devices are off.\n\nApps connected to this collection will need to be reconnected afterwards."
             ),
         }
     }
@@ -337,16 +337,45 @@ mod tests {
         assert!(prompt.message().contains("whole collection"));
     }
 
+    #[test]
+    fn collection_mode_confirmation_warns_that_connected_apps_must_reconnect() {
+        for private in [true, false] {
+            let prompt = Prompt::CollectionMode {
+                collection: "Notes".into(),
+                private,
+            };
+            assert!(
+                prompt.message().contains(
+                    "Apps connected to this collection will need to be reconnected afterwards."
+                ),
+                "private={private}: {}",
+                prompt.message()
+            );
+        }
+    }
+
     #[cfg(all(unix, not(target_os = "macos")))]
     mod linux {
         use super::super::*;
         use crate::testutil::TestDir;
-        use std::os::unix::fs::PermissionsExt;
 
+        /// Writes a stub program through a child shell, so that this process
+        /// never holds the file open for writing. A descriptor opened here can
+        /// be copied into a child that another test thread forks at that
+        /// moment, and running the stub while the copy is open fails with
+        /// ETXTBSY, which `run` reports as `Unavailable`.
         fn program(dir: &TestDir, name: &str, body: &str) {
-            let path = dir.path().join(name);
-            std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+            let written = std::process::Command::new("sh")
+                .args([
+                    "-c",
+                    r#"printf '#!/bin/sh\n%s\n' "$1" > "$2" && chmod 755 "$2""#,
+                    "sh",
+                    body,
+                ])
+                .arg(dir.path().join(name))
+                .status()
+                .unwrap();
+            assert!(written.success());
         }
 
         async fn ask(dir: &TestDir) -> Answer {

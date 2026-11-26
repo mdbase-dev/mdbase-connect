@@ -508,7 +508,7 @@ code,
   }
 }
 
-/* The theme control is chrome, not a form field: its border shows only when it is used. */
+/* The language control is chrome, not a form field: its border shows only when it is used. */
 .theme-select.mdbase-select:not(:hover, [aria-expanded="true"]) { border-color: transparent; }
 
 .status-glyph {
@@ -609,3 +609,11 @@ code,
 .home-collections strong { overflow: hidden; font-size: var(--font-size-ui); font-weight: var(--font-weight-semibold); text-overflow: ellipsis; white-space: nowrap; }
 .home-collections span, .home-collections small { overflow: hidden; color: var(--muted); font-size: var(--font-size-caption); text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 760px) { .home-collections a { grid-template-columns: minmax(0, 1fr); gap: 2px; } }
+.home-more-group { display: grid; gap: 12px; }
+.home-mcp { margin-top: 12px; }
+.mcp-connect-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 16px; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--radius-sm, 4px); }
+.mcp-connect-copy { display: grid; flex: 1 1 220px; gap: 2px; min-width: 0; }
+.mcp-connect-copy strong { font-size: var(--font-size-ui); font-weight: var(--font-weight-semibold); }
+.mcp-connect-copy small { color: var(--muted); font-size: var(--font-size-caption); }
+.mcp-connect-endpoint { margin-top: 2px; color: var(--ink-soft); font-family: var(--mono); font-size: var(--font-size-caption); overflow-wrap: anywhere; }
+.mcp-connect-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }

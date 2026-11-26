@@ -66,6 +66,9 @@ description. It also asks for:
 - Data handling: the API is our own; the connector reads and writes.
 - Confirmation that every tool has been run, and seven policy
   acknowledgements.
+- **Has an MCP App:** tick it. The gateway's record and query tools render the
+  [MCP App view](./mcp-gateway.md#mcp-app-view). Add screenshots of the results
+  table and a record card under **Branding & media**.
 
 Never put reviewer credentials in the portal. If the listing is escalated to
 Verified review, a reviewer asks for test access by email: give them a

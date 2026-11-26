@@ -79,6 +79,8 @@ pub struct MemData {
     own_retained_bytes: u64,
     /// Number of successful commits.
     pub commits: u64,
+    /// Record rows successful commits wrote (`Tx::records_put`).
+    pub records_written: u64,
     /// Fail this many upcoming commits with strongly guaranteed `CommitAborted`.
     pub fail_next: u32,
     /// Fail before applying, but give callers NO typed durability guarantee.
@@ -158,6 +160,7 @@ impl Default for MemData {
             own_retained: BTreeMap::new(),
             own_retained_bytes: 0,
             commits: 0,
+            records_written: 0,
             fail_next: 0,
             fail_unknown_commits: 0,
             fail_after_commit: 0,
@@ -353,6 +356,7 @@ impl MemData {
         for id in &tx.records_del {
             self.del_record(id);
         }
+        self.records_written += tx.records_put.len() as u64;
         for r in tx.records_put {
             self.put_record(r);
         }

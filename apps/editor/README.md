@@ -7,6 +7,10 @@ records in place. The Connect authorization screen offers both collections on
 your connected computers and collections hosted by mdbase. After approval, the
 same editor works against either storage provider.
 
+Publishers can also offer [a self-hosted connection](./docs/self-hosted.md).
+It opens a separate static editor that pairs directly with the operator’s server;
+it does not sign in to mdbase Connect.
+
 The editor includes a CodeMirror Markdown surface with optional Vim keys,
 `@` and `[[` object-link completion, backlinks, structured and JSON frontmatter
 views, deliberate note creation, collection settings, and a dedicated workspace

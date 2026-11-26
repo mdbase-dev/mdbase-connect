@@ -6,8 +6,6 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
-import { renameHostedCollectionForUser } from "../hosted/service.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { tokenHash } from "../../security.js";
 import { inTransaction } from "./bootstrap-common.js";
 import type { CollectionDeletionFact } from "./collection-deletion.js";
@@ -16,6 +14,10 @@ import { installationCollections } from "./installation-scope.js";
 import { queueNextPolicy, registerNextCollection } from "./policy-outbox.js";
 import { localGrantFixture } from "./next-fixtures.test-helper.js";
 import { registerNextRouteRoutes } from "./route-routes.js";
+import { registerAccountOverviewRoute } from "../account/me-routes.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
+import { registerGrantRevocationRoute } from "../authorizations/grant-revocation-route.js";
+import { RelayHub } from "../relay/relay.js";
 import { issueApplicationTokens } from "../authorizations/token-service.js";
 
 const noLog = { controlItemsAfter: async () => { throw new Error("no abandoned switch in this suite"); } };
@@ -44,6 +46,11 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
     registerErrorHandler(app);
+    const relay = new RelayHub(db);
+    app.addHook("onClose", () => relay.close());
+    registerAccountOverviewRoute(app, { db, relay, tailscaleAuth: true, publicUrl: "https://connect.test",
+      authenticationPolicy: new AuthenticationPolicyStore(db, "open") });
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true });
     registerCollectionNameRoutes(app, db, noLog, floor);
     registerNextRouteRoutes(app,{db,publicUrl:"https://connect.test",broker:{request:async () => {throw new Error("Catalog reads must not contact a relay.");}}});
   }, 60_000);
@@ -156,31 +163,19 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     expect((await db.query("SELECT * FROM next_policy_outbox WHERE collection_id=$1 ORDER BY id", [f.collection])).rows).toEqual(policies);
     if (installation) expect(await inTransaction(db, client => installationCollections(client, f.user, f.connector, f.device))).toEqual([{collection_id:f.collection,display_name:"Renamed 📚",role:"owner"}]);
   });
-  it("never renames retained legacy/provider resources for a next collection", async () => {
-    const f = await fixture();
-    await db.query("INSERT INTO hosted_collections(id,user_id,display_name,template) VALUES($1,$2,'Retained legacy','fixture')", [f.collection,f.user]);
-    let providerCalls = 0;
-    const provider = {renameCollection:async () => {providerCalls += 1;}} as unknown as HostedProviderClient;
-    await expect(renameHostedCollectionForUser({db,hostedProvider:provider},f.user,f.collection,"Rejected legacy write")).rejects.toMatchObject({code:"next_collection_metadata_required"});
-    expect(providerCalls).toBe(0);
-    expect((await db.query("SELECT display_name FROM hosted_collections WHERE id=$1",[f.collection])).rows[0].display_name).toBe("Retained legacy");
-    expect((await rename(f,"Shared next name")).statusCode).toBe(200);
-    expect((await db.query("SELECT display_name FROM hosted_collections WHERE id=$1",[f.collection])).rows[0].display_name).toBe("Retained legacy");
-    expect(providerCalls).toBe(0);
-  });
   it("uses the shared synced label for grant tokens and app catalog, not a device alias", async () => {
     const id = await localGrantFixture(db);
     await ensureDevelopmentEntitlement(db, id);
     await db.query("UPDATE grants SET activated_at=now() WHERE id=$1", [id]);
     await inTransaction(db,client => registerNextCollection(client,{collectionId:id,ownerUserId:id,runtime:"next",sync,rootKeyId:Buffer.alloc(32),displayName:"Shared catalog",ops:[{op:"genesis",owner:id,root:Buffer.alloc(32),state:sync === "cloud_copy" ? "cloud-copy" : "e2e"},{op:"member-set",account:id,role:"owner"}]}));
-    const tokens = await issueApplicationTokens(db,undefined,id);
+    const tokens = await issueApplicationTokens(db,id);
     expect(tokens.collection_name).toBe("Shared catalog");
     const reply = await app.inject({method:"GET",url:"/v1/next/apps/collections",headers:{authorization:`Bearer ${tokens.access_token}`}});
     expect(reply.statusCode).toBe(200);
     expect(reply.json().collections[0].name).toBe("Shared catalog");
     expect((await db.query("SELECT display_name FROM collections WHERE id=$1",[id])).rows[0].display_name).toBe("Fixture collection");
     await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [id]);
-    const localTokens = await issueApplicationTokens(db, undefined, id);
+    const localTokens = await issueApplicationTokens(db, id);
     expect(localTokens.collection_name).toBe("Fixture collection");
     const localCatalog = await app.inject({method:"GET",url:"/v1/next/apps/collections",headers:{authorization:`Bearer ${localTokens.access_token}`}});
     expect(localCatalog.statusCode).toBe(200);
@@ -238,7 +233,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
   it("keeps native local-only labels and token metadata device-local", async () => {
     const id = await localGrantFixture(db), f = await fixture();
     await db.query("UPDATE grants SET activated_at=now() WHERE id=$1", [id]);
-    expect((await issueApplicationTokens(db, undefined, id)).collection_name).toBe("Fixture collection");
+    expect((await issueApplicationTokens(db, id)).collection_name).toBe("Fixture collection");
     expect((await rename({...f, collection:id}, "Must not upload local alias")).statusCode).toBe(404);
     expect((await db.query("SELECT display_name FROM collections WHERE id=$1", [id])).rows[0].display_name).toBe("Fixture collection");
     expect((await db.query("SELECT 1 FROM next_collections WHERE collection_id=$1", [id])).rows).toEqual([]);
@@ -271,18 +266,6 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     if (state === "deleted") await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'native-registry')", [f.collection, randomUUID()]);
     expect((await rename(f)).statusCode).not.toBe(200);
     expect(await name(f.collection)).toBe("Initial label");
-  });
-  it("refuses next-only rename while its legacy migration is frozen", async () => {
-    const f = await fixture();
-    const cohort = `names_${randomUUID()}`;
-    await db.query("INSERT INTO next_migration_cohorts(name,frozen_at) VALUES($1,now())", [cohort]);
-    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [f.user,cohort]);
-    const reply = await rename(f);
-    expect(reply.statusCode).toBe(409);
-    expect(reply.json().error.code).toBe("migration_frozen");
-    expect(await name(f.collection)).toBe("Initial label");
-    await db.query("UPDATE next_migration_cohorts SET frozen_at=NULL WHERE name=$1", [cohort]);
-    expect((await rename(f)).statusCode).toBe(200);
   });
   it.each([false,true])("rechecks the original %s bearer after authentication", async installation => {
     const f = await fixture(installation);
@@ -327,7 +310,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     // And a native grant (a web app reaching the collection through a device).
     const native = await localGrantFixture(db);
     await db.query("UPDATE grants SET user_id=$2,collection_id=NULL,next_collection_id=$3,next_collection_sync=$4,activated_at=now() WHERE id=$1", [native, f.user, f.collection, sync]);
-    const tokens = await issueApplicationTokens(db, undefined, grant);
+    const tokens = await issueApplicationTokens(db, grant);
     const catalog = () => app.inject({ method: "GET", url: "/v1/next/apps/collections", headers: { authorization: `Bearer ${tokens.access_token}` } });
     expect((await catalog()).statusCode).toBe(200);
     if (installation) await db.query(`INSERT INTO next_background_grants(id,principal_kind,native_connector_id,installation_id,device_id,device_kind,sign_pk,kem_pk,noise_pk,user_id,application_id,collection_id,approval_request_id,timer_declaration,approved_at)
@@ -343,7 +326,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     expect(floors.filter(row => row.collection === f.collection)).toEqual([{ collection: f.collection, deletionId: fact.deletion_id, lifecycleEpoch: 1n }]);
 
     expect((await catalog()).statusCode).toBe(401);
-    await expect(issueApplicationTokens(db, undefined, grant)).rejects.toThrow();
+    await expect(issueApplicationTokens(db, grant)).rejects.toThrow();
     expect((await db.query("SELECT bool_and(revoked_at IS NOT NULL) AS revoked FROM grants WHERE id=ANY($1::uuid[])", [[grant, native]])).rows[0].revoked).toBe(true);
     expect((await db.query("SELECT bool_and(revoked_at IS NOT NULL) AS revoked FROM access_tokens WHERE grant_id=$1", [grant])).rows[0].revoked).toBe(true);
     expect((await db.query("SELECT 1 FROM installation_collection_scopes WHERE collection_id=$1", [f.collection])).rows).toEqual([]);
@@ -353,6 +336,40 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     // Soft delete: the collection's row and label are retained, unreachable.
     expect(await name(f.collection)).toBe("Initial label");
   });
+  it("removes a pending grant from account management when its collection is deleted", async () => {
+    const f = await fixture();
+    const grant = await localGrantFixture(db), sibling = await localGrantFixture(db);
+    await db.query(`UPDATE grants SET user_id=$2, collection_id=NULL, next_collection_id=$3,
+      next_collection_sync=$4, activated_at=now() WHERE id=$1`, [grant, f.user, f.collection, sync]);
+    await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",
+      [grant, f.collection, randomUUID(), Buffer.alloc(32)]);
+    await db.query("UPDATE connectors SET user_id=$2 WHERE id=$1", [sibling, f.user]);
+    await db.query("UPDATE collections SET user_id=$2 WHERE id=$1", [sibling, f.user]);
+    await db.query("UPDATE grants SET application_id=$1, user_id=$2, activated_at=now() WHERE id=$3", [grant, f.user, sibling]);
+    const headers = { "tailscale-user-login": `${f.user}@example.test` };
+    const revoke = () => app.inject({ method: "DELETE", url: `/v1/grants/${grant}`, headers });
+    const listed = async () => {
+      const response = await app.inject({ url: "/v1/me?native_storage=omit", headers });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json().grants.map((row: { id: string; revocation_status: string }) => [row.id, row.revocation_status]);
+    };
+
+    expect((await revoke()).json()).toEqual({ ok: true, revocation_status: "revoking" });
+    expect(await listed()).toContainEqual([grant, "revoking"]);
+    expect((await remove(f)).statusCode).toBe(200);
+    expect(await listed()).toEqual([[sibling, "active"]]);
+    const retry = await revoke();
+    expect(retry.statusCode).toBe(404);
+    expect(retry.json().error.code).toBe("grant_not_found");
+    const batch = await app.inject({ method: "POST", url: "/v1/grants/revoke-batch", headers,
+      payload: { grant_ids: [grant, sibling] } });
+    expect(batch.statusCode).toBe(404);
+    expect(batch.json().error.code).toBe("grant_not_found");
+    expect(await listed()).toEqual([[sibling, "active"]]);
+    expect((await db.query("SELECT revocation_confirmed_at FROM grants WHERE id=$1", [grant])).rows)
+      .toEqual([{ revocation_confirmed_at: null }]);
+  });
+
   it("keeps the CP denial when the native floor reply is lost", async () => {
     const f = await fixture();
     floorFails = true;
@@ -360,7 +377,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     expect(await deletionFacts(f.collection)).toHaveLength(1);
     expect((await remove(f)).statusCode).toBe(404);
   });
-  it("refuses a mismatched name, a non-owner and a frozen account without deleting", async () => {
+  it("refuses a mismatched name and a non-owner without deleting", async () => {
     const a = await fixture(), b = await fixture();
     const mismatch = await remove(a, "Initial labe");
     expect(mismatch.statusCode).toBe(409);
@@ -368,12 +385,6 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     expect((await remove({ ...a, collection: b.collection })).statusCode).toBe(404);
     await db.query("UPDATE next_policy_outbox SET ops=jsonb_set(ops,'{ops,1,role}','\"editor\"') WHERE collection_id=$1", [a.collection]);
     expect((await remove(a)).json().error.code).toBe("not_owner");
-    const cohort = `delete_${randomUUID()}`;
-    await db.query("INSERT INTO next_migration_cohorts(name,frozen_at) VALUES($1,now())", [cohort]);
-    await db.query("INSERT INTO next_migration_cohort_members(account_id,cohort) VALUES($1,$2)", [b.user, cohort]);
-    const frozen = await remove(b);
-    expect(frozen.statusCode).toBe(409);
-    expect(frozen.json().error.code).toBe("migration_frozen");
     for (const f of [a, b]) expect(await deletionFacts(f.collection)).toEqual([]);
     expect(floors.filter(row => [a.collection, b.collection].includes(row.collection))).toEqual([]);
   });

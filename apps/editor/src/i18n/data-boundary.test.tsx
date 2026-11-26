@@ -1,5 +1,5 @@
 import { i18n } from "@lingui/core";
-import type { CollectionContractDescriptor } from "@mdbase-dev/connect";
+import type { CollectionContractDescriptor } from "../connect-types";
 import { describe, expect, it } from "vitest";
 import { createEditorLocaleRuntime } from "./runtime";
 import { newNoteForm, newNotePath, occupiedPaths, titledPath } from "../new-note";

@@ -13,34 +13,64 @@
   --motion-enter: 160ms;
   --motion-exit: 120ms;
   --motion-confirm: 1s;
+  /* A calm spring (0.36s, bounce 0.22, about 2% overshoot) for what a hand just moved: a
+     released button, a switch thumb, a tick. --motion-press is the quick way in. */
+  --ease-spring: linear(0, 0.035, 0.121, 0.233, 0.356, 0.476, 0.587, 0.686, 0.769, 0.838, 0.892, 0.934, 0.966, 0.988, 1.003, 1.012, 1.017, 1.02, 1.02, 1.019, 1.017, 1.014, 1.012, 1.009, 1.007, 1.005, 1.004, 1.003, 1.002, 1);
+  --motion-spring: 475ms;
+  --motion-press: 90ms;
 }
 
+/* Overlays (menus, lists, dialogs) fade in while they grow a little, from the corner beside
+   their trigger when popover.ts knows it. They leave faster than they arrive. */
 .mdbase-overlay {
   opacity: 1;
-  transform: scale(1);
-  transition: opacity var(--motion-enter) var(--ease-out), transform var(--motion-enter) var(--ease-out);
+  transform: none;
+  transform-origin: var(--overlay-origin, center);
+  transition:
+    opacity var(--motion-enter) var(--ease-out),
+    transform var(--motion-spring) var(--ease-spring);
 }
-.mdbase-overlay::backdrop { opacity: 1; transition: opacity var(--motion-enter) var(--ease-out); }
+
+.mdbase-overlay::backdrop {
+  opacity: 1;
+  transition: opacity var(--motion-enter) var(--ease-out);
+}
+
 .mdbase-dialog.mdbase-overlay {
   transition-property: opacity, transform, display, overlay;
   transition-behavior: normal, normal, allow-discrete, allow-discrete;
 }
+
 .mdbase-dialog.mdbase-overlay::backdrop {
   transition-property: opacity, display, overlay;
   transition-behavior: normal, allow-discrete, allow-discrete;
 }
-.mdbase-overlay[data-open="false"]::backdrop { opacity: 0; transition-duration: var(--motion-exit); transition-timing-function: var(--ease-exit); }
+
 .mdbase-overlay[data-open="false"] {
   opacity: 0;
-  transform: scale(.98);
+  transform: var(--overlay-from, scale(0.96));
   pointer-events: none;
   transition-duration: var(--motion-exit);
   transition-timing-function: var(--ease-exit);
 }
-@starting-style {
-  .mdbase-overlay[data-open="true"] { opacity: 0; transform: scale(.98); }
-  .mdbase-overlay[data-open="true"]::backdrop { opacity: 0; }
+
+.mdbase-overlay[data-open="false"]::backdrop {
+  opacity: 0;
+  transition-duration: var(--motion-exit);
+  transition-timing-function: var(--ease-exit);
 }
+
+@starting-style {
+  .mdbase-overlay[data-open="true"] {
+    opacity: 0;
+    transform: var(--overlay-from, scale(0.96));
+  }
+
+  .mdbase-overlay[data-open="true"]::backdrop {
+    opacity: 0;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root {
     --motion-enter: 0ms;
@@ -52,6 +82,8 @@
     --motion-slow: 0ms;
     --motion-spin: 0ms;
     --motion-pulse: 0ms;
+    --motion-spring: 0ms;
+    --motion-press: 0ms;
   }
   .mdbase-overlay, .mdbase-overlay::backdrop { transition: none; transform: none; }
 }

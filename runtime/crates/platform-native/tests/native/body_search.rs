@@ -441,3 +441,32 @@ fn a_body_too_long_for_the_index_leaves_bodies_out_and_is_reused_on_reopen() {
     assert_eq!(reused.generation, built.generation);
     assert!(reused.ready);
 }
+
+/// Inline `#tags` in a body are part of `file.tags` (spec 08), so
+/// `file.hasTag` finds a note whose only tag is inline, on the store the
+/// browser opens, both as written and through `file.tags` itself.
+#[test]
+fn inline_body_tags_are_found_by_has_tag() {
+    let mut bodies: Vec<String> = (0..NOTES).map(body).collect();
+    bodies[3] = "Inline #inlinemarker here.\n".into();
+    bodies[5] = "Nested #project/alpha and `#code`.\n".into();
+    let (dir, svc) = world("body-search-inline-tags", &bodies);
+    let (mut replica, session) = open(&dir, &svc);
+    for (where_, want) in [
+        ("file.hasTag(\"inlinemarker\")", vec![path(3)]),
+        ("file.hasTag(\"#inlinemarker\")", vec![path(3)]),
+        ("file.hasTag(\"project\")", vec![path(5)]),
+        ("file.hasTag(\"code\")", vec![]),
+        ("\"inlinemarker\" in file.tags", vec![path(3)]),
+    ] {
+        let page =
+            query(&mut replica, session, where_).unwrap_or_else(|e| panic!("{where_}: {e:?}"));
+        let got: Vec<String> = page.records.iter().map(|r| r.path.clone()).collect();
+        assert_eq!(got, want, "{where_}");
+        assert!(
+            page.diagnostics.as_ref().is_none_or(Vec::is_empty),
+            "{where_}: {:?}",
+            page.diagnostics
+        );
+    }
+}

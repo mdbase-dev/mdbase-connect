@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
 import { isMdbaseError, MdbaseError, type ChangesWatch, type ChangesWatchState, type MdbaseClient, type RecordView, type wire } from "@mdbase-dev/sdk";
-import type { QueryRecord } from "@mdbase-dev/connect";
+import type { QueryRecord } from "./connect-types";
 import type {
   EditorCollectionChange,
   NativeCollectionChange,
@@ -170,7 +170,10 @@ export class NativeNoteObservation implements NoteObservation {
       void (this.loading ? this.loading.then(() => this.refresh()) : this.refresh());
       return;
     }
-    for (const change of batch.changes) this.queued.add(change.id);
+    for (const change of batch.changes) {
+      if (change.entity === "file") this.emit({ source: "native", kind: "file.changed", path: change.path });
+      else this.queued.add(change.id);
+    }
     void this.drain();
   }
 

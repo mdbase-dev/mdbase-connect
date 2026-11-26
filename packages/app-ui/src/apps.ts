@@ -36,8 +36,10 @@ export const mdbaseApps: readonly MdbaseApp[] = [
 ];
 
 /** Every app mdbase makes: the family above plus apps with their own identity. */
+export type OfficialAppId = MdbaseAppId | "journal" | "tasknotes";
+
 export interface OfficialApp extends Omit<MdbaseApp, "id"> {
-  readonly id: MdbaseAppId | "journal" | "tasknotes";
+  readonly id: OfficialAppId;
 }
 
 export const officialApps: readonly OfficialApp[] = [
@@ -55,6 +57,36 @@ export const officialApps: readonly OfficialApp[] = [
     url: ""
   }
 ];
+
+/** Setup guide for connecting other AI clients (Codex, for example) to mdbase via MCP. */
+export const mcpSetupUrl = "https://mdbase.dev/apps/mcp/";
+
+export interface AiAssistant {
+  readonly id: "claude" | "chatgpt";
+  readonly name: string;
+  readonly description: string;
+  /** mdbase's listing in the assistant's own directory, which connects it to the hosted MCP server. */
+  readonly url: string;
+}
+
+/** AI assistants with an official mdbase listing. */
+export const aiAssistants: readonly AiAssistant[] = [
+  {
+    id: "claude",
+    name: "Claude",
+    get description() { return t({ message: "Add mdbase from Claude's directory", context: "App switcher" }); },
+    url: "https://claude.ai/directory/mdbase"
+  },
+  {
+    id: "chatgpt",
+    name: "ChatGPT",
+    get description() { return t({ message: "Add mdbase from ChatGPT's plugins", context: "App switcher" }); },
+    url: "https://chatgpt.com/plugins/plugin_asdk_app_6af1a7df00e48191ad2327acecb8ee55"
+  }
+];
+
+/** Hosted Model Context Protocol endpoint for mdbase collections. */
+export const mcpEndpointUrl = "https://mcp.mdbase.dev/mcp";
 
 /**
  * Replaces app URLs for a lab or local build, for example from
@@ -78,12 +110,13 @@ export function withAppUrls<App extends OfficialApp = MdbaseApp>(
 const sharedParameters = ["collection", "server"] as const;
 
 /** A link that opens the current page's collection in another app. */
-export function mdbaseAppHref(appUrl: string, currentHref: string): string {
+export function mdbaseAppHref(appUrl: string, currentHref: string, collectionId?: string | null): string {
   const target = new URL(appUrl);
   const current = new URL(currentHref);
   for (const key of sharedParameters) {
     const value = current.searchParams.get(key);
     if (value) target.searchParams.set(key, value);
   }
+  if (collectionId) target.searchParams.set("collection", collectionId);
   return target.href;
 }

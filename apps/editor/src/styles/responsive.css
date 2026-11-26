@@ -1,6 +1,5 @@
 .mobile-back,
-.mobile-collections,
-.mobile-label {
+.mobile-collections {
   display: none;
 }
 
@@ -140,6 +139,7 @@
   .note-list-pane,
   .type-list-pane,
   .editor-pane,
+  .editor-panels,
   .type-inspector,
   .settings-view {
     position: absolute;
@@ -147,6 +147,10 @@
     display: none;
     border: 0;
   }
+
+  /* The panes take the screen as one; the pane inside fills its panel. */
+  .surface-notes.pane-editor .editor-panels { display: block; }
+  .editor-panels .editor-pane { position: relative; inset: auto; }
 
   .pane-collections .collection-rail,
   .surface-notes.pane-notes .note-list-pane,
@@ -199,8 +203,10 @@
   }
 
   .list-header {
+    height: auto;
     min-height: 62px;
     padding-top: max(10px, env(safe-area-inset-top));
+    padding-bottom: 10px;
   }
 
   .editor-pane { grid-template-rows: auto auto auto minmax(0, 1fr); }
@@ -237,7 +243,7 @@
 
   .mobile-note-path {
     margin: 0;
-    font-family: var(--mono);
+    color: var(--faint);
     overflow-wrap: anywhere;
   }
 
@@ -248,23 +254,14 @@
   .note-provenance .cancel-operation { min-height: 44px; }
   .note-provenance .note-opening-status { display: block; max-width: 100%; }
 
-  .mobile-label { display: inline; }
-  .list-header .new-note {
-    width: auto;
-    flex: none;
-    display: inline-flex;
-    gap: 6px;
-    padding-inline: 10px;
-    border-radius: var(--radius-sm);
-    background: var(--accent);
-    color: var(--color-on-accent);
-    font-size: var(--font-size-ui);
-    font-weight: var(--font-weight-medium);
-  }
+  .list-header .new-note,
+  .list-header .new-note-type { height: 44px; }
+  .list-header .new-note { padding-inline: 12px 14px; }
+  .list-header .new-note-type { width: 36px; }
 
   .note-title-field {
     min-height: 45px;
-    font-size: var(--font-size-heading);
+    font-size: calc(var(--editor-font-size, 17px) * 1.5);
   }
 
   .body-editor .cm-content {
@@ -280,16 +277,17 @@
   }
 
   .properties-panel {
-    padding: max(20px, env(safe-area-inset-top)) 18px max(20px, env(safe-area-inset-bottom));
+    padding: env(safe-area-inset-top) 18px max(20px, env(safe-area-inset-bottom));
     border: 0;
+  }
+
+  .panel-header {
+    margin-inline: -18px;
+    padding-inline: 18px 6px;
   }
 
   .note-skeleton {
     grid-template-rows: 54px minmax(0, 1fr);
-  }
-
-  .skeleton-bar span {
-    margin-left: 26px;
   }
 
   .skeleton-document {
@@ -430,7 +428,6 @@
   }
 
   .collection-default-row,
-  .collection-link-primary,
   .collection-unique-rule,
   .collection-unique-rule:not(.has-path) {
     grid-template-columns: minmax(0, 1fr) 44px;
@@ -438,22 +435,15 @@
   }
 
   .collection-default-row > label:nth-of-type(2),
-  .collection-link-primary > label:not(:first-child),
   .collection-unique-rule > label:not(:first-child),
   .collection-advanced-inline {
     grid-column: 1 / -1;
   }
 
   .collection-default-row .collection-rule-remove,
-  .collection-link-primary .collection-rule-remove,
   .collection-unique-rule .collection-rule-remove {
     grid-column: 2;
     grid-row: 1;
-  }
-
-  .collection-link-rule > .string-list-editor {
-    max-width: none;
-    margin-right: 0;
   }
 
   .visual-field-row {
@@ -639,6 +629,15 @@
     gap: 10px;
   }
 
+  .settings-mcp-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .settings-document a.mdbase-button {
+    min-height: 44px;
+  }
+
   .person-choice .mdbase-select {
     width: auto;
     flex: 1;
@@ -681,12 +680,32 @@
   .properties-panel .mdbase-select, .type-inspector .mdbase-select,
   .settings-document .mdbase-select, .note-heading-properties .mdbase-select { min-width: 44px; min-height: 44px; }
   .properties-panel .inline-remove-button, .note-heading-properties .inline-remove-button { width: 44px; }
+  /* The shared property list: a row is as tall as a touch target, and so is each way to add to it or take it off. */
+  .properties-panel .mdbase-property,
+  .properties-panel .mdbase-property-value { min-height: 44px; }
+  .properties-panel .mdbase-property-name { height: 44px; }
+  .properties-panel .mdbase-property-clear,
+  .properties-panel .mdbase-property-more { top: 0; right: 0; width: 44px; height: 44px; opacity: 1; }
+  .properties-panel .mdbase-property-more:has(+ .mdbase-property-clear) { right: 44px; }
+  .properties-panel .mdbase-property:has(> .mdbase-property-clear),
+  .properties-panel .mdbase-property:has(> .mdbase-property-more) { padding-inline-end: 44px; }
+  .properties-panel .mdbase-property:has(> .mdbase-property-more + .mdbase-property-clear) { padding-inline-end: 88px; }
+  .properties-panel .mdbase-property-value:has(+ .mdbase-property-more) > .mdbase-property-fold { max-width: 100%; }
+  .properties-panel .mdbase-property-value { font-size: 16px; }
+  .properties-panel .mdbase-tokens:has(.mdbase-token > button:not(.mdbase-token-open)) { gap: 8px; }
+  .properties-panel .mdbase-token:has(> button:not(.mdbase-token-open)) { height: 36px; padding-inline-end: 0; }
+  .properties-panel .mdbase-token > .mdbase-token-open { height: 36px; min-height: 36px; line-height: 36px; }
+  .properties-panel .mdbase-token > button:not(.mdbase-token-open) { min-width: 44px; height: 44px; margin-block: -4px; }
+  .properties-panel .mdbase-token-add { width: 44px; height: 36px; min-height: 36px; }
+  .properties-panel .mdbase-tokens-input { min-height: 36px; font-size: 16px; }
+  .properties-panel .mdbase-property-input { font-size: 16px; }
   .properties-panel .property-row { padding-right: 44px; }
   .property-string-list > div { grid-template-columns: minmax(0, 1fr) 44px; }
   .schema-array-item { grid-template-columns: 18px minmax(0, 1fr) 44px; }
 
+  /* The close target runs to the panel's edge: its overhang matches the header's end padding. */
   .panel-header .icon-button {
-    margin: -8px -8px 0 0;
+    margin: -8px -6px 0 0;
   }
 
   .notice,
@@ -739,10 +758,6 @@
     grid-template-columns: 18px minmax(0, 1fr) 24px;
   }
 
-  .collection-rail nav .rail-facet-row {
-    grid-template-columns: minmax(0, 1fr) 24px;
-  }
-
   .collection-rail nav .context-menu-target .rail-row-menu {
     position: static;
     transform: none;
@@ -768,7 +783,8 @@
  * least the root size so search, Quick open and forms never zoom. */
 @media (pointer: coarse) {
   input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]),
-  textarea,
+  /* The note title is already larger than the root size, and keeps its own. */
+  textarea:not(.title-input),
   select {
     font-size: max(1rem, var(--font-size-ui)) !important;
   }

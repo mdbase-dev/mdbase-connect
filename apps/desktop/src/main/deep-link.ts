@@ -13,10 +13,6 @@ export function routeForDeepLink(value: string | undefined): string | null {
       const requestId = url.searchParams.get("request_id");
       return requestId ? `access:${requestId}` : "access";
     }
-    if (url.hostname === "mirror") {
-      const collectionId = url.searchParams.get("collection");
-      return collectionId ? `collections:mirror:${collectionId}` : "collections";
-    }
     if (url.hostname === "paired") return "paired";
   } catch {
     return null;

@@ -42,17 +42,9 @@ fn capture(
     if excluded.contains(&body_field()) {
         context = context.without_body();
     }
-    // Type-match expressions need clock/dependency eligibility qualification.
-    // Conservatively disable this optional profile rather than label ClockNone
-    // membership as complete/current for arbitrary expressions.
-    if context
-        .catalog()
-        .types()
-        .iter()
-        .any(|t| t.match_spec.as_ref().is_some_and(|m| m.expr.is_some()))
-    {
-        return None;
-    }
+    // A `match.expr` type is indexed like any other: the catalog drops one that
+    // reads the clock, file times or other records (`nondeterministic_match`),
+    // so membership is a function of the record and the captured resources.
     Some(Arc::new(context))
 }
 /// Longest sort key one indexed field value may have.
@@ -68,6 +60,9 @@ impl<S: Store> Replica<S> {
         &self,
         tx: &mut Tx,
     ) -> StoreResult<Option<Arc<QueryProjectionContext>>> {
+        if self.query_index_deferred || (self.is_hosted() && !self.store.query_index_supported()) {
+            return Ok(None);
+        }
         let resources_changed =
             !tx.resources_put.is_empty() || !tx.resources_del.is_empty() || tx.clear_confirmed;
         let context = if resources_changed || self.query_context.is_none() {
@@ -107,11 +102,12 @@ impl<S: Store> Replica<S> {
                 tx.query_index = None;
                 return Ok(Some(context));
             };
-            // The store writes the path once for the record and once per field.
+            // The store writes the path in `st_qrecord`, `st_qmtime`, and once per field.
             bytes = match projected
                 .path
                 .len()
-                .checked_mul(1 + projected.fields.len())
+                .checked_mul(2 + projected.fields.len())
+                .and_then(|n| n.checked_add(projected.mtime.key.len()))
                 .and_then(|n| bytes.checked_add(n))
                 .and_then(|n| {
                     projected.fields.iter().try_fold(n, |n, f| {
@@ -152,6 +148,8 @@ impl<S: Store> Replica<S> {
 /// SqlStore transports them in byte-bounded groups, but this requested page is
 /// still retained in memory. Record admission and heap bounds remain separate.
 const BACKFILL_PAGE: u32 = 16;
+/// Records per page of a device's catalog rebuild, which always held this many.
+const REINDEX_PAGE: u32 = 128;
 /// Documents one transaction may rewrite or project. A hosted request carries at
 /// most 4 MiB, and a row's SQL (links, index rows, raw fields) costs more than
 /// its document, so this leaves the room a full 128-record page would not.
@@ -197,7 +195,82 @@ fn body_batches(rows: Vec<QueryIndexedRow>) -> Vec<Vec<QueryIndexedRow>> {
     batches
 }
 
+/// Project `rows` for `context`, or the fields whose value is too long for a
+/// key when one cannot be (none when it fails for another reason).
+fn project(
+    context: &QueryProjectionContext,
+    rows: &[RecordRow],
+) -> Result<Vec<QueryIndexedRow>, Option<Vec<FieldRef>>> {
+    rows.iter()
+        .map(|row| {
+            // Optional: stays unready; the per-record path answers.
+            context.project_row(row).map_err(|_| {
+                let wide = context.too_wide_fields(row);
+                (!wide.is_empty()).then_some(wide)
+            })
+        })
+        .collect()
+}
+
+/// Which records a [`Replica::reindex`] writes back.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Reindex {
+    /// Every record: the stored representation of their metadata changed.
+    All,
+    /// Records whose metadata the catalog changed.
+    Changed,
+}
+
 impl<S: Store> Replica<S> {
+    /// Build the index a catch-up deferred, at the current head. Every query
+    /// (a page or its cursor, a live query, a Bases read) calls this first, so
+    /// none is answered without the index because of a deferral. A failure
+    /// leaves the index unready, so queries keep the per-record path, and is
+    /// reported as an integrity incident.
+    pub(super) fn flush_query_index(&mut self) {
+        if !self.query_index_flushable() {
+            return;
+        }
+        self.query_index_deferred = false;
+        if let Err(e) = self.backfill_query_index() {
+            self.query_context = None;
+            self.incident(
+                mdbn_wire::client::IncidentKind::Integrity,
+                Some(mdbn_wire::common::Value::Text(format!(
+                    "store: query index backfill: {e}"
+                ))),
+            );
+        }
+    }
+
+    /// A deferred index waits for the tail only while it is being read: an
+    /// offline device, or one whose reading has stopped (stalled, waiting for
+    /// a source), builds it on its next tick.
+    pub(super) fn query_index_flush_due(&self) -> bool {
+        self.query_index_flushable()
+            && (!self.reading || self.connection == mdbn_wire::client::Connection::Offline)
+    }
+
+    fn query_index_flushable(&self) -> bool {
+        self.query_index_deferred && self.install.is_none() && self.apply_fault.is_none()
+    }
+
+    pub(super) fn backfill_query_index_within_budget(&mut self) -> StoreResult<()> {
+        match self.backfill_query_index() {
+            Err(crate::store::StoreError::Full) => {
+                self.query_context = None;
+                self.incident(
+                    mdbn_wire::client::IncidentKind::Integrity,
+                    Some(mdbn_wire::common::Value::Text(
+                        "store: query index backfill: over budget".into(),
+                    )),
+                );
+                Ok(())
+            }
+            result => result,
+        }
+    }
+
     /// Make the maintained index complete for the current confirmed state, when it
     /// is absent, unready, or under another generation (a pre-index store, a
     /// snapshot install, an invalidating transaction). Index-only transactions:
@@ -211,7 +284,10 @@ impl<S: Store> Replica<S> {
     /// another pass would end in the same unready state. It is still unready, so
     /// raw pages are never served for it.
     pub(crate) fn backfill_query_index(&mut self) -> StoreResult<()> {
-        if self.install.is_some() || !self.store.query_index_supported() {
+        if self.install.is_some()
+            || self.query_index_deferred
+            || !self.store.query_index_supported()
+        {
             return Ok(());
         }
         let resources = self.store.resources()?;
@@ -271,7 +347,9 @@ impl<S: Store> Replica<S> {
         self.query_cursors.clear();
         // Each pass that meets a too-long value leaves that field out and starts
         // again; every restart drops at least one of the bounded declared fields.
-        while let Some(wide) = self.with_deferred_durability(|r| r.backfill_pass(&context, head))? {
+        while let Some(wide) = self.with_deferred_durability(|r| {
+            r.backfill_pass(Some(&context), head, None, BACKFILL_PAGE)
+        })? {
             self.query_index_excluded.extend(wide);
             let Some(narrower) = capture(&resources, &self.query_index_excluded) else {
                 self.query_context = None;
@@ -283,55 +361,141 @@ impl<S: Store> Replica<S> {
         Ok(())
     }
 
-    /// One full backfill pass. Returns early, leaving the index unready, when a
-    /// record cannot be projected for the field index: with the fields whose
-    /// value is too long for a key, so the caller can leave them out, else none.
+    /// Rebuild a device's derived data under the current catalog in one pass:
+    /// one read of each record, one publication of the query index at the end.
+    /// With `rederive`, every record's metadata is computed again and the rows
+    /// it selects are written back, and the catalog's stamp is written last, so
+    /// a crash leaves the stamp missing and the next open reindexes again. A
+    /// too-long value leaves the index unready for the caller's backfill to
+    /// narrow; the metadata pass still completes. Without a maintained index
+    /// (unsupported, installing) only metadata is written.
+    pub(super) fn reindex(&mut self, rederive: Option<Reindex>) -> StoreResult<()> {
+        self.with_deferred_durability(|r| {
+            let context = if r.install.is_some()
+                || r.query_index_deferred
+                || !r.store.query_index_supported()
+            {
+                None
+            } else {
+                capture(&r.store.resources()?, &r.query_index_excluded)
+            };
+            if rederive.is_none() && context.is_none() {
+                return Ok(());
+            }
+            let head = r.store.head()?;
+            r.backfill_pass(context.as_deref(), head, rederive, REINDEX_PAGE)?;
+            Ok(())
+        })
+    }
+
+    /// One full pass in record order, `page` records at a time. With `rederive`, every record's metadata
+    /// is computed again and the rows it selects are written in the same
+    /// transaction as their projection. With `context`, every record is
+    /// projected for it: the first transaction replaces the specs, the last
+    /// publishes at `head`.
+    ///
+    /// A record that cannot be projected for the field index stops the
+    /// projection, leaving the index unready: the result is the fields whose
+    /// value is too long for a key, so the caller can leave them out, else
+    /// none. Without `rederive` the pass returns there; with it, the remaining
+    /// pages still rederive metadata, and the catalog's stamp is written last.
     fn backfill_pass(
         &mut self,
-        context: &QueryProjectionContext,
+        mut context: Option<&QueryProjectionContext>,
         head: Head,
+        rederive: Option<Reindex>,
+        page: u32,
     ) -> StoreResult<Option<Vec<FieldRef>>> {
         let mut after = None;
         let mut first = true;
+        let mut wide = None;
         loop {
-            let page = self.store.records(crate::store::Page {
-                after,
-                limit: BACKFILL_PAGE,
-            })?;
-            let done = page.len() < BACKFILL_PAGE as usize;
-            after = page.last().map(|r| r.id);
-            let mut batches = Vec::new();
-            for batch in byte_batches(page) {
-                let mut rows = Vec::with_capacity(batch.len());
-                for row in &batch {
-                    match context.project_row(row) {
-                        Ok(r) => rows.push(r),
-                        // Optional: stays unready; the per-record path answers.
-                        Err(_) => {
-                            let wide = context.too_wide_fields(row);
-                            return Ok((!wide.is_empty()).then_some(wide));
-                        }
+            let rows = self
+                .store
+                .records(crate::store::Page { after, limit: page })?;
+            let done = rows.len() < page as usize;
+            after = rows.last().map(|r| r.id);
+            if rederive.is_some() {
+                self.stats.reindexed += rows.len() as u64;
+            }
+            let mut txs = Vec::new();
+            for mut batch in byte_batches(rows) {
+                let mut write = vec![false; batch.len()];
+                if let Some(which) = rederive {
+                    for (row, write) in batch.iter_mut().zip(&mut write) {
+                        let meta = crate::plan::record_meta(&self.catalog, &row.path, &row.doc);
+                        *write = which == Reindex::All || row.meta != meta;
+                        row.meta = meta;
                     }
                 }
-                batches.extend(body_batches(rows));
-            }
-            let last = batches.len() - 1;
-            for (at, rows) in batches.into_iter().enumerate() {
-                let completes = done && at == last;
-                self.store.commit(Tx {
-                    query_index: Some(QueryIndexTx {
-                        generation: context.generation(),
-                        replace_specs: first.then(|| context.fields().to_vec()),
-                        rows,
-                        publish_at: completes.then_some(head),
-                        completes_backfill: completes,
-                    }),
-                    ..Tx::default()
-                })?;
-                first = false;
+                let projected = match context {
+                    Some(c) => match project(c, &batch) {
+                        Ok(rows) => Some((c, rows)),
+                        Err(too_wide) => {
+                            if rederive.is_none() {
+                                return Ok(too_wide);
+                            }
+                            wide = too_wide;
+                            context = None;
+                            None
+                        }
+                    },
+                    None => None,
+                };
+                let mut put: BTreeMap<_, _> = batch
+                    .into_iter()
+                    .zip(write)
+                    .filter(|(_, write)| *write)
+                    .map(|(row, _)| (row.id, row))
+                    .collect();
+                let Some((c, rows)) = projected else {
+                    if !put.is_empty() {
+                        txs.push(Tx {
+                            records_put: put.into_values().collect(),
+                            ..Tx::default()
+                        });
+                    }
+                    continue;
+                };
+                for rows in body_batches(rows) {
+                    txs.push(Tx {
+                        // A written row carries its projection in the same
+                        // transaction, as the store requires.
+                        records_put: rows.iter().filter_map(|r| put.remove(&r.id)).collect(),
+                        query_index: Some(QueryIndexTx {
+                            generation: c.generation(),
+                            replace_specs: first.then(|| c.fields().to_vec()),
+                            rows,
+                            publish_at: None,
+                            completes_backfill: false,
+                        }),
+                        ..Tx::default()
+                    });
+                    first = false;
+                }
             }
             if done {
-                return Ok(None);
+                if let Some(update) = txs.last_mut().and_then(|tx| tx.query_index.as_mut())
+                    && context.is_some()
+                {
+                    update.publish_at = Some(head);
+                    update.completes_backfill = true;
+                }
+                if rederive.is_some() {
+                    let stamp = crate::plan::record_meta_stamp(&self.catalog);
+                    if txs.is_empty() {
+                        txs.push(Tx::default());
+                    }
+                    let last = txs.last_mut().expect("a transaction");
+                    last.meta
+                        .push((crate::store::meta_keys::RECORD_META.into(), Some(stamp)));
+                }
+            }
+            for tx in txs {
+                self.store.commit(tx)?;
+            }
+            if done {
+                return Ok(wide);
             }
         }
     }

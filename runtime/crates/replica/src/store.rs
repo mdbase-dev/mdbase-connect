@@ -299,8 +299,8 @@ pub struct LocalReceipt {
     pub problem: Option<Problem>,
     /// When it left `pending` (host clock).
     pub resolved_at: TimeMs,
-    /// The grant that submitted it (`None`: the hosting app). Receipts are served only
-    /// to sessions of the same grant.
+    /// The submitting Connect grant or local web receipt owner (`None`: the hosting
+    /// app). Receipts are served only to sessions of the same owner.
     pub grant: Option<Uuid>,
 }
 
@@ -325,7 +325,8 @@ pub struct PendingRow {
     /// A confirmed change to any of them re-plans this row. Resource paths are
     /// encoded as `"r:" + path`, IDs as `"i:" + uuid`.
     pub touches: Vec<String>,
-    /// The session's grant, if a granted client submitted it (`mutation.on_behalf`).
+    /// The submitting Connect grant or local web receipt owner. A local web owner
+    /// exists only in LocalOnly stores and is never sent as `mutation.on_behalf`.
     pub grant: Option<Uuid>,
     /// Blob parts this mutation needs uploaded before it can be appended.
     pub uploads: Vec<BlobRef>,
@@ -1289,7 +1290,8 @@ pub trait Store {
     /// whose completion stamps are written last, and the entries of one
     /// applied page (redone from the log; closed before the page is acted on).
     /// Closing it is a barrier: everything committed before is durable when it
-    /// returns `Ok`. Stores without such a mode keep every commit durable.
+    /// returns `Ok`, as durable as this store makes any commit. Stores without
+    /// such a mode commit each one on its own.
     fn defer_durability(&mut self, _on: bool) -> StoreResult<()> {
         Ok(())
     }
@@ -1305,6 +1307,11 @@ pub trait Store {
 
     /// Whether records are user-visible files that the store publishes and observes.
     fn has_files(&self) -> bool {
+        false
+    }
+    /// Whether this file-backed store's volume is read-only: it observes the
+    /// folder but cannot safely publish writes to files (`ReplaceStrategy::ReadOnly`).
+    fn files_read_only(&self) -> bool {
         false
     }
     /// Whether the store implements [`Tx::stage`]. Without it a snapshot install
@@ -1510,4 +1517,6 @@ pub mod meta_keys {
     /// The catalog the records' index entries were derived under
     /// (`plan::record_meta_stamp`). Device-local; a mismatch reindexes on open.
     pub const RECORD_META: &str = "replica.record_meta";
+    /// Hosted repair progress within the current confirmed row set.
+    pub const HOSTED_RECORD_META_CURSOR: &str = "replica.hosted_record_meta_cursor";
 }

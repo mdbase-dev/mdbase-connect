@@ -15,29 +15,40 @@ qualification evidence fails closed. The workflow's launch SHA need not have
 reached production, and main moving again never invalidates the selected source.
 Workflow-run data is never used to run PR code with publication credentials.
 
-Repository immutable releases stay **enabled**. Desktop releases ship at
-**100% rollout**. All binaries, signed channel documents, Sigstore bundles and
-checksums are uploaded to a **draft** release before it is published. Nothing
-rewrites or replaces a published release asset. No immutable-releases settings
-API access, new signer, trusted channel or policy-key change is required.
+Repository immutable releases stay **enabled**. A release's signed channel
+document says **100%**; its stage lives in a separate signed rollout document
+(see [Rollout and stopping](#rollout-and-stopping)). All binaries, signed
+channel documents, Sigstore bundles and checksums are uploaded to a **draft**
+release before it is published. Nothing rewrites or replaces a published release
+asset. No immutable-releases settings API access, new signer, trusted channel or
+policy-key change is required.
 
 ## One release line
 
 The coordinator compares the desktop and its bundled dependencies with the
 last published desktop tag. Server-only, documentation-only and test-only
-changes do not create a release. Releases are at least 24 hours apart, and an
-unfinished automatic release attempt blocks new versions. Before publication,
+changes do not create a release. While staged rollout is enabled
+(`DESKTOP_ROLLOUT_SERVICE` is set) there is no gap between releases: a desktop
+change releases as soon as it reaches production, like every other client.
+Each release reaches people in stages, and installations without early access
+space their own updates a day apart, so frequent releases do not mean frequent
+updates. Without staged rollout, releases stay 24 hours apart. An unfinished
+automatic release attempt blocks new versions. Before publication,
 all four existing platform builds, signing/provenance steps and platform
 verification remain in place. The Linux build also runs desktop regressions,
 browser UI/accessibility flows and the packaged daemon CLI smoke. The required
 full Server CI qualification retains the existing client end-to-end lanes.
 
-CI allocates the next `0.1.0-beta.N` above the source version, every existing
-`v*` version tag and every published desktop version, so the desktop stays on
-the same numbered beta line as earlier releases. Tags cannot be deleted or
-moved, so a reserved number is never reused. A published version that
-cannot be exceeded on this beta line stops allocation for release-agent review. An
-annotated `v0.1.0-beta.N` tag reserves the version on the qualified main commit;
+CI allocates the next semver version above every existing `v*` version tag and
+every published desktop version, shared with the npm lines. The first release
+after the `0.1.0-beta.N` line is `0.1.0`; after that a `## Breaking`
+`changelog.d` fragment added since the highest version's tag bumps the minor
+version, and anything else the patch. Tags cannot be deleted or moved, so a
+reserved version is never reused. A version form it cannot order, or a 1.0
+release, stops allocation for release-agent review. Until production contains
+semver tag support, the coordinator waits rather than reserve a tag whose tag
+worker would refuse it. An annotated `v<version>` tag reserves the version on
+the qualified main commit;
 the tag records the originating run and time. The source tree is not rewritten
 and no version PR is created. The tag worker stamps the root and desktop
 package versions only in its disposable build checkout; `MDBN_RELEASE_VERSION`
@@ -101,9 +112,49 @@ recheck readiness and compatibility without `production_verified_commit`.
 ## Rollout and stopping
 
 The signed permanent channel and legacy bootstrap both contain **100%** rollout
-with the existing version-tag seed. There is no widening job or later channel
-replacement. The coordinator still verifies the last published channel's
-original signature before selecting a new release.
+with the existing version-tag seed, and are never replaced. The coordinator
+still verifies the last published channel's original signature before selecting
+a new release.
+
+Staged rollout is enabled by the repository variable
+**`DESKTOP_ROLLOUT_SERVICE=https://updates.mdbase.dev`** (ops
+`workers/updates`). While it is set:
+
+- the publish job signs a rollout document at stage `early` and uploads it
+  after the draft is complete and **before** the release is published, so a
+  published release always has one. An upload failure leaves an unpublished
+  attempt, like any other publish failure;
+- `operation=rollout` with `stage` (`held`, `early`, `5`, `25`, `100`),
+  dispatched **on the release tag**, signs and uploads that stage through the
+  `desktop-release` environment. It runs from
+  the tag so the document carries the release's own signing identity, requires
+  the release to be published, takes its own concurrency group per tag, and
+  never waits for a build. Uploads authenticate with the run's GitHub OIDC
+  token (audience `https://updates.mdbase.dev`); the Worker accepts only this
+  repository's `desktop-release.yml` at that same tag. There is no stored
+  credential;
+- every coordinator run (after the release plan's stop, latch and
+  unfinished-attempt gates) reads and verifies the rollout of every release
+  newer than the newest one at 100% (at most 16), and moves each one stage
+  along `early → 5 → 25 → 100` once it has held its current stage for
+  **6 hours**. Each release keeps its own clock, so a new release does not stop
+  an older one reaching everyone: an installation without early access takes
+  the newest release that has reached it, looking back as far. The coordinator
+  never moves a release out of `held` or a stage set by hand outside that
+  sequence.
+
+Repository variable **`DESKTOP_ROLLOUT_HELD=true`** pauses all automatic
+widening; ops `bin/release desktop rollout hold` sets it and
+`bin/release desktop rollout release` deletes it. To stop one release for
+everyone, early access included, publish its `held` stage:
+`bin/release desktop rollout set <tag> held`. Installations that already took
+it keep it; a release that blocks it in `blocked_versions` moves them on.
+`bin/release desktop rollout set <tag> <stage>` also widens by hand, and
+`bin/release desktop rollout status [<tag>]` shows the verified stages.
+
+Unset `DESKTOP_ROLLOUT_SERVICE`, publication is as before: no rollout
+document, 24-hour gap, every installation takes each release (older apps read
+only the channel document in any case).
 
 The tag worker signs and verifies both manifests, computes their checksums,
 then creates a draft with every release asset. Only after all uploads succeed
@@ -115,8 +166,9 @@ blindly. The coordinator refuses any unfinished automatic tag reservation and
 still respects an existing `Continuous desktop status: stopped` notes marker.
 
 Repository variable **`DESKTOP_RELEASE_STOPPED=true`** stops the line for a
-reported crash, error or operational stop. It stops subsequent
-builds/publication, not downloads already offered or updates already installed.
+reported crash, error or operational stop. It stops subsequent builds,
+publication, and rollout widening. Operators can still publish the `held`
+stage. Downloads already offered and updates already installed are unaffected.
 The coordinator cannot read the private ops repository, so an open ops
 `desktop` hold does not stop it by itself. Hold Desktop with
 `bin/release app-line stop desktop desktop-held`, which sets this variable
@@ -171,14 +223,16 @@ The supervisor must also retire the old tagged desktop dispatch in ops
 accepted. The website's same-version npm intake needs a separate reviewed
 change for independent desktop/SDK versions. Neither consumer is modified here.
 
-## Follow-up: staged rollout
+## Enabling staged rollout
 
-Serve the channel manifest from a mutable location we own, such as the update
-Worker or R2, signed as today with the existing tag-bound Sigstore identity.
-Widening would rewrite only that owned manifest and its signature, never any
-asset of a published GitHub release. Binary releases, bootstrap assets and
-their provenance remain immutable. A separate reviewed change must wire client
-discovery and verification to that location and define widening/stop authority
-and recovery. This PR does not build that service or change updater trust.
+1. Deploy the ops updates Worker (`bin/deploy-updates`) and check
+   `https://updates.mdbase.dev/desktop/v1/rollout/v0.0.0.json` answers 404.
+   This must happen **before** a desktop release with staged-rollout support
+   ships: such an app treats an unreachable rollout service as "not yet" and
+   defers automatic updates, while a 404 means "follow the release".
+2. Wait for a published desktop release that contains staged-rollout support in
+   the app, so that most installations space their own updates.
+3. Set `DESKTOP_ROLLOUT_SERVICE=https://updates.mdbase.dev`. The next release
+   starts at early access and widens automatically, and the 24-hour gap ends.
 
-Tests: `node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs`.
+Tests: `node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs scripts/lib/desktop-rollout.test.mjs`.

@@ -1,7 +1,6 @@
 import { generateKeyPairSync, sign, type KeyObject } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  hostedProviderConfigFromEnv,
   runtimeConfigFromEnv,
   validateRuntimeConfig
 } from "./runtime-config.js";
@@ -33,9 +32,6 @@ function config(overrides: Partial<Parameters<typeof validateRuntimeConfig>[0]> 
     accountDeletionEnabled: true,
     hostedCollections: false,
     hostedSharing: false,
-    hostedProvider: null,
-    hostedReferenceAuthority: false,
-    allowInsecureHostedProvider: false,
     trustProxy: false,
     relayBroker: null,
     vapid: null,
@@ -370,29 +366,48 @@ describe("public runtime configuration", () => {
     })).toThrow(/invalid/);
   });
 
-  it("turns billing on only with all four Stripe settings", () => {
+  describe("Stripe billing configuration", () => {
     const local = { PUBLIC_URL: "http://localhost:8787", MDBASE_CONNECT_DEV_AUTH: "1" };
     const stripe = {
-      MDBASE_CONNECT_STRIPE_SECRET_KEY: "sk_test_51Abc",
-      MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET: "whsec_0123456789abcdefABCDEF",
+      MDBASE_CONNECT_STRIPE_SECRET_KEY: "sk_test_placeholder",
+      MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET: "whsec_placeholderForTests",
       MDBASE_CONNECT_STRIPE_PLUS_MONTHLY_PRICE_ID: "price_month1",
       MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_year1"
     };
-    expect(legacyConfigFromEnv(local).billing).toBeNull();
-    expect(legacyConfigFromEnv({ ...local, ...stripe }).billing).toEqual({
-      secretKey: "sk_test_51Abc",
-      webhookSecret: "whsec_0123456789abcdefABCDEF",
-      prices: { month: "price_month1", year: "price_year1" }
+    it.each(["production", "staging", "lab", "local"])("disables billing without Stripe settings in %s", (environment) => {
+      expect(legacyConfigFromEnv({ ...local, MDBASE_CONNECT_ENVIRONMENT: environment }).billing).toBeNull();
     });
-    expect(() => legacyConfigFromEnv({
-      ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: " "
-    })).toThrow(/configured together/);
-    expect(() => legacyConfigFromEnv({
-      ...local, ...stripe, MDBASE_CONNECT_STRIPE_SECRET_KEY: "pk_test_51Abc"
-    })).toThrow("MDBASE_CONNECT_STRIPE_SECRET_KEY is invalid.");
-    expect(() => legacyConfigFromEnv({
-      ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_month1"
-    })).toThrow(/different Stripe prices/);
+
+    it.each(["sk_test_placeholder", "rk_test_placeholder"])("rejects %s in production", (secretKey) => {
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_ENVIRONMENT: "production", MDBASE_CONNECT_STRIPE_SECRET_KEY: secretKey
+      })).toThrow(/^MDBASE_CONNECT_STRIPE_SECRET_KEY must be a live-mode Stripe key in production\.$/);
+    });
+
+    it.each([
+      ["production", "sk_live_placeholder"], ["production", "rk_live_placeholder"],
+      ["staging", "sk_test_placeholder"], ["lab", "rk_test_placeholder"], ["local", "sk_test_placeholder"]
+    ])("enables billing in %s with %s", (environment, secretKey) => {
+      expect(legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_ENVIRONMENT: environment, MDBASE_CONNECT_STRIPE_SECRET_KEY: secretKey
+      }).billing).toEqual({
+        secretKey,
+        webhookSecret: stripe.MDBASE_CONNECT_STRIPE_WEBHOOK_SECRET,
+        prices: { month: "price_month1", year: "price_year1" }
+      });
+    });
+
+    it("requires all four Stripe settings with valid values and distinct prices", () => {
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: " "
+      })).toThrow(/configured together/);
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_STRIPE_SECRET_KEY: "pk_test_placeholder"
+      })).toThrow("MDBASE_CONNECT_STRIPE_SECRET_KEY is invalid.");
+      expect(() => legacyConfigFromEnv({
+        ...local, ...stripe, MDBASE_CONNECT_STRIPE_PLUS_YEARLY_PRICE_ID: "price_month1"
+      })).toThrow(/different Stripe prices/);
+    });
   });
 
   it("rejects public URLs containing path or credential components", () => {
@@ -401,98 +416,6 @@ describe("public runtime configuration", () => {
       identityIssuer: "https://connect.example",
       tailscaleAuth: true
     }))).toThrow(/must be an origin/);
-  });
-
-  it("requires a canonical TLS provider and a strong internal credential for hosted mode", () => {
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true
-    }))).toThrow(/storage provider/);
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true,
-      hostedProvider: { url: "http://provider.example", internalToken: "x".repeat(40) }
-    }))).toThrow(/HTTPS/);
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true,
-      hostedProvider: { url: "https://provider.example/path", internalToken: "x".repeat(40) }
-    }))).toThrow(/must be an origin/);
-    expect(() => validateRuntimeConfig(config({
-      tailscaleAuth: true,
-      publicUrl: "https://connect.example",
-      identityIssuer: "https://connect.example",
-      hostedCollections: true,
-      hostedProvider: { url: "https://provider.example", internalToken: "short" }
-    }))).toThrow(/32 characters/);
-
-    const value = legacyConfigFromEnv({
-      PUBLIC_URL: "http://localhost:8787",
-      MDBASE_CONNECT_DEV_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://127.0.0.1:8790",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
-    });
-    expect(value.hostedProvider?.url).toBe("http://127.0.0.1:8790");
-
-    const dockerDevelopment = legacyConfigFromEnv({
-      PUBLIC_URL: "http://localhost:8787",
-      MDBASE_CONNECT_DEV_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://host.docker.internal:8790",
-      MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL: "http://127.0.0.1:8790",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
-      MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
-    });
-    expect(dockerDevelopment.hostedProvider).toMatchObject({
-      url: "http://host.docker.internal:8790",
-      publicUrl: "http://127.0.0.1:8790"
-    });
-    expect(() => legacyConfigFromEnv({
-      PUBLIC_URL: "https://connect.example",
-      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
-      MDBASE_CONNECT_TAILSCALE_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "http://provider.example",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40),
-      MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER: "1"
-    })).toThrow(/development authentication/);
-  });
-
-  it("allows the reference hosted authority only in loopback development", () => {
-    const value = legacyConfigFromEnv({
-      PUBLIC_URL: "http://localhost:8787",
-      MDBASE_CONNECT_DEV_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
-    });
-    expect(value.hostedReferenceAuthority).toBe(true);
-    expect(() => legacyConfigFromEnv({
-      PUBLIC_URL: "https://connect.example",
-      MDBASE_CONNECT_IDENTITY_ISSUER: "https://connect.example",
-      MDBASE_CONNECT_TAILSCALE_AUTH: "1",
-      MDBASE_CONNECT_HOSTED_COLLECTIONS: "1",
-      MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY: "1"
-    })).toThrow(/loopback development/);
-  });
-
-  it("loads provider configuration independently for one-shot administration", () => {
-    expect(hostedProviderConfigFromEnv({
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example/",
-      MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN: "x".repeat(40)
-    })).toEqual({
-      url: "https://provider.example",
-      internalToken: "x".repeat(40)
-    });
-    expect(() => hostedProviderConfigFromEnv({
-      MDBASE_CONNECT_HOSTED_PROVIDER_URL: "https://provider.example"
-    })).toThrow(/32 characters/);
   });
 
   it("validates an optional private NATS relay transport", () => {

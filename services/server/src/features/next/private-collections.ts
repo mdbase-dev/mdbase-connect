@@ -30,14 +30,13 @@ import {
   authenticate, CreateError, currentIdentity, currentMember, ENROLMENT, enrolmentKey, enrolOp, exactEnrolment, inTransaction, joinedDisplayName, lock, NIL,
   refuse, refuseCollectionIdOfOther, refuseRevoked, type Device, type Proof
 } from "./bootstrap-common.js";
+import { requireCollectionNotDeleted } from "./collection-deletion.js";
 import { LOG_TOKEN_LIFETIME_MS, type LogServiceClient } from "./log-service-client.js";
 import type { NextControlPlaneConfig } from "./policy-keys.js";
 import { queueNextPolicy, registerNextCollection, type PolicyEmitter } from "./policy-outbox.js";
 import { domainHash, encodeCbor, uuidBytes } from "./policy-wire.js";
 import { collectionDisplayName, DEFAULT_COLLECTION_DISPLAY_NAME, validateInitialCollectionName } from "./collection-display-name.js";
 import { registerCollectionNameRoutes } from "./collection-name-routes.js";
-import { requireNextAccountNotMigrationFrozen } from "./migration-topology.js";
-import { carryOverLegacyGrants } from "./legacy-grant-carry-over.js";
 
 /** `H("mdbase/v1/private-create", cbor[challenge, connector, device, collection])`, signed by the owner's device. */
 export function privateCreateDigest(input: { challenge: Uint8Array; connector: string; device: string; collection: string }): Uint8Array {
@@ -76,8 +75,17 @@ type LatestRequest = { commit: string; seq: string | null; item: Buffer | null; 
 const latestRequest = async (client: { query: DatabaseConnection["query"] }, collection: string, device: string) =>
   (await client.query<LatestRequest>(LATEST_APPROVAL_REQUEST, [collection, JSON.stringify([{ op: "approval-request", device }]), device])).rows[0];
 
+async function notDeleted(client: DatabaseConnection, collection: string): Promise<void> {
+  try { await requireCollectionNotDeleted(client, collection); }
+  catch (error) {
+    if (error instanceof Error && error.message === "collection_deleted") throw new CreateError(409, "collection_deleted");
+    throw error;
+  }
+}
+
 /** Whether the collection already exists: false when free, true when this owner's private collection, else refused. */
 async function existing(client: DatabaseConnection, collection: string, owner: string): Promise<boolean> {
+  await notDeleted(client, collection);
   const row = (await client.query<{ owner_user_id: string; sync: string; runtime: string; left: boolean }>(
     "SELECT owner_user_id, sync, runtime, left_sync_at IS NOT NULL AS left FROM next_collections WHERE collection_id = $1 FOR UPDATE", [collection]
   )).rows[0];
@@ -88,6 +96,7 @@ async function existing(client: DatabaseConnection, collection: string, owner: s
 
 /** A current private collection on the next runtime (any owner); share-locked until the transaction ends. */
 async function currentPrivate(client: DatabaseConnection, collection: string, owner?: string): Promise<void> {
+  await notDeleted(client, collection);
   const current = await client.query(
     `SELECT 1 FROM next_collections WHERE collection_id = $1 AND sync = 'private' AND runtime = 'next' AND left_sync_at IS NULL
        AND ($2::uuid IS NULL OR owner_user_id = $2) FOR SHARE`,
@@ -154,7 +163,6 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
       // 1. Proof, current identity and ownership, then genesis, in one transaction.
       // Nothing here calls the network. Account first, matching the rename/freeze lock order.
       device = await inTransaction(options.db, async (client) => {
-        await requireNextAccountNotMigrationFrozen(client, connector.user_id);
         await lock(client, collection);
         const owner = await authenticate(client, body, connector, digest);
         await currentIdentity(client, connector, body.device_id, owner);
@@ -209,10 +217,6 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
           device: await mint(client, body.device_id, device.sign_pk, collection, body.capabilities)
         };
       });
-      // 4. A desktop collection taken over from mdbase Connect keeps its apps:
-      // their grants move to this collection. Best effort; a later route lookup
-      // by such an app retries, and the create outcome never depends on it.
-      await carryOverLegacyGrants(options, collection, request.log);
       return created;
     } catch (error) {
       if (error instanceof CreateError && error.status !== 503) return refuse(reply, error, "The private collection is not current for this device.");

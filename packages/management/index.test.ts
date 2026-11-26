@@ -26,14 +26,18 @@ describe("ConnectManagementClient", () => {
     await client.requestCollectionMode("collection", { requestId: "request", targetMode: "private" });
     await client.collectionModeRequest("collection", "request");
     await client.cancelCollectionMode("collection", "request");
+    await client.abandonCollectionMode("collection/1", "request/2");
     expect(fetch.mock.calls.map(call => String(call[0]))).toEqual([
       "https://connect.example/v1/next/collections/collection/mode",
       "https://connect.example/v1/next/collections/collection/mode",
       "https://connect.example/v1/next/collections/collection/mode/request",
-      "https://connect.example/v1/next/collections/collection/mode/request"
+      "https://connect.example/v1/next/collections/collection/mode/request",
+      "https://connect.example/v1/next/collections/collection%2F1/mode/request%2F2/abandon"
     ]);
     expect(fetch.mock.calls[1]?.[1]).toMatchObject({ credentials: "include", method: "POST", body: JSON.stringify({ request_id: "request", target_mode: "private" }) });
     expect(fetch.mock.calls[3]?.[1]).toMatchObject({ credentials: "include", method: "DELETE" });
+    expect(fetch.mock.calls[4]?.[1]).toMatchObject({ credentials: "include", method: "POST" });
+    expect(fetch.mock.calls[4]?.[1]?.body).toBeUndefined();
   });
   it("uses the account origin with explicit browser credentials", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ user: { id: "person" } }), {

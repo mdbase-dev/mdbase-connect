@@ -1,9 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type {
-  TypePackApplyResult,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
+import type { TypePackApplyResult, TypePackAssessment, TypePackProvision } from "./connect-types";
 import { loadTypePackProvision, type ContractCatalogPack } from "./contract-catalog";
 import { reviewCatalogPackInstallation } from "./catalog-pack-installation";
 import type { CollectionGateway } from "./model";

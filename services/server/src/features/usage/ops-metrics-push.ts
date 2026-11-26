@@ -94,7 +94,6 @@ export function opsMetricsSnapshot(report: unknown): unknown {
 
 interface OpsMetricsPushOptions {
   db: DatabasePool;
-  hostedProvider?: Parameters<typeof usageReport>[1]["hostedProvider"];
   config: OpsMetricsPushConfig;
   log: OpsMetricsLogger;
   now?: () => number;
@@ -185,7 +184,7 @@ export class OpsMetricsPushWorker {
     try {
       body = JSON.stringify(opsMetricsSnapshot(await usageReport(
         ["--days", String(days)],
-        { db: this.options.db, hostedProvider: this.options.hostedProvider },
+        { db: this.options.db },
         (message) => { throw new Error(message); }
       )));
     } catch (error) {

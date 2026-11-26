@@ -114,7 +114,6 @@ pnpm --filter mdbase-editor typecheck
 pnpm --filter mdbase-editor exec vitest run
 pnpm --filter mdbase-editor exec playwright test tests/feedback.spec.ts
 pnpm check:architecture
-pnpm --filter mdbase-editor check:bundle
 pnpm --filter mdbase-editor check:csp
 ```
 

@@ -4,7 +4,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { literal } from "./i18n/literal";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor, type JsonObject, type PeopleDirectory, type PersonResolution, type TypePackAssessment, type TypePackProvision } from "./connect-types";
 import type { CollectionGateway, CreateNoteInput } from "./model";
 import { beginNewNote, changedNewNote, newNoteBlocker, newNoteForm, newNoteInput, occupiedPaths } from "./new-note";
 import { StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
@@ -286,7 +286,7 @@ function PersonRecordForm({ types, typeName, name, properties, recordPaths, onCr
       <input id="person-record-name" value={note.title} autoFocus onChange={(event) => setNote((current) => changedNewNote(current, { title: event.target.value }))} />
     </div>
     {form.required.length > 0 && <StructuredPropertiesEditor value={note.properties} contract={{ properties: form.properties, required: form.required }}
-      propertyNames={form.required} recordPaths={recordPaths} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
+      propertyNames={form.required} initializeRequired allowAdd={false} allowCustom={false} emptyMessage=""
       onChange={(next) => setNote((current) => changedNewNote(current, { properties: next }))}
       onValidityChange={(propertiesValid) => setNote((current) => changedNewNote(current, { propertiesValid }))} />}
     {error ? <p className="settings-alert" role="alert">{error}</p> : blocker && note.title.trim() && <p>{blocker}</p>}

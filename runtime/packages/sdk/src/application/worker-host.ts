@@ -326,6 +326,7 @@ export class ApplicationWorkerHost {
     return Object.freeze({nativeAuthorization,get closed(){return approval.reported;},navigate:(uri:string)=>{
       if(closed||this.stopping||this.lifetime.signal.aborted||client.gone)throw new ApplicationWorkerError("application_worker_fenced");
       this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"portal",id,{action:"navigate",uri}]);
+    },focus:()=>{if(closed||this.stopping||client.gone)return;this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"portal",id,{action:"focus"}]);
     },close:()=>{if(closed)return;closed=true;this.post(client,[APPLICATION_WORKER_PROTOCOL,client.binding,"portal",id,{action:"close"}]);}});
   }
   private nativeCall(client:HostClient,id:number,call:Omit<NativeAuthorizationCall,"rpc">,signal:AbortSignal):Promise<NativeAuthorizationResult>{
@@ -512,6 +513,7 @@ export class ApplicationWorkerHost {
       case "start":await this.session.start();break;
       case "authorize":await this.session.authorize({collectionHint:payload as string|null});break;
       case "renewExpiredPairing":await this.session.renewExpiredPairing();break;
+      case "cancelAuthorization":await this.session.cancelAuthorization();break;
       case "select":{
         // This tab's own selection: other tabs keep theirs open. A tab lets go of
         // its ports before it asks (even for the collection it showed, say after a

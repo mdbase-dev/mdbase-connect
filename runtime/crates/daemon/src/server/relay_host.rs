@@ -39,6 +39,10 @@ impl crate::relay::RelayHost for Daemon {
             }
             let inner = self.inner.lock().await;
             let mode = inner.registry.get(collection).map(|entry| entry.mode);
+            let serving = inner
+                .hosts
+                .iter()
+                .any(|h| h.entry().id == collection && h.is_serving());
             if mode != Some(SyncMode::Synced) {
                 return Some(
                     match inner.access.entries.iter().find(|entry| {
@@ -47,6 +51,7 @@ impl crate::relay::RelayHost for Daemon {
                         Some(entry) if entry.is_refused() => {
                             crate::access::Refusal::RevokedLocally.reason()
                         }
+                        _ if mode.is_none() => crate::access::Refusal::NotServed.reason(),
                         _ if mode == Some(SyncMode::SyncedE2e)
                             && !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
                         {
@@ -61,6 +66,16 @@ impl crate::relay::RelayHost for Daemon {
                             if !inner.access.lease_live(collection, fsutil::now_ms() as u64) =>
                         {
                             crate::access::Refusal::LeaseExpired.reason()
+                        }
+                        // The grant is current here but the collection is not being
+                        // served: say so, retryably, rather than "not yet authorized".
+                        Some(entry)
+                            if !serving
+                                && mode == Some(SyncMode::SyncedE2e)
+                                && entry.state == crate::access::AccessState::Active
+                                && !entry.delisted =>
+                        {
+                            crate::access::Refusal::NotServed.reason()
                         }
                         _ if mode != Some(SyncMode::Local) => {
                             crate::access::Refusal::Unavailable.reason()
@@ -270,10 +285,18 @@ impl crate::relay::RelayHost for Daemon {
         }
         self.bump();
     }
-
-    fn old_connector_running(&self) -> bool {
-        self.takeover
-            .old_running
-            .load(std::sync::atomic::Ordering::SeqCst)
+    fn serving_collections(&self) -> crate::session::BoxFuture<'_, Option<Vec<String>>> {
+        Box::pin(async move {
+            let inner = self.inner.lock().await;
+            let mut ids: Vec<String> = inner
+                .hosts
+                .iter()
+                .filter(|h| h.is_serving())
+                .map(|h| h.entry().id.to_ascii_lowercase())
+                .collect();
+            ids.sort();
+            ids.dedup();
+            Some(ids)
+        })
     }
 }

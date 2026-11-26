@@ -153,6 +153,12 @@ export class AppScopedSignInSession<Connection> {
   }
   setForeground(active: boolean): void {this.check(); this.foreground = active; this.original.setForeground(active); for(const actor of this.scoped.values())actor.session.setForeground(active);}
   approvalWindowClosed(): void {(this.approvalOwner ?? this.original).approvalWindowClosed();}
+  /** Every session still authorizing: after a restart that may be a scoped one this page did not start. */
+  async cancelAuthorization(): Promise<AppWebSignInSnapshot> {
+    this.check();
+    for (const session of [this.original, ...[...this.scoped.values()].map(actor => actor.session)]) {await session.cancelAuthorization(); this.check();}
+    this.changed(); return this.getSnapshot();
+  }
   async renewExpiredPairing(): Promise<AppWebSignInSnapshot> {await (this.approvalOwner ?? this.original).renewExpiredPairing(); return this.getSnapshot();}
   async signOut(): Promise<AppWebSignInSnapshot> {
     this.check();

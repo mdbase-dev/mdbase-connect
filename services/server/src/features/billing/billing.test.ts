@@ -393,16 +393,31 @@ describe("billing routes", () => {
     expect(Object.fromEntries(requests.at(-1)!.body)).toEqual({ customer: "cus_portal", return_url: `${origin}/account` });
   });
 
-  it("refuses to delete an account while Plus still renews", async () => {
+  const periodStart = now() - FAILED_PAYMENT_GRACE_MS / 1_000 - DAY;
+  const periodEnd = periodStart + 30 * DAY;
+  const deletionCases: [string, Partial<SubscriptionInput>[], number][] = [
+    ["no subscriptions", [], 200],
+    ["active", [{ status: "active" }], 409],
+    ["active until period end", [{ cancelAtPeriodEnd: true }], 200],
+    ["active through another renewal", [{ cancelAt: periodEnd + DAY }], 409],
+    ["past due after grace", [{ status: "past_due", invoice: "open" }], 409],
+    ["past due with scheduled cancellation", [{ status: "past_due", invoice: "open", cancelAtPeriodEnd: true }], 409],
+    ["canceled", [{ status: "canceled" }], 200],
+    ["incomplete", [{ status: "incomplete", invoice: "open" }], 409],
+    ["incomplete expired", [{ status: "incomplete_expired", invoice: "void" }], 200],
+    ["canceled and past due", [{ status: "canceled" }, { status: "past_due", invoice: "open" }], 409]
+  ];
+  it.each(deletionCases)("checks billing on account deletion: %s", async (_label, states, expectedStatus) => {
     const { app, db, billing, subscriptions } = await fixture();
     const account = await signup(db);
     await db.query("INSERT INTO billing_customers (user_id, stripe_customer_id) VALUES ($1, 'cus_delete')", [account.userId]);
-    const sync = async (input: Partial<SubscriptionInput>) => {
-      subscriptions.set("sub_delete", stripeSubscription({
-        id: "sub_delete", customer: "cus_delete", periodStart: now() - 60, periodEnd: now() + 30 * DAY, ...input
+    for (const [index, state] of states.entries()) {
+      const id = `sub_delete_${index}`;
+      subscriptions.set(id, stripeSubscription({
+        id, customer: "cus_delete", periodStart, periodEnd, ...state
       }));
-      await deliver(app, billing, "customer.subscription.updated", { id: "sub_delete", object: "subscription", customer: "cus_delete" });
-    };
+      await deliver(app, billing, "customer.subscription.updated", { id, object: "subscription", customer: "cus_delete" });
+    }
     await db.query(
       `INSERT INTO email_identities (id, user_id, email, normalized_email, verified_at, is_primary)
        VALUES ($1, $2, $3, $3, now(), true)`,
@@ -412,17 +427,12 @@ describe("billing routes", () => {
       "INSERT INTO password_credentials (user_id, password_hash) VALUES ($1, $2)",
       [account.userId, await hashPassword("a correct password")]
     );
-    await sync({});
-    const remove = () => app.inject({
+    const response = await app.inject({
       method: "DELETE", url: "/v1/account",
       headers: { origin, cookie: account.cookie },
       payload: { confirmation: "DELETE", current_password: "a correct password" }
     });
-    const refused = await remove();
-    expect(refused.statusCode).toBe(409);
-    expect(refused.json().error.code).toBe("plus_subscription_renews");
-    await sync({ cancelAtPeriodEnd: true });
-    const deleted = await remove();
-    expect(deleted.statusCode, deleted.body).toBe(200);
+    expect(response.statusCode, response.body).toBe(expectedStatus);
+    if (expectedStatus === 409) expect(response.json().error.code).toBe("plus_subscription_renews");
   });
 });

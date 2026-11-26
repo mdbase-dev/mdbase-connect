@@ -297,7 +297,7 @@ fn declared_setup_composite_promotion_publishes_exact_authenticated_source_atomi
     settle(&mut [&mut reader]);
     assert!(
         reader.r.store.record(&B16([7; 16])).unwrap().is_some(),
-        "reader head={:?} stalled={:?} fault={} status={:?}",
+        "reader head={:?} stalled={:?} fault={:?} status={:?}",
         reader.r.head,
         reader.r.stalled,
         reader.r.apply_fault,
@@ -414,7 +414,7 @@ fn declared_setup_certified_capture_abort_publishes_nothing_and_does_not_fence_a
         a.r.capture_prepared_collection_setup(client, plan, id)
             .is_err()
     );
-    assert!(!a.r.apply_fault);
+    assert!(a.r.apply_fault.is_none());
     assert!(a.r.store.pending_get(&id).unwrap().is_none());
     assert!(a.r.declared_setup_pending.is_empty());
     assert_eq!(svc.head(&COL), before);
@@ -436,7 +436,7 @@ fn declared_setup_uncertain_capture_fences_actor_and_never_replays_original_muta
             a.r.capture_prepared_collection_setup(client, plan, id)
                 .unwrap_err();
         assert_eq!(error.problem().code, "outcome_unknown");
-        assert!(a.r.apply_fault);
+        assert!(a.r.apply_fault.is_some());
         a.r.tick();
         settle(&mut [&mut a]);
         assert_eq!(svc.head(&COL), before);

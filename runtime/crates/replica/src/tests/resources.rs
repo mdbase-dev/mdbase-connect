@@ -211,7 +211,7 @@ fn resource_response_budget_and_apply_fault_refuse_without_partial_text() {
         error.into_problem().reason.as_deref(),
         Some("resource_budget_exceeded")
     );
-    a.r.apply_fault = true;
+    a.r.apply_fault = Some(crate::Fence::Store);
     assert_eq!(
         a.r.get_resource(a.s, "_types/task.md".into())
             .unwrap_err()

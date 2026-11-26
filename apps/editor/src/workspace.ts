@@ -1,4 +1,8 @@
-import { useCallback, useRef, useState } from "react";
+import {
+  apply, emptyWorkspace as emptyLayout, findStack, fromSnapshot, mainStacks, stackOfPanel, toSnapshot, WorkspaceStore,
+  type Operation, type PanelData, type PanelDescriptor, type SplitSide, type StackNode, type WorkspaceState
+} from "@mdbase-dev/panels";
+import { useCallback, useMemo, useState, useSyncExternalStore } from "react";
 
 /** The notes opened in the editor, oldest first, and where Back and Forward stand in them. */
 export interface NoteHistory {
@@ -58,28 +62,67 @@ export interface Pane {
   readonly active: string;
 }
 
-/** Where the second pane sits: beside the first, or under it. */
+/** Where a new pane opens: beside the focused one, or under it. */
 export type SplitDirection = "right" | "down";
 
-/** One pane, or two split `right` or `down`. The editor's commands act in the focused pane. */
+/** The editor's panes, in reading order, and the one its commands act in. `layout` is the arrangement
+ * they are read from: every tab is a panel of the panel workspace, and every pane one of its stacks. */
 export interface Workspace {
+  readonly layout: WorkspaceState;
   readonly panes: readonly Pane[];
   readonly focused: number;
-  readonly split: SplitDirection;
 }
 
-let tabCount = 0, paneCount = 0;
-function newTab(history: NoteHistory): NoteTab {
-  return { id: `tab-${++tabCount}`, history };
+const NOTE = "note";
+let tabCount = 0;
+
+function isHistory(value: unknown): value is NoteHistory {
+  if (typeof value !== "object" || value === null) return false;
+  const { paths, index } = value as Partial<NoteHistory>;
+  return Array.isArray(paths) && paths.every((path) => typeof path === "string")
+    && Number.isInteger(index) && index! >= -1 && index! < paths.length;
 }
 
-function paneOn(history: NoteHistory): Pane {
-  const tab = newTab(history);
-  return { id: `pane-${++paneCount}`, tabs: [tab], active: tab.id };
+function historyOf(panel: PanelDescriptor | undefined): NoteHistory {
+  return isHistory(panel?.data) ? panel.data : emptyNoteHistory;
+}
+
+function historyData(history: NoteHistory): PanelData {
+  return { paths: history.paths, index: history.index };
+}
+
+function newPanel(layout: WorkspaceState, history: NoteHistory): PanelDescriptor {
+  let id: string;
+  do id = `tab-${++tabCount}`; while (Object.hasOwn(layout.panels, id));
+  return { id, kind: NOTE, data: historyData(history) };
+}
+
+const views = new WeakMap<WorkspaceState, Workspace>();
+
+/** The editor's reading of an arrangement. The same arrangement always gives the same object. */
+export function workspaceOf(layout: WorkspaceState): Workspace {
+  const known = views.get(layout);
+  if (known) return known;
+  const stacks = mainStacks(layout);
+  const panes = stacks.map((stack): Pane => ({
+    id: stack.id,
+    tabs: stack.panels.map((id) => ({ id, history: historyOf(layout.panels[id]) })),
+    active: stack.active ?? stack.panels[0]!
+  }));
+  const leading = layout.leader ? stackOfPanel(layout, layout.leader)?.id : undefined;
+  const focused = [layout.focus, leading].map((id) => stacks.findIndex((stack) => stack.id === id)).find((index) => index >= 0) ?? 0;
+  const workspace = { layout, panes, focused };
+  views.set(layout, workspace);
+  return workspace;
+}
+
+function change(workspace: Workspace, ...operations: Operation[]): Workspace {
+  return workspaceOf(operations.reduce(apply, workspace.layout));
 }
 
 export function emptyWorkspace(): Workspace {
-  return { panes: [paneOn(emptyNoteHistory)], focused: 0, split: "right" };
+  const layout = emptyLayout();
+  return workspaceOf(apply(layout, { type: "add", panel: newPanel(layout, emptyNoteHistory) }));
 }
 
 export function focusedPane(workspace: Workspace): Pane {
@@ -99,23 +142,26 @@ export function tabNote(tab: NoteTab): string | undefined {
   return tab.history.paths[tab.history.index];
 }
 
-function changePane(workspace: Workspace, index: number, pane: Pane): Workspace {
-  return pane === workspace.panes[index] ? workspace : { ...workspace, panes: workspace.panes.map((each, at) => at === index ? pane : each) };
+/** The notes shown by the panes without the focus, each once. */
+export function backgroundNotes(workspace: Workspace): string[] {
+  return [...new Set(workspace.panes.flatMap((pane, index) => index === workspace.focused ? [] : tabNote(paneTab(pane)) ?? []))];
 }
 
-export function changeActiveHistory(workspace: Workspace, change: (history: NoteHistory) => NoteHistory): Workspace {
-  const pane = focusedPane(workspace), tab = paneTab(pane);
-  const history = change(tab.history);
-  return history === tab.history ? workspace
-    : changePane(workspace, workspace.focused, { ...pane, tabs: pane.tabs.map((each) => each === tab ? { ...tab, history } : each) });
+function setHistory(tab: NoteTab, history: NoteHistory): Operation[] {
+  return history === tab.history ? [] : [{ type: "update", panel: tab.id, changes: { data: historyData(history) } }];
+}
+
+export function changeActiveHistory(workspace: Workspace, changeHistory: (history: NoteHistory) => NoteHistory): Workspace {
+  const tab = activeTab(workspace);
+  return change(workspace, ...setHistory(tab, changeHistory(tab.history)));
 }
 
 /** A new tab opens on `path` beside the active one in the focused pane, and becomes active. */
 export function openTab(workspace: Workspace, path: string): Workspace {
   const pane = focusedPane(workspace);
-  const tab = newTab(visitNote(emptyNoteHistory, path));
-  const at = pane.tabs.indexOf(paneTab(pane)) + 1;
-  return changePane(workspace, workspace.focused, { ...pane, tabs: [...pane.tabs.slice(0, at), tab, ...pane.tabs.slice(at)], active: tab.id });
+  const index = pane.tabs.indexOf(paneTab(pane)) + 1;
+  return change(workspace, { type: "add", panel: newPanel(workspace.layout, visitNote(emptyNoteHistory, path)), target: { at: "stack", stack: pane.id, index } },
+    { type: "focus", stack: pane.id });
 }
 
 function paneOf(workspace: Workspace, id: string): number {
@@ -130,16 +176,16 @@ export function closeTab(workspace: Workspace, id: string): Workspace {
   const pane = workspace.panes[index]!;
   if (pane.tabs.length === 1) return closePane(workspace, index);
   const at = pane.tabs.findIndex((tab) => tab.id === id);
-  const tabs = pane.tabs.filter((tab) => tab.id !== id);
-  return changePane(workspace, index, { ...pane, tabs, active: id === pane.active ? tabs[Math.min(at, tabs.length - 1)]!.id : pane.active });
+  const heir = pane.tabs[at + 1] ?? pane.tabs[at - 1]!;
+  return change(workspace, { type: "remove", panel: id }, ...(id === pane.active ? [{ type: "activate", panel: heir.id } as const] : []),
+    { type: "focus", stack: focusedPane(workspace).id });
 }
 
 /** Shows a tab, and focuses the pane it is in. */
 export function selectTab(workspace: Workspace, id: string): Workspace {
   const index = paneOf(workspace, id);
   if (index < 0) return workspace;
-  const focused = focusPane(workspace, index);
-  return changePane(focused, index, { ...focused.panes[index]!, active: id });
+  return change(workspace, { type: "activate", panel: id }, { type: "focus", stack: workspace.panes[index]!.id });
 }
 
 /** The next (1) or previous (-1) tab in the focused pane, wrapping around at either end. */
@@ -149,68 +195,96 @@ export function adjacentTab(workspace: Workspace, direction: -1 | 1): NoteTab {
   return tabs[(at + direction + tabs.length) % tabs.length]!;
 }
 
-/** Opens a second pane on `path` and focuses it; with two open, moves the second pane to `direction`. */
+const SIDE: Record<SplitDirection, SplitSide> = { right: "right", down: "bottom" };
+
+/** Opens a pane on `path` to the right of the focused pane, or under it, and focuses it. */
 export function splitPane(workspace: Workspace, direction: SplitDirection, path: string | undefined): Workspace {
-  if (workspace.panes.length > 1) return direction === workspace.split ? workspace : { ...workspace, split: direction };
-  return { panes: [workspace.panes[0]!, paneOn(path === undefined ? emptyNoteHistory : visitNote(emptyNoteHistory, path))], focused: 1, split: direction };
+  const panel = newPanel(workspace.layout, path === undefined ? emptyNoteHistory : visitNote(emptyNoteHistory, path));
+  const opened = apply(workspace.layout, { type: "add", panel, target: { at: "split", stack: focusedPane(workspace).id, side: SIDE[direction] } });
+  return workspaceOf(apply(opened, { type: "focus", stack: stackOfPanel(opened, panel.id)!.id }));
 }
 
 export function focusPane(workspace: Workspace, index: number): Workspace {
-  return index === workspace.focused || !workspace.panes[index] ? workspace : { ...workspace, focused: index };
+  const pane = workspace.panes[index];
+  return !pane || index === workspace.focused ? workspace : change(workspace, { type: "focus", stack: pane.id });
 }
 
-/** Closes a pane and its tabs; the other pane takes the whole editor and the focus. The only pane stays. */
+/** The pane after the focused one in reading order, or the first after the last. */
+export function nextPane(workspace: Workspace): number {
+  return (workspace.focused + 1) % workspace.panes.length;
+}
+
+/** Closes a pane and its tabs. The focus stays where it was, or goes to the pane that takes a closed
+ * focused pane's place. The only pane stays. */
 export function closePane(workspace: Workspace, index: number): Workspace {
-  if (workspace.panes.length === 1 || !workspace.panes[index]) return workspace;
-  return { ...workspace, panes: workspace.panes.filter((_, at) => at !== index), focused: 0 };
+  const pane = workspace.panes[index];
+  if (workspace.panes.length === 1 || !pane) return workspace;
+  const heir = index === workspace.focused ? workspace.panes[index + 1] ?? workspace.panes[index - 1]! : focusedPane(workspace);
+  return change(workspace, ...pane.tabs.map((tab) => ({ type: "remove", panel: tab.id }) as const), { type: "focus", stack: heir.id });
 }
 
-/** Opens `path` in the pane that isn't focused, splitting to the right when there is one pane, and focuses it. */
+/** Opens `path` in the pane after the focused one, splitting to the right when there is one pane, and focuses it. */
 export function openBeside(workspace: Workspace, path: string): Workspace {
   if (workspace.panes.length === 1) return splitPane(workspace, "right", path);
-  return changeActiveHistory(focusPane(workspace, 1 - workspace.focused), (history) => visitNote(history, path));
+  return changeActiveHistory(focusPane(workspace, nextPane(workspace)), (history) => visitNote(history, path));
+}
+
+function everyTab(workspace: Workspace): NoteTab[] {
+  return workspace.panes.flatMap((pane) => pane.tabs);
 }
 
 export function renameInWorkspace(workspace: Workspace, from: string, to: string): Workspace {
-  if (!workspace.panes.some((pane) => pane.tabs.some((tab) => tab.history.paths.includes(from)))) return workspace;
-  return { ...workspace, panes: workspace.panes.map((pane) => ({ ...pane, tabs: pane.tabs.map((tab) => ({ ...tab, history: renameInHistory(tab.history, from, to) })) })) };
+  return change(workspace, ...everyTab(workspace).flatMap((tab) => setHistory(tab, renameInHistory(tab.history, from, to))));
 }
 
 /** A deleted note leaves every tab. Any tab but the focused one goes back to the note it showed before,
  * or closes when it showed no other, and a pane left without tabs closes; the focused tab's caller opens
  * the next note in it. */
 export function forgetInWorkspace(workspace: Workspace, path: string): Workspace {
-  if (!workspace.panes.some((pane) => pane.tabs.some((tab) => tab.history.paths.includes(path)))) return workspace;
   const focusedTab = activeTab(workspace);
-  const panes = workspace.panes.map((pane) => {
-    const tabs = pane.tabs.flatMap((tab) => {
+  const operations = workspace.panes.flatMap((pane) => {
+    const closing = new Set<string>();
+    const changes = pane.tabs.flatMap((tab): Operation[] => {
       const history = forgetInHistory(tab.history, path);
-      if (tab === focusedTab) return [{ ...tab, history }];
-      if (!history.paths.length) return [];
-      return [{ ...tab, history: history.index < 0 ? { paths: history.paths, index: 0 } : history }];
+      if (tab === focusedTab) return setHistory(tab, history);
+      if (!history.paths.length) {
+        closing.add(tab.id);
+        return [{ type: "remove", panel: tab.id }];
+      }
+      return setHistory(tab, history.index < 0 ? { paths: history.paths, index: 0 } : history);
     });
-    const at = pane.tabs.findIndex((tab) => tab.id === pane.active);
-    const active = tabs.some((tab) => tab.id === pane.active) ? pane.active
-      : tabs[Math.min(at, tabs.length - 1)]?.id ?? pane.active;
-    return { ...pane, tabs, active };
+    if (!closing.has(pane.active)) return changes;
+    const kept = pane.tabs.filter((tab) => !closing.has(tab.id));
+    const before = pane.tabs.slice(0, pane.tabs.findIndex((tab) => tab.id === pane.active)).filter((tab) => !closing.has(tab.id)).length;
+    const heir = kept[Math.min(before, kept.length - 1)];
+    return heir ? [...changes, { type: "activate", panel: heir.id } as const] : changes;
   });
-  const kept = panes.filter((pane) => pane.tabs.length);
-  return { ...workspace, panes: kept, focused: kept.indexOf(panes[workspace.focused]!) };
+  return change(workspace, ...operations, { type: "focus", stack: focusedPane(workspace).id });
 }
 
-/** The workspace as rendered, and the latest one for callbacks that run between renders. */
+/** The editor's panel workspace: the arrangement as rendered, the latest one for callbacks that run
+ * between renders, and the store the panels are drawn from. `changeWorkspace` is the editor's own change;
+ * `onUserChange` hears the changes made in the panel workspace itself (a tab clicked, dragged or closed). */
 export function useWorkspace() {
-  const [workspace, setWorkspace] = useState(emptyWorkspace);
-  const latest = useRef(workspace);
-  const changeWorkspace = useCallback((change: (current: Workspace) => Workspace) => {
-    const next = change(latest.current);
-    if (next === latest.current) return;
-    latest.current = next;
-    setWorkspace(next);
-  }, []);
-  return { workspace, latest, changeWorkspace };
+  const [store] = useState(() => new WorkspaceStore({ initial: emptyWorkspace().layout }));
+  const layout = useSyncExternalStore(store.subscribe, store.getState, store.getState);
+  const latest = useMemo(() => ({ get current() { return workspaceOf(store.getState()); } }), [store]);
+  const [own] = useState(() => ({ changing: false }));
+  const changeWorkspace = useCallback((changeIt: (current: Workspace) => Workspace) => {
+    const next = changeIt(workspaceOf(store.getState()));
+    if (next.layout === store.getState()) return;
+    own.changing = true;
+    try { store.dispatch({ type: "load", state: next.layout }, { history: "skip" }); }
+    finally { own.changing = false; }
+  }, [own, store]);
+  const onUserChange = useCallback((heard: (previous: Workspace, next: Workspace) => void) => store.subscribe(({ previous, state }) => {
+    if (!own.changing) heard(workspaceOf(previous), workspaceOf(state));
+  }), [own, store]);
+  return { workspace: workspaceOf(layout), latest, changeWorkspace, onUserChange, store };
 }
 
+const PANELS_PREFIX = "mdbase-editor:panels:";
+/** Where tabs were saved before the panel workspace: one pane's tabs, and a second pane's when split. */
 const TABS_PREFIX = "mdbase-editor:tabs:";
 
 interface SavedPane {
@@ -218,7 +292,6 @@ interface SavedPane {
   active: number;
 }
 
-/** The first pane's tabs, and a second pane's when the editor is split. */
 interface SavedWorkspace extends SavedPane {
   split?: SavedPane & { direction: SplitDirection; focused: boolean };
 }
@@ -226,9 +299,7 @@ interface SavedWorkspace extends SavedPane {
 function isSavedPane(value: unknown): value is SavedPane {
   if (typeof value !== "object" || value === null) return false;
   const { tabs, active } = value as Partial<SavedPane>;
-  return Array.isArray(tabs) && tabs.length > 0 && Number.isInteger(active) && active! >= 0 && active! < tabs.length
-    && tabs.every((tab) => Array.isArray(tab?.paths) && tab.paths.every((path) => typeof path === "string")
-      && Number.isInteger(tab.index) && tab.index >= -1 && tab.index < tab.paths.length);
+  return Array.isArray(tabs) && tabs.length > 0 && Number.isInteger(active) && active! >= 0 && active! < tabs.length && tabs.every(isHistory);
 }
 
 function isSavedWorkspace(value: unknown): value is SavedWorkspace {
@@ -237,35 +308,56 @@ function isSavedWorkspace(value: unknown): value is SavedWorkspace {
   return split === undefined || isSavedPane(split) && (split.direction === "right" || split.direction === "down") && typeof split.focused === "boolean";
 }
 
-function restorePane({ tabs, active }: SavedPane): Pane {
-  const restored = tabs.map(({ paths, index }) => newTab({ paths, index }));
-  return { id: `pane-${++paneCount}`, tabs: restored, active: restored[active]!.id };
+/** Fills a pane with saved tabs: the first replaces the pane's one empty tab. */
+function restoreTabs(workspace: Workspace, pane: Pane, { tabs, active }: SavedPane): Workspace {
+  let layout = workspace.layout;
+  const ids = tabs.map((history, index) => {
+    if (index === 0) {
+      layout = apply(layout, { type: "update", panel: pane.tabs[0]!.id, changes: { data: historyData(history) } });
+      return pane.tabs[0]!.id;
+    }
+    const panel = newPanel(layout, history);
+    layout = apply(layout, { type: "add", panel, target: { at: "stack", stack: pane.id }, activate: false });
+    return panel.id;
+  });
+  return workspaceOf(apply(layout, { type: "activate", panel: ids[active]! }));
 }
 
-function savedPane(pane: Pane): SavedPane {
-  return { tabs: pane.tabs.map(({ history }) => history), active: pane.tabs.indexOf(paneTab(pane)) };
+function restoreSavedTabs(saved: SavedWorkspace): Workspace {
+  const first = emptyWorkspace();
+  const one = restoreTabs(first, first.panes[0]!, saved);
+  if (!saved.split) return one;
+  const two = splitPane(one, saved.split.direction, undefined);
+  const restored = restoreTabs(two, two.panes[1]!, saved.split);
+  return focusPane(workspaceOf(restored.layout), saved.split.focused ? 1 : 0);
+}
+
+/** An arrangement the editor can show: every pane holds note tabs, and a pane has the focus. */
+function restoreLayout(value: unknown): Workspace | undefined {
+  const layout = fromSnapshot(value);
+  const stacks = mainStacks(layout);
+  const usable = (stack: StackNode) => stack.panels.every((id) => layout.panels[id]?.kind === NOTE && isHistory(layout.panels[id].data));
+  if (!stacks.length || !stacks.every(usable)) return undefined;
+  return workspaceOf(findStack(layout, layout.focus) ? layout : apply(layout, { type: "focus", stack: stacks[0]!.id }));
 }
 
 /** The panes and tabs this device had open in the collection, or one empty tab when it had none or can't say. */
 export function loadWorkspace(collectionId: string): Workspace {
   try {
-    const saved: unknown = JSON.parse(localStorage.getItem(TABS_PREFIX + collectionId) ?? "null");
-    if (isSavedWorkspace(saved)) {
-      const { split } = saved;
-      return split
-        ? { panes: [restorePane(saved), restorePane(split)], focused: split.focused ? 1 : 0, split: split.direction }
-        : { panes: [restorePane(saved)], focused: 0, split: "right" };
+    const arrangement = localStorage.getItem(PANELS_PREFIX + collectionId);
+    if (arrangement) {
+      const restored = restoreLayout(JSON.parse(arrangement));
+      if (restored) return restored;
     }
+  } catch { /* An arrangement that can't be read falls back to the tabs saved before it, then to none. */ }
+  try {
+    const saved: unknown = JSON.parse(localStorage.getItem(TABS_PREFIX + collectionId) ?? "null");
+    if (isSavedWorkspace(saved)) return restoreSavedTabs(saved);
   } catch { /* Unreadable storage restores no tabs. */ }
   return emptyWorkspace();
 }
 
 export function saveWorkspace(collectionId: string, workspace: Workspace): void {
-  const [first, second] = workspace.panes;
-  const saved: SavedWorkspace = {
-    ...savedPane(first!),
-    ...(second ? { split: { ...savedPane(second), direction: workspace.split, focused: workspace.focused === 1 } } : {})
-  };
-  try { localStorage.setItem(TABS_PREFIX + collectionId, JSON.stringify(saved)); }
+  try { localStorage.setItem(PANELS_PREFIX + collectionId, JSON.stringify(toSnapshot(workspace.layout))); }
   catch { /* Reopening tabs is a convenience; without storage the newest note opens. */ }
 }

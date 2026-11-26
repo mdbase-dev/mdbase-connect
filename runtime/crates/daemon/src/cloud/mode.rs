@@ -1,5 +1,6 @@
 //! Collection mode changes: status, intent, cancel and the signed native prepare/finish.
 
+use super::transport::{decode_challenge, decode_response, response_code};
 use super::*;
 
 impl Cloud {
@@ -8,7 +9,7 @@ impl Cloud {
         collection: &str,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.send_current(
+        self.send_mode_request(
             self.http
                 .get(format!(
                     "{}/v1/next/collections/{collection}/mode",
@@ -26,9 +27,10 @@ impl Cloud {
         private: bool,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.post_current(
-            &format!("/v1/next/collections/{collection}/mode"),
-            &json!({"request_id":request,"target_mode":if private {"private"} else {"cloud_copy"}}),
+        self.send_mode_request(
+            self.http.post(format!("{}/v1/next/collections/{collection}/mode", self.server))
+                .bearer_auth(self.token.as_str())
+                .json(&json!({"request_id":request,"target_mode":if private {"private"} else {"cloud_copy"}})),
             current,
         )
         .await
@@ -40,7 +42,7 @@ impl Cloud {
         request: &str,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.send_current(
+        self.send_mode_request(
             self.http
                 .get(format!(
                     "{}/v1/next/collections/{collection}/mode/{request}",
@@ -57,7 +59,7 @@ impl Cloud {
         request: &str,
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
-        self.send_current(
+        self.send_mode_request(
             self.http
                 .delete(format!(
                     "{}/v1/next/collections/{collection}/mode/{request}",
@@ -67,6 +69,17 @@ impl Cloud {
             current,
         )
         .await
+    }
+
+    // A 403 from a mode endpoint can be a current account without collection
+    // permission (e.g. not_enrolled); only 401 requires signing in again.
+    async fn send_mode_request(
+        &self,
+        request: reqwest::RequestBuilder,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+    ) -> Result<Value, CloudError> {
+        let (status, bytes) = self.read_current_raw_status(request, current, None).await?;
+        decode_response(status, &bytes)
     }
 
     /// Native mode prepare/finish. Fields are derived from the live replica, not
@@ -80,7 +93,23 @@ impl Cloud {
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
     ) -> Result<Value, CloudError> {
         current().map_err(CloudError::Local)?;
-        let challenge = self.challenge(current).await?;
+        let challenge = self
+            .send_mode_request(
+                self.http
+                    .post(format!("{}/v1/next/devices/challenge", self.server))
+                    .bearer_auth(self.token.as_str())
+                    .json(&json!({})),
+                current,
+            )
+            .await
+            .map_err(|error| match error {
+                // These refusals happened before the signed mode request was sent.
+                CloudError::Server(status @ (400 | 404 | 409), _) => {
+                    CloudError::Server(status, "mode_challenge_refused".into())
+                }
+                other => other,
+            })?;
+        let challenge = decode_challenge(&challenge)?;
         current().map_err(CloudError::Local)?;
         let connector = crate::attest::uuid_bytes(connector_id)
             .ok_or_else(|| CloudError::Local("connector UUID".into()))?;
@@ -113,33 +142,31 @@ impl Cloud {
             .post(format!("{}{path}", self.server))
             .bearer_auth(self.token.as_str())
             .json(&body);
-        let (status, bytes) = self.send_current_raw_status(request, current, None).await?;
+        let (status, bytes) = self.read_current_raw_status(request, current, None).await?;
         let value: Value = serde_json::from_slice(&bytes)
             .map_err(|_| CloudError::Server(status, "malformed".into()))?;
         if status == 409
             && mode.private
             && !mode.finish
-            && value.pointer("/error/code").and_then(Value::as_str)
-                == Some("mode_devices_need_update")
+            && response_code(&value) == "mode_devices_need_update"
         {
             let devices = mode_missing_devices(&value, &mode.members)
                 .ok_or_else(|| CloudError::Server(status, "malformed".into()))?;
             current().map_err(CloudError::Local)?;
-            return Ok(
-                json!({"collection_id": B16(*collection).to_uuid_string(), "request_id": mode.request.to_uuid_string(), "target_mode":"private", "phase":"waiting_for_devices", "devices":devices.iter().map(secrets::uuid_string).collect::<Vec<_>>()}),
-            );
+            let devices: Vec<_> = devices.iter().map(secrets::uuid_string).collect();
+            let device_names = mode_device_names(&value, &devices);
+            let mut reply = json!({
+                "collection_id": B16(*collection).to_uuid_string(),
+                "request_id": mode.request.to_uuid_string(),
+                "target_mode": "private", "phase": "waiting_for_devices", "devices": devices,
+            });
+            if !device_names.is_empty() {
+                reply["device_names"] = json!(device_names);
+            }
+            return Ok(reply);
         }
         if status >= 400 {
-            let code = value
-                .pointer("/error/code")
-                .and_then(Value::as_str)
-                .filter(|s| {
-                    s.len() <= 64
-                        && s.bytes()
-                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-                })
-                .unwrap_or("error");
-            return Err(CloudError::Server(status, code.into()));
+            return Err(CloudError::Server(status, response_code(&value).into()));
         }
         current().map_err(CloudError::Local)?;
         Ok(value)
@@ -162,12 +189,24 @@ fn mode_missing_devices(value: &Value, members: &[B16]) -> Option<Vec<[u8; 16]>>
     (ids.iter().collect::<std::collections::BTreeSet<_>>().len() == ids.len()).then_some(ids)
 }
 
+fn mode_device_names<'a>(
+    value: &'a Value,
+    devices: &'a [String],
+) -> std::collections::BTreeMap<&'a str, &'a str> {
+    devices.iter().filter_map(|id| {
+        let name = value["names"][id].as_str()?.trim();
+        // Control and bidirectional formatting characters can spoof display text.
+        (!name.is_empty() && name.chars().count() <= 80 && !name.chars().any(|c|
+            c.is_control() || matches!(c, '\u{061c}' | '\u{200e}' | '\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}')
+        )).then_some((id.as_str(), name))
+    }).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-    /// A loopback control plane: serves one challenge, then captures the proven
-    /// request's request line and JSON body (answering 409).
     #[test]
     fn mode_refusal_devices_are_bounded_by_the_signed_native_preflight() {
         let member = B16([1; 16]);
@@ -184,6 +223,118 @@ mod tests {
             json!({"devices":"invalid"}),
         ] {
             assert!(mode_missing_devices(&value, &[member]).is_none());
+        }
+    }
+
+    #[test]
+    fn mode_device_names_are_limited_to_validated_ids_and_display_text() {
+        let devices = vec!["a".into(), "b".into(), "c".into(), "d".into(), "e".into()];
+        let value = json!({"names": {
+            "a": "  ThinkPad  ", "b": "x".repeat(81), "c": "fake\nmode",
+            "d": 42, "e": "fake\u{202e}mode", "unknown": "Other",
+        }});
+        assert_eq!(
+            mode_device_names(&value, &devices),
+            [("a", "ThinkPad")].into()
+        );
+    }
+
+    #[tokio::test]
+    async fn mode_post_preserves_proof_refusals_and_distinguishes_challenge_refusals() {
+        let id = DeviceIdentity::generate().unwrap();
+        let proof = proof::ModeProof {
+            request: B16([4; 16]),
+            private: true,
+            finish: false,
+            epoch: 1,
+            seq: 2,
+            chain: mdbn_wire::common::B32([5; 32]),
+            members: vec![B16(id.device_id)],
+        };
+        for (challenge_refused, status, extra_header, body, expected) in [
+            (
+                false,
+                "429 Too Many Requests",
+                "Retry-After: 12\r\n",
+                r#"{"error":{"code":"rate_limited"}}"#,
+                CloudError::RateLimited(Some(12)),
+            ),
+            (
+                false,
+                "429 Too Many Requests",
+                "",
+                r#"{"error":{"code":"rate_limited"}}"#,
+                CloudError::RateLimited(None),
+            ),
+            (
+                false,
+                "409 Conflict",
+                "",
+                r#"{"error":{"code":"mode_source_changed"}}"#,
+                CloudError::Server(409, "mode_source_changed".into()),
+            ),
+            (
+                true,
+                "400 Bad Request",
+                "",
+                r#"{"error":{"code":"invalid_request"}}"#,
+                CloudError::Server(400, "mode_challenge_refused".into()),
+            ),
+            (
+                true,
+                "404 Not Found",
+                "",
+                r#"{"error":{"code":"not_found"}}"#,
+                CloudError::Server(404, "mode_challenge_refused".into()),
+            ),
+            (
+                true,
+                "409 Conflict",
+                "",
+                r#"{"error":{"code":"mode_cancelled"}}"#,
+                CloudError::Server(409, "mode_challenge_refused".into()),
+            ),
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let address = listener.local_addr().unwrap();
+            let mock = tokio::spawn(async move {
+                for step in 0..if challenge_refused { 1 } else { 2 } {
+                    let (mut socket, _) = listener.accept().await.unwrap();
+                    let mut buf = [0; 4096];
+                    let _ = socket.read(&mut buf).await.unwrap();
+                    let reply = if step == 0 && !challenge_refused {
+                        let challenge = json!({"challenge": secrets::hex(&[7; 32])}).to_string();
+                        format!(
+                            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{challenge}",
+                            challenge.len()
+                        )
+                    } else {
+                        format!(
+                            "HTTP/1.1 {status}\r\n{extra_header}Content-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                            body.len()
+                        )
+                    };
+                    socket.write_all(reply.as_bytes()).await.unwrap();
+                }
+            });
+            let cloud = Cloud {
+                http: reqwest::Client::new(),
+                server: format!("http://{address}"),
+                clock_skew: std::sync::atomic::AtomicBool::new(false),
+                token: Zeroizing::new("synthetic-token".into()),
+            };
+            let error = cloud
+                .collection_mode_post(
+                    "11111111-1111-4111-8111-111111111111",
+                    &[9; 16],
+                    &proof,
+                    &id,
+                    &|| Ok(()),
+                )
+                .await
+                .unwrap_err();
+            assert_eq!(error, expected);
+            mock.await.unwrap();
         }
     }
 }

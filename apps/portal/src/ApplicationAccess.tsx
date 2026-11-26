@@ -100,6 +100,13 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
                   {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>}
                   {entry.approved_optional_file_actions.length > 0 && <small><Trans>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</Trans></small>}
                   {entry.private_device === true && <small><Trans>Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account.</Trans></small>}
+                  {!collectionName && <ConfirmAction error={error} className="mdbase-button is-tertiary is-danger"
+                    label={t(i18n)`Remove installation`} question={t(i18n)`Remove only this installation of ${group.applicationName} from your account?`}
+                    consequence={group.installations.some(other => other.connector_id === entry.connector_id && other.private_device === true)
+                      ? t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password.`
+                      : t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely.`}
+                    confirmLabel={t(i18n)`Remove installation`} pendingLabel={t(i18n)({ message: "Removing…", context: "Connect interface" })}
+                    busy={busy.has(`installation-${entry.connector_id}`)} onConfirm={() => perform(`installation-${entry.connector_id}`, options => client.revokeInstallation(entry.connector_id, options))} />}
                 </div>)}
               </details>
             </div>

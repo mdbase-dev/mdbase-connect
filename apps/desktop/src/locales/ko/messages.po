@@ -150,10 +150,6 @@ msgid "{collection} now syncs{0}"
 msgstr "{collection} 동기화 중{0}"
 
 #: src/renderer/daemon-view.mts
-msgid "{collection} stopped syncing"
-msgstr "{collection} 동기화 중단됨"
-
-#: src/renderer/daemon-view.mts
 msgid "{collection} was added"
 msgstr "{collection} 추가됨"
 
@@ -258,6 +254,11 @@ msgstr "해당 위치에 \"{0}\" 폴더가 이미 있습니다. 다른 이름을
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
 msgstr "비공개 컬렉션"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "저장 모드 전환이 이 컴퓨터에서의 확인을 기다리고 있습니다."
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
@@ -489,10 +490,6 @@ msgid "change record types"
 msgstr "레코드 유형 변경"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "mdbase가 인식하지 못하는 프로그램에서 변경됨"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "여기와 다른 곳에서 모두 변경됨"
 
@@ -609,6 +606,10 @@ msgstr "이 컬렉션이 모든 기기에서 동기화할 파일을 선택하세
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "필터 지우기"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "닫기"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -895,6 +896,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "이 정보는 마지막 동기화 시도에서 나온 것으로, 현재 파일 검사 결과가 아닙니다."
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "업데이트 먼저 받기"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "{label}(으)로 이동"
 
@@ -938,6 +944,11 @@ msgstr "이미지"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "{0} 설치"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "각 릴리스의 배포가 시작되는 즉시 설치합니다. 끄면 릴리스가 단계적으로 컴퓨터에 전달되며 mdbase는 하루에 한 번까지만 업데이트합니다."
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -1157,6 +1168,10 @@ msgstr "아직 이 컴퓨터를 등록하지 못했습니다. mdbase가 실행 �
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "이 컴퓨터의 계정 설정을 저장하지 못했습니다. 디스크 여유 공간을 확인한 후 mdbase를 다시 시작하세요."
 
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "mdbase가 이 파일이 어느 버전을 기반으로 하는지 확인하지 못했습니다"
+
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
 msgstr "mdbase가 이 컴퓨터의 동기화 서비스를 검증하지 못했습니다. mdbase를 업데이트하거나 support@mdbase.dev로 문의하세요. {unchanged}"
@@ -1236,8 +1251,8 @@ msgstr "mdbase는 암호화된 변경 내용만 저장합니다. 웹 앱과 에�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase가 기존 기록을 포함한 컬렉션을 읽고, 기기가 꺼져 있을 때도 접근을 제공할 수 있게 됩니다."
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase가 기존 기록을 포함해 컬렉션을 읽고 기기가 꺼져 있는 동안에도 제공할 수 있게 됩니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1398,8 +1413,8 @@ msgstr "이 코드가 {who}의 코드와 일치하는 경우에만 허용하세�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "전환이 완료되면 사용자의 기기만 새 콘텐츠를 읽을 수 있습니다. 이전 콘텐츠는 mdbase가 여전히 읽을 수 있습니다."
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "전환이 완료된 후에는 내 기기에서만 새 콘텐츠를 읽을 수 있습니다. mdbase는 이전 콘텐츠를 계속 읽을 수 있습니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1504,6 +1519,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "파일 읽기 및 추가"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "레코드의 이전 버전 읽기"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"
@@ -1592,6 +1612,11 @@ msgstr "{0, plural, other {파일 #개 검토}}"
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "{0} 검토"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "전환 검토"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1800,6 +1825,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "이 컬렉션의 스토리지가 가득 차서 일부 파일이 동기화되지 않았습니다. 동기화하려면 공간을 확보하세요. 내 컬렉션이고 Free 요금제를 사용 중이라면 Plus로 업그레이드해 스토리지를 늘릴 수 있습니다."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "저장 모드"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "저장 모드 전환 중…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1957,6 +1992,11 @@ msgstr "서버에서 이 컴퓨터의 이전 mdbase Connect 사용 종료를 아
 msgid "The sign-in request expired. Start again."
 msgstr "로그인 요청이 만료되었습니다. 처음부터 다시 시작하세요."
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "비공개로 전환이 중단되어 확인이 필요합니다."
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -2026,6 +2066,16 @@ msgstr "이 컴퓨터의 이름이 {0}(으)로 바뀌었습니다."
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "이 컴퓨터에서 컬렉션을 새 동기화 엔진으로 이동했지만 mdbase 계정은 아직 업그레이드되지 않았거나 업그레이드가 일시 중지되었습니다. 파일은 폴더에 안전하게 보관되어 있지만 계정이 업그레이드되기 전까지 이 컴퓨터의 변경 사항이 다른 mdbase 앱에 전달되지 않을 수 있습니다."
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "이제 이 컴퓨터는 각 릴리스의 배포가 시작되는 즉시 받습니다."
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "이제 이 컴퓨터는 릴리스를 단계적으로, 하루에 한 번까지만 받습니다."
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "이 컴퓨터에서 로그인함"
@@ -2054,6 +2104,10 @@ msgstr "이 파일은 노트가 아닙니다. 필요하면 다른 버전을 직�
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "이 폴더에 이전 mdbase Connect ID가 있습니다"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "이 보류는 이 컴퓨터에만 표시됩니다. 다른 컴퓨터에서 파일을 편집했다면 그 컴퓨터에는 이 보류가 표시되지 않습니다. 여기에서 ‘둘 다 유지’를 선택해 두 버전을 모두 보존하세요. 컴퓨터에 같은 파일이 표시되면, 편집한 버전이 아직 이전 폴더에 있을 경우 원하는 폴더로 옮기세요."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2196,20 +2250,39 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "서명된 패키지 채널에서 버전 {0}을(를) 사용할 수 있습니다."
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "버전 {0}이(가) 설치 대상의 {1}%에 배포되고 있습니다."
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "버전 {0}이(가) 검증되었으며 설치할 준비가 되었습니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "버전 {version}은(는) 얼리 액세스 설치에 먼저 제공됩니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "버전 {version}을(를) 사용할 수 있습니다. mdbase는 하루에 한 번까지만 업데이트하므로 {after} 이후에 업데이트됩니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "버전 {version}은(는) 아직 배포되지 않고 있습니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "버전 {version}이(가) 게시되었지만 배포 상태를 확인할 수 없습니다. mdbase가 나중에 다시 확인합니다."
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "버전 {version}이(가) 설치의 {percentage}%에 배포되고 있습니다."
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "동영상"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "진행 상황 보기"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

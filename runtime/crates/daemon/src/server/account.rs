@@ -420,6 +420,7 @@ impl Daemon {
         }
         start_relay_locked(self, &active);
         self.reopen_hosts().await;
+        self.mode_driver.wake_on_sign_in();
         self.bump();
         tracing::info!("signed in");
         Ok(())
@@ -762,6 +763,7 @@ impl Daemon {
             .publish_access(&self.inner.lock().await.access);
         start_relay_locked(&self, &active);
         self.reopen_hosts().await;
+        self.mode_driver.wake_on_sign_in();
         self.bump();
         tracing::info!("registering this computer again as a new device");
     }
@@ -863,8 +865,6 @@ impl Daemon {
                     } else {
                         d.activity
                             .record(crate::activity::ActivityEntry::now("signed_in"));
-                        // Taken-over collections wait for an account to register.
-                        d.spawn(d.clone().takeover_task(false));
                     }
                 }
             }

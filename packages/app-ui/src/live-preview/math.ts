@@ -5,6 +5,8 @@ import { t } from "@lingui/core/macro";
 import type { BlockContext, InlineContext, Line, MarkdownConfig } from "@lezer/markdown";
 import "../i18n.js";
 import { lazily } from "./lazy.js";
+import { proseEdit } from "./prose-edit.js";
+import { BlockWidget, drawnBlocks, isDrawn, renderedBlockLayer, renderedBlocks, type RenderedBlock } from "./rendered-blocks.js";
 import { isRevealed, revealField } from "./reveal.js";
 
 const DOLLAR = 36, BACKSLASH = 92, NEWLINE = 10;
@@ -99,41 +101,67 @@ function parseInline(cx: InlineContext, next: number, start: number): number {
 const loadKatex = lazily(() => import("katex"));
 let katex: typeof import("katex") | undefined;
 
-/** Where a formula sits: in text, as a display formula in text, as its own block, or under its revealed source. */
-type MathKind = "inline" | "display" | "block" | "preview";
+/** Where a formula sits in text: within a line, or as a display formula. */
+type MathKind = "inline" | "display";
 
 /**
  * A formula rendered by KaTeX. Formula text is untrusted: `trust` stays off,
  * so commands such as `\href` and `\includegraphics` render as errors, and
  * sizes are capped. KaTeX loads with the first formula.
  */
+function formula(element: HTMLElement, source: string, display: boolean, loading: () => () => void) {
+  if (katex) {
+    render(katex, element, source, display);
+    return;
+  }
+  const arrived = loading();
+  element.classList.add("cm-lp-math-pending");
+  element.textContent = source;
+  loadKatex().then((loaded) => {
+    katex = loaded;
+    element.classList.remove("cm-lp-math-pending");
+    render(loaded, element, source, display);
+  }).catch(() => {
+    element.classList.replace("cm-lp-math-pending", "cm-lp-math-failed");
+    element.title = t`Formulas could not be shown. Check your connection and reopen the note.`;
+  }).finally(arrived);
+}
+
+/** A formula in a line of text. */
 export class MathWidget extends WidgetType {
   constructor(readonly source: string, readonly kind: MathKind) { super(); }
 
   eq(other: MathWidget) { return this.source === other.source && this.kind === other.kind; }
 
   toDOM(view: EditorView) {
-    const element = document.createElement(this.kind === "block" || this.kind === "preview" ? "div" : "span");
+    const element = document.createElement("span");
     element.className = `cm-lp-math cm-lp-math-${this.kind}`;
-    if (katex) {
-      render(katex, element, this.source, this.kind !== "inline");
-      return element;
-    }
-    element.classList.add("cm-lp-math-pending");
-    element.textContent = this.source;
-    loadKatex().then((loaded) => {
-      katex = loaded;
-      element.classList.remove("cm-lp-math-pending");
-      render(loaded, element, this.source, this.kind !== "inline");
-      view.requestMeasure();
-    }).catch(() => {
-      element.classList.replace("cm-lp-math-pending", "cm-lp-math-failed");
-      element.title = t`Formulas could not be shown. Check your connection and reopen the note.`;
-    });
+    formula(element, this.source, this.kind !== "inline", () => () => view.requestMeasure());
     return element;
   }
 
   // A press on a formula places the caret beside it, which reveals its source.
+  ignoreEvent() { return false; }
+}
+
+/** A display formula as its own block, or as the preview under its revealed source. */
+export class MathBlockWidget extends BlockWidget {
+  protected readonly heightKey: string;
+
+  constructor(readonly source: string, readonly kind: "block" | "preview") {
+    super();
+    this.heightKey = `math-${kind}:${source}`;
+  }
+
+  eq(other: MathBlockWidget) { return this.source === other.source && this.kind === other.kind; }
+
+  protected draw(_view: EditorView, hold: () => () => void) {
+    const element = document.createElement("div");
+    element.className = `cm-lp-math cm-lp-math-${this.kind}`;
+    formula(element, this.source, true, hold);
+    return element;
+  }
+
   ignoreEvent() { return false; }
 }
 
@@ -178,26 +206,42 @@ function formulas(state: EditorState): Formula[] {
 
 const formulaField = StateField.define<Formula[]>({
   create: formulas,
-  update: (value, transaction) => transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
-    ? formulas(transaction.state)
-    : value
+  update(value, transaction) {
+    // Typing in prose only moves the formulas on other lines.
+    if (proseEdit(transaction)) {
+      const { changes } = transaction;
+      return value.map((formula) => ({
+        ...formula, from: changes.mapPos(formula.from), to: changes.mapPos(formula.to),
+        first: changes.mapPos(formula.first), lastTo: changes.mapPos(formula.lastTo)
+      }));
+    }
+    return transaction.docChanged || syntaxTree(transaction.state) !== syntaxTree(transaction.startState)
+      ? formulas(transaction.state)
+      : value;
+  }
 });
 
 /** Renders `markdownMath` formulas where the selection is not, and shows a rendered preview under a revealed display block. */
 export function mathPreview() {
-  return [formulaField, EditorView.decorations.compute([formulaField, revealField], build)];
+  return [formulaField, renderedBlocks.compute([formulaField], rendered), renderedBlockLayer, EditorView.decorations.compute([formulaField, revealField, drawnBlocks], build)];
+}
+
+/** Quote and list markers would be part of a nested display block, so only top-level ones are drawn as blocks. */
+function rendered(state: EditorState): RenderedBlock[] {
+  return state.field(formulaField).flatMap((formula) => formula.source && formula.topLevel
+    ? [{ from: formula.first, to: formula.lastTo, widget: new MathBlockWidget(formula.source, "block") }] : []);
 }
 
 function build(state: EditorState): DecorationSet {
   const ranges: Range<Decoration>[] = [];
   for (const formula of state.field(formulaField)) {
-    const revealed = isRevealed(state, formula.from, formula.to);
-    // Quote and list markers would be part of a nested multi-line formula, so it stays source.
-    if (!formula.source || revealed || (!formula.topLevel && formula.last > 0)) {
+    if (formula.topLevel) {
+      // Drawn as a block, or shown as source with a preview under it.
+      if (formula.source && isDrawn(state, formula.first)) continue;
       ranges.push(sourceMark.range(formula.from, formula.to));
-      if (formula.source && revealed && formula.topLevel) ranges.push(Decoration.widget({ widget: new MathWidget(formula.source, "preview"), block: true, side: 1 }).range(formula.lastTo));
-    } else if (formula.topLevel) {
-      ranges.push(Decoration.replace({ widget: new MathWidget(formula.source, "block"), block: true }).range(formula.first, formula.lastTo));
+      if (formula.source) ranges.push(Decoration.widget({ widget: new MathBlockWidget(formula.source, "preview"), block: true, side: 1 }).range(formula.lastTo));
+    } else if (!formula.source || formula.last > 0 || isRevealed(state, formula.from, formula.to)) {
+      ranges.push(sourceMark.range(formula.from, formula.to));
     } else {
       ranges.push(Decoration.replace({ widget: new MathWidget(formula.source, formula.display ? "display" : "inline") }).range(formula.from, formula.to));
     }

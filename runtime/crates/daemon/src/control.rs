@@ -26,7 +26,7 @@
 //!
 //! **Methods** (see [`Method`]): `ping`, `status`, `status.subscribe`,
 //! `shutdown`, `collection.list|add|remove|delete|pause|resume|holds|conflicts`,
-//! `sync.enable|disable`, `device.pending|approve|reject`,
+//! `sync.enable`, `device.pending|approve|reject`,
 //! `recovery.status|create|import`, `access.list|revoke|approve|deny|ack`,
 //! `account.sign_in|sign_out|rename|applications`, `activity.list`,
 //! `settings.get|set`, `doctor`.
@@ -173,6 +173,21 @@ impl ControlError {
     pub fn internal(message: impl Into<String>) -> ControlError {
         ControlError::new("internal", "internal", message)
     }
+
+    /// `too_large` / `response_too_large`: a reply of `len` bytes is over the
+    /// control frame limit, so it was not delivered. The request may still have
+    /// taken effect.
+    pub fn response_too_large(len: usize) -> ControlError {
+        ControlError::new(
+            "too_large",
+            "response_too_large",
+            format!(
+                "the daemon's reply ({len} bytes) is over the {} byte control frame limit, \
+                 so it was not delivered; ask for less, for example for one collection",
+                crate::ipc::MAX_CONTROL_FRAME
+            ),
+        )
+    }
 }
 
 impl std::fmt::Display for ControlError {
@@ -212,7 +227,7 @@ impl Method {
     /// Files and other devices are untouched; a local collection's new name reaches
     /// the account with the next inventory.
     pub const COLLECTION_UPDATE: &'static str = "collection.update";
-    /// `{collection,target_mode}`: one resumable native mode-switch step.
+    /// `{collection,target_mode?,cancel?}`: start, inspect or cancel a native mode switch.
     pub const COLLECTION_MODE: &'static str = "collection.mode";
     /// `{collection}`: authoritative server progress, never conversion authority.
     pub const COLLECTION_MODE_STATUS: &'static str = "collection.mode_status";
@@ -238,9 +253,6 @@ impl Method {
     pub const COLLECTION_JOIN: &'static str = "collection.join";
     /// [`EnableSync`] → [`CollectionStatus`]: adopt the folder and start syncing.
     pub const SYNC_ENABLE: &'static str = "sync.enable";
-    /// `{collection}` → [`CollectionStatus`]: stop syncing; the folder stays here
-    /// as a local collection.
-    pub const SYNC_DISABLE: &'static str = "sync.disable";
     /// [`DevicePending`] → `[PendingDevice]`: other computers waiting to open a
     /// private collection here.
     pub const DEVICE_PENDING: &'static str = "device.pending";
@@ -268,13 +280,6 @@ impl Method {
     pub const PRIVATE_STRICT: &'static str = "private.strict";
     /// `[Check]`.
     pub const DOCTOR: &'static str = "doctor";
-    /// `{refresh_rollout?: bool}` → `{record, revived, holds}`: local takeover.
-    /// Polling retries a waiting account with backoff; `refresh_rollout: true`
-    /// requests an immediate check (for app/window focus).
-    /// (`<state>/takeover.json`; `record` is null when there is none).
-    pub const MIGRATE_STATUS: &'static str = "migrate.status";
-    /// [`MigrateStart`] → as `migrate.status`: run (or resume) the takeover now.
-    pub const MIGRATE_START: &'static str = "migrate.start";
     /// `{collection?}` → `[AccessEntry]`: apps that can use local collections.
     pub const ACCESS_LIST: &'static str = "access.list";
     /// `{grant}` → `AccessEntry`: revoke on this device. Always allowed.
@@ -283,7 +288,9 @@ impl Method {
     pub const ACCESS_APPROVE: &'static str = "access.approve";
     /// `{grant}` → `AccessEntry`: decline a pending grant.
     pub const ACCESS_DENY: &'static str = "access.deny";
-    /// `{grant}` → `AccessEntry`: acknowledge the new-access notification.
+    /// [`AckAccess`]: `{grant}` → `AccessEntry`, acknowledge the new-access
+    /// notification; `{collection}` → `[AccessEntry]` (as `access.list`), every
+    /// one of that collection. Grants waiting for approval are left alone.
     pub const ACCESS_ACK: &'static str = "access.ack";
     /// `{server_url?, name?}` → `{verification_uri, expires_in}`: start signing in
     /// (pairing as a connector). The daemon completes it in the background;
@@ -429,7 +436,7 @@ pub enum CollectionState {
     /// only in observed status (see [`CollectionState::observed`]); serving
     /// decisions never see it.
     Syncing,
-    /// Serving, with a log move (sync enable/disable) in progress.
+    /// Serving, with a log move (sync enable) in progress.
     Moving,
     /// Not served; see `reason` (for example `runtime_pending`, `folder_missing`).
     Unavailable,
@@ -750,6 +757,9 @@ pub struct JoinCollection {
     /// the account key (`private.unlock`) or approve it from another device.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub private: bool,
+    /// Confirm this computer removed a cloud copy before it recorded removed replica IDs.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub recover_removed: bool,
 }
 
 /// `private.*` secrets: the password and/or recovery key. Zeroized on drop; never
@@ -789,13 +799,9 @@ pub struct EnableSync {
     pub collection: String,
     /// `synced` (with the hosted replica) or `synced_e2e` (end-to-end encrypted,
     /// no hosted replica). Absent: `synced`, or `synced_e2e` for a collection
-    /// taken over from today's connector.
+    /// migrated from local-only storage.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub mode: Option<SyncMode>,
-    /// Adopt even though files were held when the collection was taken over
-    /// (the user has reviewed both versions kept in the folder).
-    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub accept_takeover_holds: bool,
 }
 
 /// Another computer waiting to open a private collection here
@@ -861,17 +867,7 @@ pub const PRIVILEGED: &[&str] = &[
     Method::COLLECTION_JOIN,
     Method::COLLECTION_DELETE,
     Method::ACCOUNT_SIGN_IN,
-    Method::MIGRATE_START,
 ];
-
-/// [`Method::MIGRATE_START`] params.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MigrateStart {
-    /// Proceed past old hosted mirrors once their upload queues are empty (they stop
-    /// syncing until they join the migrated collection).
-    #[serde(default)]
-    pub stop_mirrors: bool,
-}
 
 /// Device settings.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -885,6 +881,17 @@ pub struct Settings {
 pub struct GrantRef {
     /// Grant ID.
     pub grant: String,
+}
+
+/// [`Method::ACCESS_ACK`] params: exactly one of `grant` and `collection`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AckAccess {
+    /// One grant ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant: Option<String>,
+    /// Every new-access notification of this collection ID.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection: Option<String>,
 }
 
 /// `{collection}` params.

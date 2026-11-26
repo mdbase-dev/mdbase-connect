@@ -104,7 +104,7 @@ impl ChunkRows {
         *self = ChunkRows::new(self.collection, self.epoch);
     }
 
-    fn catalog(&self) -> mdbn_core::types::Catalog {
+    pub(super) fn catalog(&self) -> mdbn_core::types::Catalog {
         mdbn_core::types::Catalog::load(
             self.resources.iter().map(|(p, d)| (p.as_str(), d.as_str())),
         )
@@ -448,7 +448,7 @@ impl ChunkRows {
 
 impl<S: Store> Replica<S> {
     /// Stage rows: in the store's staging area when it has one, so memory holds
-    /// one chunk plus the index.
+    /// at most one in-flight chunk batch ([`CHUNKS_IN_FLIGHT`]) plus the index.
     fn stage_rows(&mut self, mut tx: Tx, what: &str) -> Result<(), String> {
         if self.store.stages() {
             tx.stage = crate::store::Stage::Put;

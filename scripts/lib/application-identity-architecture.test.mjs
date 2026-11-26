@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 const root = path.resolve(import.meta.dirname, "../..");
-const sourceRoots = ["apps", "crates", "packages", "services/server/src"];
+const sourceRoots = ["apps", "packages", "services/server/src"];
 const sourceExtensions = new Set([".js", ".mjs", ".rs", ".ts", ".tsx"]);
 const forbidden = [
   "onFirstContact",

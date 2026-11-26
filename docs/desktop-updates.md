@@ -18,6 +18,12 @@ A stable release found by a beta installation is verified exactly as a beta:
 its own tag's workflow identity, and a signed channel document whose channel
 matches its version.
 
+Releases from `0.1.0` on are stable; no beta is published after the last
+`0.1.0-beta.N`. A beta installation whose updater predates this rule checks
+only beta tags, so it reaches `0.1.0` in two steps: it updates to the last
+beta, which carries the rule, and that installation then takes the stable
+release.
+
 It does not use GitHub's REST API, whose unauthenticated limit of 60 requests
 an hour is shared by everything behind the same public IP. One git
 protocol-v2 `ls-refs` request lists the repository's version tags; the desktop
@@ -68,15 +74,57 @@ Connect daemon runs, for apps too old to check for updates.
 
 ## Rollout
 
-`UPDATE_ROLLOUT_PERCENTAGE` on the `desktop-release` GitHub environment controls
-the percentage from 0 through 100. Membership is a deterministic SHA-256 cohort
-of a random per-installation identifier and the release tag. It is stable
-without putting user or account identifiers in release traffic. **Check now**
-deliberately opts the local user into an otherwise deferred release.
+A published release's channel document always says 100%: GitHub releases are
+immutable, and apps from before staged rollout read only that. The stage a
+release is at lives in a separate **rollout document**, served by the mdbase
+updates Worker from R2:
+
+```
+https://updates.mdbase.dev/desktop/v1/rollout/<tag>.json
+https://updates.mdbase.dev/desktop/v1/rollout/<tag>.json.sigstore.json
+{"schema":"mdbase-desktop-rollout/1","tag":"v0.1.3","version":"0.1.3",
+ "issued_at":"2026-11-17T12:00:00.000Z","early_access":true,"percentage":25}
+```
+
+It is signed by the same `desktop-release.yml@refs/tags/<tag>` identity as the
+release, and the app verifies it exactly as it verifies the channel document, so
+neither the Worker nor R2 is trusted. Every write carries a newer `issued_at`,
+and the app refuses a document older than one it has already seen for that tag,
+so a replayed wider stage cannot undo a hold.
+
+| Stage | `early_access` | `percentage` | Who takes it automatically |
+| --- | --- | --- | --- |
+| `held` | false | 0 | nobody |
+| `early` | true | 0 | early-access installations |
+| `5`, `25` | true | 5, 25 | early access, and that share of other installations |
+| `100` | true | 100 | everyone |
+
+Membership is a deterministic SHA-256 cohort of a random per-installation
+identifier and the release tag. It is stable as a release widens, and puts no
+user or account identifier in release traffic. With no rollout document (404)
+the app follows the channel document, as for every release before staged
+rollout. A document that cannot be fetched or verified defers the automatic
+update (`rollout_unavailable`); it is never read as "everyone".
+
+When the newest release has not reached an installation yet, the app considers
+up to three older verified releases and takes the newest one that has. A
+release never takes a version the newest release lists in `blocked_versions`.
+Releases can therefore be frequent without leaving most installations behind.
+
+**Early access** (Settings, "Get updates early") puts the installation in every
+release's first stage. Without it, an installation takes **at most one optional
+update a day**: the next one waits until 24 hours after the update that
+installed the running version. Turning early access on checks at once.
+
+**Check now** deliberately opts the local user into an otherwise deferred or
+held release, and ignores the daily spacing. Required updates (a running version
+in the newest release's `blocked_versions`) ignore rollout, early access and
+spacing.
 
 `UPDATE_BLOCKED_VERSIONS` is a comma-separated list of exact semantic versions.
-Changing either value requires a new release tag and newly signed manifest;
-published manifests are not edited in place.
+Changing it requires a new release tag and newly signed manifest; published
+manifests are not edited in place. How stages are set and widened is in
+[continuous-desktop-release.md](continuous-desktop-release.md#rollout-and-stopping).
 
 ## Platform installation
 
@@ -132,7 +180,10 @@ runs `mdbase-connect --mdbase-update` (`headless-update.ts`):
 The run holds `<userData>/updates/background-update.pid` from before it takes
 the lock until it exits. A launch that finds a live run (its `/proc` command
 line carries `--mdbase-update`, so a reused PID does not count) waits for it,
-then starts the app that is in the folder by then. The service uses
+then starts the app that is in the folder by then. The app's own folders (`.next`,
+`.previous`) are removed through Electron's `original-fs`: Electron's `fs` reads
+`resources/app.asar` as a folder and cannot delete it, which left a stale
+`.next` that failed every later update with ENOTEMPTY. The service uses
 `KillMode=mixed`: stopping it sends SIGTERM to the app's main process only,
 because Electron crashes with SIGTRAP when its Chromium children are signalled
 before it. The run uses Chromium's headless platform, so it needs no display.
@@ -185,10 +236,12 @@ user-only and by atomic rename:
 (a release still rolling out to other installations is not available here).
 `install` is `restart` (the app installs it), `package` (a new package from
 the release page) or `store`; `required` is set when the running version is
-blocked. The `doctor` `update` check is `ok` after a check in the last three
-days that found nothing, and otherwise warns with what to do: no report yet, a
-stale report (pointing at the timer when `background` is set), or the
-available version and how to install it. Unknown fields are ignored and
+blocked. A failed check or install adds `failure` (`at`, `message`) and keeps
+`checked_at` at the last check that worked. The `doctor` `update` check is `ok`
+after a check in the last three days that found nothing, and otherwise warns
+with what to do: no report yet, the failure and its message, a stale report
+(pointing at the timer's journal when `background` is set), or the available
+version and how to install it. Unknown fields are ignored and
 unknown `install` values get a generic action; an incompatible change needs
 `schema_version` 2.
 
@@ -258,7 +311,7 @@ unified logs are uploaded as `desktop-macos-update-logs`.
 
 Before enabling a non-zero automatic rollout:
 
-1. publish a signed test beta at 0%;
+1. publish a signed test release held (stage `held`);
 2. use **Check now** on both macOS architectures;
 3. interrupt the download and the platform replacement, and verify the daemon
    keeps serving throughout;
@@ -267,7 +320,7 @@ Before enabling a non-zero automatic rollout:
 5. ship a bundled daemon that cannot become ready and verify `mdbase.previous`
    returns, Settings reports it, and the next launch does not retry it;
 6. publish a higher signed release that blocks the bad version and verify it
-   bypasses a 0% rollout;
+   bypasses a held rollout;
 7. test Store and Linux package actions without package-manager privilege in
    Electron, a Linux user-folder install updating and relaunching, and the
    background timer updating a closed app and its daemon;

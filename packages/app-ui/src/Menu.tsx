@@ -2,7 +2,7 @@ import { useId, useRef, useState, type KeyboardEvent, type PointerEvent, type Re
 import { moveMenuFocus, useMenuPopover } from "./popover.js";
 import { useOverlay } from "./overlay.js";
 
-export function Menu({ open, triggerRef, onClose, id, label, className = "mdbase-menu", children, point }: {
+export function Menu({ open, triggerRef, onClose, id, label, className = "mdbase-menu", children, point, align = "end" }: {
   readonly open: boolean;
   readonly triggerRef: RefObject<HTMLElement | null>;
   readonly onClose: (refocus: boolean) => void;
@@ -11,9 +11,11 @@ export function Menu({ open, triggerRef, onClose, id, label, className = "mdbase
   readonly className?: string;
   readonly children: ReactNode;
   readonly point?: { readonly left: number; readonly top: number } | undefined;
+  /** Which edge of the trigger the menu lines up with. */
+  readonly align?: "start" | "end" | undefined;
 }) {
   const { ref, present } = useOverlay<HTMLDivElement>(open);
-  useMenuPopover(ref, triggerRef, onClose, { align: "end", open, point });
+  useMenuPopover(ref, triggerRef, onClose, { align, open, point });
   return present ? <div ref={ref} id={id} className={`${className} mdbase-overlay`} data-open={open}
     popover="manual" role="menu" aria-label={label} tabIndex={-1}
     onKeyDown={(event) => moveMenuFocus(event, ref.current)}

@@ -4,11 +4,18 @@ import { appendFileSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { api, checkoutProductionCommit, gh, git, nextBetaVersion, pages, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, pages, productionOnlyCompatibility, releaseTag, remoteTagCommit, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { readRollout } from "./desktop-rollout.mjs";
+import { rolloutService, stageOf, variableSet, wideningLimit, wideningPlan } from "./lib/desktop-rollout.mjs";
 
 const channelName = "mdbase-connect-channel-v1.json";
 const marker = "Continuous desktop status: stopped";
-const day = 24 * 60 * 60 * 1000;
+const hour = 60 * 60 * 1000;
+// With staged rollout, each release reaches people in stages and installations
+// without early access take at most one optional update a day themselves, so a
+// desktop change releases as soon as it merges, like every other client. The
+// 24-hour gap remains only until the rollout service is enabled.
+export const releaseGap = (staged) => (staged ? 0 : 24 * hour);
 
 export function desktopChanged(paths, contents) {
   return paths.some(path => /^(?:apps\/(?:desktop|editor)\/|packages\/|runtime\/(?:crates|xtask|tools)\/|runtime\/packages\/sdk\/|runtime\/Cargo\.|runtime\/rust-toolchain|runtime\/\.cargo\/|pnpm-|package\.json|config\/desktop-update-minimum\.json)/.test(path)
@@ -27,22 +34,32 @@ export function desktopChanged(paths, contents) {
     })());
 }
 
-const betaNumber = tag => {
-  const match = /^v0\.1\.0-beta\.([1-9][0-9]*)$/.exec(tag);
-  if (!match) throw new Error("Invalid desktop release tag.");
-  return BigInt(match[1]);
+// Tags are v<version>; legacy v0.1.0-beta.N reservations still order below releases.
+const tagVersion = tag => {
+  if (!/^v[0-9]/.test(tag)) throw new Error("Invalid desktop release tag.");
+  return tag.slice(1);
 };
 
-export function desktopPlan({ latest, reservations, changed, acknowledged = "", now = Date.now() }) {
-  const reconciled = acknowledged ? betaNumber(acknowledged) : 0n;
-  if (reservations.some(item => !item.published && betaNumber(item.tag) > reconciled)) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
+// The desktop workflow runs the prepare step committed at its tag. Transition
+// guard: a commit whose prepare step predates semver tags cannot publish one.
+// Remove once production contains semver desktop releases.
+export function semverPrepare(commit, runGit = git) {
+  return runGit("show", `${commit}:scripts/continuous-desktop-release.mjs`).includes("assert.match(tag, releaseTag);");
+}
+
+export function desktopPlan({ latest, reservations, changed, acknowledged = "", semver = true, compatible = true, gap = releaseGap(false), now = Date.now() }) {
+  const unreconciled = item => !acknowledged || compareVersions(tagVersion(item.tag), tagVersion(acknowledged)) > 0;
+  if (reservations.some(item => !item.published && unreconciled(item))) throw new Error("An automatic desktop attempt is unfinished; inspect its workflow and tag before recovery.");
   if (latest?.body?.includes(marker)) throw new Error("Desktop line is latched stopped; release-owner review required.");
   if (latest) {
     const age = now - Date.parse(latest.published_at);
     if (!Number.isFinite(age) || age < 0) throw new Error("Invalid desktop publication time.");
-    if (age < day) return { operation: "wait", reason: "daily limit" };
+    if (age < gap) return { operation: "wait", reason: "release gap" };
   }
-  return changed ? { operation: "release" } : { operation: "wait", reason: "desktop tree unchanged" };
+  if (!changed) return { operation: "wait", reason: "desktop tree unchanged" };
+  if (!semver) return { operation: "wait", reason: "selected commit predates semver releases" };
+  if (!compatible) return { operation: "wait", reason: "selected commit predates provider-free compatibility" };
+  return { operation: "release" };
 }
 
 function reservations(releases) {
@@ -82,8 +99,33 @@ function writeApi(path, body) {
     { input: JSON.stringify(body), encoding: "utf8" }));
 }
 
+/**
+ * Moves each release still rolling out one stage on once it has held its current
+ * stage for six hours. Every release keeps its own clock, so a newer release does
+ * not stop an older one reaching everyone. Releases older than the newest one at
+ * 100% (or without a rollout document, which clients treat as 100%) are already
+ * superseded for every installation and are left alone.
+ */
+async function widenRollouts(service, releases, env) {
+  const held = variableSet(env.DESKTOP_ROLLOUT_HELD, "DESKTOP_ROLLOUT_HELD");
+  for (const [index, release] of releases.entries()) {
+    if (index === wideningLimit) {
+      console.warn(`More than ${wideningLimit} desktop releases are still rolling out; older ones are not widened. Installations without early access look back only that far.`);
+      break;
+    }
+    const document = await readRollout(service, release.tag_name);
+    if (!document || stageOf(document) === "100") break;
+    const plan = wideningPlan({ document, held });
+    console.log(JSON.stringify({ rollout: release.tag_name, ...plan }));
+    if (plan.operation !== "widen") continue;
+    gh("workflow", "run", "desktop-release.yml", "--repo", repository, "--ref", release.tag_name,
+      "-f", "operation=rollout", "-f", `stage=${plan.stage}`);
+  }
+}
+
 export async function coordinate(env = process.env) {
   requireRunning(env.DESKTOP_RELEASE_STOPPED);
+  const service = rolloutService(env.DESKTOP_ROLLOUT_SERVICE);
   assert.equal(env.GITHUB_REF, "refs/heads/main");
   assert(["workflow_run", "schedule", "workflow_dispatch"].includes(env.GITHUB_EVENT_NAME));
   assert.equal(env.GITHUB_REPOSITORY, repository);
@@ -104,16 +146,18 @@ export async function coordinate(env = process.env) {
       catch (error) { if (error.status === 128) return undefined; throw error; }
     };
     const changed = desktopChanged(paths, path => ({ before: base ? readAt(base, path) : undefined, after: readAt(env.GITHUB_SHA, path) }));
-    const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG });
+    const plan = desktopPlan({ latest, reservations: records, changed, acknowledged: env.DESKTOP_RELEASE_ACKNOWLEDGED_TAG,
+      semver: semverPrepare(env.GITHUB_SHA), compatible: productionOnlyCompatibility(env.GITHUB_SHA), gap: releaseGap(service !== null) });
     console.log(JSON.stringify(plan));
+    // After the plan, so a latched stop or an unfinished attempt also pauses widening.
+    if (service) await widenRollouts(service, all, env);
     if (plan.operation === "wait") return;
     await verifyCompatibility(env);
     assert.equal(api("actions/workflows/desktop-release.yml").state, "active", "Desktop publication workflow has been stopped.");
     const versions = git("tag", "--list", "v*").split("\n").filter(tag => /^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag)).map(tag => tag.slice(1));
-    versions.push(JSON.parse(readFileSync("package.json", "utf8")).version,
-      ...all.map(release => release.tag_name.slice(1)));
+    versions.push(...all.map(release => release.tag_name.slice(1)));
     assert.match(env.GITHUB_RUN_ID ?? "", /^[1-9][0-9]*$/);
-    const tag = `v${nextBetaVersion(versions)}`;
+    const tag = `v${allocateVersion(versions, env.GITHUB_SHA)}`;
     const object = writeApi("git/tags", { tag, object: env.GITHUB_SHA, type: "commit",
       message: JSON.stringify({ schema: "mdbase-desktop-release/1", commit: env.GITHUB_SHA,
         reserved_at: new Date().toISOString(), run_id: env.GITHUB_RUN_ID }) });
@@ -128,7 +172,7 @@ export function prepareDesktop(env = process.env) {
   requireRunning(env.DESKTOP_RELEASE_STOPPED);
   assert.equal(env.GITHUB_EVENT_NAME, "workflow_dispatch");
   const tag = env.GITHUB_REF_NAME;
-  assert.match(tag, /^v0\.1\.0-beta\.[1-9][0-9]*$/);
+  assert.match(tag, releaseTag);
   assert.equal(env.GITHUB_REF, `refs/tags/${tag}`);
   assert.equal(remoteTagCommit(tag), env.GITHUB_SHA);
   const reference = api(`git/ref/tags/${tag}`);

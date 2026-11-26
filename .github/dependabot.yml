@@ -6,10 +6,149 @@ updates:
       interval: weekly
       day: monday
     groups:
+      # Keep all @lingui/* packages (prod and dev) with Vite, Rolldown, and Babel
+      # so plugin peer ranges (such as @rolldown/plugin-babel) stay aligned.
+      build-tooling:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "@lingui/*"
+          - "vite"
+          - "@vitejs/*"
+          - "@rolldown/*"
+          - "@babel/*"
+          - "esbuild"
+          - "typescript"
+      test-tooling:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "playwright*"
+          - "@playwright/*"
+          - "@axe-core/*"
+          - "@testing-library/*"
+          - "jsdom"
+      electron:
+        dependency-type: development
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "electron"
+          - "@electron-forge/*"
+          - "@electron/*"
       npm-development:
         dependency-type: development
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+      editor-runtime:
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "react"
+          - "react-dom"
+          - "scheduler"
+          - "@codemirror/*"
+          - "@lezer/*"
+          - "@tanstack/*"
+          - "@embedpdf/*"
+          - "@phosphor-icons/*"
+          - "@fontsource/*"
+          - "katex"
+          - "pele"
+      server-runtime:
+        dependency-type: production
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "fastify"
+          - "fastify-*"
+          - "@fastify/*"
+          - "@modelcontextprotocol/*"
+          - "@nats-io/*"
+          - "@node-rs/*"
+          - "pg"
+          - "pg-mem"
+          - "zod"
+          - "stripe"
+          - "svix"
+          - "web-push"
+          - "ws"
+          - "google-auth-library"
       npm-production:
         dependency-type: production
+        update-types:
+          - minor
+          - patch
+        patterns:
+          - "*"
+      babel-major:
+        dependency-type: development
+        update-types:
+          - major
+        patterns:
+          - "@babel/*"
+      lingui-major:
+        update-types:
+          - major
+        patterns:
+          - "@lingui/*"
+      test-tooling-major:
+        dependency-type: development
+        update-types:
+          - major
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+          - "playwright*"
+          - "@playwright/*"
+          - "@axe-core/*"
+          - "@testing-library/*"
+          - "jsdom"
+    ignore:
+      # Vendored file: tarballs updated by dedicated release/vendoring workflows.
+      - dependency-name: "@mdbase-dev/sdk"
+      - dependency-name: "@mdbase-dev/sdk-self-hosted"
+      - dependency-name: "@mdbase-dev/connect-protocol"
+      # pnpm-workspace.yaml patches electron-installer-common@0.10.4 and
+      # electron-installer-redhat@3.4.0 (patches/README.md). Forge 8 upgrades
+      # the installers and fails pnpm with ERR_PNPM_UNUSED_PATCH. Remove once
+      # the Linux packaging patches are migrated or dropped.
+      - dependency-name: "@electron-forge/*"
+        versions: [">= 8.0.0"]
+      # pnpm-workspace.yaml patches @sigstore/core@3.2.1 and @tufjs/models@4.1.0
+      # for Electron BoringSSL (issue #426, patches/README.md). Updating sigstore
+      # past 4.1.1 fails pnpm with ERR_PNPM_UNUSED_PATCH.
+      - dependency-name: sigstore
+        versions: ["> 4.1.1"]
+      # Electron is pinned and cache-qualified at 43.x in pnpm-workspace.yaml and
+      # scripts/lib/prefetch-release.test.mjs. Requalify on a dedicated PR.
+      - dependency-name: electron
+        versions: [">= 44.0.0"]
+      # Root package.json constrains engines.node to ">=24 <25"; @types/node 26
+      # breaks node:crypto.JsonWebKey in packages/webhooks/src/index.ts.
+      - dependency-name: "@types/node"
+        versions: [">= 25.0.0"]
+      # packages/i18n/scripts/source.mjs imports the TypeScript 6 JS compiler API
+      # (ts.SyntaxKind / ts.createSourceFile), which TypeScript 7 removed.
+      # Ignoring semver-major keeps packages/i18n on 6.x while 7.x minor/patch
+      # updates still flow for the rest of the workspace.
+      - dependency-name: typescript
+        update-types: ["version-update:semver-major"]
+      # Matches auditConfig.ignoreGhsas GHSA-w3rx-r6r6-pgpr in pnpm-workspace.yaml:
+      # appdmg requires image-size 0.x and 2.x changes its callable/file-path API.
+      - dependency-name: image-size
+        versions: [">= 2.0.0"]
     open-pull-requests-limit: 10
 
   - package-ecosystem: cargo

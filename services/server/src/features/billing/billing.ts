@@ -243,12 +243,16 @@ export async function currentPlusSubscription(
   } : null;
 }
 
-/**
- * Whether Stripe will charge the account again, including a retry of a failed
- * renewal. Deleting the account would leave that subscription billing.
- */
-export function plusWillRenew(subscription: PlusSubscription | null): boolean {
-  return subscription !== null && subscription.status !== "canceled" && subscription.cancelsAt === null;
+/** A scheduled cancellation rules out another renewal only within the current active period. */
+export async function hasBillableSubscription(db: DatabaseQueryable, userId: string): Promise<boolean> {
+  const result = await db.query(
+    `SELECT 1 FROM billing_subscriptions
+     WHERE user_id = $1 AND status NOT IN ('canceled', 'incomplete_expired')
+       AND (status <> 'active' OR cancels_at IS NULL OR cancels_at > current_period_end)
+     LIMIT 1`,
+    [userId]
+  );
+  return result.rows.length > 0;
 }
 
 /** The account's Stripe customer, created on its first checkout. */

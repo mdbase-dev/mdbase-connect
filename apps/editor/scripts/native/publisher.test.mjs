@@ -4,14 +4,14 @@ import { createHash } from 'node:crypto';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { chmod, cp, readFile, mkdtemp, writeFile, mkdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { it } from 'node:test';
 import { parse } from 'yaml';
 import { assertDispatch, assertCheckout, assertAncestor, deploymentFor } from './refs.mjs';
 import { loadOriginals, productionPin, compareInstalled, protectedHashes } from './originals.mjs';
 import { authenticateProduction, stagingArchive } from './authentication.mjs';
-import { prepareInstall } from './install-inputs.mjs';
+import { prepareInstall, productionSdkTargets } from './install-inputs.mjs';
 import { capturePrevious, rollback } from './rollback.mjs';
 import { assertArtifactMetadata, assertArtifactRun, assertArtifactDirectory } from './artifact.mjs';
 import { inventoryDirectory } from './native-publish-bytes.mjs';
@@ -56,6 +56,12 @@ async function originalsFixture() {
  const pkg=JSON.parse(await readFile(join(repoRoot,'apps/editor/package.json'),'utf8'));
  await writeFile(join(app,'package.json'),JSON.stringify(pkg));
  let lock=await readFile(join(repoRoot,'pnpm-lock.yaml'),'utf8');
+ const productionPath='apps/editor/'+pkg.dependencies['@mdbase-dev/sdk'].slice('file:'.length);
+ for(const target of productionSdkTargets(lock,productionPath)) {
+  if(target.manifest==='apps/editor/package.json')continue;
+  await mkdir(join(root,dirname(target.manifest)),{recursive:true});
+  await cp(join(repoRoot,target.manifest),join(root,target.manifest));
+ }
  const uiDir=join(root,'ui/package');await mkdir(uiDir,{recursive:true});
  await writeFile(join(uiDir,'package.json'),JSON.stringify({name:'@mdbase-dev/ui',version:pkg.dependencies['@mdbase-dev/ui']}));
  await writeFile(join(uiDir,'index.js'),'export const value=1;');
@@ -105,7 +111,7 @@ it('checks exact npm integrity and authenticated publisher source before accepti
 it('pins staging to the production version and verifies both release digests and the repository/workflow/source attestation',async()=>{
  const {pin}=await productionPin(repoRoot),bytes=Buffer.from('staging'),proof=Buffer.from('{}');
  const prefix=`https://github.com/mdbase-dev/mdbase-connect/releases/download/sdk-v${pin.version}/`;
- const release={tag_name:'sdk-v'+pin.version,prerelease:true,draft:false,assets:[
+ const release={tag_name:'sdk-v'+pin.version,prerelease:pin.version.includes('-'),draft:false,assets:[
   {name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:prefix+'sdk-staging.tgz'},
   {name:'sdk-staging.tgz.sigstore.json',digest:'sha256:'+sha(proof),browser_download_url:prefix+'sdk-staging.tgz.sigstore.json'}]};
  let called=false;
@@ -120,12 +126,16 @@ it('derives the staging frozen install without changing any other dependency',as
  try {
   const plan={target:'staging',sdkTrust:await loadOriginals(f.options)};
   const originalLock=await readFile(join(f.root,'pnpm-lock.yaml'),'utf8');
-  const originalPackage=JSON.parse(await readFile(join(f.app,'package.json'),'utf8'));
+  const targets=productionSdkTargets(originalLock,plan.sdkTrust.production.path);
+  assert.ok(targets.some(t=>t.importer==='apps/editor' && t.section==='dependencies'));
+  assert.ok(targets.some(t=>t.importer==='packages/app-ui' && t.section==='devDependencies'));
+  assert.ok(targets.some(t=>t.importer==='services/mcp' && t.section==='dependencies'));
+  const originalManifests=new Map();
+  for(const manifest of new Set(targets.map(t=>t.manifest)))
+   originalManifests.set(manifest,JSON.parse(await readFile(join(f.root,manifest),'utf8')));
   const bytes=Buffer.from('authenticated staging archive');
   plan.sdkTrust.archives.sdk={path:'https://example.invalid/sdk-staging.tgz',sha256:sha(bytes),sri:'sha512-staging'};
   await prepareInstall(plan,f.root,async()=>new Response(bytes));
-  const pkg=JSON.parse(await readFile(join(f.app,'package.json'),'utf8'));
-  assert.equal(pkg.dependencies['@mdbase-dev/sdk'],'file:vendor/sdk-staging.tgz');
   const lock=await readFile(join(f.root,'pnpm-lock.yaml'),'utf8');
   assert.ok(lock.includes('sha512-staging'));
   const parsed=parse(lock),vendored=parsed.packages['@mdbase-dev/sdk-staging@file:apps/editor/vendor/sdk-staging.tgz'];
@@ -133,16 +143,91 @@ it('derives the staging frozen install without changing any other dependency',as
   for(const [key,entry] of Object.entries(parsed.packages))if(key!=='@mdbase-dev/sdk-staging@file:apps/editor/vendor/sdk-staging.tgz')
    assert.notEqual(entry.resolution.integrity,'sha512-staging',key);
   const stagingPath='file:apps/editor/vendor/sdk-staging.tgz',alias='@mdbase-dev/sdk-staging@'+stagingPath;
-  assert.equal(parse(lock).importers['apps/editor'].dependencies['@mdbase-dev/sdk'].version,alias);
+  for(const target of targets) {
+   const rewritten=JSON.parse(await readFile(join(f.root,target.manifest),'utf8'));
+   assert.equal(rewritten[target.section][target.name],target.stagingSpec,target.manifest);
+   assert.deepEqual(parsed.importers[target.importer][target.section][target.name],{specifier:target.stagingSpec,version:alias},target.importer);
+  }
   const restored=lock.replaceAll("version: '"+alias+"'",'version: '+stagingPath)
    .replaceAll("'@mdbase-dev/sdk': '"+alias+"'","'@mdbase-dev/sdk': "+stagingPath)
    .replaceAll(alias,'@mdbase-dev/sdk@'+stagingPath)
    .replaceAll('sdk-staging.tgz',plan.sdkTrust.production.path.split('/').at(-1))
    .replaceAll('sha512-staging',plan.sdkTrust.production.sri);
   assert.equal(restored,originalLock,'only the SDK file alias, integrity and peer identity change');
-  pkg.dependencies['@mdbase-dev/sdk']=originalPackage.dependencies['@mdbase-dev/sdk'];
-  assert.deepEqual(pkg,originalPackage);
+  for(const [manifest,original] of originalManifests) {
+   const rewritten=JSON.parse(await readFile(join(f.root,manifest),'utf8'));
+   for(const target of targets.filter(t=>t.manifest===manifest))
+    rewritten[target.section][target.name]=target.expectedSpec;
+   assert.deepEqual(rewritten,original,manifest);
+  }
  }finally{await rm(f.root,{recursive:true,force:true});}
+});
+it('swaps every workspace manifest referencing the production SDK tarball so frozen pnpm install agrees',async()=>{
+ const root=await mkdtemp(join(tmpdir(),'editor-staging-workspace-'));
+ const store=join(root,'.pnpm-store');
+ const tarPackage=(dir,manifest)=>{
+  const pkgDir=join(dir,'package');
+  return mkdir(pkgDir,{recursive:true})
+   .then(()=>writeFile(join(pkgDir,'package.json'),JSON.stringify(manifest,null,2)+'\n'))
+   .then(()=>writeFile(join(pkgDir,'index.js'),'export const sdk=true;\n'))
+   .then(()=>execFileSync('tar',['-czf','-','-C',dir,'package']));
+ };
+ const runPnpm=args=>spawnSync('pnpm',[...args,'--ignore-scripts','--ignore-pnpmfile','--offline','--store-dir',store],{cwd:root,encoding:'utf8'});
+ try {
+  await mkdir(join(root,'apps/editor/vendor'),{recursive:true});
+  await mkdir(join(root,'packages/app-ui'),{recursive:true});
+  await mkdir(join(root,'packages/other'),{recursive:true});
+  await mkdir(join(root,'services/mcp'),{recursive:true});
+  const productionBytes=await tarPackage(join(root,'.tar-prod'),{name:'@mdbase-dev/sdk',version:'0.1.41'});
+  const stagingBytes=await tarPackage(join(root,'.tar-stg'),{name:'@mdbase-dev/sdk-staging',version:'0.1.41',private:true});
+  await rm(join(root,'.tar-prod'),{recursive:true,force:true});
+  await rm(join(root,'.tar-stg'),{recursive:true,force:true});
+  const productionRel='apps/editor/vendor/sdk-production-0.1.41.tgz';
+  await writeFile(join(root,productionRel),productionBytes);
+  const manifests={
+   'package.json':{name:'fixture-root',private:true},
+   'apps/editor/package.json':{name:'mdbase-editor',private:true,dependencies:{'@mdbase-dev/sdk':'file:vendor/sdk-production-0.1.41.tgz'}},
+   'packages/app-ui/package.json':{name:'@mdbase-dev/ui',version:'0.1.0',peerDependencies:{'@mdbase-dev/sdk':'>=0.1.0-beta.188'},
+    devDependencies:{'@mdbase-dev/sdk':'file:../../apps/editor/vendor/sdk-production-0.1.41.tgz'}},
+   'packages/other/package.json':{name:'@mdbase/other',private:true},
+   'services/mcp/package.json':{name:'@mdbase/connect-mcp',private:true,dependencies:{'@mdbase-dev/sdk':'file:../../apps/editor/vendor/sdk-production-0.1.41.tgz'}},
+  };
+  await writeFile(join(root,'pnpm-workspace.yaml'),'packages:\n  - "apps/*"\n  - "packages/*"\n  - "services/*"\nnodeLinker: hoisted\nhoistingLimits: workspaces\n');
+  for(const [rel,data] of Object.entries(manifests))await writeFile(join(root,rel),JSON.stringify(data,null,2)+'\n');
+  const gen=runPnpm(['install','--lockfile-only']);
+  assert.equal(gen.status,0,gen.stderr||gen.stdout);
+  const originalLock=await readFile(join(root,'pnpm-lock.yaml'),'utf8');
+  const productionSri='sha512-'+createHash('sha512').update(productionBytes).digest('base64');
+  const stagingSri='sha512-'+createHash('sha512').update(stagingBytes).digest('base64');
+  const plan={target:'staging',sdkTrust:{lockSha256:sha(originalLock),production:{path:productionRel,sri:productionSri},
+   archives:{sdk:{path:'https://example.invalid/sdk-staging.tgz',sha256:sha(stagingBytes),sri:stagingSri}}}};
+  const fetchStaging=async()=>new Response(stagingBytes);
+  // Refuse if any rewritten manifest no longer matches the exact production pin, leaving all files untouched.
+  for(const [rel,section] of [['apps/editor/package.json','dependencies'],['packages/app-ui/package.json','devDependencies'],['services/mcp/package.json','dependencies']]) {
+   const tampered=structuredClone(manifests[rel]);
+   tampered[section]['@mdbase-dev/sdk']='file:../../other/sdk.tgz';
+   await writeFile(join(root,rel),JSON.stringify(tampered,null,2)+'\n');
+   await assert.rejects(prepareInstall(plan,root,fetchStaging),/Production install pin changed/);
+   assert.equal(await readFile(join(root,'pnpm-lock.yaml'),'utf8'),originalLock);
+   await assert.rejects(readFile(join(root,'apps/editor/vendor/sdk-staging.tgz')),{code:'ENOENT'});
+   await writeFile(join(root,rel),JSON.stringify(manifests[rel],null,2)+'\n');
+  }
+  await assert.rejects(prepareInstall({...plan,sdkTrust:{...plan.sdkTrust,lockSha256:'0'.repeat(64)}},root,fetchStaging),/Source lock changed/);
+  await prepareInstall(plan,root,fetchStaging);
+  assert.equal(JSON.parse(await readFile(join(root,'apps/editor/package.json'),'utf8')).dependencies['@mdbase-dev/sdk'],'file:vendor/sdk-staging.tgz');
+  const appUi=JSON.parse(await readFile(join(root,'packages/app-ui/package.json'),'utf8'));
+  assert.equal(appUi.devDependencies['@mdbase-dev/sdk'],'file:../../apps/editor/vendor/sdk-staging.tgz');
+  assert.equal(appUi.peerDependencies['@mdbase-dev/sdk'],'>=0.1.0-beta.188');
+  assert.equal(JSON.parse(await readFile(join(root,'services/mcp/package.json'),'utf8')).dependencies['@mdbase-dev/sdk'],'file:../../apps/editor/vendor/sdk-staging.tgz');
+  assert.deepEqual(JSON.parse(await readFile(join(root,'packages/other/package.json'),'utf8')),manifests['packages/other/package.json']);
+  const frozen=runPnpm(['install','--frozen-lockfile','--lockfile-only']);
+  assert.equal(frozen.status,0,frozen.stderr||frozen.stdout);
+  // Leaving any referencing manifest on the production pin must still fail frozen-lockfile.
+  await writeFile(join(root,'packages/app-ui/package.json'),JSON.stringify(manifests['packages/app-ui/package.json'],null,2)+'\n');
+  const mismatched=runPnpm(['install','--frozen-lockfile','--lockfile-only']);
+  assert.notEqual(mismatched.status,0);
+  assert.match(mismatched.stderr+mismatched.stdout,/ERR_PNPM_OUTDATED_LOCKFILE/);
+ }finally{await rm(root,{recursive:true,force:true});}
 });
 it('rewrites only the vendored SDK entry when a registry SDK shares its integrity',async()=>{
  const root=await mkdtemp(join(tmpdir(),'editor-shared-sri-'));
@@ -190,7 +275,7 @@ it('uses authenticated assets for staging installation and installed-byte compar
   const asset='https://api.github.com/repos/mdbase-dev/mdbase-connect/releases/assets/100';
   const fetchImpl=async(url,init)=>{
    seen.push(url);assert.equal(init.headers.authorization,'Bearer test-job-token');
-   if(url===metadata)return Response.json({tag_name:tag,prerelease:true,draft:false,assets:[
+   if(url===metadata)return Response.json({tag_name:tag,prerelease:pin.version.includes('-'),draft:false,assets:[
     {id:100,name:'sdk-staging.tgz',digest:'sha256:'+sha(bytes),browser_download_url:path}
    ]});
    assert.equal(url,asset);assert.equal(init.headers.accept,'application/octet-stream');

@@ -38,7 +38,7 @@ function object(escrow = false) {
     get: async (k) => Array.isArray(k) ? new Map(k.filter(key => data.has(key)).map(key => [key, data.get(key)])) : data.get(k),
     put: async (k, v) => { data.set(k, v); }, delete: async (k) => data.delete(k),
     getAlarm: async () => alarm, setAlarm: async (at) => { alarm = at; }, deleteAlarm: async () => { alarm = null; },
-    sql, transactionSync: (fn) => fn(),
+    sql, transactionSync: (fn) => fn(), sync: async () => {},
   };
   const o = Object.create(HostedCollection.prototype);
   const physical = { equals: expected => expected === collection };
@@ -58,13 +58,107 @@ function coldWake(escrow, code) {
 
 function warmEngine(t) {
   const calls = []; let wiped = 0;
-  const engine = { appliedHead: () => "cached", logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null,
+  const engine = { cacheRecovery: () => null, appliedHead: () => "cached", logBound: false, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null,
     tick() { calls.push("tick"); }, refresh() { calls.push("refresh"); } };
   Object.assign(t.o, { engine, collection, live: { admitted: true }, log: () => ({}) });
   t.o.readers.set("reader", { wipe() { wiped++; } });
   t.data.set("service-collection", collection);
   return { engine, calls, wiped: () => wiped };
 }
+
+test("retire commits the park before joining an opener; after eviction a retry can retire", async () => {
+  const t = object(false), token = "s".repeat(40), version = "retiring-version";
+  const device = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const retire = () => new Request(`https://w.test/v1/hosted/collection-mode/retire?collection=${collection}`, {
+    method: "POST", headers: { authorization: `Bearer ${token}` },
+    body: JSON.stringify({ collection, device, epoch: "1", challenge: "a".repeat(64) }) });
+  const committed = Promise.withResolvers();
+  Object.assign(t.o.env, { HOSTED_SERVICE_TOKEN: token, CF_VERSION_METADATA: { id: version } });
+  t.o.ctx.blockConcurrencyWhile = fn => fn();
+  t.o.ctx.storage.sync = async () => {
+    if (t.data.get("service-open-unfinished")?.count === 3) {
+      assert.equal(t.alarm(), null);
+      committed.resolve();
+    }
+  };
+  // The isolate disappears without settling its open promise.
+  t.o.opening = new Promise(() => {});
+  t.data.set("service-open-unfinished", { version, count: 1 });
+  t.setAlarm(Date.now() + 30_000);
+  t.data.set("collection-mode-device", collection);
+  assert.equal((await t.o.fetch(retire())).status, 503);
+  assert.deepEqual(t.data.get("service-open-unfinished"), { version, count: 1 });
+  assert.notEqual(t.alarm(), null);
+  t.data.set("collection-mode-device", device);
+  let answered = false;
+  const pending = t.o.fetch(retire()).then(() => { answered = true; });
+  await Promise.race([committed.promise, pending]);
+  assert.equal(answered, false);
+  assert.deepEqual(t.data.get("service-open-unfinished"), { version, count: 3 });
+  const cold = object(false).o;
+  Object.assign(cold, { ctx: t.o.ctx, env: t.o.env });
+  assert.equal((await cold.fetch(retire())).status, 200);
+  assert.equal(t.data.has("service-open-unfinished"), false);
+  assert.equal(t.alarm(), null);
+  assert.deepEqual([...t.tables], ["migration_run"]);
+});
+
+test("retirement follows the settled device and preserves its scheduled work", async () => {
+  const expected = "device-before-open";
+  const priorWake = Date.now() + 60_000;
+  const nextWake = priorWake + 60_000;
+  for (const [device, settledWake] of [[expected, null], ["new-device", null], ["new-device", nextWake]]) {
+    const t = object();
+    t.setAlarm(priorWake);
+    t.data.set("collection-mode-device", expected);
+    const parked = Promise.withResolvers();
+    t.o.ctx.storage.sync = async () => {
+      assert.equal(t.data.get("service-open-unfinished")?.count, 3);
+      assert.equal(t.alarm(), null);
+      parked.resolve();
+    };
+    t.o.opening = parked.promise.then(() => {
+      t.data.set("collection-mode-device", device);
+      if (settledWake !== null) {
+        t.data.delete("service-open-unfinished");
+        t.setAlarm(settledWake);
+      }
+      warmEngine(t);
+      t.o.live.device = device;
+      t.o.opening = null;
+    });
+    t.o.ctx.blockConcurrencyWhile = finish => finish();
+    const matching = device === expected;
+    assert.equal(await t.o.retireModeDevice(collection, expected), matching);
+    assert.equal(t.data.has("service-open-unfinished"), false);
+    assert.equal(t.alarm(), matching ? null : settledWake ?? priorWake);
+    assert.equal(t.tables.has("st_records"), !matching);
+    assert.equal(t.o.engine === null, matching);
+  }
+});
+
+test("a settled cold actor resumes a pending retry and respects a completed retirement", async () => {
+  for (const retry of [true, false]) {
+    const t = object();
+    const priorWake = Date.now() + 60_000;
+    t.setAlarm(priorWake);
+    t.o.opening = Promise.resolve();
+    t.o.ctx.blockConcurrencyWhile = async finish => {
+      t.o.opening = null;
+      t.data.set("collection-mode-device", "current");
+      if (retry) {
+        t.data.delete("service-open-unfinished");
+        t.data.set("service-open-failures", 1);
+      } else {
+        await t.o.retireForVerdict();
+      }
+      return finish();
+    };
+    assert.equal(await t.o.retireModeDevice(collection, "previous"), false);
+    assert.equal(t.data.has("service-open-unfinished"), false);
+    assert.equal(t.alarm(), retry ? priorWake : null);
+  }
+});
 
 test("permanent custody verdict on a cold wake cancels the alarm instead of re-arming a retry", async () => {
   for (const escrow of [false, true]) for (const code of PERMANENT) {

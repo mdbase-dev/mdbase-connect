@@ -85,6 +85,39 @@ build. `Qualification` still requires both the Rust job and all shards.
 The opt-in `ci:benchmark-binaries` transfer measurement was removed; it
 concluded that independent shard builds stay, and its record is in Git history.
 
+## Pinned hosted provider
+
+Production, staging and LAB run one hosted-provider image until the provider is
+switched off, so the control plane must keep working against that image rather
+than a build of this checkout. `deploy/docker/hosted-provider-image` holds its
+`image@sha256` reference; moving the pin is a one-line change there.
+
+The `provider-pinned` system suite (`pnpm e2e:provider:pinned`) runs the
+`provider` suite with the provider binary copied out of that image
+(`scripts/pinned-hosted-provider.mjs`, into `target/pinned-hosted-provider/`).
+It needs Docker, Node and Chromium, not Cargo, the engine checkout or
+`crates/`. It skips the checks that test provider source rather than the
+image: the Cargo test of the provider's database pool bounds and the two
+fixtures that replay migration SQL from `crates/`. Server CI's
+`hosted-provider-pinned` job runs it in the merge queue and on pull requests
+that change `services/server/`, `packages/protocol/` or the extraction script;
+`Qualification` requires it whenever it runs. The from-source `provider` shard
+is deleted with `crates/` once one deployment has run on the pinned provider.
+
+The pinned image and its signatures must stay in the registry until the provider
+is switched off. Nothing in this repository deletes versions of the
+`mdbase-connect-hosted-provider` package, and the registry has no retention rule
+that would; only someone with admin access to the package can delete a version.
+A cleanup of the package must leave these six versions for the pinned digest:
+
+- the image index, tagged `sha-<commit>`, with its platform manifest and its
+  build attestation manifest, both untagged;
+- the signature index, tagged `sha256-<digest>`, with the two untagged bundles
+  it lists: the image signature and the release-image attestation.
+
+Removing untagged versions would therefore break the image and its signatures.
+A deleted version can be restored for 30 days.
+
 ## Publication
 
 Server and client images are built after a successful `main` push qualification,

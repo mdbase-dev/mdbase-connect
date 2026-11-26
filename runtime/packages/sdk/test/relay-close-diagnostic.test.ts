@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { readFileSync } from "node:fs";
+import { parseCollectionAvailability } from "../src/collection-availability.js";
+import { describeError } from "../src/describe-error.js";
 import { pipeCloseError } from "../src/transport/relay-pipe.js";
 import { relayCloseFromDetails } from "../src/transport/relay-close.js";
 
@@ -63,5 +65,11 @@ describe("bounded relay close diagnostics", () => {
 
   it("keeps lease expiry retryable with the existing retry hint", () => {
     expect(pipeCloseError(4000, "grant_lease_expired")).toMatchObject({ code: "unavailable", recovery: "retry", reason: "grant_lease_expired", retryAfterMs: 1000 });
+  });
+
+  it("describes relay_closed and pipe_closed as retryable unavailable and accepts device_not_serving availability", () => {
+    expect(describeError("relay_closed")).toMatchObject({ key: "unavailable", code: "relay_closed", action: "retry", severity: "warning" });
+    expect(describeError("pipe_closed")).toMatchObject({ key: "unavailable", code: "pipe_closed", action: "retry", severity: "warning" });
+    expect(parseCollectionAvailability({ state: "unavailable", reason: "device_not_serving" })).toEqual({ state: "unavailable", reason: "device_not_serving" });
   });
 });

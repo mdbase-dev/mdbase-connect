@@ -23,14 +23,6 @@ impl Runtime {
         source: Box<dyn mdbn_replica::policy::GrantSource + Send>,
         grants: LocalGrants,
     ) -> Result<Runtime, OpenFailed> {
-        // Inspect private admission before spawning a runtime, transport, watcher
-        // or acquiring the folder lock. The native opener keeps its original
-        // host-lock ordering (an already-active SQLite index is exclusive).
-        if let Some(closed) = preopen_mirror_status(&cfg.private_dir)
-            .map_err(|e| OpenFailed(format!("mirror fence: {e}")))?
-        {
-            return Err(OpenFailed(closed.message()));
-        }
         let (tx, rx) = std_mpsc::channel();
         let (ready_tx, ready_rx) = std_mpsc::channel();
         let (grant_changes_tx, grant_changes) = watch::channel(());
@@ -194,6 +186,25 @@ impl Runtime {
         let (tx, rx) = oneshot::channel();
         self.tx.send(Cmd::Readiness(tx)).ok()?;
         rx.await.ok()
+    }
+
+    /// Park the actor thread, as a collection busy with long work would be,
+    /// until the returned sender is dropped.
+    #[cfg(test)]
+    pub(crate) fn test_park(&self) -> std::sync::mpsc::Sender<()> {
+        let (release, parked) = std::sync::mpsc::channel();
+        self.tx
+            .send(Cmd::TestPark(parked))
+            .expect("the runtime is running");
+        release
+    }
+
+    /// Test-only: fail this actor's next `n` store commits with an unknown
+    /// outcome. Returns once armed; `false` if the runtime has stopped.
+    #[cfg(test)]
+    pub(crate) async fn test_fail_unknown_commits(&self, n: u32) -> bool {
+        let (tx, rx) = oneshot::channel();
+        self.tx.send(Cmd::TestFailUnknownCommits(n, tx)).is_ok() && rx.await.is_ok()
     }
 
     /// SEEDED-HOLD fixture only: None reads the original actor's real ledger;

@@ -1,8 +1,5 @@
 import type { DatabaseConnection, DatabaseQueryable } from "../../database-types.js";
 import { requireCollectionNotDeleted } from "../next/collection-deletion.js";
-import { requireAccountNotMigrationFrozen, requireNextAccountNotMigrationFrozen } from "../next/migration-topology.js";
-import { InvitationMigrationPending, requireCompletedMigrationInvitation } from "../next/migration-sharing.js";
-import { RequestValidationError } from "../../platform/http-errors.js";
 
 export interface CollectionSharingAuthority {
   kind: "native" | "hosted";
@@ -11,8 +8,6 @@ export interface CollectionSharingAuthority {
   created_at: Date | string;
 }
 
-/** Native authority replaces the legacy row only after cutover. An unavailable
- * native row never falls back to a retained legacy authority. */
 export async function resolveCollectionSharingAuthority(
   db: DatabaseQueryable,
   collectionId: string
@@ -20,42 +15,22 @@ export async function resolveCollectionSharingAuthority(
   return readAuthority(db, collectionId, "");
 }
 
-/** Account/freeze locks precede collection locks; revalidate discovered ownership
- * before any invitation, membership, seat or policy publication. */
 export async function lockCollectionSharingAuthority(
   db: DatabaseConnection,
   collectionId: string
 ): Promise<CollectionSharingAuthority | null> {
   const discovered = await resolveCollectionSharingAuthority(db, collectionId);
   if (!discovered) return null;
-  if (discovered.kind === "native") await requireNextAccountNotMigrationFrozen(db, discovered.user_id);
-  else await requireAccountNotMigrationFrozen(db, discovered.user_id);
   const held = await readAuthority(db, collectionId, " FOR UPDATE");
   if (!held || held.user_id !== discovered.user_id || held.kind !== discovered.kind) return null;
   return held;
 }
 
-/** Original emailed invitation acceptance only; other sharing/topology writes
- * retain the original global freeze. A terminal label is never sufficient. */
 export async function lockCollectionInvitationAcceptance(
   db: DatabaseConnection,
   collectionId: string
 ): Promise<CollectionSharingAuthority | null> {
-  const discovered = await resolveCollectionSharingAuthority(db, collectionId);
-  if (!discovered) return null;
-  let completedNext = false;
-  try {
-    if (discovered.kind === "native") completedNext = await requireNextAccountNotMigrationFrozen(db, discovered.user_id);
-    else await requireAccountNotMigrationFrozen(db, discovered.user_id);
-  }
-  catch (error) {
-    if (!(error instanceof RequestValidationError) || error.code !== "migration_frozen") throw error;
-    if (discovered.kind !== "native") throw new InvitationMigrationPending();
-  }
-  if (!completedNext) await requireCompletedMigrationInvitation(db, collectionId, discovered.user_id);
-  const held = await readAuthority(db, collectionId, " FOR UPDATE");
-  if (!held || held.user_id !== discovered.user_id || held.kind !== discovered.kind) return null;
-  return held;
+  return lockCollectionSharingAuthority(db, collectionId);
 }
 
 async function readAuthority(
@@ -73,8 +48,6 @@ async function readAuthority(
   )).rows[0];
   if (native?.runtime === "next") {
     if (native.left_sync_at !== null || !["private", "cloud_copy"].includes(native.sync)) return null;
-    // Collection runtime owns this decision; account backend flips separately.
-    // The lock guard distinguishes in-flight migration from completed next authority.
     const owner = await db.query(
       `SELECT id FROM users WHERE id = $1 AND suspended_at IS NULL${lock}`,
       [native.owner_user_id]
@@ -88,7 +61,6 @@ async function readAuthority(
     }
     return { kind: "native", id: native.collection_id, user_id: native.owner_user_id, created_at: native.created_at };
   }
-  // Shadow collections retain their existing hosted authority until cutover.
   const legacy = (await db.query<Omit<CollectionSharingAuthority, "kind">>(
     `SELECT id, user_id, created_at FROM hosted_collections
      WHERE id = $1 AND authority_state = 'active' AND quarantined_at IS NULL${lock}`,

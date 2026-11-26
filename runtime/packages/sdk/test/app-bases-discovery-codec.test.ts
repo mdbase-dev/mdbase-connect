@@ -25,6 +25,16 @@ describe("native byte fixture shared with the Rust encoder (grammar only)",()=>{
     expect(decodeAppBasesDiscoveryResult(fromHex(nativeFixture.empty_progress_hex!),2)).toMatchObject({kind:"success",views:[],continuation:new Uint8Array(32).fill(0x55)});
     expect(decodeAppBasesDiscoveryResult(fromHex(nativeFixture.eof_hex!),2)).toMatchObject({kind:"success",views:[],continuation:null});
   });
+  it("asks for and decodes version 2, which names unreadable records instead of refusing",()=>{
+    expect(encodeAppBasesDiscoveryRequest({captureTimezone:"UTC",limit:2,reportUnreadable:true})).toEqual(fromHex(nativeFixture.unreadable_request_hex!));
+    expect(decodeAppBasesDiscoveryResult(fromHex(nativeFixture.unreadable_success_hex!),2,true)).toEqual({kind:"success",views:[],continuation:null,
+      clock:{instant:0,tz:"UTC",localDate:"1970-01-01"},collectionRevision:digest,
+      unreadable:[{record:"66666666-6666-6666-6666-666666666666",path:"Views/broken.base",sourceRevision:`sha256:${"77".repeat(32)}`,reason:"view_metadata_unavailable",detail:"base_raw_frontmatter_unavailable"}]});
+    expect(decodeAppBasesDiscoveryResult(fromHex(nativeFixture.eof_hex!),2)).toMatchObject({unreadable:[]});
+    // A reply must match the request version in both directions.
+    expect(()=>decodeAppBasesDiscoveryResult(fromHex(nativeFixture.unreadable_success_hex!),2)).toThrow();
+    expect(()=>decodeAppBasesDiscoveryResult(fromHex(nativeFixture.eof_hex!),2,true)).toThrow();
+  });
   it("decodes native exact UTF8 source/SHA/original ordinal without synthetic document fallback",()=>{
     expect(decodeAppBasesSourceResult(fromHex(nativeFixture.source_success_hex!),{...request,sourceRevision:nativeFixture.source_revision!,ordinal:2})).toMatchObject({kind:"success",source:nativeFixture.source,view:{sourceRevision:nativeFixture.source_revision,ordinal:2}});
   });
@@ -36,6 +46,16 @@ describe("separate bounded native discovery grammar (synthetic codec fixtures, n
   it("refuses same source with two SHA/path identities and no implementation provenance",()=>{
     expect(()=>decodeAppBasesDiscoveryResult(encode(page([descriptor(0),descriptor(1,digest)])))).toThrow();
     const d=descriptor();d.set(6,[]);expect(()=>decodeAppBasesDiscoveryResult(encode(page([d])))).toThrow();
+  });
+  it("refuses unordered or malformed unreadable entries",()=>{
+    const entry=(id:string,extra?:[number,CborValue]):Map<number,CborValue>=>{const e=new Map<number,CborValue>([[0,uuid.enc(id)],[1,"Views/broken.base"],[2,hash.enc(digest)],[3,"view_metadata_unavailable"],[4,"base_views_shape"]]);if(extra)e.set(...extra);return e;};
+    const v2=(entries:CborValue[])=>{const p=page();p.set(5,entries);return encode(p);};
+    const a="11111111-1111-1111-1111-111111111111",b="22222222-2222-2222-2222-222222222222";
+    expect(decodeAppBasesDiscoveryResult(v2([entry(a),entry(b)]),128,true)).toMatchObject({unreadable:[{record:a},{record:b}]});
+    expect(()=>decodeAppBasesDiscoveryResult(v2([entry(b),entry(a)]),128,true)).toThrow();
+    expect(()=>decodeAppBasesDiscoveryResult(v2([entry(a),entry(a)]),128,true)).toThrow();
+    expect(()=>decodeAppBasesDiscoveryResult(v2([entry(a,[5,"extra"])]),128,true)).toThrow();
+    expect(()=>decodeAppBasesDiscoveryResult(v2([entry(a,[1,7])]),128,true)).toThrow();
   });
   it("refuses malformed/trailing/version/extra-field/handle/frame bounds before publication",()=>{
     for(const [k,v] of [[0,2],[4,"not native"],[4,new Uint8Array(33)],[8,0]] as [number,CborValue][]){const p=page();p.set(k,v);expect(()=>decodeAppBasesDiscoveryResult(encode(p))).toThrow();}

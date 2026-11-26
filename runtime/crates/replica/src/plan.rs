@@ -92,21 +92,81 @@ pub fn value_key(v: &CValue) -> String {
     canonical(v).to_json()
 }
 
-/// Which catalog a store's record index entries were derived under: the exact
-/// resources it was compiled from. Open reindexes on a mismatch, which covers a
-/// crash between a catalog change and its reindex. Derivation changes bump
-/// [`crate::store::DERIVED_DATA_VERSION`] instead.
-pub fn record_meta_stamp(resources: &[(String, String)]) -> Vec<u8> {
-    let mut sorted: Vec<_> = resources.iter().collect();
-    sorted.sort();
-    let mut bytes = b"mdbase/v1/record-meta\0".to_vec();
-    for (path, doc) in sorted {
-        for part in [path, doc] {
-            bytes.extend_from_slice(&(part.len() as u64).to_be_bytes());
-            bytes.extend_from_slice(part.as_bytes());
-        }
+/// Fingerprint the catalog used by `record_meta`: membership, path-derived
+/// fields, uniqueness and link keys. Schemas affect which definitions compile,
+/// but validation itself does not derive record metadata.
+pub fn record_meta_stamp(catalog: &Catalog) -> Vec<u8> {
+    let mut digest = Sha256::new();
+    digest.update(b"mdbase/v3/record-meta\0");
+    let mut part = |value: &str| {
+        digest.update((value.len() as u64).to_be_bytes());
+        digest.update(value.as_bytes());
+    };
+    let settings = catalog.settings();
+    let mut extensions: Vec<_> = settings
+        .record_extensions
+        .iter()
+        .map(|ext| ext.to_ascii_lowercase())
+        .collect();
+    extensions.sort();
+    extensions.dedup();
+    for values in [&settings.explicit_type_keys, &extensions] {
+        part(&CValue::List(values.iter().cloned().map(CValue::Text).collect()).to_json());
     }
-    mdbn_wire::hash::sha256(&bytes).0.to_vec()
+    let timezone = settings.timezone.as_deref().filter(|_| {
+        catalog.types().iter().any(|def| {
+            def.match_spec
+                .as_ref()
+                .is_some_and(|spec| spec.program.is_some())
+        })
+    });
+    for optional in [timezone, settings.id_field.as_deref()] {
+        part(&optional.map_or(CValue::Null, CValue::string).to_json());
+    }
+    for definition in catalog.types() {
+        part(&definition.name);
+        let matching = definition
+            .raw
+            .get("match")
+            .and_then(CValue::as_map)
+            .map(|spec| {
+                CValue::Map(
+                    spec.iter()
+                        .filter(|(key, _)| !key.starts_with("x-"))
+                        .map(|(key, val)| (key.to_owned(), val.clone()))
+                        .collect(),
+                )
+            });
+        part(&value_key(&matching.unwrap_or(CValue::Null)));
+        let policy = definition
+            .path_policy
+            .as_ref()
+            .filter(|policy| !policy.fields.is_empty());
+        part(policy.and(definition.path_pattern.as_deref()).unwrap_or(""));
+        let fields = policy.into_iter().flat_map(|policy| &policy.fields);
+        part(&CValue::List(fields.cloned().map(CValue::Text).collect()).to_json());
+        part(
+            &CValue::List(
+                definition
+                    .link_fields
+                    .keys()
+                    .cloned()
+                    .map(CValue::Text)
+                    .collect(),
+            )
+            .to_json(),
+        );
+    }
+    part(
+        &CValue::List(
+            unique_fields(catalog)
+                .into_iter()
+                .map(CValue::string)
+                .collect(),
+        )
+        .to_json(),
+    );
+    digest.finalize().to_vec()
 }
 
 /// The field references the catalog's `unique` rules name: what the store's
@@ -200,6 +260,7 @@ fn project_record_fields(
             types: &membership.types,
             frontmatter,
             body: None,
+            mtime: row.mtime,
         },
         fields,
         max_key_bytes,
@@ -222,8 +283,8 @@ fn project_record_fields(
 
 /// The projection algorithm identity, independent of log position and key codec.
 /// Bump whenever membership/default/atom projection semantics change.
-/// Version 3 adds the body index text.
-pub const QUERY_PROJECTION_VERSION: u64 = 3;
+/// Version 4 adds the `file.mtime` index atom.
+pub const QUERY_PROJECTION_VERSION: u64 = 4;
 
 /// Convert the supported configured fields to neutral store identities, preserving
 /// declared order. Duplicate or unsupported fields fail, never silently deduplicate.
@@ -365,12 +426,17 @@ fn project_query_row(
             },
         })
         .collect();
+    let mtime = SortAtom::from_mtime(row.mtime);
     Ok(QueryIndexedRow {
         id: row.id,
         path: row.path.clone(),
         types: projected.types,
         fields,
         body: projected.body,
+        mtime: QueryAtom {
+            kind: mtime.kind() as u8,
+            key: mtime.key().to_vec(),
+        },
     })
 }
 
@@ -563,6 +629,7 @@ impl QueryProjectionContext {
             types: &membership.types,
             frontmatter,
             body: None,
+            mtime: row.mtime,
         };
         self.fields
             .iter()
@@ -640,10 +707,15 @@ impl<'a> StoreView<'a> {
 
 /// Compile the catalog from a store's resources.
 pub fn load_catalog(store: &dyn Store) -> Result<Catalog, StoreError> {
-    let rs = store.resources()?;
-    Ok(Catalog::load(
-        rs.iter().map(|(p, d)| (p.as_str(), d.as_str())),
-    ))
+    Ok(compile_catalog(&store.resources()?))
+}
+
+pub(crate) fn compile_catalog(resources: &[(String, String)]) -> Catalog {
+    Catalog::load(
+        resources
+            .iter()
+            .map(|(path, doc)| (path.as_str(), doc.as_str())),
+    )
 }
 
 impl StateView for StoreView<'_> {
@@ -890,7 +962,7 @@ fn op_key(o: &mdbn_wire::intent::Op) -> String {
     use mdbn_wire::intent::Op as O;
     match o {
         O::Create(c) => id_key(&c.id),
-        O::Update(u) => id_key(&u.id),
+        O::Update(u) | O::UpdateLive(u) => id_key(&u.id),
         O::Document(d) => id_key(&d.id),
         O::Delete(d) => id_key(&d.id),
         O::Rename(r) => id_key(&r.id),

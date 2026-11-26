@@ -7,7 +7,7 @@ import { appUpdateBackend } from "./electron-update-backend";
 import { createNativeLocale } from "./i18n";
 import { ensureBundledDaemon } from "./next-daemon";
 import { UpdateCoordinator, type DesktopUpdateStatus } from "./update-coordinator";
-import { reportUpdates } from "./update-report";
+import { REPORTED_PHASES, reportUpdates } from "./update-report";
 import { UpdateStateStore } from "./update-state";
 
 /**
@@ -103,7 +103,7 @@ async function update(userData: string): Promise<number> {
       log(`Background updates could not be registered: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
-  if (stateDir && ["idle", "deferred", "ready", "external"].includes(status.phase)) {
+  if (stateDir && REPORTED_PHASES.includes(status.phase)) {
     await reportUpdates(stateDir, status, background)
       .catch((error) => log(`Could not record the update check for mdbase doctor: ${String(error)}`));
   }

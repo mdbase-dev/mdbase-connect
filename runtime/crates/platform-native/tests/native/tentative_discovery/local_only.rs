@@ -96,6 +96,7 @@ fn open_rows(app: &mut App, session: SessionId) -> Vec<B16> {
             property_types: &hints,
             timezone: "UTC",
             window: None,
+            row_properties: None,
         },
         |result| {
             assert_eq!(result.view.record, SOURCE_ID);
@@ -191,7 +192,14 @@ fn synced_replica_without_a_keyed_device_is_still_refused() {
     let path = scratch("tentative-synced-unkeyed-bases").join("app.db");
     let (mut app, session, _) = open(&path, Rc::new(Probe::default()));
     let error = app
-        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, _, _| Ok(()))
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            mdbn_store_file::testing::replica::replica::UnreadableSources::Refuse,
+            |_, _, _| Ok(()),
+        )
         .expect_err("an unkeyed synced replica refuses Bases reads");
     assert_eq!(error.code(), Some(ErrorCode::Forbidden));
     assert_eq!(

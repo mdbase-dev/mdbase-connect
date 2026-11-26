@@ -69,8 +69,9 @@ impl OriginalHistory {
         Self {
             collection,
             generation,
-            // Imported policy/head/hints never recreate native accepted history.
-            verified: (head.seq == 0 && policy_seq == 0).then(References::default),
+            // Imported policy/head/hints (or a zero-seq head with a nonzero
+            // chain) never establish a genesis-anchored native apply prefix.
+            verified: (head == Head::GENESIS && policy_seq == 0).then(References::default),
             hints: bytes
                 .and_then(|b| decode_hints(collection, b))
                 .unwrap_or_default(),
@@ -384,5 +385,24 @@ mod tests {
         );
         assert!(h.grant(7, &B16([5; 16])).is_none());
         assert!(h.genesis(7).is_none());
+    }
+    #[test]
+    fn nonzero_chain_at_seq_zero_never_establishes_genesis_observation() {
+        let malformed = Head {
+            seq: 0,
+            chain: B32([9; 32]),
+        };
+        let h = OriginalHistory::new(B16([1; 16]), 7, malformed, 0, None).prepare(
+            7,
+            Head {
+                seq: 1,
+                chain: B32([3; 32]),
+            },
+            &[B16([2; 16])],
+            &[B16([6; 16])],
+            true,
+        );
+        assert!(h.genesis(7).is_none());
+        assert!(h.grant(7, &B16([2; 16])).is_none());
     }
 }

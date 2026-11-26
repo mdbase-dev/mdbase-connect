@@ -66,6 +66,7 @@ function capabilityLabel(capability: string): string {
     case "definitions.manage": return t(i18n)({ message: "manage types and collection setup", context: "Confirmation dialog" });
     case "background.schedule": return t(i18n)({ message: "run scheduled background tasks", context: "Confirmation dialog" });
     case "offline.replica": return t(i18n)({ message: "keep an offline copy", context: "Confirmation dialog" });
+    case "history.read": return t(i18n)({ message: "read earlier versions of records", context: "Confirmation dialog" });
     default: return capability;
   }
 }
@@ -109,12 +110,12 @@ function wording(request: ConfirmationRequest): Pick<ConfirmationText, "title" |
           ? {
             title: t(i18n)({ message: "Make private", context: "Confirmation dialog" }),
             message: t(i18n)({ message: `Make ${collection} private?`, context: "Confirmation dialog" }),
-            detail: t(i18n)({ message: "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content.", context: "Confirmation dialog" })
+            detail: t(i18n)({ message: "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards.", context: "Confirmation dialog" })
           }
           : {
             title: t(i18n)({ message: "Turn on Cloud copy", context: "Confirmation dialog" }),
             message: t(i18n)({ message: `Turn on Cloud copy for ${collection}?`, context: "Confirmation dialog" }),
-            detail: t(i18n)({ message: "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off.", context: "Confirmation dialog" })
+            detail: t(i18n)({ message: "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards.", context: "Confirmation dialog" })
           };
     }
   }

@@ -1,7 +1,8 @@
 import { syntaxTree } from "@codemirror/language";
-import { EditorSelection, Prec, type ChangeSpec, type EditorState, type Extension } from "@codemirror/state";
+import { EditorSelection, Prec, type ChangeSpec, type EditorState, type Extension, type SelectionRange } from "@codemirror/state";
 import type { SyntaxNode } from "@lezer/common";
-import { EditorView, keymap } from "@codemirror/view";
+import { BlockType, EditorView, keymap } from "@codemirror/view";
+import { cellAt, tableAt } from "./table-model.js";
 
 const prefixMarks = new Set(["HeaderMark", "QuoteMark", "ListMark", "TaskMarker"]);
 
@@ -37,8 +38,86 @@ function home(view: EditorView, extend: boolean): boolean {
   return true;
 }
 
+/**
+ * The first line between `from` and `to`, going `forward` or back, that shows:
+ * one with height. Hidden lines, such as a table's delimiter row or a folded
+ * callout's body, have none.
+ */
+function shownLineBetween(view: EditorView, from: number, to: number, forward: boolean) {
+  const { doc } = view.state;
+  const start = doc.lineAt(from).number, end = doc.lineAt(to).number, step = forward ? 1 : -1;
+  for (let number = start + step; forward ? number < end : number > end; number += step) {
+    const block = view.lineBlockAt(doc.line(number).from);
+    if (block.height > 0) return block;
+  }
+  return null;
+}
+
+/**
+ * The next line the caret's table cell shows, going `forward` or back, at `x()`. A row is one line
+ * whose cells wrap side by side, and CodeMirror finds where it ends from its last cell's text: when
+ * that cell is shorter, Down left the row while the caret's own cell still showed lines below.
+ */
+function lineInCell(view: EditorView, range: SelectionRange, forward: boolean, x: () => number): number | null {
+  const table = tableAt(view.state, range.head);
+  const at = table && cellAt(table, range.head);
+  const cell = at && table.rows[at.row].cells[at.column];
+  const start = cell && view.coordsAtPos(range.head, range.assoc || (forward ? 1 : -1));
+  if (!cell || !start) return null;
+  const row = view.lineBlockAt(range.head);
+  const top = view.documentTop + row.top, bottom = view.documentTop + row.bottom;
+  const from = forward ? start.bottom : start.top, step = (forward ? 1 : -1) * view.defaultLineHeight / 2;
+  for (let y = from + step; forward ? y < bottom : y > top; y += step) {
+    const head = view.posAtCoords({ x: x(), y }, false);
+    const coords = head >= cell.contentFrom && head <= cell.contentTo ? view.coordsAtPos(head) : null;
+    if (coords && (forward ? coords.top >= from : coords.bottom <= from)) return head;
+  }
+  return null;
+}
+
+/** Where the caret stops on the first line that shows between `from` and `to`, at `x()`. */
+function skippedLine(view: EditorView, from: number, to: number, forward: boolean, x: () => number): number | null {
+  const block = shownLineBetween(view, from, to, forward);
+  if (!block) return null;
+  if (block.type !== BlockType.Text) return forward ? block.from : view.state.doc.lineAt(block.to).from;
+  const at = view.posAtCoords({ x: x(), y: view.documentTop + (block.top + block.bottom) / 2 }, false);
+  return Math.min(Math.max(at, block.from), block.to);
+}
+
+/**
+ * Up and Down reach every line that shows. CodeMirror's vertical motion steps
+ * over rendered blocks and over lines whose end has no position on screen, such
+ * as a table row whose closing pipe is hidden, so it jumped past tables, fences,
+ * formulas and embeds. Where it would skip such a line, the caret stops there
+ * instead: in a table row, in the cell under the caret; on a rendered block, at
+ * its source, which then shows. In a table cell whose text wraps, the caret
+ * first visits each of the cell's lines.
+ */
+function lineByLine(view: EditorView, forward: boolean, extend: boolean): boolean {
+  const { state } = view;
+  const range = state.selection.main;
+  if (state.selection.ranges.length > 1 || (!extend && !range.empty)) return false;
+  const moved = view.moveVertically(range, forward);
+  const line = state.doc.lineAt(range.head);
+  if (moved.head >= line.from && moved.head <= line.to) return false;
+  const content = view.contentDOM.getBoundingClientRect();
+  let goal = moved.goalColumn ?? range.goalColumn;
+  const x = () => content.left + (goal ??= (view.coordsAtPos(range.head)?.left ?? content.left) - content.left);
+  const head = lineInCell(view, range, forward, x) ?? skippedLine(view, range.head, moved.head, forward, x);
+  if (head === null) return false;
+  const column = x() - content.left;
+  view.dispatch({
+    selection: extend ? EditorSelection.range(range.anchor, head, column) : EditorSelection.cursor(head, 0, undefined, column),
+    scrollIntoView: true,
+    userEvent: "select"
+  });
+  return true;
+}
+
 export const livePreviewKeys: Extension = Prec.high(keymap.of([
-  { key: "Home", run: (view) => home(view, false), shift: (view) => home(view, true) }
+  { key: "Home", run: (view) => home(view, false), shift: (view) => home(view, true) },
+  { key: "ArrowDown", run: (view) => lineByLine(view, true, false), shift: (view) => lineByLine(view, true, true) },
+  { key: "ArrowUp", run: (view) => lineByLine(view, false, false), shift: (view) => lineByLine(view, false, true) }
 ]));
 
 /** The list item whose marker starts the line at `position`, if any. */

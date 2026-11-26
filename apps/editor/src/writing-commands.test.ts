@@ -1,9 +1,9 @@
 import { autocompletion, completionStatus } from "@codemirror/autocomplete";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { EditorSelection, EditorState, type Extension } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorView, runScopeHandlers } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
-import { cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
+import { closeBracketsAtCaret, cycleHeading, exitEmptyQuote, insertNoteLink, toggleBulletList, toggleTask, wrapSelectionOnType } from "./writing-commands";
 
 /** `¦` marks the caret; two of them mark a selection. */
 function editor(source: string, extensions: Extension = []) {
@@ -96,5 +96,52 @@ describe("wrapSelectionOnType", () => {
   it("replaces the selection with other characters and types marks at a caret", () => {
     expect(type("a ¦word¦ b", "x")).toEqual({ doc: "a x b", selected: "" });
     expect(type("a ¦ b", "*")).toEqual({ doc: "a * b", selected: "" });
+  });
+});
+
+describe("closeBracketsAtCaret", () => {
+  /** Types each character the way a DOM input reaches CodeMirror's input handlers; `⌫` presses Backspace. */
+  function type(source: string, keys: string) {
+    const view = editor(source, [wrapSelectionOnType, closeBracketsAtCaret]);
+    for (const key of keys) {
+      if (key === "⌫") {
+        runScopeHandlers(view, new KeyboardEvent("keydown", { key: "Backspace" }), "editor");
+        continue;
+      }
+      const { from, to } = view.state.selection.main;
+      const insert = () => view.state.update({ changes: { from, to, insert: key }, selection: { anchor: from + key.length }, userEvent: "input.type" });
+      if (!view.state.facet(EditorView.inputHandler).some((handler) => handler(view, from, to, key, insert))) view.dispatch(insert());
+    }
+    const { from, to } = view.state.selection.main;
+    const doc = text(view);
+    return from === to ? `${doc.slice(0, from)}¦${doc.slice(from)}` : `${doc.slice(0, from)}¦${doc.slice(from, to)}¦${doc.slice(to)}`;
+  }
+
+  it("closes brackets and double quotes at a caret and steps over the closing one", () => {
+    expect(type("See ¦", "(")).toBe("See (¦)");
+    expect(type("See ¦", "(p. 4)")).toBe("See (p. 4)¦");
+    expect(type("¦", "[[")).toBe("[[¦]]");
+    expect(type("¦", "[[Plan]]")).toBe("[[Plan]]¦");
+    expect(type("- ¦", "[ ] ")).toBe("- [ ] ¦");
+    expect(type("She said ¦", "\"hi\" ")).toBe("She said \"hi\" ¦");
+    expect(type("¦", "[a](b)")).toBe("[a](b)¦");
+  });
+
+  it("deletes an empty pair with one Backspace", () => {
+    expect(type("¦", "(⌫")).toBe("¦");
+    expect(type("¦", "[[⌫⌫")).toBe("¦");
+  });
+
+  it("types apostrophes, backticks, emphasis marks and brackets before a word as they are", () => {
+    expect(type("don¦", "'t")).toBe("don't¦");
+    expect(type("¦", "```")).toBe("```¦");
+    expect(type("¦", "**")).toBe("**¦");
+    expect(type("¦word", "(")).toBe("(¦word");
+    expect(type("word¦", "\"")).toBe("word\"¦");
+  });
+
+  it("still wraps a selection and keeps it selected", () => {
+    expect(type("a ¦word¦ b", "(")).toBe("a (¦word¦) b");
+    expect(type("a ¦word¦ b", "*")).toBe("a *¦word¦* b");
   });
 });

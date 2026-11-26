@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
-import { BodySearch, bodySearchTerms, bodySearchWhere, EXCERPT_READS } from "./body-search";
+import { BodySearch, bodySearchTerms, bodySearchWhere, EXCERPT_READS, tagSearchWhere } from "./body-search";
 import type { CollectionGateway, NoteDocument, NoteSummary } from "./model";
 
-type Gateway = Pick<CollectionGateway, "searchBodies" | "read">;
+type Gateway = Pick<CollectionGateway, "searchBodies" | "searchTag" | "read">;
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -18,6 +18,7 @@ function note(path: string, revision = "r1", body?: string): NoteSummary {
 /** A gateway whose answers are settled by the test, one call at a time. */
 function manualGateway() {
   const searches: Array<{ term: string; signal?: AbortSignal; answer: ReturnType<typeof deferred<string[]>> }> = [];
+  const tagSearches: Array<{ tag: string; signal?: AbortSignal; answer: ReturnType<typeof deferred<string[]>> }> = [];
   const reads: string[] = [];
   const gateway: Gateway = {
     searchBodies: (term, options) => {
@@ -25,12 +26,17 @@ function manualGateway() {
       searches.push({ term, signal: options?.signal, answer });
       return answer.promise;
     },
+    searchTag: (tag, options) => {
+      const answer = deferred<string[]>();
+      tagSearches.push({ tag, signal: options?.signal, answer });
+      return answer.promise;
+    },
     read: async (path) => {
       reads.push(path);
       return { path, revision: "r1", body: `text of ${path}` } as NoteDocument;
     }
   };
-  return { gateway, searches, reads };
+  return { gateway, searches, tagSearches, reads };
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -43,8 +49,16 @@ describe("body search terms", () => {
     expect(bodySearchTerms("😀😀 日本語")).toEqual(["日本語"]);
   });
 
+  it("asks a quoted phrase whole and leaves tag and type filters out", () => {
+    expect(bodySearchTerms('"Ordinary   Markdown" #notes tag:x type:note plain')).toEqual(["ordinary markdown", "plain"]);
+  });
+
   it("quotes the term as a CEL string literal", () => {
     expect(bodySearchWhere('say "hi"\\')).toBe('file.body.lower().contains("say \\"hi\\"\\\\")');
+  });
+
+  it("asks the runtime's own hasTag for a tag", () => {
+    expect(tagSearchWhere('inline"marker')).toBe('file.hasTag("inline\\"marker")');
   });
 });
 
@@ -55,8 +69,8 @@ describe("BodySearch", () => {
     const listener = vi.fn();
     search.subscribe(listener);
 
-    search.search(["lau"], 1);
-    search.search(["launch", "plan"], 1);
+    search.search(["lau"], [], 1);
+    search.search(["launch", "plan"], [], 1);
     expect(search.getSnapshot().pending).toBe(true);
     await settle();
     expect(searches.map((call) => call.term)).toEqual(["launch", "plan"]);
@@ -71,7 +85,7 @@ describe("BodySearch", () => {
     expect(listener).toHaveBeenCalled();
 
     // The same terms at the same revision are already answered.
-    search.search(["plan", "launch"], 1);
+    search.search(["plan", "launch"], [], 1);
     await settle();
     expect(searches).toHaveLength(2);
   });
@@ -79,18 +93,18 @@ describe("BodySearch", () => {
   it("shows an earlier revision's answer while asking again", async () => {
     const { gateway, searches } = manualGateway();
     const search = new BodySearch(gateway, 0);
-    search.search(["launch"], 1);
+    search.search(["launch"], [], 1);
     await settle();
     searches[0].answer.resolve(["old.md"]);
     await settle();
 
-    search.search(["launch"], 2);
+    search.search(["launch"], [], 2);
     expect(search.paths("launch")).toEqual(new Set(["old.md"]));
     expect(search.getSnapshot().pending).toBe(false);
     await settle();
     expect(searches).toHaveLength(2);
     // A further change while that runs asks again once it answers.
-    search.search(["launch"], 3);
+    search.search(["launch"], [], 3);
     await settle();
     expect(searches).toHaveLength(2);
     searches[1].answer.resolve(["mid.md"]);
@@ -108,14 +122,14 @@ describe("BodySearch", () => {
   it("aborts and forgets terms the search no longer has", async () => {
     const { gateway, searches } = manualGateway();
     const search = new BodySearch(gateway, 0);
-    search.search(["launch", "plan"], 1);
+    search.search(["launch", "plan"], [], 1);
     await settle();
     searches[1].answer.resolve(["A.md"]);
     await settle();
-    search.search(["launch"], 1);
+    search.search(["launch"], [], 1);
     expect(searches[0].signal?.aborted).toBe(false);
     expect(search.paths("plan")).toBeUndefined();
-    search.search(["lunch"], 1);
+    search.search(["lunch"], [], 1);
     expect(searches[0].signal?.aborted).toBe(true);
     searches[0].answer.resolve(["A.md"]);
     await settle();
@@ -125,7 +139,7 @@ describe("BodySearch", () => {
   it("stops on a failure until retried, then asks every unanswered term", async () => {
     const { gateway, searches } = manualGateway();
     const search = new BodySearch(gateway, 0);
-    search.search(["launch", "plan"], 1);
+    search.search(["launch", "plan"], [], 1);
     await settle();
     const failure = new Error("unavailable");
     searches[0].answer.reject(failure);
@@ -134,7 +148,7 @@ describe("BodySearch", () => {
     expect(search.getSnapshot()).toMatchObject({ pending: false, error: failure });
 
     // Typing more does not ask while the failure stands.
-    search.search(["launch", "plan", "pad"], 1);
+    search.search(["launch", "plan", "pad"], [], 1);
     await settle();
     expect(searches).toHaveLength(2);
 
@@ -163,10 +177,37 @@ describe("BodySearch", () => {
     expect(reads).toHaveLength(EXCERPT_READS);
   });
 
+  it("asks tags of the runtime beside body terms, each answered and retired on its own", async () => {
+    const { gateway, searches, tagSearches } = manualGateway();
+    const search = new BodySearch(gateway, 0);
+    // The same text as a body term and as a tag are different questions.
+    search.search(["inlinemarker"], ["inlinemarker"], 1);
+    expect(search.getSnapshot().pending).toBe(true);
+    await settle();
+    expect(searches.map((call) => call.term)).toEqual(["inlinemarker"]);
+    expect(tagSearches.map((call) => call.tag)).toEqual(["inlinemarker"]);
+    tagSearches[0].answer.resolve(["Inline.md"]);
+    await settle();
+    expect(search.tagged("inlinemarker")).toEqual(new Set(["Inline.md"]));
+    expect(search.paths("inlinemarker")).toBeUndefined();
+    expect(search.getSnapshot().pending).toBe(true);
+    searches[0].answer.resolve([]);
+    await settle();
+    expect(search.getSnapshot().pending).toBe(false);
+
+    // A record change asks the tag again; dropping it aborts and forgets it.
+    search.search([], ["inlinemarker"], 2);
+    await settle();
+    expect(tagSearches).toHaveLength(2);
+    search.search([], [], 2);
+    expect(tagSearches[1].signal?.aborted).toBe(true);
+    expect(search.tagged("inlinemarker")).toBeUndefined();
+  });
+
   it("forgets everything on reset", async () => {
     const { gateway, searches } = manualGateway();
     const search = new BodySearch(gateway, 0);
-    search.search(["launch"], 1);
+    search.search(["launch"], [], 1);
     search.readTexts([note("A.md")]);
     await settle();
     search.reset();

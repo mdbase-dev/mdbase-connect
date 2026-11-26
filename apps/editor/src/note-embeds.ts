@@ -1,6 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { LinkTargets } from "./collection-links";
+import { internalLink } from "./links";
 import type { MarkdownReference } from "./markdown-references";
 import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { markdownFragment } from "./markdown-fragments";
@@ -68,8 +69,9 @@ export function useEmbeddedNoteReferences(
     void import("./markdown-references").then(({ markdownReferences }) => {
       if (active) setParsed({
         source,
+        // An image from a URL embeds no note; the Editor does not load external images.
         references: markdownReferences(source).filter((reference) => (
-          reference.kind === "embed" && reference.block
+          reference.kind === "embed" && reference.block && internalLink(reference.target)
         ))
       });
     });

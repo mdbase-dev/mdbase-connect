@@ -30,8 +30,15 @@ test("package baselines use the highest immutable version, not dist-tag or packa
   assert.throws(() => publicationBaseline({ ...metadata(), name: "@other/sdk" }, { name }, "publish-sdk-npm.yml"));
   assert.throws(() => publicationBaseline({ name, versions: {} }, { name }, "publish-sdk-npm.yml"), /Bootstrap/);
   const stable = metadata();
-  stable.versions["0.1.0"] = {};
-  assert.throws(() => publicationBaseline(stable, { name }, "publish-sdk-npm.yml"), /release-owner review/);
+  stable.versions["0.1.0"] = { name, version: "0.1.0", dist: { integrity } };
+  stable.versions["0.1.10"] = { name, version: "0.1.10", dist: { integrity } };
+  stable.versions["0.1.9"] = { name, version: "0.1.9", dist: { integrity } };
+  assert.equal(publicationBaseline(stable, { name }, "publish-sdk-npm.yml").version, "0.1.10", "semver, not string, order");
+  const unknown = metadata();
+  unknown.versions["0.2.0-rc.1"] = {};
+  assert.throws(() => publicationBaseline(unknown, { name }, "publish-sdk-npm.yml"), /release-owner review/);
+  const bootstrapOnly = { name, versions: { "0.0.1-next.0": { name, version: "0.0.1-next.0", dist: { integrity } } } };
+  assert.throws(() => publicationBaseline(bootstrapOnly, { name }, "publish-sdk-npm.yml"), /provenance-qualified baseline/);
 });
 
 test("provenance binds package SRI, repository, workflow, ref and full source identity", () => {
@@ -82,51 +89,53 @@ test("dependent packages republish transitively when their shipped exact depende
 test("failed or cancelled main and tag publisher attempts latch until explicit owner acknowledgement", () => {
   const runs = [
     { id: 1, head_branch: "main", event: "workflow_run", status: "completed", conclusion: "failure" },
-    { id: 2, head_branch: "v0.1.0-beta.170", event: "workflow_dispatch", status: "completed", conclusion: "cancelled" },
+    { id: 2, head_branch: "v0.1.170", event: "workflow_dispatch", status: "completed", conclusion: "cancelled" },
     { id: 3, head_branch: "feature", event: "workflow_dispatch", status: "completed", conclusion: "failure" },
     { id: 4, head_branch: "main", event: "workflow_run", status: "completed", conclusion: "success" },
     { id: 5, head_branch: "main", event: "pull_request", status: "completed", conclusion: "failure" },
     { id: 7, head_branch: "main", event: "schedule", status: "completed", conclusion: "failure" },
     // A tag run in flight belongs to the other concurrency group; it is never redispatched.
-    { id: 8, head_branch: "v0.1.0-beta.171", event: "workflow_dispatch", status: "in_progress", conclusion: null },
-    { id: 9, head_branch: "v1.0.0", event: "workflow_dispatch", status: "completed", conclusion: "failure" },
-    { id: 10, head_branch: "sdk-v0.1.0-beta.171", event: "workflow_dispatch", status: "completed", conclusion: "failure" }
+    { id: 8, head_branch: "v0.1.171", event: "workflow_dispatch", status: "in_progress", conclusion: null },
+    // A failed legacy beta tag run still latches; only sdk-v release tags are not publisher runs.
+    { id: 9, head_branch: "v0.1.0-beta.172", event: "workflow_dispatch", status: "completed", conclusion: "failure" },
+    { id: 10, head_branch: "sdk-v0.1.171", event: "workflow_dispatch", status: "completed", conclusion: "failure" }
   ];
   assert.deepEqual(failedPublisherRuns(runs, "6").map(item => item.id), [1, 2]);
   assert.deepEqual(failedPublisherRuns(runs, "6", "1").map(item => item.id), [2]);
   assert.deepEqual(failedPublisherRuns(runs, "6", "2"), []);
-  assert.deepEqual(failedPublisherRuns(runs, "11", "2").map(item => item.id), [7]);
+  assert.deepEqual(failedPublisherRuns(runs, "11", "2").map(item => item.id), [7, 9]);
   assert.throws(() => failedPublisherRuns(runs, "6", "unknown"));
 });
 
-test("only the main coordinator or a dispatched v0.1.0-beta.N tag may plan", () => {
+test("only the main coordinator or a dispatched v<semver> tag may plan", () => {
   assert.equal(publicationTag({ GITHUB_REF: "refs/heads/main", GITHUB_EVENT_NAME: "schedule" }), null);
-  assert.equal(publicationTag({ GITHUB_REF: "refs/tags/v0.1.0-beta.170", GITHUB_EVENT_NAME: "workflow_dispatch" }), "v0.1.0-beta.170");
+  assert.equal(publicationTag({ GITHUB_REF: "refs/tags/v0.1.170", GITHUB_EVENT_NAME: "workflow_dispatch" }), "v0.1.170");
   for (const env of [
-    { GITHUB_REF: "refs/tags/v0.1.0-beta.170", GITHUB_EVENT_NAME: "push" },
+    { GITHUB_REF: "refs/tags/v0.1.170", GITHUB_EVENT_NAME: "push" },
     { GITHUB_REF: "refs/heads/release/production", GITHUB_EVENT_NAME: "workflow_dispatch" },
-    { GITHUB_REF: "refs/tags/sdk-v0.1.0-beta.170", GITHUB_EVENT_NAME: "workflow_dispatch" },
+    { GITHUB_REF: "refs/tags/sdk-v0.1.170", GITHUB_EVENT_NAME: "workflow_dispatch" },
     { GITHUB_REF: "refs/tags/v0.1.0-beta.0", GITHUB_EVENT_NAME: "workflow_dispatch" },
-    { GITHUB_REF: "refs/tags/v1.0.0", GITHUB_EVENT_NAME: "workflow_dispatch" },
+    { GITHUB_REF: "refs/tags/v0.1.0-beta.170", GITHUB_EVENT_NAME: "workflow_dispatch" },
+    { GITHUB_REF: "refs/tags/v01.0.0", GITHUB_EVENT_NAME: "workflow_dispatch" },
     { GITHUB_REF: undefined, GITHUB_EVENT_NAME: "workflow_dispatch" }
   ]) assert.throws(() => publicationTag(env), /main coordinator or on a dispatched release tag/);
 });
 
 const reservationApi = ({ type = "tag", target = commit, record = {} } = {}) => path => {
-  if (path === "git/ref/tags/v0.1.0-beta.170") return { object: { type, sha: "d".repeat(40) } };
+  if (path === "git/ref/tags/v0.1.170") return { object: { type, sha: "d".repeat(40) } };
   if (path === `git/tags/${"d".repeat(40)}`) return { object: { type: "commit", sha: target },
     message: `${JSON.stringify({ schema: "mdbase-npm-release/1", kind: "workspace", commit, reserved_at: "2026-11-10T00:00:00.000Z", run_id: "1", ...record })}\n` };
   throw new Error(`unexpected read ${path}`);
 };
 
 test("a publisher runs only on an annotated reservation, by either line, at its own commit", () => {
-  assert.equal(readReservation("v0.1.0-beta.170", commit, reservationApi()).commit, commit);
-  assert.equal(readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { kind: "source" } })).commit, commit);
-  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ type: "commit" })), /annotated/);
-  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ target: "b".repeat(40) })), /exact commit/);
-  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { kind: "desktop" } })));
-  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { commit: "b".repeat(40) } })));
-  assert.throws(() => readReservation("v0.1.0-beta.170", commit, reservationApi({ record: { schema: "mdbase-desktop-release/1" } })));
+  assert.equal(readReservation("v0.1.170", commit, reservationApi()).commit, commit);
+  assert.equal(readReservation("v0.1.170", commit, reservationApi({ record: { kind: "source" } })).commit, commit);
+  assert.throws(() => readReservation("v0.1.170", commit, reservationApi({ type: "commit" })), /annotated/);
+  assert.throws(() => readReservation("v0.1.170", commit, reservationApi({ target: "b".repeat(40) })), /exact commit/);
+  assert.throws(() => readReservation("v0.1.170", commit, reservationApi({ record: { kind: "desktop" } })));
+  assert.throws(() => readReservation("v0.1.170", commit, reservationApi({ record: { commit: "b".repeat(40) } })));
+  assert.throws(() => readReservation("v0.1.170", commit, reservationApi({ record: { schema: "mdbase-desktop-release/1" } })));
 });
 
 test("reservations are read from protected annotated tags and allocation sees every release tag", context => {
@@ -141,22 +150,22 @@ test("reservations are read from protected annotated tags and allocation sees ev
   real("commit", "--allow-empty", "-qm", "two");
   const second = real("rev-parse", "HEAD");
   const record = (kind, target) => JSON.stringify({ schema: "mdbase-npm-release/1", kind, commit: target, reserved_at: "2026-11-10T00:00:00.000Z", run_id: "1" });
-  real("tag", "-a", "v0.1.0-beta.160", "-m", JSON.stringify({ schema: "mdbase-desktop-release/1", commit: second }), second);
-  real("tag", "v0.1.0-beta.161", second);
-  real("tag", "-a", "v0.1.0-beta.170", "-m", record("workspace", second), second);
-  real("tag", "-a", "v0.1.0-beta.172", "-m", record("workspace", second), second);
-  real("tag", "-a", "v0.1.0-beta.171", "-m", record("source", second), second);
-  real("tag", "-a", "v0.1.0-beta.173", "-m", record("workspace", second), first);
-  real("tag", "-a", "sdk-v0.1.0-beta.174", "-m", record("workspace", second), second);
+  real("tag", "-a", "v0.1.160", "-m", JSON.stringify({ schema: "mdbase-desktop-release/1", commit: second }), second);
+  real("tag", "v0.1.161", second);
+  real("tag", "-a", "v0.1.170", "-m", record("workspace", second), second);
+  real("tag", "-a", "v0.1.172", "-m", record("workspace", second), second);
+  real("tag", "-a", "v0.1.171", "-m", record("source", second), second);
+  real("tag", "-a", "v0.1.173", "-m", record("workspace", second), first);
+  real("tag", "-a", "sdk-v0.1.174", "-m", record("workspace", second), second);
   const fetched = [];
   const runGit = (...args) => args[0] === "fetch" ? (fetched.push(args), "") : real(...args);
   const found = listReservations(second, ["source", "workspace"], runGit);
   assert.deepEqual(fetched, [["fetch", "--no-tags", "origin", "refs/tags/v*:refs/tags/v*"]]);
-  assert.deepEqual(found.reserved, ["v0.1.0-beta.172", "v0.1.0-beta.171", "v0.1.0-beta.170"],
+  assert.deepEqual(found.reserved, ["v0.1.172", "v0.1.171", "v0.1.170"],
     "highest first; both lines' reservations of this commit, never other commits, mismatched peels or other schemas");
-  assert.deepEqual(found.versions.sort(), ["0.1.0-beta.160", "0.1.0-beta.161", "0.1.0-beta.170", "0.1.0-beta.171", "0.1.0-beta.172", "0.1.0-beta.173"]);
+  assert.deepEqual(found.versions.sort(), ["0.1.160", "0.1.161", "0.1.170", "0.1.171", "0.1.172", "0.1.173"]);
   assert.deepEqual(listReservations(first, ["source", "workspace"], runGit).reserved, [], "a tag record naming another commit than its peel is no reservation");
-  assert.deepEqual(listReservations(second, ["source"], runGit).reserved, ["v0.1.0-beta.171"], "a commit that predates shared reservations reuses only its own line's tags");
+  assert.deepEqual(listReservations(second, ["source"], runGit).reserved, ["v0.1.171"], "a commit that predates shared reservations reuses only its own line's tags");
 });
 
 test("tag publication starts once the production commit's own publisher accepts tag runs", () => {
@@ -165,6 +174,8 @@ test("tag publication starts once the production commit's own publisher accepts 
     return text;
   };
   assert.equal(tagPublisher("source", commit, show("    if: github.ref == 'refs/heads/main'\n")), false);
+  assert.equal(tagPublisher("source", commit, show("      (github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')))\n")), false,
+    "a publisher that runs only on beta tags would skip a semver tag");
   for (const name of ["publish-npm", "publish-sdk-npm"]) {
     const current = readFileSync(new URL(`../../.github/workflows/${name}.yml`, import.meta.url), "utf8");
     assert.equal(tagPublisher(name === "publish-npm" ? "workspace" : "source", commit, () => current), true, name);
@@ -191,21 +202,22 @@ test("the coordinator reserves only commits whose exact Runtime CI passed", () =
   }
 });
 
-test("the coordinator creates the protected tag, then dispatches the publisher on it", context => {
+test("the coordinator creates the protected tag, then dispatches the publisher on it", async context => {
   const directory = mkdtempSync(join(tmpdir(), "publication-reserve-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const planFile = join(directory, "plan.json");
-  const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main", GITHUB_RUN_ID: "77", SDK_RELEASE_STOPPED: "false" };
+  const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main", GITHUB_RUN_ID: "77", SDK_RELEASE_STOPPED: "false",
+    GITHUB_WORKFLOW: "Publish npm packages" };
   const write = (existing, change = {}) => writeFileSync(planFile, JSON.stringify({ schema: 1, kind: "workspace", commit,
-    packages: [{ name: "@mdbase-dev/ui", directory: "packages/app-ui", version: "0.1.0-beta.170" }],
-    reservation: { tag: "v0.1.0-beta.170", existing }, ...change }));
+    packages: [{ name: "@mdbase-dev/ui", directory: "packages/app-ui", version: "0.1.170" }],
+    reservation: { tag: "v0.1.170", existing }, ...change }));
   const harness = ({ runs = [], state = "active" } = {}) => {
     const calls = [];
     const reservations = reservationApi();
     return { calls, options: {
       readApi: path => {
         if (path === "actions/workflows/publish-npm.yml") return { state };
-        if (path.startsWith("actions/workflows/publish-npm.yml/runs?branch=v0.1.0-beta.170&")) return { workflow_runs: runs };
+        if (path.startsWith("actions/workflows/publish-npm.yml/runs?branch=v0.1.170&")) return { workflow_runs: runs };
         return reservations(path);
       },
       writeApi: (path, body) => { calls.push(["write", path, body]); return { sha: "e".repeat(40) }; },
@@ -214,44 +226,78 @@ test("the coordinator creates the protected tag, then dispatches the publisher o
   };
   write(false);
   const fresh = harness();
-  reserve(planFile, env, fresh.options);
+  await reserve(planFile, env, fresh.options);
   assert.deepEqual(fresh.calls.map(call => call.slice(0, 2)), [["write", "git/tags"], ["write", "git/refs"], ["dispatch", "publish-npm.yml"]]);
   const [tagObject, reference, dispatch] = fresh.calls;
-  assert.deepEqual({ ...tagObject[2], message: undefined }, { tag: "v0.1.0-beta.170", object: commit, type: "commit", message: undefined });
+  assert.deepEqual({ ...tagObject[2], message: undefined }, { tag: "v0.1.170", object: commit, type: "commit", message: undefined });
   assert.deepEqual({ ...JSON.parse(tagObject[2].message), reserved_at: undefined },
     { schema: "mdbase-npm-release/1", kind: "workspace", commit, reserved_at: undefined, run_id: "77" });
   assert.match(tagObject[2].message, /^\{"schema":"mdbase-npm-release\/1"/, "one-line record, schema first, for for-each-ref subjects");
-  assert.deepEqual(reference[2], { ref: "refs/tags/v0.1.0-beta.170", sha: "e".repeat(40) });
-  assert.equal(dispatch[2], "v0.1.0-beta.170");
+  assert.deepEqual(reference[2], { ref: "refs/tags/v0.1.170", sha: "e".repeat(40) });
+  assert.equal(dispatch[2], "v0.1.170");
 
   write(true);
-  const run = change => ({ head_branch: "v0.1.0-beta.170", path: ".github/workflows/publish-npm.yml", status: "completed", conclusion: "failure", ...change });
+  const run = change => ({ head_branch: "v0.1.170", path: ".github/workflows/publish-npm.yml", status: "completed", conclusion: "failure", ...change });
   const inFlight = harness({ runs: [run({ status: "queued", conclusion: null })] });
-  assert.match(reserve(planFile, env, inFlight.options), /in progress/);
+  assert.match(await reserve(planFile, env, inFlight.options), /in progress/);
   assert.deepEqual(inFlight.calls, [], "a reservation in flight is never redispatched");
   const retry = harness({ runs: [run()] });
-  reserve(planFile, env, retry.options);
-  assert.deepEqual(retry.calls, [["dispatch", "publish-npm.yml", "v0.1.0-beta.170"]], "an unpublished reservation is redispatched without a new tag");
-  assert.throws(() => reserve(planFile, env, harness({ runs: [run({ conclusion: "success" })] }).options), /publication-reservation-unconsumed/);
+  await reserve(planFile, env, retry.options);
+  assert.deepEqual(retry.calls, [["dispatch", "publish-npm.yml", "v0.1.170"]], "an unpublished reservation is redispatched without a new tag");
+
+  // Runs 44202386761 and 44215114796: npm still served the previous version list
+  // when the coordinator planned, so it planned the tag its successful run had
+  // already published.
+  const succeeded = ({ states, ...change }) => {
+    const reads = [];
+    const waits = [];
+    const options = { ...harness({ runs: [run({ conclusion: "success" })] }).options,
+      publication: async (name, version, proven) => {
+        reads.push([name, version, proven.GITHUB_SHA, proven.GITHUB_WORKFLOW]);
+        return states.shift() ?? "absent";
+      },
+      wait: async ms => { waits.push(ms); },
+      ...change };
+    return { reads, waits, options };
+  };
+  const published = succeeded({ states: ["published"] });
+  assert.match(await reserve(planFile, env, published.options), new RegExp(`^v0\\.1\\.170: already published from ${commit}; nothing dispatched\\.$`));
+  assert.deepEqual(published.reads, [["@mdbase-dev/ui", "0.1.170", commit, "Publish npm packages"]],
+    "publication is proven against the reserved commit and this line's publisher");
+  assert.deepEqual(published.waits, []);
+  const never = succeeded({ states: [] });
+  await assert.rejects(() => reserve(planFile, env, never.options), /publication-reservation-unconsumed/);
+  assert.equal(never.reads.length, 4);
+  assert.equal(never.waits.reduce((sum, ms) => sum + ms, 0), 180_000, "npm gets about three minutes to show the version");
+  const late = succeeded({ states: ["absent", "published"] });
+  assert.match(await reserve(planFile, env, late.options), /already published/);
+  assert.deepEqual(late.waits, [60_000]);
+  const dispatched = [];
+  const foreign = succeeded({ states: [], dispatch: () => dispatched.push("dispatch"),
+    publication: async () => { throw new Error("@mdbase-dev/ui@0.1.170 came from another commit; owner review required."); } });
+  await assert.rejects(() => reserve(planFile, env, foreign.options), /another commit/, "foreign provenance is never retried or accepted");
+  assert.deepEqual([...foreign.waits, ...dispatched], []);
+  await assert.rejects(() => reserve(planFile, { ...env, GITHUB_WORKFLOW: "Publish source-built SDK" }, succeeded({ states: ["published"] }).options),
+    /line's publisher workflow/, "provenance is never proven against the other line's workflow");
 
   write(false);
-  assert.throws(() => reserve(planFile, env, harness({ state: "disabled_manually" }).options), /stopped/);
-  assert.throws(() => reserve(planFile, { ...env, GITHUB_REF: "refs/tags/v0.1.0-beta.170" }, harness().options));
-  assert.throws(() => reserve(planFile, { ...env, SDK_RELEASE_STOPPED: "true" }, harness().options), /stopped/);
-  write(false, { packages: [{ name: "@mdbase-dev/ui", directory: "packages/app-ui", version: "0.1.0-beta.171" }] });
-  assert.throws(() => reserve(planFile, env, harness().options));
+  await assert.rejects(() => reserve(planFile, env, harness({ state: "disabled_manually" }).options), /stopped/);
+  await assert.rejects(() => reserve(planFile, { ...env, GITHUB_REF: "refs/tags/v0.1.170" }, harness().options));
+  await assert.rejects(() => reserve(planFile, { ...env, SDK_RELEASE_STOPPED: "true" }, harness().options), /stopped/);
+  write(false, { packages: [{ name: "@mdbase-dev/ui", directory: "packages/app-ui", version: "0.1.171" }] });
+  await assert.rejects(() => reserve(planFile, env, harness().options));
   write(false, { packages: [] });
-  assert.throws(() => reserve(planFile, env, harness().options));
+  await assert.rejects(() => reserve(planFile, env, harness().options));
 });
 
 for (const [kind, workflow, other] of [["source", "publish-sdk-npm.yml", "workspace"], ["workspace", "publish-npm.yml", "source"]]) {
-  test(`a ${kind} coordinator that loses the tag race to the ${other} line at the same commit publishes from that tag`, context => {
+  test(`a ${kind} coordinator that loses the tag race to the ${other} line at the same commit publishes from that tag`, async context => {
     const directory = mkdtempSync(join(tmpdir(), "publication-race-"));
     context.after(() => rmSync(directory, { recursive: true, force: true }));
     const planFile = join(directory, "plan.json");
     writeFileSync(planFile, JSON.stringify({ schema: 1, kind, commit,
-      packages: [{ name: "@mdbase-dev/sdk", directory: "runtime/packages/sdk", version: "0.1.0-beta.170" }],
-      reservation: { tag: "v0.1.0-beta.170", existing: false, shared: true } }));
+      packages: [{ name: "@mdbase-dev/sdk", directory: "runtime/packages/sdk", version: "0.1.170" }],
+      reservation: { tag: "v0.1.170", existing: false, shared: true } }));
     const env = { GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main", GITHUB_RUN_ID: "77", SDK_RELEASE_STOPPED: "false" };
     const lost = ({ existing, runs = [] }) => {
       const calls = [];
@@ -259,7 +305,7 @@ for (const [kind, workflow, other] of [["source", "publish-sdk-npm.yml", "worksp
       return { calls, options: {
         readApi: path => {
           if (path === `actions/workflows/${workflow}`) return { state: "active" };
-          if (path.startsWith(`actions/workflows/${workflow}/runs?branch=v0.1.0-beta.170&`)) return { workflow_runs: runs };
+          if (path.startsWith(`actions/workflows/${workflow}/runs?branch=v0.1.170&`)) return { workflow_runs: runs };
           return reservations(path);
         },
         writeApi: (path, body) => {
@@ -271,27 +317,41 @@ for (const [kind, workflow, other] of [["source", "publish-sdk-npm.yml", "worksp
       } };
     };
     const joined = lost({ existing: {} });
-    assert.match(reserve(planFile, env, joined.options), /joined the existing reservation and dispatched/);
-    assert.deepEqual(joined.calls, [["write", "git/tags"], ["write", "git/refs"], ["dispatch", workflow, "v0.1.0-beta.170"]]);
-    const inFlight = lost({ existing: {}, runs: [{ head_branch: "v0.1.0-beta.170", path: `.github/workflows/${workflow}`, status: "queued", conclusion: null }] });
-    assert.match(reserve(planFile, env, inFlight.options), /in progress/);
+    assert.match(await reserve(planFile, env, joined.options), /joined the existing reservation and dispatched/);
+    assert.deepEqual(joined.calls, [["write", "git/tags"], ["write", "git/refs"], ["dispatch", workflow, "v0.1.170"]]);
+    const inFlight = lost({ existing: {}, runs: [{ head_branch: "v0.1.170", path: `.github/workflows/${workflow}`, status: "queued", conclusion: null }] });
+    assert.match(await reserve(planFile, env, inFlight.options), /in progress/);
     assert.deepEqual(inFlight.calls.filter(call => call[0] === "dispatch"), []);
-    assert.throws(() => reserve(planFile, env, lost({ existing: { target: "b".repeat(40) } }).options), /not a reservation of .*exact commit/,
+    const done = lost({ existing: {}, runs: [{ head_branch: "v0.1.170", path: `.github/workflows/${workflow}`, status: "completed", conclusion: "success" }] });
+    const proofs = [];
+    const original = globalThis.fetch;
+    context.after(() => { globalThis.fetch = original; });
+    globalThis.fetch = async () => ({ status: 200, json: async () => ({ name: "@mdbase-dev/sdk", version: "0.1.170" }) });
+    const lineEnv = { ...env, GITHUB_WORKFLOW: kind === "source" ? "Publish source-built SDK" : "Publish npm packages" };
+    assert.match(await reserve(planFile, lineEnv, { ...done.options, wait: async () => assert.fail("no retry"),
+      publication: (name, version, proven) => publicationState(name, version, proven, async (_, baseline) => {
+        proofs.push(baseline.workflow);
+        return { commit };
+      }) }),
+    /already published from .*; nothing dispatched/, "a consumed reservation of either line's tag stands down");
+    assert.deepEqual(proofs, [workflow], "provenance is proven against this line's own publisher");
+    assert.deepEqual(done.calls.filter(call => call[0] === "dispatch"), []);
+    await assert.rejects(() => reserve(planFile, env, lost({ existing: { target: "b".repeat(40) } }).options), /not a reservation of .*exact commit/,
       "a tag at another commit is never adopted");
-    assert.throws(() => reserve(planFile, env, lost({ existing: { type: "commit" } }).options), /not a reservation of .*annotated/,
+    await assert.rejects(() => reserve(planFile, env, lost({ existing: { type: "commit" } }).options), /not a reservation of .*annotated/,
       "a lightweight tag is never adopted");
-    assert.throws(() => reserve(planFile, env, lost({ existing: { record: { commit: "b".repeat(40) } } }).options), /not a reservation of/);
+    await assert.rejects(() => reserve(planFile, env, lost({ existing: { record: { commit: "b".repeat(40) } } }).options), /not a reservation of/);
     const plan = JSON.parse(readFileSync(planFile, "utf8"));
     writeFileSync(planFile, JSON.stringify({ ...plan, reservation: { ...plan.reservation, shared: false } }));
     const predates = lost({ existing: {} });
-    assert.throws(() => reserve(planFile, env, predates.options), new RegExp(`${other} line's reservation and .* predates shared reservations`),
+    await assert.rejects(() => reserve(planFile, env, predates.options), new RegExp(`${other} line's reservation and .* predates shared reservations`),
       "a production commit whose own planner requires its line's tag never publishes from the other line's tag");
     assert.deepEqual(predates.calls.filter(call => call[0] === "dispatch"), []);
     const own = lost({ existing: { record: { kind } } });
-    assert.match(reserve(planFile, env, own.options), /joined the existing reservation/, "its own line's tag is always this reservation");
+    assert.match(await reserve(planFile, env, own.options), /joined the existing reservation/, "its own line's tag is always this reservation");
     writeFileSync(planFile, JSON.stringify(plan));
     const absent = lost({});
-    assert.throws(() => reserve(planFile, env, absent.options), error => error.cause?.message.includes("Reference already exists"),
+    await assert.rejects(() => reserve(planFile, env, absent.options), error => error.cause?.message.includes("Reference already exists"),
       "a ref failure without a matching tag keeps its cause and dispatches nothing");
     assert.deepEqual(absent.calls.filter(call => call[0] === "dispatch"), []);
   });
@@ -328,8 +388,7 @@ test("workspace plans retain exact successful proof and fail closed on unavailab
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const planFile = join(directory, "plan.json");
   const record = { schema: 1, kind: "workspace", commit, packages: [] };
-  const evidence = { candidate: commit, production: "b".repeat(40), reason: "production-contains-candidate",
-    provider: "c".repeat(40), providerReason: "unchanged-contract-axis" };
+  const evidence = { candidate: commit, production: "b".repeat(40), reason: "production-contains-candidate" };
   for (const live of ["true", "false"]) {
     writeFileSync(planFile, JSON.stringify(record));
     const env = { GITHUB_SHA: commit, LIVE_PUBLICATION: live };
@@ -347,7 +406,7 @@ test("workspace plans retain exact successful proof and fail closed on unavailab
   }
 });
 
-test("workspace plan and mutation boundary use the real shared proof against both production identities", context => {
+test("workspace plan and mutation boundary use the real shared proof against production", context => {
   const directory = mkdtempSync(join(tmpdir(), "workspace-compatibility-boundary-"));
   context.after(() => rmSync(directory, { recursive: true, force: true }));
   const planFile = join(directory, "plan.json");
@@ -360,8 +419,6 @@ else if (args[0] === "merge-base" && args[1] === "--is-ancestor" && args[3] !== 
 else if (args[0] === "diff") console.log(args[4] === process.env.BLOCKED_COMMIT ? process.env.CONTRACT_PATH : "docs/releasing.md");`,
     gh: `const path = process.argv.at(-1);
 if (path.includes("actions/workflows/")) console.log(JSON.stringify({ state: "active" }));
-else if (path.includes("git/ref/tags/")) console.log(JSON.stringify({ object: { type: "tag", sha: "d".repeat(40) } }));
-else if (path.includes("git/tags/")) console.log(JSON.stringify({ object: { type: "commit", sha: "c".repeat(40) } }));
 else throw new Error("Unexpected API read: " + path);`,
     npm: `require("node:fs").writeFileSync(process.env.NPM_MARKER, "called"); process.exit(99);`
   })) {
@@ -374,36 +431,34 @@ globalThis.fetch = async url => {
   let body;
   if (url === "https://connect.mdbase.dev/health") body = { ok: true, service: "mdbase-connect", revision: "b".repeat(40), environment: "production", public_origin: "https://connect.mdbase.dev", protocol_version: 1, capabilities: ["application-authorization-v2-issuance"] };
   else if (url === "https://connect.mdbase.dev/ready") body = { ok: true, service: "mdbase-connect" };
-  else if (url === "https://sync.mdbase.dev/ready") body = { status: "ready", provider: { version: "0.1.0-beta.152", revision: "c".repeat(40), capabilities: ["application-authorization-v2-issuance"] }, notifications: { recovery: "ok", consecutive_failures: 0 } };
   else if (url === "https://mcp.mdbase.dev/health") body = { ok: true, service: "mdbase-mcp", revision: "b".repeat(40) };
   else throw new Error("Unexpected network read: " + url);
   return { ok: true, json: async () => body };
 };
 if (process.env.TEST_COMMAND === "plan") await qualifyWorkspace(process.env.PLAN_FILE);
 else await publishWorkspace(process.env.PLAN_FILE, process.env.ARCHIVE_DIRECTORY);`;
-  for (const blocked of ["b".repeat(40), "c".repeat(40)]) {
-    for (const path of ["packages/client/src/index.ts", "packages/protocol/src/auth.ts", "packages/sync/src/index.ts",
-      "pnpm-lock.yaml", "config/next-trust/production.json", "new-contract/source.ts"]) {
-      for (const [command, live] of [["plan", "true"], ["plan", "false"], ["publish", "true"]]) {
-        const record = { schema: 1, kind: "workspace", commit, packages: [{ name: "@mdbase-dev/connect", version }],
-          compatibility: { status: "passed", evidence: { candidate: commit } } };
-        writeFileSync(planFile, JSON.stringify(record));
-        const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
-          env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect",
-            GITHUB_SHA: commit, GITHUB_WORKFLOW: "Publish npm packages", SDK_RELEASE_STOPPED: "false", LIVE_PUBLICATION: live,
-            TEST_COMMAND: command, PLAN_FILE: planFile, ARCHIVE_DIRECTORY: directory, BLOCKED_COMMIT: blocked,
-            CONTRACT_PATH: path, NPM_MARKER: marker, GITHUB_STEP_SUMMARY: "" } });
-        assert.equal(result.status, live === "true" ? 1 : 0, result.stderr);
-        if (command === "plan") {
-          assert.match(result.stdout + result.stderr, /production-compatibility-unproven/);
-          assert(!(result.stdout + result.stderr).includes(path), "planner diagnostics are fixed text");
-        } else {
-          assert.match(result.stdout + result.stderr, /Production does not contain this client's server-facing contract/);
-          assert((result.stdout + result.stderr).includes(path));
-        }
-        assert.equal(existsSync(marker), false, "incompatible source must never reach npm");
-        if (command === "plan") assert.equal(JSON.parse(readFileSync(planFile, "utf8")).compatibility.status, "blocked");
+  const blocked = "b".repeat(40);
+  for (const path of ["packages/client/src/index.ts", "packages/protocol/src/auth.ts", "packages/sync/src/index.ts",
+    "pnpm-lock.yaml", "config/next-trust/production.json", "new-contract/source.ts"]) {
+    for (const [command, live] of [["plan", "true"], ["plan", "false"], ["publish", "true"]]) {
+      const record = { schema: 1, kind: "workspace", commit, packages: [{ name: "@mdbase-dev/connect", version }],
+        compatibility: { status: "passed", evidence: { candidate: commit } } };
+      writeFileSync(planFile, JSON.stringify(record));
+      const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { encoding: "utf8",
+        env: { ...process.env, PATH: `${directory}:${process.env.PATH}`, GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect",
+          GITHUB_SHA: commit, GITHUB_WORKFLOW: "Publish npm packages", SDK_RELEASE_STOPPED: "false", LIVE_PUBLICATION: live,
+          TEST_COMMAND: command, PLAN_FILE: planFile, ARCHIVE_DIRECTORY: directory, BLOCKED_COMMIT: blocked,
+          CONTRACT_PATH: path, NPM_MARKER: marker, GITHUB_STEP_SUMMARY: "" } });
+      assert.equal(result.status, live === "true" ? 1 : 0, result.stderr);
+      if (command === "plan") {
+        assert.match(result.stdout + result.stderr, /production-compatibility-unproven/);
+        assert(!(result.stdout + result.stderr).includes(path), "planner diagnostics are fixed text");
+      } else {
+        assert.match(result.stdout + result.stderr, /Production does not contain this client's server-facing contract/);
+        assert((result.stdout + result.stderr).includes(path));
       }
+      assert.equal(existsSync(marker), false, "incompatible source must never reach npm");
+      if (command === "plan") assert.equal(JSON.parse(readFileSync(planFile, "utf8")).compatibility.status, "blocked");
     }
   }
 });
@@ -416,17 +471,17 @@ test("workspace packing preserves qualified files, changes only metadata, and pi
   const input = join(directory, "input");
   mkdirSync(join(source, "package/dist"), { recursive: true });
   mkdirSync(input);
-  const actual = JSON.parse(readFileSync(new URL("../../packages/client/package.json", import.meta.url), "utf8"));
+  const actual = JSON.parse(readFileSync(new URL("../../packages/app-ui/package.json", import.meta.url), "utf8"));
   const manifest = { name: actual.name, version: actual.version, files: ["dist"], dependencies: { "@mdbase-dev/connect-protocol": actual.version } };
   writeFileSync(join(source, "package/package.json"), JSON.stringify(manifest));
   writeFileSync(join(source, "package/dist/index.js"), "export const qualified = true;\n");
-  execFileSync("tar", ["-czf", join(input, `mdbase-dev-connect-${actual.version}.tgz`), "-C", source, "package"]);
-  const record = { schema: 1, commit, kind: "workspace", packages: [{ name: actual.name, directory: "packages/client", version: "0.1.0-beta.999" }], dependencies: { "@mdbase-dev/connect-protocol": "0.1.0-beta.998" } };
+  execFileSync("tar", ["-czf", join(input, `mdbase-dev-ui-${actual.version}.tgz`), "-C", source, "package"]);
+  const record = { schema: 1, commit, kind: "workspace", packages: [{ name: actual.name, directory: "packages/app-ui", version: "0.1.0-beta.999" }], dependencies: { "@mdbase-dev/connect-protocol": "0.1.0-beta.998" } };
   const plan = join(directory, "plan.json");
   writeFileSync(plan, JSON.stringify(record));
   const output = join(directory, "output");
   packWorkspace(plan, input, output, { GITHUB_SHA: commit });
-  const archive = join(output, "mdbase-dev-connect-0.1.0-beta.999.tgz");
+  const archive = join(output, "mdbase-dev-ui-0.1.0-beta.999.tgz");
   const packed = JSON.parse(execFileSync("tar", ["-xOf", archive, "package/package.json"], { encoding: "utf8" }));
   assert.equal(packed.version, "0.1.0-beta.999");
   assert.equal(packed.dependencies["@mdbase-dev/connect-protocol"], "0.1.0-beta.998");
@@ -441,7 +496,7 @@ test("publisher jobs run only on reserved tags and build, pack and publish the r
       "the tag is the run's commit; nothing may substitute another source");
     for (const job of jobs) {
       const block = workflow.split(`\n  ${job}:\n`)[1].split(/\n  [a-z][a-z-]*:\n/)[0];
-      assert.match(block, /if: startsWith\(github\.ref, 'refs\/tags\/v0\.1\.0-beta\.'\) && needs\.plan\.outputs\.changed == 'true'/, `${name} ${job}`);
+      assert.match(block, /if: startsWith\(github\.ref, 'refs\/tags\/v'\) && needs\.plan\.outputs\.changed == 'true'/, `${name} ${job}`);
     }
     const reserving = workflow.split("\n  reserve:\n")[1].split(/\n  [a-z][a-z-]*:\n/)[0];
     assert.match(reserving, /if: github\.ref == 'refs\/heads\/main' && needs\.plan\.outputs\.reserve == 'true'/);
@@ -685,7 +740,7 @@ test("automatic publishers keep isolated OIDC, source qualification and explicit
 
 test("a run queued behind the same commit's publication stands down; other outcomes stay for review", async t => {
   const name = "@mdbase-dev/sdk";
-  const version = "0.1.0-beta.154";
+  const version = "0.1.4";
   const commit = "091d912babeacbba88661f7ce4b96081658376af";
   const env = { GITHUB_SHA: commit, GITHUB_WORKFLOW: "Publish source-built SDK" };
   const original = globalThis.fetch;
@@ -718,12 +773,14 @@ function plannerFixture(context) {
   git("init", "-b", "main");
   git("config", "user.email", "test@example.invalid");
   git("config", "user.name", "Publication test");
-  const directories = ["packages/protocol", "packages/client", "packages/devkit", "packages/app-ui", "packages/i18n", "runtime/packages/sdk"];
+  const directories = ["packages/protocol", "packages/app-ui", "packages/i18n", "runtime/packages/sdk"];
   for (const path of ["package.json", ...directories.map(directory => `${directory}/package.json`)]) {
     mkdirSync(join(directory, path, ".."), { recursive: true });
     const manifest = JSON.parse(readFileSync(new URL(`../../${path}`, import.meta.url), "utf8"));
     writeFileSync(join(directory, path), JSON.stringify(manifest));
   }
+  mkdirSync(join(directory, "scripts"), { recursive: true });
+  writeFileSync(join(directory, "scripts/public-packages.mjs"), readFileSync(new URL("../public-packages.mjs", import.meta.url), "utf8"));
   const save = () => { git("add", "."); git("commit", "-qm", "fixture"); return git("rev-parse", "HEAD"); };
   const base = save();
   // An unclassifiable lockfile fails closed, selecting every workspace package and the source SDK.
@@ -740,7 +797,7 @@ function plannerFixture(context) {
   // tag: plan as the publisher dispatched on that reservation; otherwise as the
   // main coordinator whose own (main tip) commit is run.
   const execute = ({ kind, baselineCommit = production, run = production, selected = production, tag, published = [version],
-    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, tagReady = true, reservation = true, shared = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
+    tags = ["0.1.0-beta.161"], reserved = [], runtime = true, tagReady = true, providerFree = true, reservation = true, shared = true, compatibility = true, live = "true", aheadUi = false, priorFailure = false }) => {
     git("checkout", "--detach", run);
     const summary = join(directory, "summary.md");
     const output = join(directory, "outputs");
@@ -768,6 +825,7 @@ await plan(${JSON.stringify(kind)}, ${JSON.stringify(planFile)}, process.env, {
   },
   runtimeCi: sha => { if (sha !== selected) throw new Error('wrong runtime commit'); return ${JSON.stringify(runtime)}; },
   publisherAt: (kind, sha) => { if (sha !== selected) throw new Error('wrong publisher commit'); return ${JSON.stringify(tagReady)}; },
+  compatibleAt: sha => { if (sha !== selected) throw new Error('wrong compatibility commit'); return ${JSON.stringify(providerFree)}; },
   checkAttempts: () => { if (${JSON.stringify(priorFailure)}) throw new Error('RAW-PRIOR-ATTEMPT-STDERR'); },
   verify: async () => {
     if (!${JSON.stringify(compatibility)}) throw new Error('RAW-COMPATIBILITY-STDERR');
@@ -782,12 +840,12 @@ await plan(${JSON.stringify(kind)}, ${JSON.stringify(planFile)}, process.env, {
       output: existsSync(output) ? readFileSync(output, "utf8") : "",
       plan: existsSync(planFile) ? JSON.parse(readFileSync(planFile, "utf8")) : undefined };
   };
-  return { execute, base, production, future, successor, diverged };
+  return { execute, git, base, production, future, successor, diverged };
 }
 
 for (const kind of ["source", "workspace"]) {
   test(`${kind} coordinator selects production, reserves one tag version and never waits for its own main commit`, async context => {
-    const { execute, base, production, future, successor, diverged } = plannerFixture(context);
+    const { execute, git, base, production, future, successor, diverged } = plannerFixture(context);
     const names = kind === "source" ? [name] : (await publicPackages()).map(item => item.name);
     const check = (result, decision, selected = production, run = successor) => {
       for (const item of names) {
@@ -798,35 +856,40 @@ for (const kind of ["source", "workspace"]) {
       assert.doesNotMatch(result.stdout + result.stderr + result.summary, /RAW-|Command failed|waiting for production to reach commit [a-f0-9]{40}; /);
     };
     // Main has moved past production (run = successor): the coordinator plans production itself.
+    // Only the legacy beta line is published (beta.154 on npm, a beta.161 tag): the first release is 0.1.0.
     const reserving = execute({ kind, baselineCommit: base, run: successor });
     assert.equal(reserving.status, 0, reserving.stderr);
     assert.equal(reserving.plan.commit, production);
-    assert.deepEqual(reserving.plan.reservation, { tag: "v0.1.0-beta.162", existing: false, shared: true }, "above every package and release tag version");
-    assert.deepEqual(reserving.plan.packages.map(item => [item.name, item.version]), names.map(item => [item, "0.1.0-beta.162"]));
+    assert.deepEqual(reserving.plan.reservation, { tag: "v0.1.0", existing: false, shared: true }, "the first release follows the beta line");
+    assert.deepEqual(reserving.plan.packages.map(item => [item.name, item.version]), names.map(item => [item, "0.1.0"]));
     assert.equal(reserving.plan.tag, undefined);
-    assert.match(reserving.output, /^commit=[a-f0-9]{40}\nchanged=false\npublish=false\nreserve=true\nversion=0\.1\.0-beta\.162\n$/);
+    assert.match(reserving.output, /^commit=[a-f0-9]{40}\nchanged=false\npublish=false\nreserve=true\nversion=0\.1\.0\n$/);
     assert(reserving.output.startsWith(`commit=${production}\n`));
-    check(reserving, new RegExp(`reserving v0\\.1\\.0-beta\\.162 at ${production} to publish 0\\.1\\.0-beta\\.162`));
+    check(reserving, new RegExp(`reserving v0\\.1\\.0 at ${production} to publish 0\\.1\\.0`));
 
-    const above = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0-beta.170"], published: ["0.1.0-beta.9", "0.1.0-beta.180"] });
-    assert.deepEqual(above.plan.reservation, { tag: "v0.1.0-beta.181", existing: false, shared: true });
-    const tagged = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0-beta.190"] });
-    assert.deepEqual(tagged.plan.reservation, { tag: "v0.1.0-beta.191", existing: false, shared: true }, "Desktop and retired server tags share the namespace");
+    // Later releases bump from the highest version's tag; without a Breaking fragment, the patch.
+    for (const version of ["0.1.0", "0.1.7", "0.1.8"]) git("tag", `v${version}`, base);
+    const above = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0-beta.170", "0.1.0"], published: ["0.1.0-beta.180", "0.1.0"] });
+    assert.deepEqual(above.plan.reservation, { tag: "v0.1.1", existing: false, shared: true });
+    const tagged = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0", "0.1.7"], published: ["0.1.0"] });
+    assert.deepEqual(tagged.plan.reservation, { tag: "v0.1.8", existing: false, shared: true }, "Desktop tags share the namespace");
+    const untagged = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0"], published: ["0.1.0", "0.1.20"] });
+    assert.equal(untagged.status, 1, "the highest release must have its tag");
 
-    const reuse = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.0-beta.200"], reserved: ["v0.1.0-beta.200", "v0.1.0-beta.170"] });
-    assert.deepEqual(reuse.plan.reservation, { tag: "v0.1.0-beta.200", existing: true, shared: true });
-    const predatesShared = execute({ kind, baselineCommit: base, run: successor, shared: false, tags: ["0.1.0-beta.200"], reserved: ["v0.1.0-beta.200"] });
+    const reuse = execute({ kind, baselineCommit: base, run: successor, tags: ["0.1.7"], reserved: ["v0.1.7", "v0.1.0"] });
+    assert.deepEqual(reuse.plan.reservation, { tag: "v0.1.7", existing: true, shared: true });
+    const predatesShared = execute({ kind, baselineCommit: base, run: successor, shared: false, tags: ["0.1.7"], reserved: ["v0.1.7"] });
     assert.equal(predatesShared.status, 0, predatesShared.stderr);
-    assert.deepEqual(predatesShared.plan.reservation, { tag: "v0.1.0-beta.200", existing: true, shared: false },
+    assert.deepEqual(predatesShared.plan.reservation, { tag: "v0.1.7", existing: true, shared: false },
       "a commit that predates shared reservations reads only its own line's tags");
-    check(reuse, /dispatching reserved v0\.1\.0-beta\.200 at /);
-    const stale = execute({ kind, baselineCommit: base, run: successor, published: ["0.1.0-beta.201"], tags: ["0.1.0-beta.200"], reserved: ["v0.1.0-beta.200"] });
-    assert.deepEqual(stale.plan.reservation, { tag: "v0.1.0-beta.202", existing: false, shared: true }, "a reservation below a published version is never reused");
+    check(reuse, /dispatching reserved v0\.1\.7 at /);
+    const stale = execute({ kind, baselineCommit: base, run: successor, published: ["0.1.8"], tags: ["0.1.7"], reserved: ["v0.1.7"] });
+    assert.deepEqual(stale.plan.reservation, { tag: "v0.1.9", existing: false, shared: true }, "a reservation below a published version is never reused");
 
     const dry = execute({ kind, baselineCommit: base, run: successor, live: "false", priorFailure: true });
     assert.equal(dry.status, 0, dry.stderr);
     assert.match(dry.output, /changed=false\npublish=false\nreserve=false\n/);
-    check(dry, /would reserve v0\.1\.0-beta\.162 at /);
+    check(dry, /would reserve v0\.1\.0 at /);
 
     for (const run of [production, successor]) {
       const ahead = execute({ kind, baselineCommit: future, run, compatibility: false, priorFailure: true });
@@ -880,6 +943,12 @@ for (const kind of ["source", "workspace"]) {
     assert.equal(predates.plan.reservation, undefined, "never reserve a tag whose publisher would skip every job");
     check(predates, new RegExp(`waiting for production to contain tag publication \\(${production} predates it\\)`));
 
+    const predatesProviderFree = execute({ kind, baselineCommit: base, run: successor, providerFree: false, compatibility: false, priorFailure: true });
+    assert.equal(predatesProviderFree.status, 0, predatesProviderFree.stderr);
+    assert.deepEqual(predatesProviderFree.plan.packages, []);
+    assert.equal(predatesProviderFree.plan.reservation, undefined, "never reserve a tag whose compatibility check still reads the retired provider");
+    check(predatesProviderFree, new RegExp(`waiting for production to contain provider-free compatibility \\(${production} predates it\\)`));
+
     if (kind === "workspace") {
       const mixed = execute({ kind, baselineCommit: base, aheadUi: true, run: successor, compatibility: false, priorFailure: true });
       assert.equal(mixed.status, 0, mixed.stderr);
@@ -898,22 +967,22 @@ for (const kind of ["source", "workspace"]) {
   test(`${kind} tag run publishes its own commit at the tag's version`, async context => {
     const { execute, base, production, future } = plannerFixture(context);
     const names = kind === "source" ? [name] : (await publicPackages()).map(item => item.name);
-    const tag = "v0.1.0-beta.170";
+    const tag = "v0.1.0";
     const publishing = execute({ kind, tag, baselineCommit: base, selected: "unused", runtime: false });
     assert.equal(publishing.status, 0, publishing.stderr);
     assert.equal(publishing.plan.commit, production);
     assert.equal(publishing.plan.tag, tag);
     assert.equal(publishing.plan.reservation, undefined);
-    assert.deepEqual(publishing.plan.packages.map(item => [item.name, item.version]), names.map(item => [item, "0.1.0-beta.170"]));
-    assert.equal(publishing.output, `commit=${production}\nchanged=true\npublish=true\nreserve=false\nversion=0.1.0-beta.170\n`);
-    assert.match(publishing.summary, new RegExp(`publishing 0\\.1\\.0-beta\\.170 from ${production}`));
+    assert.deepEqual(publishing.plan.packages.map(item => [item.name, item.version]), names.map(item => [item, "0.1.0"]));
+    assert.equal(publishing.output, `commit=${production}\nchanged=true\npublish=true\nreserve=false\nversion=0.1.0\n`);
+    assert.match(publishing.summary, new RegExp(`publishing 0\\.1\\.0 from ${production}`));
 
-    const done = execute({ kind, tag, baselineCommit: production, published: ["0.1.0-beta.170"], selected: "unused" });
+    const done = execute({ kind, tag, baselineCommit: production, published: ["0.1.0-beta.215", "0.1.0"], selected: "unused" });
     assert.equal(done.status, 0, done.stderr);
     assert.deepEqual(done.plan.packages, [], "a rerun after publication has nothing left to publish");
     assert.match(done.output, /changed=false\npublish=false/);
 
-    const superseded = execute({ kind, tag, baselineCommit: base, published: ["0.1.0-beta.171"], selected: "unused" });
+    const superseded = execute({ kind, tag, baselineCommit: base, published: ["0.1.1"], selected: "unused" });
     assert.equal(superseded.status, 1);
     assert.match(superseded.summary, /blocked: publication-version-superseded/);
     assert.equal(superseded.plan, undefined);
@@ -932,6 +1001,94 @@ for (const kind of ["source", "workspace"]) {
     assert.match(prior.summary, /blocked: publication-prior-attempt-unreconciled/);
   });
 }
+
+test("workspace planning reads the checked-out candidate's own package list when packages are deleted on main", context => {
+  const directory = mkdtempSync(join(tmpdir(), "publication-deleted-packages-"));
+  context.after(() => rmSync(directory, { recursive: true, force: true }));
+  const git = (...args) => execFileSync("git", args, { cwd: directory, encoding: "utf8", stdio: "pipe" }).trim();
+  git("init", "-b", "main");
+  git("config", "user.email", "test@example.invalid");
+  git("config", "user.name", "Publication test");
+  const writePackage = (dir, pkgName) => {
+    mkdirSync(join(directory, dir), { recursive: true });
+    writeFileSync(join(directory, dir, "package.json"), JSON.stringify({ name: pkgName, version: "0.1.0" }));
+  };
+  const writeList = dirs => {
+    mkdirSync(join(directory, "scripts"), { recursive: true });
+    const template = readFileSync(new URL("../public-packages.mjs", import.meta.url), "utf8");
+    writeFileSync(join(directory, "scripts/public-packages.mjs"),
+      template.replace(/export const publicPackageDirectories = \[[\s\S]*?\];/, `export const publicPackageDirectories = ${JSON.stringify(dirs)};`));
+  };
+  writeFileSync(join(directory, "package.json"), JSON.stringify({ name: "fixture", private: true, version: "0.1.0" }));
+  writePackage("packages/protocol", "@mdbase-dev/connect-protocol");
+  writePackage("packages/client", "@mdbase-dev/connect");
+  writePackage("packages/devkit", "@mdbase-dev/connect-devkit");
+  writePackage("packages/app-ui", "@mdbase-dev/ui");
+  writePackage("packages/i18n", "@mdbase-dev/i18n");
+  writeList(["packages/protocol", "packages/client", "packages/devkit", "packages/app-ui", "packages/i18n"]);
+  git("add", ".");
+  git("commit", "-qm", "pre-retirement baseline");
+  const baselineCommit = git("rev-parse", "HEAD");
+  git("tag", "v0.1.41", baselineCommit);
+  writeFileSync(join(directory, "packages/protocol/index.js"), "export const v = 2;\n");
+  git("add", ".");
+  git("commit", "-qm", "pre-retirement production");
+  const oldProduction = git("rev-parse", "HEAD");
+  rmSync(join(directory, "packages/client"), { recursive: true, force: true });
+  rmSync(join(directory, "packages/devkit"), { recursive: true, force: true });
+  writeList(["packages/protocol", "packages/app-ui", "packages/i18n"]);
+  git("add", "-A");
+  git("commit", "-qm", "retire legacy client and devkit packages");
+  const postRetirement = git("rev-parse", "HEAD");
+  writePackage("packages/unlisted", "@mdbase-dev/unlisted");
+  git("add", ".");
+  git("commit", "-qm", "unlisted public package");
+  const incomplete = git("rev-parse", "HEAD");
+
+  const program = new URL("../continuous-sdk-release.mjs", import.meta.url).href;
+  const runPlan = (run, selected) => {
+    git("checkout", "--detach", run);
+    const planFile = join(directory, "plan.json");
+    rmSync(planFile, { force: true });
+    const script = `import { plan } from ${JSON.stringify(program)};
+await plan("workspace", ${JSON.stringify(planFile)}, process.env, {
+  selectProduction: async () => {
+    const { execFileSync } = await import('node:child_process');
+    execFileSync('git', ['checkout', '--detach', ${JSON.stringify(selected)}], { stdio: 'pipe' });
+    return ${JSON.stringify(selected)};
+  },
+  qualify: () => {},
+  readPublished: async () => ({ version: "0.1.41", versions: ["0.1.41"], commit: ${JSON.stringify(baselineCommit)} }),
+  reservations: () => ({ versions: ["0.1.41"], reserved: [] }),
+  publisherAt: () => true,
+  compatibleAt: () => true,
+  sharedAt: () => true,
+  checkAttempts: () => {},
+  verify: async () => ({ candidate: ${JSON.stringify(selected)} })
+});`;
+    const result = spawnSync(process.execPath, ["--input-type=module", "-e", script], { cwd: directory, encoding: "utf8",
+      env: { ...process.env, GITHUB_REPOSITORY: "mdbase-dev/mdbase-connect", GITHUB_REF: "refs/heads/main",
+        GITHUB_EVENT_NAME: "schedule", GITHUB_SHA: run, LIVE_PUBLICATION: "false", SDK_RELEASE_STOPPED: "false" } });
+    return { ...result, plan: existsSync(planFile) ? JSON.parse(readFileSync(planFile, "utf8")) : undefined };
+  };
+
+  // Running on post-retirement main while production is still at pre-retirement must not throw on deleted packages.
+  const older = runPlan(postRetirement, oldProduction);
+  assert.equal(older.status, 0, older.stderr);
+  assert.deepEqual(Object.keys(older.plan.dependencies),
+    ["@mdbase-dev/connect-protocol", "@mdbase-dev/connect", "@mdbase-dev/connect-devkit", "@mdbase-dev/ui", "@mdbase-dev/i18n"]);
+
+  // Once production reaches post-retirement, only the remaining public packages are planned.
+  const newer = runPlan(postRetirement, postRetirement);
+  assert.equal(newer.status, 0, newer.stderr);
+  assert.deepEqual(Object.keys(newer.plan.dependencies),
+    ["@mdbase-dev/connect-protocol", "@mdbase-dev/ui", "@mdbase-dev/i18n"]);
+
+  // A candidate whose own package list omits a public package in its own tree still fails closed.
+  const broken = runPlan(incomplete, incomplete);
+  assert.equal(broken.status, 1);
+  assert.match(broken.stderr, /Public package release list is incomplete/);
+});
 
 test("ancestry invocation failures are named and never interpreted as an ahead baseline", () => {
   for (const failAt of [1, 2]) {

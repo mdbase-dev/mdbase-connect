@@ -35,6 +35,13 @@ pub struct BasesExecutionGroup {
     /// Row indices into the globally ordered result, in that order.
     pub rows: Vec<usize>,
 }
+/// Projected catalog types and effective frontmatter properties for one result row.
+pub struct BasesRowProperties {
+    /// Catalog type membership of the record at the captured cut.
+    pub types: Vec<String>,
+    /// Requested effective frontmatter properties (absent keys omitted).
+    pub properties: mdbn_wire::common::DataMap<mdbn_wire::common::Value>,
+}
 /// Complete fenced result; never returned on any source/authority/work failure.
 pub struct BasesExecutionResult {
     /// Actual selected source identity/ordinal.
@@ -55,6 +62,8 @@ pub struct BasesExecutionResult {
     pub groups: Vec<BasesExecutionGroup>,
     /// Named whole-match reductions, before source limiting/display windowing.
     pub summaries: Vec<(String, RuntimeValue)>,
+    /// Projected row properties + types aligned 1-to-1 with `rows`, when requested.
+    pub row_properties: Option<Vec<BasesRowProperties>>,
 }
 /// Apply the source query cap only after complete semantic ordering/grouping.
 /// Display windows consume this capped inventory, never an SQL page prefix.
@@ -262,6 +271,7 @@ impl<S: Store> Replica<S> {
             rows,
             groups,
             summaries,
+            row_properties: None,
         })
     }
 }

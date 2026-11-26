@@ -255,7 +255,7 @@ function App() {
               onAct={act}
             /> : null
           ) : route === "collections" ? (
-            <CollectionsView collections={collections} computerName={cloud?.computerName ?? t(i18n)`This computer`} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} />
+            <CollectionsView collections={collections} devices={devices} computerName={cloud?.computerName ?? t(i18n)`This computer`} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} onRefresh={refresh} />
           ) : route === "access" ? (
             <AccessView groups={groups} names={names} busy={busy} requireApproval={requireApproval} movedWaiting={collections.filter((c) => c.notices?.some((n) => n.code === "private_sync_pending")).length} onAct={act} onNotice={setNotice} />
           ) : route === "activity" ? (
@@ -387,6 +387,20 @@ function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, s
         <SectionHeading title={t(i18n)({ message: "Updates", context: "Connect interface" })} note={t(i18n)({ message: "Releases are checked against signed provenance before installation." })} />
         <div className="settings-rows">
           <UpdateRow status={updateStatus} busy={busy} onAct={onAct} />
+          <SettingSwitch
+            className="setting-toggle"
+            label={t(i18n)({ message: "Get updates early", context: "Connect interface" })}
+            description={t(i18n)({ message: "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day.", context: "Connect interface" })}
+            checked={updateStatus?.early_access === true}
+            disabled={busy || !updateStatus || updateStatus.phase === "unavailable"}
+            stateLabel={updateStatus?.early_access ? t(i18n)`On` : t(i18n)`Off`}
+            onChange={(checked) => void onAct(async () => {
+              await window.mdbaseConnect.setEarlyAccess(checked);
+              onNotice(checked
+                ? t(i18n)({ message: "This computer now gets each release as soon as it starts rolling out.", context: "Connect interface" })
+                : t(i18n)({ message: "This computer now gets releases in stages, at most once a day.", context: "Connect interface" }));
+            })}
+          />
           {updateStatus?.daemon_notice ? <SettingRow label={t(i18n)({ message: "mdbase daemon", context: "Connect interface" })} value={t(i18n)`Previous version restored`} detail={updateStatus.daemon_notice} /> : null}
         </div>
       </section>

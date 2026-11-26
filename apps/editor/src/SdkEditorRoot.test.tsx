@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { StrictMode, useEffect, type ReactNode } from "react";
 import { isMdbaseError, type Mdbase } from "@mdbase-dev/sdk";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { createEditorMdbase, SdkEditorRoot, type EditorNativeScope } from "./SdkEditorRoot";
 import { AppErrorBoundary } from "./AppErrorBoundary";
 import { closeNativeFixtures, readyFixture, testApp } from "./test/native-fixture";
@@ -57,6 +57,27 @@ function observed(mdbase: Mdbase) {
 const ARCHIVE = "0190a5a0-0000-7000-8000-0000000000ab";
 
 describe("SdkEditorRoot behind the shared collection gate", () => {
+  it("offers a self-hosted connection without carrying managed URL data to the direct editor", async () => {
+    const origin = "https://direct.example.org";
+    vi.stubEnv("MDBASE_EDITOR_DIRECT_ORIGIN", origin);
+    try {
+      const fixture = await testApp({ phase: "signed_out" });
+      const entry = render(<SdkEditorRoot sdk={fixture.mdbase} />);
+      const link = screen.getByRole("link", { name: "Connect to your own server" });
+      expect(link).toHaveAttribute("href", origin);
+      expect(link).toHaveAttribute("referrerpolicy", "no-referrer");
+      entry.unmount();
+      const choosing = await testApp({ phase: "choosing", collections: [{ name: "Drafts" }] });
+      const chooser = render(<SdkEditorRoot sdk={choosing.mdbase} />);
+      await screen.findByText("Drafts");
+      expect(screen.queryByText("Connect to your own server")).toBeNull();
+      chooser.unmount();
+      vi.stubEnv("MDBASE_EDITOR_DIRECT_ORIGIN", "");
+      render(<SdkEditorRoot sdk={fixture.mdbase} />);
+      expect(screen.queryByText("Connect to your own server")).toBeNull();
+    } finally { vi.unstubAllEnvs(); }
+  });
+
   it("keeps SDK binding failures inside the crash boundary", async () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
@@ -121,6 +142,8 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
   it("opens the editor with the shared switcher in the rail, and switching selects through the SDK", async () => {
     const h = await readyFixture({}, (replica) => replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n\nNative body\n" }),
       [{ id: ARCHIVE, name: "Archive", role: "editor" }]);
+    vi.stubEnv("MDBASE_EDITOR_DIRECT_ORIGIN", "https://direct.example.org");
+    onTestFinished(() => { vi.unstubAllEnvs(); });
     const { container } = render(<SdkEditorRoot sdk={h.mdbase} />);
     expect(await screen.findByRole("textbox", { name: "Note body" }, { timeout: 10_000 })).toHaveValue("Native body\n");
     const trigger = container.querySelector<HTMLButtonElement>(".collection-rail .mdbase-collections-trigger");
@@ -128,10 +151,40 @@ describe("SdkEditorRoot behind the shared collection gate", () => {
     // Named by its visible text (Label in Name); the rail hides the role label with CSS.
     expect(trigger).toHaveAccessibleName(/^Notes\b/);
     fireEvent.click(trigger);
+    expect(screen.queryByText("Connect to your own server")).toBeNull();
     const archive = [...document.querySelectorAll<HTMLElement>("[role=radio]")].find((row) => within(row).queryByText("Archive"));
     if (!archive) throw new Error("No Archive row in the switcher");
     fireEvent.click(archive);
     await waitFor(() => expect(h.calls("select").at(-1)).toMatchObject({ collectionId: ARCHIVE }));
+  });
+});
+
+describe("a note deleted in another app", () => {
+  it("leaves the list, and its open note says it was deleted and keeps its text to copy", async () => {
+    const h = await readyFixture({}, (replica) => {
+      replica.seed({ path: "notes/plan.md", frontmatter: { title: "Plan" }, body: "# Plan\n\nLast words\n" });
+      replica.seed({ path: "notes/other.md", frontmatter: { title: "Other" }, body: "# Other\n\nOther words\n" });
+    });
+    const write = vi.fn(async () => {});
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText: write } });
+    render(<SdkEditorRoot sdk={h.mdbase} />);
+    await screen.findByDisplayValue("Other words", undefined, { timeout: 10_000 });
+    const rows = () => screen.getAllByRole("option").map((row) => row.textContent ?? "");
+    const planRow = screen.getAllByRole("option").find((row) => row.textContent?.includes("plan"));
+    if (!planRow) throw new Error("No plan row");
+    fireEvent.click(planRow);
+    const body = await screen.findByDisplayValue("Last words", undefined, { timeout: 10_000 });
+
+    h.replica.deleteElsewhere("notes/plan.md");
+    await waitFor(() => expect(rows().some((row) => row.includes("plan"))).toBe(false));
+    const notice = await screen.findByRole("status", { name: "Note deleted elsewhere" });
+    expect(notice).toHaveTextContent("This note was deleted in another app or on another device.");
+    expect(body).toHaveValue("Last words\n");
+    expect(body).toHaveAttribute("readonly");
+    expect(screen.queryByText("Needs attention")).toBeNull();
+    expect(screen.queryByText(/no such record/)).toBeNull();
+    fireEvent.click(within(notice).getByRole("button", { name: "Copy text" }));
+    await waitFor(() => expect(write).toHaveBeenCalledWith("# Plan\n\nLast words\n"));
   });
 });
 

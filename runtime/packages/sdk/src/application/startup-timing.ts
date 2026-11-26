@@ -1,3 +1,4 @@
+import {isAppOpeningProgress} from "../app-host/opening-progress.js";
 import {performanceMark} from "../performance-mark.js";
 import type {MdbasePhase} from "./phase.js";
 
@@ -57,6 +58,10 @@ export function markCollectionOpen(
     const changed=selection.requested.collectionId!==previous?.selection.requested.collectionId;
     if(changed)performanceMark("mdbase:open:requested");
     if(selection.requested.approved&&(changed||!previous?.selection.requested.approved))performanceMark("mdbase:open:approved");
+  }
+  if(phase.kind==="opening"&&isAppOpeningProgress(phase.progress)){
+    const prev=previous?.phase.kind==="opening"&&previous.phase.collectionId===phase.collectionId?previous.phase.progress:null;
+    if(prev!==phase.progress)performanceMark(`mdbase:open:stage:${phase.progress}`);
   }
   if(phase.kind==="ready"&&(previous?.phase.kind!=="ready"||previous.phase.connection!==phase.connection))performanceMark("mdbase:open:ready");
 }

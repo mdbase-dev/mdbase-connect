@@ -87,9 +87,8 @@ test("records the known limitations required for accurate security claims", asyn
   for (const required of requiredLimitationIds) {
     assert.ok(actual.includes(required), `missing limitation ${required}`);
   }
-  assert.ok(value.reproduction.includes("cargo test --workspace"));
   assert.ok(value.reproduction.includes("pnpm e2e:relay"));
-  assert.ok(value.reproduction.includes("pnpm e2e:provider"));
+  assert.ok(value.reproduction.includes("pnpm e2e"));
 });
 
 test("contains references and descriptions, never credential-shaped values", async () => {

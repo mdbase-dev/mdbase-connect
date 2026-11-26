@@ -126,7 +126,13 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
   }
 
   let lastGeneration = "";
-  async function daemon(bind = true, noisePipes = true, accountMode = false, onPolicy?: (message: Record<string, unknown>) => void): Promise<WebSocket> {
+  async function daemon(
+    bind = true,
+    noisePipes = true,
+    accountMode = false,
+    onPolicy?: (message: Record<string, unknown>) => void,
+    servingCollections?: readonly string[]
+  ): Promise<WebSocket> {
     const socket = new WebSocket(`${base}/v1/relay`, { headers: { authorization: `Bearer ${connectorToken}` } });
     socket.on("message", (data: Buffer, binary: boolean) => {
       if (binary) return;
@@ -141,7 +147,8 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
     socket.send(JSON.stringify({
       type: "relay_hello", protocol_version: 1, connector_version: "0.1.0-test",
       capabilities: ["application-authorization-v4", "authorization-activation", "encrypted-relay", "policy-ack", "policy-freshness-lease-v1", "next_device_v1", ...(noisePipes ? ["noise_pipe_v1"] : []), ...(accountMode ? [NEXT_ACCOUNT_CAPABILITY] : [])],
-      contract_support: CONNECT_CONTRACT_SUPPORT
+      contract_support: CONNECT_CONTRACT_SUPPORT,
+      ...(servingCollections !== undefined ? { serving_collections: servingCollections } : {})
     }));
     const { session_id: sessionId, device_nonce: nonce } = await welcome as { session_id: string; device_nonce: string };
     lastGeneration = sessionId;
@@ -192,8 +199,10 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
       device.send(Buffer.concat([Buffer.from("MDBN"), pipeBytes, Buffer.from("noise reply")]));
       expect(await toClient).toBe("noise reply");
 
+      const pipeClose = next(app1, json("pipe_close"));
       const closed = once(app1, "close");
       device.send(JSON.stringify({ type: "pipe_close", pipe_id: pipeId, reason: closeReason }));
+      expect(await pipeClose).toEqual({ type: "pipe_close", pipe_id: pipeId, reason: closeReason });
       const [code, reason] = await closed;
       expect([code, reason.toString()]).toEqual([closeCode, closeReason]);
     } finally { app1?.terminate(); device.terminate(); }
@@ -280,6 +289,9 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
       const wrong = await broker.request(ids.connector, generation,
         { version: 1, kind: "device_presence", message: { device_id: randomUUID() } }, 1_000);
       expect(wrong).toEqual({ version: 1, ok: true, value: false });
+      const badCollection = await broker.request(ids.connector, generation,
+        { version: 1, kind: "device_presence", message: { device_id: ids.device, collection_id: "not-a-uuid" } }, 1_000);
+      expect(badCollection.ok).toBe(false);
       expect(opened).toBe(0);
       await db.query("UPDATE connectors SET relay_generation = relay_generation + 1 WHERE id = $1", [ids.connector]);
       expect(await route()).toBe(false);
@@ -289,6 +301,39 @@ describePostgres("mdbase-next Noise pipes through the relay", () => {
       socket.close();
       await once(socket, "close");
       expect(await route()).toBe(false);
+    } finally {
+      if (socket && socket.readyState !== WebSocket.CLOSED) {
+        socket.close();
+        await once(socket, "close");
+      }
+      await metadataApp.close();
+    }
+  });
+
+  it("reports device_not_serving from relay_hello and live serving_collections updates", async () => {
+    const metadataApp = Fastify();
+    registerNextRouteRoutes(metadataApp, { db, publicUrl: "https://connect.example", broker });
+    const availability = async () => (await metadataApp.inject({
+      method: "GET",
+      url: `/v1/next/collections/${ids.localId}/route`,
+      headers: { authorization: `Bearer ${accessToken}` }
+    })).json().availability;
+    let socket: WebSocket | undefined;
+    try {
+      socket = await daemon(true, true, false, undefined, []);
+      await expect.poll(availability).toEqual({ state: "unavailable", reason: "device_not_serving" });
+      const unserved = await broker.request(ids.connector, lastGeneration,
+        { version: 1, kind: "device_presence", message: { device_id: ids.device, collection_id: ids.localId } }, 1_000);
+      expect(unserved).toEqual({ version: 1, ok: true, value: true, detail: { not_serving: true } });
+
+      socket.send(JSON.stringify({ type: "serving_collections", collections: [ids.localId] }));
+      await expect.poll(availability).toEqual({ state: "available" });
+      const served = await broker.request(ids.connector, lastGeneration,
+        { version: 1, kind: "device_presence", message: { device_id: ids.device, collection_id: ids.localId } }, 1_000);
+      expect(served).toEqual({ version: 1, ok: true, value: true });
+
+      socket.send(JSON.stringify({ type: "serving_collections", collections: [] }));
+      await expect.poll(availability).toEqual({ state: "unavailable", reason: "device_not_serving" });
     } finally {
       if (socket && socket.readyState !== WebSocket.CLOSED) {
         socket.close();

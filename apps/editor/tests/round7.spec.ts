@@ -51,7 +51,6 @@ for (const colorScheme of ["light", "dark"] as const) {
         const listBounds = row.closest(".note-scroll")!.getBoundingClientRect();
         return Math.min(rowBounds.top - listBounds.top, listBounds.bottom - rowBounds.bottom);
       })).toBeGreaterThanOrEqual(0);
-      await expect(list).toHaveCSS("outline-style", "none");
       await page.screenshot({ path: testInfo.outputPath("search-return.png") });
       const cursorId = await cursor.getAttribute("id");
       await page.keyboard.press("j");

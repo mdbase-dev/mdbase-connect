@@ -313,6 +313,7 @@ fn attachments_and_the_query_index_pass_through() {
         max_bytes: 4096,
         fields: Vec::new(),
         tags: false,
+        full_frontmatter: false,
     };
     assert_eq!(
         format!("{:?}", s.query_projection_page(&request)),
@@ -320,4 +321,458 @@ fn attachments_and_the_query_index_pass_through() {
     );
     let source = s.attachment_source("photo.bin", 4096).unwrap();
     assert_eq!(source.map(|src| src.len()), Some(4096));
+}
+
+/// Real keyring-wrapped desktop daemon composition
+/// (`KeychainKeyring<FileStore<NativePlatform, SqlStore<SqliteIndex>, SqlDiskDb<SqliteIndex>>>`):
+/// - Non-keyring-mutating control items (`Policy`, other-device `KeyGrant`)
+///   batch inside the deferred-durability window without writing the keychain.
+/// - Keyring-mutating control items (`Rekey`) close any prior window before
+///   writing the OS keychain, and never add empty `BEGIN IMMEDIATE`/`COMMIT`
+///   barriers before standalone commits.
+/// - Bare `SqlStore<SqliteIndex>` wrapped in `KeychainKeyring` reports
+///   `durability_deferred()` truthfully and closes its window before writing
+///   the OS keychain.
+#[test]
+fn daemon_keyring_composition_batches_control_items_without_empty_barriers() {
+    use std::cell::{Cell, RefCell};
+    use std::rc::Rc;
+    use std::sync::atomic::AtomicU64;
+
+    use mdbn_platform_native::{NativePlatform, OpenOptions, SqliteIndex};
+    use mdbn_replica::log::{EndpointId, LogClient};
+    use mdbn_replica::{DeviceSecrets, Host, Replica, ReplicaConfig, UtcOnly};
+    use mdbn_store_file::diskdb::SqlDiskDb;
+    use mdbn_store_file::index::{
+        Batch, BatchMode, BorrowedBlob, IndexDurability, IndexError, IndexInfo, IndexStorage,
+        StmtResult,
+    };
+    use mdbn_store_file::{Config as FsConfig, FileStore, SqlStore, SqlStoreLimits};
+    use mdbn_wire::client::SyncMode;
+    use mdbn_wire::common::B32;
+    use mdbn_wire::schema::Wire;
+
+    const COL: B16 = B16([0x41; 16]);
+    const DEV: B16 = B16([101; 16]);
+    const OTHER: B16 = B16([102; 16]);
+    const SIGN: [u8; 32] = [0x31; 32];
+    const KEM: [u8; 32] = [0x32; 32];
+
+    struct Clock;
+    impl mdbn_core::host::Clock for Clock {
+        fn now_ms(&self) -> u64 {
+            1_700_000_000_000
+        }
+    }
+
+    #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+    struct Stats {
+        alone: u64,
+        in_window: u64,
+        nonempty_windows: u64,
+        empty_window_closes: u64,
+    }
+    impl Stats {
+        /// Actual SQLite barriers: standalone writes + non-empty window closes.
+        /// (`SqliteIndex` makes empty window closes free with zero barriers.)
+        fn synced(self) -> u64 {
+            self.alone + self.nonempty_windows
+        }
+        fn since(self, earlier: Self) -> Self {
+            Self {
+                alone: self.alone - earlier.alone,
+                in_window: self.in_window - earlier.in_window,
+                nonempty_windows: self.nonempty_windows - earlier.nonempty_windows,
+                empty_window_closes: self.empty_window_closes - earlier.empty_window_closes,
+            }
+        }
+    }
+
+    struct CountedSqlite {
+        inner: SqliteIndex,
+        windows: bool,
+        open: bool,
+        uncommitted_in_window: Arc<AtomicU64>,
+        stats: Rc<Cell<Stats>>,
+    }
+    impl CountedSqlite {
+        fn note_batch(&mut self, batch: &Batch) {
+            let reads = batch.stmts.iter().all(|s| {
+                let head = s.sql.trim_start().to_ascii_lowercase();
+                head.starts_with("select") || head.starts_with("with")
+            });
+            if reads {
+                return;
+            }
+            let mut st = self.stats.get();
+            if self.open {
+                assert_eq!(batch.mode, BatchMode::Transaction);
+                st.in_window += 1;
+                self.uncommitted_in_window.fetch_add(1, SeqCst);
+            } else {
+                st.alone += 1;
+            }
+            self.stats.set(st);
+        }
+    }
+    impl IndexStorage for CountedSqlite {
+        fn info(&self) -> IndexInfo {
+            self.inner.info()
+        }
+        fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
+            self.note_batch(batch);
+            self.inner.run(batch)
+        }
+        fn run_with_borrowed_blob(
+            &mut self,
+            batch: &Batch,
+            blob: BorrowedBlob<'_>,
+        ) -> Result<Vec<StmtResult>, IndexError> {
+            self.note_batch(batch);
+            self.inner.run_with_borrowed_blob(batch, blob)
+        }
+        fn reset(&mut self) -> Result<(), IndexError> {
+            self.inner.reset()
+        }
+        fn defer_sync(&mut self, on: bool) -> Result<bool, IndexError> {
+            if !self.windows {
+                return Ok(false);
+            }
+            let deferring = self.inner.defer_sync(on)?;
+            assert!(deferring, "durable SqliteIndex must support windows");
+            if self.open && !on {
+                let mut st = self.stats.get();
+                if self.uncommitted_in_window.swap(0, SeqCst) > 0 {
+                    st.nonempty_windows += 1;
+                } else {
+                    st.empty_window_closes += 1;
+                }
+                self.stats.set(st);
+            }
+            self.open = on;
+            Ok(true)
+        }
+    }
+
+    /// SecretStore that asserts every keychain write happens strictly after
+    /// durable SQLite state (zero uncommitted writes in any open window).
+    struct CheckedSecrets {
+        inner: MemoryStore,
+        uncommitted_in_window: Arc<AtomicU64>,
+        writes: AtomicU64,
+    }
+    impl SecretStore for CheckedSecrets {
+        fn get(&self, n: &str) -> Result<Option<zeroize::Zeroizing<Vec<u8>>>, SecretError> {
+            self.inner.get(n)
+        }
+        fn set(&self, n: &str, v: &[u8]) -> Result<(), SecretError> {
+            assert_eq!(
+                self.uncommitted_in_window.load(SeqCst),
+                0,
+                "keychain write must never happen while uncommitted writes sit in an open window"
+            );
+            self.writes.fetch_add(1, SeqCst);
+            self.inner.set(n, v)
+        }
+        fn delete(&self, n: &str) -> Result<(), SecretError> {
+            self.inner.delete(n)
+        }
+        fn backend(&self) -> &'static str {
+            "checked"
+        }
+    }
+
+    fn open_replica<S: Store>(store: S) -> Replica<S> {
+        Replica::open(
+            ReplicaConfig {
+                collection: COL,
+                device_id: DEV,
+                replica_id: B16([2; 16]),
+                mode: SyncMode::Synced,
+                log_endpoint: EndpointId(1),
+                verify: true,
+                runtime_version: "daemon-keyring-window-test".into(),
+                trusted_roots: vec![mdbn_replica::testkit::signed_root()],
+                trusted_signers: vec![],
+                e2e: false,
+                user_enabled_cloud_copy: false,
+                chosen_state: None,
+                expected_genesis: None,
+                key_grants_only: false,
+                policy_pins: None,
+            },
+            store,
+            Box::new(mdbn_replica::plan::CorePlanner),
+            Box::new(mdbn_replica::seal::KeyringSealer::new(
+                COL, DEV, &SIGN, &KEM,
+            )),
+            Host {
+                clock: Box::new(Clock),
+                entropy: Box::new(mdbn_replica::crypto::TestEntropy::new(2)),
+                zones: Box::new(UtcOnly),
+            },
+            DeviceSecrets {
+                sign_sk: SIGN,
+                kem_sk: KEM,
+            },
+        )
+        .unwrap()
+    }
+
+    fn settle<S: Store>(r: &mut Replica<S>, client: &mut dyn LogClient) {
+        for _ in 0..40 {
+            mdbn_replica::log::pump(r, client, 200);
+            r.tick();
+        }
+    }
+
+    // Part A: Control-only page with genesis Policy, initial Rekey, 20
+    // DeviceEnrol Policy items, and a KeyGrant for another device.
+    let svc = mdbn_replica::fake::FakeLogService::new();
+    let mut cp = mdbn_replica::testkit::TestControlPlane::signed(COL);
+    cp.genesis_with_keys(&svc, mdbn_wire::policy::CState::E2e, DEV, &SIGN, &KEM);
+    cp.append(
+        &svc,
+        vec![mdbn_wire::policy::PolicyOp::DeviceEnrol(
+            mdbn_wire::policy::DeviceEnrol {
+                device: OTHER,
+                account: mdbn_replica::testkit::TEST_OWNER,
+                kind: mdbn_wire::policy::DeviceKind::Desktop,
+                sign_pk: B32([0x51; 32]),
+                kem_pk: B32(mdbn_replica::crypto::hpke::KemKeyPair::from_secret(&[0x52; 32]).pk),
+                noise_pk: B32([0x53; 32]),
+                sas_commit: None,
+                local_root: None,
+            },
+        )],
+    );
+    let mut writer = open_replica(MemStore::new());
+    let mut writer_client = svc.client(DEV);
+    settle(&mut writer, &mut writer_client);
+    // Append a KeyGrant for OTHER (does not change DEV's keyring).
+    let writer_keys = writer.testing_epoch_keys();
+    let epoch1_key = writer_keys
+        .iter()
+        .find(|(e, _)| *e == 1)
+        .map(|(_, k)| **k)
+        .unwrap();
+    let mut kg_rng = mdbn_replica::crypto::TestEntropy::new(77);
+    let other_kem_pk = mdbn_replica::crypto::hpke::KemKeyPair::from_secret(&[0x52; 32]).pk;
+    let kg_payload = mdbn_replica::crypto::keys::build_key_grant(
+        &COL,
+        1,
+        &mdbn_replica::crypto::Secret32(epoch1_key),
+        &mdbn_replica::crypto::keys::Recipient {
+            device: OTHER,
+            kem_pk: other_kem_pk,
+        },
+        &mut kg_rng,
+    )
+    .unwrap();
+    let mut kg_item = mdbn_wire::envelope::Item {
+        kind: mdbn_wire::envelope::ItemKind::KeyGrant,
+        collection: COL,
+        seq: Some(svc.head(&COL).0 + 1),
+        prev: Some(svc.head(&COL).1),
+        epoch: None,
+        signer: Some(DEV),
+        salt: None,
+        idem: None,
+        refs: None,
+        stream: None,
+        body: mdbn_wire::common::Bytes(kg_payload.to_bytes().unwrap()),
+        sig: None,
+    };
+    mdbn_replica::crypto::sign::DeviceSigner::from_seed(&SIGN)
+        .sign_item(&mut kg_item)
+        .unwrap();
+    svc.push_raw(&COL, kg_item.to_bytes().unwrap());
+    for b in 1..=20u8 {
+        cp.append(
+            &svc,
+            vec![mdbn_wire::policy::PolicyOp::DeviceEnrol(
+                mdbn_wire::policy::DeviceEnrol {
+                    device: B16([b.wrapping_add(120); 16]),
+                    account: mdbn_replica::testkit::TEST_OWNER,
+                    kind: mdbn_wire::policy::DeviceKind::Desktop,
+                    sign_pk: B32([b; 32]),
+                    kem_pk: B32([b.wrapping_add(1); 32]),
+                    noise_pk: B32([b.wrapping_add(2); 32]),
+                    sas_commit: None,
+                    local_root: None,
+                },
+            )],
+        );
+    }
+    let head_a = svc.head(&COL).0;
+    assert_eq!(head_a, 24);
+
+    let run_daemon = |tag: &str,
+                      svc: &mdbn_replica::fake::FakeLogService,
+                      expected_head: u64,
+                      windows: bool|
+     -> (Stats, u64) {
+        let dir = crate::testutil::TestDir::new(tag);
+        let root = dir.path().join("folder");
+        std::fs::create_dir_all(&root).unwrap();
+        let platform = Rc::new(NativePlatform::open(&root, &OpenOptions::default()).unwrap());
+        let uncommitted = Arc::new(AtomicU64::new(0));
+        let stats = Rc::new(Cell::new(Stats::default()));
+        let index = Rc::new(RefCell::new(CountedSqlite {
+            inner: SqliteIndex::open(dir.path().join("index.sqlite"), IndexDurability::Durable)
+                .unwrap(),
+            windows,
+            open: false,
+            uncommitted_in_window: uncommitted.clone(),
+            stats: stats.clone(),
+        }));
+        let sql = SqlStore::open_with_limits(index.clone(), SqlStoreLimits::DESKTOP).unwrap();
+        let db = SqlDiskDb::open(index).unwrap();
+        let fs_store =
+            FileStore::open(platform, sql, db, Box::new(Clock), FsConfig::default()).unwrap();
+        let checked = Arc::new(CheckedSecrets {
+            inner: MemoryStore::default(),
+            uncommitted_in_window: uncommitted,
+            writes: AtomicU64::new(0),
+        });
+        let secrets: Arc<dyn SecretStore> = checked.clone();
+        let store = KeychainKeyring::new(fs_store, Some(secrets.clone()), &COL).unwrap();
+        let mut reader = open_replica(store);
+        let opened = stats.get();
+        let mut client = svc.client(DEV);
+        settle(&mut reader, &mut client);
+        assert_eq!(reader.head().seq, expected_head);
+        assert!(!reader.requires_reopen());
+        assert!(!reader.store().durability_deferred());
+        let expected_keys: Vec<_> = reader
+            .testing_epoch_keys()
+            .into_iter()
+            .map(|(e, k)| (e, *k))
+            .collect();
+        let delta = stats.get().since(opened);
+        let keyring_writes = checked.writes.load(SeqCst);
+        drop(reader);
+
+        // Reopen from disk + keychain to verify durability of head and keyring.
+        let platform2 = Rc::new(NativePlatform::open(&root, &OpenOptions::default()).unwrap());
+        let index2 = Rc::new(RefCell::new(
+            SqliteIndex::open(dir.path().join("index.sqlite"), IndexDurability::Durable).unwrap(),
+        ));
+        let sql2 = SqlStore::open_with_limits(index2.clone(), SqlStoreLimits::DESKTOP).unwrap();
+        let db2 = SqlDiskDb::open(index2).unwrap();
+        let fs2 =
+            FileStore::open(platform2, sql2, db2, Box::new(Clock), FsConfig::default()).unwrap();
+        let store2 = KeychainKeyring::new(fs2, Some(secrets), &COL).unwrap();
+        let reopened = open_replica(store2);
+        assert_eq!(reopened.head().seq, expected_head);
+        let reopened_keys: Vec<_> = reopened
+            .testing_epoch_keys()
+            .into_iter()
+            .map(|(e, k)| (e, *k))
+            .collect();
+        assert_eq!(reopened_keys, expected_keys);
+        (delta, keyring_writes)
+    };
+
+    let (off_a, kw_off_a) = run_daemon("keyring-ctl-off", &svc, head_a, false);
+    let (on_a, kw_on_a) = run_daemon("keyring-ctl-on", &svc, head_a, true);
+    assert_eq!(kw_off_a, 1, "only the initial Rekey mutates the keyring");
+    assert_eq!(kw_on_a, 1, "only the initial Rekey mutates the keyring");
+    assert_eq!(off_a.in_window, 0);
+    assert_eq!(
+        on_a.in_window,
+        head_a - 1,
+        "all {} non-keyring control items batch in windows: {on_a:?}",
+        head_a - 1
+    );
+    assert_eq!(
+        on_a.empty_window_closes, 0,
+        "no empty window closes on control page: {on_a:?}"
+    );
+    assert_eq!(on_a.in_window, off_a.alone - on_a.alone);
+    assert!(
+        on_a.synced() < off_a.synced(),
+        "windows must cut synced commits on desktop daemon: off={off_a:?} on={on_a:?}"
+    );
+
+    // Part B: Consecutive keyring-mutating items (multiple Rekeys) in one page:
+    // desktop must never pay an extra empty barrier before each standalone commit.
+    let svc_b = mdbn_replica::fake::FakeLogService::new();
+    let mut cp_b = mdbn_replica::testkit::TestControlPlane::signed(COL);
+    cp_b.genesis_with_keys(&svc_b, mdbn_wire::policy::CState::E2e, DEV, &SIGN, &KEM);
+    for b in 1..=4u8 {
+        let victim = B16([b.wrapping_add(150); 16]);
+        cp_b.append(
+            &svc_b,
+            vec![mdbn_wire::policy::PolicyOp::DeviceEnrol(
+                mdbn_wire::policy::DeviceEnrol {
+                    device: victim,
+                    account: mdbn_replica::testkit::TEST_OWNER,
+                    kind: mdbn_wire::policy::DeviceKind::Desktop,
+                    sign_pk: B32([b; 32]),
+                    kem_pk: B32([b.wrapping_add(1); 32]),
+                    noise_pk: B32([b.wrapping_add(2); 32]),
+                    sas_commit: None,
+                    local_root: None,
+                },
+            )],
+        );
+    }
+    let mut writer_b = open_replica(MemStore::new());
+    let mut writer_b_client = svc_b.client(DEV);
+    settle(&mut writer_b, &mut writer_b_client);
+    for b in 1..=4u8 {
+        cp_b.revoke(&svc_b, B16([b.wrapping_add(150); 16]));
+        settle(&mut writer_b, &mut writer_b_client);
+    }
+    let head_b = svc_b.head(&COL).0;
+    let (off_b, kw_off_b) = run_daemon("keyring-rekeys-off", &svc_b, head_b, false);
+    let (on_b, kw_on_b) = run_daemon("keyring-rekeys-on", &svc_b, head_b, true);
+    assert!(kw_on_b >= 2, "expected multiple Rekeys, got {kw_on_b}");
+    assert_eq!(kw_off_b, kw_on_b);
+    assert!(
+        on_b.synced() <= off_b.synced(),
+        "windows must never add barriers over standalone commits: off={off_b:?} on={on_b:?}"
+    );
+
+    // Part C: KeychainKeyring over bare SqlStore<SqliteIndex> closes an open
+    // deferred window before writing to the OS keychain (requires truthful
+    // SqlStore::durability_deferred()).
+    let dir_c = crate::testutil::TestDir::new("keyring-bare-sql");
+    let uncommitted_c = Arc::new(AtomicU64::new(0));
+    let stats_c = Rc::new(Cell::new(Stats::default()));
+    let index_c = Rc::new(RefCell::new(CountedSqlite {
+        inner: SqliteIndex::open(dir_c.path().join("bare.sqlite"), IndexDurability::Durable)
+            .unwrap(),
+        windows: true,
+        open: false,
+        uncommitted_in_window: uncommitted_c.clone(),
+        stats: stats_c.clone(),
+    }));
+    let bare_sql = SqlStore::open_with_limits(index_c, SqlStoreLimits::DESKTOP).unwrap();
+    let checked_c = Arc::new(CheckedSecrets {
+        inner: MemoryStore::default(),
+        uncommitted_in_window: uncommitted_c.clone(),
+        writes: AtomicU64::new(0),
+    });
+    let secrets_c: Arc<dyn SecretStore> = checked_c.clone();
+    let mut wrapped = KeychainKeyring::new(bare_sql, Some(secrets_c), &COL).unwrap();
+    wrapped.defer_durability(true).unwrap();
+    assert!(
+        wrapped.durability_deferred(),
+        "bare SqlStore must report durability_deferred() == true"
+    );
+    wrapped.commit(tx(None, b"p1")).unwrap();
+    assert_eq!(
+        uncommitted_c.load(SeqCst),
+        1,
+        "non-keyring commit stays uncommitted inside the open window"
+    );
+    // CheckedSecrets::set asserts uncommitted_c == 0, proving KeychainKeyring
+    // closed the bare SqlStore's window BEFORE writing to the OS keychain.
+    wrapped.commit(tx(Some(Some(b"k1")), b"p2")).unwrap();
+    assert!(!wrapped.durability_deferred());
+    assert_eq!(uncommitted_c.load(SeqCst), 0);
+    assert_eq!(checked_c.writes.load(SeqCst), 1);
+    assert_eq!(stats_c.get().nonempty_windows, 1);
 }

@@ -43,3 +43,17 @@ describe("sign-in opener return URL (RFC 8252 native redirect)",()=>{
     expect(()=>createMdbase(declaration([`${origin}/callback`]),opener(native))).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));
   });
 });
+describe("sign-in opener grant return URL (Private grants outside a popup)",()=>{
+  const grant=`${origin}/auth/mdbase/native-grant`;
+  const app=(grantReturnUrl:string,redirects=[`${origin}/callback`,grant,native])=>createMdbase(declaration(redirects),{signIn:{open(){},returnUrl:native,grantReturnUrl}});
+  it("accepts a declared https redirect on the app's origin",()=>{
+    expect(()=>app(grant)).not.toThrow();
+  });
+  it.each([
+    ["the native scheme",native],
+    ["an undeclared same-origin URL",`${origin}/auth/mdbase/other`],
+    ["another origin","https://evil.test/auth/mdbase/native-grant"],
+  ])("refuses %s",(_case,grantReturnUrl)=>{
+    expect(()=>app(grantReturnUrl)).toThrow(expect.objectContaining({reason:"application_sign_in_opener"}));
+  });
+});

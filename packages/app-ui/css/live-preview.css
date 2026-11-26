@@ -352,6 +352,12 @@
   .cm-lp-table-grip-column { width: 32px; height: 20px; }
   .cm-lp-table-grip-row { width: 20px; height: 32px; }
   .cm-lp-table-add { opacity: 1; }
+  /* Fingertip targets grow away from the table, so they cover no more of its cells than the controls do. */
+  .cm-lp-table-controls > button::before { position: absolute; content: ""; }
+  .cm-lp-table-grip-column::before { bottom: -1px; left: 50%; width: 44px; height: 44px; translate: -50% 0; }
+  .cm-lp-table-grip-row::before { top: 50%; right: -1px; width: 44px; height: 44px; translate: 0 -50%; }
+  .cm-lp-table-add-row::before { inset: -1px -1px auto; height: 44px; }
+  .cm-lp-table-add-column::before { inset: -1px auto -1px -1px; width: 44px; }
 }
 
 /* Code blocks retain real editable lines, including nested syntax highlighting. */
@@ -367,11 +373,15 @@
 .cm-lp-code-first { border-radius: var(--radius-md) var(--radius-md) 0 0; padding-top: 0.5em !important; }
 .cm-lp-code-last { border-radius: 0 0 var(--radius-md) var(--radius-md); padding-bottom: 0.5em !important; }
 .cm-lp-code-first.cm-lp-code-last { border-radius: var(--radius-md); }
-.cm-lp-code-fence-end { line-height: 0; min-height: 0; }
+/* An opening fence shown as source is as tall as the header it replaces, so the code below stays put. */
+.cm-lp-code-first::before { content: ""; display: inline-block; height: 28px; vertical-align: middle; }
 .cm-lp-code-header { display: inline-flex; width: 100%; vertical-align: middle; align-items: center; justify-content: space-between; gap: 1em; min-height: 28px; color: var(--color-text-muted); font-family: var(--sans); font-size: var(--font-size-caption); }
 .cm-lp-code-header button, .cm-lp-callout-header button { border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; cursor: pointer; min-width: 28px; min-height: 28px; font: inherit; }
 .cm-lp-code-header button:hover, .cm-lp-callout-header button:hover { background: var(--color-surface); color: var(--color-text); }
 .cm-lp-code-header button:focus-visible, .cm-lp-callout-header button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 1px; }
+
+/* A block widget's box: CodeMirror measures it by its border box, so it contains what is drawn, margins included. */
+.cm-lp-block { display: flow-root; }
 
 .cm-lp-math-source { font-family: var(--mono); font-size: 0.92em; }
 .cm-lp-math-pending, .cm-lp-math-failed { color: var(--color-text-muted); font-family: var(--mono); font-size: 0.92em; white-space: pre-wrap; }
@@ -424,6 +434,13 @@
 .cm-lp-callout-danger { background: color-mix(in srgb, var(--color-danger) 8%, var(--color-surface)); }
 .cm-lp-callout-header { display: inline-flex; align-items: center; gap: 0.55em; width: 100%; }
 .cm-lp-callout-header button { margin-left: auto; }
+
+@media (pointer: coarse) {
+  /* Fingertip targets around the block buttons. Copy's grows upward, off the code it sits on. */
+  .cm-lp-code-header button, .cm-lp-callout-header button { position: relative; }
+  .cm-lp-code-header button::before, .cm-lp-callout-header button::before, .cm-lp-diagram-edit::before { position: absolute; inset: calc(50% - 22px); content: ""; }
+  .cm-lp-code-header button::before { inset: auto calc(50% - 22px) 0; height: 44px; }
+}
 .cm-lp-callout-icon { width: 1em; text-align: center; color: var(--color-text-soft); }
 .cm-lp-footnote-ref { font-size: 0.75em; vertical-align: super; color: var(--color-text-soft); }
 .cm-lp-footnote-definition { color: var(--color-text-muted); font-size: 0.9em; }

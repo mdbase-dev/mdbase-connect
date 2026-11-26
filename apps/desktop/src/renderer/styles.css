@@ -86,6 +86,7 @@ fieldset legend { margin-bottom: 6px; }
 .setting-row strong.mono { font-family: var(--mono); font-size: var(--font-size-caption); font-weight: var(--font-weight-regular); }
 .setting-row small { color: var(--muted); font-size: var(--font-size-caption); }
 .setting-row .update-actions { display: flex; gap: 8px; }
+.setting-row .mdbase-segmented { gap: 0; }
 .setting-toggle.disabled .toggle-copy strong { color: var(--muted); }
 .setting-toggle.disabled .toggle-copy small { color: var(--faint); }
 .portal-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
@@ -137,7 +138,7 @@ fieldset legend { margin-bottom: 6px; }
 .takeover-option { display: flex; align-items: center; gap: 8px; color: var(--muted); }
 
 .collection-card { display: grid; grid-template-columns: minmax(0, 1fr) 200px 28px; align-items: center; gap: 8px 20px; padding: 14px 0; }
-.collection-card > .collection-details, .collection-card > .collection-holds, .collection-card > .collection-history { grid-column: 1 / -1; }
+.collection-card > .collection-details, .collection-card > .collection-mode-panel, .collection-card > .collection-mode-pending, .collection-card > .collection-holds, .collection-card > .collection-history { grid-column: 1 / -1; }
 .collection-card > .collection-resume, .collection-card > .collection-account { grid-column: 1 / -1; justify-self: start; }
 .collection-history { font-size: var(--font-size-caption); overflow-wrap: anywhere; }
 .collection-history p { margin: 8px 0; }
@@ -163,6 +164,9 @@ fieldset legend { margin-bottom: 6px; }
 .activity-list li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: var(--font-size-caption); }
 .activity-list time { flex: 0 0 auto; color: var(--muted); font-size: var(--font-size-caption); }
 .collection-details { display: grid; gap: 10px; padding: 10px 0 0 19px; }
+.collection-mode-pending { display: grid; justify-items: start; gap: 8px; padding-inline-start: 28px; }
+.collection-mode-pending > .collection-status-detail { margin: 0; font-size: var(--font-size-caption); }
+.collection-mode-panel { display: grid; gap: 10px; padding: 12px 0 0 28px; border-top: 1px solid var(--line); }
 .collection-card > .sync-files { grid-column: 1 / -1; }
 .sync-files { display: grid; gap: 10px; padding: 10px 0 0 19px; }
 .sync-files > p, .sync-files small { margin: 0; color: var(--muted); font-size: var(--font-size-caption); line-height: 1.45; }

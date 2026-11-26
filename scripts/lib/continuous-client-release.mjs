@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { readProductionRelease } from "../verify-client-publication.mjs";
+import { parseFragment } from "./changelog.mjs";
 
 export const repository = "mdbase-dev/mdbase-connect";
 // Caught command failures must not echo raw stderr before a bounded diagnostic.
@@ -9,16 +10,59 @@ export const gh = (...args) => execFileSync("gh", args, { encoding: "utf8", stdi
 export const api = (path) => JSON.parse(gh("api", `repos/${repository}/${path}`));
 export const pages = (path) => JSON.parse(gh("api", "--paginate", "--slurp", `repos/${repository}/${path}`)).flat();
 
-export function nextBetaVersion(versions) {
-  let maximum = 0n;
-  for (const version of versions) {
-    if (/^0\.0\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/.test(version)) continue;
-    const match = /^0\.1\.0-beta\.([1-9][0-9]*)$/.exec(version);
-    if (!match) throw new Error(`Cannot advance the beta line beyond published version ${version}; release-owner review required.`);
-    const number = BigInt(match[1]);
-    if (number > maximum) maximum = number;
-  }
-  return `0.1.0-beta.${maximum + 1n}`;
+// Releases are plain semver. Before 0.1.0 the line published 0.1.0-beta.N, and
+// 0.0.x bootstrap versions exist on npm; both stay readable and order below
+// 0.1.0. Any other form refuses for release-owner review.
+export const releaseVersion = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+export const releaseTag = /^v(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/;
+const bootstrap = /^0\.0\.(?:0|[1-9][0-9]*)(?:-[0-9A-Za-z.-]+)?$/;
+const legacyBeta = /^0\.1\.0-beta\.([1-9][0-9]*)$/;
+
+function versionKey(version) {
+  const release = releaseVersion.exec(version);
+  if (release) return [BigInt(release[1]), BigInt(release[2]), BigInt(release[3]), 1n, 0n];
+  const beta = legacyBeta.exec(version);
+  if (beta) return [0n, 1n, 0n, 0n, BigInt(beta[1])];
+  if (bootstrap.test(version)) return [0n, 0n, 0n, 0n, 0n];
+  throw new Error(`Cannot order published version ${version}; release-owner review required.`);
+}
+
+export function compareVersions(left, right) {
+  const [a, b] = [versionKey(left), versionKey(right)];
+  const index = a.findIndex((value, position) => value !== b[position]);
+  return index < 0 ? 0 : a[index] < b[index] ? -1 : 1;
+}
+
+// The highest plain release among versions, or null while only betas exist.
+export function latestRelease(versions) {
+  return versions.filter(version => versionKey(version)[3] === 1n)
+    .reduce((highest, version) => highest && compareVersions(highest, version) >= 0 ? highest : version, null);
+}
+
+// Pre-1.0, a breaking change bumps the minor version and anything else the patch.
+export function nextVersion(versions, breaking) {
+  const latest = latestRelease(versions);
+  if (!latest) return "0.1.0";
+  const [major, minor, patch] = latest.split(".").map(BigInt);
+  if (major !== 0n) throw new Error(`Versioning beyond ${latest} needs a release-owner decision.`);
+  return breaking ? `0.${minor + 1n}.0` : `0.${minor}.${patch + 1n}`;
+}
+
+// Whether a changelog.d fragment present at `commit` but not at `base` is breaking.
+export function breakingSince(base, commit, runGit = git) {
+  return runGit("diff", "--no-renames", "--name-only", "--diff-filter=A", "-z", base, commit, "--", "changelog.d/")
+    .split("\0").filter(Boolean)
+    .some(path => parseFragment(path.slice("changelog.d/".length), runGit("show", `${commit}:${path}`) + "\n").section === "Breaking");
+}
+
+// The next version above every version given, bumped by the fragments added
+// since the release that holds the highest version. Every line shares the v*
+// tag namespace, so that release's tag exists locally.
+export function allocateVersion(versions, commit, runGit = git) {
+  const latest = latestRelease(versions);
+  if (!latest) return nextVersion(versions, false);
+  const base = runGit("rev-parse", "--verify", `refs/tags/v${latest}^{commit}`);
+  return nextVersion(versions, breakingSince(base, commit, runGit));
 }
 
 export function requireRunning(value) {
@@ -68,15 +112,19 @@ export async function verifyCompatibility(env = process.env, { settleMs = 0 } = 
   git("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
   git("merge-base", "--is-ancestor", candidate, "origin/main");
   const production = await readProductionRelease(globalThis.fetch, { settleMs });
-  const provider = production.providerSha;
   git("fetch", "--no-tags", "origin", production.sha);
-  git("fetch", "--no-tags", "origin", provider);
   const evidence = proveCompatibility(candidate, production.sha);
-  const providerEvidence = proveCompatibility(candidate, provider);
-  evidence.provider = provider;
-  evidence.providerReason = providerEvidence.reason;
   console.log(JSON.stringify(evidence));
   return evidence;
+}
+
+// A tag run executes the compatibility check committed at its tag. Transition
+// guard: until production contains provider-free compatibility, reserving a tag
+// at an older production commit would dispatch a tag run whose `compatible` step
+// still checks the retired hosted provider and fails. Remove once production
+// contains this change.
+export function productionOnlyCompatibility(commit, runGit = git) {
+  return !runGit("show", `${commit}:scripts/verify-client-publication.mjs`).includes("sync.mdbase.dev");
 }
 
 // Select from live production ancestry, not the workflow's (possibly superseded)
@@ -89,11 +137,9 @@ export async function checkoutProductionCommit(env = process.env, {
   }
   runGit("fetch", "--no-tags", "origin", "main:refs/remotes/origin/main");
   const production = await readProduction();
-  for (const commit of [production.sha, production.providerSha]) {
-    if (!/^[a-f0-9]{40}$/.test(commit ?? "")) throw new Error("Production requires full commit identities.");
-    runGit("fetch", "--no-tags", "origin", commit);
-  }
-  const common = runGit("merge-base", "--octopus", "origin/main", production.sha, production.providerSha);
+  if (!/^[a-f0-9]{40}$/.test(production?.sha ?? "")) throw new Error("Production requires a full commit identity.");
+  runGit("fetch", "--no-tags", "origin", production.sha);
+  const common = runGit("merge-base", "origin/main", production.sha);
   for (const commit of runGit("rev-list", "--first-parent", common).split("\n").filter(Boolean)) {
     const runs = readApi(`actions/workflows/server-ci.yml/runs?head_sha=${commit}&event=push&branch=main&per_page=100`).workflow_runs;
     if (!runs.some(run => run.head_sha === commit && run.head_branch === "main" && run.event === "push"
@@ -102,10 +148,10 @@ export async function checkoutProductionCommit(env = process.env, {
     // A green badge alone is not full qualification. Invalid/unavailable exact
     // artifacts refuse rather than silently falling back to an older release.
     qualify(commit);
-    console.log(JSON.stringify({ candidate: commit, production: production.sha, provider: production.providerSha }));
+    console.log(JSON.stringify({ candidate: commit, production: production.sha }));
     return commit;
   }
-  throw new Error("No green main commit is contained by both production services.");
+  throw new Error("No green main commit is contained by production.");
 }
 
 export function requireGreenMain(commit, env = process.env) {

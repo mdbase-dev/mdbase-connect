@@ -12,10 +12,13 @@ import { ConnectGateway } from "./connect.js";
 import { createMcpServer } from "./mcp.js";
 import { MCP_SCOPES, OAuthError, OAuthService } from "./oauth.js";
 import { verifyMasterKey } from "./security.js";
+import { VIEW_ASSET_PATH, viewPage, type ViewBuild } from "./view.js";
 
 interface BuildOptions {
   db: DatabasePool;
   config: McpRuntimeConfig;
+  /** The built MCP App view (`pnpm build:view`). */
+  view: ViewBuild;
   revision?: string;
 }
 
@@ -66,6 +69,7 @@ export async function buildApp(options: BuildOptions) {
   pruning.unref();
   app.addHook("onClose", async () => clearInterval(pruning));
   const resourceMetadataUrl = `${config.publicUrl}/.well-known/oauth-protected-resource/mcp`;
+  const view = { html: viewPage(options.view, config.publicUrl), origin: config.publicUrl };
 
   await app.register(formbody);
   await app.register(helmet, {
@@ -127,6 +131,22 @@ export async function buildApp(options: BuildOptions) {
 
   app.get("/.well-known/mdbase-app.json", async () => manifest);
 
+  // The view's built files, for hosts' sandboxed frames on other origins. Their names carry
+  // their content hash, so a name never changes meaning; nothing else is served from here.
+  app.get(`${VIEW_ASSET_PATH}:name`, { config: { rateLimit: false } }, async (request, reply) => {
+    const asset = options.view.assets.get((request.params as { name: string }).name);
+    if (!asset) return reply.code(404).send({ error: "not_found" });
+    const gzip = /\bgzip\b/u.test(headerText(request.headers["accept-encoding"]) ?? "");
+    if (gzip) reply.header("content-encoding", "gzip");
+    return reply
+      .header("vary", "accept-encoding")
+      .header("cache-control", "public, max-age=31536000, immutable")
+      .header("access-control-allow-origin", "*")
+      .header("cross-origin-resource-policy", "cross-origin")
+      .type(asset.type)
+      .send(gzip ? asset.gzip : asset.body);
+  });
+
   const protectedResourceMetadata = {
     resource: config.resource,
     authorization_servers: [config.publicUrl],
@@ -165,30 +185,62 @@ export async function buildApp(options: BuildOptions) {
   app.post("/oauth/token", async (request) => oauth.exchangeToken(request.body));
 
   app.get("/oauth/connect/callback", async (request, reply) => {
-    const query = z.object({
-      state: z.string().optional(),
-      code: z.string().optional(),
-      error: z.string().optional()
-    }).passthrough().parse(request.query);
-    const completed = await oauth.completeUpstream(query);
-    if (completed.redirect) return reply.redirect(completed.redirect);
-    if (completed.error) return reply.code(400).type("text/html; charset=utf-8").send(page("Access not added", completed.error));
-    return reply.type("text/html; charset=utf-8").send(page(
-      "Collection connected",
-      `${completed.connectionName ?? "The collection"} is now available. Return to your MCP application and list connections again.`
-    ));
+    try {
+      const query = z.object({
+        state: z.string().optional(),
+        code: z.string().optional(),
+        error: z.string().optional()
+      }).passthrough().parse(request.query);
+      const completed = await oauth.completeUpstream(query);
+      if (completed.redirect) return reply.redirect(completed.redirect);
+      if (completed.error) return reply.code(400).type("text/html; charset=utf-8").send(page("Access not added", completed.error));
+      return reply.type("text/html; charset=utf-8").send(page(
+        "Collection connected",
+        `${completed.connectionName ?? "The collection"} is now available. Return to your MCP application and list connections again.`
+      ));
+    } catch (error) {
+      if (error instanceof OAuthError) {
+        return reply.code(error.status).type("text/html; charset=utf-8").send(page(
+          "Connection could not be completed",
+          `${error.message} Return to your MCP application and connect again.`
+        ));
+      }
+      if (error instanceof ZodError) {
+        return reply.code(400).type("text/html; charset=utf-8").send(page(
+          "Connection could not be completed",
+          "The authorization response is invalid. Return to your MCP application and connect again."
+        ));
+      }
+      throw error;
+    }
   });
 
   app.get("/connections/new", async (request, reply) => {
-    const { ticket } = z.object({ ticket: z.string().min(1).max(200) }).parse(request.query);
-    const redirect = await oauth.consumeConnectionTicket(ticket);
-    return reply.redirect(redirect);
+    try {
+      const { ticket } = z.object({ ticket: z.string().min(1).max(200) }).parse(request.query);
+      const redirect = await oauth.consumeConnectionTicket(ticket);
+      return reply.redirect(redirect);
+    } catch (error) {
+      if (error instanceof OAuthError) {
+        return reply.code(error.status).type("text/html; charset=utf-8").send(page(
+          "Connection link unavailable",
+          `${error.message} Return to your MCP application and request a new link.`
+        ));
+      }
+      if (error instanceof ZodError) {
+        return reply.code(400).type("text/html; charset=utf-8").send(page(
+          "Connection link unavailable",
+          "This connection link is invalid. Return to your MCP application and request a new link."
+        ));
+      }
+      throw error;
+    }
   });
 
   app.post("/mcp", async (request, reply) => {
     const context = await authenticateRequest(request.headers.authorization, oauth);
     if (!context) return unauthorized(reply, resourceMetadataUrl);
-    const server = createMcpServer(context, gateway, oauth);
+    const server = createMcpServer(context, gateway, oauth, view);
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: undefined,
       enableJsonResponse: true
@@ -197,6 +249,17 @@ export async function buildApp(options: BuildOptions) {
       await server.connect(transport);
       reply.hijack();
       await transport.handleRequest(request.raw, reply.raw, request.body);
+      if (reply.raw.statusCode >= 400) {
+        app.log.warn({
+          event: "mcp_transport_rejected",
+          status: reply.raw.statusCode,
+          protocol_version: headerText(request.headers["mcp-protocol-version"]),
+          has_session_id: Boolean(request.headers["mcp-session-id"]),
+          accept: headerText(request.headers.accept),
+          content_type: headerText(request.headers["content-type"]),
+          jsonrpc_method: jsonRpcMethod(request.body)
+        }, "MCP transport rejected request");
+      }
     } catch (error) {
       request.log.error({ err: error }, "MCP protocol request failed");
       if (!reply.raw.headersSent) {
@@ -274,6 +337,20 @@ function page(title: string, message: string): string {
 </style>
 <main><div class="brand"><span class="dot"></span>mdbase</div><h1>${escapeHtml(title)}</h1><p>${escapeHtml(message)}</p></main>
 </html>`;
+}
+
+function headerText(value: string | string[] | undefined): string | null {
+  const text = Array.isArray(value) ? value.join(", ") : value;
+  if (!text) return null;
+  const trimmed = text.trim();
+  return trimmed ? trimmed.slice(0, 120) : null;
+}
+
+function jsonRpcMethod(body: unknown): string | null {
+  if (Array.isArray(body)) return "batch";
+  if (typeof body !== "object" || body === null || !("method" in body)) return null;
+  const method = (body as { method?: unknown }).method;
+  return typeof method === "string" && /^[A-Za-z0-9_./-]{1,64}$/u.test(method) ? method : "invalid";
 }
 
 function escapeHtml(value: string): string {

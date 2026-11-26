@@ -457,6 +457,15 @@ fn submit_validation_param_overrides_the_collection_level() {
 /// without one.
 fn collection_unique() -> (FakeLogService, Node) {
     let service = FakeLogService::new();
+    let mut a = node(&service, 1, unique_store());
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+    assert!(a.r.catalog.is_valid(), "{:?}", a.r.catalog.issues());
+    (service, a)
+}
+
+/// A store holding `collection_unique`'s Task (unique slug) and Note types.
+fn unique_store() -> MemStore {
     let mut store = MemStore::new();
     let task = "---\nkind: mdbase.type\nname: Task\nmatch:\n  path_glob: 'tasks/**/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\ncollection:\n  unique:\n    - field: slug\n      enforce: report\n      scope: collection\n---\n";
     let note = "---\nkind: mdbase.type\nname: Note\nmatch:\n  path_glob: 'notes/**/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
@@ -470,11 +479,7 @@ fn collection_unique() -> (FakeLogService, Node) {
             ..Tx::default()
         })
         .unwrap();
-    let mut a = node(&service, 1, store);
-    a.r.planner = Box::new(crate::plan::CorePlanner);
-    settle(&mut [&mut a]);
-    assert!(a.r.catalog.is_valid(), "{:?}", a.r.catalog.issues());
-    (service, a)
+    store
 }
 
 #[test]
@@ -664,5 +669,357 @@ fn validation_index_is_rederived_on_open_when_stale() {
             .meta(crate::store::meta_keys::RECORD_META)
             .unwrap()
             .is_some()
+    );
+}
+
+/// Put a type definition; the submit is accepted.
+fn put_type(a: &mut Node, path: &str, doc: &str) {
+    let receipts =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::ResourcePut(ResourcePut {
+                    path: path.into(),
+                    doc: Text::Inline(doc.into()),
+                    base_revision: None,
+                    must_not_exist: None,
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+    assert!(receipts[0].problem.is_none(), "{:?}", receipts[0].problem);
+}
+
+const IDEA: &str = "---\nkind: mdbase.type\nname: Idea\nmatch:\n  path_glob: 'ideas/*.md'\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object}\n---\n";
+
+/// A writer and a catching-up device over `collection_unique`, with two
+/// tasks, a note and an untyped idea.
+fn catalog_pair() -> (FakeLogService, Node, Node) {
+    let (service, mut a) = collection_unique();
+    a.create(10, "tasks/a.md", "---\nslug: x\n---\n");
+    a.create(11, "tasks/b.md", "---\nslug: y\n---\n");
+    a.create(12, "notes/n.md", "---\ntitle: n\n---\n[[a]]\n");
+    a.create(13, "ideas/i.md", "---\ntitle: i\n---\n");
+    settle(&mut [&mut a]);
+    let mut b = node(&service, 2, unique_store());
+    b.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.r.store.record_count().unwrap(), 4);
+    (service, a, b)
+}
+
+/// Every record's stored metadata is the one the device's catalog derives, and
+/// the stamp names that catalog.
+fn assert_metadata_current(b: &Node) {
+    let rows =
+        b.r.store
+            .records(crate::store::Page {
+                after: None,
+                limit: 100,
+            })
+            .unwrap();
+    for row in rows {
+        assert_eq!(
+            row.meta,
+            crate::plan::record_meta(&b.r.catalog, &row.path, &row.doc),
+            "{}",
+            row.path
+        );
+    }
+    assert_eq!(
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap(),
+        Some(crate::plan::record_meta_stamp(&b.r.catalog))
+    );
+}
+
+/// A schema change leaves every input of record metadata alone: a device
+/// applying it writes no record and keeps the stamp.
+#[test]
+fn a_schema_only_catalog_change_rewrites_no_record_on_a_device() {
+    let (_service, mut a, mut b) = catalog_pair();
+    let stamp =
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap();
+    let written = b.r.store.data().borrow().records_written;
+    let reindexed = b.r.stats.reindexed;
+    let note = a.r.store.resource("_types/note.md").unwrap().unwrap();
+    put_type(
+        &mut a,
+        "_types/note.md",
+        &note.replace(
+            "value: {type: object}",
+            "value: {type: object, required: [title]}",
+        ),
+    );
+    settle(&mut [&mut a, &mut b]);
+    assert!(
+        b.r.store
+            .resource("_types/note.md")
+            .unwrap()
+            .unwrap()
+            .contains("required"),
+        "the change is applied"
+    );
+    assert_eq!(b.r.store.data().borrow().records_written, written);
+    assert_eq!(b.r.stats.reindexed, reindexed, "no record is visited");
+    assert_eq!(
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap(),
+        stamp
+    );
+    assert_metadata_current(&b);
+}
+
+/// A new type that matches one record: a device applying it writes that record
+/// back and no other, and reads of the metadata see the new type at once.
+#[test]
+fn a_catalog_change_rewrites_only_the_records_whose_metadata_it_changes() {
+    let (_service, mut a, mut b) = catalog_pair();
+    let written = b.r.store.data().borrow().records_written;
+    let reindexed = b.r.stats.reindexed;
+    put_type(&mut a, "_types/idea.md", IDEA);
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(
+        b.r.stats.reindexed - reindexed,
+        4,
+        "every record is visited"
+    );
+    assert_eq!(
+        b.r.store.data().borrow().records_written - written,
+        1,
+        "only the idea is written"
+    );
+    let idea = b.r.store.record(&B16([13; 16])).unwrap().unwrap();
+    assert_eq!(idea.meta.types, ["Idea"]);
+    let key = crate::plan::value_key(&mdbn_core::value::Value::Text("x".into()));
+    assert_eq!(b.r.store.unique_holders("slug", &key).unwrap().len(), 1);
+    assert_metadata_current(&b);
+}
+
+/// A device that stops right after committing a catalog entry (before writing
+/// any record back) left no stamp for rows it had not reached; the next open
+/// rederives them.
+#[test]
+fn a_device_stopped_after_a_catalog_entry_reindexes_on_open() {
+    let (service, mut a, mut b) = catalog_pair();
+    put_type(&mut a, "_types/idea.md", IDEA);
+    settle(&mut [&mut a]);
+    let seq = a.r.head().seq;
+    b.r.store.fail_after_head_commit(seq);
+    settle(&mut [&mut b]);
+    assert_eq!(b.r.store.head().unwrap().seq, seq, "the entry committed");
+    assert!(
+        b.r.store
+            .meta(crate::store::meta_keys::RECORD_META)
+            .unwrap()
+            .is_none(),
+        "no stamp claims the rows"
+    );
+    let idea = b.r.store.record(&B16([13; 16])).unwrap().unwrap();
+    assert!(idea.meta.types.is_empty(), "not reached");
+    let data = b.r.store.data();
+    drop(b);
+    let mut b = node(&service, 2, MemStore::shared(data));
+    b.r.planner = Box::new(crate::plan::CorePlanner);
+    let idea = b.r.store.record(&B16([13; 16])).unwrap().unwrap();
+    assert_eq!(idea.meta.types, ["Idea"]);
+    assert_metadata_current(&b);
+}
+
+fn update_body(a: &mut Node, id: u8, body: &str) -> mdbn_wire::client::Receipt {
+    let current = a.doc(id).expect("existing record");
+    let mut r =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Update(mdbn_wire::intent::Update {
+                    id: B16([id; 16]),
+                    patch: None,
+                    unset: None,
+                    add: None,
+                    remove: None,
+                    body: Some(Text::Inline(body.into())),
+                    body_edits: None,
+                    body_base: None,
+                    body_base_text: None,
+                    base: None,
+                    if_revision: Some(mdbn_wire::hash::sha256(current.as_bytes())),
+                    update_refs: None,
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+    r.remove(0)
+}
+
+#[test]
+fn update_saves_existing_note_with_unknown_explicit_type() {
+    let service = FakeLogService::new();
+    let store = MemStore::new();
+    // No mdbase.yaml and no `_types/` definitions (e.g., types sit under
+    // `_mdbase/types/` or belong to another app): default settings apply
+    // (`types_folder: _types`, `validation: error`, `explicit_type_keys: [type, types]`).
+    let mut a = node(&service, 1, store);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+
+    let initial = "---\ntype: task\ntitle: Buy milk\n---\nOriginal body.\n";
+    let created = create_at(&mut a, 30, initial, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(
+        created.state,
+        ReceiptState::Pending,
+        "{:?}",
+        created.problem
+    );
+    settle(&mut [&mut a]);
+
+    let updated = update_body(&mut a, 30, "Original body.\nAppended line.\n");
+    assert_eq!(
+        updated.state,
+        ReceiptState::Pending,
+        "unknown frontmatter type must not reject saves: {:?}",
+        updated.problem
+    );
+    settle(&mut [&mut a]);
+    assert!(
+        a.doc(30)
+            .as_deref()
+            .is_some_and(|doc| doc.contains("Appended line."))
+    );
+
+    // Explicit validation still reports `unknown_type` as a warning.
+    let validated =
+        a.r.validate(a.s, Validate::Targets(vec![target(30)]))
+            .unwrap();
+    assert!(validated[0].issues.iter().any(|i| {
+        i.code == "unknown_type" && i.severity == mdbn_core::validate::Severity::Warning
+    }));
+
+    // Request-level selected type on create still rejects unknown types.
+    let bad_create =
+        a.r.submit(
+            a.s,
+            SubmitParams {
+                ops: vec![Op::Create(mdbn_wire::intent::Create {
+                    id: B16([31; 16]),
+                    path: Some("tasks/selected.md".into()),
+                    type_name: Some("task".into()),
+                    frontmatter: None,
+                    body: Some(Text::Inline("Body\n".into())),
+                    document: None,
+                })],
+                mutation_id: None,
+                conflict_mode: None,
+                timezone: None,
+                allow_partial: None,
+                mutation_ids: None,
+                dry_run: None,
+                include: None,
+                wait: None,
+                validation: None,
+            },
+        )
+        .unwrap();
+    assert_eq!(bad_create[0].state, ReceiptState::Rejected);
+    let problem = bad_create[0].problem.as_ref().unwrap();
+    assert_eq!(problem.code, "invalid_request");
+    assert_eq!(problem.reason.as_deref(), Some("unknown_type"));
+}
+
+#[test]
+fn update_defined_type_saves_when_valid_and_reports_issue_locations_when_invalid() {
+    let service = FakeLogService::new();
+    let mut store = MemStore::new();
+    store
+        .commit(Tx {
+            resources_put: vec![(
+                "_types/task.md".into(),
+                "---\nkind: mdbase.type\nname: task\nschema:\n  dialect: json-schema-2020-12\n  value:\n    type: object\n    required: [title, status, dateCreated]\n    properties:\n      title: {type: string, minLength: 1}\n      status: {enum: [open, done]}\n      dateCreated: {type: string, format: date-time}\n      dateModified: {type: string, format: date-time}\nlifecycle:\n  on_update:\n    set:\n      dateModified: {now: true}\n---\n"
+                    .into(),
+            )],
+            ..Tx::default()
+        })
+        .unwrap();
+    let mut a = node(&service, 1, store);
+    a.r.planner = Box::new(crate::plan::CorePlanner);
+    settle(&mut [&mut a]);
+
+    // 1. Valid defined-type note saves cleanly.
+    let valid_doc = "---\ntype: task\ntitle: Valid task\nstatus: open\ndateCreated: \"2026-01-01T00:00:00Z\"\n---\nInitial.\n";
+    let seeded = create_at(&mut a, 40, valid_doc, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(seeded.state, ReceiptState::Pending, "{:?}", seeded.problem);
+    settle(&mut [&mut a]);
+
+    let saved = update_body(&mut a, 40, "Initial.\nUpdated.\n");
+    assert_eq!(saved.state, ReceiptState::Pending, "{:?}", saved.problem);
+    settle(&mut [&mut a]);
+    let after = a.doc(40).unwrap();
+    assert!(after.contains("Updated."), "{after}");
+    assert!(after.contains("dateModified:"), "{after}");
+
+    // 2. Mixed defined + unknown type saves when valid against the defined type.
+    let mixed_doc = "---\ntypes: [task, ghost]\ntitle: Mixed\nstatus: open\ndateCreated: \"2026-01-01T00:00:00Z\"\n---\nStart.\n";
+    let seeded = create_at(&mut a, 41, mixed_doc, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(seeded.state, ReceiptState::Pending, "{:?}", seeded.problem);
+    settle(&mut [&mut a]);
+
+    let saved = update_body(&mut a, 41, "Start.\nMore.\n");
+    assert_eq!(saved.state, ReceiptState::Pending, "{:?}", saved.problem);
+    settle(&mut [&mut a]);
+    assert!(a.doc(41).unwrap().contains("More."));
+
+    // 3. Invalid defined-type note is rejected with field locations in problem.issues.
+    let invalid_doc = "---\ntype: task\ntitle: Invalid task\nstatus: bogus\n---\nInitial.\n";
+    let seeded = create_at(&mut a, 42, invalid_doc, Some(mdbn_wire::intent::Level::Off));
+    assert_eq!(seeded.state, ReceiptState::Pending, "{:?}", seeded.problem);
+    settle(&mut [&mut a]);
+
+    let refused = update_body(&mut a, 42, "Initial.\nShould not save.\n");
+    assert_eq!(refused.state, ReceiptState::Rejected);
+    let problem = refused.problem.as_ref().expect("rejection problem");
+    assert_eq!(problem.code, "invalid_record");
+    let issues = problem.issues.as_ref().expect("validation issues");
+    assert!(issues.iter().any(|i| i.code == "schema_required"));
+    let enum_issue = issues
+        .iter()
+        .find(|i| i.code == "schema_enum")
+        .expect("schema_enum issue");
+    let details = match enum_issue.details.as_ref() {
+        Some(mdbn_wire::common::Value::Map(entries)) => entries,
+        other => panic!("expected map details with location, got {other:?}"),
+    };
+    assert!(
+        details
+            .iter()
+            .any(|(k, v)| k == "location" && *v == mdbn_wire::common::Value::Text("/status".into())),
+        "expected /status location in details: {details:?}"
+    );
+    assert!(
+        details
+            .iter()
+            .any(|(k, v)| k == "type" && *v == mdbn_wire::common::Value::Text("task".into())),
+        "expected task type in details: {details:?}"
     );
 }

@@ -215,7 +215,7 @@ impl<I: IndexStorage> Store for LogCache<I> {
         self.0.stages()
     }
     fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
-        self.0.commit(tx)
+        self.0.commit_rows(tx, self.query_index_supported())
     }
 }
 

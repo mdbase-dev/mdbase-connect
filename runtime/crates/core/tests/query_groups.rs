@@ -313,6 +313,7 @@ fn all_matched_schemas_must_agree_no_shape_guessing() {
                     types: &names,
                     frontmatter: fm,
                     body: None,
+                    mtime: None,
                 },
                 &env(),
                 None,
@@ -379,6 +380,7 @@ fn typed_dates_do_not_merge_with_plain_lookalike_text() {
         types: &names,
         frontmatter: &fm,
         body: None,
+        mtime: None,
     };
     let typed = p.evaluate(&r, &env(), None);
     let plain = p.evaluate(&QueryRecord { types: &[], ..r }, &env(), None);
@@ -395,6 +397,67 @@ fn typed_dates_do_not_merge_with_plain_lookalike_text() {
     let missing_profile =
         query::compile(&parse("group_by: [{field: file.mtime}]"), &cat).unwrap_err();
     assert_eq!(missing_profile.code, "query_profile_unavailable");
+}
+
+#[test]
+fn custom_summary_over_file_mtime_receives_native_timestamp() {
+    let cat = Catalog::load([("_types/task.md", TASK)]);
+    let q = parse(
+        "projections: {m: {expr: 'has(file.mtime) ? file.mtime : null'}}\n\
+         select: [{name: m_sel, expr: 'has(file.mtime) ? file.mtime : null'}]\n\
+         summary_functions: {years: {expr: 'values.filter(v, v != null).map(v, v.getFullYear())'}}\n\
+         summaries: [{field: projection.m, function: years, name: proj_years}, {field: m_sel, function: years, name: sel_years}]\n",
+    );
+    let p = query::compile(&q, &cat).unwrap();
+    let fm = Map::new();
+    let names = vec!["task".into()];
+    let with_mtime = p.evaluate(
+        &QueryRecord {
+            path: "tasks/a.md",
+            types: &names,
+            frontmatter: &fm,
+            body: None,
+            mtime: Some(1_700_000_000_000),
+        },
+        &env(),
+        None,
+    );
+    let without_mtime = p.evaluate(
+        &QueryRecord {
+            path: "tasks/b.md",
+            types: &names,
+            frontmatter: &fm,
+            body: None,
+            mtime: None,
+        },
+        &env(),
+        None,
+    );
+    // Public selection renders RFC 3339 string.
+    assert_eq!(
+        with_mtime.values.get("m_sel"),
+        Some(&Value::string("2023-11-14T22:13:20Z"))
+    );
+    assert_eq!(without_mtime.values.get("m_sel"), Some(&Value::Null));
+    let mut diagnostics = Vec::new();
+    let g = query::groups::reduce(
+        &q.group_by,
+        &p.summaries,
+        &[&with_mtime.reduction, &without_mtime.reduction],
+        &env(),
+        &mut diagnostics,
+    )
+    .unwrap()
+    .unwrap();
+    assert!(diagnostics.is_empty(), "{diagnostics:?}");
+    assert_eq!(
+        g[0].summaries.get("proj_years"),
+        Some(&Value::List(vec![Value::Int(2023)]))
+    );
+    assert_eq!(
+        g[0].summaries.get("sel_years"),
+        Some(&Value::List(vec![Value::Int(2023)]))
+    );
 }
 #[test]
 fn invalid_metadata_validates_before_false_candidates() {
@@ -455,6 +518,7 @@ fn incomplete_or_oversized_whole_metadata_fails_explicitly() {
             types: &[],
             frontmatter: &fm,
             body: None,
+            mtime: None,
         },
         &env(),
         None,

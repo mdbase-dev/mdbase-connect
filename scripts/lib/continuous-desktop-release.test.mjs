@@ -4,7 +4,8 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { desktopChanged, desktopPlan } from "../continuous-desktop-release.mjs";
+import { desktopChanged, desktopPlan, releaseGap, semverPrepare } from "../continuous-desktop-release.mjs";
+import { wideningLimit } from "./desktop-rollout.mjs";
 
 const day = 86_400_000;
 const now = Date.parse("2026-11-03T12:00:00Z");
@@ -25,10 +26,10 @@ test("the qualification gate runs through bash so Windows can spawn it", () => {
   assert.match(source, /execFileSync\("bash", \["scripts\/ci\/verify-qualified-commit"/);
 });
 
-test("daily, diff and unfinished-attempt gates cannot be bypassed by repeated triggers", () => {
+test("release-gap, diff and unfinished-attempt gates cannot be bypassed by repeated triggers", () => {
   assert.equal(plan({ changed: false }).reason, "desktop tree unchanged");
   const recent = { ...latest, published_at: new Date(now - day + 1).toISOString() };
-  assert.equal(plan({ latest: recent }).reason, "daily limit");
+  assert.equal(plan({ latest: recent }).reason, "release gap");
   assert.throws(() => plan({ reservations: [{ ...reservation, published: false }] }), /unfinished/);
   assert.throws(() => plan({ changed: false, reservations: [{ ...reservation, published: false }] }), /unfinished/);
   const failed = { tag: "v0.1.0-beta.154", published: false };
@@ -42,14 +43,61 @@ test("daily, diff and unfinished-attempt gates cannot be bypassed by repeated tr
   }
 });
 
-test("immutable release settings are neither queried nor changed and widening is removed", () => {
+test("semver reservations reconcile above the legacy beta line", () => {
+  const first = { tag: "v0.1.0", published: false };
+  assert.throws(() => plan({ reservations: [first], acknowledged: "v0.1.0-beta.215" }), /unfinished/, "0.1.0 orders above every beta");
+  assert.deepEqual(plan({ reservations: [{ tag: "v0.1.0-beta.216", published: false }, first], acknowledged: "v0.1.0" }), { operation: "release" });
+  assert.throws(() => plan({ reservations: [first, { tag: "v0.1.10", published: false }], acknowledged: "v0.1.9" }), /unfinished/, "numeric, not string, order");
+  assert.deepEqual(plan({ latest: { ...latest, tag_name: "v0.1.3" }, reservations: [{ tag: "v0.1.3", published: true }] }), { operation: "release" });
+});
+
+test("a commit whose tag worker accepts only beta tags waits instead of reserving a semver tag", () => {
+  assert.deepEqual(plan({ semver: false }), { operation: "wait", reason: "selected commit predates semver releases" });
+  assert.equal(plan({ semver: false, changed: false }).reason, "desktop tree unchanged");
+  const show = text => (...args) => {
+    assert.deepEqual(args, ["show", "c".repeat(40) + ":scripts/continuous-desktop-release.mjs"]);
+    return text;
+  };
+  const current = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
+  assert.equal(semverPrepare("c".repeat(40), show(current)), true);
+  assert.equal(semverPrepare("c".repeat(40), show("  assert.match(tag, /^v0\\.1\\.0-beta\\.[1-9][0-9]*$/);\n")), false);
+  assert.match(current, /const tag = `v\$\{allocateVersion\(versions, env\.GITHUB_SHA\)\}`;/);
+  assert.doesNotMatch(current, /package\.json", "utf8"\)\)\.version/, "source manifests are not release versions");
+});
+
+test("a commit whose tag worker predates provider-free compatibility waits instead of reserving a tag", () => {
+  assert.deepEqual(plan({ compatible: false }), { operation: "wait", reason: "selected commit predates provider-free compatibility" });
+  assert.equal(plan({ compatible: false, changed: false }).reason, "desktop tree unchanged");
+});
+
+test("immutable release settings are neither queried nor changed; rollout lives outside the release", () => {
   const source = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /immutable-releases|requireMutableChannel|rolloutPercentage|\bwiden\b|--clobber/);
+  assert.doesNotMatch(source, /immutable-releases|requireMutableChannel|rolloutPercentage|--clobber/);
   assert.doesNotMatch(source, /gh\("release", "(?:upload|edit|delete)"/);
   assert.match(source, /if \(latest\) readChannel\(latest, directory\)/);
   assert.match(source, /cosign.*\["verify-blob"/);
-  assert.match(workflow, /options: \[release\]/);
-  assert.doesNotMatch(workflow, /\bwiden\b|--clobber|gh release (?:upload|delete)/);
+  assert.match(workflow, /options: \[release, rollout\]/);
+  assert.doesNotMatch(workflow, /--clobber|gh release (?:upload|delete)/);
+  // Widening dispatches the release's own tag run, which signs a rollout document.
+  assert.match(source, /"--ref", release\.tag_name,\s*"-f", "operation=rollout", "-f", `stage=\$\{plan\.stage\}`/);
+});
+
+test("with staged rollout a desktop change releases as soon as it merges", () => {
+  assert.equal(releaseGap(false), day);
+  assert.equal(releaseGap(true), 0);
+  const justPublished = { ...latest, published_at: new Date(now).toISOString() };
+  assert.deepEqual(plan({ latest: justPublished, gap: releaseGap(true) }), { operation: "release" });
+  assert.equal(plan({ latest: justPublished, gap: releaseGap(true), changed: false }).reason, "desktop tree unchanged");
+  assert.throws(() => plan({ gap: releaseGap(true), reservations: [{ ...reservation, published: false }] }), /unfinished/);
+  assert.throws(() => plan({ gap: releaseGap(true), latest: { ...justPublished, body: "Continuous desktop status: stopped" } }), /latched stopped/);
+});
+
+test("widening covers every release newer than the newest one at 100%", () => {
+  const source = readFileSync(new URL("../continuous-desktop-release.mjs", import.meta.url), "utf8");
+  assert.match(source, /if \(!document \|\| stageOf\(document\) === "100"\) break;/);
+  assert.doesNotMatch(source, /expedite/i);
+  const coordinator = readFileSync(new URL("../../apps/desktop/src/main/update-coordinator.ts", import.meta.url), "utf8");
+  assert.match(coordinator, new RegExp(`const MAX_RELEASES_CONSIDERED = ${wideningLimit};`));
 });
 
 function stepCommand(name) {

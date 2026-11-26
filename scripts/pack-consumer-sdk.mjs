@@ -5,14 +5,10 @@ import { basename, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 
 const packageDirectories = new Map([
-  ["connect", "packages/client"],
-  ["devkit", "packages/devkit"],
   ["protocol", "packages/protocol"],
-  ["sync", "packages/sync"],
-  ["testing", "packages/testing"],
   ["ui", "packages/app-ui"],
 ]);
-const defaultPackages = ["connect", "devkit", "protocol", "sync", "testing"];
+const defaultPackages = ["protocol", "ui"];
 
 const options = parseArguments(process.argv.slice(2));
 const destination = resolve(options.destination);

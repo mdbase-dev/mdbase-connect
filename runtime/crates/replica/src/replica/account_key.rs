@@ -388,7 +388,7 @@ impl<S: Store> Replica<S> {
 
     /// Lifecycle fences shared by every account-key operation.
     fn account_key_fences(&self) -> Result<(), AccountKeyRefusal> {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(AccountKeyRefusal::OutcomeUnknown);
         }
         if self.local_only() || self.is_hosted() {
@@ -830,23 +830,19 @@ impl<S: Store> Replica<S> {
     /// An account-key commit with an unknown outcome: stop serving, sealing and
     /// appending until reopened, as a failed apply with unknown durability does.
     fn account_key_fault(&mut self, reason: &str) {
-        self.apply_fault = true;
+        self.raise_fence(super::Fence::Store, reason.into());
         self.account_key.ahead = None;
         self.account_key.pending = None;
         self.account_key.refused = Some(AccountKeyRefusal::OutcomeUnknown);
         self.calls.clear();
         self.inflight.clear();
         self.append = super::append::AppendState::Stopped;
-        self.incident(
-            mdbn_wire::client::IncidentKind::Integrity,
-            Some(mdbn_wire::common::Value::Text(reason.into())),
-        );
     }
 
     /// The unlock's state: `Ok(true)` keyed in the applied policy and trusted,
     /// `Ok(false)` still in progress, `Err` refused for good.
     pub fn account_key_unlock_state(&self) -> Result<bool, AccountKeyRefusal> {
-        if self.apply_fault {
+        if self.apply_fault.is_some() {
             return Err(AccountKeyRefusal::OutcomeUnknown);
         }
         if self.account_key_unlocked() {
@@ -866,7 +862,7 @@ impl<S: Store> Replica<S> {
             .get(&self.cfg.device_id)
             .is_some_and(|d| d.active && d.keyed)
             && !self.key_untrusted
-            && !self.apply_fault
+            && self.apply_fault.is_none()
     }
 
     /// Strict mode, per collection: whether `device` (a revoked account-key

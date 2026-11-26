@@ -150,10 +150,6 @@ msgid "{collection} now syncs{0}"
 msgstr "{collection} 现在开始同步{0}"
 
 #: src/renderer/daemon-view.mts
-msgid "{collection} stopped syncing"
-msgstr "{collection} 已停止同步"
-
-#: src/renderer/daemon-view.mts
 msgid "{collection} was added"
 msgstr "已添加 {collection}"
 
@@ -258,6 +254,11 @@ msgstr "此位置已有名为“{0}”的文件夹。请选择其他名称，或
 #: src/renderer/device-requests.tsx
 msgid "a Private collection"
 msgstr "一个私有集合"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "A storage mode switch is waiting for confirmation on this computer."
+msgstr "有一项存储模式切换正在等待此计算机确认。"
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
@@ -489,10 +490,6 @@ msgid "change record types"
 msgstr "更改记录类型"
 
 #: src/renderer/collections-view.tsx
-msgid "Changed by a program mdbase does not recognise"
-msgstr "被 mdbase 无法识别的程序更改"
-
-#: src/renderer/collections-view.tsx
 msgid "Changed here and elsewhere"
 msgstr "此处和其他位置均已更改"
 
@@ -609,6 +606,10 @@ msgstr "选择此收藏集在所有设备上同步哪些文件。笔记始终同
 #: src/renderer/ui-components.tsx
 msgid "Clear filter"
 msgstr "清除筛选"
+
+#: src/renderer/collections-view.tsx
+msgid "Close"
+msgstr "关闭"
 
 #: src/renderer/takeover-state.mts
 msgid "Close apps that are editing this folder, then choose Move to the new sync engine."
@@ -895,6 +896,11 @@ msgid "From the last sync attempt, not a current file check."
 msgstr "这些信息来自上次同步尝试，并非当前的文件检查结果。"
 
 #: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Get updates early"
+msgstr "提前获取更新"
+
+#: src/renderer/main.tsx
 msgid "Go to {label}"
 msgstr "前往 {label}"
 
@@ -938,6 +944,11 @@ msgstr "图片"
 #: src/renderer/main.tsx
 msgid "Install {0}"
 msgstr "安装 {0}"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "Install each release as soon as it starts rolling out. Otherwise releases reach computers in stages, and mdbase updates at most once a day."
+msgstr "每个版本一开始推送就安装。否则，版本会分阶段推送到计算机，mdbase 每天最多更新一次。"
 
 #: src/main/update-coordinator.ts
 msgid "Installing version {target}. mdbase keeps syncing while the app restarts."
@@ -1157,6 +1168,10 @@ msgstr "mdbase 暂时无法注册此电脑。运行期间将持续重试。"
 msgid "mdbase could not save this computer's account settings. Check that there is free disk space, then restart mdbase."
 msgstr "mdbase 无法保存此电脑的账号设置。请检查磁盘可用空间，然后重启 mdbase。"
 
+#: src/renderer/collections-view.tsx
+msgid "mdbase could not tell which version this file was based on"
+msgstr "mdbase 无法确定此文件是基于哪个版本修改的"
+
 #: src/renderer/view-model.ts
 msgid "mdbase could not verify the sync service for this computer. Update mdbase or contact support@mdbase.dev. {unchanged}"
 msgstr "mdbase 无法验证此电脑使用的同步服务。请更新 mdbase，或联系 support@mdbase.dev。{unchanged}"
@@ -1236,8 +1251,8 @@ msgstr "mdbase 只存储加密后的更改。只有当你某台装有桌面应�
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase 将能够读取此集合及其现有历史记录，并在你的设备关闭时提供访问。"
+msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "mdbase 将能够读取该集合（包括其现有历史记录），并在您的设备关闭时提供服务。连接到此集合的应用随后需要重新连接。"
 
 #. placeholder {0}: reason.replaceAll("_", " ")
 #: src/renderer/takeover-state.mts
@@ -1398,8 +1413,8 @@ msgstr "仅在此代码与{who}上的代码一致时允许"
 
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "切换完成后，只有你的设备能够读取新内容。mdbase 可能仍能读取旧内容。"
+msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "切换完成后，只有您的设备可以读取新内容。mdbase 可能仍可读取较早的内容。连接到此集合的应用随后需要重新连接。"
 
 #: src/renderer/home-view.tsx
 msgid "Open"
@@ -1504,6 +1519,11 @@ msgctxt "Local connection status"
 msgid "read and add files"
 msgstr "读取和添加文件"
 
+#: src/main/confirmation.ts
+msgctxt "Confirmation dialog"
+msgid "read earlier versions of records"
+msgstr "读取记录的早期版本"
+
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
 msgid "read records"
@@ -1592,6 +1612,11 @@ msgstr "{0, plural, other {检查 # 个文件}}"
 #: src/renderer/main.tsx
 msgid "Review {0}"
 msgstr "审核 {0}"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Review switch"
+msgstr "查看切换"
 
 #: src/renderer/access-view.tsx
 msgctxt "Connect interface"
@@ -1800,6 +1825,16 @@ msgctxt "Local collection management"
 msgid "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage."
 msgstr "此集合的存储空间已满，部分文件尚未同步。请释放空间以同步这些文件。如果这是你的集合且你使用的是 Free 方案，可以升级到 Plus 获取更多存储空间。"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Storage mode"
+msgstr "存储模式"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "Switching storage mode…"
+msgstr "正在切换存储模式…"
+
 #. placeholder {0}: /[.!?]$/.test(sentence) ? sentence : `${sentence}.`
 #: src/renderer/view-model.ts
 msgid "Sync could not be turned on: {0} {unchanged}"
@@ -1957,6 +1992,11 @@ msgstr "服务器尚未确认此电脑上的旧版 mdbase Connect 已停用。�
 msgid "The sign-in request expired. Start again."
 msgstr "登录请求已过期。请重新开始。"
 
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "The switch to Private was stopped and needs attention."
+msgstr "向私密模式的切换已停止，需要您处理。"
+
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
 msgid "The update has not finished downloading."
@@ -2026,6 +2066,16 @@ msgstr "此电脑现已更名为 {0}。"
 msgid "This computer moved your collections to the new sync engine, but your mdbase account hasn't been upgraded yet, or its upgrade was paused. Your files are safe in their folders, but changes made on this computer may not reach your other mdbase apps until your account is upgraded."
 msgstr "此电脑已将你的集合迁移到新同步引擎，但你的 mdbase 账户尚未升级，或升级已暂停。文件仍安全地保存在文件夹中，但此电脑上的更改可能要等到账户升级后，才能同步到其他 mdbase 应用。"
 
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets each release as soon as it starts rolling out."
+msgstr "此计算机现在会在每个版本开始推送时立即获取。"
+
+#: src/renderer/main.tsx
+msgctxt "Connect interface"
+msgid "This computer now gets releases in stages, at most once a day."
+msgstr "此计算机现在分阶段获取版本，每天最多一次。"
+
 #: src/renderer/daemon-view.mts
 msgid "This computer signed in"
 msgstr "此电脑已登录"
@@ -2054,6 +2104,10 @@ msgstr "此文件不是笔记：如有需要，请手动恢复另一版本。"
 msgctxt "Desktop application"
 msgid "This folder has an old mdbase Connect identity"
 msgstr "此文件夹带有旧的 mdbase Connect 标识"
+
+#: src/renderer/collections-view.tsx
+msgid "This hold exists only on this computer. If another computer edited the file, it won’t show this hold. Choose Keep both here to preserve both versions. Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."
+msgstr "此文件仅在这台电脑上被暂扣。如果是在另一台电脑上编辑的，那台电脑不会显示此暂扣。在这里选择“两者都保留”以保留两个版本。两台电脑上的文件一致后，如果编辑后的版本仍在旧文件夹中，请将它移到目标文件夹。"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -2196,20 +2250,39 @@ msgid "Version {0} is available through the signed package channel."
 msgstr "可通过签名软件包渠道获取版本 {0}。"
 
 #. placeholder {0}: manifest.version
-#. placeholder {1}: decision.percentage
-#: src/main/update-coordinator.ts
-msgid "Version {0} is rolling out to {1}% of installations."
-msgstr "版本 {0} 正逐步推送至 {1}% 的安装实例。"
-
-#. placeholder {0}: manifest.version
 #: src/main/update-coordinator.ts
 msgid "Version {0} is verified and ready to install."
 msgstr "版本 {0} 已通过验证，可供安装。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available to early-access installations first."
+msgstr "版本 {version} 先向抢先体验安装提供。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is available. mdbase updates at most once a day, so it will update after {after}."
+msgstr "版本 {version} 已可用。mdbase 每天最多更新一次，因此将在 {after} 之后更新。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is not rolling out yet."
+msgstr "版本 {version} 尚未开始推送。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is published, but its rollout could not be verified. mdbase will check again later."
+msgstr "版本 {version} 已发布，但无法验证其推送状态。mdbase 稍后会再次检查。"
+
+#: src/main/update-coordinator.ts
+msgid "Version {version} is rolling out to {percentage}% of installations."
+msgstr "版本 {version} 正在向 {percentage}% 的安装推送。"
 
 #: src/renderer/collections-view.tsx
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "视频"
+
+#: src/renderer/collections-view.tsx
+msgctxt "Local collection management"
+msgid "View progress"
+msgstr "查看进度"
 
 #: src/renderer/takeover-panel.tsx
 msgctxt "Collection move recovery"

@@ -31,20 +31,10 @@ test("strict root catalogue gate bootstraps the kit CLI in a clean checkout", as
 
 test("fullOnly matches the steps Server CI gates on full qualification", () => {
   const job = (name) => workflow.split(`\n  ${name}:\n`)[1].split(/\n  [a-z][\w-]+:\n/)[0];
-  assert.match(job("hosted-provider-rust"), /^    if: needs\.classify\.outputs\.run_full == 'true'$/m);
   const node = job("node");
-  for (const step of localSteps.filter((candidate) => candidate.tier !== "rust")) {
+  for (const step of localSteps) {
     const gated = node.includes(`if: needs.classify.outputs.run_full == 'true'\n        run: ${step.command}\n`);
     assert.equal(Boolean(step.fullOnly), gated, step.command);
-  }
-});
-
-test("remote steps run the same selection through rcargo", () => {
-  const remote = localSteps.filter((step) => step.remote);
-  assert.equal(remote.length, 2);
-  for (const step of remote) {
-    assert.equal(step.tier, "rust");
-    assert.match(step.remote, /^rcargo \w+ --locked --workspace\b/);
   }
 });
 
@@ -53,12 +43,10 @@ test("the default selection mirrors the pull-request plan; tier flags run whole 
   const fast = commands([], false);
   assert.ok(fast.includes("pnpm test"));
   assert.ok(!fast.includes("pnpm package:audit"));
-  assert.ok(!selectSteps(new Set(), false).some((step) => step.tier === "rust"));
   const native = commands([], true);
   assert.ok(native.includes("pnpm package:audit"));
-  assert.ok(native.includes("node scripts/ci/cargo-test.mjs --locked --workspace"));
   assert.ok(!native.includes("pnpm test:accessibility"));
-  assert.deepEqual(commands(["node", "rust", "browser"], false), localSteps.map((step) => step.command));
+  assert.deepEqual(commands(["node", "browser"], false), localSteps.map((step) => step.command));
 });
 
 test("folded and literal run blocks yield their command", () => {

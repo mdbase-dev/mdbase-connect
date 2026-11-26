@@ -217,9 +217,24 @@ export function webSocketCarrier(url: string, factory: WebSocketFactory = defaul
     }
     ws.binaryType = "arraybuffer";
     let open = false;
+    // Handlers live in variables behind accessors, not as `onmessage: null` in the
+    // literal: the carrier leaves only through resolve(), and Rollup would decide
+    // those properties stay null and delete the calls below, dropping every message.
+    let onmessage: MessageCarrier["onmessage"] = null;
+    let onclose: MessageCarrier["onclose"] = null;
     const carrier: MessageCarrier = {
-      onmessage: null,
-      onclose: null,
+      get onmessage() {
+        return onmessage;
+      },
+      set onmessage(f) {
+        onmessage = f;
+      },
+      get onclose() {
+        return onclose;
+      },
+      set onclose(f) {
+        onclose = f;
+      },
       send(m) {
         ws.send(m);
       },
@@ -243,8 +258,8 @@ export function webSocketCarrier(url: string, factory: WebSocketFactory = defaul
     };
     ws.onmessage = (ev) => {
       const d = ev.data;
-      if (d instanceof ArrayBuffer) carrier.onmessage?.(new Uint8Array(d));
-      else if (ArrayBuffer.isView(d)) carrier.onmessage?.(new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
+      if (d instanceof ArrayBuffer) onmessage?.(new Uint8Array(d));
+      else if (ArrayBuffer.isView(d)) onmessage?.(new Uint8Array(d.buffer, d.byteOffset, d.byteLength));
       // Text messages are not part of the protocol: ignore.
     };
     ws.onerror = () => {};
@@ -253,7 +268,7 @@ export function webSocketCarrier(url: string, factory: WebSocketFactory = defaul
       if (!open) {
         signal?.removeEventListener("abort", onAbort);
         reject(err ?? mdbaseError("unavailable", `cannot connect to ${url}`));
-      } else carrier.onclose?.(err);
+      } else onclose?.(err);
     };
   });
 }

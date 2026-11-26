@@ -24,11 +24,14 @@ import { MdbaseError } from "../src/errors.js";
 import { mdbaseError } from "../src/errors.js";
 import type { SyncStatus } from "../src/wire.js";
 import { AppLogPump, type AppLogCall, type AppLogRuntime, type AppLogTransport } from "../src/app-host/log-pump.js";
-import { encode, type CborValue } from "../src/cbor.js";
+import { encode, decode, type CborValue } from "../src/cbor.js";
 import { uuidToBytes } from "../src/codec.js";
 import { appServerProblem } from "../src/app-host/cp-problem.js";
 import { AppHttpLogTransport } from "../src/app-host/http-log.js";
 import { IDBFactory } from "fake-indexeddb";
+import { AppDeviceCustodyError } from "../src/app-host/device-custody-error.js";
+import { webSignInProblem } from "../src/app-host/web-sign-in-problem.js";
+import { describeError } from "../src/describe-error.js";
 import { createAppWebCollectionAdapter } from "../src/app-host/web-collection.js";
 import * as collectionSql from "../src/app-storage/collection-sql.js";
 import { AppWebSignInSession } from "../src/app-host/web-sign-in-session.js";
@@ -1008,6 +1011,141 @@ describe("owned cloud-copy outcome composition (IDB/native/CP stand-ins, actual 
             expect(c.reader.query).toHaveBeenCalledTimes(expected === "readable" ? 1 : 0);
         } finally {vi.useRealTimers(); await work; await c.host.close();}
     });
+    it.each([
+        {mode: "push_late", pushAt: 18_300, maxCompleteAt: 19_300},
+        {mode: "push_within_first_s", pushAt: 15_200, maxCompleteAt: 16_300},
+        {mode: "no_push", pushAt: null, maxCompleteAt: 32_500},
+        {mode: "socket_error", pushAt: null, maxCompleteAt: 32_500},
+        {mode: "auth_refusal", pushAt: null, maxCompleteAt: 32_500},
+    ] as const)("cold key wait with live push channel ($mode): wakes within ~1 s of pushed head and falls back to backoff", async ({mode, pushAt, maxCompleteAt}) => {
+        const c = await readableFixture();
+        vi.spyOn(AppCpLogAuthority.prototype, "isCurrent").mockReturnValue(true);
+        type Frame = Map<CborValue, CborValue>;
+        const sockets: FakeWs[] = [];
+        class FakeWs {
+            binaryType = "blob"; sent: unknown[] = []; closed: number | null = null;
+            onopen: (() => void) | null = null; onmessage: ((e: {data: unknown}) => void) | null = null;
+            onclose: ((e: {code: number}) => void) | null = null; onerror: (() => void) | null = null;
+            constructor(readonly url: string) {
+                sockets.push(this);
+                queueMicrotask(() => {
+                    if (mode === "socket_error") { this.onerror?.(); this.onclose?.({code: 1006}); return; }
+                    this.onopen?.();
+                });
+            }
+            send(data: unknown) {
+                this.sent.push(data);
+                if (!(data instanceof Uint8Array)) return;
+                const req = decode(data) as Frame;
+                const id = req.get(1) as number;
+                if (id === 1 && mode === "auth_refusal") {
+                    queueMicrotask(() => this.onmessage?.({data: encode(new Map<number, CborValue>([[0, 1], [1, 1], [3, new Map<number, CborValue>([[0, "forbidden"], [1, "not_authorized"]])]])).buffer}));
+                    return;
+                }
+                if (id === 1) queueMicrotask(() => this.onmessage?.({data: encode(new Map<number, CborValue>([[0, 1], [1, 1], [2, new Map()]])).buffer}));
+                if (id === 2) queueMicrotask(() => this.onmessage?.({data: encode(new Map<number, CborValue>([[0, 1], [1, 2], [2, new Map<number, CborValue>([[0, 10], [1, new Uint8Array(32).fill(1)]])]])).buffer}));
+            }
+            close(code = 1000) { this.closed = code; }
+            pushHead(head: number) {
+                const payload = new Map<number, CborValue>([[0, uuidToBytes(c.options.scope.collection)], [1, head], [2, new Uint8Array(32).fill(2)]]);
+                this.onmessage?.({data: encode(new Map<number, CborValue>([[0, 2], [1, "head"], [2, payload]])).buffer});
+            }
+        }
+        vi.stubGlobal("WebSocket", FakeWs);
+        const nonceFetch = vi.fn<typeof fetch>(async () => new Response("11".repeat(32)));
+        // Replica stall_read.rs backoff (FIRST_MS 1 s, MAX_MS 30 s) + hint on pushed head.
+        const FIRST_MS = 1_000, MAX_MS = 30_000;
+        let headKnown = 10, probedHead = 10, probedAt = 0, interval = FIRST_MS, deadline = FIRST_MS;
+        let grantHead = 10, keyed = false, queuedRead = false;
+        const applyHint = (now: number) => {
+            if (headKnown > probedHead) {
+                probedHead = headKnown;
+                deadline = Math.min(deadline, Math.max(probedAt + FIRST_MS, now));
+            }
+        };
+        const maybeQueueProbe = (now: number) => {
+            if (keyed) return;
+            applyHint(now);
+            if (now >= deadline) {
+                interval = Math.min(MAX_MS, interval * 2);
+                deadline = now + interval;
+                probedAt = now;
+                probedHead = headKnown;
+                queuedRead = true;
+            }
+        };
+        Object.assign(c.f.runtime, {
+            supportsLogPush: true,
+            signLogHello: vi.fn(() => new Uint8Array(64).fill(9)),
+            pushLog: vi.fn((frame: Uint8Array) => {
+                const m = decode(frame) as Frame;
+                const payload = m.get(2) as Frame;
+                const head = Number(payload.get(1) ?? 0);
+                if (head > headKnown) headKnown = head;
+                maybeQueueProbe(Date.now());
+                return true;
+            }),
+        });
+        c.f.runtime.tick.mockImplementation(() => { maybeQueueProbe(Date.now()); });
+        const observation = c.f.runtime.observations();
+        c.f.runtime.observations.mockImplementation(() => ({
+            ...observation,
+            status: {
+                ...observation.status, mode: "synced",
+                confirmedThrough: keyed ? grantHead : 2, headKnown,
+                incidents: keyed ? [] : [{kind: "waiting_for_key", details: {position: 3, reason: "no_grant"}}],
+            },
+        }));
+        c.pump.pump.mockImplementation(async () => {
+            if (queuedRead) {
+                queuedRead = false;
+                if (grantHead > 10) { headKnown = Math.max(headKnown, grantHead); keyed = true; }
+            }
+            return {quiet: true};
+        });
+        await c.host.startCollectionLog({signal: c.options.signal, fetch: nonceFetch});
+        vi.useFakeTimers({toFake: ["setTimeout", "clearTimeout", "setInterval", "clearInterval", "Date"]});
+        probedAt = Date.now();
+        deadline = probedAt + FIRST_MS;
+        const start = Date.now();
+        let completedAt: number | null = null, outcome = "opening";
+        const pushEnded: string[] = [];
+        const push = c.host.openLogPush({
+            push: frame => { c.host.pushLog(frame); },
+            live: () => {},
+            ended: reason => { pushEnded.push(reason); },
+        })!;
+        push.start();
+        const work = c.host.waitForVerifiedRead({signal: c.options.signal, cold: true}).then(
+            () => { outcome = "readable"; completedAt = Date.now() - start; },
+            error => { outcome = error.reason ?? "failed"; },
+        );
+        try {
+            // Advance past probes at 1, 3, 7 and 15 s (next backoff probe is 31 s).
+            const grantTime = pushAt ?? 18_300;
+            await vi.advanceTimersByTimeAsync(grantTime);
+            expect(outcome).toBe("opening");
+            grantHead = 11;
+            if (pushAt !== null) {
+                expect(sockets[0]).toBeDefined();
+                expect(push.live).toBe(true);
+                sockets[0]!.pushHead(11);
+                await vi.advanceTimersByTimeAsync(1_100);
+            } else {
+                if (mode === "auth_refusal") expect(pushEnded).toEqual(["forbidden"]);
+                // Still waiting before the 31 s backoff step; completes once backoff fires.
+                await vi.advanceTimersByTimeAsync(11_000);
+                expect(outcome).toBe("opening");
+                await vi.advanceTimersByTimeAsync(3_500);
+            }
+            await work;
+            expect(outcome).toBe("readable");
+            expect(completedAt).not.toBeNull();
+            expect(completedAt!).toBeLessThanOrEqual(maxCompleteAt);
+            if (pushAt !== null) expect(completedAt! - pushAt).toBeLessThanOrEqual(1_100);
+            expect(c.reader.query).toHaveBeenCalledOnce();
+        } finally { push.close(); vi.useRealTimers(); await c.host.close(); await work; }
+    });
     it("cold head growth without accepted prefix progress cannot hide a stalled replica", async () => {
         const c = await readableFixture();
         await c.host.startCollectionLog({signal: c.options.signal});
@@ -1593,6 +1731,7 @@ describe("production web host device composition ordering (platform/native/CP st
 describe("SAME installation-device host composition (platform/native/flow stand-ins)", () => {
     async function installationFixture(mode: "fresh" | "existing" = "fresh", completed = false) {
         const f = await fixture(mode);
+        vi.stubGlobal("indexedDB", new IDBFactory());
         let state: AppInstallationSignInView["state"] = completed ? "paired" : "account_confirmed";
         const view = () => ({state} as AppInstallationSignInView);
         const pending = vi.spyOn(AppWebNoiseCustody.prototype, "pending").mockImplementation(async () => {f.calls.push("protected-noise-pending");});
@@ -1650,6 +1789,38 @@ describe("SAME installation-device host composition (platform/native/flow stand-
         await expect(AppWebCloudCopyHost.openInstallationDevice(f.options)).rejects.toMatchObject({reason: "recovery_required"});
         expect(f.register).not.toHaveBeenCalled(); expect(f.signIn.acknowledge).not.toHaveBeenCalled(); expect(f.provider.close).toHaveBeenCalled();
         if (reason !== "receipt-without-credential") expect(f.openNative).not.toHaveBeenCalled();
+    });
+    it("a device never attested starts from empty custody: what a cut-off attempt left is removed first", async () => {
+        const f = await installationFixture("fresh");
+        const ids = [f.session.accountId, f.session.connectorId, f.session.deviceId, f.session.installationId];
+        const hex = ids.map(id => Array.from(uuidToBytes(id), b => b.toString(16).padStart(2, "0")).join("")).join(".");
+        const names = [`mdbase.app.device-key-kek.v1.${hex}`, `mdbase.app.device-keys.v1.${hex}`, `mdbase.app.noise.v1.${f.session.installationId}.${f.session.connectorId}.${f.session.deviceId}`];
+        // As left in a browser whose first attempt stopped after the key
+        // encryption key: one record there, the other two stores empty.
+        for (const [i, name] of names.entries()) await new Promise<void>((resolve, reject) => {
+            const request = indexedDB.open(name, 1);
+            request.onupgradeneeded = () => { const store = request.result.createObjectStore(["device-key-kek", "original-device-keys", "opaque-noise"][i]!); if (i === 0) store.put({version: 1}, "original-device-kek"); };
+            request.onsuccess = () => { request.result.close(); resolve(); }; request.onerror = () => reject(request.error);
+        });
+        f.providerOpen.mockImplementation(async () => {
+            f.calls.push("provider-open");
+            const listed = (await indexedDB.databases()).map(d => d.name);
+            for (const name of names) expect(listed).not.toContain(name);
+            return f.provider as unknown as AppIndexedDbDeviceKeyProvider;
+        });
+        const host = await AppWebCloudCopyHost.openInstallationDevice(f.options);
+        expect(f.providerOpen.mock.calls[0]![0]).toMatchObject({mode: "fresh"});
+        expect(f.openNative.mock.calls[0]![1]).toMatchObject({mode: "fresh"});
+        await host.close();
+    });
+    it("custody that cannot be cleared is a described refusal, never an unbounded open failure", async () => {
+        const f = await installationFixture("fresh");
+        vi.stubGlobal("indexedDB", {deleteDatabase: () => { throw Error("storage refused"); }, open: () => { throw Error("storage refused"); }});
+        await expect(AppWebCloudCopyHost.openInstallationDevice(f.options)).rejects.toBeInstanceOf(AppDeviceCustodyError);
+        expect(f.providerOpen).not.toHaveBeenCalled();
+        const problem = webSignInProblem(new AppDeviceCustodyError("app device key custody store unavailable"));
+        expect(problem).toMatchObject({problem: "device_keys_unavailable", detail: {name: "AppDeviceCustodyError", code: "device_keys_unavailable"}});
+        expect(describeError({code: problem.problem})).toMatchObject({key: "device_keys_unavailable", action: "reload"});
     });
     it("unconfirmed selection or foreign ownership refuses before attempt/provider", async () => {
         const f = await installationFixture(); f.signIn.confirmedHostSession.mockImplementation(() => {throw Error("account_confirmation_required");});

@@ -2,15 +2,30 @@
   grid-column: 4;
   display: flex;
   flex-direction: column;
-  padding: 18px var(--space-4) var(--space-4);
+  padding: 0 var(--space-4) var(--space-4);
   border-left: 1px solid var(--line);
   overflow: hidden;
 }
 
+/* The panel's bar lines up with the note's: same height, same rule. */
 .panel-header {
+  flex: none;
+  min-height: var(--pane-bar);
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-2);
+  margin: 0 calc(-1 * var(--space-4)) var(--space-2);
+  padding: 0 10px 0 var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.properties-panel-loading {
+  gap: var(--space-2);
+  padding-top: 18px;
+}
+
+.properties-panel-loading > strong {
+  font-size: var(--font-size-section);
 }
 
 .panel-header > div {
@@ -19,13 +34,13 @@
 }
 
 .properties-panel h2 {
-  margin: 2px 0 0;
+  margin: 0;
   font-size: var(--font-size-section);
   letter-spacing: -0.01em;
 }
 
 .panel-header p {
-  margin: var(--space-1) 0 0;
+  margin: 1px 0 0;
   overflow: hidden;
   color: var(--faint);
   font-size: var(--font-size-caption);
@@ -33,16 +48,19 @@
   white-space: nowrap;
 }
 
+/* What the file says about itself closes the panel, under what the note says. */
 .file-facts {
-  margin: var(--space-6) 0 18px;
+  flex: none;
+  margin: var(--space-3) 0 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--line);
 }
 
 .file-facts div {
   display: grid;
   grid-template-columns: 66px minmax(0, 1fr);
   gap: var(--space-2);
-  padding: 7px 0;
-  border-bottom: 1px solid var(--line);
+  padding: 3px 0;
 }
 
 .file-facts dt {
@@ -931,4 +949,201 @@ label.schema-value {
 .comments-toggle-count {
   font-size: var(--font-size-caption);
   font-variant-numeric: tabular-nums;
+}
+
+/* A link property: its links as chips, then the field that finds or makes another. */
+.link-property {
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.link-property-picker {
+  flex: 1 1 150px;
+  min-width: 0;
+}
+
+.link-property-picker .mdbase-link-picker-input {
+  min-height: 34px;
+  padding: 6px var(--space-2);
+  border-color: var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--canvas);
+  font-size: var(--font-size-ui);
+}
+
+.link-property-picker .mdbase-link-picker-input:focus {
+  border-color: var(--line-strong);
+  outline: 0;
+  background: var(--white);
+}
+
+/* Beside chips the field is one more item in the row, not a second control under them. */
+.link-chip ~ .link-property-picker .mdbase-link-picker-input {
+  min-height: 26px;
+  padding-block: 2px;
+}
+
+.link-property-add {
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  color: var(--faint);
+}
+
+.link-property-add:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--ink);
+}
+
+.link-property-add svg {
+  width: 13px;
+  height: 13px;
+}
+
+.link-property-add:disabled {
+  display: none;
+}
+
+.property-row.invalid .link-property-picker .mdbase-link-picker-input {
+  border-color: var(--danger);
+}
+
+/* The record's required properties inside the shared quick-create form (QuickCreateRecord).
+   A required property cannot be removed here, so its row keeps no room for the control that would. */
+.quick-create .mdbase-quick-create-fields .property-row {
+  padding-right: 0;
+}
+
+.quick-create .mdbase-quick-create-fields .property-row:last-child {
+  border-bottom: 0;
+}
+
+/* Note history, in the inspector. */
+.history-panel-body {
+  min-height: 0;
+  flex: 1;
+  margin: var(--space-3) calc(-1 * var(--space-2)) 0;
+  padding: 0 var(--space-2) var(--space-2);
+  overflow-y: auto;
+}
+
+.history-day + .history-day {
+  margin-top: var(--space-3);
+}
+
+.history-day h3 {
+  margin: 0 0 var(--space-1);
+  padding: 0 var(--space-1);
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.history-day ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.history-row {
+  width: 100%;
+  display: grid;
+  gap: 2px;
+  padding: 7px var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--ink);
+  text-align: left;
+}
+
+.history-row:hover {
+  background: var(--hover);
+}
+
+.history-row-author {
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-row-meta,
+.history-version-meta,
+.history-horizon,
+.history-status {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--font-size-caption);
+}
+
+.history-row-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-status,
+.history-horizon {
+  padding: var(--space-2) var(--space-1);
+}
+
+.history-older {
+  margin-top: var(--space-2);
+}
+
+.history-notice {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--canvas);
+  font-size: var(--font-size-ui);
+}
+
+.history-notice p {
+  margin: 0;
+}
+
+.history-version h3 {
+  margin: var(--space-3) 0 0;
+  font-size: var(--font-size-ui);
+  font-weight: var(--font-weight-semibold);
+}
+
+.history-version-meta {
+  margin-top: var(--space-1);
+}
+
+.history-version .diff-legend {
+  margin-top: var(--space-3);
+}
+
+.history-version .line-diff {
+  font-size: var(--font-size-caption);
+}
+
+.history-version .history-status {
+  padding: var(--space-3) 0;
+}
+
+.history-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.history-back svg {
+  width: 14px;
+  height: 14px;
+}
+
+.history-restore {
+  margin-top: var(--space-3);
 }

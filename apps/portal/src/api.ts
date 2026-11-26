@@ -46,6 +46,7 @@ export interface DevicePairing {
   signed_in_account_login?: string;
   selected_collection_id?: string | null;
   native_authorization_id?: string | null;
+  recovery_collection_id?: string;
   collection_hint?: string | null;
   can_create_collection?: boolean;
   creation?: {collection_id:string;display_name:string;completed:boolean} | null;
@@ -107,21 +108,6 @@ export interface HostedCollection {
   transferred_collection_id: string | null;
   created_at: string;
   replicas: HostedReplica[];
-}
-
-export interface AuthorityTransfer {
-  id: string;
-  collection_id: string;
-  replica_id: string;
-  state: "requested" | "approved" | "prepared" | "completed" | "cancelled" | "expired";
-  final_head: number | null;
-  authority_epoch: number | null;
-  manifest_digest: string | null;
-  expires_at: string;
-  verification_uri: string;
-  local_collection_id?: string;
-  collection_name?: string;
-  mirror_name?: string;
 }
 
 export interface PendingAuthorization {
@@ -226,7 +212,8 @@ export type ApplicationCapabilityId =
   | "views.manage"
   | "definitions.manage"
   | "background.schedule"
-  | "offline.replica";
+  | "offline.replica"
+  | "history.read";
 
 export type ApplicationFileAction =
   | "list" | "read" | "add" | "replace" | "move" | "delete";

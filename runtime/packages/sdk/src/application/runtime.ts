@@ -314,6 +314,10 @@ export class ApplicationRuntime {
   applySetup(plan:MdbaseSetupPlan,options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
     const caller=this.signal(options);return this.action(async()=>{await this.scope.applySetup(plan,{signal:caller});return this.settled();},caller);
   }
+  /** Stop waiting for Connect: signed out again, or the collection list when signed in. */
+  cancelAuthorization(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+    const caller=this.signal(options);return this.action(async()=>this.complete(await this.worker.request("cancelAuthorization",null,caller),caller),caller);
+  }
   clearSelection(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
     const caller=this.signal(options);return this.action(async()=>{
       ++this.epoch;await this.retireOwn();return this.complete(await this.worker.request("clearSelection",null,caller),caller);

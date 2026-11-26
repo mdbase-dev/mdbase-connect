@@ -66,24 +66,12 @@ For other catalog outputs, restore either side before invoking their generator.
 `ours` driver (which requires per-clone Git config and silently drops changes).
 Regeneration is the conflict resolution; no manual output merge is needed.
 
-## Prepare a beta
+## Release versions
 
-On a clean release-prep branch after ordinary PRs have merged:
-
-```bash
-pnpm version:set 0.1.0-beta.N --dry-run
-pnpm version:set 0.1.0-beta.N
-pnpm version:check
-pnpm check:changelog
-pnpm ci:local
-```
-
-Replace `N` with a higher positive beta number. The command validates all inputs
-before writing, updates the release cohort including the SDK manifest, npm lock
-and Obsidian SDK peer/local lock, assembles notes,
-and consumes the changelog fragments. It leaves the independently versioned
-editor, feedback service and Obsidian runtime's own version, registry dependencies,
-lock checksums, and engine pins unchanged. Review the
-resulting diff, then follow [Releasing](docs/releasing.md). The command does not
-commit, open a PR, tag, publish, or deploy. Pending fragments are required; add a
-release-specific infrastructure note if a release has no product changes.
+Connect releases use plain semver. Continuous release allocates each version
+from the fragments added to `changelog.d` since the previous release: any
+`## Breaking` fragment makes the next release a minor bump (we are pre-1.0),
+otherwise it is a patch bump. The first release after the `0.1.0-beta.N` line
+is `0.1.0`. Versions are stamped only into release builds; the source manifests
+are not release versions and are never bumped by hand. `pnpm version:check`
+keeps the workspace cohort on one source version.

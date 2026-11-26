@@ -1,6 +1,38 @@
 use super::*;
 
 #[test]
+fn saved_projects_contains_text_and_status_control_in_both_executors() {
+    for (filter, expected) in [
+        (
+            "projects.contains(\"planning\")",
+            vec!["a.md", "b.md", "c.md"],
+        ),
+        ("status == \"open\"", vec!["a.md", "c.md", "d.md", "e.md"]),
+    ] {
+        let (svc, mut node, _) = configured();
+        let source = format!("filters: {filter}\nviews: [{{type: table, order: [file.name]}}]\n");
+        node.create(11, "View.base", &source);
+        for (id, path, projects, status) in [
+            (1, "a.md", "[planning]", "open"),
+            (2, "b.md", "[planning, later]", "done"),
+            (3, "c.md", "[later, planning]", "open"),
+            (4, "d.md", "['[[Other]]']", "open"),
+            (5, "e.md", "[later]", "open"),
+        ] {
+            node.create(
+                id,
+                path,
+                &format!("---\nprojects: {projects}\nstatus: {status}\n---\n"),
+            );
+        }
+        settle(&mut [&mut node]);
+        let (captured, indexed) = run_both(node, &svc, &source);
+        assert_eq!(captured.unwrap(), expected);
+        assert_eq!(indexed.unwrap(), expected);
+    }
+}
+
+#[test]
 fn populated_custom_today_source_preserves_status_archive_and_planned_date_precedence() {
     // Original synthetic app output at 8be4dd96d185eb0983bf21b33249204c2bf4152b,
     // corpus app/10-custom-fields-statuses-Today. This protects whole execution,

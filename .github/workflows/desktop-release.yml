@@ -10,15 +10,22 @@ on:
   workflow_dispatch:
     inputs:
       operation:
-        description: On main, coordinate the next release; tagged runs are created by the coordinator
+        description: On main, coordinate the next release. On a release tag, release builds it (the coordinator does this) and rollout sets its rollout stage
         type: choice
-        options: [release]
+        options: [release, rollout]
         default: release
+      stage:
+        description: With rollout on a release tag, the stage to publish (held stops it for everyone)
+        type: choice
+        options: [held, early, '5', '25', '100']
+        default: held
   pull_request:
     paths:
       - ".github/workflows/desktop-release.yml"
       - "scripts/ci/desktop-test-plan.mjs"
       - "scripts/continuous-desktop-release.mjs"
+      - "scripts/desktop-rollout.mjs"
+      - "scripts/lib/desktop-rollout*"
       - "scripts/lib/continuous-*-release*"
       - "scripts/lib/ci-work-selection.test.mjs"
       - ".cargo/**"
@@ -40,9 +47,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: desktop-release-${{ github.event_name == 'pull_request' && github.ref || 'live' }}
+  group: desktop-release-${{ github.event_name == 'pull_request' && github.ref || inputs.operation == 'rollout' && format('rollout-{0}', github.ref_name) || 'live' }}
   # Explicit publication must finish once started. Pull-request regressions are
   # replaceable and should not make every superseded commit wait its turn.
+  # Rollout changes take their own group per tag: a pending run in a group is
+  # replaced by a newer one, and they must neither wait for a release build nor
+  # replace each other across releases.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
@@ -53,13 +63,13 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1
         with:
           node-version: 24
-      - run: node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs scripts/ci/desktop-make-macos.test.mjs
+      - run: node --test scripts/lib/continuous-client-release.test.mjs scripts/lib/continuous-desktop-release.test.mjs scripts/lib/desktop-rollout.test.mjs scripts/ci/desktop-make-macos.test.mjs
 
   coordinate:
     needs: release-policy-tests
     if: >-
       github.repository == 'mdbase-dev/mdbase-connect' && github.ref == 'refs/heads/main' &&
-      (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.operation == 'release') ||
       (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' && github.event.workflow_run.head_repository.full_name == github.repository))
     runs-on: ubuntu-24.04
@@ -70,6 +80,8 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       DESKTOP_RELEASE_STOPPED: ${{ vars.DESKTOP_RELEASE_STOPPED }}
       DESKTOP_RELEASE_ACKNOWLEDGED_TAG: ${{ vars.DESKTOP_RELEASE_ACKNOWLEDGED_TAG }}
+      DESKTOP_ROLLOUT_SERVICE: ${{ vars.DESKTOP_ROLLOUT_SERVICE }}
+      DESKTOP_ROLLOUT_HELD: ${{ vars.DESKTOP_ROLLOUT_HELD }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
@@ -237,9 +249,10 @@ jobs:
         with:
           token: ${{ github.token }}
           root: mdbase-connect
-      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
+      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once from clean node_modules'; find . -name node_modules -type d -prune -exec rm -rf {} +; pnpm install --frozen-lockfile; }
         # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
-        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        # esbuild), and a failed native build can leave partial bins. Installing writes nothing
+        # outside the runner, so one retry from clean node_modules is safe.
         shell: bash
       - name: Enforce release-readiness gates
         shell: bash
@@ -715,11 +728,52 @@ jobs:
             "${release_type[@]}" \
             --title "mdbase connect $GITHUB_REF_NAME"
 
+      - name: Start the staged rollout at early access
+        if: vars.DESKTOP_ROLLOUT_SERVICE != ''
+        env:
+          DESKTOP_ROLLOUT_SERVICE: ${{ vars.DESKTOP_ROLLOUT_SERVICE }}
+        run: node scripts/desktop-rollout.mjs publish early
+
       - name: Recheck production compatibility and stop switch immediately before publication
         run: node scripts/continuous-desktop-release.mjs compatible
 
       - name: Publish complete prerelease
         run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+
+  # Sets a published release's rollout stage. The coordinator widens releases
+  # here; people hold or widen them through ops `bin/release desktop rollout`.
+  # It runs from the release's own tag, so the document carries that release's
+  # signing identity, and holding a release never waits for a build.
+  rollout:
+    if: github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'rollout'
+    name: Set rollout stage
+    environment: desktop-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      DESKTOP_RELEASE_STOPPED: ${{ vars.DESKTOP_RELEASE_STOPPED }}
+      DESKTOP_ROLLOUT_SERVICE: ${{ vars.DESKTOP_ROLLOUT_SERVICE }}
+      STAGE: ${{ inputs.stage }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Install cosign
+        uses: ./.github/actions/install-cosign
+        with:
+          token: ${{ github.token }}
+      - name: Require a published release
+        run: test "$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false
+      - name: Sign and publish the rollout stage
+        run: node scripts/desktop-rollout.mjs publish "$STAGE"
 
   website-update:
     if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v') && inputs.operation == 'release' && needs.publish.result == 'success' }}
@@ -857,9 +911,10 @@ jobs:
         uses: ./.github/actions/prefetch-electron
         with:
           token: ${{ github.token }}
-      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
+      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once from clean node_modules'; find . -name node_modules -type d -prune -exec rm -rf {} +; pnpm install --frozen-lockfile; }
         # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
-        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        # esbuild), and a failed native build can leave partial bins. Installing writes nothing
+        # outside the runner, so one retry from clean node_modules is safe.
         shell: bash
       - run: pnpm build:packages
       - name: Build the shipped desktop JS bundles without native packaging
@@ -908,9 +963,10 @@ jobs:
         with:
           token: ${{ github.token }}
           root: mdbase-connect
-      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
+      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once from clean node_modules'; find . -name node_modules -type d -prune -exec rm -rf {} +; pnpm install --frozen-lockfile; }
         # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
-        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        # esbuild), and a failed native build can leave partial bins. Installing writes nothing
+        # outside the runner, so one retry from clean node_modules is safe.
         shell: bash
       - run: pnpm build:packages
       - name: Exercise the complete editor release build
@@ -968,9 +1024,10 @@ jobs:
         with:
           token: ${{ github.token }}
           root: mdbase-connect
-      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once'; pnpm install --frozen-lockfile; }
+      - run: pnpm install --frozen-lockfile || { echo '::warning::pnpm install failed; retrying once from clean node_modules'; find . -name node_modules -type d -prune -exec rm -rf {} +; pnpm install --frozen-lockfile; }
         # pnpm's temp-directory rename can race on macOS runners (ERR_PNPM_ENOENT on
-        # esbuild). Installing writes nothing outside the runner, so one retry is safe.
+        # esbuild), and a failed native build can leave partial bins. Installing writes nothing
+        # outside the runner, so one retry from clean node_modules is safe.
         shell: bash
       - id: version
         shell: bash

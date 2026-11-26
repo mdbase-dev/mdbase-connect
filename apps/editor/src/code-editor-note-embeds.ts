@@ -1,23 +1,27 @@
 import { t } from "@lingui/core/macro";
-import { isRevealed, livePreviewReveal } from "@mdbase-dev/ui/live-preview";
+import { BlockWidget, renderedBlocks } from "@mdbase-dev/ui/live-preview";
 import { i18n } from "@lingui/core";
-import type { Extension, Range } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, WidgetType, type ViewUpdate } from "@codemirror/view";
+import type { Extension } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 import type { ResolvedNoteEmbed } from "./note-embeds";
 import { embedActions, focusEmbedOnPointer } from "./embed-actions";
-import { embedPositions } from "./code-editor-embed-positions";
+import { embedPositions, visibleEmbeds } from "./code-editor-embed-positions";
 
 const noteEmbeds = embedPositions<ResolvedNoteEmbed>();
 
 /** Gives the editor a parse of the note's transclusions; see `embedPositions`. */
 export const parsedNoteEmbeds = noteEmbeds.parsed;
 
-class NoteEmbedWidget extends WidgetType {
+class NoteEmbedWidget extends BlockWidget {
   readonly locale = i18n.locale;
+  protected readonly heightKey: string;
   constructor(
     readonly reference: ResolvedNoteEmbed,
     readonly open: ((path: string) => void) | undefined
-  ) { super(); }
+  ) {
+    super();
+    this.heightKey = `note-embed:${reference.path ?? reference.target}#${reference.anchor ?? ""}`;
+  }
 
   eq(other: NoteEmbedWidget) {
     return this.locale === other.locale && Boolean(this.open) === Boolean(other.open)
@@ -30,8 +34,10 @@ class NoteEmbedWidget extends WidgetType {
       && this.reference.error === other.reference.error;
   }
 
-  toDOM() {
+  protected draw(_view: EditorView, hold: () => () => void) {
     const reference = this.reference;
+    // The note's content takes this widget's place when it arrives.
+    if (reference.status === "loading") hold();
     const region = document.createElement("section");
     region.className = `cm-note-embed ${reference.status}`;
     region.tabIndex = 0;
@@ -89,36 +95,10 @@ export function noteEmbedPresentation(
 ): Extension {
   return [
     noteEmbeds.field,
-    EditorView.decorations.compute([noteEmbeds.field, livePreviewReveal], (state) => {
-      const ranges = state.field(noteEmbeds.field).flatMap((reference): Range<Decoration>[] => {
-        const line = state.doc.lineAt(reference.from);
-        if (isRevealed(state, line.from, line.to)) return [];
-        return [Decoration.replace({
-          block: true,
-          widget: new NoteEmbedWidget(reference, onOpen())
-        }).range(line.from, line.to)];
-      });
-      return Decoration.set(ranges, true);
-    }),
-    ViewPlugin.fromClass(class {
-      private reported = "";
-
-      constructor(view: EditorView) { this.report(view); }
-
-      update(update: ViewUpdate) {
-        if (update.docChanged || update.viewportChanged || update.startState.field(noteEmbeds.field) !== update.state.field(noteEmbeds.field)) this.report(update.view);
-      }
-
-      private report(view: EditorView) {
-        const keys = view.state.field(noteEmbeds.field)
-          .filter((reference) => view.visibleRanges.some((range) => reference.from <= range.to && reference.to >= range.from))
-          .map((reference) => reference.key);
-        const fingerprint = keys.join("\n");
-        if (fingerprint === this.reported) return;
-        this.reported = fingerprint;
-        queueMicrotask(() => onVisible()?.(keys));
-      }
-    })
+    renderedBlocks.compute([noteEmbeds.field], (state) => state.field(noteEmbeds.field).map((reference) => (
+      { from: reference.from, to: reference.from, widget: new NoteEmbedWidget(reference, onOpen()) }
+    ))),
+    visibleEmbeds(noteEmbeds.field, (reference) => reference.key, onVisible)
   ];
 }
 

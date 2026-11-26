@@ -1,4 +1,4 @@
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { useBacklinks, useLinkTargets } from "./collection-links";
 import type { FileAssetStore } from "./file-asset-store";
 import type { CollectionFile, CollectionGateway, NoteSummary } from "./model";
@@ -6,7 +6,7 @@ import { useEmbeddedNoteReferences, type EmbedCacheOwner } from "./note-embeds";
 import { useEmbeddedFileAssets } from "./use-file-assets";
 import { useVisibleEmbedKeys } from "./use-visible-embed-keys";
 
-interface NoteSurfaceInput {
+export interface NoteSurfaceInput {
   gateway: CollectionGateway;
   assets: FileAssetStore;
   owner: EmbedCacheOwner;
@@ -21,7 +21,7 @@ interface NoteSurfaceInput {
 }
 
 /** What one editor shows around its note's text: where its links go, the files and notes it embeds, and
- * the notes that link to it. Each pane keeps its own, so moving the focus between panes changes none of it. */
+ * the notes that link to it. Each pane keeps its own (see PaneSurface), so moving the focus between panes changes none of it. */
 export function useNoteSurface({ gateway, assets, owner, path, source, revision, files, notes, types }: NoteSurfaceInput) {
   const visible = useVisibleEmbedKeys(path);
   const linkTargets = useLinkTargets(gateway, path, revision, files);
@@ -30,3 +30,5 @@ export function useNoteSurface({ gateway, assets, owner, path, source, revision,
   const backlinks = useBacklinks(gateway, path, revision, notes, types);
   return { linkTargets, embeddedFiles, embeddedNotes, backlinks, updateVisibleFiles: visible.updateFiles, updateVisibleNotes: visible.updateNotes };
 }
+
+export type NoteSurface = ReturnType<typeof useNoteSurface>;

@@ -2,51 +2,89 @@
  * and where the links written in it lead. The editor resolves nothing itself. */
 import { useLingui } from "@lingui/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import { gatewayError } from "./gateway";
-import type { CollectionFile, CollectionGateway, LinkTarget, NoteSummary } from "./model";
+import { collectionDisplayField } from "./field-reference";
+import type { Backlink, CollectionFile, CollectionGateway, LinkTarget, NoteSummary } from "./model";
 import { noteTitle } from "./note";
+import { internalLink } from "./links";
+
+/** A listed note that links to the open one. */
+export interface LinkingNote {
+  note: NoteSummary;
+  /** The properties its links are written in; none when they are all in its text. */
+  fields: string[];
+}
 
 export interface Backlinks {
   /** Listed referring notes, by title. A path not yet listed appears once it is. */
-  notes: NoteSummary[];
+  notes: LinkingNote[];
   loading: boolean;
   error?: string;
   retry(): void;
 }
 
-interface Loaded { path?: string; paths: string[]; loading: boolean; error?: string }
+/** Linking notes of one type, for a "Linked from" grouped the way a person
+ * thinks of them: the books by this author, the meetings with this person. */
+export interface BacklinkGroup {
+  /** The type's name; absent for notes without a declared type. */
+  type?: string;
+  icon?: string;
+  notes: LinkingNote[];
+}
+
+/** Linking notes by the first declared type of each, types in name order and
+ * untyped notes last. A note with several types is listed once. */
+export function backlinkGroups(notes: readonly LinkingNote[], types: readonly CollectionTypeDescriptor[]): BacklinkGroup[] {
+  const declared = new Map(types.map((type) => [type.name.toLocaleLowerCase(), type]));
+  const groups = new Map<string, BacklinkGroup>();
+  for (const linking of notes) {
+    const type = linking.note.types.map((name) => declared.get(name.toLocaleLowerCase())).find(Boolean);
+    const key = type?.name ?? "";
+    const group = groups.get(key) ?? { ...(type ? { type: type.name } : {}), icon: collectionDisplayField(type, "icon"), notes: [] };
+    group.notes.push(linking);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort((left, right) =>
+    Number(!left.type) - Number(!right.type) || (left.type ?? "").localeCompare(right.type ?? ""));
+}
+
+const EMPTY_LINKS: Backlink[] = [];
+
+interface Loaded { path?: string; links: Backlink[]; loading: boolean; error?: string }
 
 /** The replica's backlinks for the open note, refetched when records change.
  * Resolution is the collection's own; the editor does not scan for links. */
 export function useBacklinks(gateway: CollectionGateway, path: string | undefined, revision: number,
   listed: NoteSummary[], types: CollectionTypeDescriptor[]): Backlinks {
   const { i18n } = useLingui();
-  const [loaded, setLoaded] = useState<Loaded>({ paths: [], loading: false });
+  const [loaded, setLoaded] = useState<Loaded>({ links: [], loading: false });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!path) {
-      setLoaded({ paths: [], loading: false });
+      setLoaded({ links: [], loading: false });
       return;
     }
     const controller = new AbortController();
     // Keep the previous answer for the same note visible while it refreshes.
-    setLoaded(current => ({ path, paths: current.path === path ? current.paths : [], loading: true }));
+    setLoaded(current => ({ path, links: current.path === path ? current.links : [], loading: true }));
     gateway.backlinks(path, { signal: controller.signal }).then(
-      paths => { if (!controller.signal.aborted) setLoaded({ path, paths, loading: false }); },
-      (error: unknown) => { if (!controller.signal.aborted) setLoaded({ path, paths: [], loading: false, error: gatewayError(error) }); }
+      links => { if (!controller.signal.aborted) setLoaded({ path, links, loading: false }); },
+      (error: unknown) => { if (!controller.signal.aborted) setLoaded({ path, links: [], loading: false, error: gatewayError(error) }); }
     );
     return () => controller.abort();
   }, [gateway, path, revision, attempt]);
   const retry = useCallback(() => setAttempt(n => n + 1), []);
   const current = loaded.path === path;
-  const paths = current ? loaded.paths : [];
+  const links = current ? loaded.links : EMPTY_LINKS;
   const notes = useMemo(() => {
     const byPath = new Map(listed.map(note => [note.path, note]));
-    return paths.flatMap(path => byPath.get(path) ?? [])
-      .sort((a, b) => noteTitle(a, types).localeCompare(noteTitle(b, types)) || a.path.localeCompare(b.path));
+    return links.flatMap(({ path, fields }) => {
+      const note = byPath.get(path);
+      return note ? [{ note, fields }] : [];
+    }).sort((a, b) => noteTitle(a.note, types).localeCompare(noteTitle(b.note, types)) || a.note.path.localeCompare(b.note.path));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- titles follow the locale
-  }, [listed, paths, types, i18n.locale]);
+  }, [listed, links, types, i18n.locale]);
   return { notes, loading: loaded.loading, error: current ? loaded.error : undefined, retry };
 }
 
@@ -142,9 +180,4 @@ function rootedMarkdownLink(raw: string): string | undefined {
   const target = link?.[2];
   if (!link || !target || /^(?:\/|\.\.?\/)/.test(target) || !internalLink(target)) return undefined;
   return `${link[1]}/${raw.slice(link[1].length)}`;
-}
-
-/** Links an editor can ask the collection about: not external URLs. */
-export function internalLink(target: string): boolean {
-  return !/^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(target);
 }

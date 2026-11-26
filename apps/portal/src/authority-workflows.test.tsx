@@ -1,9 +1,9 @@
-import { act, fireEvent, render, screen, waitFor, within } from "./test/render";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "./test/render";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Pairing } from "./authority-workflows";
 import { api, ApiError, type DevicePairing } from "./api";
 vi.mock("./api", async importOriginal => ({...await importOriginal<typeof import("./api")>(),api:vi.fn()}));
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); localStorage.clear(); });
 function preparedPairing(): DevicePairing {
   return { connector_name: "Reader", approved_at: null, installation_device: true, kind: "app-runtime",
     account_selection_confirmed: true, attested: true, fingerprint: "1234-5678", account_email: "owner@example.test",
@@ -80,6 +80,39 @@ describe("approval collection chooser",()=>{
     await act(async () => finish({ pairing: { ...pairing, approved_at: "approved", selected_collection_id: "notes" } }));
     await screen.findByRole("heading", { name: "Reader can now use Notes" });
     expect(vi.mocked(api).mock.calls.filter(([path]) => path.endsWith("/approve"))).toHaveLength(1);
+  });
+
+  it("surfaces other mdbase apps and MCP on an approved pairing receipt on managed environments", async () => {
+    vi.stubGlobal("location", {
+      href: "https://connect.mdbase.dev/pair/pairing",
+      origin: "https://connect.mdbase.dev",
+      pathname: "/pair/pairing",
+      search: "",
+      hash: "",
+      replace: vi.fn(),
+      assign: vi.fn()
+    });
+    vi.mocked(api).mockReset().mockResolvedValue({
+      pairing: {
+        ...preparedPairing(),
+        app_origin: "https://reader.mdbase.dev",
+        approved_at: "2026-01-01T00:00:00Z",
+        selected_collection_id: "notes"
+      }
+    });
+    try {
+      render(<Pairing pairingId="pairing" />);
+      const discovery = await screen.findByRole("region", { name: "Also works with Notes" });
+      expect(within(discovery).getAllByRole("link", { name: /^Open / }).map((link) => link.getAttribute("href"))).toEqual([
+        "https://editor.mdbase.dev/?collection=notes",
+        "https://writer.mdbase.dev/?collection=notes",
+        "https://journal.mdbase.dev/?collection=notes",
+        "https://app.tasknotes.dev/?collection=notes"
+      ]);
+      expect(within(discovery).getByText("Claude, ChatGPT & Codex")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("moves Cancel focus to the real approval target while denial is pending", async () => {
@@ -184,13 +217,13 @@ describe("approval collection chooser",()=>{
     fireEvent.click(await screen.findByRole("option",{name}));
     expect(screen.getByRole("button",{name:`Open ${app}`})).toHaveAccessibleDescription(expect.stringContaining(name));
   });
-  async function privateChoice(native="native-request") {
+  async function privateChoice(native="native-request",extra:Partial<DevicePairing>={}) {
     vi.mocked(api).mockClear();
     vi.mocked(api).mockImplementation(async path=>String(path).endsWith("/approve") ? {ok:true} : {pairing:{
       connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:true,attested:true,
       account_email:"test@example.test",fingerprint:"1234-5678-1234-5678",native_authorization_id:native||null,
       requested_create_collections:true,can_create_collection:true,
-      collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}],
+      collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}],...extra,
     }});
     render(<Pairing pairingId="pairing"/>);
     fireEvent.click(await screen.findByRole("option",{name:"[test] Original Private"}));
@@ -204,6 +237,50 @@ describe("approval collection chooser",()=>{
     const approval=vi.mocked(api).mock.calls.find(([path])=>String(path).endsWith("/approve"))!;
     expect(JSON.parse(approval[1]!.body as string)).toEqual({fingerprint:"1234-5678-1234-5678",collection_ids:[],create_collections:false,selected_collection_id:"original-private",selected_collection_kind:"private"});
     expect(vi.mocked(api).mock.calls.some(([path])=>String(path).endsWith("/collections"))).toBe(false);
+  });
+  it("sends the person back to an app that must prepare while this page is in front (tasknotes-app#492)",async()=>{
+    await privateChoice("",{return_url:"org.example.reader://signed-in"});
+    expect(screen.getByRole("link",{name:"Continue in Reader"})).toHaveAttribute("href","org.example.reader://signed-in");
+  });
+  it("offers no way back once the app has prepared, or when the app gave none",async()=>{
+    await privateChoice("native-request",{return_url:"org.example.reader://signed-in"});
+    expect(screen.queryByRole("link",{name:"Continue in Reader"})).not.toBeInTheDocument();
+  });
+  it("without a return address only reports that the app is preparing",async()=>{
+    await privateChoice("");
+    expect(screen.queryByRole("link",{name:"Continue in Reader"})).not.toBeInTheDocument();
+  });
+  it("keeps the person's pick when the app opens the same approval page again (tasknotes-app#492)",async()=>{
+    await privateChoice("native-request",{return_url:"org.example.reader://signed-in"});
+    cleanup();
+    render(<Pairing pairingId="pairing"/>);
+    expect(await screen.findByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","true");
+    expect(screen.getByRole("button",{name:"Open Reader"})).toBeEnabled();
+  });
+  it("forgets an unapproved pick on reload when the app gave no way back",async()=>{
+    await privateChoice("native-request");
+    cleanup();
+    render(<Pairing pairingId="pairing"/>);
+    expect(await screen.findByRole("option",{name:"[test] Original Private"})).toHaveAttribute("aria-selected","false");
+  });
+  it("does not hold the page waiting for an app the person has to go back to first (tasknotes-app#492)",async()=>{
+    let confirmed=false;
+    vi.mocked(api).mockClear();
+    vi.mocked(api).mockImplementation(async path=>{
+      if(String(path).endsWith("/select-account")){confirmed=true;return {ok:true};}
+      if(String(path).endsWith("/approve"))return {ok:true};
+      return {pairing:{connector_name:"Reader",approved_at:null,installation_device:true,kind:"app-runtime",account_selection_confirmed:confirmed,attested:false,
+        account_email:"test@example.test",signed_in_account_email:"test@example.test",return_url:"org.example.reader://signed-in",
+        collections:[{collection_id:"original-private",display_name:"[test] Original Private",role:"owner",kind:"private"}]}};
+    });
+    render(<Pairing pairingId="pairing"/>);
+    fireEvent.click(await screen.findByRole("option",{name:"[test] Original Private"}));
+    fireEvent.click(screen.getByRole("button",{name:"Open Reader"}));
+    expect(await screen.findByRole("link",{name:"Continue in Reader"})).toHaveAttribute("href","org.example.reader://signed-in");
+    expect(screen.getAllByRole("status")[0]).toHaveTextContent("Continue in Reader to finish. This page opens again when it's ready.");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.queryByText(/couldn't prepare/)).not.toBeInTheDocument();
+    expect(vi.mocked(api).mock.calls.some(([path])=>String(path).endsWith("/approve"))).toBe(false);
   });
   it("does not approve Private from catalog metadata before its signed companion is prepared",async()=>{
     await privateChoice("");

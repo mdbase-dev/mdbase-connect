@@ -145,6 +145,8 @@ interface DesktopUpdateStatus {
   can_install: boolean;
   /** The bundled daemon was rolled back to the previous version; why. */
   daemon_notice?: string;
+  /** Take each release at its first rollout stage. */
+  early_access: boolean;
 }
 
 interface Window {
@@ -155,6 +157,7 @@ interface Window {
     updateStatus(): Promise<DesktopUpdateStatus>;
     checkForUpdates(): Promise<DesktopUpdateStatus>;
     installUpdate(): Promise<DesktopUpdateStatus>;
+    setEarlyAccess(enabled: boolean): Promise<DesktopUpdateStatus>;
     migrationStatus(): Promise<import("./takeover-state.mjs").TakeoverStatus & { running: boolean }>;
     startMigration(stopMirrors: boolean): Promise<unknown>;
     listCollections(): Promise<DaemonCollection[]>;
@@ -165,10 +168,9 @@ interface Window {
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<unknown>;
     enableSync(collectionId: string, mode: "private" | "cloud-copy", acceptTakeoverHolds: boolean): Promise<unknown>;
     collectionModeStatus(collectionId: string): Promise<unknown>;
-    changeCollectionMode(collectionId: string, targetMode: "private" | "cloud_copy", resume: boolean, cancel?: boolean): Promise<unknown>;
+    changeCollectionMode(collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }): Promise<unknown>;
     syncFiles(collectionId: string): Promise<SyncFiles>;
     setSyncFiles(collectionId: string, files: SyncFiles): Promise<SyncFiles>;
-    disableSync(collectionId: string): Promise<unknown>;
     listHolds(collectionId: string): Promise<HoldSummary[]>;
     resolveHold(collectionId: string, id: string, how: "keep_mine" | "take_theirs" | "keep_both" | "delete"): Promise<unknown>;
     openCollectionFolder(collectionId: string): Promise<void>;

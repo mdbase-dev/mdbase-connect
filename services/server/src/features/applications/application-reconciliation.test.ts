@@ -5,7 +5,7 @@ import {
   MalformedPersistedApplicationAuthorizationError
 } from "../../application-authorization.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import { HostedProviderUnavailableError } from "../hosted/hosted-provider.js";
+import { RelayUnavailableError } from "../relay/relay-errors.js";
 import type { RelayHub } from "../relay/relay.js";
 import {
   ApplicationReconciliationWorker,
@@ -28,17 +28,17 @@ describe("application reconciliation worker", () => {
       const successful = new Set<string>();
       const failed = fixture.grants[0][0];
       let failOnce = true;
-      const reconcile = vi.fn(async (_db, _relay, _provider, application, grantId?: string) => {
+      const reconcile = vi.fn(async (_db, _relay, application, grantId?: string) => {
         if (grantId === failed && failOnce) { failOnce = false; throw new Error("transient"); }
         successful.add(`${application.id}:${grantId}`);
       });
-      const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
+      const worker = new ApplicationReconciliationWorker(fixture.db, relay, () => undefined,
         60_000, 60_000, reconcile, timing);
       await worker.seedMissingJobs();
       await worker.drainUntilIdle();
       expect(successful.size).toBe(count + 1);
-      expect(reconcile.mock.calls.filter((call) => call[4] === fixture.grants[1][0])).toHaveLength(1);
-      expect(reconcile.mock.calls.filter((call) => call[4] !== failed)).toHaveLength(count);
+      expect(reconcile.mock.calls.filter((call) => call[3] === fixture.grants[1][0])).toHaveLength(1);
+      expect(reconcile.mock.calls.filter((call) => call[3] !== failed)).toHaveLength(count);
       const jobs = await fixture.db.query<{ state: string; cursor_grant_id: string | null }>(
         "SELECT state,cursor_grant_id FROM application_reconciliation_jobs");
       expect(jobs.rows.every((job) => job.state === "completed" && job.cursor_grant_id === null)).toBe(true);
@@ -52,14 +52,14 @@ describe("application reconciliation worker", () => {
     const transient = fixture.grants[0][1];
     const calls = new Map<string, number>();
     let deterministicFails = true;
-    const reconcile = vi.fn(async (_db, _relay, _provider, _application, grantId?: string) => {
+    const reconcile = vi.fn(async (_db, _relay, _application, grantId?: string) => {
       calls.set(grantId!, (calls.get(grantId!) ?? 0) + 1);
       if (grantId === deterministic && deterministicFails) {
         throw new MalformedPersistedApplicationAuthorizationError();
       }
       if (grantId === transient && (calls.get(grantId!) ?? 0) < 3) throw new Error("temporary body=secret");
     });
-    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined,
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay,
       (event) => events.push(event), 60_000, 60_000, reconcile, timing);
     await worker.seedMissingJobs();
     for (let i = 0; i < PERMANENT_QUARANTINE_ATTEMPTS; i += 1) {
@@ -108,9 +108,9 @@ describe("application reconciliation worker", () => {
     const deferred = new Promise<void>((resolve) => { release = resolve; });
     let active = 0; let peak = 0;
     const reconcile = vi.fn(async () => { active += 1; peak = Math.max(peak, active); await deferred; active -= 1; });
-    const first = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
+    const first = new ApplicationReconciliationWorker(fixture.db, relay, () => undefined,
       60_000, 60_000, reconcile, timing);
-    const second = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
+    const second = new ApplicationReconciliationWorker(fixture.db, relay, () => undefined,
       60_000, 60_000, reconcile, timing);
     await first.seedMissingJobs();
     const running = first.drain();
@@ -140,7 +140,7 @@ describe("application reconciliation worker", () => {
     const blocked = new Promise<void>((resolve) => { release = resolve; });
     let active = 0; let peak = 0;
     const reconcile = vi.fn(async () => { active += 1; peak = Math.max(peak, active); started(); await blocked; active -= 1; });
-    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay, () => undefined,
       60_000, 60_000, reconcile, timing);
     const first = worker.drain(); const second = worker.drain();
     await entered;
@@ -153,7 +153,7 @@ describe("application reconciliation worker", () => {
   it("emits only closed fields and repeated ensure never resets job state", async () => {
     const fixture = await makeFixture([1]); const events: unknown[] = [];
     const error = Object.assign(new Error("body secret"), { url: "https://secret", applicationId: randomUUID(), body: "secret" });
-    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, (event) => events.push(event),
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay, (event) => events.push(event),
       60_000, 60_000, async () => { throw error; }, timing);
     await worker.seedMissingJobs();
     await fixture.db.query(`UPDATE application_reconciliation_jobs SET state='completed',phase='scan',
@@ -171,11 +171,11 @@ describe("application reconciliation worker", () => {
   it("uses consecutive same-class failures and keeps arbitrary type errors internal", async () => {
     expect(classifyError(new TypeError("bug"))).toBe("internal");
     const fixture = await makeFixture([1]);
-    const errors = [new HostedProviderUnavailableError(new Error()),
-      new HostedProviderUnavailableError(new Error()),
+    const errors = [new RelayUnavailableError("relay down"),
+      new RelayUnavailableError("relay down"),
       new ApplicationAuthorizationError(), new MalformedPersistedApplicationAuthorizationError(),
       new ApplicationAuthorizationError()];
-    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay, () => undefined,
       60_000, 60_000, async () => { throw errors.shift()!; }, timing);
     await worker.seedMissingJobs();
     for (let index = 0; index < 5; index += 1) {
@@ -191,7 +191,7 @@ describe("application reconciliation worker", () => {
 
   it("claims due completed scans on the ordinary poll without a seed call", async () => {
     const fixture = await makeFixture([1]); const reconcile = vi.fn(async () => undefined);
-    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay, () => undefined,
       60_000, 6 * 60 * 60_000, reconcile, { ...timing, scanMs: 5 });
     await worker.seedMissingJobs(); await worker.drain();
     reconcile.mockClear(); await wait(10); await worker.drain();
@@ -209,8 +209,8 @@ describe("application reconciliation worker", () => {
   it("seeds missing jobs, wakes due scans, coalesces registration, and fairly services a small app", async () => {
     const fixture = await makeFixture([60, 1]);
     const order: string[] = [];
-    const worker = new ApplicationReconciliationWorker(fixture.db, relay, undefined, () => undefined,
-      60_000, 60_000, async (_db, _relay, _provider, app) => { order.push(app.id); }, timing);
+    const worker = new ApplicationReconciliationWorker(fixture.db, relay, () => undefined,
+      60_000, 60_000, async (_db, _relay, app) => { order.push(app.id); }, timing);
     await worker.seedMissingJobs();
     await worker.drainUntilIdle();
     expect(order.indexOf(fixture.applications[1])).toBeLessThan(51);

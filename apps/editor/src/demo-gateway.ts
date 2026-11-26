@@ -1,21 +1,11 @@
-import { normalizeCollectionChange } from "@mdbase-dev/connect";
+import { normalizeCollectionChange } from "./connect-types";
+import { mdbaseError } from "@mdbase-dev/sdk";
 import mdbaseReadme from "../../../templates/mdbase/README.md?raw";
 import { observeDemo } from "./demo-observe";
-import type {
-  CollectionChange,
-  CollectionContractDescriptor,
-  CollectionDescription,
-  CollectionFileDescriptor,
-  CollectionTypeDescriptor,
-  CollectionTypeDocument,
-  JsonObject,
-  MdbaseDiagnostic,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
+import type { CollectionChange, CollectionContractDescriptor, CollectionDescription, CollectionFileDescriptor, CollectionTypeDescriptor, CollectionTypeDocument, JsonObject, MdbaseDiagnostic, TypePackAssessment, TypePackProvision } from "./connect-types";
 import { parse } from "yaml";
 import { createdBody } from "./note";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { MdbaseRecordChange } from "./record-session";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import type {
   CollectionGateway,
@@ -24,6 +14,7 @@ import type {
   CollectionSessionSnapshot,
   ConnectionSummary,
   CreateNoteInput,
+  Backlink,
   LinkTarget,
   NoteDocument,
   NoteContentRequest,
@@ -32,7 +23,9 @@ import type {
   FileListRequest,
   FileReadRequest,
   FileUploadRequest,
+  NoteHistoryReader,
   NoteSummary,
+  NoteVersion,
   RenamePreflight,
   DeletePreflight,
   MutationOperationOptions,
@@ -40,7 +33,7 @@ import type {
 } from "./model";
 
 export class DemoCollectionGateway implements CollectionGateway {
-  pendingNoteMutations(): readonly import("@mdbase-dev/connect").PendingMutationSummary[] { return []; }
+  pendingNoteMutations(): readonly import("./connect-types").PendingMutationSummary[] { return []; }
   async recoverNoteMutation(_requestId: string): Promise<NoteDocument> {
     throw new Error("No interrupted note operation is available.");
   }
@@ -49,6 +42,24 @@ export class DemoCollectionGateway implements CollectionGateway {
   private fileContents = new Map<string, Blob>(demoFileContents());
   private sequence = 1;
   private changeCursor = 0;
+  /** Every note's versions, oldest first, at positions in one demo log. */
+  private versions = new WeakMap<NoteDocument, DemoVersion[]>();
+  private logPosition = 0;
+  readonly noteHistory: NoteHistoryReader = {
+    list: async (path, { before } = {}) => {
+      const older = this.versions.get(this.required(path))!
+        .filter(({ version }) => before === undefined || version.seq < before)
+        .reverse();
+      const versions = older.slice(0, DEMO_HISTORY_PAGE).map(({ version }) => clone(version));
+      const next = older.length > versions.length ? versions.at(-1)!.seq : undefined;
+      return next === undefined ? { versions, from: 1 } : { versions, from: next, next };
+    },
+    version: async (path, seq) => {
+      const kept = this.versions.get(this.required(path))!.find(({ version }) => version.seq === seq);
+      if (!kept) throw mdbaseError("not_found", "This version is no longer kept.", "version_compacted");
+      return kept.document;
+    }
+  };
   private typeSequence = 1;
   private contractDescriptors: CollectionContractDescriptor[] = [];
   private packResources = new Map<string, string>();
@@ -67,6 +78,9 @@ export class DemoCollectionGateway implements CollectionGateway {
     const readme = demoDocument("_mdbase/README.md", "mdbase", mdbaseReadme.replace("# mdbase\n\n", ""), 1);
     readme.file.mtime = "2020-08-01T00:00:00Z";
     this.notes.push(readme);
+    // Every demo note starts its history created at its modified time.
+    const created = (note: NoteDocument) => Date.parse(note.file!.mtime!);
+    for (const note of [...this.notes].sort((a, b) => created(a) - created(b))) this.keep(note, "created", created(note));
     this.openingDelay = Math.max(0, Math.min(openingDelay, 10_000));
   }
 
@@ -133,7 +147,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     for (const listener of this.sessionListeners) listener(snapshot);
   }
 
-  observe(options: import("@mdbase-dev/connect").ObserveOptions = {}) {
+  observe(options: import("./connect-types").ObserveOptions = {}) {
     return observeDemo(this, options);
   }
 
@@ -198,17 +212,29 @@ export class DemoCollectionGateway implements CollectionGateway {
     return this.notes.filter((note) => (note.body ?? "").toLowerCase().includes(term)).map((note) => note.path);
   }
 
-  async backlinks(path: string): Promise<string[]> {
+  /** Demo-only stand-in for the runtime's `file.hasTag`: the tag or one nested under it. */
+  async searchTag(tag: string): Promise<string[]> {
+    const wanted = tag.replace(/^#+/, "");
+    return this.notes
+      .filter((note) => demoTags(note.frontmatter, note.body ?? "").some((name) => name === wanted || name.startsWith(`${wanted}/`)))
+      .map((note) => note.path);
+  }
+
+  async backlinks(path: string): Promise<Backlink[]> {
     await delay(5);
     const target = path.replace(/\.md$/i, "");
     const stem = target.split("/").pop();
-    return this.notes
-      .filter((note) => note.path !== path && demoLinks(note.body ?? "").some((link) => {
-        const name = link.replace(/\.md$/i, "");
-        return name === target || name === stem;
-      }))
-      .map((note) => note.path)
-      .sort();
+    const here = (link: string) => {
+      const name = link.replace(/\.md$/i, "");
+      return name === target || name === stem;
+    };
+    return this.notes.flatMap((note) => {
+      if (note.path === path) return [];
+      // Like the collection: a property's whole value, or a list item, that is a wikilink.
+      const fields = Object.entries(note.frontmatter).flatMap(([field, value]) =>
+        (Array.isArray(value) ? value : [value]).some((item) => typeof item === "string" && /^\[\[[^\]]+\]\]$/.test(item.trim()) && demoLinks(item).some(here)) ? [field] : []);
+      return fields.length || demoLinks(note.body ?? "").some(here) ? [{ path: note.path, fields }] : [];
+    }).sort((left, right) => left.path.localeCompare(right.path));
   }
 
   async resolveLinks(from: string, links: readonly string[]): Promise<LinkTarget[]> {
@@ -241,7 +267,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     return blob;
   }
 
-  async uploadFile(path: string, source: import("@mdbase-dev/connect").MdbaseFileSource, { signal, onProgress }: FileUploadRequest = {}): Promise<CollectionFile> {
+  async uploadFile(path: string, source: import("./connect-types").MdbaseFileSource, { signal, onProgress }: FileUploadRequest = {}): Promise<CollectionFile> {
     signal?.throwIfAborted();
     if (this.files.some((file) => file.path.toLowerCase() === path.toLowerCase())) throw new Error("A file already uses that path.");
     const blob = source instanceof Blob
@@ -285,6 +311,7 @@ export class DemoCollectionGateway implements CollectionGateway {
       embeds: demoEmbeds(note.body)
     };
     this.notes.unshift(note);
+    this.keep(note, "created");
     this.emit("mdbase.record.created", { path: note.path, types: note.types });
     return clone(note);
   }
@@ -297,6 +324,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     restored.revision = `demo-${this.sequence++}`;
     restored.document ??= composeRecordSource(restored.frontmatter, restored.body ?? "");
     this.notes.unshift(restored);
+    this.keep(restored, "created");
     this.emit("mdbase.record.created", { path: restored.path, types: restored.types });
     return clone(restored);
   }
@@ -608,7 +636,7 @@ export class DemoCollectionGateway implements CollectionGateway {
     };
   }
 
-  async watch(onChange: (change?: import("@mdbase-dev/connect").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("@mdbase-dev/connect").WatchStatus) => void): Promise<void> {
+  async watch(onChange: (change?: import("./connect-types").CollectionChange) => void, signal: AbortSignal, onStatus?: (status: import("./connect-types").WatchStatus) => void): Promise<void> {
     onStatus?.({ state: "connecting" });
     onStatus?.({ state: "connected", cursor: this.sequence, recovered: false });
     this.listeners.add(onChange);
@@ -639,7 +667,18 @@ export class DemoCollectionGateway implements CollectionGateway {
       links: demoLinks(note.body ?? ""),
       embeds: demoEmbeds(note.body ?? "")
     };
+    this.keep(note, changeType === "mdbase.record.renamed" ? "moved" : "edited");
     this.emit(changeType, payload);
+  }
+
+  private keep(note: NoteDocument, kind: NoteVersion["kind"], time = Date.now()) {
+    const version: NoteVersion = {
+      seq: ++this.logPosition, time, author: DEMO_AUTHOR, kind, path: note.path, revision: note.revision,
+      source: "api", deviceKind: "app_runtime", app: "dev.mdbase.editor"
+    };
+    const kept = this.versions.get(note) ?? [];
+    kept.push({ version, document: note.document! });
+    this.versions.set(note, kept);
   }
 
   private emit(type: string, payload: JsonObject) {
@@ -659,6 +698,7 @@ export class DemoCollectionGateway implements CollectionGateway {
         .replaceAll(`](${from}`, `](${to}`);
       if (nextBody === note.body) continue;
       note.body = nextBody;
+      note.document = composeRecordSource(note.frontmatter, nextBody);
       this.bump(note);
     }
   }
@@ -675,6 +715,18 @@ export class DemoCollectionGateway implements CollectionGateway {
     });
   }
 }
+
+interface DemoVersion {
+  version: NoteVersion;
+  document: string;
+}
+
+const DEMO_HISTORY_PAGE = 50;
+const DEMO_AUTHOR = {
+  account: "6f1d2c3b-4a5e-4f60-8172-9a0b1c2d3e4f",
+  device: "0e9d8c7b-6a5f-4e3d-9c2b-1a0f9e8d7c6b",
+  grant: "3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f"
+};
 
 const DEMO_TYPE_SOURCE = `---
 kind: mdbase.type

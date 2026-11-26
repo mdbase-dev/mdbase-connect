@@ -641,6 +641,7 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
         .insert(1, vec!["i:pending".into(), "p:pending.md".into()]);
     let catalog = Arc::as_ptr(&n.r.catalog);
     let reindexed = n.r.stats.reindexed;
+    let written = n.r.store.data().borrow().records_written;
     let a = apply(&mut n.r, &c);
     assert_ne!(
         Arc::as_ptr(&n.r.catalog),
@@ -650,7 +651,7 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
     let mut want = entry(&a, &c.payload);
     want.resources = vec![("_types/task.md".into(), TYPE.into())];
     want.settings = Some(inclusion);
-    want.record_meta_stamp = Some(record_meta_stamp(&want.resources));
+    want.record_meta_stamp = Some(record_meta_stamp(&n.r.catalog));
     want.records.push(stored(
         &n.r,
         B,
@@ -671,7 +672,10 @@ fn resource_effects_replace_the_catalog_and_retype_every_record() {
         "the fixture is typed by the entry"
     );
     assert_eq!(a.after, want);
+    // Every record is visited; the entry writes its own record under the new
+    // catalog, and the reindex writes back only the two it retypes.
     assert_eq!(n.r.stats.reindexed - reindexed, 3);
+    assert_eq!(n.r.store.data().borrow().records_written - written, 3);
     assert_eq!(
         a.changed,
         keys(&[
@@ -1267,7 +1271,7 @@ fn read_fault_after_the_commit_is_applied_and_fenced() {
     let outcome = drive(&mut n.r, head, &c, &mut changed).unwrap();
     assert!(matches!(outcome, Outcome::Applied), "{outcome:?}");
     assert_eq!(n.r.store.head().unwrap(), head);
-    assert!(n.r.apply_fault);
+    assert!(n.r.apply_fault.is_some());
     assert_eq!(
         moved(&before, &memory(&n.r)),
         [
@@ -1839,19 +1843,13 @@ fn read_faults_by_read() {
             "legacy effects",
             every_legacy_arm,
             "file record tombstone record file tombstone file record_at file_at record_at \
-             file_at resources pending_get holds record record resources resources",
-            // The two captures of what the disk shows, then the catalog reload.
-            &[
-                (14, "applied"),
-                (15, "applied"),
-                (17, "error after the commit"),
-            ],
+             file_at resources pending_get holds record record resources",
+            &[(14, "applied"), (15, "applied")],
             &[
                 (0, &[]),
                 (13, &["changed"]),
                 (14, ALL_CATALOG),
                 (16, &["before", "policy", "changed"]),
-                (17, ALL_CATALOG),
             ],
         ),
         (

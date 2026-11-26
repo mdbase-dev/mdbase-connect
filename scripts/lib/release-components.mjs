@@ -66,9 +66,8 @@ export async function validateReleaseComponents(contract, { root = process.cwd()
   }
 
   const dependencyIds = new Set();
-  if (!Array.isArray(contract.sourceDependencies) ||
-      contract.sourceDependencies.length === 0) {
-    failures.push("sourceDependencies must be a non-empty array");
+  if (!Array.isArray(contract.sourceDependencies)) {
+    failures.push("sourceDependencies must be an array");
   } else {
     for (const [index, dependency] of contract.sourceDependencies.entries()) {
       const name = `sourceDependencies[${index}]`;
@@ -91,7 +90,6 @@ export async function validateReleaseComponents(contract, { root = process.cwd()
       }
     }
   }
-  if (!dependencyIds.has("mdbase-rs")) failures.push("mdbase-rs source dependency is required");
 
   const componentIds = new Set();
   const images = new Set();
@@ -133,7 +131,7 @@ export async function validateReleaseComponents(contract, { root = process.cwd()
     }
   }
 
-  for (const id of ["connect", "hosted-provider", "mcp"]) {
+  for (const id of ["connect", "mcp"]) {
     if (!componentIds.has(id)) failures.push(`required component ${id} is missing`);
   }
   return failures;
@@ -201,9 +199,6 @@ export function buildReleaseBundle(contract, records, metadata) {
   }
   if (!SHA.test(metadata.commit ?? "")) failures.push("bundle commit is invalid");
   if (!VERSION.test(metadata.version ?? "")) failures.push("bundle version is invalid");
-  if (!SHA.test(metadata.mdbaseRsRevision ?? "")) {
-    failures.push("bundle mdbase-rs revision is invalid");
-  }
   for (const field of ["qualificationRunId", "qualificationRunAttempt",
     "publicationRunId", "publicationRunAttempt"]) {
     if (!Number.isSafeInteger(metadata[field]) || metadata[field] < 1) {
@@ -217,7 +212,7 @@ export function buildReleaseBundle(contract, records, metadata) {
     repository: contract.repository,
     commit: metadata.commit,
     version: metadata.version,
-    sourceDependencies: { "mdbase-rs": metadata.mdbaseRsRevision },
+    sourceDependencies: {},
     qualification: {
       workflow: "server-ci.yml",
       runId: metadata.qualificationRunId,
@@ -243,8 +238,14 @@ export function validateReleaseBundle(contract, bundle) {
   if (bundle.repository !== contract.repository) failures.push("bundle repository is invalid");
   if (!SHA.test(bundle.commit ?? "")) failures.push("bundle commit is invalid");
   if (!VERSION.test(bundle.version ?? "")) failures.push("bundle version is invalid");
-  if (!SHA.test(bundle.sourceDependencies?.["mdbase-rs"] ?? "")) {
-    failures.push("bundle mdbase-rs revision is invalid");
+  if (!requireObject(bundle.sourceDependencies, "bundle.sourceDependencies", failures)) {
+    // recorded
+  } else {
+    for (const dependency of contract.sourceDependencies ?? []) {
+      if (!SHA.test(bundle.sourceDependencies[dependency.id] ?? "")) {
+        failures.push(`bundle ${dependency.id} revision is invalid`);
+      }
+    }
   }
   for (const [name, identity] of [["qualification", bundle.qualification],
     ["publication", bundle.publication]]) {

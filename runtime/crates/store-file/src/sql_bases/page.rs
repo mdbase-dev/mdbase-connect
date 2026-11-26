@@ -134,14 +134,11 @@ fn metadata(row: &[SqlValue], request: &QueryProjectionRequest) -> StoreResult<M
     }
     // Conservative complete retained payload accounting, including presence
     // markers for requested names absent from the stored map. Never source text.
+    let need_fields = !request.fields.is_empty() || request.full_frontmatter;
     let billed = 128
         + path_bytes
         + 8 * request.fields.len() as u64
-        + if request.fields.is_empty() {
-            0
-        } else {
-            field_bytes
-        }
+        + if need_fields { field_bytes } else { 0 }
         + if request.tags { tag_bytes } else { 0 };
     Ok(Meta {
         id,
@@ -161,8 +158,9 @@ pub(crate) fn page<I: IndexStorage>(
     request: &QueryProjectionRequest,
 ) -> StoreResult<QueryProjectionPage> {
     request.check()?;
+    let need_fields = !request.fields.is_empty() || request.full_frontmatter;
     let projection_params = vec![
-        SqlValue::Integer(i64::from(!request.fields.is_empty())),
+        SqlValue::Integer(i64::from(need_fields)),
         SqlValue::Integer(i64::from(request.tags)),
     ];
     let batch_limit =
@@ -225,7 +223,7 @@ pub(crate) fn page<I: IndexStorage>(
         index,
         Stmt::new(
             format!(
-                "SELECT CASE WHEN length(id)=16 THEN id ELSE NULL END,CASE WHEN length(source_sha)=32 THEN source_sha ELSE NULL END,source_bytes,length(path),length(fields),length(tags) FROM st_qraw q WHERE {condition} ORDER BY id LIMIT CAST(? AS INTEGER)"
+                "SELECT CASE WHEN length(id)=16 THEN id ELSE NULL END,CASE WHEN length(source_sha)=32 THEN source_sha ELSE NULL END,source_bytes,length(path),length(fields),length(tags) FROM st_qraw q WHERE ({condition}) AND {READABLE} ORDER BY id LIMIT CAST(? AS INTEGER)"
             ),
             params,
         ),
@@ -302,17 +300,22 @@ pub(crate) fn page<I: IndexStorage>(
             return Err(corrupt());
         }
         let path = String::from_utf8(bytes(path)?.to_vec()).map_err(|_| corrupt())?;
-        let fields = if request.fields.is_empty() {
+        let (fields, raw_frontmatter) = if !need_fields {
             if !matches!(fields, SqlValue::Null) {
                 return Err(corrupt());
             }
-            vec![]
+            (vec![], None)
         } else {
             let encoded = bytes(fields)?;
             if encoded.len() as u64 != meta.field_bytes {
                 return Err(corrupt());
             }
-            values::fields(encoded, &request.fields)?
+            if request.full_frontmatter {
+                let (selected, full) = values::all_fields(encoded, &request.fields)?;
+                (selected, Some(full))
+            } else {
+                (values::fields(encoded, &request.fields)?, None)
+            }
         };
         let tags = if !request.tags {
             if !matches!(tags, SqlValue::Null) {
@@ -333,6 +336,7 @@ pub(crate) fn page<I: IndexStorage>(
             source_bytes: meta.source_bytes,
             fields,
             tags,
+            raw_frontmatter,
         });
     }
     fence(index, request)?;

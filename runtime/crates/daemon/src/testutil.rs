@@ -34,3 +34,67 @@ impl Drop for TestDir {
         let _ = std::fs::remove_dir_all(&self.0);
     }
 }
+
+pub(crate) async fn json_request(
+    listener: &tokio::net::TcpListener,
+) -> (tokio::net::TcpStream, String, serde_json::Value) {
+    use tokio::io::AsyncReadExt;
+    let (mut socket, _) = listener.accept().await.unwrap();
+    let mut bytes = Vec::new();
+    let end = loop {
+        let mut chunk = [0; 1024];
+        let read = socket.read(&mut chunk).await.unwrap();
+        assert!(read > 0);
+        bytes.extend_from_slice(&chunk[..read]);
+        assert!(bytes.len() <= 8192);
+        if let Some(end) = bytes.windows(4).position(|b| b == b"\r\n\r\n") {
+            break end + 4;
+        }
+    };
+    let headers = String::from_utf8(bytes[..end].to_vec()).unwrap();
+    let length: usize = headers
+        .lines()
+        .find_map(|line| {
+            line.to_ascii_lowercase()
+                .strip_prefix("content-length: ")
+                .map(|value| value.parse().unwrap())
+        })
+        .unwrap_or(0);
+    assert!(length + end <= 8192);
+    while bytes.len() < end + length {
+        let mut chunk = [0; 1024];
+        let read = socket.read(&mut chunk).await.unwrap();
+        assert!(read > 0);
+        bytes.extend_from_slice(&chunk[..read]);
+    }
+    let path = headers
+        .lines()
+        .next()
+        .unwrap()
+        .split_whitespace()
+        .nth(1)
+        .unwrap()
+        .to_owned();
+    let body = if length == 0 {
+        serde_json::Value::Null
+    } else {
+        serde_json::from_slice(&bytes[end..end + length]).unwrap()
+    };
+    (socket, path, body)
+}
+
+pub(crate) async fn json_reply(mut socket: tokio::net::TcpStream, value: serde_json::Value) {
+    use tokio::io::AsyncWriteExt;
+    let body = serde_json::to_string(&value).unwrap();
+    socket
+        .write_all(
+            format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+}

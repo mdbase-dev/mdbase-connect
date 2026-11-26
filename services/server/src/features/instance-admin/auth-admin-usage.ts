@@ -1,7 +1,6 @@
 export function usage(): string {
   return [
     "Usage:",
-    "  auth-admin archive drain-deletions --cohort <name> --expected-revision <sha> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin repairs authority-import-sources --expected-revision <sha> --expected-executable-sha256 <sha256> --expected-migration-sha256 <sha256> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin policy-outbox unpark --collection <uuid> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin policy show",
@@ -16,7 +15,6 @@ export function usage(): string {
     "  auth-admin entitlements show --user <uuid|email>",
     "  auth-admin entitlements grant --user <uuid|email> --profile <code> --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin entitlements backfill-free --operation-id <uuid> --actor <id> --reason <text> [--limit <n>]",
-    "  auth-admin entitlements reconcile (--user <uuid|email> | --all enabled | --active-hosted enabled) --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin announcements create --announcement <slug> --subject <text> --body <text> [--beta-body <text>] --operation-id <uuid> --actor <id> --reason <text>",
     "  auth-admin announcements show --announcement <slug> [--version <n>] [--user <uuid|email>]",
     "  auth-admin announcements preview --announcement <slug> (--user <uuid|email> | --all enabled)",

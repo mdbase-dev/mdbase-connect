@@ -219,10 +219,15 @@ async fn relay_refusals_follow_the_shared_server_close_contract() {
         let refusal = daemon
             .authority
             .authorize_session(&COLLECTION.to_uuid_string(), auth(SessionOrigin::RelayPipe));
-        if case["mode"] == "synced" {
+        if case["mode"] == "synced" || case["reason"] == "not_served" {
+            // The session gate admits the grant; only the missing runtime refuses.
             assert!(refusal.is_ok());
-        } else {
-            let problem = refusal.unwrap_err().problem();
+        }
+        if case["mode"] != "synced" {
+            let problem = match refusal {
+                Ok(()) => crate::access::Refusal::NotServed.problem(),
+                Err(refusal) => refusal.problem(),
+            };
             assert_eq!(problem.reason.as_deref(), case["reason"].as_str());
             if case["close_code"] == 4000 {
                 assert_eq!(problem.code, "unavailable");
@@ -232,6 +237,82 @@ async fn relay_refusals_follow_the_shared_server_close_contract() {
             }
         }
     }
+}
+
+#[tokio::test]
+async fn a_current_private_grant_says_the_collection_is_not_served() {
+    use crate::relay::RelayHost;
+    let dir = crate::testutil::TestDir::new("not-served");
+    let daemon = private_daemon(&dir).await;
+    feed(&daemon, 1, true).await;
+    let refusal = || async {
+        daemon
+            .grant_refusal(&COLLECTION.to_uuid_string(), &GRANT.to_uuid_string())
+            .await
+    };
+    // Current grant, live lease, no runtime: retryable, not an authorization wait.
+    assert_eq!(refusal().await.as_deref(), Some("not_served"));
+    {
+        let mut inner = daemon.inner.lock().await;
+        let mut entry = inner.registry.collections[0].clone();
+        entry.paused = true;
+        inner
+            .hosts
+            .push(CollectionHost::open(entry, daemon.host_ctx()));
+    }
+    assert_eq!(refusal().await.as_deref(), Some("not_served"));
+    // Anything short of a current grant keeps its own reason.
+    {
+        let mut inner = daemon.inner.lock().await;
+        inner.access.entries[0].state = AccessState::PendingApproval;
+        daemon.authority.publish_access(&inner.access);
+    }
+    assert_eq!(refusal().await.as_deref(), Some("grant_pending_approval"));
+    {
+        let mut inner = daemon.inner.lock().await;
+        inner.access.entries[0].state = AccessState::Active;
+        inner.access.entries[0].delisted = true;
+        daemon.authority.publish_access(&inner.access);
+    }
+    assert_eq!(
+        refusal().await.as_deref(),
+        Some("authorization_unavailable")
+    );
+    let problem = crate::access::Refusal::NotServed.problem();
+    assert_eq!(problem.code, "unavailable");
+    assert_eq!(problem.reason.as_deref(), Some("not_served"));
+    assert_eq!(problem.retry_after_ms, Some(1000));
+}
+
+#[tokio::test]
+async fn an_unregistered_collection_reports_not_served_and_omits_it_from_serving_collections() {
+    use crate::relay::RelayHost;
+    let dir = crate::testutil::TestDir::new("unregistered-not-served");
+    let daemon = private_daemon(&dir).await;
+    let unknown = B16([77; 16]).to_uuid_string();
+    let grant = GRANT.to_uuid_string();
+    assert_eq!(
+        daemon.grant_refusal(&unknown, &grant).await.as_deref(),
+        Some("not_served")
+    );
+    assert_eq!(daemon.serving_collections().await, Some(Vec::new()));
+    // A local refusal tombstone still wins even if the collection was unregistered.
+    feed(&daemon, 1, true).await;
+    daemon
+        .access_change(|access| access.revoke(&grant).cloned())
+        .await
+        .unwrap();
+    {
+        let mut inner = daemon.inner.lock().await;
+        inner.registry.collections.clear();
+    }
+    assert_eq!(
+        daemon
+            .grant_refusal(&COLLECTION.to_uuid_string(), &grant)
+            .await
+            .as_deref(),
+        Some("grant_revoked_on_device")
+    );
 }
 
 #[tokio::test]

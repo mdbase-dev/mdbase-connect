@@ -162,6 +162,11 @@
   gap: 8px 12px;
 }
 
+/* Under the app's own hero (`appHero`), signed out is only the actions, centred. */
+.mdbase-collections-gate[data-hero="app"][data-phase="signed_out"] .mdbase-collections-actions {
+  justify-content: center;
+}
+
 .mdbase-collections-progress {
   display: flex;
   align-items: center;
@@ -653,6 +658,14 @@
   overflow-wrap: anywhere;
 }
 
+.mdbase-collections-setup-target {
+  display: block;
+  margin-top: 2px;
+  color: var(--_text-soft);
+  font-family: var(--mdbase-collections-font-mono, var(--mono, ui-monospace, monospace));
+  font-size: var(--_font-size-caption);
+}
+
 /* Switcher trigger: the name wraps to two lines, and only a longer one is cut
  * short; the full name is always in the trigger's label and title. */
 .mdbase-collections-switcher {
@@ -887,7 +900,7 @@
 }
 
 @media (max-width: 479.98px) {
-  .mdbase-collections-gate .mdbase-collections-actions > .mdbase-collections-button:not(.is-quiet) {
+  .mdbase-collections-gate:not([data-hero="app"][data-phase="signed_out"]) .mdbase-collections-actions > .mdbase-collections-button:not(.is-quiet) {
     flex: 1 1 100%;
   }
 }

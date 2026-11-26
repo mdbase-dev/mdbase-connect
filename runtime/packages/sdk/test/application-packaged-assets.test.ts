@@ -47,6 +47,21 @@ describe("SDK packaged application assets",()=>{
       expect(()=>select("lab","null")).toThrow();
     } finally {vi.unstubAllGlobals();}
   });
+  it("reconstructs an embedded blob: capacitor:// origin in currentAppOrigin without admitting blob: anchors or opaque blobs",async()=>{
+    vi.stubGlobal("location",{origin:"null",href:"blob:capacitor://localhost/0b6e6f3c-7f8e-4a43-9d0a-5c1e2f3a4b5c"});
+    try {
+      expect(currentAppOrigin()).toBe("capacitor://localhost");
+      const select=await selector("blob:capacitor://localhost/0b6e6f3c-7f8e-4a43-9d0a-5c1e2f3a4b5c");
+      const assets=select("lab","capacitor://localhost","capacitor://localhost/_capacitor_file_/vault/.obsidian/plugins/mdbase-sync/sync-engine/sdk/application/worker.js");
+      expect(assets.runtime.url).toBe("capacitor://localhost/_capacitor_file_/vault/.obsidian/plugins/mdbase-sync/sync-engine/sdk/native/runtime.wasm");
+      expect(()=>select("lab","capacitor://localhost","blob:capacitor://localhost/0b6e6f3c-7f8e-4a43-9d0a-5c1e2f3a4b5c")).toThrow("SDK packaged application assets unavailable");
+    } finally {vi.unstubAllGlobals();}
+    for (const href of ["blob:null/0b6e6f3c-7f8e-4a43-9d0a-5c1e2f3a4b5c","blob:file:///tmp/x","blob:capacitor://localhost:8080/x"]) {
+      vi.stubGlobal("location",{origin:"null",href});
+      try { expect(currentAppOrigin()).toBeNull(); }
+      finally { vi.unstubAllGlobals(); }
+    }
+  });
   it("selects the assets beside a development server's versioned module URL",async()=>{
     const select=await selector("http://localhost:5173/node_modules/@mdbase-dev/sdk/dist/application/packaged-assets.js?v=ce183db8");
     const assets=select("lab","http://localhost:5173");

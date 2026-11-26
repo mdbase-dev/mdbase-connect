@@ -41,6 +41,8 @@ it.each(cases)("maps the daemon refusal for $name through the broker to the clie
     const opened = JSON.parse(String(device.send.mock.calls[0]![0])) as { pipe_id: string };
     pipes.handleDeviceClose(device as unknown as WebSocket, { type: "pipe_close", pipe_id: opened.pipe_id, reason });
     await vi.waitFor(() => expect(client.close).toHaveBeenCalledWith(close_code, reason));
+    expect(JSON.parse(client.send.mock.calls[1]?.[0] ?? "null")).toEqual({ type: "pipe_close", pipe_id: opened.pipe_id, reason });
+    expect(client.send.mock.invocationCallOrder[1]).toBeLessThan(client.close.mock.invocationCallOrder[0]!);
   } finally {
     client.close();
     pipes.close();

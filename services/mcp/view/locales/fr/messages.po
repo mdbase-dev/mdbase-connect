@@ -1,0 +1,186 @@
+msgid ""
+msgstr ""
+"POT-Creation-Date: 2026-11-25 15:56+1100\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"X-Generator: @lingui/cli\n"
+"Language: fr\n"
+
+#: view/RecordsTable.tsx
+msgid "{count, plural, one {# record} other {# records}}"
+msgstr "{count, plural, one {# document} other {# documents}}"
+
+#: view/RecordsTable.tsx
+msgid "{count} of {total} records"
+msgstr "{count} sur {total} documents"
+
+#: view/RecordCard.tsx
+msgctxt "Starts writing the body of a record that has none"
+msgid "Add text"
+msgstr "Ajouter du texte"
+
+#: view/View.tsx
+msgctxt "Opens the approval page for a collection whose access lapsed"
+msgid "Approve again"
+msgstr "Approuver à nouveau"
+
+#: view/main.tsx
+msgid "Asking the collection"
+msgstr "Interrogation de la collection"
+
+#: view/View.tsx
+msgctxt "Returns from a record to the query results"
+msgid "Back"
+msgstr "Retour"
+
+#: view/RecordCard.tsx
+msgid "Body"
+msgstr "Corps"
+
+#: view/RecordCard.tsx
+msgid "Body of {title}"
+msgstr "Corps de {title}"
+
+#: view/NewRecord.tsx
+msgctxt "Leaves the new record form without making it"
+msgid "Cancel"
+msgstr "Annuler"
+
+#: view/RecordCard.tsx
+msgctxt "Stops editing a record's body without saving"
+msgid "Cancel"
+msgstr "Annuler"
+
+#: view/RecordCard.tsx
+msgctxt "Names the properties the last update changed"
+msgid "Changed {changed}"
+msgstr "Modifié : {changed}"
+
+#: view/RecordCard.tsx
+msgid "Changed the text"
+msgstr "Texte modifié"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of how many records a group holds"
+msgid "Count"
+msgstr "Nombre"
+
+#: view/NewRecord.tsx
+msgctxt "Makes the new record"
+msgid "Create"
+msgstr "Créer"
+
+#: view/RecordCard.tsx
+msgctxt "Edits a record's body"
+msgid "Edit text"
+msgstr "Modifier le texte"
+
+#: view/View.tsx
+msgctxt "Returns the view to its place in the conversation"
+msgid "Exit full screen"
+msgstr "Quitter le plein écran"
+
+#: view/View.tsx
+msgctxt "Shows the view over the whole conversation"
+msgid "Full screen"
+msgstr "Plein écran"
+
+#: view/RecordsTable.tsx
+msgctxt "Loads the next page of query results"
+msgid "Load more"
+msgstr "Charger plus"
+
+#: view/RecordCard.tsx
+msgid "Moved from {renamedFrom}"
+msgstr "Déplacé depuis {renamedFrom}"
+
+#: view/RecordsTable.tsx
+msgctxt "Column of record names"
+msgid "Name"
+msgstr "Nom"
+
+#: view/NewRecord.tsx
+msgctxt "Heading of the form that makes a record of a type"
+msgid "New {type}"
+msgstr "Nouveau : {type}"
+
+#: view/RecordsTable.tsx
+msgctxt "Makes a new record of the type the results show"
+msgid "New {type}"
+msgstr "Nouveau : {type}"
+
+#: view/RecordsTable.tsx
+msgid "No records match."
+msgstr "Aucun document ne correspond."
+
+#: view/View.tsx
+msgctxt "Opens the record or collection in the mdbase Editor"
+msgid "Open in Editor"
+msgstr "Ouvrir dans Editor"
+
+#. placeholder {0}: shown.title
+#: view/View.tsx
+msgid "Opening {0}"
+msgstr "Ouverture de {0}"
+
+#: view/RecordsTable.tsx
+msgctxt "Label of the query results table"
+msgid "Records"
+msgstr "Documents"
+
+#: view/RecordCard.tsx
+msgctxt "Reads the record again after a save failed"
+msgid "Reload"
+msgstr "Recharger"
+
+#: view/RecordCard.tsx
+msgctxt "Names the properties the last update removed"
+msgid "Removed {removed}"
+msgstr "Supprimé : {removed}"
+
+#: view/RecordCard.tsx
+msgctxt "Saves the edited body of a record"
+msgid "Save"
+msgstr "Enregistrer"
+
+#: view/RecordCard.tsx
+msgctxt "Folds a record card back to its summary"
+msgid "Show less"
+msgstr "Afficher moins"
+
+#: view/RecordCard.tsx
+msgctxt "Unfolds a record card to all its properties and its body"
+msgid "Show more"
+msgstr "Afficher plus"
+
+#: view/RecordCard.tsx
+#: view/RecordsTable.tsx
+msgid "The change could not be saved."
+msgstr "La modification n'a pas pu être enregistrée."
+
+#: view/View.tsx
+msgid "The collection could not answer."
+msgstr "La collection n'a pas pu répondre."
+
+#: view/NewRecord.tsx
+msgid "The record could not be made."
+msgstr "Le document n'a pas pu être créé."
+
+#: view/RecordCard.tsx
+msgid "The record could not be read again."
+msgstr "Le document n'a pas pu être relu."
+
+#: view/View.tsx
+msgid "There is nothing here to show."
+msgstr "Il n'y a rien à afficher ici."
+
+#: view/NewRecord.tsx
+msgctxt "Field for a new record's title"
+msgid "Title"
+msgstr "Titre"
+
+#: view/RecordCard.tsx
+msgctxt "List of the mdbase types a record has"
+msgid "Types"
+msgstr "Types"

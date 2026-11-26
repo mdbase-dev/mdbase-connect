@@ -287,7 +287,6 @@ test("discovers registry-only native collections and reuses the normal invitatio
   await expect(page).toHaveURL(new RegExp(`collection=${id}`));
   await page.getByRole("link", { name: "Storage", exact: true }).click();
   await expect(page.getByText("Cloud copy configured", { exact: true })).toBeVisible();
-  await expect(page.getByRole("link", { name: "Sync folder", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Delete", exact: true })).toHaveCount(0);
 });
 

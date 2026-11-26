@@ -11,22 +11,13 @@ import {
   type TypeSummary,
   type wire
 } from "@mdbase-dev/sdk";
-import type {
-  CollectionDescription,
-  DataContractSelector,
-  JsonObject,
-  MdbaseDiagnostic,
-  MdbaseFileSource,
-  PendingMutationSummary,
-  TypePackAssessment,
-  TypePackProvision
-} from "@mdbase-dev/connect";
-import type { MdbaseRecordChange } from "@mdbase-dev/connect/advanced";
+import type { CollectionDescription, DataContractSelector, JsonObject, MdbaseDiagnostic, MdbaseFileSource, PendingMutationSummary, TypePackAssessment, TypePackProvision } from "./connect-types";
+import type { MdbaseRecordChange } from "./record-session";
 import { NativeNoteObservation } from "./native-note-observation";
 import { downloadNativeFile, type NativeFileSelection } from "./native-file-download";
 import { fileAssetKey } from "./file-reference-resolution";
 import { NextEditorRecords } from "./next-editor-records";
-import { bodySearchWhere } from "./body-search";
+import { bodySearchWhere, tagSearchWhere } from "./body-search";
 import type {
   CollectionAuthorizationOptions,
   CollectionAuthorizationTarget,
@@ -40,9 +31,11 @@ import type {
   FileListRequest,
   FileReadRequest,
   FileUploadRequest,
+  Backlink,
   LinkTarget,
   MutationOperationOptions,
   NoteDocument,
+  NoteHistoryReader,
   NoteObservation,
   RenamePreflight,
   TypeDocument,
@@ -68,6 +61,8 @@ const INSTALLED_BY = "dev.mdbase.editor";
 /** Reviewed plans kept for apply, newest last. */
 const PLAN_MEMORY = 8;
 const RECEIPT_TIMEOUT_MS = 30_000;
+/** The replica holds a history read for up to 5 minutes while it indexes the log on first use. */
+const HISTORY_TIMEOUT_MS = 330_000;
 /** Referring records per backlinks page; record views carry no body. */
 const BACKLINKS_PAGE = 500;
 const SEARCH_PAGE = 500;
@@ -290,11 +285,20 @@ export class NativeEditorGateway implements CollectionGateway {
     return new NativeNoteObservation(this.client, () => this.current());
   }
 
-  async searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
-    const signal = this.signal(options.signal);
+  searchBodies(term: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    return this.matchingPaths(bodySearchWhere(term), options.signal);
+  }
+
+  searchTag(tag: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+    return this.matchingPaths(tagSearchWhere(tag), options.signal);
+  }
+
+  /** Every page of the paths matching `where`. */
+  private async matchingPaths(where: string, outer: AbortSignal | undefined): Promise<string[]> {
+    const signal = this.signal(outer);
     const paths: string[] = [];
     let complete = false;
-    for await (const page of this.client.pages({ where: bodySearchWhere(term), limit: SEARCH_PAGE }, { signal })) {
+    for await (const page of this.client.pages({ where, limit: SEARCH_PAGE }, { signal })) {
       this.check();
       for (const record of page.records) paths.push(record.path);
       complete = page.complete && !page.cursor;
@@ -306,16 +310,19 @@ export class NativeEditorGateway implements CollectionGateway {
   /** Every page of one backlinks answer. A local change between pages ends
    * that answer (`cursor_stale`); the contract says to start again, which is
    * bounded here so a constantly changing collection still fails visibly. */
-  async backlinks(path: string, options: { signal?: AbortSignal } = {}): Promise<string[]> {
+  async backlinks(path: string, options: { signal?: AbortSignal } = {}): Promise<Backlink[]> {
     const signal = this.signal(options.signal);
     for (let attempt = 1; ; attempt++) {
-      const paths: string[] = [];
+      const paths: Backlink[] = [];
       let cursor: string | undefined;
       try {
         do {
           const page = await this.client.backlinks({ path }, { limit: BACKLINKS_PAGE, signal, ...(cursor ? { cursor } : {}) });
           this.check();
-          for (const backlink of page.backlinks) paths.push(backlink.record.path);
+          for (const backlink of page.backlinks) {
+            const fields = backlink.links.flatMap((link) => link.field ? [link.field] : []);
+            paths.push({ path: backlink.record.path, fields: [...new Set(fields)] });
+          }
           cursor = page.cursor;
         } while (cursor);
         return paths;
@@ -325,6 +332,25 @@ export class NativeEditorGateway implements CollectionGateway {
       }
     }
   }
+
+  /** A note's kept versions. History is read by record, so each read finds the
+   * note's record from its current path first. */
+  readonly noteHistory: NoteHistoryReader = {
+    list: async (path, { before, signal: outer } = {}) => {
+      const signal = this.signal(outer, HISTORY_TIMEOUT_MS);
+      const { id } = await this.client.get({ path }, { signal });
+      const history = await this.client.history.list(id, { ...(before === undefined ? {} : { before }), signal });
+      this.check();
+      return history;
+    },
+    version: async (path, seq, { signal: outer } = {}) => {
+      const signal = this.signal(outer, HISTORY_TIMEOUT_MS);
+      const { id } = await this.client.get({ path }, { signal });
+      const { document } = await this.client.history.version(id, seq, { signal });
+      this.check();
+      return document;
+    }
+  };
 
   async resolveLinks(from: string, links: readonly string[], options: { signal?: AbortSignal } = {}): Promise<LinkTarget[]> {
     const signal = this.signal(options.signal);
@@ -648,10 +674,10 @@ export class NativeEditorGateway implements CollectionGateway {
     if (!this.current()) throw new MdbaseError({ code: "cancelled", recovery: "none", message: t`This collection is no longer open in mdbase editor.` });
   }
 
-  private signal(extra?: AbortSignal): AbortSignal {
+  private signal(extra?: AbortSignal, timeoutMs = 45_000): AbortSignal {
     this.check();
     extra?.throwIfAborted();
-    return AbortSignal.any([...(extra ? [extra] : []), AbortSignal.timeout(45_000)]);
+    return AbortSignal.any([...(extra ? [extra] : []), AbortSignal.timeout(timeoutMs)]);
   }
 }
 

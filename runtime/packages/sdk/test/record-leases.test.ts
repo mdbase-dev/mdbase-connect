@@ -30,6 +30,16 @@ async function untilCaptured(lease: RecordLease): Promise<string> {
     return lease.session.getSnapshot().recovery!.mutationId;
 }
 describe("shared native record leases", () => {
+    it("carries requireLive into the captured save and rejects a conflicting lease policy", async () => {
+        const { client, record } = await fixture();
+        const update = vi.spyOn(client, "update");
+        const lease = await client.records.open(record.id, { requireLive: true });
+        await expect(client.records.open(record.id)).rejects.toMatchObject({reason: "record_lease_policy"});
+        lease.session.setBody("Keep my edit");
+        expect(await lease.session.flush()).toMatchObject({ok: true});
+        expect(update.mock.calls[0]?.[1]).toMatchObject({requireLive: true, body: "Keep my edit"});
+        lease.release();
+    });
     it("opens a full native document and saves body/fields using original UUID/revision and real confirmation", async () => {
         const f = await fixture(),
             update = vi.spyOn(f.client, "update");

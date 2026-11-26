@@ -1,9 +1,9 @@
 import type { CollectionContractDescriptor } from "@mdbase-dev/connect-protocol";
 import type { DatabaseQueryable } from "../../db.js";
-import type { HostedTemplate } from "../hosted/hosted.js";
 import { decodeStoredMembershipPolicy, type CollectionMembershipPolicy, type CollectionRole } from "./collection-policy.js";
-import { projectNextMigrationFreeze, type NextMigrationFreezeRow } from "../next/migration-topology.js";
 import { RequestValidationError } from "../../platform/http-errors.js";
+
+export type HostedTemplate = "mdbase" | "onboarding";
 
 export type CollectionAuthorityKind = "local" | "hosted" | "native";
 
@@ -204,33 +204,14 @@ export async function listNativeCollectionsVisibleToUser(
 ): Promise<NativeCollectionCatalogEntry[]> {
   const result = await db.query<{
     collection_id: string; owner_user_id: string; display_name: string | null;
-    sync: "private" | "cloud_copy"; owner_frozen: boolean; viewer_frozen: boolean;
-    owner_account_backend: string; owner_started_at: Date | null; owner_terminal_excluded_at: Date | null;
-    owner_completed_at: Date | null; owner_completed_revision: string | null; owner_flipped_at: Date | null;
-    viewer_account_backend: string; viewer_started_at: Date | null; viewer_terminal_excluded_at: Date | null;
-    viewer_completed_at: Date | null; viewer_completed_revision: string | null; viewer_flipped_at: Date | null;
+    sync: "private" | "cloud_copy";
   } & Record<string, unknown>>(
     `SELECT native.collection_id, native.owner_user_id, native.display_name, native.sync,
        policy.id AS policy_id,membership.id AS membership_id,membership.user_id,
        identity.owner_user_id AS policy_owner_user_id,policy.revision,policy.role,policy.preset_version,
-       policy.actions,policy.operations,policy.scope_ceiling,policy.file_ceiling,
-       owner_cohort.frozen_at IS NOT NULL AS owner_frozen,owner.account_backend AS owner_account_backend,
-       owner_member.started_at AS owner_started_at,owner_member.terminal_excluded_at AS owner_terminal_excluded_at,
-       owner_cohort.completed_at AS owner_completed_at,owner_cohort.completed_revision::text AS owner_completed_revision,
-       owner_flip.flipped_at AS owner_flipped_at,
-       viewer_cohort.frozen_at IS NOT NULL AS viewer_frozen,viewer.account_backend AS viewer_account_backend,
-       viewer_member.started_at AS viewer_started_at,viewer_member.terminal_excluded_at AS viewer_terminal_excluded_at,
-       viewer_cohort.completed_at AS viewer_completed_at,viewer_cohort.completed_revision::text AS viewer_completed_revision,
-       viewer_flip.flipped_at AS viewer_flipped_at
+       policy.actions,policy.operations,policy.scope_ceiling,policy.file_ceiling
      FROM next_collections native
      JOIN users owner ON owner.id=native.owner_user_id AND owner.suspended_at IS NULL
-     LEFT JOIN next_migration_cohort_members owner_member ON owner_member.account_id=owner.id
-     LEFT JOIN next_migration_cohorts owner_cohort ON owner_cohort.name=owner_member.cohort
-     LEFT JOIN next_migration_account_flips owner_flip ON owner_flip.account_id=owner.id
-     LEFT JOIN users viewer ON viewer.id=$1
-     LEFT JOIN next_migration_cohort_members viewer_member ON viewer_member.account_id=viewer.id
-     LEFT JOIN next_migration_cohorts viewer_cohort ON viewer_cohort.name=viewer_member.cohort
-     LEFT JOIN next_migration_account_flips viewer_flip ON viewer_flip.account_id=viewer.id
      LEFT JOIN collection_identities identity ON identity.id=native.collection_id
      LEFT JOIN next_collection_deletion_facts deleted ON deleted.collection_id=native.collection_id
      LEFT JOIN collection_memberships membership
@@ -252,22 +233,6 @@ export async function listNativeCollectionsVisibleToUser(
     statusCode: 409, code: "collection_inventory_limit"
   });
   if (result.rows.length === 0) return [];
-  // Runtime, owner suspension and deletion denial are selected together. There
-  // is no retained-legacy fallback; mutation-time authority locks are unchanged.
-  const migrationRows: NextMigrationFreezeRow[] = [];
-  for (const row of result.rows) {
-    if (row.owner_frozen) migrationRows.push({
-      account_id: row.owner_user_id, account_backend: row.owner_account_backend,
-      started_at: row.owner_started_at, terminal_excluded_at: row.owner_terminal_excluded_at,
-      completed_at: row.owner_completed_at, completed_revision: row.owner_completed_revision, flipped_at: row.owner_flipped_at
-    });
-    if (row.viewer_frozen) migrationRows.push({
-      account_id: userId, account_backend: row.viewer_account_backend,
-      started_at: row.viewer_started_at, terminal_excluded_at: row.viewer_terminal_excluded_at,
-      completed_at: row.viewer_completed_at, completed_revision: row.viewer_completed_revision, flipped_at: row.viewer_flipped_at
-    });
-  }
-  const frozen = await projectNextMigrationFreeze(db, migrationRows);
   return result.rows.flatMap(row => {
     const owner = row.owner_user_id === userId;
     const policy = owner ? null : decodeStoredMembershipPolicy({
@@ -281,8 +246,7 @@ export async function listNativeCollectionsVisibleToUser(
       id: row.collection_id, display_name: row.display_name, sync: row.sync,
       access: {
         relationship: owner ? "owner" as const : "member" as const, role: owner ? "owner" as const : policy!.role,
-        can_manage_members: !frozen.has(userId) && !frozen.has(row.owner_user_id)
-          && (owner || policy!.actions.includes("members.manage"))
+        can_manage_members: owner || policy!.actions.includes("members.manage")
       }
     }];
   });

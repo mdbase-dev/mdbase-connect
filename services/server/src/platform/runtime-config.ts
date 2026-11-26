@@ -1,6 +1,5 @@
 import type { GitHubAuthConfig } from "../features/auth/github-auth.js";
 import type { GoogleAuthConfig } from "../features/auth/google-auth.js";
-import type { HostedProviderConfig } from "../features/hosted/hosted-provider.js";
 import type { RelayBrokerConfig } from "../features/relay/relay-broker.js";
 import type { VapidConfig } from "../features/notifications/web-push.js";
 import type { WebhookSigningConfig } from "../features/notifications/webhook.js";
@@ -53,9 +52,6 @@ export interface RuntimeConfig {
   accountDeletionEnabled: boolean;
   hostedCollections: boolean;
   hostedSharing: boolean;
-  hostedProvider: HostedProviderConfig | null;
-  hostedReferenceAuthority: boolean;
-  allowInsecureHostedProvider: boolean;
   trustProxy: boolean;
   relayBroker: RelayBrokerConfig | null;
   vapid: VapidConfig | null;
@@ -178,27 +174,6 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
   ) {
     throw new Error("MDBASE_CONNECT_RESEND_WEBHOOK_SECRET is invalid.");
   }
-  const hostedProvider = config.hostedProvider
-    ? validateHostedProviderConfig(
-        config.hostedProvider,
-        config.allowInsecureHostedProvider,
-        config.devAuth
-      )
-    : null;
-  if (config.hostedProvider && config.hostedReferenceAuthority) {
-    throw new Error("Hosted provider and reference authority modes are mutually exclusive.");
-  }
-  if (config.hostedReferenceAuthority && !config.devAuth) {
-    throw new Error("The hosted reference authority is available only in loopback development.");
-  }
-  if (config.hostedCollections && !hostedProvider && !config.hostedReferenceAuthority) {
-    throw new Error("Hosted collections require a configured hosted storage provider.");
-  }
-  if (config.allowInsecureHostedProvider && !config.devAuth) {
-    throw new Error(
-      "Insecure hosted provider transport is only available with development authentication."
-    );
-  }
   if (config.relayBroker) {
     if (config.relayBroker.token.length < 32) {
       throw new Error("The relay broker token must contain at least 32 characters.");
@@ -256,8 +231,7 @@ export function validateRuntimeConfig(config: RuntimeConfig): RuntimeConfig {
     environment,
     betaAccessOrigin,
     managementOrigins: [...new Set(managementOrigins)],
-    editorOrigin,
-    hostedProvider
+    editorOrigin
   };
 }
 
@@ -335,7 +309,6 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
   }
   const port = Number(env.PORT ?? 8787);
   const host = env.HOST ?? "127.0.0.1";
-  const hostedProvider = hostedProviderConfigFromEnv(env);
   const relayBrokerServers = (env.MDBASE_CONNECT_RELAY_NATS_URL ?? "")
     .split(",")
     .map((value) => value.trim())
@@ -401,11 +374,6 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     accountDeletionEnabled: accountDeletion === "enabled",
     hostedCollections: env.MDBASE_CONNECT_HOSTED_COLLECTIONS === "1",
     hostedSharing: env.MDBASE_CONNECT_HOSTED_SHARING_ENABLED === "1",
-    hostedReferenceAuthority:
-      env.MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY === "1",
-    hostedProvider,
-    allowInsecureHostedProvider:
-      env.MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER === "1",
     trustProxy: env.MDBASE_CONNECT_TRUST_PROXY === "1",
     relayBroker: normalizedRelayBrokerServers.length > 0
       ? { servers: normalizedRelayBrokerServers, token: relayBrokerToken }
@@ -427,7 +395,7 @@ export function runtimeConfigFromEnv(env: NodeJS.ProcessEnv): RuntimeConfig {
     clientUpdate: parseClientUpdateEnv(env),
     newAccountBackend: parseNewAccountBackendEnv(env, nextControlPlane),
     opsMetricsPush: opsMetricsPushSetting(env, environment),
-    billing: parseBillingEnv(env)
+    billing: parseBillingEnv(env, environment)
   });
 }
 
@@ -442,7 +410,7 @@ const BILLING_ENV = {
  * Billing is on only with all four Stripe settings: self-hosted and development
  * deployments sell nothing. Some but not all of them is a configuration mistake.
  */
-export function parseBillingEnv(env: NodeJS.ProcessEnv): BillingConfig | null {
+export function parseBillingEnv(env: NodeJS.ProcessEnv, environment: string): BillingConfig | null {
   const values = Object.fromEntries(Object.entries(BILLING_ENV).map(
     ([key, [name]]) => [key, env[name]?.trim() ?? ""]
   )) as Record<keyof typeof BILLING_ENV, string>;
@@ -453,6 +421,9 @@ export function parseBillingEnv(env: NodeJS.ProcessEnv): BillingConfig | null {
   }
   for (const [key, [name, pattern]] of Object.entries(BILLING_ENV)) {
     if (!pattern.test(values[key as keyof typeof BILLING_ENV])) throw new Error(`${name} is invalid.`);
+  }
+  if (environment === "production" && values.secretKey.includes("_test_")) {
+    throw new Error("MDBASE_CONNECT_STRIPE_SECRET_KEY must be a live-mode Stripe key in production.");
   }
   if (values.month === values.year) {
     throw new Error("The monthly and yearly Plus prices must be different Stripe prices.");
@@ -486,99 +457,6 @@ function parseNewAccountBackendEnv(
     throw new Error("MDBASE_NEW_ACCOUNT_BACKEND=next (the default) requires MDBASE_NEXT_CONTROL_PLANE=1; set MDBASE_NEW_ACCOUNT_BACKEND=legacy to create legacy accounts.");
   }
   return value;
-}
-
-export function hostedProviderConfigFromEnv(
-  env: NodeJS.ProcessEnv
-): HostedProviderConfig | null {
-  const url = env.MDBASE_CONNECT_HOSTED_PROVIDER_URL?.trim() ?? "";
-  const publicUrl =
-    env.MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL?.trim() ?? "";
-  const internalToken =
-    env.MDBASE_CONNECT_HOSTED_PROVIDER_INTERNAL_TOKEN?.trim() ?? "";
-  if (!url && !publicUrl && !internalToken) return null;
-  return validateHostedProviderConfig(
-    {
-      url,
-      ...(publicUrl ? { publicUrl } : {}),
-      internalToken
-    },
-    env.MDBASE_CONNECT_ALLOW_INSECURE_HOSTED_PROVIDER === "1",
-    env.MDBASE_CONNECT_DEV_AUTH === "1"
-  );
-}
-
-function validateHostedProviderConfig(
-  config: HostedProviderConfig,
-  allowInsecure: boolean,
-  devAuth: boolean
-): HostedProviderConfig {
-  if (allowInsecure && !devAuth) {
-    throw new Error(
-      "Insecure hosted provider transport is only available with development authentication."
-    );
-  }
-  let providerUrl: URL;
-  let providerPublicUrl: URL;
-  try {
-    providerUrl = new URL(config.url);
-  } catch {
-    throw new Error("MDBASE_CONNECT_HOSTED_PROVIDER_URL must be an origin.");
-  }
-  try {
-    providerPublicUrl = new URL(config.publicUrl ?? config.url);
-  } catch {
-    throw new Error(
-      "MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL must be an origin."
-    );
-  }
-  if (
-    providerUrl.username
-    || providerUrl.password
-    || providerUrl.pathname !== "/"
-    || providerUrl.search
-    || providerUrl.hash
-  ) {
-    throw new Error("MDBASE_CONNECT_HOSTED_PROVIDER_URL must be an origin.");
-  }
-  if (
-    providerUrl.protocol !== "https:"
-    && !isLoopback(providerUrl.hostname)
-    && !allowInsecure
-  ) {
-    throw new Error(
-      "The hosted storage provider URL must use HTTPS outside loopback development."
-    );
-  }
-  if (
-    providerPublicUrl.username
-    || providerPublicUrl.password
-    || providerPublicUrl.pathname !== "/"
-    || providerPublicUrl.search
-    || providerPublicUrl.hash
-  ) {
-    throw new Error(
-      "MDBASE_CONNECT_HOSTED_PROVIDER_PUBLIC_URL must be an origin."
-    );
-  }
-  if (
-    providerPublicUrl.protocol !== "https:"
-    && !isLoopback(providerPublicUrl.hostname)
-  ) {
-    throw new Error(
-      "The public hosted storage provider URL must use HTTPS outside loopback development."
-    );
-  }
-  if (config.internalToken.length < 32) {
-    throw new Error(
-      "The hosted storage provider internal token must contain at least 32 characters."
-    );
-  }
-  return {
-    ...config,
-    url: providerUrl.origin,
-    ...(config.publicUrl ? { publicUrl: providerPublicUrl.origin } : {})
-  };
 }
 
 function parseWebhookPublicKeys(

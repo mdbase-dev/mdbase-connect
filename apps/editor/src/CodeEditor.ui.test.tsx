@@ -112,6 +112,68 @@ describe("undo and redo", () => {
   });
 });
 
+describe("writer list editing", () => {
+  function press(value: string, caret: number, key: Record<string, unknown>) {
+    const onChange = vi.fn();
+    render(<CodeEditor value={value} label="Note body" language="markdown" variant="writer" onChange={onChange} />);
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    const view = EditorView.findFromDOM(body)!;
+    view.focus();
+    view.dispatch({ selection: { anchor: caret } });
+    fireEvent.keyDown(body, key);
+    return { onChange, view };
+  }
+  const backspace = { key: "Backspace", code: "Backspace", keyCode: 8 };
+  const shiftEnter = { key: "Enter", code: "Enter", keyCode: 13, shiftKey: true };
+  const tab = { key: "Tab", code: "Tab", keyCode: 9 };
+
+  it.each([
+    ["- a\n  - ", "- a\n- "],
+    ["- a\n  - [ ] ", "- a\n- [ ] "],
+    ["1. a\n   1. ", "1. a\n2. "],
+    ["- a\n  - b\n    - ", "- a\n  - b\n  - "]
+  ])("Backspace on the empty nested item in %j lifts it a level", (value, lifted) => {
+    expect(press(value, value.length, backspace).onChange).toHaveBeenLastCalledWith(lifted);
+  });
+
+  it("Backspace on an empty top-level item or after text keeps the Markdown behaviour", () => {
+    expect(press("- a\n- ", 6, backspace).onChange).toHaveBeenLastCalledWith("- a\n  ");
+  });
+
+  it.each([
+    ["- item", "- item\n  "],
+    ["  - nested", "  - nested\n    "],
+    ["10. tenth", "10. tenth\n    "],
+    ["- [ ] task", "- [ ] task\n  "],
+    ["> - quoted", "> - quoted\n>   "]
+  ])("Shift-Enter in %j continues the item at its text column", (value, continued) => {
+    const { onChange, view } = press(value, value.length, shiftEnter);
+    expect(onChange).toHaveBeenLastCalledWith(continued);
+    expect(view.state.selection.main.head).toBe(continued.length);
+  });
+
+  it.each([
+    ["- one two", 5, "- one\n   two"],
+    ["A paragraph", 11, "A paragraph\n"]
+  ])("Shift-Enter in %j at %i splits an item's text and leaves paragraphs alone", (value, caret, after) => {
+    expect(press(value, caret, shiftEnter).onChange).toHaveBeenLastCalledWith(after);
+  });
+
+  it.each([
+    ["A paragraph", 2, "A \tparagraph"],
+    ["- a\n- b", 7, "- a\n  - b"]
+  ])("Tab in %j types a tab outside a list and still nests list items", (value, caret, after) => {
+    expect(press(value, caret, tab).onChange).toHaveBeenLastCalledWith(after);
+  });
+
+  it("leaves Tab to the browser after Escape, so the keyboard can still leave the note", () => {
+    const { onChange } = press("A paragraph", 2, { key: "Escape", code: "Escape", keyCode: 27 });
+    const body = screen.getByRole("textbox", { name: "Note body" });
+    expect(fireEvent.keyDown(body, tab)).toBe(true);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+});
+
 describe("rendered Markdown links", () => {
   it("opens a rendered link without moving the caret into its source", async () => {
     const open = vi.spyOn(window, "open").mockImplementation(() => null);

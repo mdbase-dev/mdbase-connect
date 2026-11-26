@@ -168,6 +168,13 @@ describe("embedded note owner cache", () => {
     expect(second).toHaveBeenCalledTimes(1);
   });
 
+  it("leaves an image from a URL out: it is no transclusion", async () => {
+    const read = vi.fn();
+    const source = "![diagram](https://example.com/diagram.png)\n\n![[Target]]";
+    const { result } = renderHook(() => useEmbeddedNoteReferences({ read }, { collectionId: "a", epoch: 1 }, source, [summary("Body")] as never, targets));
+    await waitFor(() => expect(result.current.references.map((reference) => reference.target)).toEqual(["Target"]));
+  });
+
   it("prefers an indexed body and does not read", async () => {
     const read = vi.fn(async () => document("remote"));
     const hook = embedHarness(read, "indexed B"); await ready(hook.result, "indexed B");

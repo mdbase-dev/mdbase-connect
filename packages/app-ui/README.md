@@ -21,7 +21,15 @@ applyThemePreference(loadThemePreference());
   themes. Style components with roles, not palette values. Short aliases such
   as `--ink` belong to each app.
   `--color-current` and `--color-on-current` mark the keyboard/pointer current
-  choice in palettes, completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
+  choice in completion lists and diagnostics; `--color-selected` stays subtle for persistent selections.
+  Each colour that differs by theme is one `light-dark()` value, and `:root`
+  uses one scheme at a time. In CSS, `var(--color-text)` resolves as before. In
+  script, read a resolved colour from an element (`getComputedStyle(element).color`),
+  not the raw property, which is the `light-dark()` expression. An element that
+  sets its own `color-scheme` gets that scheme's colours.
+- Corners come in three sizes: `--radius-sm` (6px) for controls and rows,
+  `--radius-md` (8px) for content blocks and toasts, `--radius-lg` (10px) for
+  menus and dialogs.
 - `theme` stores the System, Light or Dark choice as `mdbase:theme`.
 - `brand` draws the Frontmatter mark, each app's inverted mark, and the
   `mdbase <app>` wordmark. Add `motion.css` to animate the mark: loops
@@ -34,11 +42,25 @@ applyThemePreference(loadThemePreference());
   `trackMdbaseMarkProgress()` (or `useMdbaseMarkProgress(fraction)`) when the
   total is known, and `holdMdbaseMarkBusy(loop)` (or `useMdbaseMarkBusy`) while
   it is not.
-- `apps` lists the mdbase apps and builds links that open the current
+- `apps` lists the mdbase apps, exports the MCP setup and endpoint URLs
+  (`mcpSetupUrl`, `mcpEndpointUrl`), and builds links that open the current
   collection in another app. Every deployment passes its own URLs to
-  `withAppUrls` (or `AppSwitcher`'s `urls` prop). Apps without a configured URL
-  are omitted; shared metadata never falls back to production origins. The
-  switcher's menu ends with a "Build your own" link to the SDK guide.
+  `withAppUrls` (or `AppSwitcher`'s `urls` prop, which accepts all official
+  apps). Apps without a configured URL are omitted; shared metadata never falls
+  back to production origins. `AppSwitcher` accepts any `OfficialAppId` as
+  `current`, optional `children`/`className`/`align` for apps with their own
+  trigger identity (such as TaskNotes), and an optional `collectionId` when the
+  app does not carry `?collection=` in `location.href`. After the apps comes a
+  "Your app here" row linking the SDK guide, then an AI assistants submenu
+  (pass `mcpUrl={null}` to omit it on custom servers).
+- Pass `open` and `onOpenChange` to control the app switcher, as with
+  `CollectionSwitcher`. `variant="none"` renders no wordmark trigger, for an
+  app that hides its wordmark on phones and offers the apps from its own
+  overflow menu. It requires `anchorRef`, an element that stays mounted while
+  the menu is open (the overflow menu's button, say): the menu is placed
+  against it, presses on it don't dismiss the menu, and Escape returns focus
+  to it. Close your own menu without moving focus back to that button; the
+  app menu takes focus as it opens.
 
 ## Opening screen
 
@@ -85,10 +107,44 @@ plugins: [react(), mdbaseOpeningPage({
   again. `layout="panel"` renders a `div` without the reload hint, for a
   screen inside the app's own chrome.
 
+## Switch and segmented control
+
+Both need `controls.css`.
+
+```tsx
+import { Switch } from "@mdbase-dev/ui/switch";
+import { Segmented } from "@mdbase-dev/ui/segmented";
+
+<Switch checked={wrap} onChange={setWrap}>Wrap long lines</Switch>
+<Segmented aria-label="View" value={view} onChange={setView} options={[
+  { value: "day", label: "Day" },
+  { value: "week", label: "Week" },
+]} />
+```
+
+- `Switch` is for a setting that takes effect at once; use `Checkbox` for a
+  choice that waits for a Save. Its children are its label. Without children it
+  renders the control alone, for a row that lays out its own text: name it
+  with `aria-label` or `aria-labelledby`. Other button props pass through.
+- `Segmented` is one choice among two to four short options that stay in
+  view. It is a group of native radios, so arrow keys move the choice. Use
+  `Select` for more options or long labels.
+- `ThemeSelect` from `@mdbase-dev/ui/theme-select` is the segmented control
+  for System, Light and Dark.
+
+## Motion
+
+`motion.css` (which `controls.css` imports) defines the durations and curves.
+Something a hand just moved, such as a released button, a switch thumb or a
+segmented thumb, settles on `--motion-spring` with `--ease-spring`, a spring
+with about 2% overshoot; the press itself takes `--motion-press`. Menus, lists
+and dialogs open on the same spring, from the corner beside their trigger.
+Reduced motion sets every duration to zero, so nothing needs its own override.
+
 ## Icon-button tooltips
 
 Import `Tooltip` from `@mdbase-dev/ui/tooltip` and include `controls.css`.
-Wrap one native icon button in `<Tooltip label="Search" shortcut="mod+k">…</Tooltip>`.
+Wrap one icon button or link in `<Tooltip label="Search" shortcut="mod+k">…</Tooltip>`.
 Localize the label in the caller. The optional shortcut uses the same notation and
 platform labels as the command palette and sets `aria-keyshortcuts` on the button.
 The button keeps its ref and handlers; a native manual popover adds no layout box
@@ -103,10 +159,27 @@ press, or an unavailable trigger cancels pending and visible hints.
 ## Toasts
 
 Mount one `Toaster` from `@mdbase-dev/ui/toast` inside the app's locale provider
-and import `@mdbase-dev/ui/toast.css`. Call `toast(message, undo?)` with localized
-copy and, when applicable, a real inverse mutation. The toast stays for five
-seconds (eight with Undo), pauses on hover or focus, and queues up to three
-more messages. Unmounting the owner clears the queue.
+and import `@mdbase-dev/ui/toast.css` after `controls.css`. Call
+`toast(message, undo?)` with localized copy and, when applicable, a real inverse
+mutation. The toast stays for five seconds (eight with Undo), pauses on hover
+or focus, and queues up to three more messages. Unmounting the owner clears the
+queue.
+
+For anything else, pass options in place of the undo function:
+
+```ts
+toast("Collection shared", { tone: "success" });
+const dismiss = toast("Could not save", {
+  tone: "error",
+  sticky: true,
+  action: { label: retryLabel, onAction: retry, dismiss: true },
+});
+```
+
+`tone` puts a tick or an exclamation mark before the message, `sticky` keeps
+the toast until it is dismissed, `durationMs` sets another time, and
+`dismissible: false` removes the close button. `toast` returns a function that
+dismisses that toast.
 
 ## Languages
 
@@ -132,6 +205,12 @@ not prove a language is complete.
 Reviewed identical terms are Esc/ID, the literal example email, and French
 Collection/Collections (allowlisted per generated ID).
 
+Give every new message a `context` (for example `t({ message: "Clear", context: "Date picker" })`).
+Apps compose this catalogue with their own, and a message without a context gets the same
+generated ID as an app's message with the same English text, so one would replace the other's
+translations. `i18n-context-baseline.json` freezes the older messages that have none; the
+catalogue test rejects any other.
+
 ## Command palette
 
 `CommandPalette` from `@mdbase-dev/ui/command-palette` accepts an optional
@@ -141,6 +220,220 @@ remains the command's `group` string. This is presentation only: keep `Command.g
 and `showAll` values as stable IDs. Group order, browsing limits and search matching
 still use those IDs; translated headings do not change matching or merge groups.
 Re-render with the current locale's callback to update the presentation.
+
+## Link picker
+
+`LinkPicker` from `@mdbase-dev/ui/link-picker` is the field for linking one
+record to another: type to find a record, or make a new one of a given kind
+from what was typed. Include `controls.css`.
+
+```tsx
+<LinkPicker
+  label={t`Author`}
+  query={query}
+  onQueryChange={setQuery}
+  options={matches.map((person) => ({ id: person.path, title: person.name, detail: t`Person` }))}
+  creates={[{ id: "person", label: t`New person` }]}
+  emptyMessage={t`No matching people.`}
+  onPick={(option) => link(option.id)}
+  onCreate={(create, title) => createAndLink(create.id, title)}
+/>
+```
+
+The app matches and ranks `options` for the current `query`; the picker does not
+filter. `creates` are listed after the matches once something is typed, unless a
+match already carries exactly that title. Every string is passed in, so the
+picker adds nothing to the shared catalogue. Focus stays in the text field: the
+first Escape closes the list, the second calls `onClose`, as does leaving the
+field. `linkPickerRows(query, options, creates)` gives the same rows to a surface
+that draws its own list, such as an editor's completion popup.
+
+## Quick create
+
+`QuickCreate` from `@mdbase-dev/ui/quick-create` is a short form for a record
+made in passing, such as one chosen from a link picker's create row when its
+type needs more than a name. Include `controls.css`.
+
+```tsx
+{creating && <QuickCreate
+  title={t`New book`}
+  name={creating.title}
+  nameLabel={t`Title`}
+  onNameChange={(title) => setCreating({ ...creating, title })}
+  anchor={() => field.current?.getBoundingClientRect()}
+  submitLabel={t`Create and link`}
+  blocker={creating.isbn ? undefined : t`Give the ISBN.`}
+  onSubmit={createAndLink}
+  onClose={(refocus) => { setCreating(undefined); if (refocus) field.current?.focus(); }}
+>
+  <IsbnField value={creating.isbn} onChange={(isbn) => setCreating({ ...creating, isbn })} />
+</QuickCreate>}
+```
+
+Render it while the form is wanted. It opens in the top layer beside `anchor`
+(called again on scroll and resize; return nothing once that place has gone),
+puts the keyboard in the first field after the name and keeps Tab inside. The
+app supplies the fields as children and every string except Cancel. Escape and
+Cancel call `onClose(true)`; a press elsewhere calls `onClose(false)`, because
+the focus has already moved. A list open inside the form takes the first Escape.
+
+## Anchored popover
+
+`AnchoredPopover` from `@mdbase-dev/ui/anchored-popover` is a small panel beside
+the control that opened it, for a value to choose or type: a calendar, a
+checklist, a short form. Include `controls.css`.
+
+```tsx
+<button ref={anchor} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(!open)}>{t`Due`}</button>
+{open && <AnchoredPopover anchor={anchor} label={t`Due date`} onClose={() => setOpen(false)}>
+  <Calendar value={due} onPick={pick} />
+</AnchoredPopover>}
+```
+
+Render it while it is wanted. It opens in the top layer, follows its anchor, and
+puts the keyboard in the element marked `data-autofocus`, or failing that in its
+first control. Escape calls `onClose(true)` with the focus back on the anchor; a
+press elsewhere calls `onClose(false)` after the field being typed in has lost
+the focus, so a field that commits when it is left keeps what was typed. A list
+or menu open inside it takes the first Escape. A menu of actions is `Menu`.
+
+## Date picker
+
+`@mdbase-dev/ui/date-picker` has `DateField`, a date that reads as a date and
+opens a calendar to change it, and `Calendar`, the month on its own for a panel
+that is already open. Dates go in and out as they are stored (`2026-11-28`).
+Include `controls.css` and `date-picker.css`; `filter-builder.css` and
+`properties.css` already bring the second with them.
+
+```tsx
+<DateField value={due ?? ""} label={t`Due`} placeholder={t`No date`} onChange={setDue} />
+```
+
+The calendar's field takes a typed day: a stored date, today, tomorrow or
+yesterday in the interface's language, a weekday (the next one), or a number of
+days or weeks from today (`+3`, `-1`, `2w`). The arrow keys move through the
+days and Page Up and Page Down through the months, from the field or the grid.
+The week starts where the reader's locale starts it. `readDay(text)` and
+`formatDay(value)` read and write a day the same way outside the picker. The
+text is in the shared catalogue; pass `labels` to word any of it differently.
+
+## Combo
+
+`Combo` from `@mdbase-dev/ui/combo` is a text field with a list of plain values
+under it: type to narrow the list, choose a row, or take what was typed. It is
+the link picker given values in place of records. Include `controls.css`.
+
+```tsx
+<Combo
+  label={t`Stage`}
+  value={stage}
+  options={stages.map((value) => ({ value }))}
+  newLabel={t`Use`}
+  emptyMessage={t`Nothing matches.`}
+  commitOnBlur
+  onCommit={(value) => setStage(value)}
+/>
+```
+
+Without `newLabel` only the options can be chosen. `accepts` says whether typed
+text may be taken, and `emptyMessage` shows when it may not and nothing
+matches. `onCommit(value, made)` reports whether the value was typed rather than
+chosen. Every string is passed in.
+
+## Filter builder
+
+`FilterBuilder` from `@mdbase-dev/ui/filter-builder` is an inline filter bar
+over a CEL `where` expression. Each filter is a pill: a rule on a field, with
+one value or several, or an expression kept as written. Pills combine in nested
+all, any and none groups. Include `controls.css` and `filter-builder.css`.
+
+```tsx
+<FilterBuilder
+  query={where}
+  fields={filterFieldsFromProperties(propertiesInUse(records, declared))}
+  error={queryError}
+  onChange={setWhere}
+/>
+```
+
+`query` is the expression and `onChange` receives the next one; an expression
+the builder cannot show as rules stays an expression pill and is written back
+unchanged. `fields` are the properties offered (`fieldsFromJsonSchema` makes
+them from a JSON schema). Optional parts: `sharedQuery` and `onSharedChange` add
+a second tier of filters that every view applies; `contextVars` offers the
+host's `this.*` values to compare with; `lockedFields` keeps the filters on
+fields the host owns from being removed; `defaultOpen` opens the list of fields
+at once. `parseWhere`, `compileWhere` and `countActive` read and write the same
+tree outside the component. The text is in the shared catalogue; pass `labels`
+to word any of it differently.
+
+## Properties
+
+`PropertyList` from `@mdbase-dev/ui/properties` shows a record's properties,
+each edited in place with the control its value calls for: a choice, a switch, a
+date, a number, a list of values, links to other records, or text. Include
+`controls.css` and `properties.css`.
+
+```tsx
+<PropertyList
+  values={record.frontmatter}
+  declared={type.fields}
+  inUse={propertiesInUse(others.map((other) => other.frontmatter))}
+  hidden={(name) => name === "title"}
+  records={{ describe, search, open }}
+  onChange={(name, value) => update(record.path, { [name]: value })}
+/>
+```
+
+`declared` is what the record's type says about its properties, in the type's
+order: a name, a kind, and where known the values it may take and whether it is
+a date. `propertiesFromSchema(properties, required, links?, values?)` works it
+out from JSON Schema, following local `$ref`s and `allOf`; `mergeTypeSchemas`
+first combines the schemas of a record's several types. `inUse` is what other records hold, offered when a property is added;
+`propertiesInUse` works that out from their values. Properties that hold
+nothing stay out of the way until one is added by name or all are shown.
+`onChange` receives null for a value that was cleared or a property that was
+removed; without it the properties are only shown. `PropertyValue` is one
+value's control on its own, and `filterFieldsFromProperties` turns the same
+descriptions into the filter builder's fields.
+
+A value with parts of its own is shown part by part under its name, each part
+with the control its value calls for, and a list of such values one under
+another by place. Either folds away, and starts folded when it holds more than
+a few values. `onChange` still receives the whole value of the top-level
+property. A declared `group` names its `parts` and says with `rest` what a part
+it does not name holds, or `false` when it takes no others; a declared `list`
+says with `items` what each value is.
+
+A declared property with `required` always has a row, is marked, and cannot be
+taken off. `errors` shows what is wrong with a value under it, keyed by the
+value's path: `due`, `progress.page`, `steps.0.title`. A property declared with
+the `date-time` format is edited as a date and time in the reader's own zone and
+stored in UTC.
+
+```tsx
+<PropertyList
+  values={record.frontmatter}
+  declared={[
+    { name: "title", kind: "text", required: true },
+    { name: "progress", kind: "group", rest: false, parts: [{ name: "page", kind: "number" }, { name: "of", kind: "number" }] },
+    { name: "steps", kind: "list", items: { name: "", kind: "group", parts: [{ name: "title", kind: "text", required: true }] } },
+    { name: "author", kind: "text", link: { many: false } },
+  ]}
+  errors={{ "progress.page": "Must be at least 1." }}
+  records={records}
+  onChange={change}
+/>
+```
+
+`records` looks other records up for properties that link to them: `describe`
+names a record and `search` finds records for what was typed. A property
+declared with `link` holds one link or several whatever its value looks like;
+without a declaration, a value that is a whole wikilink is taken for one. A host
+whose collection resolves links passes `resolve`, and `link` to write a link in
+the collection's own form. `creates` lists the kinds of record a property's
+picker can make and `create` makes one, then links it through the
+`PropertyLinkCreation` it is handed.
 
 ## Live preview
 
@@ -203,6 +496,10 @@ import "@mdbase-dev/ui/collections.css";
   problems, and renders its children once the phase is `ready`. A live problem
   then shows as a banner above them. `layout="panel"` fits inside a shell or a
   dialog.
+- `appHero` is for an app that shows its own name, headline and lead above the
+  gate. The gate leaves out its app line on every screen, and signed out it
+  shows only its actions, centred and at their own width on narrow screens. Its
+  heading and lead stay for screen readers. The other screens are unchanged.
 - The gate calls `mdbase.start()` itself while the front door hasn't started
   (`autoStart`, default `true`). It makes one call however many gates render,
   and none once the app has started it, so apps can drop their own `start()`.
@@ -215,6 +512,10 @@ import "@mdbase-dev/ui/collections.css";
   switcher: a popover, and a bottom sheet below 640px. `icon` puts the app's
   icon before the name, or `icon="mark"` the open collection's initials. In
   the `icon` variant it replaces the folder glyph.
+- `signedOutExtra` is shown under Sign in in the switcher while no account is
+  signed in. An app that opens straight into work before connecting never
+  shows the gate's signed-out screen, so it puts the signed-out content from
+  `extraActions` here as well.
 - Pass `open` and `onOpenChange` to control the switcher; `onOpenChange` is
   called for every open and close it makes itself, controlled or not.
   `variant="none"` renders no trigger, for an app that opens the switcher from

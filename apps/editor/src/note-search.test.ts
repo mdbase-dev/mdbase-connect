@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { CollectionTypeDescriptor } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor } from "./connect-types";
 import {
   buildNoteSearchIndex,
   IncrementalNoteSearchIndex,
@@ -246,6 +246,7 @@ describe("note search", () => {
     const asked: string[] = [];
     const bodies = {
       paths: (term: string) => { asked.push(term); return answers.get(term); },
+      tagged: () => undefined,
       text: (note: NoteSummary) => texts.get(note.path)
     };
     // The page's own body for B is not consulted: the collection's answer decides.
@@ -266,6 +267,65 @@ describe("note search", () => {
     const [mixed] = searchNoteResults(listed, "launch C", Infinity, undefined, bodies);
     expect(mixed.note.path).toBe("C.md");
     expect(mixed.context.kind).toBe("body");
+  });
+
+  it("matches a quoted phrase as written, in the page's text and through indexed answers", () => {
+    const listed = buildNoteSearchIndex([
+      summary("Plain.md", {}, [], "We write ordinary markdown files."),
+      summary("Scattered.md", {}, [], "Ordinary notes, and markdown elsewhere."),
+      summary("Ordinary markdown guide.md", {}, [], "")
+    ]);
+    expect(searchNotes(listed, '"ordinary markdown"').map((note) => note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    // An unclosed quote is a phrase still being typed.
+    expect(searchNotes(listed, '"ordinary  mark').map((note) => note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    // Unquoted, the words match separately; quoted, never as scattered letters.
+    expect(searchNotes(listed, "ordinary markdown").map((note) => note.path)).toContain("Scattered.md");
+    expect(searchNotes(listed, '"omd"')).toEqual([]);
+    const asked: string[] = [];
+    const bodies = { paths: (term: string) => { asked.push(term); return term === "ordinary markdown" ? new Set(["Plain.md"]) : undefined; }, tagged: () => undefined, text: () => undefined };
+    expect(searchNoteResults(listed, '"Ordinary Markdown"', Infinity, undefined, bodies).map((result) => result.note.path)).toEqual(["Ordinary markdown guide.md", "Plain.md"]);
+    expect(new Set(asked)).toEqual(new Set(["ordinary markdown"]));
+    expect(searchTextRanges("Some ordinary markdown here", '"ordinary markdown" here')).toEqual([{ from: 5, to: 22 }, { from: 23, to: 27 }]);
+  });
+
+  it("filters by typed #tag, tag: and type: in the page's tags, nested tags included, tags in their written case", () => {
+    const listed = buildNoteSearchIndex([
+      summary("Garden.md", { tags: ["notes/garden"] }, ["note"], "Seeds."),
+      summary("Inline.md", {}, ["project"], "Seeds."),
+      summary("Notebook.md", { tags: ["notebook"] }, [], "Seeds.")
+    ].map((note) => note.path === "Inline.md" ? { ...note, file: { ...note.file, tags: ["#notes"] } } : note));
+    const paths = (query: string) => searchNotes(listed, query).map((note) => note.path);
+    expect(paths("tag:notes")).toEqual(["Garden.md", "Inline.md"]);
+    expect(paths("#notes")).toEqual(["Garden.md", "Inline.md"]);
+    expect(paths("tag:#notes/garden")).toEqual(["Garden.md"]);
+    // As the runtime's `file.hasTag`: a tag in another case is another tag.
+    expect(paths("#NOTES")).toEqual([]);
+    expect(paths("type:Project seeds")).toEqual(["Inline.md"]);
+    expect(paths("tag:notes type:note")).toEqual(["Garden.md"]);
+    expect(paths("#nothing")).toEqual([]);
+    // A filter still being typed restricts nothing yet.
+    expect(paths("tag:")).toHaveLength(3);
+    // Filters are not text to find or highlight.
+    expect(searchTextRanges("tag: notes", "#notes")).toEqual([]);
+  });
+
+  it("filters the list by the runtime's tag answers, so a note with only an inline tag is found", () => {
+    // Native record views carry no tags: the note's only tag is in its text,
+    // which the page does not hold.
+    const inline = { ...summary("Inline.md", {}, [], ""), body: undefined, file: { path: "Inline.md" } };
+    const listed = buildNoteSearchIndex([inline, summary("Other.md", { tags: ["roadmap"] }, [], "")]);
+    expect(searchNotes(listed, "#inlinemarker")).toEqual([]);
+    const asked: string[] = [];
+    const answers = new Map([["inlinemarker", new Set(["Inline.md"])], ["roadmap", new Set(["Other.md"])]]);
+    const bodies = { paths: () => undefined, tagged: (tag: string) => { asked.push(tag); return answers.get(tag); }, text: () => undefined };
+    const paths = (query: string) => searchNoteResults(listed, query, Infinity, undefined, bodies).map((result) => result.note.path);
+    expect(paths("#inlinemarker")).toEqual(["Inline.md"]);
+    expect(paths("tag:inlinemarker")).toEqual(["Inline.md"]);
+    // The runtime's answer decides, even over tags the page holds.
+    expect(paths("#roadmap")).toEqual(["Other.md"]);
+    // An unanswered tag matches nothing yet.
+    expect(paths("#pending")).toEqual([]);
+    expect(new Set(asked)).toEqual(new Set(["inlinemarker", "roadmap", "pending"]));
   });
 });
 

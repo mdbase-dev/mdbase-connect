@@ -111,6 +111,21 @@ describe("explicit expired-window retry preserves original actor", () => {
     f.change(v=>{if(v.status==="account_selected")v.account_id="99999999-9999-4999-8999-999999999999";});
     await expect(f.flow.exchange()).rejects.toMatchObject({reason:"binding"});
   });
+  it("a window renewed after the portal confirmed the account waits for the renewed confirmation (tasknotes-app#492)",async()=>{
+    const confirmed=(v:Record<string,unknown>)=>{if("account_id" in v){v.account_email="person@example.test";v.account_selection_confirmed=true;}};
+    const f=await fixture();await f.flow.start();f.setSelected();f.change(confirmed);await f.flow.exchange();
+    const held=f.read().selection as Record<string,unknown>;expect(held.portalConfirmed).toBe(true);
+    vi.mocked(f.request).mockResolvedValueOnce(expiredReply());await expect(f.flow.exchange()).rejects.toMatchObject({reason:"expired"});
+    await f.flow.renewExpiredPairing();
+    // Connect carries the chosen account into the renewed window, unconfirmed.
+    f.change(()=>{});expect(await f.flow.exchange()).toMatchObject({state:"account_selected"});
+    const renewed=f.read().selection as Record<string,unknown>;expect(renewed.portalConfirmed).toBeUndefined();expect(renewed.accountId).toBe(held.accountId);
+    // Confirming the SAME account again restores the portal identity.
+    f.change(confirmed);await f.flow.exchange();expect((f.read().selection as Record<string,unknown>).portalConfirmed).toBe(true);
+    // Another account is still refused.
+    f.change(v=>{confirmed(v);if("account_id" in v)v.account_id="99999999-9999-4999-8999-999999999999";});
+    await expect(f.flow.exchange()).rejects.toMatchObject({reason:"binding"});
+  });
   it.each(['installation_pairing_not_found'])("does not authorize retry from arbitrary404 %s",async code=>{
     const f=await fixture(), original=f.read();vi.mocked(f.request).mockResolvedValueOnce(new Response(JSON.stringify({error:{code}}),{status:404}));
     await expect(f.flow.start()).rejects.toMatchObject({reason:'refused'});await expect(f.flow.renewExpiredPairing()).rejects.toMatchObject({reason:'recovery_required'});expect(f.read()).toEqual(original);
@@ -619,6 +634,19 @@ describe("original native timer consent receipts",()=>{
     await expect(f.flow.exchangeCollectionConsent(f.installation)).rejects.toMatchObject({reason:"response"}); expect(f.read()).toEqual(before); await f.flow.close();
   });
 });
+describe("a cancelled sign-in wait", () => {
+  it("forgets only that the request was sent: a restart does not resume it and the next START repeats the same request", async () => {
+    const f = await fixture(), original = f.read();
+    await f.flow.start(); expect(f.flow.requestSent()).toBe(true);
+    await f.flow.forgetSentRequest();
+    expect(f.read()).toEqual(original); expect(f.flow.requestSent()).toBe(false);
+    await f.flow.close();
+    const reopened = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"}); expect(reopened.requestSent()).toBe(false);
+    expect((await reopened.start()).requestId).toBe(original.requestId); expect(reopened.requestSent()).toBe(true);
+    expect(f.requests.map(r => (r.body as {installation?: {request_id?: string}} | undefined)?.installation?.request_id)).toEqual([original.requestId, original.requestId]);
+    await reopened.close();
+  });
+});
 describe("fresh scoped recovery receipt constraints", () => {
   const recoveryFor = {accountId: account, collectionId: collection};
   it("sends the protected CID on START and retains a status-only pending exchange", async () => {
@@ -859,12 +887,22 @@ describe("protected installation lifecycle (stand-in store/CP/native, actual ran
   it("missing-existing/fresh-existing do not create replacements", async () => {
     const f = await fixture(); const original = f.read(); await f.flow.close(); await expect(AppProtectedInstallationSignIn.open(f.options)).rejects.toThrow("recovery_required"); expect(f.read()).toEqual(original);
   });
-  it("records original native attempt before keys; interrupted attempt can only restore existing", async () => {
+  it("records original native attempt before keys; an attempt cut off before attestation starts over fresh", async () => {
     const f = await fixture(); f.setSelected(); await f.flow.exchange(); await f.flow.confirmSelectedAccount(account);
     const first = await f.flow.prepareOriginalDevice(f.installation); expect(first.mode).toBe("fresh"); expect(first.pin.installationOwned()).toBe(true); expect(f.read().nativeStarted).toBe(true);
-    const second = await f.flow.prepareOriginalDevice(f.installation); expect(second.mode).toBe("existing");
+    // Interrupted (reload, aborted request) before the device signed its enrolment:
+    // nothing of it left this browser, so the next attempt creates it again.
+    const second = await f.flow.prepareOriginalDevice(f.installation); expect(second.mode).toBe("fresh");
     f.installation.isCurrent = () => true; expect(first.pin.isCurrent()).toBe(false);
-    await f.flow.close(); const warm = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"}); expect((await warm.prepareOriginalDevice(f.installation)).mode).toBe("existing"); await warm.close();
+    await f.flow.close(); const warm = await AppProtectedInstallationSignIn.open({...f.options, mode: "existing"});
+    const installation = {...f.installation, isCurrent: () => true};
+    expect((await warm.prepareOriginalDevice(installation)).mode).toBe("fresh"); await warm.close();
+  });
+  it("once the device signed its enrolment, only its existing keys may be used", async () => {
+    const f = await fixture(); await confirmed(f); f.setFailHttp();
+    // The proof is saved before the attest request, whose reply was lost.
+    await expect(f.flow.attest(f)).rejects.toThrow("outcome_unknown"); expect(f.read().proof).not.toBeNull();
+    expect((await f.flow.prepareOriginalDevice(f.installation)).mode).toBe("existing");
   });
   it("lost START HTTP repeats exact request only, does not reset protected operation", async () => {
     const f = await fixture(), original = f.read(); f.setFailHttp(); await expect(f.flow.start()).rejects.toThrow("outcome_unknown"); await expect(f.flow.start()).rejects.toThrow("outcome_unknown"); expect(f.read()).toEqual(original); expect(f.requests[0]!.body).toEqual(f.requests[1]!.body);

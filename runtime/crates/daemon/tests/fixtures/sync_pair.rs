@@ -1001,8 +1001,8 @@ struct Observed {
 /// after the status is read, so `in_place` cannot predate the reported state.
 async fn observe(rt: &Runtime, t0: Instant, file: Option<(&Path, &[u8])>) -> Observed {
     use mdbn_daemon::control::CollectionState as S;
-    let (status, caught_up, _) = rt.readiness().await.expect("runtime stopped");
-    let serving = match mdbn_daemon::runtime::synced_ready(&status, caught_up, false) {
+    let (status, caught_up, _, fence) = rt.readiness().await.expect("runtime stopped");
+    let serving = match mdbn_daemon::runtime::synced_ready(&status, fence, caught_up, false) {
         Ok(true) => S::Ready,
         Ok(false) => S::Opening,
         Err(reason) => panic!("terminal readiness {reason}"),
@@ -1455,4 +1455,135 @@ async fn append_policy(log: &str, cp: &Arc<ControlPlane>, collection: Uuid, ops:
         .to_cbor(),
     )
     .await;
+}
+
+/// MEASUREMENT fixture (issue 1648): a cloud-copy log holding `creates` note
+/// entries followed by `updates` rewrites of the first notes, written by one
+/// desktop and keyed by a hosted-kind runtime, plus the identity of an enrolled
+/// app-runtime device that has never opened it. Writes `out` (JSON) for the
+/// browser harness and returns with every writer stopped; the caller keeps the
+/// log service alive.
+pub async fn run_replay_fixture(log: &str, dir: &Path, creates: usize, updates: usize, out: &Path) {
+    std::fs::create_dir_all(dir).unwrap();
+    let cp = Arc::new(ControlPlane::new(CP_LABEL));
+    let c = B16(random());
+    let owner = B16(random());
+    let hosted = Dev::new("replay-hosted", DeviceKind::Hosted, SERVICE_ACCOUNT);
+    let escrow = Dev::new("replay-escrow", DeviceKind::Escrow, SERVICE_ACCOUNT);
+    let sdk_device = Dev::new("replay-sdk", DeviceKind::AppRuntime, owner);
+    let a = Dev::new("replay-a", DeviceKind::Desktop, owner);
+    let genesis = cp.policy_item(
+        c,
+        1,
+        B32([0; 32]),
+        vec![
+            PolicyOp::Genesis(Genesis {
+                owner,
+                root: mdbn_log_service::policy::key_id(&cp.root_pk()),
+                state: CState::CloudCopy,
+            }),
+            PolicyOp::MemberSet(MemberSet {
+                account: owner,
+                role: Role::Owner,
+            }),
+            hosted.enrol(),
+            escrow.enrol(),
+            a.enrol(),
+            sdk_device.enrol(),
+        ],
+        1,
+    );
+    let pin = mdbn_wire::hash::chain_hash(&genesis).0;
+    create_log(log, cp.clone(), c, genesis).await;
+    let rh = open(dir, log, &cp, c, &hosted, random(), pin);
+    let ra = open(dir, log, &cp, c, &a, random(), pin);
+    let pa = dir.join(a.label);
+    let note = |i: usize, rev: usize| {
+        format!(
+            "---\ntitle: Synthetic note {i}\nstatus: {}\ndue: 2026-01-{:02}\ntags:\n  - fixture\n  - batch-{}\nrevision: {rev}\n---\n\nSynthetic note {i} for the replay measurement. It links to [[note-{:05}]] and carries a short body so the entry is the size of an ordinary task or note.\n",
+            if i.is_multiple_of(3) { "done" } else { "open" },
+            1 + i % 28,
+            i / 100,
+            (i + 1) % creates.max(1),
+        )
+    };
+    let settle = |want: u64| {
+        let ra = &ra;
+        async move {
+            let t0 = Instant::now();
+            let mut last = (0, 0);
+            loop {
+                let s = ra.status().await.expect("writer stopped");
+                if s.pending == 0 && s.confirmed_through >= want {
+                    return s.confirmed_through;
+                }
+                if (s.confirmed_through, s.pending) != last {
+                    last = (s.confirmed_through, s.pending);
+                    eprintln!(
+                        "writer: confirmed {} pending {} ({:?})",
+                        s.confirmed_through,
+                        s.pending,
+                        t0.elapsed()
+                    );
+                }
+                assert!(
+                    t0.elapsed() < Duration::from_secs(3600),
+                    "writer never settled"
+                );
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            }
+        }
+    };
+    std::fs::create_dir_all(pa.join("notes")).unwrap();
+    // In slices, so the watcher and the appender see ordinary bursts.
+    let mut written = 0u64;
+    for start in (0..creates).step_by(500) {
+        for i in start..creates.min(start + 500) {
+            std::fs::write(pa.join(format!("notes/note-{i:05}.md")), note(i, 0)).unwrap();
+        }
+        written += (creates.min(start + 500) - start) as u64;
+        settle(written).await;
+    }
+    for start in (0..updates).step_by(500) {
+        for i in start..updates.min(start + 500) {
+            std::fs::write(pa.join(format!("notes/note-{i:05}.md")), note(i, 1)).unwrap();
+        }
+        written += (updates.min(start + 500) - start) as u64;
+        settle(written).await;
+    }
+    // Let a due snapshot build and register before the writers stop.
+    tokio::time::sleep(Duration::from_secs(if written >= 10_000 { 60 } else { 3 })).await;
+    let head = settle(written).await;
+    let pins = mdbn_wire::cbor::encode(&Cbor::Array(vec![
+        Cbor::Array(vec![Cbor::Array(vec![
+            mdbn_replica::policy::key_id(&cp.root_pk().0).to_cbor(),
+            cp.root_pk().to_cbor(),
+        ])]),
+        Cbor::Array(vec![Cbor::Array(vec![
+            mdbn_replica::policy::key_id(&cp.transport_key().verifying_key().to_bytes()).to_cbor(),
+            B32(cp.transport_key().verifying_key().to_bytes()).to_cbor(),
+            mdbn_replica::policy::key_id(&cp.root_pk().0).to_cbor(),
+        ])]),
+    ]))
+    .unwrap();
+    let fixture = serde_json::json!({
+        "publicConformanceFixture": true,
+        "collection": c.to_uuid_string(),
+        "device": sdk_device.tk.id.to_uuid_string(),
+        "sign": mdbn_daemon::secrets::hex(&sdk_device.secrets().sign_sk),
+        "kem": mdbn_daemon::secrets::hex(&sdk_device.kem_sk),
+        "signPublic": mdbn_daemon::secrets::hex(&sdk_device.tk.pk().0),
+        "token": cp.device_token_for(&sdk_device.tk, now_ms() + 12 * 3_600_000, Some(c)),
+        "log": log,
+        "genesis": mdbn_daemon::secrets::hex(&pin),
+        "root": mdbn_daemon::secrets::hex(&cp.root_pk().0),
+        "pins": mdbn_daemon::secrets::hex(&pins),
+        "creates": creates,
+        "updates": updates,
+        "head": head,
+    });
+    ra.stop().await;
+    rh.stop().await;
+    std::fs::write(out, serde_json::to_vec(&fixture).unwrap()).unwrap();
+    println!("READY head {head} fixture {}", out.display());
 }

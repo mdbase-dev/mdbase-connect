@@ -295,7 +295,7 @@ fn producer_unknown_capture_fences_original_mid_without_resubmission() {
         ];
         let error = call(&mut a, client, "apply", fields.clone()).unwrap_err();
         assert_eq!(error.problem().code, "outcome_unknown");
-        assert!(a.r.apply_fault);
+        assert!(a.r.apply_fault.is_some());
         assert!(call(&mut a, client, "apply", fields).is_err());
         settle(&mut [&mut a]);
         assert_eq!(service.head(&COL), before);

@@ -104,15 +104,22 @@ fn discovery_page(
     session: SessionId,
     resume: Option<BasesDiscoveryHandle>,
 ) -> DiscoveredPage {
-    r.encode_bases_discovery_page(session, Some("UTC"), 128, resume, |_, page, _| {
-        Ok((
-            page.views
-                .iter()
-                .map(|v| (v.record, v.index))
-                .collect::<Vec<_>>(),
-            page.next,
-        ))
-    })
+    r.encode_bases_discovery_page(
+        session,
+        Some("UTC"),
+        128,
+        resume,
+        crate::replica::UnreadableSources::Refuse,
+        |_, page, _| {
+            Ok((
+                page.views
+                    .iter()
+                    .map(|v| (v.record, v.index))
+                    .collect::<Vec<_>>(),
+                page.next,
+            ))
+        },
+    )
     .unwrap()
 }
 const LATE: [(B16, u32); 3] = [
@@ -304,10 +311,17 @@ fn a_refusal_on_a_later_page_fails_the_request_and_its_continuation() {
         .unwrap();
     let encoded = Cell::new(false);
     assert!(
-        r.encode_bases_discovery_page(session, Some("UTC"), 128, None, |_, _, _| {
-            encoded.set(true);
-            Ok(())
-        })
+        r.encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            128,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| {
+                encoded.set(true);
+                Ok(())
+            }
+        )
         .is_err()
     );
     assert!(!encoded.get());
@@ -334,27 +348,44 @@ fn native_discovery_slots_are_globally_bounded_and_close_releases_only_residency
     }
     for session in &sessions[..64] {
         assert!(
-            r.encode_bases_discovery_page(*session, Some("UTC"), 1, None, |_, page, _| Ok(
-                page.next
-            ))
+            r.encode_bases_discovery_page(
+                *session,
+                Some("UTC"),
+                1,
+                None,
+                crate::replica::UnreadableSources::Refuse,
+                |_, page, _| Ok(page.next)
+            )
             .unwrap()
             .is_some()
         );
     }
     let encoded = Cell::new(false);
     assert!(
-        r.encode_bases_discovery_page(sessions[64], Some("UTC"), 1, None, |_, _, _| {
-            encoded.set(true);
-            Ok(())
-        })
+        r.encode_bases_discovery_page(
+            sessions[64],
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| {
+                encoded.set(true);
+                Ok(())
+            }
+        )
         .is_err()
     );
     assert!(!encoded.get());
     r.close(sessions[0]);
     assert!(
-        r.encode_bases_discovery_page(sessions[64], Some("UTC"), 1, None, |_, page, _| Ok(
-            page.next
-        ))
+        r.encode_bases_discovery_page(
+            sessions[64],
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, page, _| Ok(page.next)
+        )
         .unwrap()
         .is_some()
     );
@@ -380,32 +411,58 @@ fn reentrant_encoder_cannot_publish_a_sixty_fifth_resident_slot() {
         );
     }
     let encoded = Cell::new(false);
-    let result = r.encode_bases_discovery_page(session, Some("UTC"), 1, None, |actor, _, _| {
-        for other in &other_sessions {
-            assert!(
-                actor
-                    .encode_bases_discovery_page(*other, Some("UTC"), 1, None, |_, page, _| Ok(
-                        page.next
-                    ))?
-                    .is_some()
-            );
-        }
-        encoded.set(true);
-        Ok(())
-    });
+    let result = r.encode_bases_discovery_page(
+        session,
+        Some("UTC"),
+        1,
+        None,
+        crate::replica::UnreadableSources::Refuse,
+        |actor, _, _| {
+            for other in &other_sessions {
+                assert!(
+                    actor
+                        .encode_bases_discovery_page(
+                            *other,
+                            Some("UTC"),
+                            1,
+                            None,
+                            crate::replica::UnreadableSources::Refuse,
+                            |_, page, _| Ok(page.next)
+                        )?
+                        .is_some()
+                );
+            }
+            encoded.set(true);
+            Ok(())
+        },
+    );
     assert!(encoded.get());
     assert!(result.is_err());
     // All 64 admitted inner slots still exist; the outer failed publication
     // cannot displace one or exceed the residency ceiling.
     assert!(
-        r.encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, _, _| Ok(()))
-            .is_err()
+        r.encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| Ok(())
+        )
+        .is_err()
     );
     r.close(other_sessions[0]);
     assert!(
-        r.encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, page, _| Ok(page.next))
-            .unwrap()
-            .is_some()
+        r.encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, page, _| Ok(page.next)
+        )
+        .unwrap()
+        .is_some()
     );
 }
 #[test]
@@ -416,7 +473,14 @@ fn discovery_residency_never_adds_a_strong_catalog_pin_and_drift_is_conflict() {
     assert_eq!(std::sync::Arc::strong_count(&r.catalog), before + 1);
     drop(strong);
     let token = r
-        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, page, _| Ok(page.next))
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, page, _| Ok(page.next),
+        )
         .unwrap()
         .unwrap();
     assert_eq!(std::sync::Arc::strong_count(&r.catalog), before);
@@ -424,10 +488,17 @@ fn discovery_residency_never_adds_a_strong_catalog_pin_and_drift_is_conflict() {
     r.catalog = std::sync::Arc::new(mdbn_core::types::Catalog::empty());
     let encoded = Cell::new(false);
     let error = r
-        .encode_bases_discovery_page(session, Some("UTC"), 1, Some(token), |_, _, _| {
-            encoded.set(true);
-            Ok(())
-        })
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            Some(token),
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| {
+                encoded.set(true);
+                Ok(())
+            },
+        )
         .err()
         .unwrap();
     assert_eq!(error.code(), Some(ErrorCode::Conflict));
@@ -436,21 +507,35 @@ fn discovery_residency_never_adds_a_strong_catalog_pin_and_drift_is_conflict() {
 #[test]
 fn postcodec_catalog_drift_cannot_publish_discovery_or_exact_source() {
     let (mut r, session) = discovery_actor(THREE);
-    let result = r.encode_bases_discovery_page(session, Some("UTC"), 1, None, |actor, _, _| {
-        actor.catalog = std::sync::Arc::new(mdbn_core::types::Catalog::empty());
-        Ok(())
-    });
+    let result = r.encode_bases_discovery_page(
+        session,
+        Some("UTC"),
+        1,
+        None,
+        crate::replica::UnreadableSources::Refuse,
+        |actor, _, _| {
+            actor.catalog = std::sync::Arc::new(mdbn_core::types::Catalog::empty());
+            Ok(())
+        },
+    );
     assert_eq!(result.err().unwrap().code(), Some(ErrorCode::Conflict));
     let (mut r, session) = discovery_actor(THREE);
     let selection = r
-        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, page, _| {
-            let view = &page.views[0];
-            Ok(BasesViewSelection {
-                record: view.record,
-                revision: view.revision,
-                index: view.index,
-            })
-        })
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, page, _| {
+                let view = &page.views[0];
+                Ok(BasesViewSelection {
+                    record: view.record,
+                    revision: view.revision,
+                    index: view.index,
+                })
+            },
+        )
         .unwrap();
     let result = r.encode_bases_view_source(session, selection, Some("UTC"), |actor, _, _| {
         actor.catalog = std::sync::Arc::new(mdbn_core::types::Catalog::empty());
@@ -467,16 +552,23 @@ fn native_discovery_pages_original_ordinals_and_duplicate_names_under_one_clock(
     let mut clock = None;
     for _ in 0..8 {
         let (next, rows, current_clock) = r
-            .encode_bases_discovery_page(session, Some("UTC"), 1, token, |_, page, _| {
-                Ok((
-                    page.next,
-                    page.views
-                        .iter()
-                        .map(|view| (view.record, view.index, view.name.clone(), view.revision))
-                        .collect::<Vec<_>>(),
-                    page.clock.clone(),
-                ))
-            })
+            .encode_bases_discovery_page(
+                session,
+                Some("UTC"),
+                1,
+                token,
+                crate::replica::UnreadableSources::Refuse,
+                |_, page, _| {
+                    Ok((
+                        page.next,
+                        page.views
+                            .iter()
+                            .map(|view| (view.record, view.index, view.name.clone(), view.revision))
+                            .collect::<Vec<_>>(),
+                        page.clock.clone(),
+                    ))
+                },
+            )
             .unwrap();
         if let Some(first) = &clock {
             assert_eq!(first, &current_clock);
@@ -505,10 +597,17 @@ fn unknown_or_foreign_discovery_handle_never_restarts_or_encodes() {
     let (mut r, session) = discovery_actor(THREE);
     let encoded = Cell::new(false);
     assert!(
-        r.encode_bases_discovery_page(SessionId(u64::MAX), Some("UTC"), 1, None, |_, _, _| {
-            encoded.set(true);
-            Ok(())
-        })
+        r.encode_bases_discovery_page(
+            SessionId(u64::MAX),
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| {
+                encoded.set(true);
+                Ok(())
+            }
+        )
         .is_err()
     );
     assert!(
@@ -517,6 +616,7 @@ fn unknown_or_foreign_discovery_handle_never_restarts_or_encodes() {
             Some("UTC"),
             1,
             Some(BasesDiscoveryHandle([7; 32])),
+            crate::replica::UnreadableSources::Refuse,
             |_, _, _| {
                 encoded.set(true);
                 Ok(())
@@ -530,33 +630,68 @@ fn unknown_or_foreign_discovery_handle_never_restarts_or_encodes() {
 fn consumed_discovery_handle_is_not_reusable() {
     let (mut r, session) = discovery_actor(THREE);
     let token = r
-        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, page, _| Ok(page.next))
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, page, _| Ok(page.next),
+        )
         .unwrap()
         .unwrap();
-    r.encode_bases_discovery_page(session, Some("UTC"), 1, Some(token), |_, _, _| Ok(()))
-        .unwrap();
+    r.encode_bases_discovery_page(
+        session,
+        Some("UTC"),
+        1,
+        Some(token),
+        crate::replica::UnreadableSources::Refuse,
+        |_, _, _| Ok(()),
+    )
+    .unwrap();
     assert!(
-        r.encode_bases_discovery_page(session, Some("UTC"), 1, Some(token), |_, _, _| Ok(()))
-            .is_err()
+        r.encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            Some(token),
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| Ok(())
+        )
+        .is_err()
     );
 }
 #[test]
 fn discovery_codec_as_of_drift_suppresses_publication_and_handle() {
     let (mut r, session) = discovery_actor(THREE);
-    let result = r.encode_bases_discovery_page(session, Some("UTC"), 1, None, |r, _, _| {
-        r.view_version += 1;
-        Ok(vec![1])
-    });
+    let result = r.encode_bases_discovery_page(
+        session,
+        Some("UTC"),
+        1,
+        None,
+        crate::replica::UnreadableSources::Refuse,
+        |r, _, _| {
+            r.view_version += 1;
+            Ok(vec![1])
+        },
+    );
     assert!(result.is_err());
 }
 #[test]
 fn discovery_codec_derived_readiness_drift_does_not_certify_or_block_primary_reads() {
     let (mut r, session) = discovery_actor(THREE);
     let output = r
-        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |r, page, _| {
-            r.store().ready.set(false);
-            Ok(page.views[0].revision)
-        })
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |r, page, _| {
+                r.store().ready.set(false);
+                Ok(page.views[0].revision)
+            },
+        )
         .unwrap();
     assert_eq!(output, mdbn_wire::hash::sha256(THREE.as_bytes()));
     assert!(!r.store().query_projection_state().unwrap().unwrap().ready);
@@ -565,13 +700,27 @@ fn discovery_codec_derived_readiness_drift_does_not_certify_or_block_primary_rea
 fn closing_session_invalidates_native_discovery_slot() {
     let (mut r, session) = discovery_actor(THREE);
     let token = r
-        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, page, _| Ok(page.next))
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, page, _| Ok(page.next),
+        )
         .unwrap()
         .unwrap();
     r.close(session);
     assert!(
-        r.encode_bases_discovery_page(session, Some("UTC"), 1, Some(token), |_, _, _| Ok(()))
-            .is_err()
+        r.encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            Some(token),
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| Ok(())
+        )
+        .is_err()
     );
 }
 #[test]
@@ -643,11 +792,221 @@ fn malformed_actual_source_is_visible_refusal_not_empty_catalog() {
         .unwrap();
     let encoded = Cell::new(false);
     assert!(
-        r.encode_bases_discovery_page(session, Some("UTC"), 128, None, |_, _, _| {
-            encoded.set(true);
-            Ok(())
-        })
+        r.encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            128,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| {
+                encoded.set(true);
+                Ok(())
+            }
+        )
         .is_err()
     );
     assert!(!encoded.get());
+}
+/// Frontmatter-style lines on top of a Base: two YAML documents (tasknotes-app,
+/// "Couldn't load your views" on collection F5).
+const BROKEN: &str = "---\nviews: TODO\n---\nviews:\n  - {type: table}\n";
+/// Planning refuses malformed YAML, so replace stored rows as a file scan can.
+fn break_records(r: &mut Replica<ProjectionStore>, ids: &[B16], doc: &str) {
+    let rows = ids
+        .iter()
+        .map(|id| {
+            let mut row = r.store().inner.record(id).unwrap().unwrap();
+            row.doc = doc.into();
+            row.revision = mdbn_wire::hash::sha256(row.doc.as_bytes());
+            row
+        })
+        .collect();
+    r.store_mut()
+        .inner
+        .commit(crate::store::Tx {
+            records_put: rows,
+            ..Default::default()
+        })
+        .unwrap();
+}
+type Unreadable = Vec<(B16, String, &'static str)>;
+type ReportedPage = (Vec<(B16, u32)>, Unreadable, Option<BasesDiscoveryHandle>);
+fn reporting_page(
+    r: &mut Replica<ProjectionStore>,
+    session: SessionId,
+    resume: Option<BasesDiscoveryHandle>,
+) -> ReportedPage {
+    r.encode_bases_discovery_page(
+        session,
+        Some("UTC"),
+        128,
+        resume,
+        crate::replica::UnreadableSources::Report,
+        |_, page, _| {
+            Ok((
+                page.views.iter().map(|v| (v.record, v.index)).collect(),
+                page.unreadable
+                    .iter()
+                    .map(|u| (u.record, u.path.clone(), u.problem.detail()))
+                    .collect(),
+                page.next,
+            ))
+        },
+    )
+    .unwrap()
+}
+fn report_all(
+    r: &mut Replica<ProjectionStore>,
+    session: SessionId,
+) -> (Vec<(B16, u32)>, Unreadable) {
+    let (mut views, mut unreadable, mut next) = reporting_page(r, session, None);
+    while next.is_some() {
+        let (more_views, more_unreadable, resume) = reporting_page(r, session, next);
+        views.extend(more_views);
+        unreadable.extend(more_unreadable);
+        next = resume;
+    }
+    (views, unreadable)
+}
+#[test]
+fn an_unreadable_record_is_named_and_every_other_view_is_still_discovered() {
+    let records = vec![
+        (task_id(1), "Views/broken.base".to_owned(), THREE.to_owned()),
+        (
+            task_id(2),
+            "Tasks/broken.md".to_owned(),
+            "---\ntags: [task]\n---\n".to_owned(),
+        ),
+    ];
+    let (mut r, session) = inventory_actor(&records);
+    break_records(&mut r, &[task_id(1)], BROKEN);
+    break_records(&mut r, &[task_id(2)], "---\ntags: [\n---\n");
+    // Request version 1 still refuses the whole discovery.
+    let refused = r
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            128,
+            None,
+            crate::replica::UnreadableSources::Refuse,
+            |_, _, _| Ok(()),
+        )
+        .unwrap_err();
+    assert_eq!(refused.problem().code, "invalid_request");
+    assert_eq!(
+        refused.problem().reason.as_deref(),
+        Some("view_metadata_unavailable")
+    );
+    let (views, unreadable) = report_all(&mut r, session);
+    assert_eq!(
+        unreadable,
+        vec![
+            (
+                task_id(1),
+                "Views/broken.base".to_owned(),
+                "base_raw_frontmatter_unavailable"
+            ),
+            (
+                task_id(2),
+                "Tasks/broken.md".to_owned(),
+                "base_raw_frontmatter_unavailable"
+            ),
+        ]
+    );
+    assert_eq!(views, LATE);
+}
+#[test]
+fn a_page_names_at_most_32_unreadable_records_and_the_next_page_continues() {
+    let ids: Vec<_> = (1..=40).map(task_id).collect();
+    let records: Vec<_> = ids
+        .iter()
+        .enumerate()
+        .map(|(n, id)| (*id, format!("Views/broken-{n}.base"), THREE.to_owned()))
+        .collect();
+    let (mut r, session) = inventory_actor(&records);
+    break_records(&mut r, &ids, BROKEN);
+    let (views, first, next) = reporting_page(&mut r, session, None);
+    assert!(views.is_empty());
+    assert_eq!(first.len(), 32);
+    assert!(next.is_some());
+    let (views, unreadable) = report_all(&mut r, session);
+    assert_eq!(unreadable.iter().map(|u| u.0).collect::<Vec<_>>(), ids);
+    assert_eq!(views, LATE);
+}
+/// Replace a stored record's document. Documents this large arrive as blobs,
+/// not inline mutation text, so write the stored row directly.
+fn store_document(r: &mut Replica<ProjectionStore>, id: B16, doc: String) {
+    let mut row = r.store().inner.record(&id).unwrap().unwrap();
+    row.revision = mdbn_wire::hash::sha256(doc.as_bytes());
+    row.doc = doc;
+    r.store_mut()
+        .inner
+        .commit(crate::store::Tx {
+            records_put: vec![row],
+            ..Default::default()
+        })
+        .unwrap();
+}
+fn large_note(bytes: usize) -> String {
+    format!("---\ntags: [note]\n---\n{}\n", "x".repeat(bytes))
+}
+#[test]
+fn a_note_over_half_a_page_is_discovered_past_wherever_it_falls() {
+    // tasknotes-app#436: a 512 KiB-1 MiB note that was not the first record of
+    // its page failed discovery as `conflict`/`concurrent_modification`. Only
+    // a Base is reread, so a note may fill the page.
+    for position in [0, 2] {
+        let (mut r, session) = inventory_actor(&tiny_notes(4));
+        store_document(&mut r, task_id(position), large_note(600 * 1024));
+        let (views, next) = discovery_page(&mut r, session, None);
+        assert_eq!(views, LATE.to_vec(), "large note at {position}");
+        assert!(next.is_none());
+    }
+}
+#[test]
+fn a_note_that_fills_a_page_by_itself_is_discovered() {
+    let (mut r, session) = inventory_actor(&tiny_notes(4));
+    store_document(&mut r, task_id(1), large_note(1000 * 1024));
+    let (views, next) = discovery_page(&mut r, session, None);
+    assert_eq!(views, LATE.to_vec());
+    assert!(next.is_none());
+}
+#[test]
+fn a_record_larger_than_a_page_is_a_named_budget_refusal_not_a_conflict() {
+    let (mut r, session) = inventory_actor(&tiny_notes(4));
+    store_document(&mut r, task_id(2), large_note(1100 * 1024));
+    let error = r
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            128,
+            None,
+            crate::replica::UnreadableSources::Report,
+            |_, _, _| Ok(()),
+        )
+        .unwrap_err();
+    let problem = format!("{error:?}");
+    assert!(problem.contains("\"invalid_request\""), "{problem}");
+    assert!(problem.contains("query_budget_exceeded"), "{problem}");
+}
+#[test]
+fn a_base_over_half_a_page_is_still_a_named_budget_refusal() {
+    // A Base must be classified and reread within one page.
+    let mut records = tiny_notes(4);
+    records[2] = (task_id(2), "Views/huge.base".into(), THREE.into());
+    let (mut r, session) = inventory_actor(&records);
+    let comment = format!("# {}\n", "y".repeat(600 * 1024));
+    store_document(&mut r, task_id(2), format!("{comment}{THREE}"));
+    let error = r
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            128,
+            None,
+            crate::replica::UnreadableSources::Report,
+            |_, _, _| Ok(()),
+        )
+        .unwrap_err();
+    let problem = format!("{error:?}");
+    assert!(problem.contains("query_budget_exceeded"), "{problem}");
 }

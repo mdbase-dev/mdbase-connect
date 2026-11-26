@@ -116,6 +116,7 @@ fn one<I: IndexStorage, T>(
 fn acknowledge_existing<I: IndexStorage>(s: &SqlStore<I>) -> Result<(), Error> {
     // An idempotent read is not a durability barrier. The caller's control
     // reservation remains live until this existing evidence is acknowledged.
+    s.deferred.set(false);
     s.index
         .borrow_mut()
         .defer_sync(false)
@@ -123,6 +124,7 @@ fn acknowledge_existing<I: IndexStorage>(s: &SqlStore<I>) -> Result<(), Error> {
     Ok(())
 }
 fn run<I: IndexStorage>(s: &mut SqlStore<I>, stmts: Vec<Stmt>) -> Result<Vec<StmtResult>, Error> {
+    s.deferred.set(false);
     let mut index = s.index.borrow_mut();
     // A private candidate acknowledgment must never remain in an ordinary
     // deferred-durability window. Failure here is unknown, requiring reopen.
@@ -143,6 +145,7 @@ fn run_borrowed<I: IndexStorage>(
         mode: BatchMode::Transaction,
         stmts: vec![statement],
     };
+    s.deferred.set(false);
     let mut index = s.index.borrow_mut();
     // The input's own charge and control charge remain live across both the
     // final deferred barrier and the bounded synchronous borrowed write.

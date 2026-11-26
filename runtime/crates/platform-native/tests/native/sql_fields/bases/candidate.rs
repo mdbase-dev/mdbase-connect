@@ -19,6 +19,7 @@ fn pages(
         max_bytes: 1 << 20,
         fields: requirements.fields.clone(),
         tags: requirements.tags,
+        full_frontmatter: false,
     };
     let mut rows = Vec::new();
     loop {

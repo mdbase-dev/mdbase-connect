@@ -3,13 +3,26 @@ import { formatters } from "@mdbase-dev/i18n";
 import { LanguageSetting } from "../i18n/LanguageSetting";
 import { ShortcutSettings } from "./ShortcutSettings";
 import { ArrowLeftIcon as ArrowLeft, CaretRightIcon as ChevronRight, TrashIcon as Trash2 } from "../icons";
-import type { CollectionDescription } from "@mdbase-dev/connect";
-import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
+import type { CollectionDescription } from "../connect-types";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { managedAppOrigins } from "../../../../scripts/lib/managed-app-origins.mjs";
+import { editorEnvironment } from "../environment";
 import type { CollectionGateway, ConnectionSummary } from "../model";
 import type { EditorPreferences } from "../preferences";
 import { applyThemePreference, loadThemePreference, observeTheme, saveThemePreference, type ThemePreference } from "@mdbase-dev/ui/theme";
 import { Select } from "@mdbase-dev/ui/select";
 import { ThemeSelect } from "@mdbase-dev/ui/theme-select";
+
+const { tasknotesOrigin, readerOrigin, writerOrigin, journalOrigin } = managedAppOrigins[editorEnvironment];
+
+// Direct Claude and ChatGPT plugin directory URLs can be added alongside
+// MCP_SETUP_URL once the published directory listings are live.
+const MCP_ENDPOINT_URL = "https://mcp.mdbase.dev/mcp";
+const MCP_SETUP_URL = "https://mdbase.dev/apps/mcp/";
+
+function collectionAppUrl(origin: string, collectionId: string): string {
+  return `${origin}?collection=${encodeURIComponent(collectionId)}`;
+}
 
 // Lazy: the panel and its person setup are only needed in Settings, and stay out of startup.
 const YourPersonPanel = lazy(() => import("../YourPersonPanel").then((module) => ({ default: module.YourPersonPanel })));
@@ -38,6 +51,12 @@ export function SettingsView({ description, connection, noteCount, preferences, 
   const settings = objectValue(description.configuration?.settings);
   const runtime = objectValue(description.configuration?.runtime);
   const explicitTypeKeys = stringListValue(settings.explicit_type_keys, ["type", "types"]);
+  const hasRealCollection = Boolean(
+    connection
+    && connection.collectionId !== "demo"
+    && description.collectionId
+    && gateway?.syncState?.() !== "unsynced"
+  );
   return <main className="settings-view" aria-label={t({ message: "Editor settings", context: "settings view" })}>
     <header className="settings-mobile-bar"><button className="mobile-back icon-button" aria-label={t({ message: "Back to collection", context: "settings view" })} onClick={onBack}><ArrowLeft aria-hidden="true" /></button><span><Trans context="settings view">Settings</Trans></span></header>
     {leadingActions && <div className="settings-pane-actions">{leadingActions}</div>}
@@ -45,10 +64,10 @@ export function SettingsView({ description, connection, noteCount, preferences, 
       <header><h1><Trans context="settings view">Settings</Trans></h1></header>
       <section>
         <div className="settings-intro"><h2><Trans context="settings view">Editing</Trans></h2><p><Trans context="settings view">Preferences stay in this browser.</Trans></p></div>
-        <SettingRow title={t({ message: "Vim key bindings", context: "settings view" })} description={t({ message: "Use normal, insert, visual, and command modes in the note editor.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Vim key bindings", context: "settings view" })}>
           <Toggle checked={preferences.vim} label={t({ message: "Vim key bindings", context: "settings view" })} onChange={(vim) => onChange({ ...preferences, vim })} />
         </SettingRow>
-        <SettingRow title={t({ message: "Wrap long lines", context: "settings view" })} description={t({ message: "Keep Markdown visible within the writing measure.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Wrap long lines", context: "settings view" })}>
           <Toggle checked={preferences.lineWrapping} label={t({ message: "Wrap long lines", context: "settings view" })} onChange={(lineWrapping) => onChange({ ...preferences, lineWrapping })} />
         </SettingRow>
         <SettingRow title={t({ message: "Quiet Markdown", context: "settings view" })} description={t({ message: "Soften punctuation away from the active line and make tasks checkable.", context: "settings view" })}>
@@ -57,10 +76,10 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <SettingRow title={t({ message: "Typewriter scrolling", context: "settings view" })} description={t({ message: "Keep the caret line centred while writing in focus mode.", context: "settings view" })}>
           <Toggle checked={preferences.typewriterScrolling} label={t({ message: "Typewriter scrolling", context: "settings view" })} onChange={(typewriterScrolling) => onChange({ ...preferences, typewriterScrolling })} />
         </SettingRow>
-        <SettingRow title={t({ message: "Text size", context: "settings view" })} description={t({ message: "Change note text without changing the surrounding interface.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Text size", context: "settings view" })}>
           <Select aria-label={t({ message: "Editor text size", context: "settings view" })} value={String(preferences.fontSize)} options={[{ value: "16", label: t({ message: "Compact", context: "editor text size" }) }, { value: "17", label: t({ message: "Comfortable", context: "editor text size" }) }, { value: "19", label: t({ message: "Large", context: "editor text size" }) }]} onChange={(next) => onChange({ ...preferences, fontSize: Number(next) as EditorPreferences["fontSize"] })} />
         </SettingRow>
-        <SettingRow title={t({ message: "Color theme", context: "settings view" })} description={t({ message: "Follow the system appearance or keep a theme in this browser.", context: "settings view" })}>
+        <SettingRow title={t({ message: "Color theme", context: "settings view" })}>
           <ThemePreferenceSetting />
         </SettingRow>
         <LanguageSetting />
@@ -83,6 +102,8 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         </details>
       </section>
 
+      {hasRealCollection && <OtherAppsSection collectionId={description.collectionId} />}
+
       {gateway?.peopleDirectory && <Suspense fallback={null}><YourPersonPanel key={description.collectionId} gateway={gateway} description={description} canInstall={connection?.operations.includes("apply_type_pack") ?? false} onRefreshDescription={onRefreshDescription} canCreate={connection?.operations.includes("create") ?? false} canEdit={connection?.operations.includes("update") ?? false} /></Suspense>}
 
       <section>
@@ -104,6 +125,96 @@ export function SettingsView({ description, connection, noteCount, preferences, 
   </main>;
 }
 
+function OtherAppsSection({ collectionId }: { collectionId: string }) {
+  const { t } = useLingui();
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => () => {
+    if (copyTimer.current !== undefined) clearTimeout(copyTimer.current);
+  }, []);
+
+  async function copyEndpoint() {
+    if (!navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(MCP_ENDPOINT_URL);
+    } catch {
+      return;
+    }
+    setCopied(true);
+    if (copyTimer.current !== undefined) clearTimeout(copyTimer.current);
+    copyTimer.current = setTimeout(() => {
+      setCopied(false);
+      copyTimer.current = undefined;
+    }, 2000);
+  }
+
+  const apps = [
+    {
+      name: "TaskNotes",
+      description: t({ message: "Plan tasks, boards and calendars", context: "settings view" }),
+      href: collectionAppUrl(tasknotesOrigin, collectionId)
+    },
+    {
+      name: "Reader",
+      description: t({ message: "Read and annotate PDFs, EPUBs and web pages", context: "settings view" }),
+      href: collectionAppUrl(readerOrigin, collectionId)
+    },
+    {
+      name: "Writer",
+      description: t({ message: "Write papers and books citing your sources", context: "settings view" }),
+      href: collectionAppUrl(writerOrigin, collectionId)
+    },
+    {
+      name: "Journal",
+      description: t({ message: "Keep a daily Markdown journal", context: "settings view" }),
+      href: collectionAppUrl(journalOrigin, collectionId)
+    }
+  ];
+
+  return <section>
+    <div className="settings-intro">
+      <h2><Trans context="settings view">Other apps</Trans></h2>
+      <p><Trans context="settings view">Open this collection in another mdbase app or connect an AI client.</Trans></p>
+    </div>
+    {apps.map((app) => (
+      <SettingRow key={app.name} title={app.name} description={app.description}>
+        <a
+          className="settings-secondary-action mdbase-button"
+          href={app.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label={t({ message: `Open ${app.name}`, context: "settings view" })}
+        >
+          <Trans context="settings view">Open</Trans>
+        </a>
+      </SettingRow>
+    ))}
+    <div className="setting-row settings-mcp-row">
+      <div>
+        <h3><Trans context="settings view">Claude, ChatGPT &amp; Codex (MCP &amp; plugins)</Trans></h3>
+        <p><code className="settings-endpoint">{MCP_ENDPOINT_URL}</code></p>
+      </div>
+      <div className="setting-controls">
+        <button
+          type="button"
+          className="settings-secondary-action mdbase-button"
+          onClick={() => void copyEndpoint()}
+        >
+          {copied ? t({ message: "Copied", context: "settings view" }) : t({ message: "Copy", context: "settings view" })}
+        </button>
+        <a
+          className="settings-secondary-action mdbase-button"
+          href={MCP_SETUP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <Trans context="settings view">Set up</Trans>
+        </a>
+      </div>
+    </div>
+  </section>;
+}
+
 function ThemePreferenceSetting() {
   const { t } = useLingui();
   const [preference, setPreference] = useState<ThemePreference>(loadThemePreference);
@@ -122,8 +233,9 @@ function ThemePreferenceSetting() {
   }} />;
 }
 
-function SettingRow({ title, description, children }: { title: string; description: string; children: React.ReactNode }) {
-  return <div className="setting-row"><div><h3>{title}</h3><p>{description}</p></div><div>{children}</div></div>;
+/** A description is for a setting whose name does not already say what it does. */
+function SettingRow({ title, description, children }: { title: string; description?: string; children: React.ReactNode }) {
+  return <div className="setting-row"><div><h3>{title}</h3>{description && <p>{description}</p>}</div><div>{children}</div></div>;
 }
 
 function FactRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {

@@ -63,7 +63,9 @@ complete.
 Files are a collection-scoped index and an on-demand asset pipeline, not note
 fields. `FileInventoryController` progressively lists descriptors, owns request
 generations and cancellation, exposes failures instead of silently dropping
-them, and reconciles accepted uploads and file watch events. Notes and files
+them, and reconciles accepted uploads and file watch events. Native file changes
+carry no descriptor, so the Editor coalesces them into a file inventory refresh
+instead of rereading their IDs as notes. Notes and files
 share the virtualized collection browser and folder tree while retaining
 separate identities and navigation behavior.
 
@@ -120,6 +122,15 @@ revision's answer stays shown while the word is asked again. Only the leading
 matches are read for excerpts. Body matching is therefore case-insensitive but
 not accent-insensitive, and shorter words match titles, paths and metadata
 only. Quick open and unlinked mentions search only text already loaded.
+`parseSearchQuery` reads a search once for both paths: a "quoted phrase" is
+one term, asked of the index whole and never fuzzy-matched, and `#tag`,
+`tag:name` and `type:name` are filters, never text to find. The list's tag
+filters, typed or chosen from a tag chip, are asked of the collection too
+(`BodySearch`, as `file.hasTag(tag)`): record views carry no tags, so only the
+runtime sees inline `#tags` in a note's text. A tag matches as the runtime's
+`hasTag` matches it, exactly or as a parent of a nested tag, in the case it
+is written. Type filters match the loaded types in any case. Tag facets and
+suggestions still come from the loaded frontmatter `tags` only.
 Unlinked mentions reuse the hydrated
 search entries (including their original display titles), caching syntax
 exclusions and paragraph bounds by entry identity. Snippets reuse the shared
@@ -131,6 +142,34 @@ revision-aware session operation queue. Undo refuses changed text rather than
 replacing newer edits. The list is virtualized so collection
 size does not translate directly into DOM size.
 
+## Links between records
+
+A relation is a field plus its `collection.links` rule (`field` for one link,
+`field[]` for a list). The type editor presents the pair as one field type,
+"Link": `setTypeFieldLink` writes the schema and the rule together, and
+renaming, converting or removing the field carries its rule with it. Rules on
+values the field list does not show are left alone and named as YAML-only.
+
+`record-links.ts` reads those rules for a record's types and writes one link
+value in the rule's format; `LinkPropertyEditor` edits such a property as
+chips and a picker (`@mdbase-dev/ui/link-picker`). Whether a written value
+leads anywhere is still the collection's answer (`LinkTargets`); the editor
+only narrows suggestions to the rule's target types.
+
+Creating a record while linking (`createLinkedRecord`) decides the path
+locally with the new-note model, hands it to the place the link is written
+(`LinkCreation`) at once, and creates the record in the background. A type
+that requires more than a name first opens `QuickCreateRecord`: a popover
+beside that place holding the name and the required properties only, drawn
+by the same properties form as a new note. Nothing is written, and the typed
+text stays, until the form is confirmed. One form is open at a time, so a
+link picker inside it makes name-only records and names the rest in a notice.
+The properties panel and the `[[` / `@` completions share all of this.
+
+Backlinks arrive with the properties that hold each link
+(`Backlink.fields`), and the footer groups them by the linking note's first
+declared type.
+
 ## UI boundaries
 
 `App.tsx` is the application orchestrator: connection/session lifecycle,
@@ -139,6 +178,17 @@ outside it:
 
 - `editor-commands.ts` owns canonical command labels and shortcuts; menus,
   shortcut matching/help, and QuickOpen bind the same definitions;
+- `workspace.ts` owns the open tabs and panes. They are held in a panel workspace
+  (`@mdbase-dev/panels`): a tab is a panel whose data is its note history, and a
+  pane is a stack of them. The module reads that arrangement as panes and tabs,
+  and every change the editor makes is a pure function over it. The library's
+  component draws the tab strips and dividers and changes the arrangement itself
+  when a tab is clicked, dragged or closed; App hears those changes and shows the
+  focused pane's note the same way as for its own. Only the focused pane shows
+  the active note session; every other pane reads its tab's session from the
+  store, through hooks of its own in `PaneSurface.tsx`, so the number of panes
+  is not fixed. The whole panes area is the page's `main` landmark, named for
+  what the focused pane shows; a pane is the tab panel of its tab;
 - `CollectionRail.tsx` owns folder expansion persistence;
 - `NoteSearchField.tsx` owns tag/type filter suggestions and chips;
 - `NoteList.tsx` owns list virtualization, keyboard focus, selection gestures,
@@ -205,9 +255,9 @@ as an application grant.
 `pnpm typecheck` uses strict TypeScript with unused code checks. `pnpm test`
 covers domain logic, controllers, components, race conditions, and recovery.
 The Playwright suite covers production-shaped user flows, accessibility,
-responsive behavior, and a 10,000-note collection. `pnpm build` is followed by
-`pnpm check:bundle`, which enforces gzip budgets for initial JavaScript and CSS.
-CI runs all four gates before deployment.
+responsive behavior, and a 10,000-note collection. CI runs all three and
+builds the app before deployment. Bundle sizes are recorded for the performance
+report, not gated.
 
 ## Comments
 

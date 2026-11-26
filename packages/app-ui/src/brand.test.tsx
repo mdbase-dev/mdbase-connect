@@ -2,6 +2,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import {
+  MDBASE_MARK_VIEW_BOX,
+  MdbaseAppMark,
   MdbaseMark,
   Wordmark,
   mdbaseMarkAccentRect,
@@ -95,5 +97,14 @@ describe("marks", () => {
     const reader = renderToStaticMarkup(<Wordmark app="reader" />);
     expect(reader).toContain('class="mdbase-mark mdbase-app-mark is-reader wordmark-mark mdbase-mark-at-rest"');
     expect(reader).toContain("<span>mdbase</span> <strong>reader</strong>");
+
+    const journal = renderToStaticMarkup(<MdbaseAppMark app="journal" className="slot" />);
+    expect(journal).toContain('class="mdbase-mark mdbase-app-mark is-journal slot"');
+    expect(journal).toContain(`viewBox="${MDBASE_MARK_VIEW_BOX}"`);
+    expect(journal).not.toContain("rx=");
+
+    const tasknotes = renderToStaticMarkup(<MdbaseAppMark app="tasknotes" className="slot" />);
+    expect(tasknotes).toContain('class="mdbase-mark mdbase-app-mark is-tasknotes slot"');
+    expect(tasknotes).toMatch(/<mask id="(tasknotes-mark-[^"]+)".*mask="url\(#\1\)"/);
   });
 });

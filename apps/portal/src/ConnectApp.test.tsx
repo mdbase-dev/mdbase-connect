@@ -40,6 +40,106 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it.each(["owner", "member"] as const)("shows the Editor deletion path only to the cloud copy owner: %s", async relationship => {
+    history.replaceState(null, "", "/?collection=native");
+    overview.native_collections = [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: [],
+      access: { relationship, role: relationship === "owner" ? "owner" : "editor", can_manage_members: relationship === "owner" } }];
+    render(<ConnectApp />);
+    const link = await screen.findByRole("link", { name: "Open in editor: Cloud notes" });
+    expect(new URL(link.getAttribute("href")!).searchParams.get("collection")).toBe("native");
+    expect(!!screen.queryByText(/open the menu next to the collection name and choose “Delete collection…”/i)).toBe(relationship === "owner");
+  });
+
+  it("offers unapproved official apps and MCP on Collection Overview in managed environments", async () => {
+    vi.stubGlobal("location", {
+      href: "https://connect.mdbase.dev/?collection=hosted",
+      origin: "https://connect.mdbase.dev",
+      pathname: "/",
+      search: "?collection=hosted",
+      hash: "",
+      assign: vi.fn(),
+      reload: vi.fn()
+    });
+    overview.hosted_collections = [hostedCollection()];
+    overview.grants = [
+      {
+        id: "grant-editor", operations: ["read"], scope: { contracts: [], access: "full_collection" },
+        created_at: "2026-01-01T00:00:00Z", revoked_at: null, revocation_status: "active",
+        reauthorization_required_at: null, reauthorization_reason: null,
+        collection_id: "hosted", collection_name: "Hosted research", collection_kind: "hosted",
+        application_id: "editor", application_name: "Editor", distribution: "web",
+        homepage: "https://editor.mdbase.dev/", project_url: null,
+        application_origin: "https://editor.mdbase.dev", icon: null
+      }
+    ];
+    render(<ConnectApp />);
+
+    const openIn = await screen.findByRole("region", { name: "Open this collection in" });
+    expect(within(openIn).getAllByRole("link", { name: /^Open / }).map((link) => link.getAttribute("href"))).toEqual([
+      "https://reader.mdbase.dev/?collection=hosted",
+      "https://writer.mdbase.dev/?collection=hosted",
+      "https://journal.mdbase.dev/?collection=hosted",
+      "https://app.tasknotes.dev/?collection=hosted"
+    ]);
+    expect(within(openIn).getByText("Claude, ChatGPT & Codex")).toBeInTheDocument();
+    expect(within(openIn).getByText("https://mcp.mdbase.dev/mcp")).toBeInTheDocument();
+  });
+
+  it("hides MCP on Collection Overview when MCP is already approved and hides the section for unavailable local collections or custom servers", async () => {
+    const managedLocation = {
+      href: "https://connect.mdbase.dev/?collection=hosted",
+      origin: "https://connect.mdbase.dev",
+      pathname: "/",
+      search: "?collection=hosted",
+      hash: "",
+      assign: vi.fn(),
+      reload: vi.fn()
+    };
+    vi.stubGlobal("location", managedLocation);
+    overview.hosted_collections = [hostedCollection()];
+    overview.grants = [
+      {
+        id: "grant-mcp", operations: ["read"], scope: { contracts: [], access: "full_collection" },
+        created_at: "2026-01-01T00:00:00Z", revoked_at: null, revocation_status: "active",
+        reauthorization_required_at: null, reauthorization_reason: null,
+        collection_id: "hosted", collection_name: "Hosted research", collection_kind: "hosted",
+        application_id: "mcp", application_name: "Claude", distribution: "web",
+        homepage: "https://mcp.mdbase.dev/", project_url: null,
+        application_origin: "https://mcp.mdbase.dev", icon: null
+      }
+    ];
+    const view = render(<ConnectApp />);
+    const openIn = await screen.findByRole("region", { name: "Open this collection in" });
+    expect(within(openIn).queryByText("Claude, ChatGPT & Codex")).not.toBeInTheDocument();
+    expect(within(openIn).getAllByRole("link", { name: /^Open / })).toHaveLength(5);
+    view.unmount();
+
+    // Unavailable local collection hides the section even on a managed environment.
+    vi.stubGlobal("location", {
+      ...managedLocation,
+      href: "https://connect.mdbase.dev/?collection=collection",
+      search: "?collection=collection"
+    });
+    overview.collections[0].enabled = false;
+    const pausedView = render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Garden notes" });
+    expect(screen.queryByRole("region", { name: "Open this collection in" })).not.toBeInTheDocument();
+    pausedView.unmount();
+
+    // Custom server hides the section even when the collection is usable.
+    vi.unstubAllGlobals();
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const path = new URL(String(input)).pathname;
+      if (path === "/v1/ui-configuration") return Response.json({ editor_url: "https://editor.example.test/connect" });
+      if (path === "/v1/account/sessions") return Response.json({ sessions: [] });
+      return Response.json(overview);
+    }));
+    history.replaceState(null, "", "/?collection=hosted");
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Hosted research" });
+    expect(screen.queryByRole("region", { name: "Open this collection in" })).not.toBeInTheDocument();
+  });
+
   it.each([{ computerIds: [] }, { computerIds: ["computer"] }])("only describes synced computer copies when a computer is enrolled: $computerIds", async ({ computerIds }) => {
     history.replaceState(null, "", "/storage?collection=native");
     Object.assign(overview, { native_collections: [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: computerIds,
@@ -259,6 +359,28 @@ describe("ConnectApp", () => {
     expect(screen.queryByText(/replicas/i)).not.toBeInTheDocument();
     expect(mode).toHaveBeenCalledTimes(1);
     expect(change).not.toHaveBeenCalled();
+  });
+
+  it("does not prefetch or mount storage mode controls for shared-with-me native collections", async () => {
+    history.replaceState(null, "", "/?collection=shared-native");
+    Object.assign(overview, {
+      native_collections: [{
+        id: "shared-native",
+        display_name: "Shared native notes",
+        sync: "cloud_copy",
+        access: { relationship: "member", role: "editor", can_manage_members: false }
+      }]
+    });
+    const mode = vi.spyOn(ConnectManagementClient.prototype, "collectionModeStatus");
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Shared native notes" });
+    const storage = screen.getByRole("link", { name: "Storage" });
+    await user.hover(storage);
+    await user.click(storage);
+    await screen.findByText("Collection copies");
+    expect(mode).not.toHaveBeenCalled();
+    expect(screen.queryByRole("heading", { name: "Storage mode" })).not.toBeInTheDocument();
   });
 
   it("opens first-collection setup for a newly flipped next account without a computer", async () => {
@@ -497,9 +619,9 @@ describe("ConnectApp", () => {
       return { client, plan, onOverviewRefresh, unmount: view.unmount, rerender: (value: ManagementOverview) => view.rerender(element(value)) };
     }
 
-    function stubNavigation() {
+    function stubNavigation(origin = location.origin) {
       const assign = vi.fn();
-      vi.stubGlobal("location", { href: `${location.origin}/account`, origin: location.origin, search: "", hash: "", assign });
+      vi.stubGlobal("location", { href: `${origin}/account`, origin, search: "", hash: "", assign });
       return assign;
     }
 
@@ -516,6 +638,37 @@ describe("ConnectApp", () => {
       expect(checkout).toHaveBeenCalledWith("year");
       expect(assign).toHaveBeenCalledWith("https://checkout.stripe.com/c/pay/cs_test");
       expect(card.getByRole("button", { name: "US$10 a month" })).toBeDisabled();
+    });
+
+    it("opens a billing session on the Portal origin", async () => {
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: plusFor() });
+      const assign = stubNavigation("https://portal.example:8443");
+      const url = `${location.origin}/billing/session?plan=plus`;
+      vi.spyOn(client, "openBillingPortal").mockResolvedValue({ url });
+      await userEvent.setup().click((await plan()).getByRole("button", { name: "Manage billing" }));
+      expect(assign).toHaveBeenCalledWith(url);
+    });
+
+    it.each([
+      ["http://checkout.stripe.com/session"],
+      ["http://localhost/session", "http://localhost"],
+      ["javascript:void(0)"],
+      ["https://account@checkout.stripe.com/session"],
+      ["https://:password@billing.stripe.com/session"],
+      ["https://checkout.stripe.com.evil.example/session"],
+      ["https://example.org/session"],
+      ["https://billing.stripe.com:8443/session"],
+      ["https://portal.example/session"],
+      ["invalid URL"]
+    ])("keeps checkout available when the session URL is invalid (%s)", async (url, origin = "https://portal.example:8443") => {
+      const { client, plan } = renderPlan({ available: true, plus_limits: plusLimits, plus: null });
+      const assign = stubNavigation(origin);
+      vi.spyOn(client, "startPlusCheckout").mockResolvedValue({ url });
+      const checkout = (await plan()).getByRole("button", { name: "US$10 a month" });
+      await userEvent.setup().click(checkout);
+      expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+      expect(assign).not.toHaveBeenCalled();
+      expect(checkout).toBeEnabled();
     });
 
     it("hides the plan where Plus isn't sold", async () => {
@@ -1191,7 +1344,31 @@ describe("ConnectApp", () => {
     }
   });
 
-  it("keeps collection input open after a failed creation", async () => {
+  it("offers Close rather than Retry after a collection quota refusal", async () => {
+    history.replaceState(null, "", "/collections");
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    const add = await screen.findByRole("button", { name: "Add collection" });
+    await user.click(add);
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
+    await user.type(screen.getByLabelText("Collection name"), "Field notes");
+    vi.mocked(fetch).mockResolvedValueOnce(Response.json({ error: { code: "account_collection_quota_exceeded" } }, { status: 429 }));
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    const dialog = within(screen.getByRole("dialog", { name: "Add collection" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Your account has reached its synced collection limit.");
+    expect(dialog.queryByText(/Your original request is kept/)).not.toBeInTheDocument();
+    expect(dialog.queryByRole("button", { name: "Retry creation" })).not.toBeInTheDocument();
+    await user.click(dialog.getByRole("button", { name: "Close" }));
+    await user.click(add);
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
+    expect(screen.getByLabelText("Collection name")).toHaveValue("");
+  });
+
+  it.each([
+    [503, "unavailable", "Something went wrong on mdbase. Try again."],
+    [429, "rate_limited", "Try again later."]
+  ] as const)("keeps the original creation for retry after HTTP %s (%s)", async (status, code, expected) => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
@@ -1203,7 +1380,7 @@ describe("ConnectApp", () => {
     vi.mocked(fetch).mockImplementation((input, init) => {
       const path = new URL(String(input)).pathname;
       if (path === "/v1/account/collections" && init?.method === "POST") {
-        return Promise.resolve(Response.json({ error: { message: "Storage is temporarily unavailable." } }, { status: 503 }));
+        return Promise.resolve(Response.json({ error: { code, message: "Try again later." } }, { status }));
       }
       return originalFetch(input, init);
     });
@@ -1212,7 +1389,7 @@ describe("ConnectApp", () => {
     await user.type(input, "Field notes");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
-    expect(await screen.findByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
+    expect(await screen.findByRole("alert")).toHaveTextContent(expected);
     expect(input).toHaveValue("Field notes");
     expect(input).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry creation" })).toBeInTheDocument();
@@ -1264,6 +1441,31 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.queryByRole("button", { name: "Delete permanently" })).not.toBeInTheDocument();
+  });
+
+  it("lists synced folders on Storage only when the collection has one, and offers a member no empty actions menu", async () => {
+    const member = { ...hostedCollection(), access: { ...hostedCollection().access, relationship: "member" as const, role: "viewer" as const,
+      can_manage_collection: false, can_rename_collection: false, can_delete_collection: false, can_manage_members: false } };
+    overview.collections = [];
+    overview.hosted_collections = [member];
+    history.replaceState(null, "", "/storage?collection=hosted");
+    const first = render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: "Main copy" })).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: /Synced folders/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Actions for Hosted research" })).not.toBeInTheDocument();
+    first.unmount();
+
+    overview.hosted_collections = [{ ...hostedCollection(), replicas: [
+      { id: "folder", name: "Studio laptop", mode: "read_write", allowed_types: [], revoked_at: null, revocation_status: "active", created_at: new Date().toISOString(), sync_status: null },
+      { id: "gone", name: "Old laptop", mode: "read_only", allowed_types: [], revoked_at: new Date().toISOString(), revocation_status: "revoked", created_at: new Date().toISOString(), sync_status: null }
+    ] }];
+    localStorage.clear(); sessionStorage.clear();
+    render(<ConnectApp />);
+    expect(await screen.findByRole("heading", { name: /Synced folders/ })).toBeInTheDocument();
+    expect(screen.getByText("Studio laptop")).toBeInTheDocument();
+    expect(screen.queryByText("Old laptop")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Disconnect" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Actions for Hosted research" })).toBeInTheDocument();
   });
 
   it("invites and manages collection members from app access", async () => {

@@ -50,7 +50,7 @@ await build({
   target: "node22",
   format: "cjs",
   outdir: "dist/main",
-  external: ["electron"],
+  external: ["electron", "original-fs"],
   sourcemap: false,
   logLevel: "info"
 });

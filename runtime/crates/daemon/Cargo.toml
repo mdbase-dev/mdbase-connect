@@ -9,8 +9,8 @@ publish.workspace = true
 
 # Allowed internal dependencies: mdbn-core, mdbn-wire, mdbn-replica,
 # mdbn-store-file, mdbn-platform-native, mdbn-local-host, mdbn-log-service,
-# mdbn-legacy, mdbn-takeover, mdbn-noise, mdbn-trust. This is a composition
-# point: it wires stores to replicas. Native only; never linked into WASM.
+# mdbn-noise, mdbn-trust. This is a composition point: it wires stores to
+# replicas. Native only; never linked into WASM.
 
 [features]
 # A LAB build: embeds the LAB environment's trust asset and signs in only to the
@@ -41,15 +41,14 @@ mdbn-local-host.workspace = true
 mdbn-core.workspace = true
 mdbn-store-file.workspace = true
 mdbn-platform-native.workspace = true
-mdbn-legacy.workspace = true
-mdbn-takeover.workspace = true
 mdbn-noise.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 tokio = { version = "1.47", features = ["rt-multi-thread", "net", "io-util", "sync", "time", "macros", "signal", "process"] }
 clap = { version = "4.5", features = ["derive"] }
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "env-filter", "ansi"] }
+# tracing-log: `log` records (the certificate verifier's, rustls') reach the daemon log.
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std", "env-filter", "ansi", "tracing-log"] }
 getrandom = { version = "0.3", default-features = false }
 x25519-dalek = { version = "2", default-features = false, features = ["static_secrets", "zeroize"] }
 ed25519-dalek = { version = "2", default-features = false, features = ["zeroize"] }
@@ -62,13 +61,17 @@ base64 = "0.22"
 serde_jcs = "0.1"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
-rustls-native-certs = "0.8"
+# OS certificate verifier (Windows CertGetCertificateChain, macOS Security.framework,
+# rustls-native-certs + webpki elsewhere), so enterprise and inspection roots are honoured.
+rustls-platform-verifier = "0.7"
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 tokio-tungstenite = { version = "0.28", default-features = false, features = ["connect", "handshake", "__rustls-tls"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls-manual-roots"] }
 # Shared, zero-copy bodies for direct object PUT retries (log-service-api §6).
 bytes = "1"
 zeroize = "1"
+# Read-only inspection of a removed native store before cloud replay.
+rusqlite = { version = "0.37", features = ["bundled"] }
 # Native folder watcher (inotify / FSEvents / ReadDirectoryChangesW) for sub-second
 # ingest; the periodic rescan stays as the safety net.
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
@@ -89,7 +92,15 @@ winit = { version = "0.30", default-features = false }
 notify-rust = { version = "4.18", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
+if-addrs = "0.15"
+form_urlencoded = "1"
+qrcode = { version = "0.14", default-features = false }
+# Replace this pin with the first release including wtransport#337 (session close capsules).
+wtransport = { git = "https://github.com/BiagioFesta/wtransport", rev = "81e42f5401fb92d630a37f29bb18788cf36910f2", features = ["quinn"] }
+tokio-util = { version = "0.7", features = ["codec"] }
+x509-parser = "0.18"
 libc = "0.2"
+subtle = "2.6"
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Threading", "Win32_System_Pipes", "Win32_Storage_FileSystem"] }
@@ -97,13 +108,13 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Securit
 [dev-dependencies]
 # The in-memory file platform for the adopt folder-source tests.
 mdbn-store-file = { workspace = true, features = ["testing"] }
-# Old connector state fixtures for the takeover tests (same version as mdbn-legacy).
-rusqlite = { version = "0.37", features = ["bundled"] }
 # Test tooling only (tests/sync_pair.rs, examples): the real log service, in memory,
 # with the deterministic test control plane.
 mdbn-log-service.workspace = true
 # Paused-clock tests for the session lifetime.
 tokio = { version = "1.47", features = ["test-util"] }
+# Throwaway CA and server certificates for tests/tls_trust.rs.
+rcgen = { version = "0.14", default-features = false, features = ["crypto", "pem", "ring"] }
 
 [lints]
 workspace = true

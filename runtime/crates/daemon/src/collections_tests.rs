@@ -174,7 +174,6 @@ fn ctx(dir: &Path, server: Option<&str>, trust: Option<crate::trust::Trust>) -> 
         notify: Arc::new(|| {}),
         sync,
         computer_name: None,
-        old_connector_running: Default::default(),
     }
 }
 
@@ -185,120 +184,6 @@ fn host(dir: &Path, mode: SyncMode, ctx: HostCtx) -> CollectionHost {
         ..Default::default()
     });
     CollectionHost::open(e, Some(ctx))
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn mirror_closed_sqlite_startup_reports_counts_without_opening_folder() {
-    use mdbn_platform_native::SqliteIndex;
-    use mdbn_replica::mirror_admission::Fence;
-    use mdbn_store_file::index::IndexDurability;
-    use mdbn_store_file::{SqlStore, SqlStoreLimits};
-    for detached in [false, true] {
-        let dir = scratch(if detached {
-            "mirror-detached"
-        } else {
-            "mirror-joining"
-        });
-        std::fs::write(dir.join("folder/local.md"), b"local user bytes").unwrap();
-        let private = dir.join("collections").join(COLLECTION);
-        let index = std::rc::Rc::new(std::cell::RefCell::new(
-            SqliteIndex::open(private.join("index.sqlite"), IndexDurability::Durable).unwrap(),
-        ));
-        let mut store = SqlStore::open_with_limits(index, SqlStoreLimits::DESKTOP).unwrap();
-        let f = Fence::new([1; 16], 3).unwrap();
-        f.persist(&mut store).unwrap();
-        if detached {
-            f.detached().persist(&mut store).unwrap();
-        }
-        drop(store);
-        struct NoGrants;
-        impl mdbn_replica::policy::GrantSource for NoGrants {
-            fn grant(
-                &self,
-                _: &mdbn_wire::common::Uuid,
-            ) -> mdbn_replica::api::ApiResult<mdbn_replica::policy::EffectiveGrant> {
-                Err(mdbn_replica::api::ErrorCode::Unauthenticated.err("the grant was revoked"))
-            }
-        }
-        let direct = crate::runtime::Runtime::open(
-            crate::runtime::RuntimeConfig {
-                collection: [1; 16],
-                replica_id: [2; 16],
-                device_id: [3; 16],
-                root: dir.join("folder"),
-                private_dir: private.clone(),
-                adopt: None,
-                id_hints: vec![],
-                computer_name: None,
-                sync: None,
-            },
-            mdbn_replica::DeviceSecrets {
-                sign_sk: [4; 32],
-                kem_sk: [5; 32],
-            },
-            Box::new(NoGrants),
-            Default::default(),
-        );
-        assert!(matches!(direct, Err(e) if e.0.contains("3 items pending/held")));
-        assert!(
-            !dir.join("folder/.mdbase").exists(),
-            "direct runtime also pre-open closed"
-        );
-        let context = ctx(&dir, None, None);
-        let mut e = entry(&dir, SyncMode::Local);
-        e.owner_account = Some(ACCOUNT.into());
-        e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
-        context.authority.publish_registry(&Registry {
-            collections: vec![e.clone()],
-            ..Default::default()
-        });
-        let mut host = CollectionHost::open(e, Some(context));
-        tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            loop {
-                if host.mirror_diagnostic().is_some() {
-                    break;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await
-        .unwrap();
-        let status = host.status();
-        assert_eq!(status.state, CollectionState::Unavailable);
-        assert_eq!(
-            status.reason.as_deref(),
-            Some(if detached {
-                "detached_sync"
-            } else {
-                "joining_sync"
-            })
-        );
-        assert!(
-            status
-                .notices
-                .iter()
-                .any(|n| n.message.contains("3 items pending/held"))
-        );
-        assert!(host.runtime().is_none());
-        assert!(
-            !dir.join("folder/.mdbase").exists(),
-            "no folder host lock/private dirs"
-        );
-        assert_eq!(
-            std::fs::read(dir.join("folder/local.md")).unwrap(),
-            b"local user bytes"
-        );
-        host.close().await;
-        let diagnostic = crate::runtime::preopen_mirror_status(&private)
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            diagnostic.phase,
-            if detached { "detached" } else { "joining" }
-        );
-        assert_eq!(diagnostic.pending, 3);
-        std::fs::remove_dir_all(dir).unwrap();
-    }
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -314,7 +199,7 @@ async fn live_telemetry_is_real_actor_data_and_denies_stale_or_stopped_host() {
     });
     let mut host = CollectionHost::open(e, Some(context.clone()));
     assert_eq!(settled(&host).await.0, CollectionState::Ready);
-    let out = host.observed_status().await;
+    let out = host.observation().status().await;
     let counters = out.sync.expect("real opened actor counters, not sync:None");
     let runtime = host.runtime().unwrap();
     let expected = runtime.status().await.unwrap();
@@ -327,64 +212,86 @@ async fn live_telemetry_is_real_actor_data_and_denies_stale_or_stopped_host() {
     assert_eq!(digest.confirmed_through, counters.confirmed_through);
     assert_eq!(counters.head_digest.as_ref().unwrap().len(), 64);
     context.authority.invalidate(2);
-    assert!(host.observed_status().await.sync.is_none());
+    assert!(host.observation().status().await.sync.is_none());
     host.close().await;
-    assert!(host.observed_status().await.sync.is_none());
+    assert!(host.observation().status().await.sync.is_none());
     assert!(runtime.telemetry().await.is_none());
     let _ = std::fs::remove_dir_all(dir);
 }
 
-#[tokio::test]
-async fn telemetry_source_is_checked_before_poll_and_after_actor_await() {
-    let dir = scratch("telemetry-source");
+#[tokio::test(flavor = "multi_thread")]
+async fn observation_source_is_checked_before_poll_and_after_actor_await() {
     for stale_before in [false, true] {
+        let dir = scratch("telemetry-source");
         let context = ctx(&dir, None, None);
         let mut e = entry(&dir, SyncMode::Local);
         e.owner_account = Some(ACCOUNT.into());
         e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
         context.authority.publish_registry(&Registry {
-            collections: vec![e],
+            collections: vec![e.clone()],
             ..Default::default()
         });
-        let source = context
-            .authority
-            .source(mdbn_wire::common::B16(
-                crate::attest::uuid_bytes(COLLECTION).unwrap(),
-            ))
-            .unwrap();
+        let mut host = CollectionHost::open(e, Some(context.clone()));
+        assert_eq!(settled(&host).await.0, CollectionState::Ready);
+        let observation = host.observation();
         if stale_before {
             context.authority.invalidate(2);
         }
-        let polled = std::cell::Cell::new(false);
-        let cancel = AtomicBool::new(false);
-        let sample = crate::control::SyncCounters {
-            confirmed_through: 1,
-            head_known: 1,
-            pending: 0,
-            holds: 0,
-            unresolved: 0,
-            connection: "online".into(),
-            head_digest: None,
-            confirmed_record_digest: None,
-            last_error: None,
-            resyncing: false,
-            unsupported_entries: 0,
-        };
-        let observed = current_telemetry(&source, &cancel, async {
-            polled.set(true);
+        let parked = host.runtime().unwrap().test_park();
+        let started = std::time::Instant::now();
+        let observed = tokio::spawn(observation.status());
+        let parked = if stale_before {
+            Some(parked)
+        } else {
+            // Stale by the time the actor answers: its details are dropped.
+            tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             context.authority.invalidate(2);
-            Some(sample)
-        })
-        .await;
-        assert!(observed.is_none());
-        assert_eq!(polled.get(), !stale_before);
+            drop(parked);
+            None
+        };
+        let status = observed.await.unwrap();
+        drop(parked);
+        // A stale source is never polled, so it never waits on the parked actor.
+        assert!(started.elapsed() < ACTOR_WAIT);
+        assert!(status.sync.is_none());
+        assert!(status.approval_code.is_none());
+        assert!(!status.notices.iter().any(|n| n.code == NOT_RESPONDING));
+        host.close().await;
+        let _ = std::fs::remove_dir_all(dir);
     }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_parked_actor_is_reported_as_not_responding_within_the_wait() {
+    let dir = scratch("telemetry-parked");
+    let context = ctx(&dir, None, None);
+    let mut e = entry(&dir, SyncMode::Local);
+    e.owner_account = Some(ACCOUNT.into());
+    e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
+    context.authority.publish_registry(&Registry {
+        collections: vec![e.clone()],
+        ..Default::default()
+    });
+    let mut host = CollectionHost::open(e, Some(context));
+    assert_eq!(settled(&host).await.0, CollectionState::Ready);
+    let parked = host.runtime().unwrap().test_park();
+    let started = std::time::Instant::now();
+    let status = host.observation().status().await;
+    assert!(started.elapsed() < ACTOR_WAIT * 2);
+    assert!(status.sync.is_none());
+    assert!(status.notices.iter().any(|n| n.code == NOT_RESPONDING));
+    drop(parked);
+    // Once the actor answers again, the details come back without the notice.
+    let status = host.observation().status().await;
+    assert!(status.sync.is_some());
+    assert!(!status.notices.iter().any(|n| n.code == NOT_RESPONDING));
+    host.close().await;
     let _ = std::fs::remove_dir_all(dir);
 }
 
 async fn settled(h: &CollectionHost) -> (CollectionState, Option<String>) {
-    if let Some(mut rx) = h.opened.clone() {
-        let _ = rx.wait_for(|d| *d).await;
+    if let Some(opener) = h.runtime.opener() {
+        opener.clone().finish().await;
     }
     h.current()
 }
@@ -684,7 +591,7 @@ fn synced_readiness_needs_genesis_keys_and_the_head() {
     use crate::runtime::synced_ready;
     use mdbn_wire::client::{Connection::*, IncidentKind as K};
     let r = |through, head, conn, inc: &[K], caught_up, cached| {
-        synced_ready(&status(through, head, conn, inc), caught_up, cached)
+        synced_ready(&status(through, head, conn, inc), None, caught_up, cached)
     };
     assert_eq!(
         r(0, 0, Online, &[], true, false),
@@ -876,16 +783,16 @@ async fn an_unready_synced_runtime_still_honours_barriers_and_close() {
         SyncMode::Synced,
         ctx(&dir, Some(&server), Some(trust)),
     );
-    if let Some(mut rx) = h.opened.clone() {
-        let _ = rx.wait_for(|d| *d).await;
+    if let Some(opener) = h.runtime.opener() {
+        opener.clone().finish().await;
     }
     assert!(
         h.runtime().is_some(),
         "the slot is filled on open: {:?} {:?}",
         h.current(),
         h.runtime
-            .as_ref()
-            .and_then(|s| s.get())
+            .opener()
+            .and_then(|o| o.slot.get())
             .map(|r| r.as_ref().err().cloned())
     );
     assert_eq!(
@@ -1025,7 +932,10 @@ fn readiness_follows_every_observation() {
         ),
     ];
     for (s, caught_up, want) in seq {
-        assert_eq!(readiness_of(synced_ready(&s, caught_up, false)), want);
+        assert_eq!(
+            readiness_of(synced_ready(&s, None, caught_up, false), &s),
+            want
+        );
     }
 }
 
@@ -1054,7 +964,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     });
     let mut host = CollectionHost::open(e, Some(context));
     assert_eq!(settled(&host).await.0, CollectionState::Ready);
-    let out = host.observed_status().await;
+    let out = host.observation().status().await;
     let messages = out
         .notices
         .iter()
@@ -1113,7 +1023,7 @@ async fn status_lists_skipped_files_and_clears_repaired_notes() {
     std::fs::write(root.join("latin.md"), "café").unwrap();
     let runtime = host.runtime().unwrap();
     let inventory = runtime.inventory().await.unwrap();
-    let repaired = host.observed_status().await;
+    let repaired = host.observation().status().await;
     assert!(
         !repaired
             .notices
@@ -1347,4 +1257,289 @@ async fn log_revocation_drops_cached_tokens_only_for_the_removed_collection() {
     other.eligibility().await.unwrap();
     assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), 2);
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn integrity_recovery_backs_off_and_resets_once_serving() {
+    let t0 = std::time::Instant::now();
+    let s = std::time::Duration::from_secs;
+    let mut r = Recovery::default();
+    // Opening, paused or another failure: nothing to do.
+    assert_eq!(r.step(None, false, t0), None);
+    assert_eq!(r, Recovery::default());
+    // The first stop is reopened after 10 s, not at once.
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(9)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(10)), Some(1));
+    // While that reopen is opening, nothing; a second stop waits a minute.
+    assert_eq!(r.step(None, false, t0 + s(11)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(20)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(79)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(80)), Some(2));
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(80)), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(380)), Some(3));
+    // From the fourth attempt on: every 30 minutes, never giving up.
+    let mut at = t0 + s(380);
+    for attempt in 4..=6 {
+        assert_eq!(r.step(Some(Stop::Integrity), false, at), None);
+        at += s(30 * 60);
+        assert_eq!(r.step(Some(Stop::Integrity), false, at - s(1)), None);
+        assert_eq!(r.step(Some(Stop::Integrity), false, at), Some(attempt));
+    }
+    // Serving again resets the policy: the next stop waits 10 s again.
+    assert_eq!(r.step(None, true, at), None);
+    assert_eq!(r, Recovery::default());
+    assert_eq!(r.step(Some(Stop::Integrity), false, at), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, at + s(10)), Some(1));
+}
+
+#[test]
+fn a_storage_fence_reopens_at_once_and_stops_when_the_same_fault_repeats() {
+    let t0 = std::time::Instant::now();
+    let s = std::time::Duration::from_secs;
+    let disk = Some(Stop::Fenced(
+        "apply_durability_unknown: store i/o: disk full",
+    ));
+    let mut r = Recovery::default();
+    // The first fence reopens at once, then the integrity backoff follows.
+    assert_eq!(r.step(disk, false, t0), Some(1));
+    assert_eq!(r.step(None, false, t0 + s(1)), None, "opening");
+    assert_eq!(r.step(disk, false, t0 + s(2)), None);
+    assert_eq!(r.step(disk, false, t0 + s(12)), Some(2));
+    assert_eq!(r.step(disk, false, t0 + s(13)), None);
+    assert_eq!(r.step(disk, false, t0 + s(73)), Some(3));
+    assert!(!r.gave_up());
+    // The third reopen fences the same way: no more automatic reopens.
+    assert_eq!(r.step(disk, false, t0 + s(74)), None);
+    assert!(r.gave_up());
+    for later in [s(75), s(3600), s(86_400)] {
+        assert_eq!(r.step(disk, false, t0 + later), None);
+    }
+    // Serving (after `mdbase collection resume`) starts over.
+    assert_eq!(r.step(None, true, t0 + s(90_000)), None);
+    assert_eq!(r, Recovery::default());
+
+    // A different cause is a different fault: its count starts again.
+    let other = Some(Stop::Fenced("account_key_commit_unknown"));
+    let mut r = Recovery::default();
+    assert_eq!(r.step(disk, false, t0), Some(1));
+    assert_eq!(r.step(disk, false, t0), None);
+    assert_eq!(r.step(disk, false, t0 + s(10)), Some(2));
+    assert_eq!(r.step(other, false, t0 + s(11)), None);
+    assert_eq!(r.step(other, false, t0 + s(71)), Some(3));
+    assert_eq!(r.step(disk, false, t0 + s(72)), None);
+    assert!(!r.gave_up(), "{r:?}");
+    // So does an integrity stop between two fences.
+    let mut r = Recovery::default();
+    assert_eq!(r.step(disk, false, t0), Some(1));
+    assert_eq!(r.step(disk, false, t0), None);
+    assert_eq!(r.step(disk, false, t0 + s(10)), Some(2));
+    let integrity = Some(Stop::Integrity);
+    assert_eq!(r.step(integrity, false, t0 + s(11)), None);
+    assert_eq!(r.step(integrity, false, t0 + s(311)), Some(3));
+    assert_eq!(r.step(disk, false, t0 + s(312)), None);
+    assert_eq!(r.fenced.as_ref().map(|(_, n)| *n), Some(1));
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_collection_stopped_by_an_integrity_incident_reopens_with_a_notice() {
+    let dir = scratch("integrity-reopen");
+    let mut h = host(&dir, SyncMode::SyncedE2e, ctx(&dir, None, None));
+    // A runtime stopped by the readiness gate, as `current()` reports it.
+    h.state = CollectionState::Failed;
+    h.reason = Some(SYNC_INTEGRITY.into());
+    let t0 = std::time::Instant::now();
+    assert!(
+        h.recover_due(t0).is_none(),
+        "the first reopen waits for its backoff"
+    );
+    let notice = h
+        .status()
+        .notices
+        .into_iter()
+        .find(|n| n.code == SYNC_INTEGRITY)
+        .expect("a failed collection says what happens next");
+    assert!(notice.message.contains("reopens it automatically in about"));
+    assert!(notice.message.contains("(attempt 1)"));
+    assert!(
+        notice
+            .message
+            .contains(&format!("mdbase collection resume {COLLECTION}"))
+    );
+    assert!(notice.message.contains("mdbase logs"));
+    let stop = h
+        .recover_due(t0 + std::time::Duration::from_secs(10))
+        .unwrap();
+    stop.clone().await;
+    h = h.next_after_stop(&stop).unwrap();
+    h.refresh();
+    assert_ne!(
+        h.current(),
+        (CollectionState::Failed, Some(SYNC_INTEGRITY.into())),
+        "reopened through refresh, which re-evaluates the collection"
+    );
+    assert_eq!(h.recovery.attempts, 1);
+    // An explicit retry starts the backoff over.
+    h.state = CollectionState::Failed;
+    h.reason = Some(SYNC_INTEGRITY.into());
+    h.retry().await;
+    assert_eq!(h.recovery, Recovery::default());
+    h.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// A synced collection whose replica fences itself with the same storage fault
+/// after every automatic reopen is left failed after [`FENCE_REOPENS`] of them,
+/// with a notice naming the fault; `mdbase collection resume` reopens it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_repeating_storage_fence_stops_reopening_until_resumed() {
+    const CAUSE: &str = "apply_durability_unknown: store i/o: disk I/O error";
+    let dir = scratch("fence-gives-up");
+    let expires = crate::fsutil::now_ms() as i64 + 3_600_000;
+    let server = connect_with(200, format!("{{\"token\":\"t\",\"expires_at\":{expires}}}")).await;
+    // No log listens there: each opened runtime stays unready until it is fenced.
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let log = format!("http://127.0.0.1:{port}");
+    save(
+        &dir,
+        &crate::sync::SyncConfig {
+            log_url: log.clone(),
+            ..link("cloud_copy")
+        },
+    );
+    let trust = crate::trust::Trust {
+        log_origin: log,
+        ..trust_for(&server)
+    };
+    let mut h = host(
+        &dir,
+        SyncMode::Synced,
+        ctx(&dir, Some(&server), Some(trust)),
+    );
+    // What the readiness gate records when it stops a fenced runtime.
+    let fence = |h: &CollectionHost| {
+        assert!(h.runtime().is_some(), "{:?}", h.current());
+        *h.ready.lock().unwrap() = Readiness::Fenced(CAUSE.into());
+    };
+    let t0 = std::time::Instant::now();
+    let mut at = t0;
+    for attempt in 1..=FENCE_REOPENS {
+        settled(&h).await;
+        fence(&h);
+        assert_eq!(h.current(), (CollectionState::Opening, None));
+        let notice = h
+            .status()
+            .notices
+            .into_iter()
+            .find(|n| n.code == "sync_reopening")
+            .expect("a fenced collection says it is reopening");
+        assert!(notice.message.contains(&format!("(attempt {attempt})")));
+        // At once the first time, then the integrity backoff.
+        let stop = loop {
+            if let Some(stop) = h.recover_due(at) {
+                break stop;
+            }
+            at += std::time::Duration::from_secs(1);
+        };
+        assert_eq!(h.recovery.attempts, attempt);
+        stop.clone().await;
+        h = h.next_after_stop(&stop).unwrap();
+        h.refresh();
+    }
+    assert_eq!(at - t0, std::time::Duration::from_secs(10 + 60));
+    // The last reopen fences the same way: it stays stopped and says why.
+    settled(&h).await;
+    fence(&h);
+    for later in [0, 60, 3600, 86_400] {
+        assert!(
+            h.recover_due(at + std::time::Duration::from_secs(later))
+                .is_none()
+        );
+    }
+    assert_eq!(
+        h.current(),
+        (CollectionState::Failed, Some(STORAGE_FAULT.into()))
+    );
+    let status = h.status();
+    assert!(status.last_sync_failure.is_none(), "not a sync failure");
+    let notice = status
+        .notices
+        .iter()
+        .find(|n| n.code == STORAGE_FAULT)
+        .expect("a needs-attention notice");
+    assert!(notice.message.contains(CAUSE), "{}", notice.message);
+    assert!(
+        notice
+            .message
+            .contains(&format!("mdbase collection resume {COLLECTION}"))
+    );
+    assert!(!status.notices.iter().any(|n| n.code == "sync_reopening"));
+    // `mdbase collection resume` reopens it and starts the policy over.
+    h.retry().await;
+    assert_eq!(h.recovery, Recovery::default());
+    assert_eq!(settled(&h).await, (CollectionState::Opening, None));
+    assert!(h.runtime().is_some());
+    h.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn deleted_and_revoked_collections_are_never_reopened_automatically() {
+    for code in ["collection_deleted", "device_revoked"] {
+        let dir = scratch(&format!("terminal-{code}"));
+        save(&dir, &link("cloud_copy"));
+        let (server, posts) =
+            connect_counted(409, format!(r#"{{"error":{{"code":"{code}"}}}}"#)).await;
+        let mut h = host(
+            &dir,
+            SyncMode::Synced,
+            ctx(&dir, Some(&server), Some(trust_for(&server))),
+        );
+        let (state, _) = settled(&h).await;
+        assert_eq!(state, CollectionState::Failed);
+        let opened = posts.load(std::sync::atomic::Ordering::SeqCst);
+        let t0 = std::time::Instant::now();
+        for minutes in [0, 1, 10, 60, 600] {
+            assert!(
+                h.recover_due(t0 + std::time::Duration::from_secs(minutes * 60))
+                    .is_none(),
+                "{code} stays terminal"
+            );
+        }
+        assert_eq!(posts.load(std::sync::atomic::Ordering::SeqCst), opened);
+        assert!(
+            !h.status().notices.iter().any(|n| n.code == SYNC_INTEGRITY),
+            "no promise of an automatic reopen"
+        );
+        // `mdbase collection resume` still asks again at once.
+        h.retry().await;
+        settled(&h).await;
+        assert!(posts.load(std::sync::atomic::Ordering::SeqCst) > opened);
+        h.close().await;
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+impl CollectionHost {
+    /// Hold the opener-completion part of a real host stop until the test releases it.
+    pub(crate) fn hold_integrity_stop(&mut self) -> tokio::sync::watch::Sender<bool> {
+        self.state = CollectionState::Failed;
+        self.reason = Some(SYNC_INTEGRITY.into());
+        self.hold_open()
+    }
+
+    /// Make the background open look unfinished (a large first scan) until the
+    /// test sends `true`: revoke barriers wait for it.
+    pub(crate) fn hold_open(&mut self) -> tokio::sync::watch::Sender<bool> {
+        let (release, opened) = tokio::sync::watch::channel(false);
+        let HostedRuntime::Open(opener) = &mut self.runtime else {
+            panic!("expected an opened runtime")
+        };
+        opener.done = opened;
+        release
+    }
 }

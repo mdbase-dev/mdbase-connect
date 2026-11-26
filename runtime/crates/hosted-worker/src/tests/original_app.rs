@@ -2,8 +2,8 @@
 //! Real CP signatures, Noise and KeyringSealer key delivery over FakeLog/MemStore.
 //! No actual service-binding/PoP/KMS/provider qualification.
 use super::*;
-mod cpp_claim;
 mod history;
+mod initialization;
 use crate::noise_sessions::{NoiseSessions, VerifiedAppCaller};
 use crate::original_app::{MAX_ORIGINAL_POLICY_BYTES, OriginalAppPins};
 use mdbn_noise::{Initiator, public_key};
@@ -34,12 +34,7 @@ fn caller(server: [u8; 32]) -> VerifiedAppCaller {
     noise.app_caller(h).unwrap()
 }
 
-fn fixture() -> (
-    FakeLogService,
-    TestControlPlane,
-    OriginalAppPins,
-    VerifiedAppCaller,
-) {
+fn genesis_fixture() -> (FakeLogService, TestControlPlane) {
     let svc = FakeLogService::new();
     let mut cp = TestControlPlane::signed(COL);
     cp.append(
@@ -76,6 +71,16 @@ fn fixture() -> (
             }),
         ],
     );
+    (svc, cp)
+}
+
+fn fixture() -> (
+    FakeLogService,
+    TestControlPlane,
+    OriginalAppPins,
+    VerifiedAppCaller,
+) {
+    let (svc, mut cp) = genesis_fixture();
     let raw_genesis = svc.items(&COL)[0].clone();
     let genesis = Item::from_bytes(&raw_genesis).unwrap();
     let payload = PolicyPayload::from_bytes(&genesis.body.0).unwrap();
@@ -172,7 +177,7 @@ fn open_with_entropy(svc: &FakeLogService, seed: u8) -> AppHosted {
 impl AppHosted {
     fn pump(&mut self, lose_appends: bool) {
         for _ in 0..16 {
-            self.e.tick(i64::try_from(self.clock.get()).unwrap());
+            self.e.tick(i64::try_from(self.clock.get()).unwrap(), false);
             for _ in 0..50 {
                 let mut moved = false;
                 for p in self.log.poll_pushes() {

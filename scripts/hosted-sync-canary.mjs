@@ -164,11 +164,11 @@ export async function runCanary(
       if (left <= 0) throw new CanaryError(stage, "timeout");
       return left;
     };
-    const status = (stateDir, stage) => runCli(
+    const status = (stateDir, stage, timeout = remaining(stage)) => runCli(
       { cli: options.cli, stateDir, environmentVariables },
       stage,
       ["status"],
-      remaining(stage)
+      timeout
     );
     const pause = () => new Promise((resolveSleep) => setTimeout(resolveSleep, POLL_INTERVAL_MS));
     // A device that cannot take part: signed out, its collection gone, failed
@@ -190,9 +190,13 @@ export async function runCanary(
         let a;
         let b;
         try {
+          // One budget for both calls: had the reader's call found the deadline
+          // passed after the writer's had started, the writer's rejection would
+          // go unhandled.
+          const timeout = remaining("preflight");
           [a, b] = await Promise.all([
-            status(options.writerStateDir, "preflight"),
-            status(options.readerStateDir, "preflight")
+            status(options.writerStateDir, "preflight", timeout),
+            status(options.readerStateDir, "preflight", timeout)
           ]);
         } catch (error) {
           if (waiting && error instanceof CanaryError && error.code === "timeout") {

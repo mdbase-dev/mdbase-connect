@@ -107,7 +107,10 @@ fn unavailable_and_known_empty_are_distinct() {
         stmt.sql.contains("st_qraw_fact(")
             && matches!(stmt.params.as_slice(), [_, SqlValue::Integer(0)])
     }));
-    assert!(capture(&record("---\na: [\n---\n")).is_none());
+    // Unreadable frontmatter is a skipped row, not missing coverage.
+    let unreadable = capture(&record("---\na: [\n---\n")).unwrap();
+    assert!(unreadable.is_unreadable() && unreadable.tags.is_empty());
+    assert!(unreadable.facts.is_empty());
     let mut bad = record("plain body");
     bad.revision = B32([0; 32]);
     assert!(capture(&bad).is_none());
@@ -172,6 +175,10 @@ fn tx(row: RecordRow) -> Tx {
                 types: vec![],
                 fields: vec![],
                 body: None,
+                mtime: mdbn_replica::store_query::QueryAtom {
+                    kind: 255,
+                    key: vec![],
+                },
             }],
             publish_at: Some(Head::GENESIS),
             completes_backfill: false,
@@ -226,7 +233,8 @@ fn rebuild_and_bad_optional_rows_never_publish_empty_success() {
     let p = probe(false);
     let statements = maintenance(&p, &tx(record("body"))).unwrap();
     assert_eq!(statements.last().unwrap().sql, COVERAGE);
-    let bad = maintenance(&p, &tx(record("---\na: [\n---\n"))).unwrap();
+    let oversized = "x".repeat(MAX_SOURCE + 1);
+    let bad = maintenance(&p, &tx(record(&oversized))).unwrap();
     assert!(
         bad.iter()
             .any(|s| s.sql == "DELETE FROM st_qraw WHERE id=?")
@@ -240,7 +248,7 @@ fn rebuild_and_bad_optional_rows_never_publish_empty_success() {
     );
     assert!(bad.iter().all(|s| s.sql != invalidate()[0].sql));
     // Only the final transaction of a complete pass settles it.
-    let mut last = tx(record("---\na: [\n---\n"));
+    let mut last = tx(record(&oversized));
     last.query_index.as_mut().unwrap().completes_backfill = true;
     let last = maintenance(&p, &last).unwrap();
     assert_eq!(last.last().unwrap().sql, SETTLE);
@@ -350,4 +358,35 @@ fn an_unready_projection_rechecks_coverage_only_when_a_record_changes() {
     update.completes_backfill = true;
     let last = maintenance(&p, &last).unwrap();
     assert!(last.iter().any(|s| s.sql == COVERAGE));
+}
+
+#[test]
+fn an_unreadable_record_is_covered_but_never_served() {
+    let p = probe(false);
+    let statements = maintenance(&p, &tx(record("---\ntags: [unclosed\n---\n"))).unwrap();
+    let row = statements
+        .iter()
+        .find(|s| s.sql.starts_with("INSERT OR REPLACE INTO st_qraw("))
+        .expect("an unreadable record keeps a row");
+    assert!(matches!(
+        row.params.as_slice(),
+        [.., SqlValue::Blob(fields), SqlValue::Blob(tags)] if fields.is_empty() && tags.is_empty()
+    ));
+    // Stale candidate facts go; none are written, and coverage is certified.
+    assert!(
+        statements
+            .iter()
+            .any(|s| s.sql == "DELETE FROM st_qraw_fact WHERE id=?")
+    );
+    assert!(
+        statements
+            .iter()
+            .all(|s| !s.sql.starts_with("INSERT INTO st_qraw_fact"))
+    );
+    assert_eq!(statements.last().unwrap().sql, COVERAGE);
+    assert!(
+        statements
+            .iter()
+            .all(|s| s.sql != "UPDATE st_qraw_state SET ready=0 WHERE slot=0")
+    );
 }

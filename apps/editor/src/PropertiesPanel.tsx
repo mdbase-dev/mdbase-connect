@@ -9,7 +9,7 @@ import {
   XIcon as X
 } from "./icons";
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import type { CollectionTypeDescriptor, JsonObject } from "@mdbase-dev/connect";
+import type { CollectionTypeDescriptor, JsonObject } from "./connect-types";
 import { declaredFields } from "./field-reference";
 import { CodeEditor } from "./CodeEditor";
 import { Menu, useMenuTrigger } from "@mdbase-dev/ui/menu";
@@ -17,14 +17,21 @@ import type { NoteDocument } from "./model";
 import { composeRecordSource, parseRecordSource } from "./record-source";
 import { noteWordCount } from "./note";
 import { useDelayedBusy } from "./use-delayed-busy";
-import { propertyValidationErrors, StructuredPropertiesEditor } from "./StructuredPropertiesEditor";
+import { PropertyList } from "@mdbase-dev/ui/properties";
+import "@mdbase-dev/ui/properties.css";
+import { propertyValidationErrors } from "./StructuredPropertiesEditor";
+import type { RecordLinking } from "./LinkPropertyEditor";
+import { propertyInfos } from "./property-info";
+import { usePropertyRecords } from "./property-records";
+import { recordLinkProperties } from "./record-links";
 
 interface PropertiesPanelProps {
   note: NoteDocument;
   types: CollectionTypeDescriptor[];
   /** The note's text as edited, which may be ahead of `note`. */
   body?: string;
-  recordPaths?: string[];
+  /** How this collection's records are found, opened and made when a property links to one. */
+  linking?: RecordLinking;
   error?: string;
   readOnly?: boolean;
   onClose: () => void;
@@ -36,7 +43,7 @@ export function PropertiesPanel({
   note,
   types,
   body = note.body ?? "",
-  recordPaths = [],
+  linking,
   error,
   readOnly = false,
   onClose,
@@ -51,7 +58,10 @@ export function PropertiesPanel({
   const initial = useMemo(() => structuredClone(note.frontmatter), [note, i18n.locale]);
   const initialDocument = note.document ?? composeRecordSource(note.frontmatter, note.body ?? "");
   const contract = useMemo(() => mergedSchema(note.types, types), [note.types, types, i18n.locale]);
+  const linkRules = useMemo(() => recordLinkProperties(note.types, types), [note.types, types]);
+  const links = useMemo(() => linking && { ...linking, properties: linkRules }, [linking, linkRules]);
   const [draft, setDraft] = useState<JsonObject>(initial);
+  const declared = useMemo(() => propertyInfos(contract.properties, contract.required, linkRules, draft), [contract, linkRules, draft]);
   const [persistedFrontmatter, setPersistedFrontmatter] = useState(initial);
   const [mode, setMode] = useState<"fields" | "json" | "source">("fields");
   const [raw, setRaw] = useState(() => JSON.stringify(initial, null, 2));
@@ -64,7 +74,6 @@ export function PropertiesPanel({
   const sourceSavePromise = useRef<Promise<NoteDocument | false> | undefined>(undefined);
   const lastSourceSubmitted = useRef(initialDocument);
   const [rawError, setRawError] = useState<string>();
-  const [structuredFieldsValid, setStructuredFieldsValid] = useState(true);
   const [autoSaveState, setAutoSaveState] = useState<"saved" | "waiting" | "saving">("saved");
   const [saving, setSaving] = useState(false);
   const slowFieldsSave = useDelayedBusy(autoSaveState === "saving", note.path);
@@ -76,8 +85,13 @@ export function PropertiesPanel({
   const sourceChanged = source !== persistedDocument;
   const initialFingerprint = JSON.stringify(persistedFrontmatter);
   const draftFingerprint = JSON.stringify(draft);
-  const validationFingerprint = JSON.stringify(propertyValidationErrors(draft, contract));
-  const fieldsInvalid = Boolean(rawError) || !structuredFieldsValid || validationFingerprint !== "{}";
+  const fieldErrors = propertyValidationErrors(draft, contract);
+  const validationFingerprint = JSON.stringify(fieldErrors);
+  const fieldsInvalid = Boolean(rawError) || validationFingerprint !== "{}";
+  const records = usePropertyRecords(links, draft);
+  // What the note's type provides without the file holding it: a default, or a value worked out from others.
+  const automatic = Object.fromEntries(Object.entries(note.effectiveFrontmatter ?? {})
+    .filter(([name, value]) => !(name in draft) || JSON.stringify(draft[name]) !== JSON.stringify(value)));
   const latestDraft = useRef(draft);
   const latestFieldsInvalid = useRef(fieldsInvalid);
   const saveCallback = useRef(onSave);
@@ -156,9 +170,17 @@ export function PropertiesPanel({
 
   function change(next: JsonObject) {
     if (readOnly) return;
+    // A link to a record still being made is written later, onto whatever the fields hold by then.
+    latestDraft.current = next;
     setDraft(next);
     setRaw(JSON.stringify(next, null, 2));
     setRawError(undefined);
+  }
+
+  /** One field changed in the list. A field cleared or taken off leaves the file. */
+  function changeField(name: string, value: unknown) {
+    const { [name]: _was, ...others } = latestDraft.current;
+    change(value === null ? others : { ...latestDraft.current, [name]: value } as JsonObject);
   }
 
   function updateRaw(value: string) {
@@ -242,12 +264,6 @@ export function PropertiesPanel({
       <button className="icon-button" aria-label={t`Close properties`} data-inspector-close onClick={closePanel}><X aria-hidden="true" /></button>
     </header>
 
-    <dl className="file-facts">
-      <div><dt><Trans>Words</Trans></dt><dd>{wordCount.toLocaleString(displayLocale())}</dd></div>
-      {note.file?.size !== undefined && <div><dt><Trans>Size</Trans></dt><dd>{formatBytes(note.file.size)}</dd></div>}
-      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt><Trans>Modified</Trans></dt><dd>{formatDate(note.file.mtime)}</dd></div>}
-    </dl>
-
     <div className="property-view-controls">
       <div className="panel-tabs" role="tablist" aria-label={t`Properties format`} onKeyDown={(event) => {
         if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -258,7 +274,7 @@ export function PropertiesPanel({
         setMode(next);
         document.getElementById(`properties-${next}-tab`)?.focus();
       }}>
-        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}><Trans>Properties</Trans></button>
+        <button id="properties-fields-tab" role="tab" aria-controls={mode === "fields" ? "properties-fields-panel" : undefined} aria-selected={mode === "fields"} tabIndex={mode !== "json" ? 0 : -1} onClick={() => setMode("fields")}><Trans>Fields</Trans></button>
         <button id="properties-json-tab" role="tab" aria-controls={mode === "json" ? "properties-json-panel" : undefined} aria-selected={mode === "json"} tabIndex={mode === "json" ? 0 : -1} onClick={() => setMode("json")}><Trans>Advanced</Trans></button>
       </div>
       <div className="note-actions">
@@ -269,18 +285,14 @@ export function PropertiesPanel({
       </div>
     </div>
 
-    {mode === "fields" ? <fieldset disabled={readOnly} id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
-      <StructuredPropertiesEditor readOnly={readOnly}
-        groupUndeclared={note.types.length > 0}
-        value={draft}
-        contract={contract}
-        effectiveValues={note.effectiveFrontmatter}
-        recordPaths={recordPaths}
-        onChange={change}
-        onValidityChange={setStructuredFieldsValid}
-        emptyMessage={t`Add a property to keep details like tags, dates, or a status with this note.`}
-      />
-    </fieldset> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
+    {mode === "fields" ? <div id="properties-fields-panel" className="property-fields" role="tabpanel" aria-labelledby="properties-fields-tab">
+      {!declared.length && !Object.keys(draft).length && <p className="quiet-empty"><Trans>Add a property to keep details like tags, dates, or a status with this note.</Trans></p>}
+      <PropertyList values={draft} declared={declared} errors={fieldErrors} records={records} onChange={readOnly ? undefined : changeField} />
+      {Object.keys(automatic).length > 0 && <section className="effective-properties" aria-label={t`Automatic properties`}>
+        <div><h3><Trans>Automatic</Trans></h3><p><Trans>Provided by the note's type, not stored in this file.</Trans></p></div>
+        <PropertyList values={automatic} declared={declared.filter((field) => field.name in automatic).map(({ required: _required, ...field }) => field)} records={records} onChange={undefined} />
+      </section>}
+    </div> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
       <p className="raw-properties-note"><Trans>Edit the underlying property values. Other apps use these values too.</Trans></p>
       <CodeEditor value={raw} onChange={updateRaw} label={t`Raw frontmatter JSON`} language="json" lineWrapping={false} readOnly={readOnly} />
       {rawError && <p className="property-error" role="alert">{rawError}</p>}
@@ -288,6 +300,12 @@ export function PropertiesPanel({
       <p><Trans>Exact Markdown source, including YAML frontmatter and body.</Trans></p>
       <CodeEditor value={source} onChange={(value) => { if (!readOnly) setSource(value); }} onBlur={() => { if (!readOnly) void saveSource(); }} label={t`Complete record source`} language="markdown" lineWrapping={false} readOnly={readOnly} />
     </div>}
+
+    <dl className="file-facts">
+      <div><dt><Trans>Words</Trans></dt><dd>{wordCount.toLocaleString(displayLocale())}</dd></div>
+      {note.file?.size !== undefined && <div><dt><Trans>Size</Trans></dt><dd>{formatBytes(note.file.size)}</dd></div>}
+      {note.file?.mtime && !Number.isNaN(Date.parse(note.file.mtime)) && <div><dt><Trans>Modified</Trans></dt><dd>{formatDate(note.file.mtime)}</dd></div>}
+    </dl>
 
     <div className="property-footer">
       {(error || (mode === "source" ? sourceSaveError : autoSaveError)) && <p className="property-error" role="alert">{error || (mode === "source" ? sourceSaveError : autoSaveError)}{mode !== "source" && autoSaveError && <button className="property-save mdbase-button is-secondary" onClick={() => setRetry((value) => value + 1)}><Trans>Retry save</Trans></button>}</p>}

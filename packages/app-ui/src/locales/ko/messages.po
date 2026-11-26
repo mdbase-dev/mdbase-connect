@@ -65,6 +65,16 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app}에서 이 기기에 컬렉션을 표시하지 않습니다. 컬렉션의 항목은 삭제되지 않으며 {app}의 접근 권한도 유지됩니다. 접근을 종료하려면 ‘접근 관리’를 사용하세요."
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {# empty} other {# empty}}"
+msgstr "{count, plural, other {빈 항목 #개}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {# item} other {# items}}"
+msgstr "{count, plural, other {항목 #개}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -73,6 +83,31 @@ msgstr "{count, plural, other {표시 #개를 적용했습니다.}}"
 #: src/CommentsPanel.tsx
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, other {열린 댓글 #개}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {# property} other {# properties}}"
+msgstr "{count, plural, other {속성 #개}}"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "{count, plural, one {# selected} other {# selected}}"
+msgstr "{count, plural, other {#개 선택됨}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{kind} “{title}”"
+msgstr "{kind} “{title}”"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "{name} group"
+msgstr "“{name}” 그룹"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "A date, “tomorrow”, “fri” or “+3”"
+msgstr "날짜, “내일”, “금요” 또는 “+3”"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
@@ -101,6 +136,11 @@ msgctxt "Collection access interface"
 msgid "Add a collection…"
 msgstr "컬렉션 추가…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add a filter to this group"
+msgstr "이 그룹에 필터 추가"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Add a Private collection"
@@ -111,10 +151,70 @@ msgctxt "table"
 msgid "Add column"
 msgstr "열 추가"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add filter"
+msgstr "필터 추가"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add filter to group"
+msgstr "그룹에 필터 추가"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add item"
+msgstr "항목 추가"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add item to {property}"
+msgstr "{property}에 항목 추가"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from ChatGPT's plugins"
+msgstr "ChatGPT 플러그인에서 mdbase 추가"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from Claude's directory"
+msgstr "Claude 디렉터리에서 mdbase 추가"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add property"
+msgstr "속성 추가"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add property to {property}"
+msgstr "{property}에 속성 추가"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Add row"
 msgstr "행 추가"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add value"
+msgstr "값 추가"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add value…"
+msgstr "값 추가…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "after"
+msgstr "보다 나중"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "AI assistants"
+msgstr "AI 어시스턴트"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -130,6 +230,41 @@ msgstr "왼쪽 정렬"
 msgctxt "table"
 msgid "Align right"
 msgstr "오른쪽 정렬"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: every filter must match"
+msgid "All"
+msgstr "모두"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "All views"
+msgstr "모든 보기"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Another device has already replaced the collection key. Refresh status to see the latest state."
+msgstr "다른 기기가 이미 컬렉션 키를 교체했습니다. 최신 상태를 확인하려면 상태를 새로 고치세요."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: at least one filter must match"
+msgid "Any"
+msgstr "하나 이상"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Any / All"
+msgstr "하나 이상 / 모두"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Applies to every view"
+msgstr "모든 보기에 적용됩니다"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Apply"
+msgstr "적용"
 
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
@@ -148,6 +283,11 @@ msgstr "적용 중…"
 msgid "as {signer}"
 msgstr "{signer}(으)로"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "at least one"
+msgstr "하나 이상"
+
 #: src/CommentsPanel.tsx
 msgid "At the cursor"
 msgstr "커서 위치"
@@ -156,9 +296,19 @@ msgstr "커서 위치"
 msgid "Attach screenshot"
 msgstr "스크린샷 첨부"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Back"
+msgstr "뒤로"
+
 #: src/Feedback.tsx
 msgid "Back to your work"
 msgstr "작업으로 돌아가기"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "before"
+msgstr "보다 먼저"
 
 #: src/FeedbackMarkup.tsx
 msgid "Blackout"
@@ -188,12 +338,18 @@ msgid "Browser, OS, viewport and recent error codes. No note contents, paths or 
 msgstr "브라우저, 운영체제, 뷰포트 및 최근 오류 코드입니다. 노트 내용, 경로 또는 인증 정보는 포함되지 않습니다."
 
 #: src/AppSwitcher.tsx
-msgid "Build your own"
-msgstr "나만의 앱 만들기"
+msgctxt "App switcher"
+msgid "Build one with the mdbase SDK"
+msgstr "mdbase SDK로 만들기"
 
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "{resolver} 님이"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Calendar"
+msgstr "달력"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -219,6 +375,7 @@ msgstr "{collection}을(를) 열 수 없습니다"
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
+#: src/QuickCreate.tsx
 msgid "Cancel"
 msgstr "취소"
 
@@ -231,6 +388,21 @@ msgstr "취소"
 msgctxt "Collection storage mode"
 msgid "Cancel switch"
 msgstr "전환 취소"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "CEL · Shift+Enter for a new line"
+msgstr "CEL · Shift+Enter로 줄바꿈"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "CEL expression"
+msgstr "CEL 표현식"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Change operator"
+msgstr "연산자 변경"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -277,6 +449,26 @@ msgstr "이미지 선택"
 msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "그곳에서 컬렉션을 선택하거나 만드세요."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Choose value"
+msgstr "값 선택"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Claude, ChatGPT and others"
+msgstr "Claude, ChatGPT 등"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Clear"
+msgstr "지우기"
+
+#: src/properties/labels.ts
+msgctxt "Remove a property's value"
+msgid "Clear"
+msgstr "지우기"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -343,6 +535,11 @@ msgstr "댓글"
 msgid "Comments could not be loaded: {problem}"
 msgstr "댓글을 불러오지 못했습니다: {problem}"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Compare with {expr}"
+msgstr "{expr}와(과) 비교"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -358,16 +555,15 @@ msgctxt "Collection access interface"
 msgid "Connecting your collection…"
 msgstr "컬렉션 연결 중…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "contains"
+msgstr "포함"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue"
 msgstr "계속"
-
-#. placeholder {0}: new Date(retryAt).toLocaleString()
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Continue after {0}."
-msgstr "{0} 이후에 계속하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -383,6 +579,11 @@ msgstr "이 기기에서 계속"
 msgctxt "Collection access interface"
 msgid "Continue without connecting"
 msgstr "연결하지 않고 계속"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Convert to filter"
+msgstr "필터로 변환"
 
 #: src/live-preview/blocks.ts
 msgid "Copied"
@@ -413,6 +614,11 @@ msgstr "표 복사"
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "현재"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Custom expression"
+msgstr "사용자 지정 표현식"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -477,6 +683,11 @@ msgstr "삭제 중…"
 msgid "Details"
 msgstr "세부 정보"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Device {shortId}"
+msgstr "기기 {shortId}"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Discard"
@@ -501,6 +712,16 @@ msgstr "삭제하는 중…"
 msgid "Dismiss"
 msgstr "닫기"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "does not contain"
+msgstr "포함하지 않음"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Done"
+msgstr "완료"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "드래그하여 표시하세요. 키보드: 화살표 키로 이동하고 스페이스바로 시작하거나 완료합니다. 가리기는 픽셀을 제거합니다."
@@ -514,13 +735,48 @@ msgctxt "diagram"
 msgid "Edit"
 msgstr "편집"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Edit as expression"
+msgstr "표현식으로 편집"
+
 #: src/live-preview/diagram.ts
 msgid "Edit diagram source"
 msgstr "다이어그램 소스 편집"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Edit expression"
+msgstr "표현식 편집"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Edit value"
+msgstr "값 편집"
+
+#: src/properties/labels.ts
+msgctxt "A property with no value"
+msgid "Empty"
+msgstr "비어 있음"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Empty expression"
+msgstr "빈 표현식"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "ends with"
+msgstr "다음으로 끝남"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Esc"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "every filter"
+msgstr "모든 필터"
 
 #: src/CommentsPanel.tsx
 msgid "Everyone"
@@ -536,9 +792,39 @@ msgctxt "callout type"
 msgid "Example"
 msgstr "예시"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Exclude"
+msgstr "제외"
+
 #: src/live-preview/blocks.ts
 msgid "Expand callout"
 msgstr "콜아웃 펼치기"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Expected to finish around {dateTime}."
+msgstr "{dateTime}경 완료될 예정입니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Expected to finish in about {minutes, plural, one {# minute} other {# minutes}} (around {time})."
+msgstr "약 {minutes, plural, other {#분}} 후({time}경)에 완료될 예정입니다."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "expression"
+msgstr "표현식"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Expression {text}"
+msgstr "표현식 {text}"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "False"
+msgstr "거짓"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -553,15 +839,60 @@ msgstr "피드백을 보내지 못했습니다. 다시 시도하세요."
 msgid "Feedback type"
 msgstr "피드백 유형"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Fields"
+msgstr "필드"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter"
+msgstr "필터"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter by field"
+msgstr "필드로 필터링"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter by…"
+msgstr "필터 기준…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter group"
+msgstr "필터 그룹"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter options"
+msgstr "필터 옵션"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filters"
+msgstr "필터"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Find a collection"
 msgstr "컬렉션 찾기"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch. Keep the owner device connected."
-msgstr "전환을 마무리하고 있습니다. 소유자의 기기 연결을 유지하세요."
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Find a property, or name a new one…"
+msgstr "속성을 찾거나 새 이름 입력…"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Find a property…"
+msgstr "속성 찾기…"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Find a record…"
+msgstr "레코드 찾기…"
 
 #: src/live-preview/math.ts
 msgid "Formulas could not be shown. Check your connection and reopen the note."
@@ -582,9 +913,24 @@ msgctxt "Collection access interface"
 msgid "Give {app} access to this collection?"
 msgstr "{app}에 이 컬렉션 접근을 허용하시겠습니까?"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Hide empty"
+msgstr "빈 항목 숨기기"
+
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"
 msgstr "강조 표시"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "How the filters combine"
+msgstr "필터 결합 방식"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "How these filters combine"
+msgstr "이 필터들의 결합 방식"
 
 #: src/feedback-data.ts
 msgid "How would it help you?"
@@ -644,6 +990,36 @@ msgctxt "table"
 msgid "Insert row below"
 msgstr "아래에 행 삽입"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is"
+msgstr "같음"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is any of"
+msgstr "다음 중 하나"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is empty"
+msgstr "비어 있음"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is none of"
+msgstr "다음 중 어느 것도 아님"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not"
+msgstr "같지 않음"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not empty"
+msgstr "비어 있지 않음"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
@@ -663,6 +1039,11 @@ msgctxt "Color theme"
 msgid "Light"
 msgstr "밝게"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Link a record in {property}"
+msgstr "{property}에 레코드 연결"
+
 #: src/CommentsPanel.tsx
 msgid "Loading comments…"
 msgstr "댓글을 불러오는 중…"
@@ -671,6 +1052,11 @@ msgstr "댓글을 불러오는 중…"
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "컬렉션 스냅샷 불러오는 중…"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Local time ({zone})"
+msgstr "현지 시간({zone})"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -703,14 +1089,29 @@ msgstr "스크린샷에 표시"
 msgid "Markup discarded. Screenshot excluded."
 msgstr "표시 내용을 버렸습니다. 스크린샷은 제외되었습니다."
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Match"
+msgstr "일치 조건"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Match all"
+msgstr "모두 일치"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Match any"
+msgstr "하나 이상 일치"
+
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "mdbase 앱"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase가 기존 기록을 포함한 컬렉션을 읽고, 기기가 꺼져 있을 때도 접근을 제공할 수 있게 됩니다."
+msgid "mdbase keeps a copy it can read, so web apps and agents work while your devices are off."
+msgstr "mdbase가 읽을 수 있는 사본을 보관하므로 기기가 꺼져 있는 동안에도 웹 앱과 에이전트가 작동합니다."
 
 #: src/shortcuts.ts
 msgid "Menu"
@@ -745,6 +1146,16 @@ msgctxt "table"
 msgid "Move row up"
 msgstr "행을 위로 이동"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Move to shared"
+msgstr "공유로 이동"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Move to this view"
+msgstr "이 보기로 이동"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -758,6 +1169,11 @@ msgstr "확인 필요"
 msgid "New comment"
 msgstr "새 댓글"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "New property"
+msgstr "새 속성"
+
 #: src/CommentsPanel.tsx
 msgid "New since last visit ({newCount})"
 msgstr "지난 방문 이후 새 항목({newCount})"
@@ -765,6 +1181,16 @@ msgstr "지난 방문 이후 새 항목({newCount})"
 #: src/CommentsPanel.tsx
 msgid "New since your last visit"
 msgstr "마지막 방문 이후 새 항목"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Next month"
+msgstr "다음 달"
+
+#: src/properties/labels.ts
+msgctxt "A property that is false"
+msgid "no"
+msgstr "아니요"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -776,6 +1202,16 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "“{query}”와 일치하는 컬렉션이 없습니다."
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "no filter"
+msgstr "어떤 필터도 아님"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "No matching fields"
+msgstr "일치하는 필드 없음"
+
 #: src/live-preview/inline.ts
 msgid "No note or file matches “{target}”."
 msgstr "“{target}”과(와) 일치하는 노트나 파일이 없습니다."
@@ -784,9 +1220,29 @@ msgstr "“{target}”과(와) 일치하는 노트나 파일이 없습니다."
 msgid "No open comments"
 msgstr "열린 댓글이 없습니다"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "No properties."
+msgstr "속성이 없습니다."
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "스크린샷을 찍지 않았습니다. 그래도 피드백을 보낼 수 있습니다."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "No values to choose from."
+msgstr "선택할 값이 없습니다."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: no filter may match"
+msgid "None"
+msgstr "없음"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Not a number"
+msgstr "숫자가 아닙니다"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -802,14 +1258,39 @@ msgstr "컬렉션의 내용은 변경되지 않습니다."
 msgid "Nothing matches"
 msgstr "일치하는 항목 없음"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Nothing matches."
+msgstr "일치하는 항목이 없습니다."
+
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "아직 해결된 항목이 없습니다."
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Number"
+msgstr "숫자"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "전환이 완료되면 사용자의 기기만 새 콘텐츠를 읽을 수 있습니다. 이전 콘텐츠는 mdbase가 여전히 읽을 수 있습니다."
+msgid "Older app connections have expired. Finishing automatically…"
+msgstr "이전 앱 연결이 만료되었습니다. 자동으로 마무리하는 중…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or after"
+msgstr "이후"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or before"
+msgstr "이전"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Only your devices can read it. Web apps work only while one of your devices is online."
+msgstr "내 기기에서만 읽을 수 있습니다. 웹 앱은 내 기기 중 하나가 온라인 상태일 때만 작동합니다."
 
 #: src/CommentsPanel.tsx
 msgctxt "Comment status"
@@ -823,11 +1304,6 @@ msgstr "파일 열기"
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
 msgstr "다른 mdbase 앱에서 열기"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Open mdbase connect on one of the owner's devices to finish the switch."
-msgstr "전환을 완료하려면 소유자의 기기 중 하나에서 mdbase connect를 여세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -872,14 +1348,34 @@ msgstr "여는 중…"
 msgid "Opens in a new tab"
 msgstr "새 탭에서 열립니다"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Operator"
+msgstr "연산자"
+
 #: src/Feedback.tsx
 msgid "Optional"
 msgstr "선택 사항"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "or press Enter"
+msgstr "또는 Enter 키"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Other AI clients"
+msgstr "기타 AI 클라이언트"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "소유자"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Pick one or more"
+msgstr "하나 이상 선택"
 
 #: src/apps.ts
 msgid "Plan tasks and projects"
@@ -894,6 +1390,11 @@ msgstr "보안 액세스 준비 중…"
 msgctxt "Collection access interface"
 msgid "Preparing your offline copy…"
 msgstr "오프라인 사본 준비 중…"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Previous month"
+msgstr "이전 달"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -963,15 +1464,45 @@ msgctxt "Collection access interface"
 msgid "Remove"
 msgstr "삭제"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Remove"
+msgstr "삭제"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove {collection} from this list?"
 msgstr "이 목록에서 {collection}을(를) 삭제하시겠습니까?"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Remove {name}"
+msgstr "{name} 삭제"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Remove {value}"
+msgstr "{value} 삭제"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Remove filter"
+msgstr "필터 삭제"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "이 목록에서 삭제"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Remove group"
+msgstr "그룹 삭제"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Remove item {place} from {property}"
+msgstr "{property}에서 항목 {place} 삭제"
 
 #: src/CommentsPanel.tsx
 msgid "Reopen"
@@ -1001,6 +1532,11 @@ msgstr "답변 이메일"
 #: src/Feedback.tsx
 msgid "Report a problem"
 msgstr "문제 신고"
+
+#: src/properties/labels.ts
+msgctxt "A property a record must have"
+msgid "Required"
+msgstr "필수"
 
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
@@ -1073,6 +1609,11 @@ msgstr "이 기기에만 저장됨"
 msgid "Saving"
 msgstr "저장 중"
 
+#: src/filter-builder/labels.ts
+msgctxt "Which views a filter applies to"
+msgid "Scope"
+msgstr "범위"
+
 #: src/feedback-data.ts
 msgid "Screen capture isn’t available in this browser. You can attach an image instead."
 msgstr "이 브라우저에서는 화면을 캡처할 수 없습니다. 대신 이미지를 첨부할 수 있습니다."
@@ -1131,6 +1672,11 @@ msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
 msgstr "{app}에서 사용할 {collection} 설정"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Set up with MCP"
+msgstr "MCP로 설정"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Setting up…"
@@ -1139,6 +1685,16 @@ msgstr "설정 중…"
 #: src/feedback-data.ts
 msgid "Share something you like"
 msgstr "마음에 드는 점 공유하기"
+
+#: src/filter-builder/labels.ts
+msgctxt "A filter every view applies"
+msgid "Shared"
+msgstr "공유"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Shared: {name}"
+msgstr "공유: {name}"
 
 #: src/CommentsPanel.tsx
 msgid "Show"
@@ -1236,9 +1792,29 @@ msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "{app} 시작 중…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "starts with"
+msgstr "다음으로 시작"
+
 #: src/screens.tsx
 msgid "Still opening? Check your connection."
 msgstr "아직 열리는 중인가요? 연결을 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Stop this switch"
+msgstr "이 전환 중단"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Stop this switch to Private?"
+msgstr "비공개로 전환을 중단할까요?"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Stopping…"
+msgstr "중단하는 중…"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -1279,6 +1855,76 @@ msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
 msgstr "컬렉션 전환, 현재: {collection}"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — confirm on this computer to start."
+msgstr "클라우드 사본으로 전환 중 — 시작하려면 이 컴퓨터에서 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — finishing. This usually takes a few seconds."
+msgstr "클라우드 사본으로 전환 중 — 마무리하고 있습니다. 보통 몇 초 걸립니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — open mdbase connect on one of your computers to confirm."
+msgstr "클라우드 사본으로 전환 중 — 컴퓨터 중 하나에서 mdbase connect를 열어 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — publishing the new storage mode."
+msgstr "클라우드 사본으로 전환 중 — 새 저장 모드를 게시하고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older app connections to expire."
+msgstr "클라우드 사본으로 전환 중 — 이전 앱 연결이 만료되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older devices to update."
+msgstr "클라우드 사본으로 전환 중 — 이전 기기들이 업데이트되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy: mdbase will be able to read the collection, including its history. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "클라우드 사본으로 전환: mdbase가 기록을 포함해 컬렉션을 읽을 수 있게 됩니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — confirm on this computer to start."
+msgstr "비공개로 전환 중 — 시작하려면 이 컴퓨터에서 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — finishing and updating your collection key. This finishes automatically while an owner device is online."
+msgstr "비공개로 전환 중 — 마무리하고 컬렉션 키를 업데이트하고 있습니다. 소유자 기기가 온라인 상태인 동안 자동으로 완료됩니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — open mdbase connect on one of your computers to confirm."
+msgstr "비공개로 전환 중 — 컴퓨터 중 하나에서 mdbase connect를 열어 확인하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — publishing the new storage mode."
+msgstr "비공개로 전환 중 — 새 저장 모드를 게시하고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older app connections to expire."
+msgstr "비공개로 전환 중 — 이전 앱 연결이 만료되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older devices to update."
+msgstr "비공개로 전환 중 — 이전 기기들이 업데이트되기를 기다리고 있습니다."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private: only your devices can read new content; mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "비공개로 전환: 내 기기에서만 새 콘텐츠를 읽을 수 있으며, mdbase는 이전 콘텐츠를 계속 읽을 수 있습니다. 이 컬렉션에 연결된 앱은 이후에 다시 연결해야 합니다."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
@@ -1313,6 +1959,11 @@ msgstr "신고해 주셔서 감사합니다."
 #: src/live-preview/diagram.ts
 msgid "The diagram could not be shown. Check your connection and reopen the note."
 msgstr "다이어그램을 표시하지 못했습니다. 연결을 확인하고 노트를 다시 여세요."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "The filter on {field} cannot be removed here"
+msgstr "{field} 필터는 여기서 삭제할 수 없습니다"
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
@@ -1360,8 +2011,8 @@ msgstr "제안된 텍스트가 더 이상 없습니다"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
-msgstr "비공개로 전환이 완료되지 않았습니다. 전환을 시작한 기기를 해지하세요. 그러면 다른 소유자 기기가 컬렉션 키를 교체합니다."
+msgid "The switch to Private was stopped. This collection is Private on its previous key. Revoke the device that started the switch so your other owner devices replace the key automatically."
+msgstr "비공개로 전환이 중단되었습니다. 이 컬렉션은 이전 키를 사용하는 비공개 상태입니다. 전환을 시작한 기기를 해지하면 다른 소유자 기기들이 자동으로 키를 교체합니다."
 
 #: src/CommentsPanel.tsx
 msgid "The text it was on has changed"
@@ -1376,6 +2027,11 @@ msgstr "다음 유형이 추가됩니다: {types}."
 msgctxt "Collection access interface"
 msgid "this collection"
 msgstr "이 컬렉션"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "This collection can’t switch modes until the stopped switch to Private finishes recovering. Revoke the device that started it so your other owner devices replace the collection key."
+msgstr "중단된 비공개 전환의 복구가 완료될 때까지 이 컬렉션의 모드를 전환할 수 없습니다. 전환을 시작한 기기를 해지하여 다른 소유자 기기들이 컬렉션 키를 교체하도록 하세요."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1396,6 +2052,16 @@ msgstr "평소보다 시간이 더 걸리고 있습니다."
 msgid "This passage is no longer in the text"
 msgstr "이 구절은 더 이상 본문에 없습니다"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "This switch has already started publishing and can no longer be cancelled."
+msgstr "이 전환은 이미 게시가 시작되어 더 이상 취소할 수 없습니다."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "This view"
+msgstr "이 보기"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Tip"
@@ -1413,10 +2079,25 @@ msgstr "이동"
 msgid "to run"
 msgstr "실행"
 
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Today"
+msgstr "오늘"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Todo"
 msgstr "할 일"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Tomorrow"
+msgstr "내일"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "True"
+msgstr "참"
 
 #: src/CommentsPanel.tsx
 #: src/screens.tsx
@@ -1461,13 +2142,48 @@ msgstr "표시는 최대 100개까지 적용할 수 있습니다. 실행 취소�
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "Update or revoke these devices before continuing:"
-msgstr "계속하기 전에 다음 기기를 업데이트하거나 접근 권한을 취소하세요:"
+msgid "Update mdbase on these devices or remove them before trying again:"
+msgstr "다시 시도하기 전에 이 기기들에서 mdbase를 업데이트하거나 기기를 제거하세요:"
+
+#: src/properties/labels.ts
+msgctxt "Before typed text, to take it as the value"
+msgid "Use"
+msgstr "사용:"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
 msgstr "{app} 버전 사용"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Use a device that holds this collection’s key to switch its storage mode."
+msgstr "저장 모드를 전환하려면 이 컬렉션의 키를 보유한 기기를 사용하세요."
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Use letters, digits, - and _, starting with a letter."
+msgstr "영문자, 숫자, -, _를 사용하고 영문자로 시작하세요."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Use this only if the device that started the switch is lost and can’t finish. The collection stays Private on its current key, and your other owner devices replace the key automatically once you revoke the lost device."
+msgstr "전환을 시작한 기기를 분실하여 완료할 수 없는 경우에만 사용하세요. 컬렉션은 현재 키로 비공개 상태를 유지하며, 분실한 기기를 해지하면 다른 소유자 기기들이 자동으로 키를 교체합니다."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Value"
+msgstr "값"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Values"
+msgstr "값"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Values to compare with"
+msgstr "비교할 값"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be completed. Try again."
@@ -1476,16 +2192,6 @@ msgstr "인증을 완료하지 못했습니다. 다시 시도하세요."
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
 msgstr "인증을 불러오지 못했습니다. 연결을 확인하고 다시 시도하세요."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for devices to update."
-msgstr "기기 업데이트를 기다리고 있습니다."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
-msgstr "이전 기기 연결의 만료를 기다리고 있습니다. 전환이 완료될 때까지 클라우드 사본은 켜진 상태로 유지됩니다."
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -1522,6 +2228,11 @@ msgstr "무엇을 하려고 하셨나요?"
 msgid "What would you like to improve?"
 msgstr "어떤 점을 개선하면 좋을까요?"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "What your assistants remember"
+msgstr "어시스턴트가 기억하는 내용"
+
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "어떤 점이 잘 작동하나요?"
@@ -1551,9 +2262,34 @@ msgctxt "Collection storage mode"
 msgid "Working…"
 msgstr "처리 중…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Wrap in “any” group"
+msgstr "“하나 이상” 그룹으로 묶기"
+
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
 msgstr "자료를 인용하는 원고 작성"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "year is"
+msgstr "연도가"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Year, e.g. 2026"
+msgstr "연도(예: 2026)"
+
+#: src/properties/labels.ts
+msgctxt "A property that is true"
+msgid "yes"
+msgstr "예"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Yesterday"
+msgstr "어제"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1569,6 +2305,11 @@ msgstr "이 기기에서 {app}에서 로그아웃했습니다."
 #: src/Feedback.tsx
 msgid "you@example.com"
 msgstr "you@example.com"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Your app here"
+msgstr "여기에 나만의 앱"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

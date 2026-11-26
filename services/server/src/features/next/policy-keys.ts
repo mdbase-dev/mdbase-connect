@@ -7,10 +7,8 @@
 import { createPrivateKey, createPublicKey, verify as edVerify, type KeyObject } from "node:crypto";
 import { localBuild, localDeployment } from "../../platform/local-deployment.js";
 import { certDigest, keyId, type CpCert, type PolicySigner } from "./policy-wire.js";
-import { parseLabFixtureConfig, type LabFixtureConfig } from "./lab-fixture-config.js";
 import { hostedClientOrigin } from "./hosted-route-target.js";
 import { parseLabPitrConfig, type LabPitrConfig } from "./lab-pitr-config.js";
-import { parseMigrationRouting, type MigrationRouting } from "./migration-routing.js";
 
 /** Refuse to start when the certificate expires within this window. */
 const MIN_CERT_REMAINING_MS = 7 * 24 * 60 * 60 * 1000;
@@ -37,8 +35,6 @@ export interface NextControlPlaneConfig {
   logService: LogServiceConfig;
   /** Bearer tokens of the hosted replica and escrow deployments, per kind; absent until deployed. */
   serviceTokens: { hosted?: string; escrow?: string };
-  /** Bearer token of the hosted migrator (MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN): the only caller of the staged-migration routes. Absent: those routes are not mounted. */
-  migrationToken?: string;
   /** Separate fixed-run CP authority-read credential; absent outside isolated LAB. */
   pitrAuthorityToken?: string;
   /**
@@ -64,8 +60,6 @@ export interface NextControlPlaneConfig {
   fileQuota?: "report" | "enforce";
   /** Trusted direct Noise endpoint origin; discovery is not live admission. */
   hostedClientUrl?: string;
-  migrationRouting?: MigrationRouting;
-  labFixtures?: LabFixtureConfig;
 }
 
 function hexBytes(value: string, size: number, name: string): Uint8Array {
@@ -113,9 +107,7 @@ export function verifyCert(cert: CpCert, rootPublicKey: Uint8Array): boolean {
  * plane is disabled; throws on a partial or malformed configuration.
  */
 export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPlaneConfig | null {
-  const labFixtures = parseLabFixtureConfig(env);
   const labPitr = parseLabPitrConfig(env);
-  const migrationRouting = parseMigrationRouting(env);
   const enabled = env.MDBASE_NEXT_CONTROL_PLANE?.trim() ?? "";
   if (enabled !== "" && enabled !== "0" && enabled !== "1") throw new Error("MDBASE_NEXT_CONTROL_PLANE must be 0 or 1.");
   if (enabled !== "1") {
@@ -151,8 +143,6 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
   const hosted = serviceToken("MDBASE_NEXT_HOSTED_INTERNAL_TOKEN");
   const escrow = serviceToken("MDBASE_NEXT_ESCROW_INTERNAL_TOKEN");
   if (hosted && hosted === escrow) throw new Error("The hosted and escrow internal tokens must differ.");
-  const migration = serviceToken("MDBASE_NEXT_MIGRATION_INTERNAL_TOKEN");
-  if (migration && (migration === hosted || migration === escrow)) throw new Error("The migration internal token must differ from the hosted and escrow tokens.");
   const bootstrap = env.MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP?.trim() ?? "";
   if (bootstrap !== "" && bootstrap !== "0" && bootstrap !== "1") throw new Error("MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP must be 0 or 1.");
   let cloudCopyBootstrap: NextControlPlaneConfig["cloudCopyBootstrap"];
@@ -171,15 +161,10 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
       throw new Error("Inbound and outbound service tokens must all differ.");
     }
   }
-  if (migrationRouting) {
-    if (!cloudCopyBootstrap || !migration || labPitr) throw new Error("Migration routing requires factories and migration token, without PITR.");
-    const tokens = [hosted, escrow, migration, cloudCopyBootstrap.hosted.token, cloudCopyBootstrap.escrow.token, migrationRouting.hosted.token, migrationRouting.inboundToken];
-    if (new Set(tokens).size !== tokens.length) throw new Error("Migration routing credentials must all differ.");
-  }
   if (labPitr && !cloudCopyBootstrap) throw new Error("LAB PITR requires real cloud-copy factories.");
   const pitrAuthorityToken = serviceToken("MDBASE_NEXT_PITR_AUTHORITY_TOKEN");
   if (Boolean(labPitr) !== Boolean(pitrAuthorityToken)) throw new Error("LAB PITR mapping and authority token must be configured together.");
-  if (pitrAuthorityToken && [hosted, escrow, migration, cloudCopyBootstrap?.hosted.token, cloudCopyBootstrap?.escrow.token].includes(pitrAuthorityToken)) {
+  if (pitrAuthorityToken && [hosted, escrow, cloudCopyBootstrap?.hosted.token, cloudCopyBootstrap?.escrow.token].includes(pitrAuthorityToken)) {
     throw new Error("LAB PITR authority token must differ from existing service tokens.");
   }
   const objectGc = env.MDBASE_NEXT_OBJECT_GC?.trim() ?? "";
@@ -201,17 +186,14 @@ export function parseNextControlPlaneEnv(env: NodeJS.ProcessEnv): NextControlPla
     policyCert: parsedCert,
     logService: { url: logServiceUrl, tokenIssuerKeyPem, transportKeyPem, ...(labPitr ? { labPitr } : {}) },
     serviceTokens: { ...(hosted ? { hosted } : {}), ...(escrow ? { escrow } : {}) },
-    ...(migration ? { migrationToken: migration } : {}),
     ...(pitrAuthorityToken ? { pitrAuthorityToken } : {}),
     ...(cloudCopyBootstrap ? { cloudCopyBootstrap } : {}),
-    ...(migrationRouting ? { migrationRouting } : {}),
     ...(privateBootstrap === "1" ? { privateBootstrap: true as const } : {}),
     ...(privateAppDevices === "1" ? { privateAppDevices: true as const } : {}),
     ...(collectionModeExecution === "1" ? { collectionModeExecution: true as const } : {}),
     ...(objectGc === "1" ? { objectGc: true as const } : {}),
     ...(fileQuota ? { fileQuota: fileQuota as "report" | "enforce" } : {}),
     ...(env.MDBASE_NEXT_HOSTED_CLIENT_URL?.trim() ? { hostedClientUrl: hostedClientOrigin(env.MDBASE_NEXT_HOSTED_CLIENT_URL.trim()) } : {}),
-    ...(labFixtures ? { labFixtures } : {}),
   };
 }
 

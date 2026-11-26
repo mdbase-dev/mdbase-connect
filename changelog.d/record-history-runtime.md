@@ -1,0 +1,3 @@
+## Added
+
+- Add record history to the device runtime: client API 1.4 `record_history` lists a record's versions from the retained log, newest first, with who wrote each one, and `record_version` returns one version's exact text. History lists only entries the replica applied, by the verdicts its apply path records with each item, so it begins where the replica began applying items itself. Both methods need the new `history.read` app capability together with `collection.read` and a grant without a folder scope; Connect offers `history.read` only to owners and editors. The hosted replica and local-only collections answer `history_unsupported`.

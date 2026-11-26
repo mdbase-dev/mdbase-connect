@@ -207,10 +207,14 @@ pub struct SqliteIndex {
     barrier: CommitBarrier,
     checkpoints: Checkpoints,
     wal_limit_bytes: u64,
-    /// A deferred-sync window is open: one outer write transaction holds
-    /// every batch since [`IndexStorage::defer_sync`] opened it, each batch a
-    /// savepoint inside it, until closing the window commits it (FULL).
+    /// A deferred-sync window is open: transactional batches share one outer
+    /// write transaction (started lazily on the first such batch so closing an
+    /// empty window needs no SQLite commit or barrier), each batch a savepoint
+    /// inside it, until closing the window commits it (FULL).
     deferred: bool,
+    /// Whether the current deferred-sync window has opened its outer SQLite
+    /// write transaction (`WINDOW_OPEN`).
+    window_tx_open: bool,
     /// The page cache size outside a window (`PRAGMA cache_size`).
     cache_size: i64,
 }
@@ -260,6 +264,7 @@ impl SqliteIndex {
             checkpoints,
             wal_limit_bytes: INDEX_WAL_LIMIT_BYTES,
             deferred: false,
+            window_tx_open: false,
             cache_size,
             info: IndexInfo {
                 durability,
@@ -491,11 +496,16 @@ impl SqliteIndex {
         })
     }
     /// Commit the window's outer transaction (FULL: its WAL sync covers every
-    /// batch in it), cross the commit barrier and maintain the WAL.
+    /// batch in it), cross the commit barrier and maintain the WAL. An empty
+    /// window never began a transaction and closes with no barrier.
     fn end_deferred(&mut self) -> Result<(), IndexError> {
         self.deferred = false;
+        let tx_open = std::mem::replace(&mut self.window_tx_open, false);
         let cache_size = self.cache_size;
         let c = self.conn()?;
+        if !tx_open {
+            return Ok(());
+        }
         verify_policy(c)?;
         c.execute_batch("COMMIT").map_err(index_err)?;
         if !c.is_autocommit() {
@@ -527,14 +537,28 @@ impl SqliteIndex {
         {
             self.defer_sync(false)?;
         }
+        if self.deferred && !self.window_tx_open && batch.mode == BatchMode::Transaction {
+            let open = {
+                let c = self.conn()?;
+                verify_policy(c).and_then(|()| c.execute_batch(WINDOW_OPEN).map_err(index_err))
+            };
+            if let Err(e) = open {
+                self.conn = None;
+                self.deferred = false;
+                self.window_tx_open = false;
+                return Err(e);
+            }
+            self.window_tx_open = true;
+        }
         let deferred = self.deferred;
+        let in_tx = self.window_tx_open;
         let mut wrote = false;
         let mut poison = false;
         let mut result = Self::run_checked(
             self.conn()?,
             batch,
             required,
-            deferred,
+            in_tx,
             &mut wrote,
             &mut poison,
             borrowed,
@@ -545,6 +569,7 @@ impl SqliteIndex {
             if poison {
                 self.conn = None;
                 self.deferred = false;
+                self.window_tx_open = false;
             }
             return result;
         }
@@ -601,10 +626,7 @@ impl IndexStorage for SqliteIndex {
             return Ok(true);
         }
         let r = if on {
-            let c = self.conn()?;
-            verify_policy(c)
-                .and_then(|()| c.execute_batch(WINDOW_OPEN).map_err(index_err))
-                .map(|()| self.deferred = true)
+            self.conn().map(|_| ()).map(|()| self.deferred = true)
         } else {
             self.end_deferred()
         };
@@ -612,6 +634,7 @@ impl IndexStorage for SqliteIndex {
             // The window's outcome is unknown: fence until a fresh open.
             self.conn = None;
             self.deferred = false;
+            self.window_tx_open = false;
         }
         r.map(|()| true)
     }
@@ -635,7 +658,7 @@ impl IndexStorage for SqliteIndex {
 impl Drop for SqliteIndex {
     fn drop(&mut self) {
         // A clean close commits an open window rather than discarding it.
-        if self.deferred && self.end_deferred().is_err() {
+        if self.window_tx_open && self.end_deferred().is_err() {
             return;
         }
         if let Some(c) = &self.conn {
@@ -913,6 +936,42 @@ mod tests {
             "the closer learns its window did not commit"
         );
         assert!(i.defer_sync(true).is_err());
+    }
+    #[test]
+    fn empty_deferred_window_closes_without_commit_or_barrier() {
+        let p = path("window-empty");
+        let mut i = SqliteIndex::open(&p, IndexDurability::Durable).unwrap();
+        i.run(&batch("CREATE TABLE t(k INTEGER)")).unwrap();
+        let before = i.barrier.sync_count();
+
+        // Opening and closing with no writes (or only plain reads) starts no
+        // SQLite transaction and executes no device sync barrier.
+        assert!(i.defer_sync(true).unwrap());
+        assert!(i.conn.as_ref().unwrap().is_autocommit());
+        i.run(&Batch {
+            mode: BatchMode::Autocommit,
+            stmts: vec![Stmt::new("SELECT count(*) FROM t", vec![])],
+        })
+        .unwrap();
+        assert!(i.conn.as_ref().unwrap().is_autocommit());
+        assert!(i.defer_sync(false).unwrap());
+        assert_eq!(i.barrier.sync_count(), before);
+
+        assert!(i.defer_sync(true).unwrap());
+        assert!(i.defer_sync(false).unwrap());
+        assert_eq!(i.barrier.sync_count(), before);
+
+        // Once a transactional write enters the window, the outer transaction
+        // begins and closing pays exactly one barrier for every write in it.
+        assert!(i.defer_sync(true).unwrap());
+        i.run(&batch("INSERT INTO t VALUES(1)")).unwrap();
+        assert!(!i.conn.as_ref().unwrap().is_autocommit());
+        assert_eq!(i.barrier.sync_count(), before);
+        i.run(&batch("INSERT INTO t VALUES(2)")).unwrap();
+        assert_eq!(i.barrier.sync_count(), before);
+        assert!(i.defer_sync(false).unwrap());
+        assert!(i.conn.as_ref().unwrap().is_autocommit());
+        assert_eq!(i.barrier.sync_count(), before + 1);
     }
     #[test]
     fn ordered_index_checkpoint_barrier_failures_poison_without_early_recycle() {

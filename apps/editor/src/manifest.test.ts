@@ -18,13 +18,13 @@ describe("Editor application declarations", () => {
     expect(capabilities).toEqual({
       contract_version: 2,
       required: ["collection.read"],
-      optional: ["records.create", "records.edit", "records.delete", "definitions.manage"]
+      optional: ["records.create", "records.edit", "records.delete", "definitions.manage", "history.read"]
     });
     const operations = operationsForApplicationCapabilities(capabilities!);
     expect(operations).toEqual([
       "describe", "changes", "read", "query", "list_views", "execute_view", "read_view_source",
       "validate", "read_type", "create", "update", "rename", "delete", "create_type",
-      "update_type", "assess_type_pack", "apply_type_pack"
+      "update_type", "assess_type_pack", "apply_type_pack", "record_history", "record_version"
     ]);
     expect(applicationOperationSelectionIsAtomic(capabilities!, operations.filter(op => op !== "rename"))).toBe(false);
     expect(applicationFileRequest(files!, { includeOptional: false })).toEqual({

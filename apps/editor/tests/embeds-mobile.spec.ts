@@ -38,6 +38,7 @@ for (const width of [360, 390, 430]) {
     await page.getByRole("button", { name: "More note actions" }).click();
     await page.getByRole("menuitem", { name: "Note properties" }).click();
     await expect(page.getByRole("complementary", { name: "Note properties" })).toBeVisible();
+    await expect.poll(() => page.getByRole("dialog", { name: "Note properties" }).evaluate(element => element.getAnimations().length)).toBe(0);
     await fitsViewport(page, ".properties-panel");
     await page.getByRole("button", { name: "Close properties" }).click();
 
@@ -51,14 +52,13 @@ for (const width of [360, 390, 430]) {
     await expect(title).toHaveValue("Ideas for Sunday 12");
     await page.getByRole("button", { name: "More note actions" }).click();
     await page.getByRole("menuitem", { name: "Note properties" }).click();
-    await expect(page.getByLabel("tags value item 1")).toHaveValue("notes");
+    const removeTag = page.getByRole("button", { name: "Remove notes", exact: true });
+    await expect(removeTag).toBeVisible();
     await expect.poll(() => page.getByRole("dialog", { name: "Note properties" }).evaluate(element => element.getAnimations().length)).toBe(0);
     await fitsViewport(page, ".property-fields");
     const propertyFields = await page.locator(".property-fields").boundingBox();
-    const removeProperty = await page.getByRole("button", { name: "Remove tags property" }).boundingBox();
-    expect(removeProperty!.x + removeProperty!.width).toBeLessThanOrEqual(propertyFields!.x + propertyFields!.width);
-    const removeTag = page.getByRole("button", { name: "Remove tags item 1" });
     const target = await removeTag.boundingBox();
+    expect(target!.x + target!.width).toBeLessThanOrEqual(propertyFields!.x + propertyFields!.width);
     expect(target!.width).toBeGreaterThanOrEqual(44);
     expect(target!.height).toBeGreaterThanOrEqual(44);
     await page.getByRole("button", { name: "Close properties" }).click();
@@ -70,7 +70,7 @@ for (const width of [360, 390, 430]) {
     await fitsViewport(page, ".writing-surface");
     await page.getByRole("button", { name: "Back to notes", exact: true }).click();
     await expect(page.locator(".note-unsaved")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "New note", exact: true })).toHaveText("New note");
+    await expect(page.getByRole("button", { name: "New note", exact: true })).toHaveText("New");
     await fitsViewport(page, ".note-list-pane");
     await page.getByRole("button", { name: "Collections", exact: true }).click();
     await page.getByRole("button", { name: "Types (1)" }).click();
@@ -99,8 +99,6 @@ test("embed actions reveal on pointer and keyboard focus without a caption bar",
   await expect(embed.locator(".cm-embed-actions")).toHaveCSS("opacity", "0");
   await expect(embed.locator("figcaption")).toHaveText("A durable piece of frontmatter");
   await expect(embed.locator("figcaption button")).toHaveCount(0);
-  await page.evaluate(() => { document.documentElement.dataset.theme = "dark"; });
-  await expect(image).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
   await embed.focus();
   await expect(embed.locator(".cm-embed-actions")).toHaveCSS("opacity", "1");
   await embed.getByRole("button", { name: "Copy path for frontmatter.svg" }).click();

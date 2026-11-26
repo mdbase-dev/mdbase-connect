@@ -651,6 +651,50 @@ pub fn folder_target_overrides(state: &dyn StateView, pack: &Pack) -> BTreeMap<S
     out
 }
 
+/// The installer's target decision for `pack` when the caller makes none: a
+/// pack not yet installed goes into the collection's configured folders
+/// ([`folder_target_overrides`]); an installed pack keeps the exact targets its
+/// lock receipt records. A path this pack version declares belongs to the
+/// resource that declares it, so an earlier version's receipt never redirects
+/// another resource onto it (a contract moved aside when a newer one took its
+/// path). Shared by the setup installer and the replica's type pack planner;
+/// like [`folder_target_overrides`], assessment uses it only when passed in.
+pub fn default_target_overrides(
+    state: &dyn StateView,
+    pack: &Pack,
+) -> Result<BTreeMap<String, String>, Issue> {
+    // Only the installed receipt is read here; the assessment that follows
+    // stages, checks and refuses the resources themselves.
+    let lock = match state.resource(LOCK_PATH) {
+        Some(source) => Lock::parse(&source)?,
+        None => Lock::default(),
+    };
+    let Some(receipt) = lock.receipt(&pack.id) else {
+        return Ok(folder_target_overrides(state, pack));
+    };
+    let declared: BTreeSet<String> = pack
+        .resources
+        .iter()
+        .map(|resource| crate::paths::path_key(&resource.target))
+        .collect();
+    Ok(pack
+        .resources
+        .iter()
+        .filter_map(|resource| {
+            receipt
+                .resources
+                .iter()
+                .find(|installed| {
+                    installed.source == resource.source
+                        && installed.kind == resource.kind
+                        && installed.target != resource.target
+                        && !declared.contains(&crate::paths::path_key(&installed.target))
+                })
+                .map(|installed| (resource.target.clone(), installed.target.clone()))
+        })
+        .collect())
+}
+
 /// Assess `pack` against `state` (read-only).
 pub fn assess_type_pack(
     state: &dyn StateView,

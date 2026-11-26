@@ -325,6 +325,7 @@ fn check(seeds: u64, atom: Atom, record: fn(&mut Rng) -> (String, Map)) -> Seen 
                 types: &types,
                 frontmatter: &fm,
                 body: Some(""),
+                mtime: None,
             };
             let matched = matches!(plan.matches(&rec, &env), Verdict::Match);
             let cand = holds(&plan.candidate, &path, &types, &fm);

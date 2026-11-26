@@ -1,5 +1,36 @@
 # Legacy Connect retirement list
 
+> [!IMPORTANT]
+> **Tier 2 (2a, 2b, 2c) code deleted on branch (2026-11-22):** All legacy root
+> `crates/`, root `Cargo.toml`/`Cargo.lock`, `packages/sync`, `deploy/postgres`,
+> legacy hosted-provider Docker/CI/upgrade/system suites, server legacy hosted /
+> mirror / authority-transfer / migration / takeover routes, `runtime/` crates
+> (`mdbn-legacy`, `mdbn-migrate`, `mdbn-migrate-portable`, `mdbn-takeover`),
+> `hosted-worker` migration/legacy-source code, `mdbn-daemon` takeover code, and
+> legacy-stack docs have been removed in code.
+>
+> **Required production & `mdbase-cloud-ops` cutover before merging to `main`:**
+> 1. Resolve the 2 remaining `legacy` accounts (migrate or retire).
+> 2. Complete the remaining 3-account hosting-move off `mdbase-next-hosted-mig-production`
+>    (`bin/release production hosting-move inventory` -> 0) and delete the
+>    migration Workers (`mdbase-next-hosted-mig-{production,staging,lab}`).
+> 3. Export/archive any still-required legacy rollback evidence offline before
+>    tearing down `mdbase-connect-hosted-db` / legacy R2 buckets.
+> 4. Retire Render `mdbase-connect-hosted-provider` (`sync.mdbase.dev`) and drop
+>    `MDBASE_CONNECT_HOSTED_PROVIDER_*`, `MDBASE_CONNECT_HOSTED_COLLECTIONS`,
+>    `MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY`, and `MDBASE_NEXT_MIGRATION_*`
+>    environment variables from Render `mdbase-connect` services.
+> 5. Remove `hosted-provider` and `mdbase-rs` references from `mdbase-cloud-ops`
+>    (`monitor-production.yml`, `validate_desired_state.rb`,
+>    `continuous_deployment.py` `RUNTIME_PATHS`, `hosted-schema-admin`,
+>    `hosted-database-drain-admin`, `bin/lib/rollback_compat.py`, `ci.yml`,
+>    `check-release-locks`, `verify-release-bundle`).
+>
+> **Legacy SDK packages deleted:** `apps/editor` and `services/mcp` are
+> detached, and `packages/client` (`@mdbase-dev/connect`), `packages/devkit`
+> (`@mdbase-dev/connect-dev`), and `packages/testing`
+> (`@mdbase-dev/connect-testing`) have been removed.
+
 Working list for deleting the legacy Connect stack. It covers the root `crates/`
 workspace on `../mdbase-rs`, the legacy hosted provider at `sync.mdbase.dev`,
 `packages/sync`, and the server, deploy, test and docs code that exists only for
@@ -22,8 +53,8 @@ state and locks, public endpoints):
 - The bulk migration finished on 2026-10-29. Nine accounts created on
   2026-10-24, after the bulk selection cutoff and before new accounts became
   `next`, were missed; they migrated on 2026-11-14. Two accounts stay on `legacy`
-  on purpose: `a9bf357e`, which is suspended and has one hosted collection, and
-  an internal test baseline account. Nothing in mdbase-cloud-ops uses the
+  on purpose: one that is suspended and has one hosted collection, and an
+  internal test baseline account. Nothing in mdbase-cloud-ops uses the
   baseline account.
 - Retention: legacy data and rollback evidence are kept 90 days after each
   cutover, so until about 2027-02-12 (inferred from the 2026-11-14 cutovers).
@@ -97,9 +128,9 @@ Two pieces of coverage for code that is still deployed went with the consumers:
 - **Hosted-to-local authority promotion, end to end.** The provider suite's
   promotion scenario drove the legacy CLI's `mirror promote` and the portal's
   "Move main copy" page in a browser. The provider's fence, prove, complete and
-  cancel steps are still tested at the API level, and the server keeps its unit
-  and Postgres tests, but nothing opens the confirmation page any more. Only a
-  legacy account can reach that flow; it goes in 2a.
+  cancel steps are still tested at the API level. The confirmation page was
+  removed from the portal on 2026-11-15 and the control-plane routes on
+  2026-11-17 (see 2a).
 - **Durable history for the provider performance observation.** The monthly
   observation still runs and uploads its raw result as a workflow artifact, but
   the normalising and `performance-history` publishing steps went with
@@ -114,7 +145,7 @@ independent of each other. 2c is last.
 
 **Condition:**
 
-- the legacy account count is 0, or `a9bf357e` has been resolved (deleted, or moved by support);
+- the legacy account count is 0, or the suspended account has been resolved (deleted, or moved by support);
 - the legacy retention window has passed (about 2027-02-12);
 - recovery archives have been removed and verified (2027-03-12);
 - the ops consumers of the provider are gone.
@@ -137,17 +168,106 @@ the provider and the tables below: the to-hosted expiry branch of
 `auth-admin repairs authority-import-sources` command, adoption-row revocation in
 `instance-admin.ts` (with `abortAuthorityImport`), and the tables themselves.
 
+Removed ahead of the provider (2026-11-15): the **self-host stack**. The
+`deploy/self-host/` stack ran the legacy provider with no next log service and
+created `legacy` accounts. No shipped client could use it: the legacy connector
+is gone, and installation sign-in refuses a `legacy` account
+(`installation_legacy_backend`). Removed: `deploy/self-host/` (`compose.yml`,
+`.env.example` and `Caddyfile.example`), `docs/self-hosting.md` and their
+references.
+
+Also removed ahead of the provider (2026-11-15): the `sync` system suite
+(`scripts/sync-e2e.mjs`, `pnpm e2e:sync` and its `server-ci` shard) and the
+functional stress runner for the `packages/sync` client (`scripts/stress/*`,
+`test-fixtures/stress-regressions/`, the `stress:*` and
+`test:stress-regressions` scripts and `docs/functional-stress-testing.md`). The
+suite and the runner's HTTP mode ran the legacy sync protocol against the
+development-only reference authority, which only loopback development
+authentication can enable. No CI job ran the stress runner, and three of its
+entry points had failed on `main` since at least 2026-10-05: the HTTP half of
+`stress:quick` and the regression replay ("Replica 2 did not converge"), and
+`stress:functional` ("Resolve the record's existing sync issue before editing
+it again."). It was deleted rather than repaired because it stress-tested a
+legacy client that no shipped product uses. The provider suite remains the test
+of that client against the real provider, and `packages/sync` keeps its unit
+tests.
+
+The reference authority itself stays: `HostedAuthorityRegistry` in
+`features/hosted/hosted.ts`, `features/hosted/reference-sync-routes.ts`, the
+`MDBASE_CONNECT_HOSTED_REFERENCE_AUTHORITY` flag and its validation, and the
+`hostedReference` branches. It is the fixture for the route-level tests of
+legacy hosted collections and synced folders (`production-auth.test.ts`,
+`collection-creation.postgres.test.ts`), the migration-freeze fences
+(`migration-topology.postgres.test.ts`), and its own unit and configuration tests
+(`hosted.test.ts`, `runtime-config.test.ts`), so it goes with those routes in the
+cluster below rather than behind a new mocked-provider fixture. Its
+`prepareAuthorityTransfer` and `completeAuthorityTransfer` methods lost their
+last caller with the hosted-to-local routes and go with it. Its `docker-compose.yml` passthrough is gone; an operations LAB flag
+map still pins the flag off, and that entry goes with the flag.
+
+Also removed ahead of the provider (2026-11-15): the portal pages for **mirror
+pairing** (`/mirror/:id`) and the **hosted-to-local authority transfer**
+(`/transfer/:id`, "Move main copy"), their styles and the portal's
+`AuthorityTransfer` type. An old link opens the portal app, as `/adopt/:id`
+does. The portal keeps showing existing hosted collections and their synced
+folders, with **Disconnect**.
+
+Also removed ahead of the provider (2026-11-17): the control-plane routes behind
+those pages. No current app starts either flow; Obsidian plugin releases 0.4.2
+and earlier and the deprecated `mdbase-mirror` CLI now get 404 when they try to
+pair a folder or move the main copy. Removed:
+
+- `features/mirrors/pairing-routes.ts` (`/v1/mirror-pairing-requests` create,
+  read, approve and exchange; its renew route moved, see below) and the desktop
+  approval route
+  `POST /v1/connectors/mirror-pairing-requests/:id/approve` in
+  `features/hosted/connector-routes.ts`, with `approveMirrorPairing` in
+  `hosted-mirror-policy.ts`;
+- `features/authority-transfer/hosted-to-local-routes.ts` (724 lines:
+  `/v1/mirror-pairing-requests/:id/authority-transfers` and
+  `/v1/authority-transfers/:id` read, approve, prepare, complete and cancel),
+  the transfer views and `/transfer/:id` link builders, `authorityPairing`,
+  `mirrorAuthorityTransfer` and `retireAuthorityCandidates` in `lifecycle.ts`
+  (159 lines), and the provider client's `prepareAuthorityTransfer`,
+  `completeAuthorityTransfer` and `abortAuthorityTransfer`;
+- `authority-transfer.test.ts` (420 lines) and the pairing and transfer cases in
+  `app.test.ts`, `production-auth.test.ts`, `collection-sharing.test.ts` and
+  `migration-topology-routes.postgres.test.ts`. The inventory binding of a
+  completed hosted-to-local transfer is now tested from seeded rows in
+  `authority-transfer-inventory.test.ts`;
+- the portal's "Sync a folder" and "Sync folder" actions, the
+  `mdbase-connect://mirror` link they opened, and the desktop's handling of that
+  link, which its renderer ignored;
+- in `packages/sync`: the `connect` and `promote` commands of `mdbase-mirror`
+  and its token renewal for folders those commands set up, `enrollment.ts`, `promotion.ts`, their tests (about 2,100
+  lines), the `./enrollment` and `./promotion` exports, and the device-state
+  helpers only promotion used. `init`, `sync`, `watch`, `status` and `resolve`
+  stay; the provider suites use them.
+
+Kept for rows that already exist, and going with the provider and the tables:
+the renewal route `POST /v1/mirror-pairing-requests/:id/renew`
+(`features/mirrors/renewal-route.ts`), the to-local expiry branch of
+`recoverExpiredAuthorityTransfers` and its recovery worker, the inventory
+binding in `POST /v1/connectors/sync`, the replica, revocation and Disconnect
+routes for existing synced folders, and the
+`mirror_pairing_requests` and `authority_transfers` tables, which no migration
+drops, so the previous server still runs after a rollback. The renewal route is
+the only unattended way a folder paired by Obsidian plugin 0.4.2 or earlier, or
+by an old `mdbase-mirror connect`, replaces its access token before the
+provider's 30-day expiry. Its consumer is any such folder on an account still
+on the legacy backend; it goes when the provider is switched off, or sooner if
+production shows no consumed pairing row with a live replica.
+
 | Unit | Lines | Consumers to remove first |
 | --- | --- | --- |
 | `crates/connect-hosted-provider` (also `mdbase-hosted-backup-admin`, `-key-admin` and `-projection-indexer`), `connect-runtime`, `connect-protocol` (generated Rust) | 86,922 | <ul><li>Render service `mdbase-connect-hosted-provider` and DB `mdbase-connect-hosted-db`, plus the staging and LAB services.</li><li>Connect env `MDBASE_CONNECT_HOSTED_PROVIDER_URL` and `MDBASE_CONNECT_HOSTED_COLLECTIONS`.</li><li>**cloud-ops:** `monitor-production.yml` probe; `validate_desired_state.rb`; the backup and recovery-drill profile `hosted-provider`; `bin/hosted-*` admin tools; `bin/lib/rollback_compat.py`; the provider digests in `ci.yml`.</li><li>Here: `Dockerfile.hosted-provider`, `Cargo.lock.hosted-provider` (also listed in `scripts/lib/release-version.mjs`), `config/release-components.json`, and the Rust outputs of `scripts/generate-{change-events,connect-problems,operation-catalog,application-capabilities}.mjs`, which must stop emitting Rust; also `CODEOWNERS`.</li></ul> |
 | `../mdbase-rs` path dependency | n/a | <ul><li>Root `Cargo.toml`.</li><li>`deploy/docker/mdbase-rs-revision`.</li><li>`pnpm check:mdbase-rs-pin` (`scripts/mdbase-rs-pin.mjs`).</li><li>Every `callumalpass/mdbase-rs` checkout in `server-ci` (two jobs), `flake-stress`, `performance-observations` and `rust-caches`, and the `Cargo.lock.hosted-provider` and `mdbase-rs-revision` inputs of `publish-images`.</li><li>cloud-ops `check-release-locks`, `verify-release-bundle` and the `RUNTIME_PATHS` in `continuous_deployment.py`.</li></ul>It goes when the last root crate goes, which ends the root Cargo workspace. Outside this repo, mdbase.dev `site-sources.json` still lists mdbase-rs as the "rust" implementation; that is a separate decision. |
-| `packages/sync` (`@mdbase-dev/connect-sync`, private; npm publishing stopped in #1290) | about 21,800 | Server imports in `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/account-routes.ts`, `features/mirrors/pairing-routes.ts`, `features/authority-transfer/lifecycle.ts` and `platform/error-handler.ts` (`SyncError`). Also `Dockerfile.server:44`, `scripts/sync-e2e.mjs` and `flake-stress`. |
-| Legacy hosted, mirror and authority server cluster: `features/hosted/hosted-provider*.ts`, `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/hosted-replica-policy.ts`, `features/hosted/hosted-capability-lifecycle.ts`, `features/hosted/*` except `sharing-routes.ts`, `features/mirrors/*`, `features/authority-transfer/*` except `authority-proof.ts`, `features/authorizations/hosted-approval-service.ts` | about 6,640 prod and about 3.3k tests | `HostedProviderClient` is also used by `features/usage/usage-report.ts` (provider `protocolUsage`), account management and deletion, `auth-admin-entitlements`, notifications, `timers/hosted-import` and the migration provider. Each of these needs its provider branch removed. |
+| `packages/sync` (`@mdbase-dev/connect-sync`, private; npm publishing stopped in #1290) | about 21,800 | Server imports in `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/account-routes.ts`, `features/authority-transfer/lifecycle.ts` and `platform/error-handler.ts` (`SyncError`). Also `Dockerfile.server:44` and `flake-stress`. |
+| Legacy hosted, mirror and authority server cluster: `features/hosted/hosted-provider*.ts`, `features/hosted/hosted.ts`, `features/hosted/hosted-mirror-policy.ts`, `features/hosted/hosted-replica-policy.ts`, `features/hosted/hosted-capability-lifecycle.ts`, `features/hosted/*` except `sharing-routes.ts`, `features/authority-transfer/*` except `authority-proof.ts`, `features/authorizations/hosted-approval-service.ts` | about 6,640 prod and about 3.3k tests | `HostedProviderClient` is also used by `features/usage/usage-report.ts` (provider `protocolUsage`), account management and deletion, `auth-admin-entitlements`, notifications, `timers/hosted-import` and the migration provider. Each of these needs its provider branch removed. |
 | Legacy tables: `hosted_replicas`, `mirror_pairing_requests`, `authority_transfers`, `authority_adoption_requests`, `authority_import_abort_receipts`, `provider_collection_deletion_jobs`, `provider_revocation_jobs` | n/a | Drop them in a forward migration after the code above is gone. Keep the frozen bootstrap (see Keep). |
 | `deploy/postgres/*.sql` | 1,167 | cloud-ops `hosted-schema-admin` and `hosted-database-drain-admin` |
-| Provider system suites: `scripts/hosted-provider-e2e.mjs`, `hosted-files-e2e.mjs`, `hosted-file-adversarial-e2e.mjs`, `hosted-projection-scale-e2e.mjs`, `sync-e2e.mjs`, `scripts/system/provider/*`; `server-ci` jobs `hosted-provider-rust` and the `hosted-provider-system` shards | about 6.2k | These guard the provider that every CD still deploys. Freezing the provider image digest would move them to Tier 1. Already removed: the opt-in `binary-transfer-benchmark` job, and the engine checkout and Cargo build in the `relay`, `sync` and `linux-packages` shards, which never started the provider, and the provider Rust stress on the macOS and Windows legs of `flake-stress`. |
+| Provider system suites: `scripts/hosted-provider-e2e.mjs`, `hosted-files-e2e.mjs`, `hosted-file-adversarial-e2e.mjs`, `hosted-projection-scale-e2e.mjs`, `scripts/system/provider/*`; `server-ci` jobs `hosted-provider-rust` and the `hosted-provider-system` shards | about 6.0k | These guard the provider that every CD still deploys. Freezing the provider image digest would move them to Tier 1. Already removed: the opt-in `binary-transfer-benchmark` job, the engine checkout and Cargo build in the `relay` and `linux-packages` shards, which never started the provider, the provider Rust stress on the macOS and Windows legs of `flake-stress`, and the `sync` shard and `sync-e2e.mjs` (see above). |
 | Upgrade lanes: `test/upgrade/*`; `server-ci` jobs `previous-release-upgrade`, `current-provider-upgrade` (`--current-upgrade` against `.github/previous-release.env`) and `retained-v2-server-pending` (beta95) | about 1.7k | Same as above. `retained-v2-server-pending` also stays because it is the only lane that starts an older server on the candidate's migrated control-plane schema; it goes once a check against the merge-base server replaces it. Already removed, because both ends were published historical images or the workflow was not a gate: `previous-provider-upgrade` (beta94 `--legacy-prelude`), the beta95 `--retained-v2` step of the former `retained-v2-provider-upgrade`, and `rollback-read-compat.yml`. |
-| Self-host: `deploy/self-host/compose.yml`, `docs/self-hosting.md` | 877 | They run the legacy provider with no next log service, and new accounts are `legacy`. No shipped client can use such a stack: the legacy connector is gone, and installation sign-in refuses a `legacy` account (`installation_legacy_backend`). Replace them with a next self-host, or withdraw self-hosting; that is a product decision. |
 | Legacy-stack docs: `docs/sync.md`, `hosted-provider.md`, `lossless-opaque-sync-acceptance.md`, `docs/architecture/hosted-*` and `sdk-wave-b-*`, decisions 0003, 0005, 0006, 0010 and 0011, the legacy sections of `architecture.md`, `performance.md` and `encryption.md` | about 3.8k | Links only |
 
 ### 2b: migration Worker retired
@@ -223,8 +343,8 @@ Do not run any of them from an agent session.
 ## Risks that cross tiers
 
 - `MDBASE_NEW_ACCOUNT_BACKEND` now defaults to `next` in code, and the server refuses
-  to start with `next` but without `MDBASE_NEXT_CONTROL_PLANE=1`. The self-host and
-  local compose stacks, the tailnet stack and the server upgrade tests set `legacy`
+  to start with `next` but without `MDBASE_NEXT_CONTROL_PLANE=1`. The local
+  compose stack, the tailnet stack and the server upgrade tests set `legacy`
   explicitly. Retiring the legacy stack must also remove those settings.
 - Every server CD rebuilds the provider. `continuous_deployment.py` treats changes
   under `crates/**`, `Cargo.toml`, `config`, `mdbase-rs-revision` and

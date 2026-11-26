@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { afterEach, describe, expect, it } from "vitest";
 import { AuthAdminUsageError, runAuthAdminCommand } from "../../auth-admin.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
-import type { HostedProviderClient } from "../hosted/hosted-provider.js";
 import { pruneUsageHistory, USAGE_RETENTION_DAYS } from "./usage-report.js";
 
 const resources: Array<() => Promise<void>> = [];
@@ -274,47 +273,6 @@ describe("usage report", () => {
     expect(starts[2] - starts[1]).toBe(7 * 24 * 60 * 60 * 1_000);
   });
 
-  it("counts hosted users from provider telemetry mapped through storage accounts", async () => {
-    const db = await database();
-    const hostedUser = await user(db, "hosted@example.com", 3);
-    const staleUser = await user(db, "stale@example.com", 90);
-    const hostedAccount = randomUUID();
-    const staleAccount = randomUUID();
-    for (const [owner, account] of [[hostedUser, hostedAccount], [staleUser, staleAccount]]) {
-      await db.query(
-        `INSERT INTO account_storage_accounts
-           (user_id, provider_account_id, entitlement_revision)
-         VALUES ($1, $2, 1)`,
-        [owner, account]
-      );
-    }
-    const now = new Date();
-    const long = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1_000);
-    const hostedProvider = {
-      async protocolUsage() {
-        return {
-          entries: [
-            { account_id: hostedAccount, protocol_version: 3, sample_count: 4,
-              first_seen_at: now.toISOString(), last_seen_at: now.toISOString() },
-            { account_id: staleAccount, protocol_version: 3, sample_count: 1,
-              first_seen_at: long.toISOString(), last_seen_at: long.toISOString() }
-          ],
-          unbound_application_replicas: 0,
-          v2_recovery_application_replicas: 0
-        };
-      }
-    } as unknown as HostedProviderClient;
-
-    const report = await runAuthAdminCommand(
-      ["usage", "report", "--days", "30"],
-      { db, defaultRegistrationMode: "closed", hostedProvider }
-    ) as Record<string, any>;
-
-    expect(report.transport_users_in_window).toMatchObject({ direct: 0, relay: 0, hosted: 1 });
-    expect(report.activation.all_accounts.active_in_window).toBe(1);
-    expect(JSON.stringify(report)).not.toContain(hostedAccount);
-  });
-
   it("counts native collections, grants, devices and installations", async () => {
     const db = await database();
     const alice = await user(db, "alice@example.com", 2);
@@ -481,6 +439,66 @@ describe("usage report", () => {
     const cleared = await report();
     expect(cleared.accounts).toMatchObject({ total: 2, signed_in_in_window: 1 });
     expect(cleared.consent).toMatchObject({ started: 3, approved: 1, denied: 1 });
+  });
+
+  it("counts accounts by uploaded-file bytes, split by whether their plan is Free", async () => {
+    const db = await database();
+    const MIB = 1024 * 1024;
+    const planned = async (
+      email: string,
+      fileBytes: number,
+      grants: Array<{ profile: string; ends?: string; revoked?: boolean }>
+    ) => {
+      const id = await user(db, email, 40);
+      for (const grant of grants) {
+        await db.query(
+          `INSERT INTO account_entitlement_grants
+             (id, user_id, profile_code, source, starts_at, ends_at, revoked_at)
+           VALUES ($1, $2, $3, 'operator', now() - interval '40 days',
+             now() + ($4::text)::interval, CASE WHEN $5 THEN now() ELSE NULL END)`,
+          [randomUUID(), id, grant.profile, grant.ends ?? "100 years", grant.revoked ?? false]
+        );
+      }
+      await db.query(
+        "INSERT INTO account_file_usage (user_id, file_bytes) VALUES ($1, $2)",
+        [id, fileBytes]
+      );
+      return id;
+    };
+    await planned("trial@example.com", 300 * MIB, [
+      { profile: "free_v1" }, { profile: "trial_v1", ends: "5 days" }
+    ]);
+    // A trial that has ended, and one an operator revoked, leave Free.
+    await planned("ended@example.com", 250 * MIB, [
+      { profile: "free_v1" }, { profile: "trial_v1", ends: "-10 days" }
+    ]);
+    await planned("revoked@example.com", 20 * MIB, [
+      { profile: "free_v1" }, { profile: "trial_v1", ends: "5 days", revoked: true }
+    ]);
+    await planned("beta@example.com", 6 * 1024 * MIB, [
+      { profile: "free_v1" }, { profile: "open_beta_v1" }
+    ]);
+    await planned("nogrant@example.com", 0, []);
+    await planned("tester@example.com", 2 * 1024 * MIB, [{ profile: "free_v1" }]);
+    await runAuthAdminCommand(
+      ["users", "mark-test", "--user", "tester@example.com", "--operation-id", randomUUID(),
+        "--actor", "operator:test", "--reason", "Agent test account"],
+      { db, defaultRegistrationMode: "closed" }
+    );
+
+    const report = await runAuthAdminCommand(
+      ["usage", "report", "--days", "30"],
+      { db, defaultRegistrationMode: "closed" }
+    ) as Record<string, any>;
+    const none = { at_least_25_mib: 0, at_least_250_mib: 0, at_least_1_gib: 0, at_least_5_gib: 0 };
+    expect(report.storage).toEqual({
+      trial: { ...none, accounts: 1, with_files: 1, at_least_25_mib: 1, at_least_250_mib: 1 },
+      free: { ...none, accounts: 2, with_files: 2, at_least_25_mib: 1, at_least_250_mib: 1 },
+      other: {
+        accounts: 2, with_files: 1,
+        at_least_25_mib: 1, at_least_250_mib: 1, at_least_1_gib: 1, at_least_5_gib: 1
+      }
+    });
   });
 
   it("rejects an unsupported window", async () => {

@@ -44,7 +44,7 @@ impl AttachmentCreateContext {
     pub(crate) fn grant(&self) -> Option<Uuid> {
         match self.subject {
             SessionAuth::Grant { grant, .. } => Some(grant),
-            SessionAuth::Host => None,
+            SessionAuth::Host | SessionAuth::LocalWeb(_) => None,
         }
     }
     pub(crate) fn file(&self) -> Uuid {
@@ -79,6 +79,9 @@ impl AttachmentCreateContext {
                 account: self.account,
                 transfer,
             },
+            SessionAuth::LocalWeb(_) => {
+                unreachable!("local web sessions cannot open an upload context")
+            }
         }
     }
 }
@@ -191,6 +194,9 @@ impl<S: Store> Replica<S> {
         )?;
         let subject = self.session(session)?.auth.clone();
         let account = match subject {
+            SessionAuth::LocalWeb(_) => {
+                return Err(ErrorCode::Forbidden.err("local web access does not authorize uploads"));
+            }
             SessionAuth::Grant { grant, client_pk } => {
                 self.grant_for_client(&grant, &client_pk)?.account
             }
@@ -359,6 +365,9 @@ impl<S: Store> Replica<S> {
         }
         self.attachment_create_caller_check(context.session, context)?;
         let account = match context.subject {
+            SessionAuth::LocalWeb(_) => {
+                return Err(ErrorCode::Forbidden.err("local web access does not authorize uploads"));
+            }
             SessionAuth::Grant { grant, client_pk } => {
                 self.grant_for_client(&grant, &client_pk)?.account
             }

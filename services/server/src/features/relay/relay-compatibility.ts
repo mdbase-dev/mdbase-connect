@@ -19,6 +19,20 @@ const INCOMPATIBLE_CLOSE_CODE = 4406;
 export const CONNECTOR_UPDATE_URL =
   "https://mdbase.dev/downloads/";
 
+const MAX_SERVING_COLLECTIONS = 512;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Validate a bounded list of collection UUIDs reported as serving on a relay socket. */
+export function parseServingCollections(value: unknown): string[] | undefined {
+  if (!Array.isArray(value) || value.length > MAX_SERVING_COLLECTIONS) return undefined;
+  const out = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== "string" || !UUID_RE.test(item)) return undefined;
+    out.add(item.toLowerCase());
+  }
+  return [...out];
+}
+
 export interface RelayHello {
   protocol_version: number;
   connector_version: string;
@@ -26,6 +40,8 @@ export interface RelayHello {
   contract_support: ConnectContractSupport;
   /** The daemon reports that a legacy connector still holds this computer's collections. */
   old_connector_running?: boolean;
+  /** Canonical lowercase collection IDs the daemon is currently serving on this computer. */
+  serving_collections?: string[];
 }
 
 export interface RelayContractMismatch {
@@ -52,6 +68,7 @@ export async function receiveRelayHello(socket: WebSocket): Promise<RelayHello |
     const onMessage = (raw: WebSocket.RawData) => {
       try {
         const value = JSON.parse(raw.toString()) as Record<string, unknown>;
+        const servingCollections = parseServingCollections(value.serving_collections);
         finish(value.type === "relay_hello"
           && typeof value.protocol_version === "number"
           && typeof value.connector_version === "string"
@@ -63,7 +80,8 @@ export async function receiveRelayHello(socket: WebSocket): Promise<RelayHello |
               connector_version: value.connector_version,
               capabilities: value.capabilities as string[],
               contract_support: value.contract_support,
-              ...(value.old_connector_running === true ? { old_connector_running: true } : {})
+              ...(value.old_connector_running === true ? { old_connector_running: true } : {}),
+              ...(servingCollections !== undefined ? { serving_collections: servingCollections } : {})
             }
           : null);
       } catch {

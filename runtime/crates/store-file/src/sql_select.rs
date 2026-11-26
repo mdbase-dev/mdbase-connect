@@ -30,6 +30,8 @@ fn atom(a: &QueryAtom) -> StoreResult<()> {
 }
 struct Builder {
     fields: BTreeMap<QueryField, usize>,
+    needs_mtime: bool,
+    path_col: &'static str,
     params: Vec<SqlValue>,
     nodes: usize,
     bytes: usize,
@@ -52,7 +54,11 @@ impl Builder {
     }
     fn column(&mut self, c: &QueryColumn) -> StoreResult<(String, String)> {
         match c {
-            QueryColumn::Path => Ok(("4".into(), "q.path".into())),
+            QueryColumn::Path => Ok(("4".into(), self.path_col.into())),
+            QueryColumn::Mtime => {
+                self.needs_mtime = true;
+                Ok(("m.kind".into(), "m.sort".into()))
+            }
             QueryColumn::Field(f) => {
                 if f.source > 1 || f.path_key.len() > 1024 {
                     return Err(invalid());
@@ -149,9 +155,21 @@ impl Builder {
             }
             // Ready coverage has an explicit atom (Null255 for missing) for every
             // field/ID joined, so the inner clause is never SQL NULL.
-            QueryPredicate::Not(inner) => {
-                Ok(format!("(NOT {})", self.predicate(inner, depth + 1)?))
-            }
+            // `st_qmtime` only holds kind 3 (Temporal) or kind 255 (Null, sort=X''),
+            // so `NOT (mtime == Null)` (`has(file.mtime)`) lowers directly to
+            // `m.kind=3` so SQLite seeks `st_qmtime_{asc,desc}` without scanning
+            // null rows.
+            QueryPredicate::Not(inner) => match inner.as_ref() {
+                QueryPredicate::Compare {
+                    column: QueryColumn::Mtime,
+                    op: QueryCompare::Eq,
+                    value,
+                } if value.kind == 255 && value.key.is_empty() => {
+                    self.needs_mtime = true;
+                    Ok("(m.kind=3)".into())
+                }
+                _ => Ok(format!("(NOT {})", self.predicate(inner, depth + 1)?)),
+            },
             QueryPredicate::And(ps) | QueryPredicate::Or(ps) => {
                 let and = matches!(p, QueryPredicate::And(_));
                 if ps.is_empty() {
@@ -244,13 +262,18 @@ pub(crate) fn projection_ids<I: IndexStorage>(
     }
     let mut b = Builder {
         fields: BTreeMap::new(),
+        needs_mtime: false,
+        path_col: "q.path",
         params: vec![],
         nodes: 0,
         bytes: 0,
     };
     let predicate = b.predicate(&req.predicate, 0)?;
     let mut params = Vec::new();
-    let joins = b.field_joins(&state.fields, &mut params)?;
+    let mut joins = b.field_joins(&state.fields, &mut params)?;
+    if b.needs_mtime {
+        joins.push_str(" JOIN st_qmtime m ON m.id=q.id");
+    }
     params.append(&mut b.params);
     let after = if let Some(after) = req.after {
         params.push(SqlValue::Blob(after.0.to_vec()));
@@ -266,7 +289,7 @@ pub(crate) fn projection_ids<I: IndexStorage>(
         index,
         vec![Stmt::new(
             format!(
-                "SELECT CASE WHEN length(q.id)=16 THEN q.id ELSE NULL END FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins} WHERE {predicate}{after} ORDER BY q.id ASC LIMIT ?"
+                "SELECT CASE WHEN length(q.id)=16 THEN q.id ELSE NULL END FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins} WHERE ({predicate}){after} AND NOT EXISTS(SELECT 1 FROM st_qraw s WHERE s.id=q.id AND length(s.fields)=0) ORDER BY q.id ASC LIMIT ?"
             ),
             params,
         )],
@@ -297,6 +320,33 @@ pub(crate) fn projection_ids<I: IndexStorage>(
     Ok((ids, has_more))
 }
 
+fn requires_null_mtime(p: &QueryPredicate) -> bool {
+    match p {
+        QueryPredicate::Compare {
+            column: QueryColumn::Mtime,
+            op: QueryCompare::Eq,
+            value,
+        } => value.kind == 255 && value.key.is_empty(),
+        QueryPredicate::And(ps) => ps.iter().any(requires_null_mtime),
+        _ => false,
+    }
+}
+
+fn requires_known_mtime(p: &QueryPredicate) -> bool {
+    match p {
+        QueryPredicate::Not(inner) => matches!(
+            inner.as_ref(),
+            QueryPredicate::Compare {
+                column: QueryColumn::Mtime,
+                op: QueryCompare::Eq,
+                value,
+            } if value.kind == 255 && value.key.is_empty()
+        ),
+        QueryPredicate::And(ps) => ps.iter().any(requires_known_mtime),
+        _ => false,
+    }
+}
+
 /// Select IDs/keys after preflighting returned key lengths. Copies no record BLOB.
 pub fn select<I: IndexStorage>(
     index: &Rc<RefCell<I>>,
@@ -317,8 +367,19 @@ pub fn select<I: IndexStorage>(
             atom(a)?;
         }
     }
+    let null_mtime_path_order = requires_null_mtime(&req.predicate)
+        && (req.order.is_empty()
+            || (req.order.len() == 1
+                && req.order[0].column == QueryColumn::Path
+                && !req.order[0].descending));
     let mut b = Builder {
         fields: BTreeMap::new(),
+        needs_mtime: false,
+        path_col: if null_mtime_path_order {
+            "m.path"
+        } else {
+            "q.path"
+        },
         params: vec![],
         nodes: 0,
         bytes: 0,
@@ -329,19 +390,19 @@ pub fn select<I: IndexStorage>(
     }
     let predicate = b.predicate(&req.predicate, 0)?;
     let predicate_params = std::mem::take(&mut b.params);
-    let mut params = Vec::new();
+    let mut cte_params = Vec::new();
     let mut prefix = String::new();
     if let Some(after) = &req.after {
         let mut names = Vec::new();
         for (i, a) in after.keys.iter().enumerate() {
             names.extend([format!("k{i}"), format!("s{i}")]);
-            params.extend([
+            cte_params.extend([
                 SqlValue::Integer(i64::from(a.kind)),
                 SqlValue::Blob(a.key.clone()),
             ]);
         }
         names.push("path".into());
-        params.push(SqlValue::Blob(after.path.as_bytes().to_vec()));
+        cte_params.push(SqlValue::Blob(after.path.as_bytes().to_vec()));
         prefix = format!(
             "WITH c({}) AS (VALUES({})) ",
             names.join(","),
@@ -356,99 +417,129 @@ pub fn select<I: IndexStorage>(
     // existing B-tree, rather than the predicate field then a whole-result sort.
     // CROSS JOIN pins loop order; coverage includes explicit Null255, so these
     // are the SAME exact joins/predicate, not a necessary-candidate shortcut.
-    let leading = req.order.first().and_then(|term| match &term.column {
-        QueryColumn::Field(field) => b.fields.get(field).map(|n| (*n, term.descending)),
-        QueryColumn::Path => None,
-    });
-    // The final ascending path tie-break. A leading field's index rows carry
-    // the path, so the seek yields the complete order without a sort.
-    let (mut from, final_path) = if let Some((lead, descending)) = leading {
-        let (field, _) = b
-            .fields
-            .iter()
-            .find(|(_, n)| **n == lead)
-            .ok_or_else(invalid)?;
-        if !state.fields.contains(field) {
-            return Err(invalid());
-        }
-        let index = if descending {
-            "st_field_desc"
-        } else {
-            "st_field_asc"
-        };
-        let mut from = format!(
-            " /* generic ordered seek */ FROM st_field f{lead} INDEXED BY {index} CROSS JOIN st_qrecord q ON q.id=f{lead}.id AND f{lead}.source=? AND f{lead}.field=? CROSS JOIN st_rec r ON r.id=q.id"
-        );
-        params.extend([
-            SqlValue::Integer(i64::from(field.source)),
-            SqlValue::Blob(field.path_key.clone()),
-        ]);
-        for (field, n) in &b.fields {
-            if *n == lead {
-                continue;
-            }
+    #[derive(Clone, Copy)]
+    enum Leading {
+        Field(usize, bool),
+        Mtime(bool),
+        /// `!has(file.mtime)` in ascending path order: every matching row has
+        /// `(kind=255, sort=X'')`, so `st_qmtime_asc(kind, sort, path)` yields
+        /// exact ascending path order without scanning known-mtime rows.
+        MtimeNullPath,
+    }
+    let leading = if null_mtime_path_order {
+        Some(Leading::MtimeNullPath)
+    } else {
+        req.order.first().and_then(|term| match &term.column {
+            QueryColumn::Field(field) => b
+                .fields
+                .get(field)
+                .map(|n| Leading::Field(*n, term.descending)),
+            QueryColumn::Mtime => Some(Leading::Mtime(term.descending)),
+            QueryColumn::Path => None,
+        })
+    };
+    let mut body_params = Vec::new();
+    // The final ascending path tie-break. A leading field's or mtime's index
+    // rows carry the path, so the seek yields the complete order without a sort.
+    let (mut from_base, final_path) = match leading {
+        Some(Leading::Field(lead, descending)) => {
+            let (field, _) = b
+                .fields
+                .iter()
+                .find(|(_, n)| **n == lead)
+                .ok_or_else(invalid)?;
             if !state.fields.contains(field) {
                 return Err(invalid());
             }
-            from.push_str(&format!(
-                " CROSS JOIN st_field f{n} ON f{n}.id=q.id AND f{n}.source=? AND f{n}.field=?"
-            ));
-            params.extend([
+            let index = if descending {
+                "st_field_desc"
+            } else {
+                "st_field_asc"
+            };
+            let mut from = format!(
+                " /* generic ordered seek */ FROM st_field f{lead} INDEXED BY {index} CROSS JOIN st_qrecord q ON q.id=f{lead}.id AND f{lead}.source=? AND f{lead}.field=? CROSS JOIN st_rec r ON r.id=q.id"
+            );
+            body_params.extend([
                 SqlValue::Integer(i64::from(field.source)),
                 SqlValue::Blob(field.path_key.clone()),
             ]);
-        }
-        (from, format!("f{lead}.path"))
-    } else {
-        let joins = b.field_joins(&state.fields, &mut params)?;
-        (
-            format!(" FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins}"),
-            "q.path".into(),
-        )
-    };
-    if req.after.is_some() {
-        from.push_str(" CROSS JOIN c");
-    }
-    params.extend(predicate_params);
-    from.push_str(&format!(" WHERE {predicate}"));
-    let mut after_sql = String::new();
-    if req.after.is_some() {
-        let mut terms = Vec::new();
-        let mut equal = Vec::new();
-        for (i, ((k, s), desc)) in order.iter().enumerate() {
-            let cmp = if *desc { "<" } else { ">" };
-            for (expr, cursor) in [(k, format!("c.k{i}")), (s, format!("c.s{i}"))] {
-                terms.push(format!(
-                    "({}{}{} {cmp} {cursor})",
-                    equal.join(" AND "),
-                    if equal.is_empty() { "" } else { " AND " },
-                    expr
+            for (field, n) in &b.fields {
+                if *n == lead {
+                    continue;
+                }
+                if !state.fields.contains(field) {
+                    return Err(invalid());
+                }
+                from.push_str(&format!(
+                    " CROSS JOIN st_field f{n} ON f{n}.id=q.id AND f{n}.source=? AND f{n}.field=?"
                 ));
-                equal.push(format!("{expr}={cursor}"));
+                body_params.extend([
+                    SqlValue::Integer(i64::from(field.source)),
+                    SqlValue::Blob(field.path_key.clone()),
+                ]);
             }
+            if b.needs_mtime {
+                from.push_str(" CROSS JOIN st_qmtime m ON m.id=q.id");
+            }
+            (from, format!("f{lead}.path"))
         }
-        terms.push(format!(
-            "({}{}{final_path}>c.path)",
-            equal.join(" AND "),
-            if equal.is_empty() { "" } else { " AND " }
-        ));
-        after_sql = format!(" AND ({})", terms.join(" OR "));
-        if let Some((lead, descending)) = leading {
-            // The inclusive leading-term bound is necessary for every full
-            // multi-term continuation. KEEP the exact residual above. With a
-            // single ASC term the complete (kind,key,path) bound is exclusive.
-            // Scalar references to the one-row CTE let SQLite seek before its
-            // nested loops, without extra key copies or caller budget credit.
-            if !descending && order.len() == 1 {
-                after_sql.push_str(&format!(" AND (f{lead}.kind,f{lead}.sort,f{lead}.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))"));
+        Some(Leading::Mtime(descending)) => {
+            let index = if descending {
+                "st_qmtime_desc"
             } else {
-                let cmp = if descending { "<=" } else { ">=" };
-                after_sql.push_str(&format!(
-                    " AND (f{lead}.kind,f{lead}.sort) {cmp} ((SELECT k0 FROM c),(SELECT s0 FROM c))"
+                "st_qmtime_asc"
+            };
+            let mut from = format!(
+                " /* generic ordered seek */ FROM st_qmtime m INDEXED BY {index} CROSS JOIN st_qrecord q ON q.id=m.id CROSS JOIN st_rec r ON r.id=q.id"
+            );
+            for (field, n) in &b.fields {
+                if !state.fields.contains(field) {
+                    return Err(invalid());
+                }
+                from.push_str(&format!(
+                    " CROSS JOIN st_field f{n} ON f{n}.id=q.id AND f{n}.source=? AND f{n}.field=?"
                 ));
+                body_params.extend([
+                    SqlValue::Integer(i64::from(field.source)),
+                    SqlValue::Blob(field.path_key.clone()),
+                ]);
             }
+            (from, "m.path".into())
         }
+        Some(Leading::MtimeNullPath) => {
+            let mut from = " /* generic ordered seek */ FROM st_qmtime m INDEXED BY st_qmtime_asc CROSS JOIN st_qrecord q ON q.id=m.id CROSS JOIN st_rec r ON r.id=q.id".to_string();
+            for (field, n) in &b.fields {
+                if !state.fields.contains(field) {
+                    return Err(invalid());
+                }
+                from.push_str(&format!(
+                    " CROSS JOIN st_field f{n} ON f{n}.id=q.id AND f{n}.source=? AND f{n}.field=?"
+                ));
+                body_params.extend([
+                    SqlValue::Integer(i64::from(field.source)),
+                    SqlValue::Blob(field.path_key.clone()),
+                ]);
+            }
+            (from, "m.path".into())
+        }
+        None => {
+            let mut joins = b.field_joins(&state.fields, &mut body_params)?;
+            if b.needs_mtime {
+                joins.push_str(" JOIN st_qmtime m ON m.id=q.id");
+            }
+            (
+                format!(" FROM st_qrecord q JOIN st_rec r ON r.id=q.id{joins}"),
+                "q.path".into(),
+            )
+        }
+    };
+    body_params.extend(predicate_params);
+    let mut from_with_c = from_base.clone();
+    if req.after.is_some() {
+        from_with_c.push_str(" CROSS JOIN c");
     }
+    from_base.push_str(&format!(" WHERE {predicate}"));
+    from_with_c.push_str(&format!(" WHERE {predicate}"));
     let mut ordering = Vec::new();
     let mut metadata = vec![
         "q.id".into(),
@@ -467,27 +558,180 @@ pub fn select<I: IndexStorage>(
         metadata.extend([kind.clone(), format!("length({key})")]);
         data.extend([kind.clone(), key.clone()]);
     }
-    ordering.push(format!("{final_path} ASC"));
-    let tail = format!(
-        "{after_sql} ORDER BY {} LIMIT ? OFFSET ?",
-        ordering.join(",")
-    );
-    let offset = SqlValue::Integer(i64::try_from(req.offset).map_err(|_| invalid())?);
-    let mut page_params = params.clone();
-    page_params.extend([SqlValue::Integer(i64::from(req.limit)), offset.clone()]);
-    // The metadata select reads one row past the page: that row (never returned,
-    // never copied) is `has_more`, so no count over every match is needed.
-    let mut lookahead_params = params.clone();
-    lookahead_params.extend([SqlValue::Integer(i64::from(req.limit) + 1), offset]);
-    if page_params.len() > CodecLimits::HOSTED.max_parameters {
-        return Err(StoreError::Full);
+    let final_path_order = format!("{final_path} ASC");
+    if ordering.last().map(String::as_str) != Some(final_path_order.as_str()) {
+        ordering.push(final_path_order);
     }
-    let mut stmts = vec![Stmt::new(
-        format!("{prefix}SELECT {}{from}{tail}", metadata.join(",")),
-        lookahead_params,
-    )];
+    let order_clause = ordering.join(",");
+
+    // Single-term DESC continuations (`offset == 0`): SQLite row-value bounds
+    // cannot mix `(kind DESC, sort DESC)` with `path ASC`, so an inclusive
+    // `(kind, sort) <= (k0, s0)` bound revisits every earlier path in a tied
+    // bucket (quadratic in large tie/null groups). Partition into disjoint,
+    // strictly ordered index seeks concatenated by `UNION ALL`:
+    //   1) same bucket with `path > c.path`
+    //   2) same kind with `sort < c.s0` (omitted for Null, whose key is always empty)
+    //   3) smaller kind `kind < k0` (omitted when no smaller kind exists)
+    // Each branch seeks directly into the covering `*_desc` index without a sort.
+    let desc_branches: Option<Vec<String>> = match (&req.after, leading) {
+        (Some(after), Some(Leading::Mtime(true))) if req.offset == 0 && order.len() == 1 => {
+            let k0 = after.keys[0].kind;
+            let mut branches = vec![format!(
+                "m.kind={k0} AND m.sort=(SELECT s0 FROM c) AND m.path>(SELECT path FROM c)"
+            )];
+            if k0 != 255 {
+                branches.push(format!("m.kind={k0} AND m.sort<(SELECT s0 FROM c)"));
+            }
+            if k0 > 3 {
+                branches.push(format!("m.kind<{k0}"));
+            }
+            let total_params = cte_params.len() + branches.len() * (body_params.len() + 1) + 1;
+            (total_params <= CodecLimits::HOSTED.max_parameters).then_some(branches)
+        }
+        (Some(after), Some(Leading::Field(n, true))) if req.offset == 0 && order.len() == 1 => {
+            let alias = format!("f{n}");
+            let k0 = after.keys[0].kind;
+            let mut branches = vec![format!(
+                "{alias}.kind={k0} AND {alias}.sort=(SELECT s0 FROM c) AND {alias}.path>(SELECT path FROM c)"
+            )];
+            if k0 != 255 {
+                branches.push(format!(
+                    "{alias}.kind={k0} AND {alias}.sort<(SELECT s0 FROM c)"
+                ));
+            }
+            if k0 > 1 {
+                branches.push(format!("{alias}.kind<{k0}"));
+            }
+            let total_params = cte_params.len() + branches.len() * (body_params.len() + 1) + 1;
+            (total_params <= CodecLimits::HOSTED.max_parameters).then_some(branches)
+        }
+        _ => None,
+    };
+
+    let (meta_stmt, data_stmt) = if let Some(branches) = desc_branches {
+        let build_branched = |cols: &str, row_limit: i64| -> Stmt {
+            let parts: Vec<String> = branches
+                .iter()
+                .map(|b| {
+                    format!(
+                        "SELECT * FROM (SELECT {cols}{from_base} AND ({b}) ORDER BY {order_clause} LIMIT ?)"
+                    )
+                })
+                .collect();
+            let mut p = cte_params.clone();
+            for _ in &branches {
+                p.extend(body_params.iter().cloned());
+                p.push(SqlValue::Integer(row_limit));
+            }
+            p.push(SqlValue::Integer(row_limit));
+            Stmt::new(format!("{prefix}{} LIMIT ?", parts.join(" UNION ALL ")), p)
+        };
+        (
+            build_branched(&metadata.join(","), i64::from(req.limit) + 1),
+            build_branched(&data.join(","), i64::from(req.limit)),
+        )
+    } else {
+        let mut after_sql = String::new();
+        if let Some(after) = &req.after {
+            let mut terms = Vec::new();
+            let mut equal = Vec::new();
+            for (i, ((k, s), desc)) in order.iter().enumerate() {
+                let cmp = if *desc { "<" } else { ">" };
+                for (expr, cursor) in [(k, format!("c.k{i}")), (s, format!("c.s{i}"))] {
+                    terms.push(format!(
+                        "({}{}{} {cmp} {cursor})",
+                        equal.join(" AND "),
+                        if equal.is_empty() { "" } else { " AND " },
+                        expr
+                    ));
+                    equal.push(format!("{expr}={cursor}"));
+                }
+            }
+            terms.push(format!(
+                "({}{}{final_path}>c.path)",
+                equal.join(" AND "),
+                if equal.is_empty() { "" } else { " AND " }
+            ));
+            after_sql = format!(" AND ({})", terms.join(" OR "));
+            if let Some(lead) = leading {
+                match lead {
+                    Leading::MtimeNullPath => {
+                        after_sql.push_str(" AND m.path>(SELECT path FROM c)");
+                    }
+                    Leading::Field(n, descending) => {
+                        let alias = format!("f{n}");
+                        if !descending && order.len() == 1 {
+                            after_sql.push_str(&format!(" AND ({alias}.kind,{alias}.sort,{alias}.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))"));
+                        } else {
+                            let cmp = if descending { "<=" } else { ">=" };
+                            after_sql.push_str(&format!(
+                                " AND ({alias}.kind,{alias}.sort) {cmp} ((SELECT k0 FROM c),(SELECT s0 FROM c))"
+                            ));
+                        }
+                    }
+                    Leading::Mtime(descending) => {
+                        let k0 = after.keys[0].kind;
+                        // When the predicate already fixes `m.kind` (e.g. `has(file.mtime)`
+                        // lowers to `m.kind=3`), SQLite ignores a row-value starting with
+                        // `m.kind` and rescans the fixed bucket. Seek on `(m.sort, m.path)`
+                        // (or `m.path` for the null bucket) within that fixed kind.
+                        if !descending && order.len() == 1 {
+                            if requires_known_mtime(&req.predicate) && k0 == 3 {
+                                after_sql.push_str(" AND (m.sort,m.path) > ((SELECT s0 FROM c),(SELECT path FROM c))");
+                            } else if requires_null_mtime(&req.predicate) && k0 == 255 {
+                                after_sql.push_str(" AND m.path>(SELECT path FROM c)");
+                            } else {
+                                after_sql.push_str(" AND (m.kind,m.sort,m.path) > ((SELECT k0 FROM c),(SELECT s0 FROM c),(SELECT path FROM c))");
+                            }
+                        } else if requires_known_mtime(&req.predicate) && k0 == 3 {
+                            let cmp = if descending { "<=" } else { ">=" };
+                            after_sql.push_str(&format!(" AND m.sort {cmp} (SELECT s0 FROM c)"));
+                        } else {
+                            let cmp = if descending { "<=" } else { ">=" };
+                            after_sql.push_str(&format!(
+                                " AND (m.kind,m.sort) {cmp} ((SELECT k0 FROM c),(SELECT s0 FROM c))"
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        let tail = format!("{after_sql} ORDER BY {order_clause} LIMIT ? OFFSET ?");
+        let offset = SqlValue::Integer(i64::try_from(req.offset).map_err(|_| invalid())?);
+        let mut base_params = cte_params.clone();
+        base_params.extend(body_params.iter().cloned());
+        let mut page_params = base_params.clone();
+        page_params.extend([SqlValue::Integer(i64::from(req.limit)), offset.clone()]);
+        // The metadata select reads one row past the page: that row (never returned,
+        // never copied) is `has_more`, so no count over every match is needed.
+        let mut lookahead_params = base_params;
+        lookahead_params.extend([SqlValue::Integer(i64::from(req.limit) + 1), offset]);
+        if page_params.len() > CodecLimits::HOSTED.max_parameters {
+            return Err(StoreError::Full);
+        }
+        (
+            Stmt::new(
+                format!("{prefix}SELECT {}{from_with_c}{tail}", metadata.join(",")),
+                lookahead_params,
+            ),
+            Stmt::new(
+                format!("{prefix}SELECT {}{from_with_c}{tail}", data.join(",")),
+                page_params,
+            ),
+        )
+    };
+
+    let mut stmts = vec![meta_stmt];
     if req.count_matches {
-        stmts.push(Stmt::new(format!("{prefix}SELECT count(*){from}"), params));
+        let mut count_params = cte_params;
+        count_params.extend(body_params);
+        if count_params.len() > CodecLimits::HOSTED.max_parameters {
+            return Err(StoreError::Full);
+        }
+        stmts.push(Stmt::new(
+            format!("{prefix}SELECT count(*){from_with_c}"),
+            count_params,
+        ));
     }
     let results = run(index, std::mem::take(&mut stmts))?;
     let total_matches = match results.get(1) {
@@ -529,13 +773,7 @@ pub fn select<I: IndexStorage>(
         }
     }
     // Only after the complete metadata key budget fits may keys be copied.
-    let fetched = run(
-        index,
-        vec![Stmt::new(
-            format!("{prefix}SELECT {}{from}{tail}", data.join(",")),
-            page_params,
-        )],
-    )?;
+    let fetched = run(index, vec![data_stmt])?;
     let result = &fetched[0];
     if result.columns != meta.columns || result.values.len() != page_values.len() {
         return Err(stale());

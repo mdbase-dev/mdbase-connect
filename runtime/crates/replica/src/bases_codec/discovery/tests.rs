@@ -43,13 +43,14 @@ fn native_numeric_bytes_match_sdk_shared_discovery_fixture() {
     };
     let mut result = BasesDiscoveryPage {
         views: vec![view(0), view(2)],
+        unreadable: Vec::new(),
         clock: native_clock(),
         collection_revision: B32([0x33; 32]),
         next: Some(BasesDiscoveryHandle([0x55; 32])),
     };
     for key in ["list_success_hex", "empty_progress_hex", "eof_hex"] {
         let output = encode(&mut IncrementalBasesBudget::new(), |writer| {
-            page(writer, &result)
+            page(writer, &result, UnreadableSources::Refuse)
         })
         .unwrap();
         assert_eq!(output.0, bytes(key));
@@ -130,12 +131,13 @@ fn source_request_is_exact_identity_revision_ordinal_not_path() {
 fn zero_definition_page_preserves_real_continuation_not_false_eof() {
     let result = BasesDiscoveryPage {
         views: Vec::new(),
+        unreadable: Vec::new(),
         clock: native_clock(),
         collection_revision: B32([4; 32]),
         next: Some(BasesDiscoveryHandle([5; 32])),
     };
     let encoded = encode(&mut IncrementalBasesBudget::new(), |writer| {
-        page(writer, &result)
+        page(writer, &result, UnreadableSources::Refuse)
     })
     .unwrap();
     let actual = cbor::decode(&encoded.0).unwrap();
@@ -190,14 +192,65 @@ fn oversize_source_and_descriptor_pages_refuse_without_output() {
     );
     let result = BasesDiscoveryPage {
         views: (0..129).map(|_| descriptor()).collect(),
+        unreadable: Vec::new(),
         clock: native_clock(),
         collection_revision: B32([4; 32]),
         next: None,
     };
     assert!(
         encode(&mut IncrementalBasesBudget::new(), |writer| page(
-            writer, &result
+            writer,
+            &result,
+            UnreadableSources::Refuse
         ))
         .is_err()
     );
+}
+#[test]
+fn version_two_names_unreadable_records_and_version_one_is_unchanged() {
+    let fixture = mdbn_core::yaml::parse_value(include_str!(
+        "../../../../../conformance/views/bases-app-discovery-codec.json"
+    ))
+    .unwrap()
+    .unwrap();
+    let bytes = |key: &str| {
+        let text = fixture.get(key).unwrap().as_str().unwrap();
+        (0..text.len())
+            .step_by(2)
+            .map(|index| u8::from_str_radix(&text[index..index + 2], 16).unwrap())
+            .collect::<Vec<_>>()
+    };
+    let request = PageRequest::decode(&bytes("unreadable_request_hex")).unwrap();
+    assert!(request.unreadable == UnreadableSources::Report);
+    assert_eq!(request.limit, 2);
+    let initial = PageRequest::decode(&bytes("initial_request_hex")).unwrap();
+    assert!(initial.unreadable == UnreadableSources::Refuse);
+    let mut version = list_request(1, Cbor::Null);
+    version[2] = 3;
+    assert!(PageRequest::decode(&version).is_err());
+    let mut result = BasesDiscoveryPage {
+        views: Vec::new(),
+        unreadable: vec![BasesUnreadableSource {
+            record: B16([0x66; 16]),
+            path: "Views/broken.base".into(),
+            revision: B32([0x77; 32]),
+            problem: mdbn_core::views::bases::EvaluationFailure::MetadataUnavailable(
+                "base_raw_frontmatter_unavailable",
+            ),
+        }],
+        clock: native_clock(),
+        collection_revision: B32([0x33; 32]),
+        next: None,
+    };
+    let output = encode(&mut IncrementalBasesBudget::new(), |writer| {
+        page(writer, &result, UnreadableSources::Report)
+    })
+    .unwrap();
+    assert_eq!(output.0, bytes("unreadable_success_hex"));
+    result.unreadable.clear();
+    let output = encode(&mut IncrementalBasesBudget::new(), |writer| {
+        page(writer, &result, UnreadableSources::Refuse)
+    })
+    .unwrap();
+    assert_eq!(output.0, bytes("eof_hex"));
 }

@@ -3,56 +3,14 @@
 use super::*;
 
 impl Daemon {
-    /// Reconcile a collection's cached grants with the control plane's list,
-    /// persist, then announce. Called by the control-plane client.
-    pub async fn apply_control_plane_grants(
+    pub(super) async fn access_change<T: serde::Serialize>(
         &self,
-        collection: &str,
-        grants: &[CachedGrant],
-        lease_expires_ms: u64,
-    ) -> Result<Vec<AccessEvent>, ControlError> {
-        let _gate = self.account_gate.lock().await;
-        let mut inner = self.inner.lock().await;
-        let mut next = inner.access.clone();
-        let events = next.sync_from_control_plane(
-            collection,
-            grants,
-            fsutil::now_ms() as u64,
-            lease_expires_ms,
-            false,
-        );
-        if let Err(e) = next.save(&self.profile.access_file()) {
-            inner.access.leases.clear();
-            inner.access.monotonic_leases.clear();
-            for h in &inner.hosts {
-                h.publish_grants(&inner.access);
-            }
-            self.authority.publish_access(&inner.access);
-            return Err(access_error(e));
-        }
-        inner.access = next;
-        self.authority.publish_access(&inner.access);
-        let barrier = publish_grants(&inner);
-        drop(inner);
-        barrier.wait().await;
-        for e in &events {
-            self.note_access_event(e).await;
-            let _ = self.access_events.send(e.clone());
-        }
-        if !events.is_empty() {
-            self.bump();
-        }
-        Ok(events)
-    }
-
-    pub(super) async fn access_change(
-        &self,
-        f: impl FnOnce(&mut AccessList) -> Result<AccessEntry, crate::access::AccessError>,
+        f: impl FnOnce(&mut AccessList) -> Result<T, crate::access::AccessError>,
     ) -> Result<Value, ControlError> {
         let _gate = self.account_gate.lock().await;
         let mut inner = self.inner.lock().await;
         let mut next = inner.access.clone();
-        let entry = f(&mut next).map_err(access_error)?;
+        let out = f(&mut next).map_err(access_error)?;
         self.save_access(&mut inner, &next)?;
         inner.access = next;
         self.authority.publish_access(&inner.access);
@@ -60,7 +18,7 @@ impl Daemon {
         drop(inner);
         barrier.wait().await;
         self.bump();
-        to_value(&entry)
+        to_value(&out)
     }
 
     // Compare the complete displayed entry (including its durable generation)
@@ -393,9 +351,11 @@ impl Daemon {
     }
 
     /// After a fresh account feed, automatically publish missing sealed scope,
-    /// including after restart. Already materialized grants need no report.
+    /// including after restart. Already materialized grants need no report. A
+    /// collection that does not answer within [`crate::collections::ACTOR_WAIT`]
+    /// is asked again after the next feed, rather than holding this one up.
     async fn publish_account_grants(&self) {
-        let pending: Vec<String> = {
+        let pending: Vec<(String, String)> = {
             let inner = self.inner.lock().await;
             inner
                 .access
@@ -408,29 +368,23 @@ impl Daemon {
                             .get(&e.grant.collection)
                             .is_some_and(|c| c.mode == SyncMode::SyncedE2e)
                 })
-                .map(|e| e.grant.grant.clone())
+                .map(|e| (e.grant.grant.clone(), e.grant.collection.clone()))
                 .collect()
         };
-        for grant in pending {
-            let entry = {
-                let inner = self.inner.lock().await;
-                inner
-                    .access
-                    .entries
-                    .iter()
-                    .find(|e| e.grant.grant == grant)
-                    .cloned()
-            };
-            if let Some(entry) = entry
-                && let Some(id) = crate::attest::uuid_bytes(&grant)
-                && self
-                    .native_grant_state(&entry.grant.collection, &id)
-                    .await
-                    .is_some_and(|s| s.approved_capabilities.is_some())
-            {
+        for (grant, collection) in pending {
+            let Some(id) = crate::attest::uuid_bytes(&grant) else {
                 continue;
+            };
+            match tokio::time::timeout(
+                crate::collections::ACTOR_WAIT,
+                self.native_grant_state(&collection, &id),
+            )
+            .await
+            {
+                Err(_) => continue,
+                Ok(Some(state)) if state.approved_capabilities.is_some() => continue,
+                Ok(_) => self.spawn_native_grant_publisher(grant),
             }
-            self.spawn_native_grant_publisher(grant);
         }
     }
 
@@ -439,7 +393,24 @@ impl Daemon {
         snapshot: &crate::relay::Snapshot,
         grants: &std::collections::BTreeMap<String, Vec<CachedGrant>>,
     ) -> Result<(), ControlError> {
-        let _gate = self.account_gate.lock().await;
+        let path = self.profile.access_file();
+        self.commit_control_plane_feed_with(snapshot, grants, move |next| next.save(&path))
+            .await
+    }
+
+    /// Persist and publish one relay feed snapshot. The feed is acknowledged
+    /// (`policy_applied`) only after every runtime has re-checked its sessions
+    /// whenever the snapshot narrows authorization ([`AccessList::narrowed_by`]):
+    /// the account gate is held across that revoke barrier, so no later feed is
+    /// acknowledged (confirming the revocation) before it either. A renewal or a
+    /// new grant takes effect at once and waits for no collection.
+    pub(super) async fn commit_control_plane_feed_with(
+        &self,
+        snapshot: &crate::relay::Snapshot,
+        grants: &std::collections::BTreeMap<String, Vec<CachedGrant>>,
+        save: impl FnOnce(&AccessList) -> Result<(), crate::access::AccessError> + Send + 'static,
+    ) -> Result<(), ControlError> {
+        let gate = self.account_gate.lock().await;
         let record = crate::cloud::AccountRecord::load(&self.profile.account_file())
             .map_err(|error| ControlError::unavailable("account_state", error.to_string()))?;
         if record.active_account().is_none()
@@ -453,18 +424,6 @@ impl Daemon {
                 "relay account epoch or connector is no longer active",
             ));
         }
-        self.commit_control_plane_feed_with(snapshot, grants, |next| {
-            next.save(&self.profile.access_file())
-        })
-        .await
-    }
-
-    pub(super) async fn commit_control_plane_feed_with(
-        &self,
-        snapshot: &crate::relay::Snapshot,
-        grants: &std::collections::BTreeMap<String, Vec<CachedGrant>>,
-        save: impl FnOnce(&AccessList) -> Result<(), crate::access::AccessError>,
-    ) -> Result<(), ControlError> {
         let mut inner = self.inner.lock().await;
         if let Some(cursor) = &inner.access.feed_cursor
             && (cursor.connector != snapshot.connector_id
@@ -519,30 +478,48 @@ impl Daemon {
             sequence: snapshot.sequence,
             revision: snapshot.revision.clone(),
         });
-        if let Err(e) = save(&next) {
-            // A failure may be before rename or after rename/directory sync.
-            // Nothing is served in either case; restart also needs a fresh lease.
-            inner.access.leases.clear();
-            inner.access.monotonic_leases.clear();
-            self.authority.publish_access(&inner.access);
-            let barrier = publish_grants(&inner);
-            drop(inner);
-            barrier.wait().await;
-            return Err(access_error(e));
-        }
+        let narrowed = inner.access.narrowed_by(&next);
+        // The fsync runs on the blocking pool, not on one of the few async
+        // workers; `inner` stays held so no other access change interleaves.
+        let saved = self
+            .run_blocking(move || {
+                let saved = save(&next);
+                (next, saved)
+            })
+            .await;
+        let next = match saved {
+            Some((next, Ok(()))) => next,
+            failed => {
+                // A failure may be before rename or after rename/directory sync.
+                // Nothing is served in either case; restart also needs a fresh lease.
+                inner.access.leases.clear();
+                inner.access.monotonic_leases.clear();
+                self.authority.publish_access(&inner.access);
+                let barrier = publish_grants(&inner);
+                drop(inner);
+                barrier.wait().await;
+                return Err(match failed {
+                    Some((_, Err(e))) => access_error(e),
+                    _ => ControlError::unavailable("shutting_down", "the daemon is stopping"),
+                });
+            }
+        };
         inner.access = next;
         self.authority.publish_access(&inner.access);
-        // The feed is acknowledged (policy_applied) only after every runtime has
-        // re-checked its sessions under the new grants (revoke barrier).
         let barrier = publish_grants(&inner);
         drop(inner);
-        barrier.wait().await;
+        if narrowed {
+            barrier.wait().await;
+        }
+        drop(gate);
         for event in events {
             self.note_access_event(&event).await;
             let _ = self.access_events.send(event);
         }
         self.bump();
-        self.publish_account_grants().await;
+        if let Some(d) = self.arc() {
+            self.spawn(async move { d.publish_account_grants().await });
+        }
         Ok(())
     }
 }

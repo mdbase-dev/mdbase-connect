@@ -19,6 +19,8 @@ use w::intent::{Create, Op, ResourcePut};
 mod asfile_query;
 #[path = "tentative_discovery/host_views.rs"]
 mod host_views;
+#[path = "tentative_discovery/large_import.rs"]
+mod large_import;
 #[path = "tentative_discovery/local_only.rs"]
 mod local_only;
 #[path = "tentative_discovery/local_reads.rs"]
@@ -286,23 +288,30 @@ fn views(app: &mut App, session: SessionId) -> Vec<Identity> {
     let mut output = Vec::new();
     for _ in 0..8 {
         let (page, continuation) = app
-            .encode_bases_discovery_page(session, Some("UTC"), 1, next, |_, page, _| {
-                Ok((
-                    page.views
-                        .iter()
-                        .map(|view| {
-                            (
-                                view.record,
-                                view.path.clone(),
-                                view.revision,
-                                view.index,
-                                view.name.clone(),
-                            )
-                        })
-                        .collect::<Vec<_>>(),
-                    page.next,
-                ))
-            })
+            .encode_bases_discovery_page(
+                session,
+                Some("UTC"),
+                1,
+                next,
+                mdbn_store_file::testing::replica::replica::UnreadableSources::Refuse,
+                |_, page, _| {
+                    Ok((
+                        page.views
+                            .iter()
+                            .map(|view| {
+                                (
+                                    view.record,
+                                    view.path.clone(),
+                                    view.revision,
+                                    view.index,
+                                    view.name.clone(),
+                                )
+                            })
+                            .collect::<Vec<_>>(),
+                        page.next,
+                    ))
+                },
+            )
             .unwrap();
         output.extend(page);
         next = continuation;
@@ -357,10 +366,17 @@ fn check(app: &mut App, session: SessionId) {
 fn refused(app: &mut App, session: SessionId) {
     let encoded = Cell::new(false);
     let error = app
-        .encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, _, _| {
-            encoded.set(true);
-            Ok(())
-        })
+        .encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            mdbn_store_file::testing::replica::replica::UnreadableSources::Refuse,
+            |_, _, _| {
+                encoded.set(true);
+                Ok(())
+            },
+        )
         .unwrap_err();
     assert_eq!(error.code(), Some(ErrorCode::Unavailable));
     assert!(
@@ -391,6 +407,7 @@ fn projection_request(app: &App) -> QueryProjectionRequest {
         max_bytes: 1 << 20,
         fields: vec![],
         tags: false,
+        full_frontmatter: false,
     }
 }
 
@@ -522,8 +539,15 @@ fn tentative_discovery_uncertain_commit_fences_projection_reads_until_reopen() {
     assert!(app.store().query_projection_page(&request).is_err());
     assert_eq!(probe.calls.get(), calls, "fenced reads never reach SQL");
     assert!(
-        app.encode_bases_discovery_page(session, Some("UTC"), 1, None, |_, _, _| Ok(()))
-            .is_err()
+        app.encode_bases_discovery_page(
+            session,
+            Some("UTC"),
+            1,
+            None,
+            mdbn_store_file::testing::replica::replica::UnreadableSources::Refuse,
+            |_, _, _| Ok(())
+        )
+        .is_err()
     );
     drop(app);
     drop(index);

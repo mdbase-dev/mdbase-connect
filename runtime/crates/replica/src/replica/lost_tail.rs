@@ -307,7 +307,7 @@ impl<S: Store> Replica<S> {
     /// A detection site saw a lost tail. Starts (or restarts) the probe under a new
     /// generation, so replies to an earlier probe or repair are ignored.
     pub(crate) fn on_lost_tail(&mut self, signal: Signal) {
-        if self.apply_fault || self.install.is_some() || self.local_only() {
+        if self.apply_fault.is_some() || self.install.is_some() || self.local_only() {
             return;
         }
         // During the replay this replica is behind the service by design; a real
@@ -336,7 +336,7 @@ impl<S: Store> Replica<S> {
     /// Start (or restart) the probe under a new generation, whatever is in flight:
     /// replies to the earlier probe or repair batch are then stale and ignored.
     fn restart_probe(&mut self, signal: Signal) {
-        if self.apply_fault || self.install.is_some() || self.local_only() {
+        if self.apply_fault.is_some() || self.install.is_some() || self.local_only() {
             return;
         }
         let service_head = match signal {
@@ -963,7 +963,7 @@ impl<S: Store> Replica<S> {
             resurrected.insert(row.mutation.id, *seq);
         }
         let policy = crate::policy::PolicyState::new();
-        let tx = crate::store::Tx {
+        let mut tx = crate::store::Tx {
             clear_confirmed: true,
             head: Some(Head::GENESIS),
             tail_drop_above: Some(l),
@@ -985,7 +985,23 @@ impl<S: Store> Replica<S> {
             ],
             ..crate::store::Tx::default()
         };
+        if self.is_hosted() {
+            tx.meta.push((
+                crate::store::meta_keys::HOSTED_RECORD_META_CURSOR.into(),
+                None,
+            ));
+            tx.meta.push((
+                crate::store::meta_keys::RECORD_META.into(),
+                Some(crate::plan::record_meta_stamp(
+                    &mdbn_core::types::Catalog::empty(),
+                )),
+            ));
+        }
         self.store.commit(tx)?;
+        if let Some(hosted) = self.hosted.as_mut() {
+            hosted.reindex_stamp = None;
+            hosted.reindex_hold = None;
+        }
         self.store_generation += 1;
         self.repair_stats.resurrected += own.len() as u64;
         self.resurrected = resurrected;
@@ -1001,6 +1017,7 @@ impl<S: Store> Replica<S> {
         self.tail_stats_dirty = true;
         self.refresh_retained_stats()?;
         self.catalog = std::sync::Arc::new(crate::plan::load_catalog(&self.store)?);
+        self.reset_feed();
         let changed: std::collections::BTreeSet<String> = self
             .all_pending()?
             .into_iter()

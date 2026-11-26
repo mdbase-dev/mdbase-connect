@@ -3,9 +3,8 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createDatabase, type DatabasePool } from "../../../db.js";
 import { legacyTimerGrantResolver } from "./grants.js";
-import { cancelTimer, eraseTimerData, importTimer, putTimer, reconcileTimers } from "./store.js";
+import { eraseTimerData, importTimer } from "./store.js";
 import { registerNextCollection } from "../policy-outbox.js";
-import { timerEventId, TimerWorker } from "./worker.js";
 import { validateTimerImport } from "./import-original.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
@@ -78,40 +77,6 @@ suite("original timer import on isolated PostgreSQL", () => {
       throw error;
     } finally { connection.release(); }
   }
-  it("does not cancel, fire, receipt or prune imported timers on repeated preflip wakes", async () => {
-    const { grant, timer, record } = await fixture(true);
-    const fire_at = "2020-01-03T00:00:00.000Z";
-    const input = { ...timer, fire_at, record_json: JSON.stringify({ ...record, fire_at }) };
-    await transaction(connection => importTimer(connection, grant, input));
-    await db.query("UPDATE grants SET revoked_at=now() WHERE id=$1", [grant.grantId]);
-    const eventId = timerEventId(grant.grantId,timer.namespace,timer.id,6);
-    await db.query(`INSERT INTO next_timer_events(event_id,grant_id,criterion_id,namespace,timer_id,generation,scheduled_for,fired_at,late_by_ms,created_at)
-      VALUES($1,$2,$3,$4,$5,6,$6,$6,0,'2020-01-03')`, [eventId,grant.grantId,timer.criterion_id,timer.namespace,timer.id,fire_at]);
-    let handled = 0;
-    const worker = new TimerWorker(db,[{ name: "test", async handle() { handled++; } }]);
-    await worker.tick(); await worker.tick();
-    expect(handled).toBe(0);
-    expect((await db.query("SELECT status,generation,legacy_import_origin FROM next_timers WHERE grant_id=$1", [grant.grantId])).rows).toEqual([expect.objectContaining({ status:"scheduled",generation:"7",legacy_import_origin:validateTimerImport(input).origin })]);
-    expect((await db.query("SELECT event_id FROM next_timer_events WHERE grant_id=$1", [grant.grantId])).rows).toEqual([{event_id:eventId}]);
-    expect((await db.query("SELECT event_id FROM next_timer_event_receipts WHERE event_id=$1", [eventId])).rows).toHaveLength(0);
-  });
-  it("refuses API intents and omission cancellations before original account completion", async () => {
-    const { grant, timer } = await fixture(true);
-    await transaction(connection => importTimer(connection, grant, timer));
-    const intents = (await db.query("SELECT * FROM next_timer_namespace_intents WHERE grant_id=$1", [grant.grantId])).rows;
-    await expect(transaction(connection => cancelTimer(connection,grant,timer.namespace,timer.id))).rejects.toMatchObject({code:"collection_migrating"});
-    await expect(transaction(connection => reconcileTimers(connection,grant,timer.namespace,timer.criterion_id,[]))).rejects.toMatchObject({code:"collection_migrating"});
-    await expect(transaction(connection => putTimer(connection,grant,timer.namespace,timer.criterion_id,{id:timer.id,fireAt:new Date(timer.fire_at),data:null}))).rejects.toMatchObject({code:"collection_migrating"});
-    expect((await db.query("SELECT * FROM next_timer_namespace_intents WHERE grant_id=$1", [grant.grantId])).rows).toEqual(intents);
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1", [grant.grantId])).rows[0].status).toBe("scheduled");
-  });
-  it("refuses an old imported terminal row's immediate preflip pruning", async () => {
-    const { grant, timer, record } = await fixture(true);
-    const input = { ...timer, status:"cancelled", record_json:JSON.stringify({...record,status:"cancelled"}) };
-    await transaction(connection => importTimer(connection,grant,input));
-    await new TimerWorker(db,[]).prune();
-    expect((await db.query("SELECT status FROM next_timers WHERE grant_id=$1", [grant.grantId])).rows).toEqual([{status:"cancelled"}]);
-  });
   it("refuses an over-cap origin with a typed error before any target row", async () => {
     const { grant, timer } = await fixture();
     await expect(transaction((connection) => importTimer(connection, grant, { ...timer, runtime_namespace: "x".repeat(2048) }))).rejects.toMatchObject({ statusCode: 409, code: "timer_import_invalid" });

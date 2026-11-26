@@ -147,7 +147,7 @@ impl Daemon {
 
     /// Private collections served here: (ID, name, runtime). One named
     /// collection must be a served private one.
-    async fn private_hosts(
+    async fn private_approver_hosts(
         &self,
         only: Option<&str>,
     ) -> Result<Vec<(String, String, Arc<Runtime>)>, ControlError> {
@@ -173,7 +173,7 @@ impl Daemon {
 
     /// `device.pending`.
     pub(super) async fn device_pending(&self, p: DevicePending) -> Result<Value, ControlError> {
-        let hosts = self.private_hosts(p.collection.as_deref()).await?;
+        let hosts = self.private_approver_hosts(p.collection.as_deref()).await?;
         if p.collection.is_none() {
             self.device_approvals.lock().await.retain(|id, session| {
                 hosts
@@ -246,7 +246,7 @@ impl Daemon {
             )
         })?;
         let mut approved = Vec::new();
-        for (id, _, rt) in self.private_hosts(p.collection.as_deref()).await? {
+        for (id, _, rt) in self.private_approver_hosts(p.collection.as_deref()).await? {
             if p.collection.is_none() && !self.waits_here(&rt, target).await {
                 continue;
             }
@@ -265,7 +265,7 @@ impl Daemon {
     pub(super) async fn device_reject(&self, p: ApproveDevice) -> Result<Value, ControlError> {
         let target = uuid(&p.device, "device")?;
         let mut rejected = false;
-        for (_, _, rt) in self.private_hosts(p.collection.as_deref()).await? {
+        for (_, _, rt) in self.private_approver_hosts(p.collection.as_deref()).await? {
             if !self.waits_here(&rt, target).await {
                 continue;
             }
@@ -486,9 +486,16 @@ impl Daemon {
             return REQUESTER_IDLE;
         };
         let current = self.current_account(inc);
-        let hosts = self.private_hosts(None).await.unwrap_or_default();
-        waiting.retain(|id, _| hosts.iter().any(|(h, _, _)| h == id));
-        for (id, _, rt) in hosts {
+        let hosts = self
+            .inner
+            .lock()
+            .await
+            .hosts
+            .iter()
+            .filter_map(|h| Some((h.entry().id.clone(), h.private_requester_runtime()?)))
+            .collect::<Vec<_>>();
+        waiting.retain(|id, _| hosts.iter().any(|(h, _)| h == id));
+        for (id, rt) in hosts {
             let Ok(collection) = uuid(&id, "collection") else {
                 continue;
             };

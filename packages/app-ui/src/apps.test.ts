@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { mdbaseAppHref, mdbaseApps, officialApps, withAppUrls } from "./apps.js";
+import { mcpEndpointUrl, mcpSetupUrl, mdbaseAppHref, mdbaseApps, officialApps, withAppUrls } from "./apps.js";
 
 describe("mdbaseAppHref", () => {
   it("carries the collection and server to the other app", () => {
@@ -30,6 +30,18 @@ describe("mdbaseAppHref", () => {
     expect(mdbaseAppHref("http://127.0.0.1:5320/lab/", "http://127.0.0.1:5173/?collection=c"))
       .toBe("http://127.0.0.1:5320/lab/?collection=c");
   });
+
+  it("applies an explicit collectionId when the current URL does not carry one", () => {
+    expect(mdbaseAppHref("https://editor.mdbase.dev/", "https://app.tasknotes.dev/views/today", "col_99"))
+      .toBe("https://editor.mdbase.dev/?collection=col_99");
+    expect(
+      mdbaseAppHref(
+        "https://journal.mdbase.dev/",
+        "https://app.tasknotes.dev/?server=https%3A%2F%2Fconnect.example.org",
+        "col_99"
+      )
+    ).toBe("https://journal.mdbase.dev/?server=https%3A%2F%2Fconnect.example.org&collection=col_99");
+  });
 });
 
 describe("mdbaseApps", () => {
@@ -58,5 +70,15 @@ describe("officialApps", () => {
     expect(officialApps.map((app) => app.id)).toEqual(["editor", "reader", "writer", "journal", "tasknotes"]);
     expect(withAppUrls({ tasknotes: "https://tasks.lab.example/", editor: "https://editor.lab.example/" }, officialApps)
       .map((app) => [app.id, app.url])).toEqual([["editor", "https://editor.lab.example/"], ["tasknotes", "https://tasks.lab.example/"]]);
+    expect(withAppUrls({
+      editor: "https://editor.lab.example/",
+      reader: "https://reader.lab.example/",
+      writer: "https://writer.lab.example/"
+    }, officialApps).map((app) => app.id)).toEqual(["editor", "reader", "writer"]);
+  });
+
+  it("exports the canonical MCP setup and endpoint URLs", () => {
+    expect(mcpSetupUrl).toBe("https://mdbase.dev/apps/mcp/");
+    expect(mcpEndpointUrl).toBe("https://mcp.mdbase.dev/mcp");
   });
 });

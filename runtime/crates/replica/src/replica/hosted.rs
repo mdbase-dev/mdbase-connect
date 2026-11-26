@@ -131,6 +131,12 @@ enum Lookup {
 /// Hosted-mode state of a replica. RAM only.
 #[derive(Debug, Default)]
 pub(crate) struct HostedState {
+    pub(super) reindex_stamp: Option<Vec<u8>>,
+    /// During a record-metadata repair, apply stopped before an entry right
+    /// after this head: no read until the head moves or the repair ends.
+    pub(super) reindex_hold: Option<u64>,
+    repair_boundary: Option<HostedRepairBoundary>,
+    pub(super) applied_since_tick: u32,
     profile: HostedProfile,
     rebuilt: bool,
     next_ticket: u64,
@@ -160,6 +166,31 @@ pub(crate) struct HostedState {
     /// Cleared on every fault; an entry leaves when its fetch is answered or fails.
     /// A fetch not listed never counts.
     fetches: BTreeMap<u64, u64>,
+}
+
+/// Count-only boundaries crossed during one hosted open or alarm slice.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostedRepairBoundary {
+    /// Applied sequence at this boundary, not a cursor binding.
+    pub applied_seq: u64,
+    /// Why this slice started at the beginning rather than a saved cursor.
+    pub started: Option<HostedRepairStart>,
+    /// Committed pass totals (records visited, record rows written), at EOF only.
+    pub finished: Option<(u64, u64)>,
+}
+
+/// Count-only reason codes for the hosted Worker diagnostics import.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u32)]
+pub enum HostedRepairStart {
+    /// No completed metadata stamp.
+    FirstOpen = 1,
+    /// The completed stamp does not describe the current catalog.
+    CatalogChanged = 2,
+    /// A saved checkpoint belongs to another generation or format.
+    CursorInvalid = 3,
+    /// A new derived-data version requires verification.
+    DerivedVersionChanged = 4,
 }
 
 /// Crate-private currentness fact for the verified-admission observer (trust
@@ -227,6 +258,7 @@ const KEY_REBUILD_PAGE: u64 = 64;
 /// servers without the field ignore it, so it bounds memory per read but replaces no
 /// apply-side check. Apply stays one item per store commit either way.
 pub(crate) const HOSTED_READ_BYTES: u64 = 512 << 10;
+pub(super) const HOSTED_APPLY_ITEMS: u32 = 16;
 
 impl HostedState {
     /// Record a final receipt for every ticket waiting on its mutation.
@@ -735,6 +767,9 @@ impl<S: Store> Store for HostedCache<S> {
     fn has_files(&self) -> bool {
         self.inner.has_files()
     }
+    fn files_read_only(&self) -> bool {
+        self.inner.files_read_only()
+    }
     fn stages(&self) -> bool {
         self.inner.stages()
     }
@@ -795,13 +830,13 @@ impl<S: Store> Replica<HostedCache<S>> {
             sealer,
             host,
             secrets,
-            None,
+            super::OpenHost::Hosted(Box::new(HostedState {
+                profile,
+                ..HostedState::default()
+            })),
         )?;
         let head = r.head.seq;
-        let mut state = HostedState {
-            profile,
-            ..HostedState::default()
-        };
+        let state = r.hosted.as_deref_mut().expect("opened hosted");
         if head == 0 {
             // Cold: whatever policy bytes the cache holds are not provenance. Start
             // from a fresh state; every item is applied from genesis in this instance.
@@ -809,7 +844,7 @@ impl<S: Store> Replica<HostedCache<S>> {
             r.original_history = super::original_history::OriginalHistory::new(
                 r.cfg.collection,
                 r.store_generation,
-                crate::store::Head::GENESIS,
+                r.head,
                 0,
                 None,
             );
@@ -835,15 +870,8 @@ impl<S: Store> Replica<HostedCache<S>> {
             r.sealer.set_epoch(0);
             r.calls.clear();
             r.inflight.clear();
+            state.fetches.clear();
         }
-        // A cold open's head fetch was queued before hosted state existed: it is
-        // this instance's generation-0 fetch.
-        for (id, kind) in &r.inflight {
-            if *kind == Inflight::Subscribe {
-                state.fetches.insert(id.0, state.generation);
-            }
-        }
-        r.hosted = Some(Box::new(state));
         r.snapshot_record_bytes = super::snapshot::HOSTED_SNAPSHOT_RECORD_BYTES;
         r.hosted_key_rebuild_step();
         Ok(r)
@@ -989,6 +1017,7 @@ impl<S: Store> Replica<HostedCache<S>> {
         };
         match &sess.auth {
             crate::api::SessionAuth::Host => true,
+            crate::api::SessionAuth::LocalWeb(_) => false,
             crate::api::SessionAuth::Grant { grant, client_pk } => {
                 self.grant_for_client(grant, client_pk)
                     .is_ok_and(|g| self.serving_account_matches(&g.account))
@@ -1054,6 +1083,188 @@ fn not_hosted() -> ApiError {
 }
 
 impl<S: Store> Replica<S> {
+    /// Drain the last repair boundary for host diagnostics, not readiness.
+    pub fn take_hosted_repair_boundary(&mut self) -> Option<HostedRepairBoundary> {
+        self.hosted.as_mut()?.repair_boundary.take()
+    }
+
+    pub(super) fn hosted_reindex_pending(&self) -> bool {
+        self.hosted
+            .as_ref()
+            .is_some_and(|state| state.reindex_stamp.is_some())
+    }
+
+    pub(super) fn hosted_reindex_step(&mut self) -> StoreResult<()> {
+        use meta_keys::HOSTED_RECORD_META_CURSOR as CHECKPOINT;
+        let hosted = self.hosted.as_mut().expect("hosted reindex");
+        let stamp = hosted.reindex_stamp.as_ref().expect("pending reindex");
+        let version = crate::store::DERIVED_DATA_VERSION.to_be_bytes();
+        let prefix = [version.as_slice(), stamp].concat();
+        let saved = self.store.meta(CHECKPOINT)?;
+        let (mut after, mut visited, mut written) = match saved
+            .as_deref()
+            .and_then(|v| v.strip_prefix(prefix.as_slice()))
+        {
+            None => (None, 0u64, 0u64),
+            Some(value) => {
+                let (id, counts) = value
+                    .split_first_chunk::<16>()
+                    .ok_or_else(|| StoreError::Corrupt("hosted reindex cursor".into()))?;
+                let ([visits, writes], []) = counts.as_chunks::<8>() else {
+                    return Err(StoreError::Corrupt("hosted reindex counts".into()));
+                };
+                let (visited, written) = (u64::from_be_bytes(*visits), u64::from_be_bytes(*writes));
+                if written > visited || visited == u64::MAX {
+                    return Err(StoreError::Corrupt("hosted reindex counts".into()));
+                }
+                (Some(mdbn_wire::common::B16(*id)), visited, written)
+            }
+        };
+        let started = if after.is_some() {
+            None
+        } else if saved.is_some() {
+            Some(HostedRepairStart::CursorInvalid)
+        } else {
+            Some(match self.store.meta(meta_keys::RECORD_META)? {
+                None => HostedRepairStart::FirstOpen,
+                Some(previous) if previous != *stamp => HostedRepairStart::CatalogChanged,
+                Some(_) => HostedRepairStart::DerivedVersionChanged,
+            })
+        };
+        let scan_limit = 2048
+            / u32::try_from(self.catalog.types().len().clamp(1, 2048))
+                .expect("bounded catalog work factor");
+        let deadline = self.host.clock.now_ms().saturating_add(100);
+        let mut scanned = 0;
+        let mut scan_bytes = 0;
+        let mut write_bytes: usize = 0;
+        let mut changed = Vec::new();
+        let result = self.store.records_visit(
+            Page {
+                after,
+                limit: scan_limit,
+            },
+            &mut |mut row| {
+                use std::ops::ControlFlow;
+                if scanned != 0
+                    && (self.host.clock.now_ms() >= deadline
+                        || scan_bytes + row.doc.len() > 1 << 20)
+                {
+                    return ControlFlow::Break(());
+                }
+                let meta = crate::plan::record_meta(&self.catalog, &row.path, &row.doc);
+                let id = row.id;
+                let bytes = row.doc.len();
+                if row.meta != meta {
+                    if !changed.is_empty() && write_bytes + bytes > 128 << 10 {
+                        return ControlFlow::Break(());
+                    }
+                    write_bytes += bytes;
+                    row.meta = meta;
+                    changed.push((scanned + 1, row));
+                }
+                after = Some(id);
+                scanned += 1;
+                scan_bytes += bytes;
+                if changed.len() == 8 || write_bytes >= 128 << 10 {
+                    ControlFlow::Break(())
+                } else {
+                    ControlFlow::Continue(())
+                }
+            },
+        )?;
+        let done = result.is_continue() && scanned < scan_limit;
+        let prior_visits = visited;
+        visited = visited
+            .checked_add(u64::from(scanned))
+            .ok_or_else(|| StoreError::Corrupt("hosted reindex counts".into()))?;
+        let checkpoint = |id: Uuid, visits: u64, writes: u64| {
+            (
+                CHECKPOINT.into(),
+                Some(
+                    [
+                        prefix.as_slice(),
+                        &id.0,
+                        &visits.to_be_bytes(),
+                        &writes.to_be_bytes(),
+                    ]
+                    .concat(),
+                ),
+            )
+        };
+        let mut tx = Tx::default();
+        let mut changed = changed.into_iter().peekable();
+        while let Some((offset, row)) = changed.next() {
+            written += 1;
+            if changed.peek().is_none() {
+                tx.records_put.push(row);
+            } else {
+                self.store.commit(Tx {
+                    meta: vec![checkpoint(
+                        row.id,
+                        prior_visits + u64::from(offset),
+                        written,
+                    )],
+                    records_put: vec![row],
+                    ..Tx::default()
+                })?;
+            }
+        }
+        if done {
+            tx.meta
+                .push((meta_keys::RECORD_META.into(), Some(stamp.clone())));
+            if self.store.meta(meta_keys::DERIVED_VERSION)?.as_deref() != Some(&version) {
+                tx.meta
+                    .push((meta_keys::DERIVED_VERSION.into(), Some(version.to_vec())));
+            }
+            if saved.is_some() || written > 1 {
+                tx.meta.push((CHECKPOINT.into(), None));
+            }
+        } else {
+            let id = after.expect("nonempty repair slice");
+            tx.meta.push(checkpoint(id, visited, written));
+        }
+        self.store.commit(tx)?;
+        self.stats.reindexed += u64::from(scanned);
+        if started.is_some() || done {
+            hosted.repair_boundary = Some(HostedRepairBoundary {
+                applied_seq: self.head.seq,
+                started,
+                finished: done.then_some((visited, written)),
+            });
+        }
+        if done {
+            hosted.reindex_stamp = None;
+            hosted.reindex_hold = None;
+        }
+        Ok(())
+    }
+
+    /// Apply reached an entry during a record-metadata repair.
+    pub(super) fn hosted_reindex_hold(&mut self) {
+        let head = self.head.seq;
+        if let Some(hosted) = self.hosted.as_mut() {
+            hosted.reindex_hold = Some(head);
+        }
+        self.caught_up = false;
+    }
+
+    /// A read now could only return the entry apply is holding before.
+    pub(super) fn hosted_reindex_read_held(&self) -> bool {
+        self.hosted
+            .as_deref()
+            .is_some_and(|h| h.reindex_stamp.is_some() && h.reindex_hold == Some(self.head.seq))
+    }
+
+    /// Hosted work that waits for nothing but a record-metadata repair may run.
+    pub(crate) fn hosted_blocked_except_reindex(&self) -> bool {
+        self.device_keys_blocked()
+            || self
+                .hosted
+                .as_deref()
+                .is_some_and(|h| h.keys.is_some() || h.needs_reset)
+    }
+
     /// Hosted mode: whether this replica serves sessions (it has rebuilt from the log
     /// since open and no snapshot install is running). Always true on devices.
     pub fn hosted_serving(&self) -> bool {
@@ -1061,11 +1272,12 @@ impl<S: Store> Replica<S> {
             None => true,
             Some(h) => {
                 h.rebuilt
+                    && h.reindex_stamp.is_none()
                     && h.keys.is_none()
                     && !h.needs_reset
                     && self.install.is_none()
                     && self.stalled.is_none()
-                    && !self.apply_fault
+                    && self.apply_fault.is_none()
                     && !self.is_apply_recovering()
                     // Not while a newer reported head is still unapplied.
                     && self.head.seq >= self.head_known
@@ -1103,11 +1315,7 @@ impl<S: Store> Replica<S> {
     /// While the warm-wake key rebuild runs (hosted), or a device keyring
     /// rebuild (`key_rebuild.rs`), the replica neither reads nor appends.
     pub(crate) fn hosted_blocked(&self) -> bool {
-        self.device_keys_blocked()
-            || self
-                .hosted
-                .as_deref()
-                .is_some_and(|h| h.keys.is_some() || h.needs_reset)
+        self.hosted_blocked_except_reindex() || self.hosted_reindex_pending()
     }
 
     /// Queue the next control read of the warm-wake rebuild, if one is due.
@@ -1116,6 +1324,9 @@ impl<S: Store> Replica<S> {
         let Some(h) = self.hosted.as_deref_mut() else {
             return;
         };
+        if h.reindex_stamp.is_some() {
+            return;
+        }
         let Some(k) = h.keys.as_mut() else {
             return;
         };
@@ -1167,8 +1378,8 @@ impl<S: Store> Replica<S> {
             }
             // Cached GENESIS/POLICY metadata is not the raw identity of the log
             // being replayed. Check the host's pin before decoding or importing keys.
-            if self.check_genesis(it.seq, &it.item.0).is_err() {
-                self.genesis_fault();
+            if let Err(why) = self.check_genesis(it.seq, &it.item.0) {
+                self.genesis_fault(why);
                 return;
             }
             let Ok(item) = Item::from_bytes(&it.item.0) else {
@@ -1249,7 +1460,7 @@ impl<S: Store> Replica<S> {
             ..Default::default()
         };
         if self.commit_with_read_health(None, tx).is_err()
-            || self.apply_fault
+            || self.apply_fault.is_some()
             || self.is_apply_recovering()
         {
             return self.hosted_reset_required("original history commit/read health unavailable");
@@ -1297,7 +1508,7 @@ impl<S: Store> Replica<S> {
         let ready = self.caught_up
             && self.install.is_none()
             && self.stalled.is_none()
-            && !self.apply_fault
+            && self.apply_fault.is_none()
             && !self.is_apply_recovering();
         let applied = self.head;
         if let Some(h) = self.hosted.as_deref_mut()

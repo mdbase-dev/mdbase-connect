@@ -263,11 +263,12 @@ export class ApplicationCollectionSelection {
     if(this.closed||this.opening)return;
     const s=this.session.getSnapshot();
     if(this.approval){
-      if(this.approval.settled&&s.status==="signed_out"&&s.problem!==null){
-        // Sign-in ended without approval (approval window closed, request
-        // expired): the approval is over, so approve() is available again.
+      if(this.approval.settled&&s.status==="signed_out"&&(s.problem!==null||s.approval?.outcome==="closed")){
+        // Sign-in ended without approval (approval window closed, the wait
+        // cancelled, request expired): the approval is over, so approve() is
+        // available again.
         const a=this.approval;this.approval=null;this.attempted=undefined;
-        this.lastApproval=Object.freeze({kind:a.kind,outcome:s.problem==="approval_window_closed"?"closed":"declined",collectionId:a.collectionId});
+        this.lastApproval=Object.freeze({kind:a.kind,outcome:s.problem==="approval_window_closed"||s.approval?.outcome==="closed"?"closed":"declined",collectionId:a.collectionId});
         this.refresh();
       }else{
         if(!this.approval.settled||inFlight(s))return;

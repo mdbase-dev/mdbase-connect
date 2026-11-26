@@ -199,7 +199,7 @@ fn private_member_grant_after_join_decrypts_earlier_content() {
 }
 
 #[test]
-fn private_grant_appended_while_waiting_is_found_by_the_next_probe() {
+fn private_grant_appended_while_waiting_is_found_on_the_head_push() {
     let (svc, mut cp, mut a) = world(CState::E2e);
     let entry = a.r.head().seq;
     enrol_b(&svc, &mut cp);
@@ -213,10 +213,18 @@ fn private_grant_appended_while_waiting_is_found_by_the_next_probe() {
     assert_eq!(incident_reason(&b).as_deref(), Some("no_grant"));
     assert_eq!(b.doc(1), None);
     member_grant(&mut a, B, B_KEYS.1);
-    // A head push alone does not start reads; the bounded probe does.
+    // An advancing head push brings the read forward to HINT_MS after the
+    // last probe instead of waiting out the backoff deadline.
     settle(&mut [&mut b]);
     assert_eq!(waiting_at(&b), Some(entry));
-    probe(&mut b);
+    let now = i64::try_from(b.clock.get()).unwrap();
+    let hinted = b.r.next_wakeup().expect("the push schedules a read");
+    assert!(
+        hinted < now + 1_000,
+        "sooner than the backoff: {hinted} at {now}"
+    );
+    b.clock.set(u64::try_from(hinted).unwrap());
+    settle(&mut [&mut b]);
     assert_eq!(b.doc(1).as_deref(), Some("written before B joined"));
     assert!(b.r.stalled.is_none());
     assert!(

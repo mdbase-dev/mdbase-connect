@@ -1,7 +1,9 @@
-import { startCompletion } from "@codemirror/autocomplete";
+import { closeBrackets, closeBracketsKeymap, startCompletion } from "@codemirror/autocomplete";
 import { syntaxTree } from "@codemirror/language";
-import { EditorSelection, type ChangeSpec, type EditorState } from "@codemirror/state";
-import { EditorView } from "@codemirror/view";
+import { EditorSelection, EditorState, Prec, type ChangeSpec, type Extension } from "@codemirror/state";
+import { EditorView, keymap } from "@codemirror/view";
+import type { SyntaxNode } from "@lezer/common";
+import { outdentListItem } from "@mdbase-dev/ui/live-preview";
 
 /** Rewrites the start of every line a selection touches; `next` returns the replacement for the part `pattern` matched. */
 function rewriteLineStarts(view: EditorView, pattern: RegExp, next: (match: RegExpExecArray, lines: RegExpExecArray[]) => string): boolean {
@@ -109,3 +111,59 @@ export const wrapSelectionOnType = EditorView.inputHandler.of((view, from, to, t
   ), { scrollIntoView: true, userEvent: "input.type" });
   return true;
 });
+
+/**
+ * Brackets and double quotes typed at a caret close themselves, as they wrap selected text.
+ * Typing the closing one steps over it, and Backspace inside an empty pair deletes both.
+ * Apostrophes, backticks and emphasis marks type as they are: in prose they rarely come in
+ * pairs, and three backticks open a code fence.
+ */
+export const closeBracketsAtCaret: Extension = [
+  closeBrackets(),
+  EditorState.languageData.of(() => [{ closeBrackets: { brackets: ["(", "[", "\""] } }]),
+  Prec.high(keymap.of(closeBracketsKeymap))
+];
+
+/** The innermost list item around `pos`, unless code sits between them. */
+function listItemAt(state: EditorState, pos: number) {
+  for (let node: SyntaxNode | null = syntaxTree(state).resolveInner(pos, -1); node; node = node.parent) {
+    if (node.name === "FencedCode" || node.name === "CodeBlock") return null;
+    if (node.name === "ListItem") return node;
+  }
+  return null;
+}
+
+/** Backspace at the end of an empty nested item lifts it to its parent's level instead of leaving its indentation. */
+export function outdentEmptyListItem(view: EditorView): boolean {
+  const { state } = view;
+  const { main } = state.selection;
+  if (state.readOnly || state.selection.ranges.length > 1 || !main.empty) return false;
+  const item = listItemAt(state, main.head);
+  const mark = item?.getChild("ListMark");
+  if (!item || !mark || item.parent?.parent?.name !== "ListItem") return false;
+  const line = state.doc.lineAt(main.head);
+  // The item's marker line holds only indentation, the marker and an optional task box.
+  if (main.head !== line.to || mark.from < line.from || !/^\s*$/.test(state.sliceDoc(line.from, mark.from))) return false;
+  if (!/^\s*(?:\[[ xX]\]\s*)?$/.test(state.sliceDoc(mark.to, line.to))) return false;
+  return outdentListItem(view);
+}
+
+/** Shift-Enter in a list item starts a new line of the same item, at its text column. */
+export function newLineInListItem(view: EditorView): boolean {
+  const { state } = view;
+  if (state.readOnly) return false;
+  let inList = true;
+  const changes = state.changeByRange((range) => {
+    const mark = listItemAt(state, range.head)?.getChild("ListMark");
+    if (!mark) { inList = false; return { range }; }
+    const line = state.doc.lineAt(mark.from);
+    let text = mark.to;
+    while (text < line.to && text - mark.to < 4 && state.sliceDoc(text, text + 1) === " ") text += 1;
+    // Quote markers before the list stay; the marker itself becomes spaces.
+    const insert = `${state.lineBreak}${state.sliceDoc(line.from, mark.from)}${" ".repeat(Math.max(1, text - mark.from))}`;
+    return { range: EditorSelection.cursor(range.from + insert.length), changes: { from: range.from, to: range.to, insert } };
+  });
+  if (!inList) return false;
+  view.dispatch(state.update(changes, { scrollIntoView: true, userEvent: "input" }));
+  return true;
+}

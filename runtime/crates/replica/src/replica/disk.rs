@@ -120,6 +120,12 @@ impl<S: Store> Replica<S> {
         if self.before.is_empty() {
             return Ok(());
         }
+        if self.store.files_read_only() {
+            for key in std::mem::take(&mut self.before).into_keys() {
+                self.published_key(&key, PublishState::NotPublished);
+            }
+            return Ok(());
+        }
         let holds = self.store.holds()?;
         let held_ids: std::collections::BTreeSet<_> = holds.iter().map(|h| h.id).collect();
         let held_paths: std::collections::BTreeSet<_> = holds
@@ -350,9 +356,14 @@ impl<S: Store> Replica<S> {
         r.published = Some(self.publish_waits.state(&r.mutation));
     }
 
+    pub(super) fn mark_local_web_unpublished(&mut self, mutation: B16) {
+        self.publish_waits.record_unpublished(mutation);
+    }
+
     fn on_drift(&mut self, d: Drift) {
-        // `changed`/`missing`: the store observes the path and ingest reconciles.
-        // `locked`/`read_only`/others: retry on the next tick from the same state.
+        // `changed`/`missing`/`editor_busy`: ingest or the fence reconciles.
+        // `read_only`: volume capabilities are fixed for the open; never retry.
+        // `locked`/others: retry on the next tick from the same state.
         if !retried(&d) {
             return;
         }
@@ -407,7 +418,7 @@ impl<S: Store> Replica<S> {
         self.check_apply_store_health()?;
         // Attachment files: unlink, move or fetch what a crash left behind.
         self.reconcile_attachments()?;
-        if !self.store.has_files() {
+        if !self.store.has_files() || self.store.files_read_only() {
             return Ok(());
         }
         // Path -> the key the local view has there and, for a record, the
@@ -762,9 +773,9 @@ impl<S: Store> Replica<S> {
             let _ = self.close_ingest_window(&mut window);
         }
         if let Err(e) = result {
-            if !self.apply_fault && !self.is_apply_recovering() {
+            if self.apply_fault.is_none() && !self.is_apply_recovering() {
                 let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
-                self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false);
+                self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false, &e);
             }
             self.incident(
                 mdbn_wire::client::IncidentKind::Integrity,
@@ -846,7 +857,7 @@ impl<S: Store> Replica<S> {
             // Even a typed capture abort has no durable pending row to retry.
             // Reopen/rescan the unacknowledged evidence instead of wedging behind
             // an apply-prefix barrier that no pending row can ever advance.
-            self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false);
+            self.failed_apply(checkpoint, self.head.seq.saturating_add(1), false, &e);
             return Err(e);
         }
         self.pump();
@@ -2166,9 +2177,12 @@ pub(crate) fn conflict_path(path: &str, dev: &str, date: &str) -> String {
 pub(crate) type Before = BTreeMap<DiskKey, Option<Shown>>;
 
 /// Whether a drift is retried from the same state (the file is busy) rather than
-/// left to ingest (the file holds other bytes).
+/// left to ingest (the file holds other bytes) or settled as permanent (`read_only`).
 fn retried(d: &Drift) -> bool {
-    !matches!(d.reason.as_str(), "changed" | "missing" | "editor_busy")
+    !matches!(
+        d.reason.as_str(),
+        "changed" | "missing" | "editor_busy" | "read_only"
+    )
 }
 
 /// The disk key a publish is for.
@@ -2257,12 +2271,16 @@ impl PublishWaits {
         let failed = e.1;
         self.open.remove(&m);
         if failed {
-            self.not_published.push_back(m);
-            if self.not_published.len() > KEEP_NOT_PUBLISHED {
-                self.not_published.pop_front();
-            }
+            self.record_unpublished(m);
         }
         self.done.push(m);
+    }
+
+    fn record_unpublished(&mut self, mutation: B16) {
+        self.not_published.push_back(mutation);
+        if self.not_published.len() > KEEP_NOT_PUBLISHED {
+            self.not_published.pop_front();
+        }
     }
 
     /// Give up on mutations past their deadline: they end as `not_published`, and

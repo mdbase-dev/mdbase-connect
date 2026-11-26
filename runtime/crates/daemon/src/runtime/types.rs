@@ -26,11 +26,13 @@ pub struct RuntimeConfig {
     pub computer_name: Option<String>,
 }
 
-/// One readiness observation: status, caught up, and the adopt state (if adopting).
+/// One readiness observation: status, caught up, the adopt state (if adopting),
+/// and what fenced the replica until it is reopened, if anything did.
 pub type ReadinessView = (
     mdbn_wire::client::SyncStatus,
     bool,
     Option<mdbn_replica::AdoptStatus>,
+    Option<mdbn_replica::Fence>,
 );
 
 /// A local collection's inventory: confirmed `(record ID, path)` in ID order and
@@ -129,6 +131,12 @@ pub(super) enum Cmd {
     Inventory(oneshot::Sender<Option<Inventory>>),
     /// Stop admitting writes, settle, take the inventory and hold counts, stop.
     Freeze(oneshot::Sender<Result<Frozen, Option<crate::sync_failure::Failure>>>),
+    /// Test-only: block the actor until the sender is dropped (a busy collection).
+    #[cfg(test)]
+    TestPark(std::sync::mpsc::Receiver<()>),
+    /// Test-only: fail the store's next commits with an unknown outcome.
+    #[cfg(test)]
+    TestFailUnknownCommits(u32, oneshot::Sender<()>),
     #[cfg(test)]
     TestSeedHold(
         Box<Option<mdbn_wire::client::Hold>>,

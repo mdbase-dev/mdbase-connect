@@ -31,9 +31,8 @@ explicit failure over silent recovery, and simplification over expansion.
   `runtime/AGENTS.md`), which implements the mdbase specification. Apps and
   services ask it; they do not duplicate its semantics.
 - `mdbase-rs` is the deprecated legacy engine and is **not authoritative**. Do
-  not cite its code, docs or conformance corpora as mdbase behaviour. Only the
-  legacy Connect stack in root `crates/` still uses `../mdbase-rs` as a path
-  dependency, until that stack is retired.
+  not cite its code, docs or conformance corpora as mdbase behaviour. The legacy
+  root `crates/` stack has been retired.
 - Treat the local connector as the final authorization boundary. Every remote
   filesystem operation must be checked against its locally cached exact grant.
 - Never send local collection paths to the control plane or persist record
@@ -58,7 +57,9 @@ explicit failure over silent recovery, and simplification over expansion.
 - Regenerate public API/protocol inventories after resolving source conflicts;
   never hand-merge generated outputs. Keep the client README for onboarding;
   change-specific SDK/migration documentation belongs in fragments/topic pages.
-- Prepare betas with `pnpm version:set 0.1.0-beta.N` (supports `--dry-run`), which
-  updates release versions and assembles notes.
-  See `CONTRIBUTING.md` for formats, generator commands, and release-prep checks.
+- Release versions are plain semver allocated by continuous release from the
+  `changelog.d` fragments since the previous release: a `## Breaking` fragment
+  bumps the minor version (pre-1.0), anything else the patch. Never edit
+  release versions by hand. See `CONTRIBUTING.md` for formats and generator
+  commands.
 - `MDBASE_CONNECT_DEV_AUTH=1` is for local development only.

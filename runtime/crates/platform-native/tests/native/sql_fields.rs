@@ -16,12 +16,15 @@ use mdbn_store_file::testing::replica::plan::{project_record_query_index_row, qu
 use mdbn_store_file::testing::replica::store::{Head, RecordMeta, RecordRow, StoreError};
 use mdbn_store_file::testing::replica::store_query::*;
 
+type CapturedSql = Rc<RefCell<Vec<(String, Vec<SqlValue>)>>>;
+
 struct Trace {
     inner: SqliteIndex,
     blob_reads: Rc<Cell<usize>>,
     key_reads: Rc<Cell<usize>>,
     full_coverage_checks: Rc<Cell<usize>>,
     orphan_scans: Rc<Cell<usize>>,
+    captured: Option<CapturedSql>,
 }
 impl IndexStorage for Trace {
     fn info(&self) -> mdbn_store_file::index::IndexInfo {
@@ -32,6 +35,11 @@ impl IndexStorage for Trace {
     }
     fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
         for s in &batch.stmts {
+            if let Some(captured) = &self.captured {
+                captured
+                    .borrow_mut()
+                    .push((s.sql.clone(), s.params.clone()));
+            }
             if s.sql.contains("FROM st_qraw") {
                 assert!(
                     s.params.len()
@@ -114,6 +122,7 @@ fn open(name: &str, rows: Vec<RecordRow>, names: &[&str]) -> Fixture {
         key_reads: keys.clone(),
         full_coverage_checks: Rc::new(Cell::new(0)),
         orphan_scans: Rc::new(Cell::new(0)),
+        captured: None,
     }));
     let mut store = SqlStore::open(index.clone()).unwrap();
     let refs: Vec<_> = names.iter().map(|n| field(n)).collect();
@@ -145,6 +154,48 @@ fn atom(v: CoreValue) -> QueryAtom {
         kind: a.kind() as u8,
         key: a.key().to_vec(),
     }
+}
+
+#[test]
+fn hosted_cache_fences_old_projections_without_rewriting_them() {
+    let (store, index, _, _, _) = open(
+        "hosted-projection-retirement",
+        vec![row(1, "priority: 1")],
+        &["priority"],
+    );
+    drop(store);
+    let open_cache = || mdbn_store_file::LogCache::open(index.clone(), Default::default()).unwrap();
+    let old_projection = || {
+        index
+            .borrow_mut()
+            .run(&Batch {
+                mode: BatchMode::Autocommit,
+                stmts: vec![Stmt::new("SELECT count(*) FROM st_qbody_n", vec![])],
+            })
+            .unwrap()[0]
+            .values
+            .clone()
+    };
+    assert_eq!(old_projection(), vec![SqlValue::Integer(1)]);
+    let mut cache = open_cache();
+    cache
+        .commit(Tx {
+            records_put: vec![row(1, "priority: 2"), row(2, "priority: 3")],
+            ..Tx::default()
+        })
+        .unwrap();
+    drop(cache);
+    let cache = open_cache();
+    assert!(!cache.query_index_supported());
+    assert_eq!(cache.record_count().unwrap(), 2);
+    assert_eq!(old_projection(), vec![SqlValue::Integer(1)]);
+    assert!(
+        SqlStore::open(index.clone())
+            .unwrap()
+            .query_index_state()
+            .unwrap()
+            .is_none()
+    );
 }
 fn request(store: &SqlStore<Trace>, refs: &[FieldRef]) -> QueryIndexRequest {
     let state = store.query_index_state().unwrap().unwrap();
@@ -937,4 +988,396 @@ fn incremental_publication_checks_touched_records_only() {
     publish(&mut store, vec![again.clone()], vec![again], vec![]);
     assert_eq!(full(), before + 1);
     assert!(!store.query_index_state().unwrap().unwrap().ready);
+}
+
+#[test]
+fn indexed_mtime_ordering_handles_asc_desc_ties_cursors_and_absent_mtime() {
+    let mut rows = vec![
+        row(1, "priority: 1"),
+        row(2, "priority: 2"),
+        row(3, "priority: 3"),
+        row(4, "priority: 4"),
+        row(5, "priority: 5"),
+        row(6, "priority: 6"),
+    ];
+    rows[0].mtime = Some(1_700_000_001_000); // tasks/0001.md: oldest
+    rows[1].mtime = Some(1_700_000_002_000); // tasks/0002.md: tie
+    rows[2].mtime = Some(1_700_000_002_000); // tasks/0003.md: tie
+    rows[3].mtime = Some(1_700_000_003_000); // tasks/0004.md: newest
+    rows[4].mtime = None; // tasks/0005.md: absent (legacy snapshot)
+    rows[5].mtime = None; // tasks/0006.md: absent (tie on null)
+
+    let (store, _, blobs, _, _refs) = open("query_index_mtime", rows.clone(), &["priority"]);
+    assert_eq!(blobs.get(), 0);
+    let state = store.query_index_state().unwrap().unwrap();
+    for (descending, expected_paths) in [
+        (
+            true,
+            vec![
+                "tasks/0005.md",
+                "tasks/0006.md",
+                "tasks/0004.md",
+                "tasks/0002.md",
+                "tasks/0003.md",
+                "tasks/0001.md",
+            ],
+        ),
+        (
+            false,
+            vec![
+                "tasks/0001.md",
+                "tasks/0002.md",
+                "tasks/0003.md",
+                "tasks/0004.md",
+                "tasks/0005.md",
+                "tasks/0006.md",
+            ],
+        ),
+    ] {
+        // Page size 2 crosses null->temporal, distinct->tie, and tie->distinct boundaries.
+        let mut after = None;
+        let mut got = Vec::new();
+        loop {
+            let page = store
+                .query_index_page(&QueryIndexRequest {
+                    generation: state.generation,
+                    head: state.head,
+                    predicate: QueryPredicate::Types(vec!["task".into()]),
+                    order: vec![QueryOrder {
+                        column: QueryColumn::Mtime,
+                        descending,
+                    }],
+                    after,
+                    offset: 0,
+                    limit: 2,
+                    max_key_bytes: 1 << 20,
+                    count_matches: false,
+                })
+                .unwrap()
+                .unwrap();
+            got.extend(page.rows.iter().map(|r| r.path.clone()));
+            if !page.has_more {
+                break;
+            }
+            after = page.rows.last().cloned();
+        }
+        assert_eq!(got, expected_paths, "descending={descending}");
+        assert_eq!(blobs.get(), 0, "selection reads no record blobs");
+    }
+}
+
+#[test]
+fn descending_mtime_continuation_seeks_tie_bucket_by_path_and_null_mtime_path_uses_index() {
+    // 250 unknown-mtime rows (one large null tie bucket), 100 tied known-mtime
+    // rows, and 50 distinct known-mtime rows.
+    let mut rows = Vec::with_capacity(400);
+    for n in 1u16..=400 {
+        let mut r = row(n, "priority: 1");
+        r.mtime = if n <= 250 {
+            None
+        } else if n <= 350 {
+            Some(1_700_000_002_000)
+        } else {
+            Some(1_700_000_000_000 + i64::from(n) * 1_000)
+        };
+        rows.push(r);
+    }
+    let (store, index, blobs, _, _refs) = open("query_index_mtime_ties", rows, &["priority"]);
+    let state = store.query_index_state().unwrap().unwrap();
+
+    // 1) Unfiltered DESC paging across null tie bucket -> distinct temporal -> tied temporal.
+    let mut after = None;
+    let mut got = Vec::new();
+    while {
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::Types(vec!["task".into()]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: true,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 30,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        got.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert_eq!(got.len(), 400);
+    assert_eq!(got[0], "tasks/0001.md");
+    assert_eq!(got[249], "tasks/0250.md");
+    assert_eq!(got[250], "tasks/0400.md");
+    assert_eq!(got[299], "tasks/0351.md");
+    assert_eq!(got[300], "tasks/0251.md");
+    assert_eq!(got[399], "tasks/0350.md");
+
+    // 2) Phase (a): `has(file.mtime)` + `file.mtime DESC` returns only the 150 known rows.
+    let has_mtime = QueryPredicate::Not(Box::new(QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    }));
+    let mut after = None;
+    let mut known = Vec::new();
+    while {
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    has_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: true,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 40,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        known.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert_eq!(known.len(), 150);
+    assert_eq!(known[0], "tasks/0400.md");
+    assert_eq!(known[49], "tasks/0351.md");
+    assert_eq!(known[50], "tasks/0251.md");
+    assert_eq!(known[149], "tasks/0350.md");
+
+    // 3) Phase (b): `!has(file.mtime)` + `file.path ASC` returns only the 250 unknown rows
+    // via `st_qmtime_asc` without scanning known-mtime rows.
+    let no_mtime = QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    };
+    let mut after = None;
+    let mut unknown = Vec::new();
+    while {
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    no_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Path,
+                    descending: false,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 40,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        unknown.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert_eq!(unknown.len(), 250);
+    assert_eq!(unknown[0], "tasks/0001.md");
+    assert_eq!(unknown[249], "tasks/0250.md");
+    assert_eq!(blobs.get(), 0, "selection reads no record blobs");
+    let _ = index;
+}
+
+#[test]
+fn filtered_asc_mtime_continuation_seeks_sort_and_path_within_fixed_kind() {
+    let mut rows = Vec::with_capacity(200);
+    for n in 1u16..=200 {
+        let mut r = row(n, "priority: 1");
+        r.mtime = if n <= 50 {
+            None
+        } else if n <= 120 {
+            Some(1_700_000_002_000)
+        } else {
+            Some(1_700_000_000_000 + i64::from(n) * 1_000)
+        };
+        rows.push(r);
+    }
+    let (store, index, blobs, _, _refs) = open("query_index_mtime_asc_seek", rows, &["priority"]);
+    let state = store.query_index_state().unwrap().unwrap();
+    let captured = Rc::new(RefCell::new(Vec::new()));
+    index.borrow_mut().captured = Some(captured.clone());
+
+    let explain_details = |sql: &str, params: &[SqlValue]| -> Vec<String> {
+        let res = index
+            .borrow_mut()
+            .inner
+            .run(&Batch {
+                mode: BatchMode::Autocommit,
+                stmts: vec![Stmt::new(
+                    format!("EXPLAIN QUERY PLAN {sql}"),
+                    params.to_vec(),
+                )],
+            })
+            .unwrap();
+        let cols = usize::try_from(res[0].columns).unwrap();
+        res[0]
+            .values
+            .chunks_exact(cols)
+            .filter_map(|row| match &row[cols - 1] {
+                SqlValue::Text(t) => Some(t.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+
+    // 1) `has(file.mtime)` + `file.mtime ASC`: exact pagination and continuation seeks `(sort, path)` within `kind=?`.
+    let has_mtime = QueryPredicate::Not(Box::new(QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    }));
+    let mut after = None;
+    let mut got = Vec::new();
+    let mut continuation_checked = false;
+    while {
+        captured.borrow_mut().clear();
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    has_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: false,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 30,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        if after.is_some() && !continuation_checked {
+            let stmts: Vec<_> = captured
+                .borrow()
+                .iter()
+                .filter(|(sql, _)| sql.contains("INDEXED BY st_qmtime_asc"))
+                .cloned()
+                .collect();
+            assert!(!stmts.is_empty());
+            for (sql, params) in stmts {
+                let details = explain_details(&sql, &params);
+                assert!(
+                    details.iter().any(|d| {
+                        d.contains("COVERING INDEX st_qmtime_asc (kind=? AND (sort,path)>(?,?))")
+                    }),
+                    "expected (kind, (sort, path)) seek in plan: {details:?}\nSQL: {sql}"
+                );
+                assert!(
+                    !details.iter().any(|d| d.contains("TEMP B-TREE")),
+                    "unexpected temp sort in plan: {details:?}"
+                );
+            }
+            continuation_checked = true;
+        }
+        got.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert!(continuation_checked);
+    assert_eq!(got.len(), 150);
+    assert_eq!(got[0], "tasks/0051.md");
+    assert_eq!(got[69], "tasks/0120.md");
+    assert_eq!(got[70], "tasks/0121.md");
+    assert_eq!(got[149], "tasks/0200.md");
+
+    // 2) `!has(file.mtime)` + `file.mtime ASC`: continuation seeks `path>?` within fixed `(kind, sort)`.
+    let no_mtime = QueryPredicate::Compare {
+        column: QueryColumn::Mtime,
+        op: QueryCompare::Eq,
+        value: QueryAtom {
+            kind: 255,
+            key: vec![],
+        },
+    };
+    let mut after = None;
+    let mut unknown = Vec::new();
+    let mut null_continuation_checked = false;
+    while {
+        captured.borrow_mut().clear();
+        let page = store
+            .query_index_page(&QueryIndexRequest {
+                generation: state.generation,
+                head: state.head,
+                predicate: QueryPredicate::And(vec![
+                    QueryPredicate::Types(vec!["task".into()]),
+                    no_mtime.clone(),
+                ]),
+                order: vec![QueryOrder {
+                    column: QueryColumn::Mtime,
+                    descending: false,
+                }],
+                after: after.clone(),
+                offset: 0,
+                limit: 20,
+                max_key_bytes: 1 << 20,
+                count_matches: false,
+            })
+            .unwrap()
+            .unwrap();
+        if after.is_some() && !null_continuation_checked {
+            let stmts: Vec<_> = captured
+                .borrow()
+                .iter()
+                .filter(|(sql, _)| sql.contains("INDEXED BY st_qmtime_asc"))
+                .cloned()
+                .collect();
+            assert!(!stmts.is_empty());
+            for (sql, params) in stmts {
+                let details = explain_details(&sql, &params);
+                assert!(
+                    details.iter().any(|d| {
+                        d.contains("COVERING INDEX st_qmtime_asc (kind=? AND sort=? AND path>?)")
+                    }),
+                    "expected (kind, sort, path) seek in plan: {details:?}\nSQL: {sql}"
+                );
+                assert!(
+                    !details.iter().any(|d| d.contains("TEMP B-TREE")),
+                    "unexpected temp sort in plan: {details:?}"
+                );
+            }
+            null_continuation_checked = true;
+        }
+        unknown.extend(page.rows.iter().map(|r| r.path.clone()));
+        after = page.rows.last().cloned();
+        page.has_more
+    } {}
+    assert!(null_continuation_checked);
+    assert_eq!(unknown.len(), 50);
+    assert_eq!(unknown[0], "tasks/0001.md");
+    assert_eq!(unknown[49], "tasks/0050.md");
+    assert_eq!(blobs.get(), 0, "selection reads no record blobs");
 }

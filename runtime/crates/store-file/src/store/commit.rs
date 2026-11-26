@@ -42,6 +42,9 @@ impl<P: FilePlatform, M: Store, D: DiskDb> FileStore<P, M, D> {
     }
 
     pub(super) fn ensure_commit_available(&self) -> StoreResult<()> {
+        if let Some(err) = &self.deferral_fault {
+            return Err(err.clone());
+        }
         if self.commit_active.get() || self.queued.fault {
             Err(StoreError::Io(
                 "original file commit unresolved: drain original host IO and reopen".into(),

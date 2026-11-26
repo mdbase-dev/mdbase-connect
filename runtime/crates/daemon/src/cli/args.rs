@@ -2,6 +2,11 @@
 
 use super::*;
 
+pub(super) const UNKNOWN_PROVENANCE_GUIDANCE: &str = "An unknown_provenance hold exists only on this computer. \
+    If another computer edited the file, it won't show this hold. \
+    Resolve it here with `mdbase resolve <collection> <id> keep_both` to preserve both versions. \
+    Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder.";
+
 /// The data commands' examples, after the command list.
 const DATA_HELP: &str = "\
 Records: `read`, `query`, `validate`, `types` and the writes work on the folder
@@ -51,6 +56,16 @@ pub(super) enum ConflictCmd {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Pair a web app with a local collection. Guided, foreground, no account.
+    #[cfg(unix)]
+    PairApp {
+        /// Markdown collection to serve (defaults to the current folder).
+        #[arg(default_value = ".")]
+        folder: PathBuf,
+    },
+    /// Serve one local collection with explicit transport and origin settings, or manage browser access.
+    #[cfg(unix)]
+    SelfHost(self_host::Args),
     /// Daemon and collection overview.
     Status,
     /// Manage the background daemon.
@@ -66,6 +81,7 @@ pub(super) enum Command {
         limit: u64,
     },
     /// Files held instead of overwritten, waiting for you to resolve them.
+    #[command(after_long_help = UNKNOWN_PROVENANCE_GUIDANCE)]
     Holds {
         /// Collection ID, ID prefix or name.
         collection: String,
@@ -86,7 +102,7 @@ pub(super) enum Command {
         #[command(subcommand)]
         command: Option<ConflictCmd>,
     },
-    /// Turn sync on or off (moves the collection's log).
+    /// Manage collection sync and switch sync mode.
     #[command(subcommand)]
     Sync(SyncCmd),
     /// Let another computer of yours open a private collection.
@@ -116,9 +132,6 @@ pub(super) enum Command {
     /// Sign this computer in to your mdbase account (or out).
     #[command(subcommand)]
     Account(AccountCmd),
-    /// Take over the collections today's mdbase Connect serves on this computer.
-    #[command(subcommand)]
-    Migrate(MigrateCmd),
     /// Device settings.
     Settings {
         /// Require approval on this computer before a new app can use a local
@@ -180,6 +193,10 @@ pub(super) enum CollectionCmd {
         /// approve from another of your devices (`mdbase device approve`).
         #[arg(long)]
         private: bool,
+        /// Preserve the old sync store of a cloud copy you removed on this computer
+        /// and download a fresh copy into the empty folder.
+        #[arg(long, conflicts_with = "private")]
+        recover_removed: bool,
     },
     /// Unregister a local folder. Does not delete the synced collection or files.
     Remove {
@@ -191,15 +208,15 @@ pub(super) enum CollectionCmd {
     Delete {
         /// Registered name, ID prefix, or full synced collection ID.
         collection: String,
-        /// Type the collection's current shared name to confirm deletion.
+        /// Type the current shared name shown in the Portal, not a local alias.
         #[arg(long, value_name = "NAME")]
         confirm: String,
     },
-    /// Rename a collection or change its description. Files are untouched.
+    /// Change the collection name or description on this computer only. Files are untouched.
     Update {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// New display name.
+        /// Local display name. To change the shared name, rename the collection in the Portal.
         #[arg(long)]
         name: Option<String>,
         /// New description (an empty string clears it).
@@ -235,30 +252,26 @@ pub(super) enum SyncCmd {
     Enable {
         /// Collection ID, ID prefix or name.
         collection: String,
-        /// `private` or `cloud-copy`. Default: `cloud-copy`, or `private` for a
-        /// collection taken over from today's connector.
+        /// `private` or `cloud-copy`. Default: `cloud-copy`.
         #[arg(long, value_enum)]
         mode: Option<SyncKind>,
-        /// Turn sync on although files are still held from the takeover, keeping
-        /// this computer's version of each (review them first with `mdbase holds`).
-        #[arg(long)]
-        accept_takeover_holds: bool,
     },
-    /// Switch an already synced collection; explicit source consent is required.
+    /// Switch a synced collection between Private and Cloud copy.
     Mode {
         /// Collection ID, ID prefix or name.
         collection: String,
-        #[arg(value_enum)]
-        mode: SyncKind,
-        /// Advance existing local consent without asking to create new consent.
+        /// Target mode (`private` or `cloud-copy`). Optional with `--cancel`.
+        #[arg(value_enum, required_unless_present = "cancel")]
+        mode: Option<SyncKind>,
+        /// Cancel an in-progress switch before policy is published.
         #[arg(long)]
-        resume: bool,
-        /// Cancel only if no switch policy can have been published.
-        #[arg(long, conflicts_with = "resume")]
         cancel: bool,
     },
-    /// Current collection-mode request and progress.
-    ModeStatus { collection: String },
+    /// Show a synced collection's current mode and any switch in progress.
+    ModeStatus {
+        /// Collection ID, ID prefix or name.
+        collection: String,
+    },
     /// Show which files the collection syncs, or replace that choice with `--set`
     /// for every device. Files already synced stay where they are.
     Files {
@@ -277,24 +290,6 @@ pub(super) enum SyncCmd {
         /// Leave out files larger than this many bytes.
         #[arg(long, requires = "set")]
         max_size: Option<u64>,
-    },
-    /// Move the log back to this device (local only).
-    Disable {
-        /// Collection ID, ID prefix or name.
-        collection: String,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-pub(super) enum MigrateCmd {
-    /// Takeover progress per collection (works with the daemon stopped).
-    Status,
-    /// Explicitly run or resume takeover once Connect allows it for this account.
-    Start {
-        /// Proceed past old hosted mirror folders once their upload queues are
-        /// empty; they stop syncing until they join the migrated collection.
-        #[arg(long)]
-        stop_mirrors: bool,
     },
 }
 
@@ -346,10 +341,15 @@ pub(super) enum AccessCmd {
         /// Grant ID.
         grant: String,
     },
-    /// Mark a new-access notice as seen.
+    /// Mark a new-access notice as seen: one grant's, or with `--collection`
+    /// every one of a collection. Apps waiting for approval stay waiting.
     Ack {
         /// Grant ID.
-        grant: String,
+        #[arg(required_unless_present = "collection", conflicts_with = "collection")]
+        grant: Option<String>,
+        /// Every new-access notice of this collection (ID, ID prefix or name).
+        #[arg(long)]
+        collection: Option<String>,
     },
 }
 
@@ -422,9 +422,36 @@ mod takeover_cli_tests {
     use super::*;
 
     #[test]
-    fn sync_parses_enable_and_disable() {
+    fn collection_help_distinguishes_local_and_shared_names() {
+        let help = |command| {
+            Cli::try_parse_from(["mdbase", "collection", command, "--help"])
+                .unwrap_err()
+                .to_string()
+        };
+        let update = help("update");
+        assert!(update.contains("on this computer only"));
+        assert!(update.contains("shared name") && update.contains("Portal"));
+        let delete = help("delete");
+        assert!(delete.contains("shared name") && delete.contains("Portal"));
+    }
+
+    #[test]
+    fn holds_help_explains_local_recovery_and_folder_cleanup() {
+        let help = Cli::try_parse_from(["mdbase", "holds", "--help"])
+            .unwrap_err()
+            .to_string();
+        assert!(help.contains("An unknown_provenance hold exists only on this computer."));
+        assert!(help.contains("If another computer edited the file, it won't show this hold."));
+        assert!(
+            help.contains("`mdbase resolve <collection> <id> keep_both` to preserve both versions")
+        );
+        assert!(help.contains("Once the computers agree, move the preserved edit to the intended folder if it is still in the old folder."));
+    }
+
+    #[test]
+    fn sync_parses_enable_and_rejects_removed_disable() {
         assert!(Cli::try_parse_from(["mdbase", "sync", "enable", "Notes"]).is_ok());
-        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_ok());
+        assert!(Cli::try_parse_from(["mdbase", "sync", "disable", "Notes"]).is_err());
     }
 
     #[test]
@@ -443,11 +470,5 @@ mod takeover_cli_tests {
             ));
         }
         assert!(Cli::try_parse_from(["mdbase", "conflicts", "dismiss"]).is_err());
-    }
-
-    #[test]
-    fn migrate_start_has_no_rollout_override() {
-        assert!(Cli::try_parse_from(["mdbase", "migrate", "start"]).is_ok());
-        assert!(Cli::try_parse_from(["mdbase", "migrate", "start", "--ignore-rollout"]).is_err());
     }
 }

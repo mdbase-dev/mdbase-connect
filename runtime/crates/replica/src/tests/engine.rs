@@ -106,6 +106,7 @@ mod path_fields;
 mod private_switch;
 mod private_switch_crypto;
 mod receipt_fanout;
+mod update_replay;
 
 pub(super) const COL: B16 = B16([7; 16]);
 
@@ -705,6 +706,7 @@ fn retained_budget_never_prunes_unconfirmed_pending_intents() {
             head: Some(head),
             ..Tx::default()
         },
+        crate::replica::verdicts::Verdict::Applied,
     )
     .unwrap();
     assert!(a.r.store().own_retained(0, 10).unwrap().is_empty());
@@ -850,7 +852,11 @@ fn retained_void_and_read_ahead_control_keep_exact_head_bytes() {
     settle(&mut [&mut a]);
     let seq = crate::testkit::TestControlPlane::new(COL).revoke(&svc, B16([109; 16]));
     let raw = svc.items(&COL)[seq as usize - 1].clone();
-    a.r.evaluate_control_bytes(seq, &raw).unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq,
+        item: mdbn_wire::common::Bytes(raw.clone()),
+    }])
+    .unwrap();
     let before = a.r.head();
     assert!(a.r.policy.seq > before.seq);
     a.r.apply_items(vec![mdbn_wire::log_service::SeqItem {
@@ -1172,6 +1178,77 @@ fn own_write_confirmation_is_not_announced_again() {
             .collect::<Vec<_>>(),
         ["b.md"]
     );
+}
+
+/// One notification's changes share a version. A page that ends inside that
+/// version resumes inside it, so no change is skipped and no page exceeds its
+/// limit.
+#[test]
+fn change_feed_pages_resume_inside_a_version() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    let start = a.r.changes(a.s, None, None, false).unwrap().cursor;
+    a.create(10, "a.md", "a");
+    a.create(11, "b.md", "b");
+    // One notification that announced three records: same version as b.md.
+    for (n, path) in [(9u8, "c.md"), (8, "d.md")] {
+        let mut grouped = a.r.live.feed.back().unwrap().clone();
+        grouped.id = mdbn_wire::common::B16([n; 16]);
+        grouped.path = path.into();
+        a.r.live.feed.push_back(grouped);
+    }
+    let paths = |r: &crate::api::ChangesResult| {
+        r.changes.iter().map(|c| c.path.clone()).collect::<Vec<_>>()
+    };
+    let first =
+        a.r.changes(a.s, Some(start.clone()), Some(2), false)
+            .unwrap();
+    assert_eq!(paths(&first), ["a.md", "b.md"], "{first:?}");
+    let second =
+        a.r.changes(a.s, Some(first.cursor), Some(1), false)
+            .unwrap();
+    assert_eq!(paths(&second), ["c.md"], "{second:?}");
+    let third =
+        a.r.changes(a.s, Some(second.cursor), Some(2), false)
+            .unwrap();
+    assert_eq!(paths(&third), ["d.md"], "{third:?}");
+    assert!(!third.reset);
+    let rest =
+        a.r.changes(a.s, Some(third.cursor), Some(2), false)
+            .unwrap();
+    assert!(rest.changes.is_empty() && !rest.reset, "{rest:?}");
+    // A page that ends exactly at a version's end needs no offset.
+    let whole = a.r.changes(a.s, Some(start), Some(4), false).unwrap();
+    assert_eq!(paths(&whole), ["a.md", "b.md", "c.md", "d.md"]);
+    assert_eq!(whole.cursor.split(':').count(), 2, "{whole:?}");
+}
+
+/// A cursor inside a version the window has partly dropped cannot resume:
+/// it resets rather than skip the dropped changes.
+#[test]
+fn change_feed_cursor_inside_a_trimmed_version_resets() {
+    let svc = FakeLogService::new();
+    let mut a = node(&svc, 1, MemStore::new());
+    settle(&mut [&mut a]);
+    a.create(10, "a.md", "a");
+    let version = a.r.live.feed.back().unwrap().version;
+    let inst = a.r.live.instance;
+    a.r.live.feed_floor = version;
+    let inside =
+        a.r.changes(a.s, Some(format!("{inst}:{version}:0")), Some(5), false)
+            .unwrap();
+    assert!(inside.reset, "{inside:?}");
+    let after =
+        a.r.changes(a.s, Some(format!("{inst}:{version}")), Some(5), false)
+            .unwrap();
+    assert!(!after.reset, "{after:?}");
+    for bad in [
+        format!("{inst}:{version}:x"),
+        format!("{inst}:{version}:0:0"),
+    ] {
+        assert!(a.r.changes(a.s, Some(bad), Some(5), false).unwrap().reset);
+    }
 }
 
 /// Live queries are capped per session (each is
@@ -1743,20 +1820,23 @@ fn failed_control_read_requires_reopen_without_staging_cleanup_commit() {
     let seq = crate::testkit::TestControlPlane::new(COL).revoke(&svc, B16([109; 16]));
     a.r.install = Some(crate::replica::TestInstall::Control);
     a.r.store().fail_after_commit(1);
-    a.r.on_install_reply(Ok(crate::log::LogResponse::Read(
-        mdbn_wire::log_service::ReadResult {
-            items: vec![mdbn_wire::log_service::SeqItem {
-                seq,
-                item: mdbn_wire::common::Bytes(svc.items(&COL)[seq as usize - 1].clone()),
-            }],
-            head: seq,
-            head_chain: svc.head(&COL).1,
-            retained_from: 1,
-            behind: false,
-            snapshot: None,
-            more: false,
-        },
-    )));
+    a.r.on_install_reply(
+        crate::log::CallId(0),
+        Ok(crate::log::LogResponse::Read(
+            mdbn_wire::log_service::ReadResult {
+                items: vec![mdbn_wire::log_service::SeqItem {
+                    seq,
+                    item: mdbn_wire::common::Bytes(svc.items(&COL)[seq as usize - 1].clone()),
+                }],
+                head: seq,
+                head_chain: svc.head(&COL).1,
+                retained_from: 1,
+                behind: false,
+                snapshot: None,
+                more: false,
+            },
+        )),
+    );
     assert!(a.r.requires_reopen());
     assert_eq!(a.r.head(), head);
     assert_eq!(
@@ -1820,7 +1900,10 @@ fn failed_staging_discard_blocks_install_until_retry() {
     // An aborted install A fails to discard its staged rows.
     b.r.install = Some(crate::replica::TestInstall::Pointer);
     b.r.store().fail_commits(1);
-    b.r.on_install_reply(Ok(crate::log::LogResponse::GetSnapshot(vec![])));
+    b.r.on_install_reply(
+        crate::log::CallId(0),
+        Ok(crate::log::LogResponse::GetSnapshot(vec![])),
+    );
     assert_eq!(b.r.store().staged_rows(), 1);
     assert_eq!(b.r.head(), old_head);
     assert_eq!(b.r.confirmed_records().unwrap(), old_records);
@@ -2964,13 +3047,13 @@ fn account_key_unlocks_a_new_device_without_another_device() {
         "an outstanding rekey, including a void rekey, cannot complete strict"
     );
     a.r.policy.rekey_required = false;
-    a.r.apply_fault = true;
+    a.r.apply_fault = Some(crate::Fence::Store);
     assert!(
         a.r.account_key_strict_witness(crate::testkit::TEST_OWNER, rk.device, 7, revoked_at)
             .is_none(),
         "uncertain durability must not attest application"
     );
-    a.r.apply_fault = false;
+    a.r.apply_fault = None;
     // Only a healthy, current applied state attests.
     let witness_now = |a: &mut Node| {
         a.r.account_key_strict_witness(crate::testkit::TEST_OWNER, rk.device, 7, revoked_at)
@@ -3143,7 +3226,7 @@ fn account_key_unknown_commit_faults_until_reopen() {
         b.r.account_key_unlock_state(),
         Err(AccountKeyRefusal::OutcomeUnknown)
     );
-    assert!(b.r.apply_fault);
+    assert!(b.r.apply_fault.is_some());
     assert_eq!(
         b.r.self_grant_with_account_key(RecoveryKey::from_bytes(*r.expose()).derive(&COL)),
         Err(AccountKeyRefusal::OutcomeUnknown)
@@ -3402,7 +3485,7 @@ fn account_key_unlock_before_the_collection_is_keyed_is_retryable() {
         )),
         "a not-yet-keyed account key must not fail the collection: {incidents:?}"
     );
-    assert!(!b.r.apply_fault);
+    assert!(b.r.apply_fault.is_none());
     // A holds R: the control plane enrols the account-key device (proof of
     // possession; a repeated enrolment is answered from the prior one, Connect
     // #635), A keys it. Keying again is a no-op.
@@ -3535,7 +3618,7 @@ fn account_key_unlock_before_the_policy_applies_is_not_ready() {
         "not ready, never the settled not_private"
     );
     assert!(b.r.testing_epoch_keys().is_empty());
-    assert!(!b.r.apply_fault);
+    assert!(b.r.apply_fault.is_none());
     // The policy applies: the same unlock now succeeds.
     settle(&mut [&mut a, &mut b]);
     assert_eq!(b.r.policy.cstate, Some(mdbn_wire::policy::CState::E2e));
@@ -3602,7 +3685,7 @@ fn account_key_on_a_cloud_copy_collection_is_not_private() {
         a.r.account_key_unlock_state(),
         Err(AccountKeyRefusal::NotPrivate)
     );
-    assert!(!a.r.apply_fault);
+    assert!(a.r.apply_fault.is_none());
 }
 
 /// A manifest with a forged signature, or one whose control chain differs
@@ -4021,7 +4104,10 @@ fn opaque_checkpoint_failures_fault_until_reopen_without_serving_or_sealing() {
         };
         a.r.store().fail_commits(1);
         a.r.apply_items(vec![item.clone()]);
-        assert!(a.r.apply_fault, "opaque state is never assumed restored");
+        assert!(
+            a.r.apply_fault.is_some(),
+            "opaque state is never assumed restored"
+        );
         assert_eq!(
             a.r.status(a.s).unwrap_err().code(),
             Some(ErrorCode::Unavailable)
@@ -4036,7 +4122,7 @@ fn opaque_checkpoint_failures_fault_until_reopen_without_serving_or_sealing() {
         );
         let mut reopened = node(&svc, 1, a.r.into_store());
         settle(&mut [&mut reopened]);
-        assert!(!reopened.r.apply_fault);
+        assert!(reopened.r.apply_fault.is_none());
         assert!(!reopened.r.policy.devices[&B16([109; 16])].active);
     }
 }
@@ -4086,7 +4172,7 @@ fn unknown_control_commit_outcome_or_durability_read_faults_until_reopen() {
         assert!(a.r.take_log_calls().is_empty());
         let mut reopened = node(&svc, 1, a.r.into_store());
         settle(&mut [&mut reopened]);
-        assert!(!reopened.r.apply_fault);
+        assert!(reopened.r.apply_fault.is_none());
         assert!(!reopened.r.policy.devices[&B16([109; 16])].active);
     }
 }
@@ -4101,15 +4187,25 @@ fn control_read_ahead_metadata_failure_restores_policy_before_retry() {
     let seq = crate::testkit::TestControlPlane::new(COL).revoke(&svc, revoked);
     let raw = svc.items(&COL)[seq as usize - 1].clone();
     a.r.store().fail_commits(1);
-    assert!(a.r.evaluate_control_bytes(seq, &raw).is_err());
+    assert!(
+        a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq,
+            item: mdbn_wire::common::Bytes(raw.clone()),
+        }])
+        .is_err()
+    );
     assert!(a.r.policy.devices[&revoked].active);
     assert_eq!(a.r.head(), before);
-    assert!(!a.r.apply_fault, "known abort may retry");
+    assert!(a.r.apply_fault.is_none(), "known abort may retry");
     assert_eq!(
         a.r.status(a.s).unwrap_err().code(),
         Some(ErrorCode::Unavailable)
     );
-    a.r.evaluate_control_bytes(seq, &raw).unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq,
+        item: mdbn_wire::common::Bytes(raw.clone()),
+    }])
+    .unwrap();
     assert!(!a.r.requires_reopen());
     assert_eq!(
         a.r.status(a.s).unwrap_err().problem().reason.as_deref(),
@@ -4623,8 +4719,11 @@ fn read_ahead_failure_barrier_survives_a_successful_lower_prefix() {
     let raw = svc.items(&COL);
     a.r.store().fail_commits(1);
     assert!(
-        a.r.evaluate_control_bytes(target, &raw[target as usize - 1])
-            .is_err()
+        a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq: target,
+            item: mdbn_wire::common::Bytes(raw[target as usize - 1].clone()),
+        }])
+        .is_err()
     );
     a.r.apply_items(vec![mdbn_wire::log_service::SeqItem {
         seq: prefix,
@@ -4648,8 +4747,11 @@ fn read_ahead_failure_barrier_survives_a_successful_lower_prefix() {
             .iter()
             .all(|(_, p)| matches!(p, Push::Closed(_)))
     );
-    a.r.evaluate_control_bytes(target, &raw[target as usize - 1])
-        .unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq: target,
+        item: mdbn_wire::common::Bytes(raw[target as usize - 1].clone()),
+    }])
+    .unwrap();
     assert!(
         a.r.is_apply_recovering(),
         "policy read-ahead is not an applied prefix"
@@ -5715,6 +5817,11 @@ fn pinned_genesis_cold_mismatch_is_terminal() {
     assert!(has_integrity(&a));
     assert!(a.r.requires_reopen());
     assert_eq!(
+        a.r.fence(),
+        Some(crate::Fence::Genesis),
+        "a log-side fence, not a store fault"
+    );
+    assert_eq!(
         a.r.status(a.s).unwrap_err().code(),
         Some(ErrorCode::Unavailable),
         "the open session is closed"
@@ -5837,6 +5944,7 @@ fn pinned_genesis_guards_the_install_path() {
     assert_eq!(c.r.head().seq, 0);
     assert!(c.r.confirmed_records().unwrap().is_empty());
     assert!(c.r.requires_reopen());
+    assert_eq!(c.r.fence(), Some(crate::Fence::Genesis));
 
     let raw = svc.items(&COL);
     let mut d = node_pinned(
@@ -5848,7 +5956,11 @@ fn pinned_genesis_guards_the_install_path() {
         Some(genesis),
     );
     assert!(
-        d.r.evaluate_control_bytes(2, &raw[1]).is_err(),
+        d.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq: 2,
+            item: mdbn_wire::common::Bytes(raw[1].clone()),
+        }])
+        .is_err(),
         "seq 1 first"
     );
     assert!(d.r.requires_reopen());
@@ -5860,8 +5972,17 @@ fn pinned_genesis_guards_the_install_path() {
         None,
         Some(genesis),
     );
-    e.r.evaluate_control_bytes(1, &raw[0]).unwrap();
-    e.r.evaluate_control_bytes(2, &raw[1]).unwrap();
+    e.r.evaluate_control_page(&[
+        mdbn_wire::log_service::SeqItem {
+            seq: 1,
+            item: mdbn_wire::common::Bytes(raw[0].clone()),
+        },
+        mdbn_wire::log_service::SeqItem {
+            seq: 2,
+            item: mdbn_wire::common::Bytes(raw[1].clone()),
+        },
+    ])
+    .unwrap();
 }
 
 /// The genesis marker is part of the apply checkpoint: an aborted seq 1 leaves no
@@ -5886,14 +6007,24 @@ fn pinned_genesis_marker_follows_the_apply_checkpoint() {
         Some(genesis),
     );
     a.r.store().fail_commits(1);
-    assert!(a.r.evaluate_control_bytes(1, &raw[0]).is_err());
+    assert!(
+        a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+            seq: 1,
+            item: mdbn_wire::common::Bytes(raw[0].clone()),
+        }])
+        .is_err()
+    );
     assert_eq!(a.r.genesis, None);
     assert_eq!(
         crate::store::Store::meta(a.r.store(), crate::store::meta_keys::GENESIS).unwrap(),
         None
     );
     assert!(!a.r.requires_reopen(), "known abort may retry");
-    a.r.evaluate_control_bytes(1, &raw[0]).unwrap();
+    a.r.evaluate_control_page(&[mdbn_wire::log_service::SeqItem {
+        seq: 1,
+        item: mdbn_wire::common::Bytes(raw[0].clone()),
+    }])
+    .unwrap();
     assert_eq!(a.r.genesis, Some(genesis));
 
     // An outer known abort after the inner seq-1 commit restores the prior marker.
@@ -6367,6 +6498,416 @@ fn a_grant_only_escrow_never_rekeys() {
     };
     assert_eq!(escrow_rekeys(true), 0, "grant-only: never a rekey");
     assert_eq!(escrow_rekeys(false), 1, "the protocol itself allows it");
+}
+
+/// Session invalidation must not depend on read-page boundaries: revoking the
+/// only keyed escrow in a Cloud Copy collection invalidates a session whose
+/// grant has no device approval, even if a rekey/key-grant to a replacement
+/// escrow restores the grant later in the same read page (both with and without
+/// deferred durability).
+#[test]
+fn session_invalidation_does_not_depend_on_read_page_boundaries() {
+    use crate::store::*;
+    use crate::testkit::TEST_OWNER;
+    use mdbn_wire::client::{Hold, Include, QueryResult};
+    use mdbn_wire::common::{Bytes, Hash, Uuid, Value};
+    use mdbn_wire::log_service::SeqItem;
+    use mdbn_wire::policy::{CState, DeviceKind, Grant, PolicyOp};
+    use mdbn_wire::schema::Wire;
+
+    /// Wraps `MemStore` with deferred durability disabled, proving the same
+    /// page-boundary invariance holds on stores without a deferred window.
+    struct NoDeferStore(MemStore);
+    impl Store for NoDeferStore {
+        fn head(&self) -> StoreResult<Head> {
+            self.0.head()
+        }
+        fn record(&self, id: &Uuid) -> StoreResult<Option<RecordRow>> {
+            self.0.record(id)
+        }
+        fn record_at(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.0.record_at(path_key)
+        }
+        fn records(&self, page: Page) -> StoreResult<Vec<RecordRow>> {
+            self.0.records(page)
+        }
+        fn records_in_buckets(
+            &self,
+            range: std::ops::Range<u32>,
+            page: Page,
+        ) -> StoreResult<Vec<RecordRow>> {
+            self.0.records_in_buckets(range, page)
+        }
+        fn record_count(&self) -> StoreResult<u64> {
+            self.0.record_count()
+        }
+        fn file(&self, id: &Uuid) -> StoreResult<Option<FileRow>> {
+            self.0.file(id)
+        }
+        fn file_at(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.0.file_at(path_key)
+        }
+        fn files(&self, page: Page) -> StoreResult<Vec<FileRow>> {
+            self.0.files(page)
+        }
+        fn files_in_buckets(
+            &self,
+            range: std::ops::Range<u32>,
+            page: Page,
+        ) -> StoreResult<Vec<FileRow>> {
+            self.0.files_in_buckets(range, page)
+        }
+        fn resource(&self, path: &str) -> StoreResult<Option<String>> {
+            self.0.resource(path)
+        }
+        fn resources(&self) -> StoreResult<Vec<(String, String)>> {
+            self.0.resources()
+        }
+        fn settings(&self) -> StoreResult<Option<mdbn_wire::intent::FileInclusion>> {
+            self.0.settings()
+        }
+        fn tombstone(&self, id: &Uuid) -> StoreResult<Option<TombstoneRow>> {
+            self.0.tombstone(id)
+        }
+        fn tombstones_at(&self, path_key: &str) -> StoreResult<Vec<TombstoneRow>> {
+            self.0.tombstones_at(path_key)
+        }
+        fn tombstones(&self, page: Page) -> StoreResult<Vec<TombstoneRow>> {
+            self.0.tombstones(page)
+        }
+        fn alias(&self, path_key: &str) -> StoreResult<Option<Uuid>> {
+            self.0.alias(path_key)
+        }
+        fn aliases(&self) -> StoreResult<Vec<AliasRow>> {
+            self.0.aliases()
+        }
+        fn conflicts(&self, of: Option<&Uuid>) -> StoreResult<Vec<ConflictRow>> {
+            self.0.conflicts(of)
+        }
+        fn conflict_count(&self) -> StoreResult<u64> {
+            self.0.conflict_count()
+        }
+        fn receipt(&self, mutation: &Uuid) -> StoreResult<Option<ReceiptRow>> {
+            self.0.receipt(mutation)
+        }
+        fn receipts(&self, after: Option<Uuid>, limit: u32) -> StoreResult<Vec<ReceiptRow>> {
+            self.0.receipts(after, limit)
+        }
+        fn referrers(&self, target_keys: &[String]) -> StoreResult<Vec<Uuid>> {
+            self.0.referrers(target_keys)
+        }
+        fn unique_holders(&self, field: &str, value_key: &str) -> StoreResult<Vec<Uuid>> {
+            self.0.unique_holders(field, value_key)
+        }
+        fn candidates(&self, q: &Candidate, page: Page) -> StoreResult<Vec<RecordRow>> {
+            self.0.candidates(q, page)
+        }
+        fn tail(&self, after: Seq, limit: u32) -> StoreResult<Vec<TailRow>> {
+            self.0.tail(after, limit)
+        }
+        fn tail_stats(&self) -> StoreResult<TailStats> {
+            self.0.tail_stats()
+        }
+        fn own_retained_stats(&self) -> StoreResult<TailStats> {
+            self.0.own_retained_stats()
+        }
+        fn own_retained(&self, after: Seq, limit: u32) -> StoreResult<Vec<(Seq, PendingRow)>> {
+            self.0.own_retained(after, limit)
+        }
+        fn pending(&self, after_order: Option<u64>, limit: u32) -> StoreResult<Vec<PendingRow>> {
+            self.0.pending(after_order, limit)
+        }
+        fn pending_get(&self, mutation: &Uuid) -> StoreResult<Option<PendingRow>> {
+            self.0.pending_get(mutation)
+        }
+        fn pending_count(&self) -> StoreResult<u64> {
+            self.0.pending_count()
+        }
+        fn local_receipt(&self, mutation: &Uuid) -> StoreResult<Option<LocalReceipt>> {
+            self.0.local_receipt(mutation)
+        }
+        fn holds(&self) -> StoreResult<Vec<Hold>> {
+            self.0.holds()
+        }
+        fn hold(&self, id: &Uuid) -> StoreResult<Option<Hold>> {
+            self.0.hold(id)
+        }
+        fn meta(&self, key: &str) -> StoreResult<Option<Vec<u8>>> {
+            self.0.meta(key)
+        }
+        fn transfer(&self, id: &Uuid) -> StoreResult<Option<TransferRow>> {
+            self.0.transfer(id)
+        }
+        fn transfer_chunk(&self, id: &Uuid, index: u64) -> StoreResult<Option<Vec<u8>>> {
+            self.0.transfer_chunk(id, index)
+        }
+        fn blob_size(&self, digest: &Hash) -> StoreResult<Option<u64>> {
+            self.0.blob_size(digest)
+        }
+        fn blob_read(&self, digest: &Hash, offset: u64, len: u64) -> StoreResult<Vec<u8>> {
+            self.0.blob_read(digest, offset, len)
+        }
+        fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+            self.0.commit(tx)
+        }
+    }
+
+    let svc = FakeLogService::new();
+    let mut cp = crate::testkit::TestControlPlane::new(COL);
+    let escrow1 = service(2, DeviceKind::Escrow);
+    let owner_dev = desktop(3);
+    cp.genesis(&svc, CState::CloudCopy, &[escrow1, owner_dev]);
+
+    let grant = B16([0x44; 16]);
+    let client_pk = [0x45u8; 32];
+    cp.append(
+        &svc,
+        vec![PolicyOp::Grant(Grant {
+            grant,
+            app_id: "app".into(),
+            account: TEST_OWNER,
+            capabilities: vec!["collection.read".into(), "records.create".into()],
+            client_pk: B32(client_pk),
+            file_folders: None,
+            folder_scoped: None,
+            installation: B16([0x46; 16]),
+        })],
+    );
+
+    let mut owner = node(&svc, 3, MemStore::new());
+    owner.r.cfg.user_enabled_cloud_copy = true;
+    settle(&mut [&mut owner]);
+    assert!(
+        !owner.r.policy.grant_approval_required(),
+        "cloud copy with keyed escrow1 makes the unapproved grant effective"
+    );
+    owner.create(1, "notes/before-1.md", "one\n");
+    owner.create(2, "notes/before-2.md", "two\n");
+    settle(&mut [&mut owner]);
+
+    let before_seq = owner.r.head().seq;
+    let prefix_items: Vec<SeqItem> = svc
+        .items(&COL)
+        .into_iter()
+        .enumerate()
+        .map(|(i, raw)| SeqItem {
+            seq: i as u64 + 1,
+            item: Bytes(raw),
+        })
+        .collect();
+
+    // Now produce the transition sequence on the log:
+    // 1. Revoke the only keyed escrow (grant loses effectiveness without approval).
+    // 2. Enrol a replacement escrow.
+    // 3. Rekey after revocation, then key_grant the replacement escrow (grant becomes effective again).
+    // 4. Write a note matching the client's live subscription.
+    cp.revoke(&svc, escrow1.device);
+    let escrow2 = service(5, DeviceKind::Escrow);
+    cp.enrol(&svc, escrow2);
+    settle(&mut [&mut owner]);
+    let kg = owner
+        .r
+        .sealer
+        .build_key_grant(
+            owner.r.policy.epoch,
+            &crate::crypto::keys::Recipient {
+                device: escrow2.device,
+                kem_pk: [0; 32],
+            },
+            &mut crate::crypto::TestEntropy::new(11),
+        )
+        .unwrap();
+    assert!(owner.r.append_control(
+        mdbn_wire::envelope::ItemKind::KeyGrant,
+        kg.to_bytes().unwrap()
+    ));
+    settle(&mut [&mut owner]);
+    assert!(
+        owner.r.policy.devices[&escrow2.device].keyed,
+        "key_grant must key replacement escrow2"
+    );
+    assert!(
+        !owner.r.policy.grant_approval_required(),
+        "grant is effective again at the end of the page"
+    );
+    owner.create(9, "notes/after-restore.md", "restored\n");
+    settle(&mut [&mut owner]);
+
+    let tail_items: Vec<SeqItem> = svc
+        .items(&COL)
+        .into_iter()
+        .enumerate()
+        .skip(before_seq as usize)
+        .map(|(i, raw)| SeqItem {
+            seq: i as u64 + 1,
+            item: Bytes(raw),
+        })
+        .collect();
+    assert!(tail_items.len() >= 4);
+
+    let hello = HelloParams {
+        versions: vec![Version { major: 1, minor: 0 }],
+        client_name: "app".into(),
+        client_version: "0".into(),
+        features: None,
+        timezone: None,
+    };
+
+    fn run_case<S: Store>(
+        store: S,
+        prefix_items: &[SeqItem],
+        tail_items: &[SeqItem],
+        split: bool,
+        grant: B16,
+        client_pk: [u8; 32],
+        hello: &HelloParams,
+    ) -> (bool, bool, Vec<Push>, bool) {
+        let mut r = Replica::open(
+            ReplicaConfig {
+                collection: COL,
+                replica_id: B16([4; 16]),
+                device_id: B16([103; 16]),
+                mode: mdbn_wire::client::SyncMode::Synced,
+                log_endpoint: EndpointId(1),
+                verify: true,
+                runtime_version: "test".into(),
+                trusted_roots: vec![crate::testkit::TEST_ROOT, crate::testkit::signed_root()],
+                trusted_signers: test_devices(),
+                e2e: false,
+                user_enabled_cloud_copy: true,
+                chosen_state: None,
+                expected_genesis: None,
+                key_grants_only: false,
+                policy_pins: None,
+            },
+            store,
+            Box::new(TestPlanner),
+            Box::new(crate::seal::PlainSealer::for_device(B16([103; 16]))),
+            Host {
+                clock: Box::new(mdbn_core::host::FixedClock(1_000)),
+                entropy: Box::new(crate::crypto::TestEntropy::new(4)),
+                zones: Box::new(UtcOnly),
+            },
+            DeviceSecrets {
+                sign_sk: [0; 32],
+                kem_sk: [0; 32],
+            },
+        )
+        .unwrap();
+        r.apply_items(prefix_items.to_vec());
+        let (session, _) = r
+            .hello(SessionAuth::Grant { grant, client_pk }, hello.clone())
+            .expect("grant effective while escrow1 is keyed");
+        let inc = Include {
+            body: None,
+            document: None,
+            effective: None,
+            diagnostics: None,
+        };
+        let _sub = r
+            .subscribe(session, Value::Map(vec![]), inc.clone())
+            .unwrap();
+        let feed = r.changes(session, None, None, true).unwrap();
+        let _ = r.take_pushes();
+
+        let mut session_pushes = Vec::new();
+        if split {
+            for item in tail_items {
+                r.apply_items(vec![item.clone()]);
+                for (s, p) in r.take_pushes() {
+                    if s == session {
+                        session_pushes.push(p);
+                    }
+                }
+            }
+        } else {
+            r.apply_items(tail_items.to_vec());
+            for (s, p) in r.take_pushes() {
+                if s == session {
+                    session_pushes.push(p);
+                }
+            }
+        }
+
+        let old_session_alive = r.query(session, Value::Map(vec![]), inc.clone()).is_ok();
+        let feed_alive = r.changes(session, Some(feed.cursor), None, false).is_ok();
+        let fresh_hello_ok: Result<(SessionId, _), _> =
+            r.hello(SessionAuth::Grant { grant, client_pk }, hello.clone());
+        let fresh_ok = fresh_hello_ok.is_ok_and(|(s2, _)| {
+            let qr: QueryResult = r.query(s2, Value::Map(vec![]), inc).unwrap();
+            qr.records.len() == 3
+        });
+        (old_session_alive, feed_alive, session_pushes, fresh_ok)
+    }
+
+    for (label, one, split) in [
+        (
+            "deferred store",
+            run_case(
+                MemStore::new(),
+                &prefix_items,
+                &tail_items,
+                false,
+                grant,
+                client_pk,
+                &hello,
+            ),
+            run_case(
+                MemStore::new(),
+                &prefix_items,
+                &tail_items,
+                true,
+                grant,
+                client_pk,
+                &hello,
+            ),
+        ),
+        (
+            "non-deferred store",
+            run_case(
+                NoDeferStore(MemStore::new()),
+                &prefix_items,
+                &tail_items,
+                false,
+                grant,
+                client_pk,
+                &hello,
+            ),
+            run_case(
+                NoDeferStore(MemStore::new()),
+                &prefix_items,
+                &tail_items,
+                true,
+                grant,
+                client_pk,
+                &hello,
+            ),
+        ),
+    ] {
+        assert_eq!(
+            one, split,
+            "{label}: one-page and split-page outcomes must match"
+        );
+        assert!(
+            !one.0 && !one.1,
+            "{label}: original session and cursor must close even when escrow2 restores the grant later in the page"
+        );
+        assert_eq!(
+            one.2.len(),
+            1,
+            "{label}: only Push::Closed may be emitted for the invalidated session: {:?}",
+            one.2
+        );
+        assert!(
+            matches!(one.2[0], Push::Closed(_)),
+            "{label}: expected Push::Closed, got {:?}",
+            one.2[0]
+        );
+        assert!(
+            one.3,
+            "{label}: a fresh session after the page succeeds under the restored grant"
+        );
+    }
 }
 
 /// A service that compacted through the lost positions cannot prove a prefix by

@@ -9,13 +9,23 @@ async function fixture() {
   const replica = new MemoryReplica();
   const client = await connect({ connector: replica.connector(), app: { name: "pages-test", version: "0" } });
   clients.push(client);
-  return { client, query: vi.spyOn(client, "query") };
+  return { client, replica, query: vi.spyOn(client, "query") };
 }
 const page = (asOf: number, cursor?: string): QueryResult => ({
   records: [], complete: true, asOf, ...(cursor ? { cursor, hasMore: true } : { hasMore: false }),
 });
 const problem = (reason: string, code: "invalid_request" | "forbidden" | "unavailable" = "invalid_request") =>
   new MdbaseError({ code, recovery: code === "invalid_request" ? "fix_request" : code === "forbidden" ? "reauthorize" : "retry", reason, message: "cursor refusal" });
+
+it.each(["pages", "queryPages"] as const)("%s reads 501 records across the default page boundary", async method => {
+  const { client, replica } = await fixture();
+  const paths = Array.from({ length: 501 }, (_, index) => `notes/${String(index).padStart(3, "0")}.md`);
+  for (const path of paths) replica.seed({ path });
+  const pages = [];
+  for await (const page of client[method]({})) pages.push(page);
+  expect(pages.map(page => page.records.length)).toEqual([500, 1]);
+  expect(pages.flatMap(page => page.records.map(record => record.path))).toEqual(paths);
+});
 
 describe("pages cursor lifecycle (query responses mocked, not native cursor qualification)", () => {
   it.each(["pages", "queryPages"] as const)("%s refuses a nonterminal page without a cursor instead of ending silently", async method => {

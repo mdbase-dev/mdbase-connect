@@ -23,6 +23,7 @@ const { HostedCollection, default: worker } = await import(`data:text/javascript
 function object(escrow = false) {
   const data = new Map(); let alarm;
   const storage = { get: async (k) => Array.isArray(k) ? new Map(k.filter(key => data.has(key)).map(key => [key, data.get(key)])) : data.get(k), put: async (k, v) => data.set(k, v), getAlarm: async () => alarm ?? null, setAlarm: async (at) => { alarm = at; } };
+  storage.sync = async () => {}; storage.delete = async key => data.delete(key);
   const o = Object.create(HostedCollection.prototype);
   // Platform identity mock only; actual opaque IDs/namespaces are exercised in
   // physical-collection-workerd.test.mjs, not native/CPP admission here.
@@ -54,6 +55,61 @@ test("CP activation routes only the exact authenticated collection and is repeat
   }
   assert.equal((await worker.fetch(post({}, "Bearer wrong"), env)).status, 401);
   assert.equal(seen.length, 2);
+});
+
+const requestId = "12345678-1234-4234-8234-123456789abc";
+const initialization = { collection, request_id: requestId, timezone: "UTC" };
+const initialize = (path, auth = `Bearer ${token}`, body = initialization) => new Request(`https://hosted.test${path}`, {
+  method: "POST", headers: auth ? { authorization: auth } : {}, body: JSON.stringify(body),
+});
+const internalInitialization = "/internal/v1/collections/initialize";
+const actorInitialization = `/v1/hosted/initialize?collection=${collection}`;
+
+test("initialization requires the hosted service identity before routing or touching the actor", async () => {
+  const { o } = object();
+  o.ready = () => assert.fail("refused initialization must not open custody");
+  const env = { HOSTED_SERVICE_TOKEN: token, COLLECTIONS: { idFromName: () => assert.fail("refused request routed") } };
+  for (const auth of [null, "Bearer wrong"]) {
+    assert.equal((await worker.fetch(initialize(internalInitialization, auth), env)).status, 401);
+    assert.equal((await o.fetch(initialize(actorInitialization, auth))).status, 401);
+  }
+  assert.equal((await worker.fetch(initialize(actorInitialization), env)).status, 404);
+  assert.equal((await worker.fetch(initialize(internalInitialization), { ...env, SERVICE_KIND: "escrow" })).status, 404);
+  assert.equal((await object(true).o.fetch(initialize(actorInitialization))).status, 404);
+  assert.equal((await o.fetch(initialize(actorInitialization, undefined, { ...initialization, collection: requestId }))).status, 400);
+  assert.equal((await worker.fetch(initialize(internalInitialization, undefined, { ...initialization, request_id: "bogus" }), env)).status, 400);
+});
+
+test("only the distinct initialization route drives the log confirmation barrier", async () => {
+  const { o } = object();
+  let outcome = 0;
+  const calls = [];
+  const engine = {
+    refresh() {}, requestHead() {},
+    initializeCollection(request, timezone, start) {
+      assert.equal(request, requestId);
+      assert.equal(timezone, "UTC");
+      calls.push(start);
+      return start ? 0 : outcome;
+    },
+  };
+  o.noteActivity = () => {};
+  o.ready = async () => { o.engine = engine; return engine; };
+  o.sync = async () => {};
+  const placements = [];
+  const env = { HOSTED_SERVICE_TOKEN: token, COLLECTIONS: {
+    idFromName(id) { assert.equal(id, collection); return id; },
+    get(_id, placement) { placements.push(placement); return { fetch: request => o.fetch(request) }; },
+  } };
+  assert.deepEqual(await (await worker.fetch(post(), env)).json(), { activated: true });
+  assert.deepEqual(calls, []);
+  assert.equal((await worker.fetch(initialize(internalInitialization), env)).status, 503);
+  outcome = 1;
+  assert.deepEqual(await (await worker.fetch(initialize(internalInitialization, undefined, { ...initialization, region: "oc" }), env)).json(), {
+    initialized: true, collection, request_id: requestId,
+  });
+  assert.deepEqual(calls, [true, false, true, false]);
+  assert.deepEqual(placements, [undefined, undefined, { locationHint: "oc" }]);
 });
 test("both service roles persist reopen identity and an alarm before failed custody", async () => {
   for (const escrow of [false, true]) {
@@ -94,7 +150,7 @@ test("failed cold reopen cannot push an existing alarm into the future", async (
 test("socket-free hosted and escrow alarms reopen, refresh and reschedule", async () => {
   for (const escrow of [false, true]) {
     const { o, data, alarm } = object(escrow); data.set("service-collection", collection);
-    const calls = []; const engine = { tick() { calls.push("tick"); }, refresh() { calls.push("refresh"); }, nextWakeup() { return null; }, installStatus() { return null; }, snapshotDeclined() { return false; } };
+    const calls = []; const engine = { tick(_now, afterOpen) { assert.equal(afterOpen, true); calls.push("tick"); }, refresh() { calls.push("refresh"); }, nextWakeup() { return null; }, installStatus() { return null; }, snapshotDeclined() { return false; } };
     o.ready = async (id) => { assert.equal(id, collection); calls.push("reopen"); o.collection = id; o.engine = engine; return engine; };
     o.sync = async () => { calls.push("sync"); await o.ctx.storage.setAlarm(Date.now() + 30_000); };
     await o.alarm();
@@ -105,7 +161,7 @@ test("socket-free hosted and escrow alarms reopen, refresh and reschedule", asyn
 test("real sync schedules polling for both roles with zero client sockets", async () => {
   for (const escrow of [false, true]) {
     const { o, alarm } = object(escrow);
-    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
+    const engine = { cacheRecovery: () => null, appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
     o.engine = engine; o.log = () => ({});
     const before = Date.now();
     await o.sync(engine);
@@ -115,7 +171,7 @@ test("real sync schedules polling for both roles with zero client sockets", asyn
 test("traffic does not slide the existing socket-free polling deadline", async () => {
   for (const escrow of [false, true]) {
     const { o, alarm } = object(escrow);
-    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
+    const engine = { cacheRecovery: () => null, appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
     o.engine = engine; o.log = () => ({});
     const early = Date.now() + 5_000;
     await o.ctx.storage.setAlarm(early);
@@ -125,7 +181,7 @@ test("traffic does not slide the existing socket-free polling deadline", async (
 });
 test("stale engine cannot reschedule after awaiting the persisted alarm", async () => {
   const { o, alarm } = object();
-  const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
+  const engine = { cacheRecovery: () => null, appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
   o.engine = engine; o.log = () => ({});
   o.ctx.storage.getAlarm = async () => { o.logGen++; return null; };
   await o.sync(engine);

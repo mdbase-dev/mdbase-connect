@@ -5,8 +5,10 @@ import {
   acceptsReleaseChannel,
   channelForVersion,
   compareVersions,
+  parseRolloutDocument,
   parseUpdateManifest,
   TAG_PATTERN,
+  type RolloutDocument,
   type UpdateChannel,
   type UpdateManifest
 } from "./update-policy";
@@ -35,6 +37,10 @@ const MAX_TAG_INDEX_BYTES = 1024 * 1024;
 // manifests are probed a few at a time, newest first.
 const MANIFEST_PROBE_BATCH = 8;
 const MAX_MANIFEST_BYTES = 1024 * 1024;
+// Rollout documents are served from a location the release line can update
+// (mdbase-cloud-ops `updates/`); they are signed like the channel document.
+const ROLLOUT_URL = "https://updates.mdbase.dev/desktop/v1/rollout/";
+const MAX_ROLLOUT_BYTES = 4 * 1024;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 const responseTimeouts = new WeakMap<Response, ReturnType<typeof setTimeout>>();
@@ -70,11 +76,23 @@ export interface ReleaseSourceOptions {
  * being found.
  */
 export async function findLatestRelease(options: ReleaseSourceOptions): Promise<ReleaseCandidate | null> {
+  for await (const candidate of releaseCandidates(options)) return candidate;
+  return null;
+}
+
+/**
+ * Every release `channel` accepts with valid signed update metadata, newest
+ * first. A staged rollout can leave the newest release unavailable to this
+ * installation while an older one is, so the updater may look past the first.
+ * When nothing verifies, the iteration throws why, as `findLatestRelease` does.
+ */
+export async function* releaseCandidates(options: ReleaseSourceOptions): AsyncGenerator<ReleaseCandidate> {
   const fetchImpl = options.fetchImpl ?? fetch;
   const tags = (await fetchReleaseTags(fetchImpl, options.signal))
     .filter((tag) => acceptsReleaseChannel(options.channel, channelForVersion(tag.slice(1))))
     .sort((left, right) => compareVersions(right.slice(1), left.slice(1)));
   const rejected: Error[] = [];
+  let found = false;
   const reject = (tag: string, error: unknown) => {
     options.signal?.throwIfAborted();
     rejected.push(
@@ -97,20 +115,62 @@ export async function findLatestRelease(options: ReleaseSourceOptions): Promise<
         continue;
       }
       if (!manifest.value) continue;
+      let candidate: ReleaseCandidate;
       try {
-        return await verifiedCandidate(tag, manifest.value, fetchImpl, options);
+        candidate = await verifiedCandidate(tag, manifest.value, fetchImpl, options);
       } catch (error) {
         reject(tag, error);
+        continue;
       }
+      found = true;
+      yield candidate;
     }
   }
-  if (rejected.length > 0) {
+  if (!found && rejected.length > 0) {
     throw new AggregateError(
       rejected,
       `No release had valid signed update metadata. ${rejected[0].message}`
     );
   }
-  return null;
+}
+
+/**
+ * The release's current rollout document, verified against the same release
+ * workflow identity as its channel document, or null when none is published
+ * (releases from before staged rollouts). Anything else that goes wrong throws:
+ * the updater then defers this release rather than taking it unstaged.
+ */
+export async function fetchRolloutDocument(
+  tag: string,
+  options: Omit<ReleaseSourceOptions, "channel">
+): Promise<RolloutDocument | null> {
+  if (!TAG_PATTERN.test(tag)) throw new Error("Cannot read the rollout of an invalid release tag.");
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const response = await request(fetchImpl, `${ROLLOUT_URL}${tag}.json`, options.signal, {
+    missing: "null",
+    headers: { accept: "application/json" }
+  });
+  if (!response) return null;
+  const documentBytes = await readLimited(response, MAX_ROLLOUT_BYTES);
+  const bundleBytes = await readLimited(
+    await request(fetchImpl, `${ROLLOUT_URL}${tag}.json.sigstore.json`, options.signal, {
+      headers: { accept: "application/json" }
+    }),
+    MAX_BUNDLE_BYTES
+  );
+  options.signal?.throwIfAborted();
+  const verifyBundle = options.verifyBundle ?? ((bundle, payload, signer, cache) =>
+    verifyReleaseBundle(bundle, payload, signer, cache, options.signal));
+  await verifyBundle(
+    JSON.parse(bundleBytes.toString("utf8")),
+    documentBytes,
+    `${WORKFLOW_IDENTITY_PREFIX}${tag}`,
+    options.trustCacheDirectory
+  );
+  options.signal?.throwIfAborted();
+  const rollout = parseRolloutDocument(JSON.parse(documentBytes.toString("utf8")));
+  if (rollout.tag !== tag) throw new Error("Signed rollout document does not match its release tag.");
+  return rollout;
 }
 
 async function verifiedCandidate(

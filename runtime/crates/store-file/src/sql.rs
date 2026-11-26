@@ -20,7 +20,7 @@ mod schema;
 #[path = "sql_tail.rs"]
 mod tail;
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeSet;
 use std::ops::Range;
 use std::rc::Rc;
@@ -169,9 +169,10 @@ impl Default for SqlStoreLimits {
 pub struct SqlStore<I: IndexStorage> {
     index: Rc<RefCell<I>>,
     limits: SqlStoreLimits,
+    deferred: Cell<bool>,
 }
 
-fn idx_err(e: IndexError) -> StoreError {
+pub(crate) fn idx_err(e: IndexError) -> StoreError {
     match e.kind {
         IndexErrorKind::Full => StoreError::Full,
         IndexErrorKind::Corrupt => StoreError::Corrupt(e.to_string()),
@@ -697,7 +698,11 @@ impl<I: IndexStorage> SqlStore<I> {
             return Err(StoreError::Io("invalid SQL blob memory limits".into()));
         }
         schema::migrate(&mut *index.borrow_mut())?;
-        Ok(SqlStore { index, limits })
+        Ok(SqlStore {
+            index,
+            limits,
+            deferred: Cell::new(false),
+        })
     }
 
     /// Own-intent count/bytes remain independent of raw-tail erasure. This is
@@ -852,12 +857,12 @@ impl<I: IndexStorage> SqlStore<I> {
     }
 
     /// Statements putting and removing a transaction's confirmed-state rows.
-    fn confirmed_stmts(tx: &Tx, s: &mut Vec<Stmt>) -> StoreResult<()> {
+    fn confirmed_stmts(tx: &Tx, s: &mut Vec<Stmt>, projections: bool) -> StoreResult<()> {
         for id in &tx.records_del {
-            Self::del_record_stmts(id, s);
+            Self::del_record_stmts(id, s, projections);
         }
         for r in &tx.records_put {
-            Self::del_record_stmts(&r.id, s);
+            Self::del_record_stmts(&r.id, s, projections);
             s.push(st(
                 "INSERT INTO st_rec(id, path_key, bucket, row) VALUES (?, ?, ?, ?)",
                 vec![
@@ -940,12 +945,14 @@ impl<I: IndexStorage> SqlStore<I> {
         Ok(())
     }
 
-    fn del_record_stmts(id: &Uuid, out: &mut Vec<Stmt>) {
+    fn del_record_stmts(id: &Uuid, out: &mut Vec<Stmt>, projections: bool) {
         out.push(st("DELETE FROM st_rec WHERE id = ?", vec![b(id)]));
         out.push(st("DELETE FROM st_link WHERE id = ?", vec![b(id)]));
         out.push(st("DELETE FROM st_uniq WHERE id = ?", vec![b(id)]));
-        crate::sql_fields::delete_row(&id.0, out);
-        crate::sql_bases::delete_row(&id.0, out);
+        if projections {
+            crate::sql_fields::delete_row(&id.0, out);
+            crate::sql_bases::delete_row(&id.0, out);
+        }
     }
 }
 
@@ -1563,8 +1570,15 @@ impl<I: IndexStorage> Store for SqlStore<I> {
         tail::own(self, after, limit)
     }
 
+    fn durability_deferred(&self) -> bool {
+        self.deferred.get()
+    }
     fn defer_durability(&mut self, on: bool) -> StoreResult<()> {
-        self.index.borrow_mut().defer_sync(on).map_err(idx_err)?;
+        if !on {
+            self.deferred.set(false);
+        }
+        let deferring = self.index.borrow_mut().defer_sync(on).map_err(idx_err)?;
+        self.deferred.set(deferring && on);
         Ok(())
     }
     fn mirror_candidate_begin(
@@ -1604,7 +1618,17 @@ impl<I: IndexStorage> Store for SqlStore<I> {
     ) -> Result<(), mdbn_replica::mirror_admission::candidate::Error> {
         mirror_candidate::write(self, request, ordinal, body, working)
     }
-    fn commit(&mut self, mut tx: Tx) -> StoreResult<CommitReport> {
+    fn commit(&mut self, tx: Tx) -> StoreResult<CommitReport> {
+        self.commit_rows(tx, true)
+    }
+}
+
+impl<I: IndexStorage> SqlStore<I> {
+    pub(crate) fn commit_rows(
+        &mut self,
+        mut tx: Tx,
+        projections: bool,
+    ) -> StoreResult<CommitReport> {
         // Preserve the gate shape before Stage::Put moves confirmed rows. Only
         // metadata is copied; payloads are never cloned. Reject invalid input
         // before this new metadata read, preserving the pre-I/O bounds contract.
@@ -1641,7 +1665,7 @@ impl<I: IndexStorage> Store for SqlStore<I> {
             Stage::Put => {
                 let rows = tx.take_confirmed_rows();
                 let mut staged = Vec::new();
-                Self::confirmed_stmts(&rows, &mut staged)?;
+                Self::confirmed_stmts(&rows, &mut staged, false)?;
                 s.extend(staged_stmts(staged)?);
             }
             Stage::Swap => {
@@ -1691,7 +1715,7 @@ impl<I: IndexStorage> Store for SqlStore<I> {
                 vec![blob(head_c(&h)?)],
             ));
         }
-        Self::confirmed_stmts(&tx, &mut s)?;
+        Self::confirmed_stmts(&tx, &mut s, projections)?;
         if let Some(p) = tx.prune {
             s.push(st(
                 "DELETE FROM st_receipt WHERE seq < ? AND time < ?",
@@ -1821,8 +1845,20 @@ impl<I: IndexStorage> Store for SqlStore<I> {
                 vec![blob(d.0.to_vec())],
             ));
         }
-        let mut derived = crate::sql_fields::maintenance(&self.index, &tx)?;
-        derived.extend(crate::sql_bases::maintenance(&self.index, &tx)?);
+        let mut derived = Vec::new();
+        if projections {
+            derived = crate::sql_fields::maintenance(&self.index, &tx)?;
+            derived.extend(crate::sql_bases::maintenance(&self.index, &tx)?);
+        } else if !tx.records_put.is_empty()
+            || !tx.records_del.is_empty()
+            || !tx.resources_put.is_empty()
+            || !tx.resources_del.is_empty()
+            || tx.clear_confirmed
+            || tx.stage == Stage::Swap
+        {
+            derived.push(st("DELETE FROM st_qstate WHERE slot=0", vec![]));
+            derived.push(st("DELETE FROM st_qraw_state WHERE slot=0", vec![]));
+        }
         // This is optional derived-maintenance admission, not a new native
         // authoritative-write cap. Pending-only transactions have no derived
         // work and retain the existing durable 10k-queue contract.
@@ -2291,5 +2327,82 @@ mod tests {
         assert!(wide_int(i64::MAX as u64 + 1).is_err());
         assert!(wide_int(u64::MAX).is_err());
         assert_eq!(int(u32::MAX), SqlValue::Integer(i64::from(u32::MAX)));
+    }
+
+    #[test]
+    fn sql_store_reports_durability_deferred_truthfully() {
+        struct DeferIndex {
+            supports: bool,
+            fail_close: bool,
+        }
+        impl IndexStorage for DeferIndex {
+            fn info(&self) -> IndexInfo {
+                IndexInfo {
+                    durability: IndexDurability::Durable,
+                    opened: OpenState::Fresh,
+                    sqlite_version: 3_045_000,
+                }
+            }
+            fn run(&mut self, batch: &Batch) -> Result<Vec<StmtResult>, IndexError> {
+                Ok(batch
+                    .stmts
+                    .iter()
+                    .map(|s| {
+                        if s.sql == "PRAGMA user_version" {
+                            StmtResult {
+                                columns: 1,
+                                values: vec![SqlValue::Integer(0)],
+                                ..StmtResult::default()
+                            }
+                        } else {
+                            StmtResult::default()
+                        }
+                    })
+                    .collect())
+            }
+            fn reset(&mut self) -> Result<(), IndexError> {
+                Ok(())
+            }
+            fn defer_sync(&mut self, on: bool) -> Result<bool, IndexError> {
+                if !on && self.fail_close {
+                    return Err(IndexError::new(
+                        IndexErrorKind::Other,
+                        "injected close failure",
+                    ));
+                }
+                Ok(self.supports)
+            }
+        }
+
+        // Index that declines deferred windows: never reports deferred.
+        let mut unsupported = SqlStore::open(Rc::new(RefCell::new(DeferIndex {
+            supports: false,
+            fail_close: false,
+        })))
+        .unwrap();
+        assert!(!unsupported.durability_deferred());
+        unsupported.defer_durability(true).unwrap();
+        assert!(!unsupported.durability_deferred());
+        unsupported.defer_durability(false).unwrap();
+        assert!(!unsupported.durability_deferred());
+
+        // Index that supports deferred windows: truthful while open and closed.
+        let index = Rc::new(RefCell::new(DeferIndex {
+            supports: true,
+            fail_close: false,
+        }));
+        let mut supported = SqlStore::open(index.clone()).unwrap();
+        assert!(!supported.durability_deferred());
+        supported.defer_durability(true).unwrap();
+        assert!(supported.durability_deferred());
+        supported.defer_durability(false).unwrap();
+        assert!(!supported.durability_deferred());
+
+        // A failed barrier close clears the open state and returns the error.
+        supported.defer_durability(true).unwrap();
+        assert!(supported.durability_deferred());
+        index.borrow_mut().fail_close = true;
+        assert!(supported.defer_durability(false).is_err());
+        assert!(!supported.durability_deferred());
     }
 }

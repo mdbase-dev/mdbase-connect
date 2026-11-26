@@ -3,7 +3,7 @@
 //!
 //! The app update delivers this daemon (`docs/desktop-updates.md`), so whether a
 //! newer release exists is the app's knowledge, not the daemon's. After each
-//! successful check the app writes `<state>/updates/desktop.json`
+//! finished check, failed ones included, the app writes `<state>/updates/desktop.json`
 //! (`apps/desktop/src/main/update-report.ts`); `<state>/updates/` belongs to
 //! packaging (`crate::service`). The daemon only reads it, and only to explain.
 
@@ -76,6 +76,14 @@ struct Report {
     #[serde(default)]
     background: bool,
     available: Option<Available>,
+    /// The latest check or install failed; `checked_at` is the last that worked.
+    failure: Option<Failure>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Failure {
+    at: String,
+    message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -152,6 +160,20 @@ pub fn doctor_check(version: &str, state_dir: &Path, now: OffsetDateTime) -> Che
             );
         }
     };
+    if let Some(failure) = report.failure {
+        return check(
+            "warn",
+            format!(
+                "version {version}; the last update check failed at {}: {}",
+                failure.at, failure.message
+            ),
+            Some(if report.background {
+                "mdbase connect retries every six hours, and its background update while the app is closed. To retry now, check for updates in mdbase connect; `journalctl --user -u mdbase-connect-update` shows the background runs.".into()
+            } else {
+                "Check for updates in mdbase connect to retry.".into()
+            }),
+        );
+    }
     let checked = OffsetDateTime::parse(&report.checked_at, &Rfc3339).ok();
     if checked.is_none_or(|at| now - at > STALE_AFTER) {
         return check(
@@ -161,7 +183,7 @@ pub fn doctor_check(version: &str, state_dir: &Path, now: OffsetDateTime) -> Che
                 report.checked_at
             ),
             Some(if report.background {
-                "The background update has not run. See `systemctl --user status mdbase-connect-update`.".into()
+                "Neither mdbase connect nor its background update has checked since. Open mdbase connect so it checks; `journalctl --user -u mdbase-connect-update` shows the background runs.".into()
             } else {
                 "Open mdbase connect so it checks for updates.".into()
             }),
@@ -391,6 +413,22 @@ mod tests {
             "{}",
             c.detail
         );
+    }
+
+    #[test]
+    fn a_failed_check_is_a_warning_with_its_message() {
+        let (_dir, c) = with_report(Some(
+            r#"{"schema_version":1,"app_version":"0.1.0-beta.185","checked_at":"2026-11-10T00:00:00Z","background":true,"failure":{"at":"2026-11-14T05:00:00Z","message":"Could not verify updates: ENOTEMPTY"}}"#,
+        ));
+        assert_eq!(c.status, "warn");
+        assert!(
+            c.detail.contains(
+                "the last update check failed at 2026-11-14T05:00:00Z: Could not verify updates: ENOTEMPTY"
+            ),
+            "{}",
+            c.detail
+        );
+        assert!(c.action.unwrap().contains("mdbase-connect-update"));
     }
 
     #[test]

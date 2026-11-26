@@ -1,8 +1,8 @@
 import { act, renderHook } from "./test/locale";
 import { describe, expect, it, vi } from "vitest";
 import { attachmentUploadFailure, availableAttachmentPath, useAttachmentUpload } from "./AttachmentUpload";
-import { MdbaseConnectError } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect/advanced";
+import { MdbaseConnectError } from "./connect-types";
+import { connectProblem } from "./connect-types";
 import { CollectionMutationScope } from "./collection-mutation-scope";
 import { DemoCollectionGateway } from "./demo-gateway";
 import { FileInventoryController } from "./file-inventory-controller";

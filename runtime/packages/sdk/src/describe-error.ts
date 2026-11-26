@@ -73,7 +73,7 @@ const LABELS: Record<MdbaseErrorAction, string | null> = {
 /** Every problem code an app can meet. Each has plain copy in COPY. */
 export const PROBLEM_CODES = [
   // Collection availability.
-  "device_offline", "desktop_update_required", "old_connector_running", "sync_required", "no_device_registered",
+  "device_offline", "device_not_serving", "desktop_update_required", "old_connector_running", "sync_required", "no_device_registered",
   "access_removed", "read_only", "capability_missing", "collection_deleted", "collection_unavailable", "moved_to_next_runtime", "device_approval_required",
   // Server outcomes.
   "collection_migrating", "collection_not_yet_migrated", "account_suspended", "update_required", "account_collection_quota_exceeded",
@@ -81,7 +81,7 @@ export const PROBLEM_CODES = [
   "invalid_request", "invalid_record", "not_found", "conflict", "unauthenticated", "forbidden", "collection_invalid",
   "unavailable", "rate_limited", "quota_exceeded", "too_large", "outcome_unknown", "internal",
   // Sign-in, open and sign-out.
-  "refused", "expired", "approval_window_closed", "account_confirmation_required", "recovery_required", "open_failed",
+  "refused", "expired", "approval_window_closed", "account_confirmation_required", "recovery_required", "open_failed", "device_keys_unavailable",
   "busy", "open_in_another_tab", "not_authorized", "sign_out_pending_writes", "sign_out_failed",
   // Application entry.
   "application_popup_blocked", "sign_in_window", "application_not_yet_available", "application_failed",
@@ -92,7 +92,7 @@ export const PROBLEM_CODES = [
   "setup_required", "incompatible", "approval_required", "contract_mismatch", "contract_missing", "implementation_missing",
   "catalog_invalid", "catalog_response", "type_invalid", "readiness_budget", "readiness_unsupported",
   "notifications_consent_required", "timer_channel_reapproval_required", "notifications_unsupported",
-  "people_unsupported", "people_permission_declined", "people_access",
+  "people_unsupported", "people_permission_declined", "people_access", "history_unsupported",
   "configuration_conflict", "configuration_unavailable", "configuration_unsupported", "configuration_busy_timeout", "readiness_busy_timeout",
   // Setup review.
   "setup_forbidden", "setup_conflict", "setup_unresolved", "collection_setup_conflict", "collection_setup_namespace_conflict", "setup_records_forbidden", "setup_changed", "installed_newer",
@@ -122,6 +122,7 @@ const UNFINISHED_SIGN_IN: Entry = ["Sign-in wasn't finished", "Access wasn't app
 const COPY = {
   // Private collections served by one of the account's computers (collection availability).
   device_offline: ["Your computer isn't online", "This collection is kept on your computer. Open the mdbase desktop app on a computer that has it, and this app connects as soon as it's online.", "wait", "info", true],
+  device_not_serving: ["Your computer can't open this collection", "Your computer is online, but mdbase there isn't serving this collection right now. Open the mdbase desktop app on that computer to see why. This app connects as soon as it can.", "wait", "warning", true],
   desktop_update_required: ["Update mdbase on your computer", "The mdbase desktop app on the computer that has this collection is out of date. Update it there, then try again.", "update_app", "warning", false, "Get the update"],
   old_connector_running: ["Quit the old mdbase Connect app", "The old mdbase Connect app is still running on the computer that has this collection. Quit it there (including its menu-bar or tray icon), then open the mdbase desktop app.", "retry", "warning"],
   sync_required: ["Give this app access again", "Access to this collection changed since you approved this app. Approve it again to keep using the collection.", "approve", "warning", false, "Approve again"],
@@ -159,6 +160,7 @@ const COPY = {
   recovery_account_mismatch: ["Use a different account", "Sign in with the account you originally used for this collection to continue.", "approve", "info", false, "Use a different account"],
   recovery_required: ["Reload required", "The app stopped to keep your data safe. Reload to continue.", "reload", "error"],
   open_failed: ["Couldn't open your collection", "Something went wrong while opening it. Reload the app to try again.", "reload", "error"],
+  device_keys_unavailable: ["Couldn't read this device's sign-in", "This browser couldn't open the keys this app uses to sign in to mdbase. Reload to try again. If it keeps happening, sign out of mdbase in this app and sign in again.", "reload", "error"],
   busy: BUSY,
   file_read_failed: ["Couldn't load the file", "mdbase couldn't finish downloading this file. Check your connection and try opening the collection again.", "retry", "warning"],
   file_read_idle: ["File download timed out", "The file download stopped making progress. Try opening the collection again.", "retry", "warning"],
@@ -199,6 +201,7 @@ const COPY = {
   people_unsupported: ["Sharing isn't available here", "People and sharing aren't supported for this collection yet.", "none", "info"],
   people_permission_declined: ["People aren't shown", "This app wasn't allowed to see who else is in this collection. Approve it again and allow people to show them here.", "approve", "info", false, "Approve again"],
   people_access: ["People can't be shown", "This app can't see the people in this collection right now. Everything else still works.", "none", "info"],
+  history_unsupported: ["History isn't available here", "Earlier versions of records in this collection can't be read here. Everything else still works.", "none", "info"],
   configuration_conflict: ["Settings changed elsewhere", "These settings were changed on another device. Review them and try again.", "retry", "warning"],
   // The collection's setup couldn't be assessed: not a network problem.
   configuration_unavailable: ["Couldn't check this collection's setup", "The app couldn't read how this collection is set up, so it didn't open it. Nothing in the collection was changed. Try again, and contact support if it keeps happening.", "retry", "warning"],
@@ -248,7 +251,7 @@ const COPY = {
 /** Codes that mean the same outcome as a ProblemCode (server reasons, facet
  * and entry variants). Explicit: there is no suffix guessing. */
 const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.create(null) as Record<string, ProblemCode>, {
-  no_device_online: "device_offline", collection_moved: "moved_to_next_runtime", client_update_required: "update_required",
+  no_device_online: "device_offline", not_served: "device_not_serving", collection_moved: "moved_to_next_runtime", client_update_required: "update_required",
   upgrade_required: "update_required",
   // Compatibility details can be published without their upgrade_required wrapper.
   declared_setup_unsupported: "update_required", resource_setup_unsupported: "update_required",
@@ -256,7 +259,9 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   contract_records_unsupported: "update_required", record_links_unsupported: "update_required",
   backlinks_unsupported: "update_required", resolve_links_unsupported: "update_required",
   change_entity_unsupported: "update_required", timer_operation_recovery_unavailable: "update_required",
-  contract_query_version: "update_required", unsupported_push_version: "update_required",
+  contract_query_version: "update_required", contract_query_order_unsupported: "update_required",
+  contract_query_order_mtime_unsupported: "update_required",
+  bases_row_properties_unsupported: "update_required", unsupported_push_version: "update_required",
   // The SDK re-checks a concurrent change or an occupied step by itself.
   fenced: "busy", reconnecting: "busy", application_busy: "busy", application_fenced: "busy", application_entry_fenced: "busy",
   application_asset_fenced: "busy", application_connection_busy: "busy", application_connection_fenced: "busy",
@@ -281,6 +286,12 @@ const ALIASES: Readonly<Record<string, ProblemCode>> = Object.assign(Object.crea
   application_registration_unavailable: "unavailable", application_registration_unknown: "unavailable",
   application_connection_unavailable: "unavailable", readiness_unavailable: "unavailable",
   grant_activation_timeout: "unavailable",
+  // Relay pipe closes (pipeCloseError), published as a Private snapshot's problem. A
+  // close without a known reason names no cause: an intermediary can strip the close
+  // status of a real refusal (it arrives as 1005).
+  relay_closed: "unavailable", pipe_closed: "unavailable",
+  authorization_unavailable: "unavailable", grant_lease_expired: "unavailable",
+  grant_inactive: "forbidden", connector_busy: "rate_limited",
   application_connection_people_unavailable: "people_access", people_unavailable: "people_access",
   people_response: "people_access", people_binding: "people_access", people_budget: "people_access", people_incomplete: "people_access",
   application_selection_empty: "application_selection_invalid", application_selection_duplicate: "application_selection_invalid",
@@ -319,7 +330,7 @@ export const INTERNAL_PROBLEM_CODES = [
   // Developer misuse (invalid_request / invalid_record carry the copy).
   "account_secret_length", "access_invalid", "access_no_collection", "application_sign_in_opener", "change_entity_unsupported",
   "click_target_cross_origin", "context_required", "context_type_mismatch", "cursor_expired", "file_upload_identity_mismatch",
-  "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_sas", "invalid_scope", "invalid_submit_response",
+  "invalid_autosave", "invalid_binding", "invalid_call", "invalid_push_payload", "invalid_query", "invalid_query_cursor", "invalid_sas", "invalid_scope", "invalid_submit_response",
   "invalid_timeout", "invalid_timer_response", "invalid_typing_response", "invalid_validation_result", "invalid_view",
   "key_id_changed", "query_cursor_required", "read_many_bounds", "read_many_identity_mismatch", "read_many_selection", "record_identity_mismatch",
   "record_lease_policy", "record_links_bounds", "record_links_missing", "record_links_response", "record_links_unsupported",
@@ -329,8 +340,8 @@ export const INTERNAL_PROBLEM_CODES = [
   // The build does not match the app's registration: apps describe this in
   // their own words (describeError gives the "unknown" key so their copy wins).
   "application_registration_binding",
-  "view_not_found", "view_source_changed", "view_source_witness_required", "bases_read_backpressure",
-  "backlinks_unsupported", "resolve_links_unsupported", "contract_query_response", "contract_query_version", "contract_records_unsupported", "describe_definitions_unsupported",
+  "view_not_found", "view_source_changed", "view_source_witness_required", "bases_read_backpressure", "bases_row_properties_unsupported",
+  "backlinks_unsupported", "resolve_links_unsupported", "contract_query_response", "contract_query_version", "contract_query_order_unsupported", "contract_query_order_mtime_unsupported", "contract_records_unsupported", "describe_definitions_unsupported",
   "prefix_response", "type_pack_contract_setups_unsupported", "type_packs_unsupported", "resource_setup_unavailable",
   "resource_setup_unsupported", "timer_operation_recovery_unavailable", "declared_setup_unsupported", "setup_outcome_unknown",
   // Storage probe (describes as `unavailable`).
@@ -343,10 +354,13 @@ export const INTERNAL_PROBLEM_CODES = [
   "control_unreachable", "daemon_not_running", "grant_invalid", "grant_storage", "key_storage", "redirect_uri",
   "relay_insecure", "relay_unauthenticated", "relay_unavailable", "relay_url", "route_mismatch", "token_error",
   "token_response", "untrusted_identity",
+  // Direct pairing: the code never left the browser (describes as `unavailable`).
+  "code_not_sent",
 ] as const;
 
 const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(null) as Record<string, string>, {
   device_offline: "Collection availability device_offline: no device serving this Private collection is connected to the relay.",
+  device_not_serving: "Collection availability device_not_serving / relay close not_served: the device is online but is not serving this Private collection right now (paused, opening, recovering, failed, or removed on that computer). Check the collection's status in mdbase on that computer; connect with waitForDevice keeps retrying.",
   desktop_update_required: "Collection availability desktop_update_required: the serving device's last relay connection was refused as incompatible.",
   old_connector_running: "Collection availability old_connector_running: the serving device reports a legacy connector still holding its collections.",
   device_approval_required: "Collection availability approval_required: no device has signed an approval for this app's grant yet.",
@@ -368,6 +382,7 @@ const DEVELOPER: Readonly<Record<string, string>> = Object.assign(Object.create(
   browser_unsupported: "browser_unsupported: the SDK's upfront capability probe found a required browser feature missing (Web Crypto/X25519, AbortSignal.any, Web Locks, BroadcastChannel, IndexedDB, Worker/MessageChannel or crypto.randomUUID); see the MdbaseError details for the missing tokens.",
   application_storage_unavailable: "application_storage_unavailable: navigator.storage.getDirectory() (OPFS) is absent or rejected, as in private browsing; the local replica cannot be kept on this device.",
   storage_may_be_evicted: "storage_may_be_evicted: replica edits are pending for at least 30 seconds or while disconnected on nonpersistent storage (`storage_may_be_evicted` in snapshot.sync.attention); only a log-confirmed receipt counts as saved.",
+  device_keys_unavailable: "device_keys_unavailable: this installation's device custody in IndexedDB (key encryption key, device keys or Noise vault) could not be opened or did not hold the attested device. Before attestation the SDK recreates it by itself; after attestation only signOut() and a fresh sign-in replace it.",
   sign_out_pending_writes: "sign_out_pending_writes: unconfirmed writes are still queued on this device; signOut({discard: true}) discards them.",
 });
 

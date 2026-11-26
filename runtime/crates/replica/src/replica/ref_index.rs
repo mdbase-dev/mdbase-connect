@@ -370,6 +370,20 @@ impl<S: Store> Replica<S> {
 
     /// Check the manifest's chain against the item after it.
     pub(super) fn request_install_chain(&mut self, p: SnapshotPointer, m: Box<ManifestPayload>) {
+        if self.install_base.is_some()
+            && !self.is_hosted()
+            && self
+                .original_history
+                .genesis(self.store_generation)
+                .is_some()
+        {
+            // A generation-0 base manifest has seq = 0 and chain = 0…0 (checked by
+            // `verify_base_manifest`). Non-hosted `original_history.genesis` is
+            // present only when this instance opened at genesis and verified
+            // seq 1's `prev == 0…0` via ordered apply (never via snapshot
+            // read-ahead, warm open, or rollback).
+            return self.install_start_chunks(m);
+        }
         let id = self.queue(LogRequest::Read(ReadParams {
             collection: self.cfg.collection,
             after: m.seq,

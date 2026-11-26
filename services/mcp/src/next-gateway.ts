@@ -5,7 +5,7 @@
 // legacy authority path until it is removed.
 import { connect, controlRouteResolver, isMdbaseError, routeFromControl, uuidv7, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk/thin-client";
 import { describeError } from "@mdbase-dev/sdk/describe";
-import type { GrantKeyStore } from "@mdbase-dev/connect/crypto";
+import type { GrantKeyStore } from "./grant-crypto.js";
 import { GatewayOperationError } from "./errors.js";
 import { gatewayConnector } from "./next-connector.js";
 import { clientKeyAttachBody, type NoiseKeyStore } from "./next-keys.js";
@@ -387,11 +387,12 @@ async function execute(client: MdbaseClient, connection: NextConnection, operati
     case "update": {
       const current = await read(client, String(input.path), signal, true);
       if (typeof input.document === "string") {
-        if (input.patch !== undefined || input.body !== undefined) throw new GatewayOperationError("invalid_request", "document cannot be combined with patch or body.");
+        if (input.patch !== undefined || input.unset !== undefined || input.body !== undefined) throw new GatewayOperationError("invalid_request", "document cannot be combined with patch, unset or body.");
         return { ...recordDocument(await settle(client.replaceDocument(current, input.document, { ...write, ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {}) }), () => client.find(current.id, { include: RECORD_VIEW, signal }))) };
       }
       return recordDocument(await settle(client.update(current, {
         ...(input.patch ? { patch: input.patch as Record<string, never> } : {}),
+        ...(Array.isArray(input.unset) ? { unset: input.unset as string[] } : {}),
         ...(typeof input.body === "string" ? { body: input.body } : {}),
         ...(typeof input.if_revision === "string" ? { ifRevision: input.if_revision } : {})
       }, write), () => client.find(current.id, { include: RECORD_VIEW, signal })));

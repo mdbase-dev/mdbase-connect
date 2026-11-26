@@ -12,7 +12,8 @@ export const APPLICATION_CAPABILITY_DEFINITIONS = {
   "views.manage": ["create_view_source","update_view_source","delete_view_source"],
   "definitions.manage": ["create_type","update_type","assess_type_pack","apply_type_pack"],
   "background.schedule": ["list_timers","put_timer","cancel_timer","reconcile_timers"],
-  "offline.replica": ["sync"]
+  "offline.replica": ["sync"],
+  "history.read": ["record_history","record_version"]
 } as const satisfies Record<string, readonly CollectionOperation[]>;
 
 export const APPLICATION_SETUP_OPERATIONS = [

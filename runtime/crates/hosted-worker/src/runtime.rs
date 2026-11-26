@@ -18,8 +18,8 @@
 
 use std::collections::BTreeMap;
 
-mod cpp_claim;
-pub(crate) use cpp_claim::{ConfiguredCppAudience, CppClaimSignRefused};
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) mod initialization;
 
 use mdbn_replica::ClientApi;
 use mdbn_replica::api::{ApiError, ErrorCode, SessionAuth, SessionId, Target};
@@ -279,11 +279,25 @@ impl ObservedOriginalAppCaller {
     }
 }
 
+/// [`Engine::catchup_facts`]: LAB diagnostics only.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CatchupFacts {
+    /// Applied log position.
+    pub applied: u64,
+    /// Highest log head heard of.
+    pub head_known: u64,
+    /// Read up to the head heard of in this connection.
+    pub caught_up: bool,
+    /// An active, unkeyed device waits for a key grant from this device.
+    pub grant_waiting: bool,
+    /// That grant is this device's turn now.
+    pub grant_due: bool,
+}
+
 /// One hosted collection.
 pub struct Engine<S: Store> {
     replica: Replica<HostedCache<S>>,
     native_target_instance: std::rc::Rc<()>,
-    cpp_claim_signer: Option<cpp_claim::CppClaimSigner>,
     frames: Frames,
     submits: BTreeMap<SubmitTicket, Waiting>,
     out: Vec<Out>,
@@ -294,10 +308,6 @@ pub struct Engine<S: Store> {
     /// accepted only through it, for the session that sent it.
     log_scopes: BTreeMap<CallId, mdbn_replica::replica::LogReplyScope>,
     collection: Uuid,
-    /// This Engine opened over an empty cache: everything it holds came from
-    /// the log after open (a migration rebuild needs exactly that).
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    opened_empty: bool,
     // Private default-deny foundation only: all-site Engine/adapter/destination
     // enforcement is a separate PR. No issuer or caller proof can open this.
     _effect_currentness: crate::effect_currentness::ReceiverGate,
@@ -351,17 +361,6 @@ impl<S: Store> Engine<S> {
         host: Host,
         profile: HostedProfile,
     ) -> Result<Engine<S>, OpenFailure> {
-        Self::open_with_cpp_signer(config, store, sealer, host, profile, None)
-    }
-
-    fn open_with_cpp_signer(
-        config: OpenConfig,
-        store: S,
-        sealer: Box<dyn mdbn_replica::Sealer>,
-        host: Host,
-        profile: HostedProfile,
-        cpp_claim_signer: Option<cpp_claim::CppClaimSigner>,
-    ) -> Result<Engine<S>, OpenFailure> {
         config.validate_public_trust()?;
         let OpenConfig { cfg, secrets, .. } = config;
         let collection = cfg.collection;
@@ -377,12 +376,9 @@ impl<S: Store> Engine<S> {
         .map_err(|e| OpenFailure(format!("{e:?}")))?;
         let effect_currentness = crate::effect_currentness::ReceiverGate::unknown();
         debug_assert!(!effect_currentness.permits_effect());
-        let opened_empty = replica.head().seq == 0;
         Ok(Engine {
-            opened_empty,
             replica,
             native_target_instance: std::rc::Rc::new(()),
-            cpp_claim_signer,
             frames: Frames::new(),
             submits: BTreeMap::new(),
             out: Vec::new(),
@@ -396,6 +392,11 @@ impl<S: Store> Engine<S> {
     /// The replica (tests, diagnostics).
     pub fn replica(&self) -> &Replica<HostedCache<S>> {
         &self.replica
+    }
+
+    /// Drain count-only diagnostics after each hosted open or tick.
+    pub fn take_repair_boundary(&mut self) -> Option<mdbn_replica::replica::HostedRepairBoundary> {
+        self.replica.take_hosted_repair_boundary()
     }
 
     #[cfg(test)]
@@ -525,100 +526,6 @@ impl<S: Store> Engine<S> {
             owner,
             originals,
         })
-    }
-
-    /// Test harness for the read-only native supplier and SAME target checks.
-    /// Production source-member ingestion is not connected yet; this helper
-    /// cannot admit migration. CP policy/ceilings/invitations remain separate.
-    #[cfg(test)]
-    pub(crate) fn verify_migration_members(
-        &self,
-        target: &ObservedNativeTarget,
-        expected: &std::collections::BTreeMap<Uuid, mdbn_wire::policy::Role>,
-    ) -> Result<(), NativeTargetRefused> {
-        self.recheck_native_target(target)?;
-        self.replica
-            .verify_hosted_member_roles(expected)
-            .map_err(|_| NativeTargetRefused)?;
-        self.recheck_native_target(target)
-    }
-
-    /// The Replica's private generation-0 custody seam, lent only after a fresh
-    /// SAME-Engine recheck of `target`. The migration ledger's gen0 adapter is
-    /// the only caller; the custody calls recheck the full admission again.
-    // Native non-WASM lib has no ABI consumer.
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    pub(crate) fn migration_gen0_replica(
-        &mut self,
-        target: &ObservedNativeTarget,
-    ) -> Result<&mut Replica<HostedCache<S>>, NativeTargetRefused> {
-        self.recheck_native_target(target)?;
-        Ok(&mut self.replica)
-    }
-
-    /// Whether this Engine opened over an empty cache, so its whole state was
-    /// read from the log since open (`migration_action_ledger::log`).
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    pub(crate) fn migration_opened_empty(&self) -> bool {
-        self.opened_empty
-    }
-
-    /// A fresh observation of the SAME target after the log moved forward (a
-    /// migration base or cutover changes the admitted head): same Engine and
-    /// wake, same identity, root, epoch, key delivery, genesis owner and
-    /// originals, and the earlier applied head still on this replica's chain
-    /// (the retained item after it links to it; no rollback). VOID, never an
-    /// effect permit; anything else refuses.
-    #[cfg_attr(not(any(test, target_arch = "wasm32")), allow(dead_code))]
-    pub(crate) fn refresh_native_target(
-        &self,
-        before: &ObservedNativeTarget,
-    ) -> Result<ObservedNativeTarget, NativeTargetRefused> {
-        if !std::rc::Rc::ptr_eq(&self.native_target_instance, &before.instance) {
-            return Err(NativeTargetRefused);
-        }
-        let now = self.observe_native_target()?;
-        let (a, b) = (now.admission(), before.admission());
-        if a == b {
-            return Ok(now);
-        }
-        if now.genesis_owner() != before.genesis_owner()
-            || now.originals() != before.originals()
-            || a.collection() != b.collection()
-            || a.device() != b.device()
-            || a.identity() != b.identity()
-            || a.noise_pk() != b.noise_pk()
-            || a.root_id() != b.root_id()
-            || a.root_pk() != b.root_pk()
-            || a.wake_instance() != b.wake_instance()
-            || a.epoch() != b.epoch()
-            || a.key_delivery_device() != b.key_delivery_device()
-            || a.key_delivery_seq() != b.key_delivery_seq()
-            || a.authenticated_head().seq < b.authenticated_head().seq
-        {
-            return Err(NativeTargetRefused);
-        }
-        let (old, new) = (b.applied_head(), a.applied_head());
-        if new.seq < old.seq || (new.seq == old.seq && new.chain != old.chain) {
-            return Err(NativeTargetRefused);
-        }
-        if new.seq > old.seq {
-            let row = self
-                .replica
-                .store()
-                .tail(old.seq, 1)
-                .map_err(|_| NativeTargetRefused)?
-                .into_iter()
-                .next()
-                .filter(|r| r.seq == old.seq + 1)
-                .ok_or(NativeTargetRefused)?;
-            let item = mdbn_wire::envelope::Item::from_bytes(&row.item)
-                .map_err(|_| NativeTargetRefused)?;
-            if item.prev != Some(old.chain) {
-                return Err(NativeTargetRefused);
-            }
-        }
-        Ok(now)
     }
 
     /// Fresh SAME-Engine point comparison; VOID, never an effect permit.
@@ -787,6 +694,11 @@ impl<S: Store> Engine<S> {
         self.replica.hosted_needs_reset()
     }
 
+    /// Reopen over the durable checkpoint after a terminal store fault.
+    pub fn requires_reopen(&self) -> bool {
+        self.replica.requires_reopen()
+    }
+
     /// The pin check on the state applied so far: 0 inconsistent with the pins,
     /// 1 consistent while the rebuild runs, 2 consistent and rebuilt to the head.
     pub fn pin_state(&self) -> u32 {
@@ -935,11 +847,15 @@ impl<S: Store> Engine<S> {
     }
 
     /// Run timers.
-    pub fn tick(&mut self, now_ms: i64) {
+    pub fn tick(&mut self, now_ms: i64, after_open: bool) {
         if let Some(session) = self.replica.attachment_read_tick(now_ms) {
             self.replica.attachment_read_end_idle(session);
         }
-        self.replica.tick();
+        if after_open {
+            self.replica.tick_timers();
+        } else {
+            self.replica.tick();
+        }
         self.frames.tick(&mut self.replica, now_ms);
         self.drain_acks();
     }
@@ -949,6 +865,20 @@ impl<S: Store> Engine<S> {
     pub fn applied_head(&self) -> (u64, [u8; 32]) {
         let head = self.replica.head();
         (head.seq, head.chain.0)
+    }
+
+    /// LAB catch-up diagnostics (connect#1850), numbers and flags only: applied
+    /// seq, the highest log head heard of, caught up, a key grant waiting, and
+    /// that grant due now. Not a serving, admission or effect permit.
+    pub fn catchup_facts(&self) -> CatchupFacts {
+        let (grant_waiting, grant_due) = self.replica.key_grant_waiting();
+        CatchupFacts {
+            applied: self.replica.head().seq,
+            head_known: self.replica.head_known(),
+            caught_up: self.replica.caught_up(),
+            grant_waiting,
+            grant_due,
+        }
     }
 
     /// Snapshot install progress as chunks done and total. The install lives in
@@ -964,14 +894,9 @@ impl<S: Store> Engine<S> {
     }
 
     /// When to call [`Engine::tick`] next (host ms), if at all.
-    pub fn next_wakeup(&self) -> Option<i64> {
-        match (
-            self.replica.next_wakeup(),
-            self.replica.attachment_read_deadline(),
-        ) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+    pub fn next_wakeup(&self, include_stall_probe: bool) -> Option<i64> {
+        self.replica
+            .next_wakeup_with_stall_probe(include_stall_probe)
     }
 
     /// Bind the log session. The host calls this only after its transport

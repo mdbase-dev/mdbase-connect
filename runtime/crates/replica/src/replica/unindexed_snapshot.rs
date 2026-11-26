@@ -119,7 +119,7 @@ impl<S: Store> Replica<S> {
         self.install_retry = true;
     }
     pub(crate) fn native_install_step(&mut self) {
-        if self.apply_fault || self.install.is_none() {
+        if self.apply_fault.is_some() || self.install.is_none() {
             return;
         }
         let Some(mut j) = self.install_native_auth.job.take() else {

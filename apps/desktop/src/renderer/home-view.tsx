@@ -1,6 +1,6 @@
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
-import { AppTile, appsByCollection, homeApps, officialAppsAt, type LaunchableApp } from "@mdbase/connect-ui/home";
+import { AppTile, McpConnectRow, appsByCollection, homeApps, officialAppsAt, type LaunchableApp } from "@mdbase/connect-ui/home";
 import { i18n, useLocaleRevision } from "@mdbase-dev/ui/i18n";
 import React, { useEffect, useMemo, useState } from "react";
 import { managedAppOrigins } from "../../../../scripts/lib/managed-app-origins.mjs";
@@ -13,8 +13,8 @@ const APPS_POLL_MS = 60_000;
 
 const listFormat = (names: string[]) => new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(names);
 
-/** The official apps of the environment this computer is signed in to; none for a custom server. */
-const officialFor = (environment: string | undefined) => officialAppsAt(managedAppOrigins[environment as keyof typeof managedAppOrigins]);
+/** The managed environment origins this computer is signed in to; undefined for a custom server. */
+const originsFor = (environment: string | undefined) => managedAppOrigins[environment as keyof typeof managedAppOrigins];
 
 export function HomeView({ environment, collections, pendingApps, busy, onNavigate, onReview, onAdd, onCreate, onAct }: {
   environment: string | undefined;
@@ -41,9 +41,10 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
     return () => { current = false; stopPolling(); };
   }, []);
 
+  const origins = originsFor(environment);
   const { yours, suggested } = useMemo(
-    () => homeApps(approved ?? [], officialFor(environment), pendingApps),
-    [approved, environment, pendingApps]
+    () => homeApps(approved ?? [], officialAppsAt(origins), pendingApps),
+    [approved, origins, pendingApps]
   );
   const usedBy = useMemo(() => appsByCollection(approved ?? []), [approved]);
   const open = (url: string) => void onAct(() => window.mdbaseConnect.openApp(url));
@@ -63,11 +64,14 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
           : !failure && <p className="home-note">{t(i18n)`Apps you approve appear here.`}</p>}
       </section>}
 
-      {suggested.length > 0 && <section aria-labelledby="home-more">
-        <h2 id="home-more" className="home-heading">{yours.length > 0 ? t(i18n)`More apps from mdbase` : t(i18n)`Start with an app`}</h2>
-        <ul className="app-grid">{suggested.map(app => <OpenTile key={app.key} app={app} busy={busy} onOpen={open} />)}</ul>
-        <p className="home-note">{t(i18n)`An app asks for access to a collection the first time you use it, and you choose what it can do.`}</p>
-      </section>}
+      {(suggested.length > 0 || origins) && <div className="home-more-group">
+        {suggested.length > 0 && <section aria-labelledby="home-more">
+          <h2 id="home-more" className="home-heading">{yours.length > 0 ? t(i18n)`More apps from mdbase` : t(i18n)`Start with an app`}</h2>
+          <ul className="app-grid">{suggested.map(app => <OpenTile key={app.key} app={app} busy={busy} onOpen={open} />)}</ul>
+          <p className="home-note">{t(i18n)`An app asks for access to a collection the first time you use it, and you choose what it can do.`}</p>
+        </section>}
+        {origins && <McpConnectRow onOpenSetup={open} />}
+      </div>}
 
       <section aria-labelledby="home-collections">
         <div className="home-heading-row">

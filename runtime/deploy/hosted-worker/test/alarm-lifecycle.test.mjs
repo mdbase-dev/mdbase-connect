@@ -11,6 +11,8 @@ function storage() {
       return Array.isArray(key) ? new Map(key.filter(k => data.has(k)).map(k => [k, data.get(k)])) : data.get(key);
     },
     async put(key, value) { calls.push("put"); data.set(key, value); },
+    async sync() { calls.push("sync"); },
+    async delete(key) { return data.delete(key); },
     async getAlarm() { calls.push("getAlarm"); return alarm; },
     async setAlarm(at) { calls.push("setAlarm"); alarm = at; },
     async deleteAlarm() { calls.push("deleteAlarm"); alarm = null; },
@@ -266,7 +268,7 @@ test("inhibition during custody open wipes returned keys before engine construct
 test("real sync cannot reschedule after inhibition during alarm storage await", async () => {
   for (const escrow of [false, true]) {
     const { o, s, alarm } = object(escrow);
-    const engine = { appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
+    const engine = { cacheRecovery: () => null, appliedHead: () => "cached", logBound: true, logCalls: () => [], poll: () => [], nextWakeup: () => null, installStatus: () => null, snapshotDeclined: () => false, attachmentObject: () => null };
     o.engine = engine; o.log = () => ({});
     s.getAlarm = async () => { await o.alarms.inhibit(); return null; };
     await o.sync(engine);

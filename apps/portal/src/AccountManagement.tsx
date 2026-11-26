@@ -1,4 +1,5 @@
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
+import { serviceUrl } from "@mdbase-dev/connect-protocol";
 import { ConfirmAction } from "@mdbase/connect-ui/confirm-action";
 import { countLabel } from "./count-label";
 import { formatters } from "@mdbase-dev/i18n";
@@ -245,7 +246,13 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     if (!beginOperation(id)) return;
     setError("");
     try {
-      location.assign((await session()).url);
+      const target = serviceUrl((await session()).url);
+      if (target?.protocol !== "https:" || ![
+        location.origin, "https://checkout.stripe.com", "https://billing.stripe.com"
+      ].includes(target.origin)) {
+        throw new Error(t(i18n)`Something went wrong on mdbase. Try again.`);
+      }
+      location.assign(target.href);
     } catch (reason) {
       handleError(reason);
       finishOperation(id);
@@ -424,7 +431,6 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
           <p><strong><Trans>This permanently deletes:</Trans></strong></p>
           <ul><li><Trans>{countLabel(account.deletion.owned_collections, "collection")} and their stored data</Trans></li><li><Trans>App access and {countLabel(account.deletion.computers, "computer")}</Trans></li><li><Trans>Every browser session and sign-in method</Trans></li></ul>
           <p><Trans>Includes collections that have left sync and retained data from deleted collections.</Trans></p>
-          <p><strong><Trans>Local collection and mirror files remain on your computers.</Trans></strong></p>
         </div>
         {!account.deletion.development_confirmation && !reauthenticationToken && <div className="connect-account-reauthentication">
           <strong><Trans>Confirm your identity</Trans></strong>

@@ -32,6 +32,7 @@ impl<S: Store> Replica<S> {
         id: Uuid,
         fields: &[String],
         tags: bool,
+        full_frontmatter: bool,
         ledger: &mut IncrementalBasesBudget,
     ) -> ApiResult<Option<QueryProjectionRow>> {
         let Some(record) = self
@@ -59,6 +60,11 @@ impl<S: Store> Replica<S> {
                     .map_err(|_| EvaluationFailure::BudgetExceeded("pending_source_structure"))
             })
             .map_err(failure)?;
+        // As the confirmed projection does: a record whose frontmatter cannot
+        // be read is skipped, never matched as if it had no properties.
+        if document.problem().is_some() {
+            return Ok(None);
+        }
         ledger
             .retain(footprint.estimated_heap_bytes * 2 + fields.len() as u64 * 128)
             .map_err(failure)?;
@@ -84,6 +90,7 @@ impl<S: Store> Replica<S> {
                 } else {
                     None
                 };
+                let raw_frontmatter = full_frontmatter.then(|| document.frontmatter().clone());
                 Ok(Some(QueryProjectionRow {
                     id,
                     path: record.path.clone(),
@@ -91,6 +98,7 @@ impl<S: Store> Replica<S> {
                     source_bytes: bytes,
                     fields: values,
                     tags: qualified_tags,
+                    raw_frontmatter,
                 }))
             })
             .map_err(failure)

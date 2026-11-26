@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync, mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { RELAY_CAPABILITIES, RELAY_REQUIRED_CAPABILITIES, HOSTED_PROVIDER_CAPABILITIES,
@@ -132,47 +130,6 @@ test("both generated catalogs are current", () => {
   execFileSync(process.execPath, [fileURLToPath(new URL(
     "../../../scripts/generate-application-capabilities.mjs", import.meta.url
   )), "--check"]);
-});
-
-test("generated Rust compiles and resolves both catalogs exactly like TypeScript", () => {
-  const directory = mkdtempSync(join(tmpdir(), "capability-catalog-"));
-  try {
-    const rust = fileURLToPath(new URL(
-      "../../../crates/connect-protocol/src/application_capabilities_generated.rs", import.meta.url
-    ));
-    const assertions = [
-      `assert_eq!(APPLICATION_CAPABILITY_CONTRACT_VERSION, 2);`,
-      `assert_eq!(APPLICATION_CAPABILITY_V1_CONTRACT_VERSION, 1);`
-    ];
-    for (const [version, definitions] of [[1, predecessor], [2, APPLICATION_CAPABILITY_DEFINITIONS]]) {
-      const ids = Object.keys(definitions);
-      assertions.push(`assert_eq!(${version === 1 ? "APPLICATION_CAPABILITY_V1_IDS" : "APPLICATION_CAPABILITY_IDS"}, &[${ids.map(JSON.stringify).join(",")}]);`);
-      for (const [id, operations] of Object.entries(definitions)) {
-        assertions.push(`assert_eq!(application_capability_operations_for_contract_version(${version}, ${JSON.stringify(id)}), Some(&[${operations.map(JSON.stringify).join(",")}] as &[&str]));`);
-      }
-      for (const id of [...Object.keys(predecessor), ...Object.keys(APPLICATION_CAPABILITY_DEFINITIONS), "unknown", "__proto__", ""]) {
-        if (!Object.hasOwn(definitions, id)) {
-          assertions.push(`assert_eq!(application_capability_operations_for_contract_version(${version}, ${JSON.stringify(id)}), None);`);
-        }
-      }
-    }
-    assertions.push("assert_eq!(FRESH_APPLICATION_AUTHORIZATION_VERSIONS, &[1, 2]);");
-    assertions.push("assert!(permits_fresh_application_authorization(1));");
-    assertions.push("assert!(permits_fresh_application_authorization(2));");
-    for (const version of [0, 3, 4294967295]) {
-      assertions.push(`assert!(!permits_fresh_application_authorization(${version}));`);
-    }
-    for (const version of [0, 3, 4294967295]) {
-      assertions.push(`assert_eq!(application_capability_operations_for_contract_version(${version}, "records.create"), None);`);
-    }
-    const source = join(directory, "check.rs");
-    const binary = join(directory, "check");
-    writeFileSync(source, `include!(${JSON.stringify(rust)});\nfn main() {\n${assertions.join("\n")}\n}\n`);
-    execFileSync("rustc", ["--edition=2021", source, "-o", binary]);
-    execFileSync(binary);
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
 });
 
 test("the generated application capability contract matches its canonical catalog", () => {

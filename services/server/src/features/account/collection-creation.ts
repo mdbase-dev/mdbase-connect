@@ -1,14 +1,12 @@
 import {randomUUID} from "node:crypto";
-import type {DatabaseConnection} from "../../database-types.js";
-import type {HostedAuthorityRegistry} from "../hosted/hosted.js";
+import type {DatabaseConnection, DatabasePool} from "../../database-types.js";
 import {CreateError, inTransaction} from "../next/bootstrap-common.js";
-import {requireNextAccountNotMigrationFrozen} from "../next/migration-topology.js";
-import {createServiceCloudCopy, currentCloudCopy, type CloudCopyBootstrapOptions} from "../next/service-cloud-copy.js";
-import {createHostedCollectionForUser, type HostedServiceOptions} from "../hosted/service.js";
+import {createServiceCloudCopy, currentCloudCopy, initializeHostedCloudCopy, type CloudCopyBootstrapOptions} from "../next/service-cloud-copy.js";
 
-export interface AccountCollectionCreationOptions extends HostedServiceOptions {
+export interface AccountCollectionCreationOptions {
+  db: DatabasePool;
   publicUrl: string;
-  hostedReference?: HostedAuthorityRegistry;
+  hostedCollections?: boolean;
   native?: CloudCopyBootstrapOptions;
 }
 export interface AccountCollectionRequest {requestId: string; displayName: string; timezone: string}
@@ -18,9 +16,7 @@ interface Intent {
 }
 type Principal = (client: DatabaseConnection) => Promise<void>;
 
-async function backend(client: DatabaseConnection, account: string, principal: Principal): Promise<Intent["runtime"]> {
-  // Match native onboarding's account-first freeze/session lock ordering.
-  await requireNextAccountNotMigrationFrozen(client, account);
+async function backend(client: DatabaseConnection, account: string, principal: Principal): Promise<"next"> {
   await principal(client);
   const row = (await client.query<{account_backend: string; flipped: boolean}>(
     `SELECT u.account_backend, f.account_id IS NOT NULL AS flipped
@@ -29,7 +25,6 @@ async function backend(client: DatabaseConnection, account: string, principal: P
   )).rows[0];
   if (!row) throw new CreateError(403, "identity_not_current");
   if (row.account_backend === "next" && row.flipped) return "next";
-  if (row.account_backend === "legacy") return "legacy";
   throw new CreateError(409, "account_not_ready");
 }
 function matches(row: Intent, account: string, input: AccountCollectionRequest): boolean {
@@ -54,7 +49,7 @@ async function claim(options: AccountCollectionCreationOptions, account: string,
 async function original(client: DatabaseConnection, intent: Intent, principal: Principal): Promise<void> {
   const runtime = await backend(client, intent.user_id, principal);
   const row = (await client.query<Intent>(
-    `SELECT * FROM account_collection_creations WHERE user_id=$1 AND request_id=$2 FOR ${intent.runtime === "legacy" ? "UPDATE" : "SHARE"}`, [intent.user_id, intent.request_id]
+    "SELECT * FROM account_collection_creations WHERE user_id=$1 AND request_id=$2 FOR SHARE", [intent.user_id, intent.request_id]
   )).rows[0];
   if (!row || row.collection_id !== intent.collection_id || row.runtime !== intent.runtime || runtime !== intent.runtime ||
       row.display_name !== intent.display_name || row.timezone !== intent.timezone) throw new CreateError(409, "creation_intent_mismatch");
@@ -68,34 +63,25 @@ async function publish(client: DatabaseConnection, intent: Intent): Promise<void
   if (!marked.rows.length) throw new CreateError(409, "creation_intent_mismatch");
 }
 async function readPublished(client: DatabaseConnection, intent: Intent): Promise<{id: string; display_name: string}> {
-  if (intent.runtime === "next") await currentCloudCopy(client, intent.collection_id, intent.user_id);
-  const result = intent.runtime === "next"
-    ? await client.query<{id: string; display_name: string}>("SELECT collection_id AS id,display_name FROM next_collections WHERE collection_id=$1 AND owner_user_id=$2", [intent.collection_id, intent.user_id])
-    : await client.query<{id: string; display_name: string}>("SELECT id,display_name FROM hosted_collections WHERE id=$1 AND user_id=$2 AND authority_state='active' FOR SHARE", [intent.collection_id, intent.user_id]);
+  await currentCloudCopy(client, intent.collection_id, intent.user_id);
+  const result = await client.query<{id: string; display_name: string}>(
+    "SELECT collection_id AS id,display_name FROM next_collections WHERE collection_id=$1 AND owner_user_id=$2",
+    [intent.collection_id, intent.user_id]
+  );
   if (!result.rows[0]) throw new CreateError(404, "collection_unavailable");
   return result.rows[0];
 }
-/** Metadata-only account creation. Original UUID/name/runtime survive unknown
- * outcomes. No pairing, browser device, content grant or readiness assertion. */
+/** Account creation with an immutable intent. The browser never gets a device or content grant here. */
 export async function createAccountCollection(options: AccountCollectionCreationOptions, account: string, input: AccountCollectionRequest, principal: Principal) {
   const intent = await claim(options, account, input, principal);
   const current = (client: DatabaseConnection) => original(client, intent, principal);
   if (intent.published_at !== null) return inTransaction(options.db, async client => {await current(client); return readPublished(client, intent);});
-  if (intent.runtime === "next") {
-    if (!options.native) throw new CreateError(503, "not_ready");
-    await createServiceCloudCopy(options.native, {collection: intent.collection_id, owner: account, runtime: "next", displayName: intent.display_name, current});
-    return inTransaction(options.db, async client => {
-      await current(client); const result = await readPublished(client, intent); await publish(client, intent); return result;
-    });
-  }
-  // The legacy creator holds its guard through provider effects. Publication is
-  // recorded IN that metadata transaction, so a deleted acknowledged collection
-  // cannot be recreated by a lost-response retry.
-  await createHostedCollectionForUser(options, options.hostedReference, options.publicUrl, account, intent.display_name, "mdbase", intent.timezone,
-    {collectionId: intent.collection_id, current, published: client => publish(client, intent), alreadyPublished: async client => {
-      const row = (await client.query<Intent>("SELECT * FROM account_collection_creations WHERE user_id=$1 AND request_id=$2", [account,input.requestId])).rows[0];
-      if (row?.published_at === null) return false;
-      await readPublished(client,intent); return true;
-    }});
-  return inTransaction(options.db, async client => {await current(client); return readPublished(client, intent);});
+  if (!options.native) throw new CreateError(503, "not_ready");
+  const native = options.native;
+  await createServiceCloudCopy(native, {collection: intent.collection_id, owner: account, runtime: "next", displayName: intent.display_name, current,
+    initialContent: () => initializeHostedCloudCopy(native, intent.collection_id, intent.request_id, intent.timezone,
+      () => inTransaction(options.db, async client => {await current(client); await currentCloudCopy(client, intent.collection_id, account);}))});
+  return inTransaction(options.db, async client => {
+    await current(client); const result = await readPublished(client, intent); await publish(client, intent); return result;
+  });
 }

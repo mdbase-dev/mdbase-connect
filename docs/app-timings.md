@@ -34,8 +34,13 @@ private account registry and production E2E policy govern credentials and
 fixture names. Account identifiers, credentials, collection IDs and browser
 state stay outside this public repository and reports.
 
-A cold context has empty app storage, HTTP cache and service-worker state. Only
-the saved Connect login cookies are supplied. The script follows the app's Sign
+Each app/size cell runs in a new on-disk browser profile, as a person's own
+browser has, and the profile directory is deleted after the cell. Ordinary
+Playwright contexts are off the record: Chromium keeps their origin-private file
+system in memory behind an IPC round trip of about a millisecond per write, which
+made cold opens several times slower than in a normal profile (#1648). A cold
+profile has empty app storage, HTTP cache and service-worker state. Only the
+saved Connect login cookies are supplied. The script follows the app's Sign
 in button and approves the requested fixture in the portal, then brings the app
 tab to the foreground after the portal confirms approval, so the consent flow
 and app animation frames each run in the foreground as they do for the person.
@@ -45,7 +50,7 @@ duration start at that response; they exclude consent. Three subsequent warm
 navigations use the same fully opened context and retain app installation,
 collection storage, HTTP cache and service worker. Warm visits run only after
 cold succeeds; otherwise they report `cold_incomplete` with zero visits.
-Contexts are closed after the cell. The SDK's protected installation contains a
+Profiles are closed and deleted after the cell. The SDK's protected installation contains a
 nonextractable IndexedDB key; clearing storage and restoring JSON auth is not a
 valid way to simulate an authorized cold open.
 
@@ -71,15 +76,18 @@ animation frames and requires a visible row in the viewport. `first_records`
 starts at approval response headers for cold and navigation for warm; it is not
 full indexing or synchronization. Cold record windows are 180 seconds at 100,
 240 seconds at 1k and 600 seconds at 10k, allowing the SDK key-grant wait and
-large replay; warm has 45 seconds. On the runner's two vCPUs a 1k cold open took
-up to 177 seconds, and a 10k one did not finish within ten minutes, so 10k cold
-cells record a timeout until issue #1648 is fixed. All cells and visits are
+large replay; warm has 45 seconds. In the off-the-record contexts used until
+#1648's follow-up, a 1k cold open on the runner's two vCPUs took up to 177
+seconds and a 10k one about six minutes; in an on-disk profile they took about
+21 and 72–81 seconds, so the cold series steps down at that change. All cells and visits are
 sequential, including on one collection.
 
-The same observer accumulates time under fixed opening status text as
-`key_wait`, `snapshot` and `apply`. It stores only those fixed names and
-monotonic timestamps, never UI text. Repeated phases add to the same stage;
-these UI observations can omit intervals and are not a complete SDK trace. TTFB
+Opening stage durations (`joining`, `opening_store`, `connecting_log`, `syncing`,
+`key_wait`, `snapshot`, `apply`, `verifying_read` and `checking_setup`) are
+computed from the SDK's main-thread `mdbase:open:stage:<stage>` performance
+marks, clipped to approval start and to `open:ready` / first records, summing
+repeated visits to a stage. Only those fixed stage names and monotonic
+timestamps are used. TTFB
 is navigation `responseStart - requestStart`. FCP and buffered LCP are read at
 the first-records observation (or timeout); LCP is therefore **LCP at first
 records**, not an eventual page-lifetime LCP. JS heap uses Chromium's

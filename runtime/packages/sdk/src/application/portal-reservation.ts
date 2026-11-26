@@ -93,11 +93,16 @@ export function browserApplicationPortalHost(cpOrigin:string,signal:AbortSignal,
 export function openerApplicationPortalHost(cpOrigin:string,signal:AbortSignal,isCurrent:()=>boolean,
   opener:{open(url:string):void|Promise<void>;close?():void|Promise<void>;readonly returnUrl?:string},allowLoopbackHttp=false):ApplicationPortalHost {
   return {cpOrigin,signal,isCurrent,allowLoopbackHttp,open(){
-    let opened=false;
+    let opened:string|null=null;
+    const show=(href:string)=>{void Promise.resolve().then(()=>opener.open(href)).catch(()=>{/* the app owns opener UI failures */});};
     return {navigate(uri){
       const url=new URL(uri);if(opener.returnUrl!==undefined)url.searchParams.set("return_url",opener.returnUrl);
-      opened=true;void Promise.resolve().then(()=>opener.open(url.href)).catch(()=>{/* the app owns opener UI failures */});
-    },close(){
+      opened=url.href;show(opened);
+    },
+    // A system browser window cannot be raised from the app: show the same
+    // approval page again (a native app returned to the app to finish its part).
+    focus(){if(opened!==null)show(opened);},
+    close(){
       if(opened&&opener.close)void Promise.resolve().then(()=>opener.close!()).catch(()=>{/* best-effort dismissal */});
     }};
   }};

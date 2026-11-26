@@ -1,12 +1,8 @@
 # mdbase next
 
-Reimplementation of mdbase + Connect around one deterministic core, one replica service and a blind shared log.
+The production mdbase + Connect runtime built around one deterministic core, one replica service, and a blind shared log.
 
-**Status:** Phase 1 in progress. `mdbn-core` has the document model, the YAML
-profile with format-preserving writes, paths, the three-way merge, body edits,
-move detection, the regex profile and the CEL engine (temporal and file
-helpers still to come). Spec interpretations are recorded in
-`docs/spec-notes.md`.
+**Status:** Active production runtime. Powers the shipped `mdbase` CLI and desktop daemon (`mdbn-daemon`), the Cloudflare Worker hosted replica (`mdbn-hosted-worker`), the blind log service (`mdbn-log-service`), the TypeScript SDK (`@mdbase-dev/sdk`), `@mdbase-dev/mdbase`, and the Obsidian runtime host. Spec interpretations are recorded in `docs/spec-notes.md`.
 
 ## Layout
 
@@ -52,19 +48,16 @@ Directories carry the role, packages carry the prefix: `crates/core` is package
 | `mdbn-backup-verify` | Offline authenticated native cut/completion verifier; pure library and CLI, no network/provider access or current-authority assertion. | wire, log-service | no (native-only, no application/WASM consumer) |
 | `mdbn-log-conformance` | Log service conformance suite (`log-service-api.md` §13), over the wire against any backend; `logsvc-bench` for D2. | wire, log-service, log-server | no |
 | `mdbn-wasm` | `runtime.wasm`: core + replica + file layer behind a raw ABI. | core, wire, replica, store-file | yes |
-| `mdbn-hosted-worker` | The hosted replica's engine for the Cloudflare Worker: one DO per collection, hosted mode over a disposable DO SQLite cache; metadata-only legacy import preflight. | core, wire, replica, store-file, noise, migrate-portable | yes |
-| `mdbn-sim` | Deterministic simulator and seed sweeps. | core, wire, replica, store-file, log-service | lib is deterministic |
+| `mdbn-hosted-worker` | The hosted replica's engine for the Cloudflare Worker: one DO per collection, hosted mode over a disposable DO SQLite cache. | core, wire, replica, store-file, noise | yes |
+| `mdbn-sim` | Deterministic simulator and seed sweeps. | core, wire, replica, store-file, log-service, noise | lib is deterministic |
 | `mdbn-bench` | Benchmarks for native, replicated and WASM runtime performance. | any library crate | no |
 | `mdbn-local-host` | The native composition of a collection folder: FileStore + SqlStore/SqliteIndex + NativePlatform, the folder host lock, identity, the local-only drive loop. For `mdbase` and the daemon. | core, wire, replica, store-file, platform-native | no |
 | `mdbase` | The public library: `Collection::open/init`, typed CRUD, CEL queries, validation, links, changes, batches over a local-only replica (`docs/library/README.md`). | core, wire, replica, store-file, platform-native, local-host | no |
 | `mdbase-node` | The Node.js addon (napi-rs) behind `@mdbase-dev/mdbase/node`: `mdbase::Collection` on its own thread, JSON calls. Ships inside the npm package only. | mdbase | no |
 | `mdbn-trust` | The one verifier of the release environment trust asset (payload v1) against its authenticated context, and the normalized policy-pin output (canonical CBOR); `mdbn-trust verify` for build steps. Library does no I/O. | wire, replica | no (not linked into runtime.wasm) |
-| `mdbn-daemon` | The desktop daemon and the `mdbase` CLI: one replica per collection, embedded local log, local IPC, control endpoint, keychain identity. | core, wire, replica, store-file, platform-native, local-host, log-service, legacy, noise, trust | no |
+| `mdbn-daemon` | The desktop daemon and the `mdbase` CLI: one replica per collection, embedded local log, local IPC, control endpoint, keychain identity. | core, wire, replica, store-file, platform-native, local-host, log-service, noise, trust | no |
 | `mdbase-wasm` | `mdbase-core.wasm`: the pure helpers (digests, JSON Schema, catalog, packs) behind the npm `@mdbase-dev/mdbase` package (`docs/library/README.md`). | core | yes |
 | `mdbn-conformance` | Spec fixture runner + ratchet; native side of the determinism replay. | core, wasm | no |
-| `mdbn-legacy` | Read-only readers for old Connect/mdbase-rs state (connector SQLite, mutation journal, receipts, engine journals, role markers, locks), for migration. | nothing | no |
-| `mdbn-migrate` | The migrator: hosted adoption (generation 0, re-seal, shadow verify), estimates, hosted rollback and the rehearsal oracle; re-exports the local takeover. A composition point. | migrate-portable, legacy, takeover, core, wire, replica, store-file, platform-native, store-pg | no |
-| `mdbn-takeover` | The local takeover of old Connect collections (T0–T6) and local rollback; the daemon implements its traits and drives it. | legacy | no |
 | `xtask` | Repo automation and the architecture check. | nothing | no |
 
 Rules worth knowing:
@@ -94,13 +87,13 @@ Rules worth knowing:
 ## Build and test
 
 Prerequisites: rustup (the toolchain in `rust-toolchain.toml` installs itself),
-Node 22, and `cargo install cargo-deny` for the licence/advisory check.
+Node 22, and Python 3.11+ with `cargo install cargo-deny` for the dependency checks.
 
 ```sh
 cargo build                                  # native, all product crates
 cargo test --workspace                       # unit tests + spec ratchet + golden replay
 cargo xtask arch                             # crate boundaries + portability scan
-cargo deny check                             # licenses, advisories, bans
+cargo xtask policy                           # licenses, advisories, sources and per-target bans
 npm ci --prefix tools/wasm                   # once: pinned wasm-opt
 cargo xtask wasm                             # target/wasm/runtime.wasm
 cargo xtask wasm-size                        # budget check

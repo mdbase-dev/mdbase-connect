@@ -1,0 +1,3 @@
+## Changed
+
+- Clarified collection storage mode switching in Connect Portal and Desktop: both directions now warn before confirmation that connected apps will need to be reconnected afterwards, distinguish confirmation declines and known refusals from unknown transport errors, show source mode and automatic progress (including expected finish time during token expiry) with background polling, resolve older-device names with short-ID fallback and persistence until the next attempt, expose confirmed abandonment of a stuck published Cloud-to-Private switch in the management client and shared control, move the Desktop control into its own section with pending-switch flagging and immediate badge refresh, and restrict Portal mode fetches to owned collections.

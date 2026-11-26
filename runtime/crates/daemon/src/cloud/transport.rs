@@ -21,25 +21,24 @@ pub fn canonical_server_url(s: &str) -> Result<String, CloudError> {
     Ok(format!("{scheme}://{}", host.to_ascii_lowercase()))
 }
 
-/// The rustls client config: the OS trust store (`rustls-native-certs`: system
-/// bundle on Linux, Keychain on macOS, the certificate store on Windows), ring
-/// provider.
+/// The rustls client config for every daemon HTTPS and WSS connection: the OS
+/// certificate verifier (`rustls-platform-verifier`), ring provider.
+///
+/// The OS decides trust, as browsers on the same machine do: on Windows
+/// `CertGetCertificateChain` (user and machine roots, Group Policy and enterprise
+/// roots, root auto-update), on macOS the Security framework, elsewhere the
+/// system bundle (`rustls-native-certs`, which honours `SSL_CERT_FILE` and
+/// `SSL_CERT_DIR`) with webpki. Connect #1696: copying the Windows store into a
+/// webpki root store found no roots behind HTTPS inspection, and the load errors
+/// were discarded.
 pub fn tls_config() -> Result<Arc<rustls::ClientConfig>, CloudError> {
+    use rustls_platform_verifier::BuilderVerifierExt;
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let mut roots = rustls::RootCertStore::empty();
-    let found = rustls_native_certs::load_native_certs();
-    for c in found.certs {
-        let _ = roots.add(c);
-    }
-    if roots.is_empty() {
-        return Err(CloudError::Network(
-            "no trusted root certificates on this system".into(),
-        ));
-    }
     let cfg = rustls::ClientConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
-        .map_err(|e| CloudError::Network(e.to_string()))?
-        .with_root_certificates(roots)
+        .map_err(CloudError::network)?
+        .with_platform_verifier()
+        .map_err(|e| CloudError::Network(format!("certificate verifier: {e}")))?
         .with_no_client_auth();
     Ok(Arc::new(cfg))
 }
@@ -50,7 +49,7 @@ pub(super) fn http(tls: &Arc<rustls::ClientConfig>) -> Result<reqwest::Client, C
         .timeout(std::time::Duration::from_secs(30))
         .user_agent(concat!("mdbase-daemon/", env!("CARGO_PKG_VERSION")))
         .build()
-        .map_err(|e| CloudError::Network(e.to_string()))
+        .map_err(CloudError::network)
 }
 
 pub(super) async fn json_response(mut r: reqwest::Response) -> Result<(u16, Value), CloudError> {
@@ -154,7 +153,7 @@ impl Cloud {
             .json(body)
             .send()
             .await
-            .map_err(|e| CloudError::Network(e.to_string()))?;
+            .map_err(CloudError::network)?;
         Ok(json_response(r).await?.1)
     }
 
@@ -192,21 +191,7 @@ impl Cloud {
         let (status, bytes) = self
             .send_current_raw_status(request, current, expected_status)
             .await?;
-        let value: Value = serde_json::from_slice(&bytes)
-            .map_err(|_| CloudError::Server(status, "malformed".into()))?;
-        if status >= 400 {
-            let code = value
-                .pointer("/error/code")
-                .and_then(Value::as_str)
-                .filter(|s| {
-                    s.len() <= 64
-                        && s.bytes()
-                            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
-                })
-                .unwrap_or("error");
-            return Err(CloudError::Server(status, code.into()));
-        }
-        Ok(value)
+        decode_response(status, &bytes)
     }
 
     // Keep raw bytes available to strict typed decoders: decoding to Value first
@@ -217,10 +202,25 @@ impl Cloud {
         current: &(dyn Fn() -> Result<(), String> + Send + Sync),
         expected_status: Option<u16>,
     ) -> Result<(u16, Zeroizing<Vec<u8>>), CloudError> {
+        let (status, bytes) = self
+            .read_current_raw_status(request, current, expected_status)
+            .await?;
+        if status == 403 {
+            return Err(CloudError::Unauthenticated);
+        }
+        Ok((status, bytes))
+    }
+
+    pub(super) async fn read_current_raw_status(
+        &self,
+        request: reqwest::RequestBuilder,
+        current: &(dyn Fn() -> Result<(), String> + Send + Sync),
+        expected_status: Option<u16>,
+    ) -> Result<(u16, Zeroizing<Vec<u8>>), CloudError> {
         current().map_err(CloudError::Local)?;
         let response = request.send().await;
         current().map_err(CloudError::Local)?;
-        let mut response = response.map_err(|e| CloudError::Network(e.to_string()))?;
+        let mut response = response.map_err(CloudError::network)?;
         self.observe_server_date(
             response
                 .headers()
@@ -239,7 +239,7 @@ impl Cloud {
         loop {
             let chunk = response.chunk().await;
             current().map_err(CloudError::Local)?;
-            let Some(chunk) = chunk.map_err(|e| CloudError::Network(e.to_string()))? else {
+            let Some(chunk) = chunk.map_err(CloudError::network)? else {
                 break;
             };
             if bytes
@@ -251,7 +251,7 @@ impl Cloud {
             }
             bytes.extend_from_slice(&chunk);
         }
-        if status == 401 || status == 403 {
+        if status == 401 {
             return Err(CloudError::Unauthenticated);
         }
         Ok((status, bytes))
@@ -265,13 +265,39 @@ impl Cloud {
         let c = self
             .post_current("/v1/next/devices/challenge", &json!({}), current)
             .await?;
-        c.get("challenge")
-            .and_then(Value::as_str)
-            .filter(|h| h.len() == 64)
-            .and_then(|h| secrets::hex_decode(h).ok())
-            .and_then(|b| <[u8; 32]>::try_from(b).ok())
-            .ok_or_else(|| CloudError::Server(200, "malformed".into()))
+        decode_challenge(&c)
     }
+}
+
+pub(super) fn decode_challenge(value: &Value) -> Result<[u8; 32], CloudError> {
+    value["challenge"]
+        .as_str()
+        .filter(|hex| hex.len() == 64)
+        .and_then(|hex| secrets::hex_decode(hex).ok())
+        .and_then(|bytes| bytes.try_into().ok())
+        .ok_or_else(|| CloudError::Server(200, "malformed".into()))
+}
+
+pub(super) fn decode_response(status: u16, bytes: &[u8]) -> Result<Value, CloudError> {
+    let value: Value = serde_json::from_slice(bytes)
+        .map_err(|_| CloudError::Server(status, "malformed".into()))?;
+    if status >= 400 {
+        return Err(CloudError::Server(status, response_code(&value).into()));
+    }
+    Ok(value)
+}
+
+pub(super) fn response_code(value: &Value) -> &str {
+    value
+        .pointer("/error/code")
+        .or_else(|| value.get("error"))
+        .and_then(Value::as_str)
+        .filter(|s| {
+            s.len() <= 64
+                && s.bytes()
+                    .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_')
+        })
+        .unwrap_or("error")
 }
 
 #[cfg(test)]

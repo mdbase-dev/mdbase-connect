@@ -1,6 +1,6 @@
 import { t } from "@lingui/core/macro";
-import { PERSON_CONTRACT } from "@mdbase-dev/connect";
-import type { TypePackAssessment, TypePackProvision, TypePackResourceDiff } from "@mdbase-dev/connect";
+import { PERSON_CONTRACT } from "./connect-types";
+import type { TypePackAssessment, TypePackProvision, TypePackResourceDiff } from "./connect-types";
 import provisionUrl from "./person-setup.pack.json?url";
 import { loadTypePackProvision } from "./contract-catalog";
 import type { EditorCollectionDescription } from "./model";

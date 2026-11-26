@@ -2,8 +2,9 @@ import type { ReactNode } from "react";
 import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
-import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "@mdbase-dev/connect";
-import { connectProblem } from "@mdbase-dev/connect-testing";
+import { MdbaseConnectError, normalizeCollectionChange, type CollectionChange, type DirectAccessStatus, type WatchStatus } from "./connect-types";
+import { MdbaseError } from "@mdbase-dev/sdk";
+import { connectProblem } from "./connect-types";
 import { App } from "./App";
 import { DemoCollectionGateway } from "./demo-gateway";
 import type {
@@ -212,7 +213,7 @@ describe("mdbase editor", () => {
     const saved = await gateway.read(first.path);
     expect(saved.body).toContain("A saved sentence.");
     await user.click(screen.getByRole("button", { name: "Note properties" }));
-    expect(await screen.findByRole("textbox", { name: "status value" })).toHaveValue("draft");
+    expect(await screen.findByRole("textbox", { name: "status" })).toHaveValue("draft");
 
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
     await waitFor(() => expect(screen.getByRole("textbox", { name: "Note title" })).toHaveValue("Garden notes 2"));
@@ -413,6 +414,23 @@ describe("mdbase editor", () => {
     expect(screen.getByRole("textbox", { name: "Note title" })).toHaveAttribute("placeholder", "Title");
   });
 
+  it("finds a note whose only tag is inline by #tag and tag:, though its listed record has no tags", async () => {
+    const gateway = new TaglessRecordViewsGateway(1);
+    await gateway.create({ path: "Inline.md", title: "Inline only", body: "Inline #inlinemarker here.", properties: {} });
+    const searchTag = vi.spyOn(gateway, "searchTag");
+    const user = userEvent.setup();
+    render(<App gateway={gateway} />);
+    const list = await screen.findByRole("region", { name: "Notes and files" });
+    expect(await within(list).findByRole("option", { name: /Inline only/ })).toBeInTheDocument();
+    const search = screen.getByRole("combobox", { name: "Search notes and files" });
+    for (const query of ["#inlinemarker", "tag:inlinemarker"]) {
+      await user.clear(search);
+      await user.type(search, `${query}{Enter}`);
+      await waitFor(() => expect(within(list).getAllByRole("option").map((option) => option.textContent)).toEqual([expect.stringContaining("Inline only")]));
+    }
+    expect(searchTag).toHaveBeenCalledWith("inlinemarker", expect.anything());
+  });
+
   it("filters collection folders and facets and follows backlinks", async () => {
     const user = userEvent.setup();
     render(<App gateway={new DemoCollectionGateway(12)} />);
@@ -429,7 +447,8 @@ describe("mdbase editor", () => {
     await user.click(screen.getByRole("button", { name: "Search filters" }));
     await user.click(within(screen.getByRole("listbox", { name: "Search filters" })).getByRole("option", { name: /^#ideas/ }));
     expect(screen.getByRole("heading", { name: "#ideas" })).toBeInTheDocument();
-    expect(screen.getAllByRole("option")).toHaveLength(4);
+    // Tag filters are the runtime's answers.
+    await waitFor(() => expect(screen.getAllByRole("option")).toHaveLength(4));
 
     expect(screen.queryByRole("group", { name: "By type" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Search filters" }));
@@ -561,14 +580,14 @@ describe("mdbase editor", () => {
     const folderNavigation = screen.getByRole("group", { name: "Folders" });
     expect(folderNavigation).toHaveAttribute("aria-busy", "true");
     expect(within(folderNavigation).getByRole("status")).toHaveTextContent("Loading");
-    expect(within(folderNavigation).getByLabelText("1 or more notes in Notes")).toHaveTextContent("1+");
+    expect(within(folderNavigation).getByRole("button", { name: "Show notes in Notes, 1 note · 0 files so far" })).toHaveTextContent("1+");
     expect(gateway.listCalls).toBe(1);
 
     gateway.releaseStructure();
     expect(await screen.findByText("13 notes · 2 files")).toBeInTheDocument();
     expect(folderNavigation).toHaveAttribute("aria-busy", "false");
     expect(within(folderNavigation).queryByRole("status")).not.toBeInTheDocument();
-    expect(within(folderNavigation).getByLabelText("3 notes in Notes")).toHaveTextContent("3");
+    expect(within(folderNavigation).getByRole("button", { name: "Show notes in Notes, 3 notes · 0 files" })).toHaveTextContent("3");
 
     await user.type(screen.getByRole("combobox", { name: "Search notes and files" }), "Record 3 remains");
     // Body matches come from the collection: no note text is loaded for them,
@@ -698,7 +717,7 @@ describe("mdbase editor", () => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     const body = await screen.findByRole("textbox", { name: "Note body" });
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
-    expect(screen.getByRole("button", { name: /^Commands · / }).title).toContain("K");
+    expect(screen.getByRole("button", { name: /^Commands / }).title).toContain("K");
     for (const target of [search, body, screen.getByRole("button", { name: "Note properties" })]) {
       target.focus();
       const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });
@@ -854,6 +873,71 @@ describe("mdbase editor", () => {
     await waitFor(() => expect(screen.queryByText("Needs attention")).not.toBeInTheDocument());
   });
 
+  it("shows the specific refusal reason in the editor notice without logging note contents", async () => {
+    const gateway = new DemoCollectionGateway(3);
+    const secretBody = "PRIVATE-BODY-SENTINEL-1838";
+    const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+    const warnLog = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const infoLog = vi.spyOn(console, "info").mockImplementation(() => {});
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    const realUpdate = gateway.update.bind(gateway);
+    let rejectWrites = true;
+    let markRejected!: () => void;
+    const updateRejected = new Promise<void>((resolve) => { markRejected = resolve; });
+    let markSaved!: () => void;
+    const updateSaved = new Promise<void>((resolve) => { markSaved = resolve; });
+    gateway.update = async (base, change) => {
+      if (rejectWrites) {
+        markRejected();
+        throw new MdbaseError({
+          code: "invalid_record",
+          recovery: "fix_request",
+          message: `\`${base.path}\` would not be valid`,
+          issues: [
+            {
+              code: "schema_required",
+              severity: "error",
+              message: "required property `dateCreated` is missing",
+              details: { location: "/dateCreated", type: "task" }
+            }
+          ]
+        });
+      }
+      const saved = await realUpdate(base, change);
+      markSaved();
+      return saved;
+    };
+
+    try {
+      const user = userEvent.setup();
+      render(<App gateway={gateway} />);
+
+      const body = await screen.findByRole("textbox", { name: "Note body" });
+      fireEvent.change(body, { target: { value: `${(body as HTMLTextAreaElement).value}\n${secretBody}` } });
+      await updateRejected;
+
+      const alert = await screen.findByRole("alert");
+      expect(alert).toHaveTextContent("required property `dateCreated` is missing");
+      expect(screen.getByText("Needs attention")).toBeInTheDocument();
+      expect((body as HTMLTextAreaElement).value).toContain(secretBody);
+
+      for (const spy of [errorLog, warnLog, infoLog, logSpy]) {
+        expect(JSON.stringify(spy.mock.calls)).not.toContain(secretBody);
+      }
+
+      rejectWrites = false;
+      await user.click(screen.getByRole("button", { name: "Retry save" }));
+      await updateSaved;
+      await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+      expect((await gateway.read("Notes/the-shape-of-useful-tools.md")).body).toContain(secretBody);
+    } finally {
+      errorLog.mockRestore();
+      warnLog.mockRestore();
+      infoLog.mockRestore();
+      logSpy.mockRestore();
+    }
+  });
+
   it("orders property updates behind a note save without blocking navigation", async () => {
     const gateway = new SlowUpdateGateway();
     const user = userEvent.setup();
@@ -863,10 +947,8 @@ describe("mdbase editor", () => {
     await gateway.updateStarted;
     await user.click(screen.getByRole("button", { name: "Note properties" }));
     await user.click(await screen.findByRole("button", { name: "Add property" }));
-    await user.click(screen.getByRole("button", { name: "Add a custom property…" }));
-    await user.type(screen.getByRole("textbox", { name: "Name" }), "status");
-    await user.click(screen.getByRole("button", { name: "Add" }));
-    await user.type(screen.getByRole("textbox", { name: "status value" }), "draft");
+    await user.keyboard("status{Enter}");
+    await user.type(screen.getByRole("textbox", { name: "status" }), "draft{Enter}");
     expect(screen.queryByText("Changes save automatically")).not.toBeInTheDocument();
 
     await user.click(screen.getByRole("option", { name: /Garden notes 2/ }));
@@ -1410,6 +1492,25 @@ class RetryingListGateway extends DemoCollectionGateway {
   }
 }
 
+/** Lists notes as a native collection does: its record views carry no tags,
+ * so a note's inline tag is known only to the runtime (`searchTag`). */
+class TaglessRecordViewsGateway extends DemoCollectionGateway {
+  override async list(options: NoteIndexRequest = {}): Promise<NoteIndexResult> {
+    const result = await super.list({ ...options, onProgress: options.onProgress && ((progress) => options.onProgress!({ ...progress, notes: progress.notes.map(withoutTags) })) });
+    return { ...result, notes: result.notes.map(withoutTags) };
+  }
+
+  override async hydrateContent(options: NoteContentRequest = {}): Promise<NoteIndexResult> {
+    const result = await super.hydrateContent({ ...options, onProgress: options.onProgress && ((progress) => options.onProgress!({ ...progress, notes: progress.notes.map(withoutTags) })) });
+    return { ...result, notes: result.notes.map(withoutTags) };
+  }
+}
+
+function withoutTags(note: NoteSummary): NoteSummary {
+  const { tags: _tags, ...file } = note.file;
+  return { ...note, file };
+}
+
 class DemandContentGateway extends DemoCollectionGateway {
   private fullNotes: NoteSummary[] = [];
   private openSearch!: () => void;
@@ -1457,7 +1558,7 @@ class RetryingContentGateway extends DemoCollectionGateway {
     return super.searchBodies(term);
   }
 
-  override async backlinks(path: string): Promise<string[]> {
+  override async backlinks(path: string): ReturnType<DemoCollectionGateway["backlinks"]> {
     this.backlinksCalls += 1;
     if (this.backlinksCalls === 1) throw new Error("The backlinks lookup failed.");
     return super.backlinks(path);

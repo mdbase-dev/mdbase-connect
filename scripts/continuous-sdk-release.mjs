@@ -4,13 +4,21 @@ import { appendFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { createRequire } from "node:module";
 import { join, posix, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { publicPackages } from "./public-packages.mjs";
-import { api, checkoutProductionCommit, gh, git, nextBetaVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
+import { allocateVersion, api, checkoutProductionCommit, compareVersions, gh, git, productionOnlyCompatibility, releaseTag, releaseVersion, repository, requireGreenMain, requireRunning, verifyCompatibility } from "./lib/continuous-client-release.mjs";
 
 const registry = "https://registry.npmjs.org";
 const readJson = file => JSON.parse(readFileSync(file, "utf8"));
 const sdk = { name: "@mdbase-dev/sdk", directory: "runtime/packages/sdk" };
 const publisherWorkflow = env => env.GITHUB_WORKFLOW === "Publish source-built SDK" ? "publish-sdk-npm.yml" : "publish-npm.yml";
+
+// Load the checked-out candidate's own package manifest list, never main's
+// cached module, so legitimately added or deleted packages on main never
+// conflict with an older checked-out production tree.
+export async function candidatePublicPackages(commit) {
+  assert.match(commit ?? "", /^[a-f0-9]{40}$/);
+  const { publicPackages } = await import(`${pathToFileURL(resolve("scripts/public-packages.mjs")).href}?commit=${commit}`);
+  return publicPackages();
+}
 
 async function registryJson(path) {
   const response = await fetch(`${registry}/${path}`, { redirect: "error", cache: "no-store",
@@ -23,11 +31,9 @@ export function publicationBaseline(metadata, item, workflow) {
   assert.equal(metadata.name, item.name);
   const versions = Object.keys(metadata.versions ?? {});
   assert(versions.length > 0, `Bootstrap ${item.name} before enabling trusted publishing.`);
-  nextBetaVersion(versions);
-  const betas = versions.filter(version => /^0\.1\.0-beta\.[1-9][0-9]*$/.test(version))
-    .sort((left, right) => BigInt(left.split(".").at(-1)) < BigInt(right.split(".").at(-1)) ? -1 : 1);
-  assert(betas.length > 0, "A provenance-qualified beta baseline is required.");
-  const version = betas.at(-1);
+  // Ordering refuses unknown version forms; 0.0.x bootstrap versions are never a baseline.
+  const version = [...versions].sort(compareVersions).at(-1);
+  assert(!version.startsWith("0.0."), "A provenance-qualified baseline is required.");
   const entry = metadata.versions[version];
   assert.equal(entry.name, item.name);
   assert.equal(entry.version, version);
@@ -270,9 +276,7 @@ function lockPair(line, indent) {
 // the tag and the other publishes from it. Each line's packages, provenance
 // identity (its own workflow file) and GitHub release (`sdk-v*`) stay disjoint.
 const reservationSchema = "mdbase-npm-release/1";
-const releaseTag = /^v0\.1\.0-beta\.([1-9][0-9]*)$/;
-const betaNumber = version => BigInt(/^0\.1\.0-beta\.([1-9][0-9]*)$/.exec(version)?.[1] ?? 0);
-const above = (version, reference) => betaNumber(version) > betaNumber(reference);
+const above = (version, reference) => compareVersions(version, reference) > 0;
 const publisherFile = kind => kind === "source" ? "publish-sdk-npm.yml" : "publish-npm.yml";
 
 // Null for the main coordinator; otherwise the reserved tag this publisher runs on.
@@ -299,8 +303,9 @@ export function readReservation(tag, commit, readApi = api) {
   return record;
 }
 
-// Every release tag (Desktop's, retired server trains' and these reservations)
-// shares the v0.1.0-beta.N namespace, so allocation stays above all of them.
+// Every release tag (Desktop's and these reservations) shares the v<semver>
+// namespace, so allocation stays above all of them. Legacy v0.1.0-beta.N tags
+// order below every release and are never reused as reservations.
 export function listReservations(commit, kinds, runGit = git) {
   runGit("fetch", "--no-tags", "origin", "refs/tags/v*:refs/tags/v*");
   const tags = runGit("for-each-ref", "--format=%(refname:short)%00%(objecttype)%00%(contents:subject)%00%(*objectname)", "refs/tags/v*")
@@ -315,11 +320,12 @@ export function listReservations(commit, kinds, runGit = git) {
 }
 
 // A tag run executes the publisher workflow committed at the tag. Transition
-// guard: until production contains tag publication, a reservation would only
-// yield a run that skips every job. Remove once production contains it.
+// guard: until production contains semver tag publication, a v<semver>
+// reservation would only yield a run that skips every job. Remove once
+// production contains it.
 export function tagPublisher(kind, commit, runGit = git) {
   return runGit("show", `${commit}:.github/workflows/${publisherFile(kind)}`)
-    .includes("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v0.1.0-beta.')");
+    .includes("github.event_name == 'workflow_dispatch' && startsWith(github.ref, 'refs/tags/v')");
 }
 
 // A tag run executes the planner committed at its tag, which before shared
@@ -359,7 +365,7 @@ export function dependentPackages(packages, changed) {
 export function failedPublisherRuns(runs, current, acknowledged = "") {
   assert(acknowledged === "" || /^[1-9][0-9]*$/.test(acknowledged), "Invalid acknowledged publication run.");
   return runs.filter(run => run.id < Number(current) && run.id > Number(acknowledged || 0)
-    && (run.head_branch === "main" || releaseTag.test(run.head_branch ?? ""))
+    && (run.head_branch === "main" || /^v[0-9]/.test(run.head_branch ?? ""))
     && ["workflow_run", "workflow_dispatch", "schedule"].includes(run.event)
     && run.status === "completed" && !["success", "skipped"].includes(run.conclusion));
 }
@@ -385,7 +391,9 @@ function checkPriorAttempts(kind, env) {
 // publication of that tag's own commit at the tag's version.
 export async function plan(kind, output, env = process.env, {
   selectProduction = checkoutProductionCommit, qualify = requireGreenMain, readPublished = published,
+  readPackages = candidatePublicPackages,
   reservation = readReservation, reservations = listReservations, runtimeCi = runtimeQualified, publisherAt = tagPublisher,
+  compatibleAt = productionOnlyCompatibility,
   sharedAt = sharesReservations,
   checkAttempts = checkPriorAttempts, verify = verifyCompatibility
 } = {}) {
@@ -406,7 +414,7 @@ export async function plan(kind, output, env = process.env, {
     commit = await selectProduction(env, { qualify: sha => qualify(sha, quiet) });
   }
   env = { ...env, GITHUB_SHA: commit };
-  const packages = kind === "source" ? [sdk] : await publicPackages();
+  const packages = kind === "source" ? [sdk] : await readPackages(commit);
   const inventory = [];
   const changed = [];
   for (const item of packages) {
@@ -431,17 +439,18 @@ export async function plan(kind, output, env = process.env, {
   const ahead = inventory.find(item => item.history === "ahead");
   let chosen = ahead ? [] : dependentPackages(inventory, changed);
   const predatesTags = !tag && chosen.length > 0 && !publisherAt(kind, commit);
-  const waitingForRuntime = !tag && !predatesTags && kind === "source" && chosen.length > 0 && !runtimeCi(commit);
-  if (predatesTags || waitingForRuntime) chosen = [];
+  const predatesProviderFree = !tag && !predatesTags && chosen.length > 0 && !compatibleAt(commit);
+  const waitingForRuntime = !tag && !predatesTags && !predatesProviderFree && kind === "source" && chosen.length > 0 && !runtimeCi(commit);
+  if (predatesTags || predatesProviderFree || waitingForRuntime) chosen = [];
   // One version per tag: every package a tag publishes carries the tag's version,
   // above every version any of these packages has published.
-  const lineVersions = inventory.flatMap(item => [...item.baseline.versions, item.manifest.version]);
+  const lineVersions = inventory.flatMap(item => item.baseline.versions);
   let reserving;
   if (!tag && chosen.length) {
     const shared = sharedAt(commit);
     const { versions, reserved } = reservations(commit, shared ? ["source", "workspace"] : [kind]);
     const reuse = reserved.find(item => !lineVersions.some(version => above(version, item.slice(1))));
-    reserving = { ...(reuse ? { tag: reuse, existing: true } : { tag: `v${nextBetaVersion([...lineVersions, ...versions])}`, existing: false }), shared };
+    reserving = { ...(reuse ? { tag: reuse, existing: true } : { tag: `v${allocateVersion([...lineVersions, ...versions], commit)}`, existing: false }), shared };
   }
   const version = (tag ?? reserving?.tag)?.slice(1);
   const superseded = tag && chosen.find(item => item.baseline.versions.some(value => above(value, version)));
@@ -466,6 +475,7 @@ export async function plan(kind, output, env = process.env, {
     if (blocked || result.compatibility?.status === "blocked") return `blocked: ${blocked ?? "production-compatibility-unproven"}`;
     if (ahead) return `nothing to publish; waiting for production to reach commit ${ahead.baseline.commit}`;
     if (predatesTags) return `nothing to publish; waiting for production to contain tag publication (${commit} predates it)`;
+    if (predatesProviderFree) return `nothing to publish; waiting for production to contain provider-free compatibility (${commit} predates it)`;
     if (waitingForRuntime) return `nothing to publish; waiting for successful Runtime CI of commit ${commit}`;
     if (!selected.some(value => value.name === item.name)) return "nothing to publish";
     if (tag) return `publishing ${version} from ${commit}${live ? "" : " (dry run)"}`;
@@ -482,9 +492,13 @@ export async function plan(kind, output, env = process.env, {
 // concurrently and created the same tag first, a tag at this exact commit is this
 // reservation too; a tag anywhere else refuses. A reserved tag whose run of this
 // workflow is in flight is left alone; one whose run ended unpublished is
-// redispatched, unless that run succeeded, which needs review.
-export function reserve(planFile, env = process.env, { readApi = api, writeApi = postApi,
-  dispatch = (workflow, tag) => gh("workflow", "run", workflow, "--repo", repository, "--ref", tag, "-f", "dry_run=false") } = {}) {
+// redispatched. A run that succeeded consumed the reservation: the coordinator
+// may have planned on a stale npm read (the registry serves cached version lists
+// for minutes after a publish), so it stands down once every planned package
+// reads as published from this commit, and otherwise needs review.
+export async function reserve(planFile, env = process.env, { readApi = api, writeApi = postApi,
+  dispatch = (workflow, tag) => gh("workflow", "run", workflow, "--repo", repository, "--ref", tag, "-f", "dry_run=false"),
+  publication = publicationState, wait = delay } = {}) {
   requireRunning(env.SDK_RELEASE_STOPPED);
   assert.equal(env.GITHUB_REPOSITORY, repository);
   assert.equal(env.GITHUB_REF, "refs/heads/main");
@@ -520,10 +534,34 @@ export function reserve(planFile, env = process.env, { readApi = api, writeApi =
     const runs = readApi(`actions/workflows/${workflow}/runs?branch=${tag}&event=workflow_dispatch&per_page=100`).workflow_runs
       .filter(run => run.head_branch === tag && run.path === `.github/workflows/${workflow}`);
     if (runs.some(run => run.status !== "completed")) return reported(env, `${tag}: publication in progress; nothing dispatched.`);
-    if (runs.some(run => run.conclusion === "success")) throw new Error("publication-reservation-unconsumed");
+    if (runs.some(run => run.conclusion === "success")) {
+      if (await consumed(record, workflow, env, publication, wait)) {
+        return reported(env, `${tag}: already published from ${record.commit}; nothing dispatched.`);
+      }
+      throw new Error("publication-reservation-unconsumed");
+    }
   }
   dispatch(workflow, tag);
   return reported(env, `${tag}: ${!existing ? "reserved and dispatched" : record.reservation.existing ? "redispatched" : "joined the existing reservation and dispatched"} ${workflow} at ${record.commit}.`);
+}
+
+const delay = ms => new Promise(done => setTimeout(done, ms));
+const consumedChecks = 4;
+const consumedInterval = 60_000;
+
+// Only npm absence is retried; another commit's provenance or a refused read
+// still fails for owner review.
+async function consumed(record, workflow, env, publication, wait) {
+  // publicationState proves provenance against this run's own publisher workflow.
+  assert.equal(publisherWorkflow(env), workflow, "The coordinator must run in its line's publisher workflow.");
+  const proven = { ...env, GITHUB_SHA: record.commit };
+  for (let check = 1; ; check += 1) {
+    const states = [];
+    for (const item of record.packages) states.push(await publication(item.name, item.version, proven));
+    if (states.every(state => state === "published")) return true;
+    if (check === consumedChecks) return false;
+    await wait(consumedInterval);
+  }
 }
 
 function reported(env, line) {
@@ -563,7 +601,7 @@ export function prepareSource(planFile, env = process.env) {
   assert.equal(record.packages.length, 1);
   assert.equal(record.packages[0].name, sdk.name);
   const version = record.packages[0].version;
-  assert.match(version, /^0\.1\.0-beta\.[1-9][0-9]*$/);
+  assert.match(version, releaseVersion);
   for (const path of ["package.json", `${sdk.directory}/package.json`]) {
     const manifest = readJson(path);
     manifest.version = version;
@@ -628,7 +666,7 @@ export async function publishWorkspace(planFile, directory, env = process.env) {
 // provenance may stand down; anything else stays for owner review.
 export async function publicationState(name, version, env = process.env, prove = provenSource) {
   assert.match(name, /^@mdbase-dev\/[a-z0-9-]+$/);
-  assert.match(version, /^0\.1\.0-beta\.[1-9][0-9]*$/);
+  assert.match(version, releaseVersion);
   assert.match(env.GITHUB_SHA ?? "", /^[a-f0-9]{40}$/);
   const response = await fetch(`${registry}/${encodeURIComponent(name)}/${version}`, {
     redirect: "error", cache: "no-store", signal: AbortSignal.timeout(30_000) });
@@ -645,7 +683,7 @@ export async function publicationState(name, version, env = process.env, prove =
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const [command, ...args] = process.argv.slice(2);
   if (command === "plan") await plan(...args);
-  else if (command === "reserve") reserve(...args);
+  else if (command === "reserve") await reserve(...args);
   else if (command === "prepare-source") prepareSource(...args);
   else if (command === "pack-workspace") packWorkspace(...args);
   else if (command === "publish-workspace") await publishWorkspace(...args);

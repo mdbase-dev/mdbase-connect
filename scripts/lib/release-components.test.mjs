@@ -34,7 +34,7 @@ const clone = (value) => structuredClone(value);
 test("the checked-in release component contract is valid", async () => {
   assert.deepEqual(await validateReleaseComponents(contract, { root }), []);
   assert.deepEqual(githubMatrix(contract).include.map(({ component }) => component),
-    ["connect", "hosted-provider", "mcp"]);
+    ["connect", "mcp"]);
 });
 
 test("contract validation rejects duplicates, unknown fields, and missing mcp", async () => {

@@ -477,6 +477,12 @@ function caretSide(transaction: Transaction): TransactionSpec | readonly Transac
   const at = table && main.head >= table.rows[0].lineFrom && main.head <= table.to ? cellAt(table, main.head) : null;
   const cell = at && table!.rows[at.row].cells[at.column];
   if (!cell) return transaction;
+  // Before the first cell's text is the row's hidden leading pipe. A caret arriving there from
+  // another line goes into the cell; one leaving the row to the left keeps that stop.
+  const arriving = state.doc.lineAt(main.head).number !== transaction.startState.doc.lineAt(transaction.startState.selection.main.head).number;
+  if (at!.column === 0 && main.head < cell.contentFrom && arriving) {
+    return [transaction, { selection: EditorSelection.create([EditorSelection.cursor(cell.contentFrom, 1)]), sequential: true }];
+  }
   // An empty cell's caret stop is the widget after it; text ends before the caret.
   const side = cell.contentFrom === cell.contentTo && main.head === cell.contentFrom ? 1 : main.head >= cell.contentTo ? -1 : main.head <= cell.contentFrom ? 1 : 0;
   if (!side || main.assoc === side) return transaction;
@@ -578,6 +584,9 @@ function cellDrag(view: EditorView, start: MouseEvent): MouseSelectionStyle | nu
 function keepCaretInCell(update: ViewUpdate) {
   const { view } = update;
   if (!(update.selectionSet || update.docChanged) || !view.hasFocus) return;
+  // Reading the DOM selection lays out the page: do it only for a caret in a table.
+  const { main } = update.state.selection;
+  if (!main.empty || !tableAt(update.state, main.head)) return;
   const selection = (view.root as Document).getSelection?.();
   const line = selection?.isCollapsed ? selection.anchorNode : null;
   if (!(line instanceof HTMLElement) || !line.classList.contains("cm-lp-tr")) return;

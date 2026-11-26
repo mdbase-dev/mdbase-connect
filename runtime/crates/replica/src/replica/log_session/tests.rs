@@ -208,7 +208,7 @@ fn terminal_fault_and_repoint_reject_callbacks_before_decoder() {
     let mut r = open(MemStore::new());
     let s = r.bind_authenticated_log(ENDPOINT, COL).unwrap();
     let scope = read_scope(&mut r, &s);
-    r.apply_fault = true; // test the port guard, not fault classification itself
+    r.apply_fault = Some(crate::Fence::Store); // test the port guard, not fault classification itself
     assert_eq!(
         r.on_authenticated_log_reply(scope.clone(), no_decode),
         Err(LogSessionError::ReopenRequired)

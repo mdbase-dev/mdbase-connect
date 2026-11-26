@@ -1,5 +1,6 @@
 # cargo-deny: licenses, advisories, banned crates and sources.
-# Run: cargo deny check   (CI: the fast lane)
+# Run: cargo xtask policy. Bans run per target: merging the Unix daemon graph
+# with wasm32 would activate Quinn's browser entropy features on an impossible path.
 #
 # Portable-crate rules that depend on *which* crate pulls a dependency in (core,
 # wire, replica, store-file and wasm may not reach getrandom, libc, regex, ...)
@@ -71,3 +72,6 @@ deny = ["js", "wasm_js"]
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+# Remove when the session-close API ships on crates.io. The manifest pins the reviewed revision.
+allow-git = ["https://github.com/BiagioFesta/wtransport"]
+required-git-spec = "rev"

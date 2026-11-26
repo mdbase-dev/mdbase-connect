@@ -39,6 +39,20 @@ const MAX_PIPE_FRAME = 4 + 65535;
 
 const CLOSE_REASONS = new Set("unauthenticated grant_inactive connector_offline connector_busy device_mismatch device_key_mismatch closed client_closed handshake_timeout idle lifetime frame_too_large invalid_frame not_served relay_closing authorization_unavailable grant_revoked grant_lease_expired grant_pending_approval grant_revoked_on_device unknown_grant".split(" "));
 
+const PIPE_CLOSE_CODES: Readonly<Record<string, number>> = Object.assign(Object.create(null) as Record<string, number>, {
+  unauthenticated: 4401,
+  grant_inactive: 4403,
+  grant_revoked_on_device: 4403,
+  grant_pending_approval: 4403,
+  unknown_grant: 4403,
+  connector_offline: 4404,
+  connector_busy: 4429,
+});
+
+function pipeCloseCode(reason?: string): number {
+  return typeof reason === "string" && Object.hasOwn(PIPE_CLOSE_CODES, reason) ? PIPE_CLOSE_CODES[reason]! : 4000;
+}
+
 export function pipeCloseError(code?: number, reason?: string): MdbaseError {
   // Only fixed protocol reasons survive: arbitrary close text can contain secrets.
   const r = typeof reason === "string" && CLOSE_REASONS.has(reason) ? reason : undefined;
@@ -101,12 +115,29 @@ export function relayPipeCarrier(
     }
     ws.binaryType = "arraybuffer";
     let opened = false;
-    let settled = false;
+    let terminal: MdbaseError | undefined;
     let buf = new Uint8Array(0);
+    // Handlers live in variables behind accessors, not as `onmessage: null` in the
+    // literal: the carrier leaves only through resolve(), and Rollup would decide
+    // those properties stay null and delete the calls below, dropping every relay message.
+    let onmessage: MessageCarrier["onmessage"] = null;
+    let onclose: MessageCarrier["onclose"] = null;
     const carrier: MessageCarrier = {
-      onmessage: null,
-      onclose: null,
+      get onmessage() {
+        return onmessage;
+      },
+      set onmessage(f) {
+        onmessage = f;
+      },
+      get onclose() {
+        return onclose;
+      },
+      set onclose(f) {
+        onclose = f;
+        if (f && terminal) f(terminal);
+      },
       send(m) {
+        if (terminal) throw terminal;
         if (m.length > 65535) throw mdbaseError("too_large", "Noise message over 65535 bytes");
         const f = new Uint8Array(4 + m.length);
         new DataView(f.buffer).setUint32(0, m.length);
@@ -122,11 +153,12 @@ export function relayPipeCarrier(
       },
     };
     const fail = (e: MdbaseError) => {
-      if (!settled) {
-        settled = true;
+      if (terminal) return;
+      terminal = e;
+      if (!opened) {
         signal?.removeEventListener("abort", onAbort);
         reject(e);
-      } else carrier.onclose?.(e);
+      } else onclose?.(e);
     };
     const onAbort = () => {
       ws.close();
@@ -147,6 +179,7 @@ export function relayPipeCarrier(
       );
     };
     ws.onmessage = (ev) => {
+      if (terminal) return;
       const d = ev.data;
       if (typeof d === "string") {
         let msg: { type?: string; reason?: string };
@@ -157,12 +190,11 @@ export function relayPipeCarrier(
         }
         if (msg.type === "pipe_opened" && !opened) {
           opened = true;
-          settled = true;
           signal?.removeEventListener("abort", onAbort);
           resolve(carrier);
         } else if (msg.type === "pipe_close") {
+          fail(pipeCloseError(pipeCloseCode(msg.reason), msg.reason));
           ws.close();
-          fail(pipeCloseError(4000, msg.reason));
         }
         return;
       }
@@ -192,7 +224,7 @@ export function relayPipeCarrier(
           return;
         }
         if (b.length - off - 4 < len) break;
-        carrier.onmessage?.(b.slice(off + 4, off + 4 + len));
+        onmessage?.(b.slice(off + 4, off + 4 + len));
         off += 4 + len;
       }
       buf = b.slice(off);

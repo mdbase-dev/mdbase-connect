@@ -1,8 +1,15 @@
 /** What Home shows, on the desktop and on the web: the apps approved in this account, and the official apps not yet used. */
+import { t } from "@lingui/core/macro";
 import { officialApps, withAppUrls, type OfficialApp } from "@mdbase-dev/ui/apps";
 import { MdbaseMark } from "@mdbase-dev/ui/brand";
 import { i18n, useLocaleRevision } from "@mdbase-dev/ui/i18n";
-import { useState, type JSX, type ReactNode } from "react";
+import { useEffect, useRef, useState, type JSX, type ReactNode } from "react";
+
+export const MCP_ENDPOINT_URL = "https://mcp.mdbase.dev/mcp";
+// Direct Claude and ChatGPT plugin directory URLs can be added alongside MCP_SETUP_URL once published.
+export const MCP_SETUP_URL = "https://mdbase.dev/apps/mcp/";
+
+const MCP_ORIGIN = new URL(MCP_ENDPOINT_URL).origin;
 
 export interface LaunchableApp {
   key: string;
@@ -35,12 +42,68 @@ interface ApprovedAppLike {
 }
 
 /** One managed environment's app origins, as `scripts/lib/managed-app-origins.mjs` lists them. */
-interface ManagedAppOrigins {
+export interface ManagedAppOrigins {
   editorOrigin: string;
   readerOrigin: string;
   writerOrigin: string;
   journalOrigin: string;
   tasknotesOrigin: string;
+}
+
+/** Appends `?collection=<collectionId>` cleanly to an app URL. */
+export function collectionAppUrl(appUrl: string, collectionId: string): string {
+  const url = new URL(appUrl);
+  url.searchParams.set("collection", collectionId);
+  return url.href;
+}
+
+export interface CollectionAppMatch {
+  name?: string | null;
+  origin?: string | null;
+}
+
+/** Whether an application identity refers to mdbase MCP. */
+export function isMcpApp(app: CollectionAppMatch): boolean {
+  const origin = webOrigin(app.origin ?? null);
+  if (origin) {
+    if (origin === MCP_ORIGIN) return true;
+    if (/^mcp(?:-[a-z0-9-]+)?\.mdbase\.dev$/i.test(new URL(origin).hostname)) return true;
+  }
+  const name = app.name?.trim().toLocaleLowerCase() ?? "";
+  return name === "mcp" || name === "mdbase mcp" || name === "dev.mdbase.mcp" || /\bmcp\b/.test(name);
+}
+
+function matchesOfficialApp(entry: CollectionAppMatch, official: OfficialAppLike): boolean {
+  const entryOrigin = webOrigin(entry.origin ?? null);
+  const officialOrigin = webOrigin(official.url);
+  if (entryOrigin && officialOrigin) return entryOrigin === officialOrigin;
+  const entryName = entry.name?.trim().toLocaleLowerCase();
+  return Boolean(entryName && entryName === official.name.toLocaleLowerCase());
+}
+
+/**
+ * Official mdbase apps not yet approved for a collection, with each URL scoped
+ * to that collection, plus whether AI clients (MCP) should still be offered.
+ */
+export function collectionDiscoveryApps(
+  origins: ManagedAppOrigins | undefined,
+  collectionId: string,
+  existing: readonly CollectionAppMatch[]
+): { apps: LaunchableApp[]; showMcp: boolean } {
+  const official = officialAppsAt(origins);
+  if (official.length === 0) return { apps: [], showMcp: false };
+  const apps: LaunchableApp[] = official
+    .filter(app => webOrigin(app.url) && !existing.some(entry => matchesOfficialApp(entry, app)))
+    .map(app => ({
+      key: app.id,
+      name: app.name,
+      url: collectionAppUrl(app.url, collectionId),
+      description: app.description,
+      official: app.id,
+      icon: null,
+      collections: []
+    }));
+  return { apps, showMcp: !existing.some(isMcpApp) };
 }
 
 /** The official apps of a managed environment; none for an unknown or custom server. */
@@ -131,5 +194,49 @@ export function AppTile({ app, children }: { app: LaunchableApp; children?: Reac
       </span>
       {children}
     </li>
+  );
+}
+
+/** Quiet row for connecting Claude, ChatGPT, and Codex via mdbase plugins and MCP on managed environments. */
+export function McpConnectRow({ onOpenSetup }: { onOpenSetup?: (url: string) => void } = {}): JSX.Element {
+  useLocaleRevision();
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  async function copyEndpoint() {
+    if (!navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(MCP_ENDPOINT_URL);
+      setCopied(true);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setCopied(false), 2_000);
+    } catch {
+      setCopied(false);
+    }
+  }
+
+  return (
+    <div className="mcp-connect-row">
+      <div className="mcp-connect-copy">
+        <strong>{t(i18n)({ message: "Claude, ChatGPT & Codex", context: "AI clients" })}</strong>
+        <small>{t(i18n)({ message: "AI clients via mdbase plugins & MCP", context: "AI clients" })}</small>
+        <code className="mcp-connect-endpoint">{MCP_ENDPOINT_URL}</code>
+      </div>
+      <div className="mcp-connect-actions">
+        <button type="button" className="mdbase-button" onClick={() => void copyEndpoint()}>
+          {copied ? t(i18n)({ message: "Copied", context: "AI clients" }) : t(i18n)({ message: "Copy", context: "AI clients" })}
+        </button>
+        <a
+          className="mdbase-button is-tertiary"
+          href={MCP_SETUP_URL}
+          target="_blank"
+          rel="noopener noreferrer"
+          onClick={onOpenSetup ? (event) => { event.preventDefault(); onOpenSetup(MCP_SETUP_URL); } : undefined}
+        >
+          {t(i18n)({ message: "Set up", context: "AI clients" })}
+        </a>
+      </div>
+    </div>
   );
 }

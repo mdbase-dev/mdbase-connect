@@ -106,6 +106,24 @@ pub async fn connect(endpoint: &Endpoint) -> io::Result<BoxStream> {
 /// Largest control frame (1 MiB).
 pub const MAX_CONTROL_FRAME: usize = 1 << 20;
 
+/// [`read_frame`]'s error for a frame over its limit, inside an
+/// [`io::ErrorKind::InvalidData`] error. The stream is unusable after it.
+#[derive(Debug)]
+pub struct FrameTooLarge {
+    /// The length the frame announced.
+    pub len: usize,
+    /// The reader's limit.
+    pub max: usize,
+}
+
+impl std::fmt::Display for FrameTooLarge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "frame of {} bytes exceeds {}", self.len, self.max)
+    }
+}
+
+impl std::error::Error for FrameTooLarge {}
+
 /// Read one `u32be(length) ‖ bytes` frame. `Ok(None)` on a clean end of stream
 /// before the length.
 pub async fn read_frame<R: AsyncRead + Unpin + ?Sized>(
@@ -122,7 +140,7 @@ pub async fn read_frame<R: AsyncRead + Unpin + ?Sized>(
     if n > max {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
-            format!("frame of {n} bytes exceeds {max}"),
+            FrameTooLarge { len: n, max },
         ));
     }
     let mut buf = vec![0u8; n];

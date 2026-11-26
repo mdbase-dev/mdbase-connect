@@ -1,7 +1,7 @@
 import { t, plural } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { useRef, useState } from "react";
-import { MdbaseConnectError, type MdbaseFileProgress } from "@mdbase-dev/connect";
+import { MdbaseConnectError, type MdbaseFileProgress } from "./connect-types";
 import { trackMdbaseMarkProgress } from "@mdbase-dev/ui/mark-activity";
 import type { ActionMenuItem } from "./ContextMenu";
 import { FilePlusIcon as FilePlus } from "./icons";

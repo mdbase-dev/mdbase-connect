@@ -36,6 +36,7 @@ fn key(row: &(Map, RecordView)) -> QueryRecord<'_> {
         types: &row.1.types,
         frontmatter: &row.0,
         body: None,
+        mtime: row.1.mtime,
     }
 }
 
@@ -131,23 +132,27 @@ impl<S: Store> Replica<S> {
         let mut budget = self.fallback_budget();
         let page_limit: u32 = if budget.is_some() { 32 } else { 1024 };
         let mut matched = Matched::new(plan);
-        let mut consider =
-            |id: &Uuid, path: &str, doc: &Document, position: &dyn Fn() -> RecordPosition| {
-                let types = catalog.membership(path, doc.frontmatter()).types;
-                let record = QueryRecord {
-                    path,
-                    types: &types,
-                    frontmatter: doc.frontmatter(),
-                    body: Some(doc.body()),
-                };
-                if plan.matches(&record, env) != Verdict::Match || !matched.admit(&record) {
-                    return;
-                }
-                let pending = self.layer.touches(&convert::uuid(id));
-                let view =
-                    parsed_record_view(catalog, id, path, doc, types, position(), pending, include);
-                matched.push(doc.frontmatter().clone(), view);
+        let mut consider = |id: &Uuid,
+                            path: &str,
+                            doc: &Document,
+                            mtime: Option<i64>,
+                            position: &dyn Fn() -> RecordPosition| {
+            let types = catalog.membership(path, doc.frontmatter()).types;
+            let record = QueryRecord {
+                path,
+                types: &types,
+                frontmatter: doc.frontmatter(),
+                body: Some(doc.body()),
+                mtime,
             };
+            if plan.matches(&record, env) != Verdict::Match || !matched.admit(&record) {
+                return;
+            }
+            let pending = self.layer.touches(&convert::uuid(id));
+            let view =
+                parsed_record_view(catalog, id, path, doc, types, position(), pending, include);
+            matched.push(doc.frontmatter().clone(), view);
+        };
         // Stored index entries follow the confirmed catalogue. Under a layered
         // one a record's types and path-stored values can differ from them, so
         // the store returns every row and the evaluation alone decides.
@@ -186,7 +191,7 @@ impl<S: Store> Replica<S> {
                 let position = (row.modified_seq, row.mtime);
                 parsed();
                 let doc = Document::parse_at(&row.path, row.doc);
-                consider(&row.id, &row.path, &doc, &|| position);
+                consider(&row.id, &row.path, &doc, row.mtime, &|| position);
             }
             if !more {
                 break;
@@ -200,11 +205,23 @@ impl<S: Store> Replica<S> {
             parsed();
             let doc = Document::parse_at(&record.path, &*record.source);
             let id = convert::wuuid(&id);
-            consider(&id, &record.path, &doc, &|| {
-                // A layered record reports the position of the confirmed row it overrides.
+            let confirmed_pos = plan.requirements.mtime.then(|| {
                 let confirmed = self.store.record(&id).ok().flatten();
                 confirmed.map_or((0, None), |c| (c.modified_seq, c.mtime))
             });
+            consider(
+                &id,
+                &record.path,
+                &doc,
+                confirmed_pos.and_then(|(_, m)| m),
+                &|| {
+                    confirmed_pos.unwrap_or_else(|| {
+                        // A layered record reports the position of the confirmed row it overrides.
+                        let confirmed = self.store.record(&id).ok().flatten();
+                        confirmed.map_or((0, None), |c| (c.modified_seq, c.mtime))
+                    })
+                },
+            );
         }
         Ok(matched.window())
     }

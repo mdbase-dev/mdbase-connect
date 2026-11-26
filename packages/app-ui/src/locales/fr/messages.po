@@ -65,6 +65,16 @@ msgctxt "Collection access interface"
 msgid "{app} stops showing it on this device. Nothing in the collection is deleted, and {app} keeps its access. To end access, use Manage access."
 msgstr "{app} cesse de l’afficher sur cet appareil. Rien n’est supprimé dans la collection et {app} conserve son accès. Pour mettre fin à l’accès, utilisez « Gérer l’accès »."
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {# empty} other {# empty}}"
+msgstr "{count, plural, one {# vide} other {# vides}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {# item} other {# items}}"
+msgstr "{count, plural, one {# élément} other {# éléments}}"
+
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
 msgid "{count, plural, one {# mark applied.} other {# marks applied.}}"
@@ -73,6 +83,31 @@ msgstr "{count, plural, one {# marque appliquée.} other {# marques appliquées.
 #: src/CommentsPanel.tsx
 msgid "{count, plural, one {# open comment} other {# open comments}}"
 msgstr "{count, plural, one {# commentaire ouvert} other {# commentaires ouverts}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {# property} other {# properties}}"
+msgstr "{count, plural, one {# propriété} other {# propriétés}}"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "{count, plural, one {# selected} other {# selected}}"
+msgstr "{count, plural, one {# sélectionné} other {# sélectionnés}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{kind} “{title}”"
+msgstr "{kind} « {title} »"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "{name} group"
+msgstr "Groupe « {name} »"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "A date, “tomorrow”, “fri” or “+3”"
+msgstr "Une date, « demain », « ven » ou « +3 »"
 
 #: src/Feedback.tsx
 msgid "A problem occurred. You can use Send feedback to report it."
@@ -101,6 +136,11 @@ msgctxt "Collection access interface"
 msgid "Add a collection…"
 msgstr "Ajouter une collection…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add a filter to this group"
+msgstr "Ajouter un filtre à ce groupe"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Add a Private collection"
@@ -111,10 +151,70 @@ msgctxt "table"
 msgid "Add column"
 msgstr "Ajouter une colonne"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add filter"
+msgstr "Ajouter un filtre"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add filter to group"
+msgstr "Ajouter un filtre au groupe"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add item"
+msgstr "Ajouter un élément"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add item to {property}"
+msgstr "Ajouter un élément à {property}"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from ChatGPT's plugins"
+msgstr "Ajouter mdbase depuis les plugins ChatGPT"
+
+#: src/apps.ts
+msgctxt "App switcher"
+msgid "Add mdbase from Claude's directory"
+msgstr "Ajouter mdbase depuis l’annuaire de Claude"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add property"
+msgstr "Ajouter une propriété"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Add property to {property}"
+msgstr "Ajouter une propriété à {property}"
+
 #: src/live-preview/table-controls.ts
 msgctxt "table"
 msgid "Add row"
 msgstr "Ajouter une ligne"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add value"
+msgstr "Ajouter une valeur"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Add value…"
+msgstr "Ajouter une valeur…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "after"
+msgstr "après le"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "AI assistants"
+msgstr "Assistants IA"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -130,6 +230,41 @@ msgstr "Aligner à gauche"
 msgctxt "table"
 msgid "Align right"
 msgstr "Aligner à droite"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: every filter must match"
+msgid "All"
+msgstr "Tous"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "All views"
+msgstr "Toutes les vues"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Another device has already replaced the collection key. Refresh status to see the latest state."
+msgstr "Un autre appareil a déjà remplacé la clé de la collection. Actualisez l’état pour voir la situation la plus récente."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: at least one filter must match"
+msgid "Any"
+msgstr "Au moins un"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Any / All"
+msgstr "Au moins un / Tous"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Applies to every view"
+msgstr "S’applique à toutes les vues"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Apply"
+msgstr "Appliquer"
 
 #: src/FeedbackMarkup.tsx
 msgid "Apply changes"
@@ -148,6 +283,11 @@ msgstr "Application…"
 msgid "as {signer}"
 msgstr "en tant que {signer}"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "at least one"
+msgstr "au moins un"
+
 #: src/CommentsPanel.tsx
 msgid "At the cursor"
 msgstr "Au curseur"
@@ -156,9 +296,19 @@ msgstr "Au curseur"
 msgid "Attach screenshot"
 msgstr "Joindre une capture d’écran"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Back"
+msgstr "Retour"
+
 #: src/Feedback.tsx
 msgid "Back to your work"
 msgstr "Retour à votre travail"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "before"
+msgstr "avant le"
 
 #: src/FeedbackMarkup.tsx
 msgid "Blackout"
@@ -188,12 +338,18 @@ msgid "Browser, OS, viewport and recent error codes. No note contents, paths or 
 msgstr "Navigateur, système d’exploitation, taille de la fenêtre et codes d’erreur récents. Aucun contenu de note, chemin ni identifiant de connexion."
 
 #: src/AppSwitcher.tsx
-msgid "Build your own"
-msgstr "Créez votre propre application"
+msgctxt "App switcher"
+msgid "Build one with the mdbase SDK"
+msgstr "Créez-en une avec le SDK mdbase"
 
 #: src/CommentsPanel.tsx
 msgid "by {resolver}"
 msgstr "par {resolver}"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Calendar"
+msgstr "Calendrier"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -219,6 +375,7 @@ msgstr "Impossible d’ouvrir {collection}"
 #: src/ConfirmDialog.tsx
 #: src/Feedback.tsx
 #: src/FeedbackMarkup.tsx
+#: src/QuickCreate.tsx
 msgid "Cancel"
 msgstr "Annuler"
 
@@ -231,6 +388,21 @@ msgstr "Annuler"
 msgctxt "Collection storage mode"
 msgid "Cancel switch"
 msgstr "Annuler le changement"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "CEL · Shift+Enter for a new line"
+msgstr "CEL · Maj+Entrée pour une nouvelle ligne"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "CEL expression"
+msgstr "Expression CEL"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Change operator"
+msgstr "Changer l’opérateur"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -277,6 +449,26 @@ msgstr "Choisir une image"
 msgctxt "Collection access interface"
 msgid "Choose or create a collection there."
 msgstr "Choisissez ou créez une collection à cet endroit."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Choose value"
+msgstr "Choisir une valeur"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Claude, ChatGPT and others"
+msgstr "Claude, ChatGPT et d’autres"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Clear"
+msgstr "Effacer"
+
+#: src/properties/labels.ts
+msgctxt "Remove a property's value"
+msgid "Clear"
+msgstr "Effacer"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -343,6 +535,11 @@ msgstr "Commentaires"
 msgid "Comments could not be loaded: {problem}"
 msgstr "Impossible de charger les commentaires : {problem}"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Compare with {expr}"
+msgstr "Comparer avec {expr}"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Connect to sync your work"
@@ -358,16 +555,15 @@ msgctxt "Collection access interface"
 msgid "Connecting your collection…"
 msgstr "Connexion à votre collection…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "contains"
+msgstr "contient"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Continue"
 msgstr "Continuer"
-
-#. placeholder {0}: new Date(retryAt).toLocaleString()
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Continue after {0}."
-msgstr "Continuer après {0}."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -383,6 +579,11 @@ msgstr "Continuer sur cet appareil"
 msgctxt "Collection access interface"
 msgid "Continue without connecting"
 msgstr "Continuer sans connexion"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Convert to filter"
+msgstr "Convertir en filtre"
 
 #: src/live-preview/blocks.ts
 msgid "Copied"
@@ -413,6 +614,11 @@ msgstr "Copier le tableau"
 #: src/AppSwitcher.tsx
 msgid "Current"
 msgstr "Actuelle"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Custom expression"
+msgstr "Expression personnalisée"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -477,6 +683,11 @@ msgstr "Suppression…"
 msgid "Details"
 msgstr "Détails"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Device {shortId}"
+msgstr "Appareil {shortId}"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Discard"
@@ -501,6 +712,16 @@ msgstr "Suppression…"
 msgid "Dismiss"
 msgstr "Ignorer"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "does not contain"
+msgstr "ne contient pas"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Done"
+msgstr "Terminé"
+
 #: src/FeedbackMarkup.tsx
 msgid "Drag to mark. Keyboard: arrows move; Space starts or finishes. Blackout removes pixels."
 msgstr "Faites glisser pour marquer. Clavier : les flèches déplacent ; la barre d’espace démarre ou termine. « Occulter » supprime les pixels."
@@ -514,13 +735,48 @@ msgctxt "diagram"
 msgid "Edit"
 msgstr "Modifier"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Edit as expression"
+msgstr "Modifier comme expression"
+
 #: src/live-preview/diagram.ts
 msgid "Edit diagram source"
 msgstr "Modifier la source du diagramme"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Edit expression"
+msgstr "Modifier l’expression"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Edit value"
+msgstr "Modifier la valeur"
+
+#: src/properties/labels.ts
+msgctxt "A property with no value"
+msgid "Empty"
+msgstr "Vide"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Empty expression"
+msgstr "Expression vide"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "ends with"
+msgstr "se termine par"
+
 #: src/CommandPalette.tsx
 msgid "Esc"
 msgstr "Échap"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "every filter"
+msgstr "tous les filtres"
 
 #: src/CommentsPanel.tsx
 msgid "Everyone"
@@ -536,9 +792,39 @@ msgctxt "callout type"
 msgid "Example"
 msgstr "Exemple"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Exclude"
+msgstr "Exclure"
+
 #: src/live-preview/blocks.ts
 msgid "Expand callout"
 msgstr "Développer l’encadré"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Expected to finish around {dateTime}."
+msgstr "Fin prévue vers {dateTime}."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Expected to finish in about {minutes, plural, one {# minute} other {# minutes}} (around {time})."
+msgstr "Fin prévue dans environ {minutes, plural, one {# minute} other {# minutes}} (vers {time})."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "expression"
+msgstr "expression"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Expression {text}"
+msgstr "Expression {text}"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "False"
+msgstr "Faux"
 
 #: src/feedback-data.ts
 msgid "Feedback could not be sent. Check your connection and try again."
@@ -553,15 +839,60 @@ msgstr "Impossible d’envoyer votre avis. Veuillez réessayer."
 msgid "Feedback type"
 msgstr "Type d’avis"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Fields"
+msgstr "Champs"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter"
+msgstr "Filtre"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter by field"
+msgstr "Filtrer par champ"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter by…"
+msgstr "Filtrer par…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter group"
+msgstr "Groupe de filtres"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filter options"
+msgstr "Options du filtre"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Filters"
+msgstr "Filtres"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Find a collection"
 msgstr "Rechercher une collection"
 
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Finishing the switch. Keep the owner device connected."
-msgstr "Finalisation du changement. Gardez l’appareil du propriétaire connecté."
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Find a property, or name a new one…"
+msgstr "Trouver une propriété, ou en nommer une nouvelle…"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Find a property…"
+msgstr "Trouver une propriété…"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Find a record…"
+msgstr "Trouver un document…"
 
 #: src/live-preview/math.ts
 msgid "Formulas could not be shown. Check your connection and reopen the note."
@@ -582,9 +913,24 @@ msgctxt "Collection access interface"
 msgid "Give {app} access to this collection?"
 msgstr "Donner à {app} l’accès à cette collection ?"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Hide empty"
+msgstr "Masquer les vides"
+
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"
 msgstr "Surligner"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "How the filters combine"
+msgstr "Comment les filtres se combinent"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "How these filters combine"
+msgstr "Comment ces filtres se combinent"
 
 #: src/feedback-data.ts
 msgid "How would it help you?"
@@ -644,6 +990,36 @@ msgctxt "table"
 msgid "Insert row below"
 msgstr "Insérer une ligne en dessous"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is"
+msgstr "est"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is any of"
+msgstr "est l’un de"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is empty"
+msgstr "est vide"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is none of"
+msgstr "n’est aucun de"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not"
+msgstr "n’est pas"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "is not empty"
+msgstr "n’est pas vide"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "It's erased from {app} on this device. This can't be undone."
@@ -663,6 +1039,11 @@ msgctxt "Color theme"
 msgid "Light"
 msgstr "Clair"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Link a record in {property}"
+msgstr "Lier un document dans {property}"
+
 #: src/CommentsPanel.tsx
 msgid "Loading comments…"
 msgstr "Chargement des commentaires…"
@@ -671,6 +1052,11 @@ msgstr "Chargement des commentaires…"
 msgctxt "Collection access interface"
 msgid "Loading the collection snapshot…"
 msgstr "Chargement de l’instantané de la collection…"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Local time ({zone})"
+msgstr "Heure locale ({zone})"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -703,14 +1089,29 @@ msgstr "Annoter la capture d’écran"
 msgid "Markup discarded. Screenshot excluded."
 msgstr "Annotations abandonnées. Capture d’écran exclue."
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Match"
+msgstr "Correspondance"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Match all"
+msgstr "Correspond à tous"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Match any"
+msgstr "Correspond à au moins un"
+
 #: src/AppSwitcher.tsx
 msgid "mdbase apps"
 msgstr "Applications mdbase"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "mdbase will be able to read the collection, including its existing history, and serve it while your devices are off."
-msgstr "mdbase pourra lire la collection, y compris son historique existant, et la rendre accessible lorsque vos appareils sont éteints."
+msgid "mdbase keeps a copy it can read, so web apps and agents work while your devices are off."
+msgstr "mdbase conserve une copie qu’il peut lire, afin que les applications web et les agents fonctionnent lorsque vos appareils sont éteints."
 
 #: src/shortcuts.ts
 msgid "Menu"
@@ -745,6 +1146,16 @@ msgctxt "table"
 msgid "Move row up"
 msgstr "Déplacer la ligne vers le haut"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Move to shared"
+msgstr "Déplacer vers les filtres partagés"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Move to this view"
+msgstr "Déplacer vers cette vue"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Needs a decision"
@@ -758,6 +1169,11 @@ msgstr "Nécessite votre attention"
 msgid "New comment"
 msgstr "Nouveau commentaire"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "New property"
+msgstr "Nouvelle propriété"
+
 #: src/CommentsPanel.tsx
 msgid "New since last visit ({newCount})"
 msgstr "Nouveaux depuis la dernière visite ({newCount})"
@@ -765,6 +1181,16 @@ msgstr "Nouveaux depuis la dernière visite ({newCount})"
 #: src/CommentsPanel.tsx
 msgid "New since your last visit"
 msgstr "Nouveaux depuis votre dernière visite"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Next month"
+msgstr "Mois suivant"
+
+#: src/properties/labels.ts
+msgctxt "A property that is false"
+msgid "no"
+msgstr "non"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -776,6 +1202,16 @@ msgctxt "Collection access interface"
 msgid "No collections match “{query}”."
 msgstr "Aucune collection ne correspond à « {query} »."
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "no filter"
+msgstr "aucun filtre"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "No matching fields"
+msgstr "Aucun champ correspondant"
+
 #: src/live-preview/inline.ts
 msgid "No note or file matches “{target}”."
 msgstr "Aucune note ni aucun fichier ne correspond à « {target} »."
@@ -784,9 +1220,29 @@ msgstr "Aucune note ni aucun fichier ne correspond à « {target} »."
 msgid "No open comments"
 msgstr "Aucun commentaire ouvert"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "No properties."
+msgstr "Aucune propriété."
+
 #: src/Feedback.tsx
 msgid "No screenshot taken. You can still send feedback."
 msgstr "Aucune capture d’écran prise. Vous pouvez tout de même envoyer votre avis."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "No values to choose from."
+msgstr "Aucune valeur à choisir."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter group: no filter may match"
+msgid "None"
+msgstr "Aucun"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Not a number"
+msgstr "Ce n’est pas un nombre"
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -802,14 +1258,39 @@ msgstr "Rien ne changera dans votre collection."
 msgid "Nothing matches"
 msgstr "Aucun résultat"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Nothing matches."
+msgstr "Aucun résultat."
+
 #: src/CommentsPanel.tsx
 msgid "Nothing resolved yet."
 msgstr "Rien n’a encore été résolu."
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Number"
+msgstr "Nombre"
+
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "Only your devices can read new content after the switch finishes. mdbase may still be able to read older content."
-msgstr "Une fois le changement terminé, seuls vos appareils pourront lire le nouveau contenu. mdbase pourra encore lire du contenu plus ancien."
+msgid "Older app connections have expired. Finishing automatically…"
+msgstr "Les anciennes connexions d’applications ont expiré. Finalisation automatique…"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or after"
+msgstr "à partir du"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "on or before"
+msgstr "jusqu’au"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Only your devices can read it. Web apps work only while one of your devices is online."
+msgstr "Seuls vos appareils peuvent la lire. Les applications web ne fonctionnent que lorsqu’un de vos appareils est en ligne."
 
 #: src/CommentsPanel.tsx
 msgctxt "Comment status"
@@ -823,11 +1304,6 @@ msgstr "Ouvrir le fichier"
 #: src/AppSwitcher.tsx
 msgid "Open in another mdbase app"
 msgstr "Ouvrir dans une autre application mdbase"
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Open mdbase connect on one of the owner's devices to finish the switch."
-msgstr "Ouvrez mdbase connect sur un appareil du propriétaire pour terminer le changement."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -872,14 +1348,34 @@ msgstr "Ouverture…"
 msgid "Opens in a new tab"
 msgstr "S’ouvre dans un nouvel onglet"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Operator"
+msgstr "Opérateur"
+
 #: src/Feedback.tsx
 msgid "Optional"
 msgstr "Facultatif"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "or press Enter"
+msgstr "ou appuyez sur Entrée"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Other AI clients"
+msgstr "Autres clients IA"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Owner"
 msgstr "Propriétaire"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Pick one or more"
+msgstr "Choisissez-en un ou plusieurs"
 
 #: src/apps.ts
 msgid "Plan tasks and projects"
@@ -894,6 +1390,11 @@ msgstr "Préparation de l’accès sécurisé…"
 msgctxt "Collection access interface"
 msgid "Preparing your offline copy…"
 msgstr "Préparation de votre copie hors ligne…"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Previous month"
+msgstr "Mois précédent"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -963,15 +1464,45 @@ msgctxt "Collection access interface"
 msgid "Remove"
 msgstr "Retirer"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Remove"
+msgstr "Retirer"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove {collection} from this list?"
 msgstr "Retirer {collection} de cette liste ?"
 
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Remove {name}"
+msgstr "Retirer {name}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Remove {value}"
+msgstr "Retirer {value}"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Remove filter"
+msgstr "Retirer le filtre"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Remove from this list"
 msgstr "Retirer de cette liste"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Remove group"
+msgstr "Retirer le groupe"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Remove item {place} from {property}"
+msgstr "Retirer l’élément {place} de {property}"
 
 #: src/CommentsPanel.tsx
 msgid "Reopen"
@@ -1001,6 +1532,11 @@ msgstr "E-mail de réponse"
 #: src/Feedback.tsx
 msgid "Report a problem"
 msgstr "Signaler un problème"
+
+#: src/properties/labels.ts
+msgctxt "A property a record must have"
+msgid "Required"
+msgstr "Obligatoire"
 
 #: src/FeedbackMarkup.tsx
 msgctxt "Screenshot annotations"
@@ -1073,6 +1609,11 @@ msgstr "Enregistré uniquement sur cet appareil"
 msgid "Saving"
 msgstr "Enregistrement"
 
+#: src/filter-builder/labels.ts
+msgctxt "Which views a filter applies to"
+msgid "Scope"
+msgstr "Portée"
+
 #: src/feedback-data.ts
 msgid "Screen capture isn’t available in this browser. You can attach an image instead."
 msgstr "La capture d’écran n’est pas disponible dans ce navigateur. Vous pouvez joindre une image à la place."
@@ -1131,6 +1672,11 @@ msgctxt "Collection access interface"
 msgid "Set up {collection} for {app}"
 msgstr "Configurer {collection} pour {app}"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Set up with MCP"
+msgstr "Configurer avec MCP"
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Setting up…"
@@ -1139,6 +1685,16 @@ msgstr "Configuration…"
 #: src/feedback-data.ts
 msgid "Share something you like"
 msgstr "Partagez ce qui vous plaît"
+
+#: src/filter-builder/labels.ts
+msgctxt "A filter every view applies"
+msgid "Shared"
+msgstr "Partagé"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Shared: {name}"
+msgstr "Partagé : {name}"
 
 #: src/CommentsPanel.tsx
 msgid "Show"
@@ -1236,9 +1792,29 @@ msgctxt "Collection access interface"
 msgid "Starting {app}…"
 msgstr "Démarrage de {app}…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "starts with"
+msgstr "commence par"
+
 #: src/screens.tsx
 msgid "Still opening? Check your connection."
 msgstr "Toujours en cours d’ouverture ? Vérifiez votre connexion."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Stop this switch"
+msgstr "Arrêter ce changement"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Stop this switch to Private?"
+msgstr "Arrêter ce passage en mode Privé ?"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Stopping…"
+msgstr "Arrêt en cours…"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -1279,6 +1855,76 @@ msgctxt "Collection access interface"
 msgid "Switch collection, current: {collection}"
 msgstr "Changer de collection, actuelle : {collection}"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — confirm on this computer to start."
+msgstr "Passage à Copie cloud — confirmez sur cet ordinateur pour démarrer."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — finishing. This usually takes a few seconds."
+msgstr "Passage à Copie cloud — finalisation. Cela prend généralement quelques secondes."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — open mdbase connect on one of your computers to confirm."
+msgstr "Passage à Copie cloud — ouvrez mdbase connect sur l’un de vos ordinateurs pour confirmer."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — publishing the new storage mode."
+msgstr "Passage à Copie cloud — publication du nouveau mode de stockage."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older app connections to expire."
+msgstr "Passage à Copie cloud — en attente de l’expiration des anciennes connexions d’applications."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy — waiting for older devices to update."
+msgstr "Passage à Copie cloud — en attente de la mise à jour des appareils plus anciens."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Cloud copy: mdbase will be able to read the collection, including its history. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "Passage à Copie cloud : mdbase pourra lire la collection, y compris son historique. Les applications connectées à cette collection devront être reconnectées par la suite."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — confirm on this computer to start."
+msgstr "Passage en mode Privé — confirmez sur cet ordinateur pour démarrer."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — finishing and updating your collection key. This finishes automatically while an owner device is online."
+msgstr "Passage en mode Privé — finalisation et mise à jour de la clé de votre collection. Cela se termine automatiquement tant qu’un appareil propriétaire est en ligne."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — open mdbase connect on one of your computers to confirm."
+msgstr "Passage en mode Privé — ouvrez mdbase connect sur l’un de vos ordinateurs pour confirmer."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — publishing the new storage mode."
+msgstr "Passage en mode Privé — publication du nouveau mode de stockage."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older app connections to expire."
+msgstr "Passage en mode Privé — en attente de l’expiration des anciennes connexions d’applications."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private — waiting for older devices to update."
+msgstr "Passage en mode Privé — en attente de la mise à jour des appareils plus anciens."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Switching to Private: only your devices can read new content; mdbase may still be able to read older content. Apps connected to this collection will need to be reconnected afterwards."
+msgstr "Passage en mode Privé : seuls vos appareils pourront lire le nouveau contenu ; mdbase pourra peut-être encore lire l’ancien contenu. Les applications connectées à cette collection devront être reconnectées par la suite."
+
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Syncing your collection…"
@@ -1313,6 +1959,11 @@ msgstr "Merci pour le signalement."
 #: src/live-preview/diagram.ts
 msgid "The diagram could not be shown. Check your connection and reopen the note."
 msgstr "Impossible d’afficher le diagramme. Vérifiez votre connexion et rouvrez la note."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "The filter on {field} cannot be removed here"
+msgstr "Le filtre sur {field} ne peut pas être retiré ici"
 
 #: src/Feedback.tsx
 msgid "The screenshot could not be captured."
@@ -1360,8 +2011,8 @@ msgstr "Le texte suggéré n’est plus là"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "The switch to Private didn’t finish. Revoke the device that started it. Your other owner devices will then replace the collection key."
-msgstr "Le passage en mode Privé n’a pas abouti. Révoquez l’appareil qui l’a lancé. Vos autres appareils propriétaires remplaceront alors la clé de la collection."
+msgid "The switch to Private was stopped. This collection is Private on its previous key. Revoke the device that started the switch so your other owner devices replace the key automatically."
+msgstr "Le passage en mode Privé a été arrêté. Cette collection reste en mode Privé avec sa clé précédente. Révoquez l’appareil qui a lancé le changement afin que vos autres appareils propriétaires remplacent la clé automatiquement."
 
 #: src/CommentsPanel.tsx
 msgid "The text it was on has changed"
@@ -1376,6 +2027,11 @@ msgstr "Ces types sont ajoutés : {types}."
 msgctxt "Collection access interface"
 msgid "this collection"
 msgstr "cette collection"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "This collection can’t switch modes until the stopped switch to Private finishes recovering. Revoke the device that started it so your other owner devices replace the collection key."
+msgstr "Cette collection ne peut pas changer de mode tant que la récupération du passage en mode Privé arrêté n’est pas terminée. Révoquez l’appareil qui l’a lancé afin que vos autres appareils propriétaires remplacent la clé de la collection."
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1396,6 +2052,16 @@ msgstr "Cela prend plus de temps que d’habitude."
 msgid "This passage is no longer in the text"
 msgstr "Ce passage n’est plus dans le texte"
 
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "This switch has already started publishing and can no longer be cancelled."
+msgstr "La publication de ce changement a déjà commencé et ne peut plus être annulée."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "This view"
+msgstr "Cette vue"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Tip"
@@ -1413,10 +2079,25 @@ msgstr "pour naviguer"
 msgid "to run"
 msgstr "pour exécuter"
 
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Today"
+msgstr "Aujourd’hui"
+
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
 msgid "Todo"
 msgstr "À faire"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Tomorrow"
+msgstr "Demain"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "True"
+msgstr "Vrai"
 
 #: src/CommentsPanel.tsx
 #: src/screens.tsx
@@ -1461,13 +2142,48 @@ msgstr "Vous pouvez appliquer jusqu’à 100 marques. Annulez ou réinitialisez 
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
-msgid "Update or revoke these devices before continuing:"
-msgstr "Mettez à jour ou révoquez ces appareils avant de continuer :"
+msgid "Update mdbase on these devices or remove them before trying again:"
+msgstr "Mettez à jour mdbase sur ces appareils ou supprimez-les avant de réessayer :"
+
+#: src/properties/labels.ts
+msgctxt "Before typed text, to take it as the value"
+msgid "Use"
+msgstr "Utiliser"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
 msgid "Use {app}'s version"
 msgstr "Utiliser la version de {app}"
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Use a device that holds this collection’s key to switch its storage mode."
+msgstr "Utilisez un appareil qui détient la clé de cette collection pour changer son mode de stockage."
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "Use letters, digits, - and _, starting with a letter."
+msgstr "Utilisez des lettres, des chiffres, - et _, en commençant par une lettre."
+
+#: src/CollectionModeControl.tsx
+msgctxt "Collection storage mode"
+msgid "Use this only if the device that started the switch is lost and can’t finish. The collection stays Private on its current key, and your other owner devices replace the key automatically once you revoke the lost device."
+msgstr "Utilisez cette option uniquement si l’appareil qui a lancé le changement est perdu et ne peut pas le terminer. La collection reste en mode Privé avec sa clé actuelle, et vos autres appareils propriétaires remplacent la clé automatiquement dès que vous révoquez l’appareil perdu."
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Value"
+msgstr "Valeur"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Values"
+msgstr "Valeurs"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Values to compare with"
+msgstr "Valeurs de comparaison"
 
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be completed. Try again."
@@ -1476,16 +2192,6 @@ msgstr "La vérification n’a pas pu être terminée. Réessayez."
 #: src/FeedbackVerification.tsx
 msgid "Verification could not be loaded. Check your connection and try again."
 msgstr "La vérification n’a pas pu être chargée. Vérifiez votre connexion et réessayez."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for devices to update."
-msgstr "En attente de la mise à jour des appareils."
-
-#: src/CollectionModeControl.tsx
-msgctxt "Collection storage mode"
-msgid "Waiting for older device connections to expire. Cloud copy remains on until the switch finishes."
-msgstr "En attente de l’expiration des anciennes connexions des appareils. La copie cloud reste activée jusqu’à la fin du changement."
 
 #: src/live-preview/blocks.ts
 msgctxt "callout type"
@@ -1522,6 +2228,11 @@ msgstr "Que cherchiez-vous à faire ?"
 msgid "What would you like to improve?"
 msgstr "Que souhaiteriez-vous améliorer ?"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "What your assistants remember"
+msgstr "Ce dont vos assistants se souviennent"
+
 #: src/feedback-data.ts
 msgid "What’s working well for you?"
 msgstr "Qu’est-ce qui fonctionne bien pour vous ?"
@@ -1551,9 +2262,34 @@ msgctxt "Collection storage mode"
 msgid "Working…"
 msgstr "En cours…"
 
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Wrap in “any” group"
+msgstr "Envelopper dans un groupe « au moins un »"
+
 #: src/apps.ts
 msgid "Write manuscripts that cite your sources"
 msgstr "Rédigez des manuscrits qui citent vos sources"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter operator"
+msgid "year is"
+msgstr "l’année est"
+
+#: src/filter-builder/labels.ts
+msgctxt "Filter builder"
+msgid "Year, e.g. 2026"
+msgstr "Année, p. ex. 2026"
+
+#: src/properties/labels.ts
+msgctxt "A property that is true"
+msgid "yes"
+msgstr "oui"
+
+#: src/DatePicker.tsx
+msgctxt "Date picker"
+msgid "Yesterday"
+msgstr "Hier"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
@@ -1569,6 +2305,11 @@ msgstr "Vous vous êtes déconnecté de {app} sur cet appareil."
 #: src/Feedback.tsx
 msgid "you@example.com"
 msgstr "vous@example.com"
+
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Your app here"
+msgstr "Votre app ici"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"

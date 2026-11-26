@@ -347,7 +347,13 @@ these contracts:
 | `definitions.manage` | `submit` | `resource_put`, `resource_delete`, `sync_settings` |
 | `background.schedule` | none on a replica: the control plane's timer service (`timer-service-api.md`) and push channel registration check it | — |
 | `offline.replica` | — | permits enrolling an `app-runtime` device for the app; any app may declare it, and the member's consent decides (below) |
+| `history.read` | `record_history`, `record_version` | — |
 
+- **`history.read` is separate from `collection.read`** because a record's history
+  includes text that has since been deleted. Its methods need `collection.read`
+  too, and a grant without a folder scope (`replica-client-api.md` §4.4). Like
+  every capability but `collection.read`, it needs an editor or owner: a viewer's
+  grant holding it is void, and the control plane never offers it to viewers.
 - **Private app grants use account consent alone** (§5.1). The control plane
   authors the `grant` op. A signed-in serving device automatically materializes
   the exact sealed scope; there is no second computer-side user decision.
@@ -408,7 +414,13 @@ or signed policy not yet effective, closes with `4000 / authorization_unavailabl
 These existing reasons are retryable; `grant_inactive` remains terminal `4403`.
 The SDK's existing first-open wait accepts the two retryable reasons, including
 their Noise hello Problems, and stays bounded to 30 seconds. No new consent
-is needed when both arrive. Restart recovery requires a newer snapshot sequence:
+is needed when both arrive. A current Private grant (Active, listed, live lease)
+whose collection this device is not serving right now (paused, opening,
+recovering or failed) closes with `4000 / not_served` instead: retryable, and not
+an authorization wait. If the pipe opens during resume but the daemon is not yet
+serving at Noise hello, its `unavailable / not_serving` Problem means the same
+thing. The SDK reports `not_served` and `waitForDevice` retries the original grant.
+Restart recovery requires a newer snapshot sequence:
 replaying the persisted feed cursor deliberately cannot renew its lease.
 
 The daemon uses one gate over its synchronously published authority snapshot for

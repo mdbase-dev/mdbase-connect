@@ -21,8 +21,6 @@ use serde_json::Value;
 
 use crate::{Result, cargo_metadata, repo_root};
 
-mod hosted_service;
-
 /// Which crate may depend on which. Keep in sync with the crate map in README.md.
 pub const RULES: &[(&str, &[&str])] = &[
     ("mdbn-core", &[]),
@@ -60,8 +58,6 @@ pub const RULES: &[(&str, &[&str])] = &[
             "mdbn-replica",
             "mdbn-store-file",
             "mdbn-noise",
-            // Metadata-only legacy import preflight.
-            "mdbn-migrate-portable",
         ],
     ),
     (
@@ -98,39 +94,6 @@ pub const RULES: &[(&str, &[&str])] = &[
     // mdbase-core.wasm: the pure helpers (digests, JSON Schema, catalog, packs)
     // for the npm `@mdbase-dev/mdbase` package. Ships inside that package only.
     ("mdbase-wasm", &["mdbn-core"]),
-    // Old-format readers for migration: no internal deps, so they cannot
-    // normalise old data through new semantics (legacy semantics boundary).
-    ("mdbn-legacy", &[]),
-    // Pure conversion rules of a legacy import (path preflight/renames, IDs, the
-    // oversized-document rule): portable, shared by the native migrator and the
-    // hosted Worker import. Not linked into
-    // runtime.wasm (size budget); the Worker export lands with crates/hosted-worker.
-    // The hosted import's spill runs on store-file's portable SQL index ABI (the
-    // DO's SQLite in the Worker), so the Worker needs no migration SQL adapter.
-    (
-        "mdbn-migrate-portable",
-        &["mdbn-core", "mdbn-wire", "mdbn-store-file"],
-    ),
-    // The local takeover and rollback: the daemon implements its traits
-    // and drives it, so it is split from the migrator, which nothing depends on.
-    // Read-only old state goes through mdbn-legacy.
-    ("mdbn-takeover", &["mdbn-legacy"]),
-    // The migrator: a composition point like mdbn-bench; nothing depends on it
-    // (legacy semantics boundary).
-    (
-        "mdbn-migrate",
-        &[
-            "mdbn-migrate-portable",
-            "mdbn-legacy",
-            "mdbn-takeover",
-            "mdbn-core",
-            "mdbn-wire",
-            "mdbn-replica",
-            "mdbn-store-file",
-            "mdbn-platform-native",
-            "mdbn-store-pg",
-        ],
-    ),
     // The shared native composition of a collection folder (store, host lock,
     // identity, local-only drive loop) for the `mdbase` crate and the daemon.
     (
@@ -167,10 +130,6 @@ pub const RULES: &[(&str, &[&str])] = &[
             "mdbn-store-file",
             "mdbn-platform-native",
             "mdbn-log-service",
-            // Local takeover from the old connector (local migration).
-            "mdbn-legacy",
-            // The takeover driver implements mdbn-takeover's traits.
-            "mdbn-takeover",
             // Shared pure production crypto; no admission or OS entropy.
             "mdbn-noise",
             // Environment trust pins (the release trust asset verifier).
@@ -193,7 +152,6 @@ pub const PORTABLE: &[&str] = &[
     "mdbn-wire",
     "mdbn-replica",
     "mdbn-store-file",
-    "mdbn-migrate-portable",
     "mdbn-wasm",
     "mdbase-wasm",
 ];
@@ -271,12 +229,6 @@ const BANNED_IDENTS: &[(&str, &str)] = &[
 /// `std` modules banned in portable/deterministic library sources.
 const BANNED_STD_MODULES: &[&str] = &["fs", "env", "net", "process", "thread"];
 
-// Declared dev-only dependency for the real SQLite/Core differential test.
-// Keep normal/build/unknown kinds out; do not widen the production RULES lists.
-fn migration_oracle_test_edge(from: &str, to: &str, kind: &Value) -> bool {
-    from == "mdbn-migrate" && to == "mdbn-hosted-worker" && kind.as_str() == Some("dev")
-}
-
 fn conformance_test_edge(from: &str, to: &str, kind: &Value) -> bool {
     let dev = kind.as_str() == Some("dev");
     (from == "mdbn-platform-native" && to == "mdbn-conformance" && dev)
@@ -308,7 +260,6 @@ pub fn run() -> Result<()> {
             if members.contains_key(dep_name)
                 && !allowed.contains(dep_name)
                 && !conformance_test_edge(name, dep_name, &dep["kind"])
-                && !migration_oracle_test_edge(name, dep_name, &dep["kind"])
             {
                 let kind = dep["kind"].as_str().unwrap_or("normal");
                 errors.push(format!(
@@ -360,10 +311,7 @@ pub fn run() -> Result<()> {
         errors.extend(testing_feature_violations(&meta, name));
     }
 
-    // 1d. Escrow-only migration sealing cannot be enabled by client/CLI builds.
-    errors.extend(hosted_service::violations(&meta));
-
-    // 1e. Only the hosted Worker may consume host cryptography in WASM. Check
+    // 1d. Only the hosted Worker may consume host cryptography in WASM. Check
     // the host union too: target-specific/dev/build edges cannot evade this boundary.
     for krate in PORTABLE.iter().chain(WASM_ROOTS) {
         errors.extend(host_crypto_violations(&meta, krate));
@@ -1058,61 +1006,6 @@ mod tests {
         assert!(DETERMINISTIC_LIBS.contains(&"mdbn-noise"));
         assert!(!PORTABLE.contains(&"mdbn-noise"));
         assert!(WASM_ROOTS.contains(&"mdbn-log-service"));
-    }
-
-    #[test]
-    fn migration_oracle_edge_is_exact_and_dev_only() {
-        assert!(migration_oracle_test_edge(
-            "mdbn-migrate",
-            "mdbn-hosted-worker",
-            &Value::String("dev".into())
-        ));
-        for kind in [
-            Value::Null,
-            Value::String("normal".into()),
-            Value::String("build".into()),
-            Value::String("unknown".into()),
-            Value::Bool(true),
-            Value::Number(1.into()),
-        ] {
-            assert!(!migration_oracle_test_edge(
-                "mdbn-migrate",
-                "mdbn-hosted-worker",
-                &kind
-            ));
-        }
-        for from in [
-            "mdbn-core",
-            "mdbn-wire",
-            "mdbn-replica",
-            "mdbn-hosted-worker",
-            "unknown",
-        ] {
-            assert!(!migration_oracle_test_edge(
-                from,
-                "mdbn-hosted-worker",
-                &Value::String("dev".into())
-            ));
-        }
-        for to in [
-            "mdbn-core",
-            "mdbn-wire",
-            "mdbn-replica",
-            "mdbn-migrate",
-            "unknown",
-        ] {
-            assert!(!migration_oracle_test_edge(
-                "mdbn-migrate",
-                to,
-                &Value::String("dev".into())
-            ));
-        }
-        let rules = RULES
-            .iter()
-            .find(|(name, _)| *name == "mdbn-migrate")
-            .unwrap()
-            .1;
-        assert!(!rules.contains(&"mdbn-hosted-worker"));
     }
 
     #[test]

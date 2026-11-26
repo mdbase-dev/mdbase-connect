@@ -3,10 +3,14 @@
 
 mod attachment_streams;
 mod attachments;
+mod catchup_facts;
 mod mode_lifecycle;
 mod original_app;
 mod projected_queries;
+mod record_meta_repair;
+mod record_meta_repair_keying;
 mod signed_control_plain;
+mod sqlite;
 use signed_control_plain::SignedControlPlain;
 
 use std::cell::Cell;
@@ -254,15 +258,22 @@ fn submit(id: u64, path: &str) -> Vec<u8> {
 }
 
 fn submit_doc(id: u64, path: &str, doc: &str) -> Vec<u8> {
-    let p = SubmitParams {
-        ops: vec![Op::Create(Create {
+    submit_op(
+        id,
+        Op::Create(Create {
             id: B16([id as u8; 16]),
             path: Some(path.into()),
             type_name: None,
             frontmatter: None,
             body: None,
             document: Some(Text::Inline(doc.into())),
-        })],
+        }),
+    )
+}
+
+fn submit_op(id: u64, op: Op) -> Vec<u8> {
+    let p = SubmitParams {
+        ops: vec![op],
         mutation_id: Some(B16([0xa0 + id as u8; 16])),
         conflict_mode: None,
         timezone: None,
@@ -341,7 +352,7 @@ fn unknown_append_keeps_the_request_open() {
     );
     // The retry (identical bytes) lands; the confirmed answer follows.
     h.clock.set(h.clock.get() + 10_000);
-    h.e.tick(h.clock.get() as i64);
+    h.e.tick(h.clock.get() as i64, false);
     h.pump(false);
     let r = responses(&h.e.poll(), s, 1);
     assert_eq!(r[0].as_ref().unwrap()[0].state, ReceiptState::Confirmed);

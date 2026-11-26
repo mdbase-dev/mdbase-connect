@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import test from "node:test";
 import { promisify } from "node:util";
 import { pulledBinaries, systemSuites, preparationSteps } from "../../test/system/suites.mjs";
+import { fullServerTestPlan, selectedSystemSuites, systemSuiteShards } from "../ci/server-test-plan.mjs";
 
 const execute = promisify(execFile);
 const repoRoot = resolve(import.meta.dirname, "../..");
@@ -13,18 +14,13 @@ test("every system suite has an existing command and known preparation steps", a
   assert.deepEqual(Object.keys(systemSuites), [
     "runtime-daemon",
     "relay",
-    "sync",
-    "provider",
-    "files",
-    "files-adversarial",
-    "projection-scale",
     "container",
     "linux-packages"
   ]);
   for (const [name, suite] of Object.entries(systemSuites)) {
     assert.ok(suite.description, `${name} needs a description`);
     assert.ok(suite.command.length >= 2, `${name} needs a command`);
-    await access(resolve(repoRoot, suite.command.at(-1)));
+    await access(resolve(repoRoot, suite.command[1]));
     for (const preparation of suite.prepare) {
       assert.ok(preparationSteps[preparation], `${name} has unknown preparation ${preparation}`);
     }
@@ -40,10 +36,13 @@ test("every cargo preparation step names the binaries rcargo copies back", () =>
 
 test("full Server CI covers every registered system suite exactly once", async () => {
   const workflow = await readFile(resolve(repoRoot, ".github/workflows/server-ci.yml"), "utf8");
-  const matrixSuites = [...workflow.matchAll(/^\s+suites:\s*([a-z,-]+)\s*$/gm)]
-    .flatMap((match) => match[1].split(","));
-  const containerCommands = [...workflow.matchAll(/--suite\s+container\b/g)];
-  assert.equal(containerCommands.length, 1, "container suite must have one full-CI job");
+  assert.match(workflow, /matrix: \$\{\{ fromJSON\(needs\.classify\.outputs\.system_suites_matrix\) \}\}/);
+  assert.deepEqual(selectedSystemSuites(fullServerTestPlan()), systemSuiteShards);
+  const matrixSuites = systemSuiteShards.flatMap((entry) => entry.suites.split(","));
+  for (const suite of ["container"]) {
+    const commands = [...workflow.matchAll(new RegExp(`--suite\\s+${suite}\\b`, "g"))];
+    assert.equal(commands.length, 1, `${suite} suite must have one full-CI job`);
+  }
   // Server CI's runtime-native job reuses the daemon shard's test build.
   const native = await readFile(resolve(repoRoot, ".github/workflows/runtime-native-tests.yml"), "utf8");
   assert.equal([...native.matchAll(/--suite\s+runtime-daemon\b/g)].length, 1, "runtime-daemon suite must have one native-CI step");

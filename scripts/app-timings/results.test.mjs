@@ -42,27 +42,46 @@ test('retains page-load measurements when first records times out', () => {
     {name: 'first_records', status: 'failed', duration_ms: 0},
   ]);
 });
-test('separates consent from cold records while paint remains navigation-relative', async () => {
+test('separates consent from cold records and measures every opening stage mark', async () => {
   const {measuredStages} = await import('./results.mjs');
   const observation = {timeOrigin: 100000, endedAt: 65000, ttfb: 70, fcp: 300, lcp: 900, firstRecords: 64000,
-    opening: [{name: 'key_wait', at: 3500}, {name: 'snapshot', at: 12000}, {name: 'apply', at: 18000}, {name: null, at: 62000}],
+    opening: [
+      {stage: 'joining', at: 3500}, {stage: 'opening_store', at: 5000}, {stage: 'connecting_log', at: 6000},
+      {stage: 'syncing', at: 7500}, {stage: 'waiting_for_key', at: 8000}, {stage: 'loading_snapshot', at: 12000},
+      {stage: 'replaying', at: 18000}, {stage: 'verifying_read', at: 60000}, {stage: 'checking_setup', at: 61000},
+      {stage: 'unknown/secret', at: 61500},
+    ],
     marks: {requested: 2000, approved: 4050, ready: 62000}, firstQuery: 62500};
-  assert.deepEqual(measuredStages(observation, 104000), {
+  const cold = measuredStages(observation, 104000);
+  assert.deepEqual(cold, {
     ttfb: 70, consent: 4000, first_records: 60000, fcp: 300, lcp: 900,
-    key_wait: 8000, snapshot: 6000, apply: 44000,
+    joining: 1000, opening_store: 1000, connecting_log: 1500, syncing: 500,
+    key_wait: 4000, snapshot: 6000, apply: 42000, verifying_read: 1000, checking_setup: 1000,
     open_first_records: 62000, open_approved: 2050, open_ready: 60000, render: 2000, first_query: 60500,
   });
+  const payload = result('editor.1k.cold', [{revision: 'abc123', stages: cold}], at);
+  assert.equal(payload.status, 'operational');
+  assert.equal(payload.stages.length, 19);
   const warm = measuredStages({...observation, firstRecords: 2500, opening: [], marks: {}}, undefined);
   assert.equal(warm.first_records, 2500);
   assert.equal('consent' in warm, false);
 });
-test('opening status intervals include repeated phases without claiming a full SDK trace', async () => {
+test('opening stage marks clip to approval start and first records, and sum repeated visits', async () => {
   const {measuredStages} = await import('./results.mjs');
   const stages = measuredStages({timeOrigin: 100000, endedAt: 20000, ttfb: 70, fcp: 300, lcp: 900, firstRecords: null,
-    opening: [{name: 'key_wait', at: 1000}, {name: 'apply', at: 5000}, {name: 'key_wait', at: 10000}, {name: 'apply', at: 12000}], marks: {}}, 102000);
+    opening: [
+      {stage: 'joining', at: 500},
+      {stage: 'waiting_for_key', at: 1000}, {stage: 'replaying', at: 5000},
+      {stage: 'waiting_for_key', at: 10000}, {stage: 'replaying', at: 12000},
+    ], marks: {}}, 102000);
+  assert.equal('joining' in stages, false);
   assert.equal(stages.key_wait, 5000);
   assert.equal(stages.apply, 13000);
   assert.equal('first_records' in stages, false);
+  const clipped = measuredStages({timeOrigin: 100000, endedAt: 20000, ttfb: 70, fcp: 300, lcp: 900, firstRecords: 15000,
+    opening: [{stage: 'checking_setup', at: 10000}, {stage: 'syncing', at: 16000}], marks: {}}, 102000);
+  assert.equal(clipped.checking_setup, 5000);
+  assert.equal('syncing' in clipped, false);
 });
 test('setup and skipped warm cells have distinct failures and a nonempty stage list', () => {
   for (const [stage, code] of [['setup', 'setup_required'], ['first_records', 'cold_incomplete']]) {

@@ -33,7 +33,7 @@ import { appUpdateBackend, type ElectronUpdateBackend } from "./electron-update-
 import { ensureBundledDaemon } from "./next-daemon";
 import { UpdateCoordinator } from "./update-coordinator";
 import { updateActions } from "./update-actions";
-import { reportUpdates } from "./update-report";
+import { REPORTED_PHASES, reportUpdates } from "./update-report";
 import { removeOldRuntimeCopies, UpdateStateStore } from "./update-state";
 import { registerUpdateTimer } from "./background-update";
 import { UPDATE_SWITCH } from "./display-platform";
@@ -56,7 +56,7 @@ let updater: UpdateCoordinator;
 let updateBackend: ElectronUpdateBackend;
 /** The background update timer is registered (`background-update.ts`). */
 let backgroundUpdates = false;
-let reportedCheck: string | undefined;
+let reportedStatus: { phase?: string; checkedAt?: string } = {};
 
 const singleInstance = app.requestSingleInstanceLock();
 if (!singleInstance) app.quit();
@@ -278,6 +278,14 @@ function registerIpc(): void {
     trustedIpc(event);
     return bootGate.check(() => updater.check(true));
   });
+  ipcMain.handle("connect:updates:early-access", async (event, enabled: unknown) => {
+    trustedIpc(event);
+    if (typeof enabled !== "boolean") throw new Error("Invalid early access setting.");
+    const status = await updater.setEarlyAccess(enabled);
+    // A release in its early stage can be taken now rather than at the next timer.
+    if (enabled) void bootGate.check(() => updater.check()).catch(() => undefined);
+    return status;
+  });
   ipcMain.handle("connect:updates:install", async (event) => {
     trustedIpc(event);
     return bootGate.install(() => updater.install());
@@ -367,9 +375,19 @@ function registerIpc(): void {
   ipcMain.handle("connect:collections:mode-change", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid mode input.");
-    if ((value.targetMode !== "private" && value.targetMode !== "cloud_copy") || typeof value.resume !== "boolean" || (value.cancel !== undefined && typeof value.cancel !== "boolean")) throw new Error("Invalid mode input.");
+    const options = value.options === undefined ? {} : asObject(value.options, "Invalid mode options.");
+    const cancel = options.cancel === true;
+    const targetMode = value.targetMode;
+    if (
+      (options.cancel !== undefined && typeof options.cancel !== "boolean")
+      || (targetMode !== undefined && targetMode !== "private" && targetMode !== "cloud_copy")
+      || (!cancel && targetMode === undefined)
+    ) throw new Error("Invalid mode input.");
+    const args = ["sync", "mode", collectionIdOf(value.collectionId)];
+    if (targetMode !== undefined) args.push(targetMode === "private" ? "private" : "cloud-copy");
+    if (cancel) args.push("--cancel");
     // Outlasts the CLI's own bound: the on-screen confirmation, then the switch's requests.
-    return bootGate.request(() => daemonCli().run(["sync", "mode", collectionIdOf(value.collectionId), value.targetMode === "private" ? "private" : "cloud-copy", ...(value.resume ? ["--resume"] : []), ...(value.cancel ? ["--cancel"] : [])], 300_000));
+    return bootGate.request(() => daemonCli().run(args, 300_000));
   });
   ipcMain.handle("connect:collections:sync-files", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -392,10 +410,6 @@ function registerIpc(): void {
       ...exclude.map((folder) => `--exclude=${folder}`),
       ...(maxSize === undefined ? [] : [`--max-size=${maxSize}`])
     ], 120_000));
-  });
-  ipcMain.handle("connect:collections:sync-disable", async (event, collectionId: unknown) => {
-    trustedIpc(event);
-    return requestReadyAgent("sync.disable", { collection: collectionIdOf(collectionId) }, 600_000);
   });
   ipcMain.handle("connect:collections:holds", async (event, collectionId: unknown) => {
     trustedIpc(event);
@@ -762,9 +776,10 @@ app.whenReady().then(async () => {
   updater.subscribe((status) => {
     mainWindow?.webContents.send("connect:update-status", status);
     refreshTrayMenu();
-    // What a finished check found, for `mdbase doctor`.
-    if (profile && status.checked_at !== reportedCheck && ["idle", "deferred", "ready", "external"].includes(status.phase)) {
-      reportedCheck = status.checked_at;
+    // What a finished check found, failures included, for `mdbase doctor`.
+    const reached = status.phase !== reportedStatus.phase || status.checked_at !== reportedStatus.checkedAt;
+    reportedStatus = { phase: status.phase, checkedAt: status.checked_at };
+    if (profile && reached && REPORTED_PHASES.includes(status.phase)) {
       reportUpdates(profile.stateDir, status, backgroundUpdates)
         .catch((error) => console.warn("Could not record the update check for mdbase doctor:", error));
     }

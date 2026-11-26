@@ -13,10 +13,6 @@
   --control-radius: var(--radius-sm);
 }
 
-@media (pointer: coarse) {
-  :root { --control-height: 40px; }
-}
-
 /* The negative margin keeps the box inside its static position: left in normal
    flow at the end of a full-height shell, it made the document 1px taller. */
 .mdbase-visually-hidden {
@@ -58,7 +54,6 @@
 }
 .mdbase-tooltip kbd { flex-shrink: 0; color: var(--color-text-muted); font: inherit; }
 @starting-style { .mdbase-tooltip:popover-open { opacity: 0; } }
-@media (prefers-reduced-motion: reduce) { .mdbase-tooltip { transition: none; } }
 
 .mdbase-message {
   margin: 1.2rem 0 0;
@@ -102,7 +97,9 @@
   background: transparent;
   font: inherit;
   font-size: var(--control-font-size);
-  transition: border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard), transform var(--motion-quick) var(--ease-standard);
+  transition:
+    border-color var(--motion-quick) var(--ease-standard),
+    background var(--motion-quick) var(--ease-standard);
 }
 
 .mdbase-field {
@@ -176,7 +173,7 @@ textarea.mdbase-field {
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
-  transition: transform var(--motion-quick) var(--ease-standard);
+  transition: transform var(--motion-spring) var(--ease-spring);
 }
 
 .mdbase-select[aria-expanded="true"] .mdbase-select-chevron {
@@ -220,9 +217,10 @@ textarea.mdbase-field {
   max-width: min(420px, calc(100vw - 16px));
   margin: 0;
   overflow: auto;
-  padding: 4px;
+  padding: var(--space-1);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--control-radius);
+  /* Row radius plus the padding, so the corners stay concentric. */
+  border-radius: calc(var(--control-radius) + var(--space-1));
   outline: 0;
   color: var(--color-text-soft);
   background: var(--color-surface);
@@ -282,6 +280,183 @@ textarea.mdbase-field {
   cursor: default;
 }
 
+/* Link picker: a text field whose list links to a record or makes one (LinkPicker). */
+.mdbase-link-picker {
+  min-width: 0;
+  display: flex;
+}
+
+.mdbase-link-picker-list {
+  min-width: 240px;
+}
+
+.mdbase-link-option {
+  gap: 8px;
+  padding-right: 9px;
+  /* The title and detail truncate themselves; the row lets its divider show above it. */
+  overflow: visible;
+}
+
+/* The active row is the one Enter takes; nothing here is a held selection. */
+.mdbase-link-option[aria-selected="true"] {
+  background: var(--color-surface-subtle);
+}
+
+.mdbase-link-option[aria-selected="true"]::after {
+  content: none;
+}
+
+.mdbase-link-option-icon {
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
+  display: grid;
+  place-items: center;
+  color: var(--color-text-muted);
+}
+
+.mdbase-link-option-title {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-link-option-detail {
+  min-width: 0;
+  flex: 1 10 auto;
+  overflow: hidden;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  text-align: right;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mdbase-link-option.is-create .mdbase-link-option-title {
+  color: var(--color-text-soft);
+}
+
+/* Making a record is a different act from picking one: a rule sets the first create row apart. */
+.mdbase-link-option:not(.is-create) + .mdbase-link-option.is-create {
+  margin-top: var(--space-1);
+}
+
+.mdbase-link-option:not(.is-create) + .mdbase-link-option.is-create::before {
+  position: absolute;
+  top: calc(-0.5 * var(--space-1) - 0.5px);
+  right: 0;
+  left: 0;
+  border-top: 1px solid var(--color-border);
+  content: "";
+}
+
+.mdbase-link-picker-empty {
+  padding: 7px 9px;
+  color: var(--color-text-muted);
+}
+
+/* Quick create: a short form beside the place a record is made from (QuickCreate). */
+.mdbase-quick-create {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  width: min(360px, calc(100vw - 16px));
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text);
+  background: var(--color-surface-overlay);
+  font-size: var(--control-font-size);
+}
+
+.mdbase-quick-create-header {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-3) var(--space-2);
+}
+
+.mdbase-quick-create-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-caption);
+  font-weight: var(--font-weight-medium);
+}
+
+.mdbase-quick-create-title svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* The name reads as the record's title, not as one more field. */
+.mdbase-quick-create-name {
+  width: 100%;
+  min-width: 0;
+  padding: 2px 0;
+  border: 0;
+  outline: 0;
+  color: inherit;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.mdbase-quick-create-fields {
+  padding-inline: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.mdbase-quick-create-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-3);
+}
+
+/* Popovers: a small panel beside the control that opened it (AnchoredPopover). */
+.mdbase-popover {
+  position: fixed;
+  inset: auto;
+  box-sizing: border-box;
+  min-width: 180px;
+  max-width: calc(100vw - 16px);
+  margin: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  --popover-inset: 5px;
+  padding: var(--popover-inset);
+  border: 1px solid var(--color-border-strong);
+  /* Row radius plus the padding, as the menus have. */
+  border-radius: calc(var(--control-radius) + var(--popover-inset));
+  outline: 0;
+  color: var(--color-text);
+  background: var(--color-surface-overlay);
+  box-shadow: var(--elevation-low);
+  font-family: var(--sans);
+  font-size: var(--control-font-size);
+  font-weight: var(--font-weight-regular);
+  text-align: start;
+  white-space: normal;
+}
+
+/* Combo: a text field whose list offers values to take or one to make (Combo). */
+.mdbase-combo {
+  width: 100%;
+  min-width: 0;
+  display: flex;
+}
+
+.mdbase-combo > .mdbase-link-picker {
+  flex: 1;
+}
+
 /* Menus anchored to a trigger (useMenuPopover). */
 .mdbase-menu {
   position: fixed;
@@ -291,9 +466,11 @@ textarea.mdbase-field {
   flex-direction: column;
   margin: 0;
   overflow: auto;
-  padding: 5px;
+  --menu-inset: 5px;
+  padding: var(--menu-inset);
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--control-radius);
+  /* Row radius plus the padding, so the corners stay concentric. */
+  border-radius: calc(var(--control-radius) + var(--menu-inset));
   outline: 0;
   color: var(--color-text-soft);
   background: var(--color-surface-overlay);
@@ -351,14 +528,51 @@ textarea.mdbase-field {
 .mdbase-menu-item.is-danger:hover:not(:disabled, [aria-disabled="true"]),
 .mdbase-menu .mdbase-menu-item.is-danger:focus-visible { color: var(--color-danger); }
 
-.mdbase-disclosure > summary { display: flex; align-items: center; gap: var(--space-2); list-style: none; cursor: pointer; }
-.mdbase-disclosure > summary::-webkit-details-marker { display: none; }
-.mdbase-disclosure > summary::after { content: ""; flex: none; width: 6px; height: 6px; margin-left: auto; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; rotate: -45deg; transition: rotate var(--motion-quick) var(--ease-standard); }
-.mdbase-disclosure[open] > summary::after { rotate: 45deg; }
-.mdbase-disclosure { interpolate-size: allow-keywords; }
-.mdbase-disclosure::details-content { height: 0; overflow: hidden; transition: height var(--motion-enter) var(--ease-out), content-visibility var(--motion-enter) allow-discrete; }
-.mdbase-disclosure[open]::details-content { height: auto; }
-@media (prefers-reduced-motion: reduce) { .mdbase-disclosure > summary::after { transition: none; } }
+/* Disclosure: a native <details>. Its content grows where the browser can animate to
+   height: auto (interpolate-size); elsewhere it opens at once. */
+.mdbase-disclosure {
+  interpolate-size: allow-keywords;
+}
+
+.mdbase-disclosure > summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  list-style: none;
+  cursor: pointer;
+}
+
+.mdbase-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.mdbase-disclosure > summary::after {
+  width: 6px;
+  height: 6px;
+  flex: none;
+  margin-left: auto;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  content: "";
+  rotate: -45deg;
+  transition: rotate var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-disclosure[open] > summary::after {
+  rotate: 45deg;
+}
+
+.mdbase-disclosure::details-content {
+  height: 0;
+  overflow: hidden;
+  transition:
+    height var(--motion-enter) var(--ease-out),
+    content-visibility var(--motion-enter) allow-discrete;
+}
+
+.mdbase-disclosure[open]::details-content {
+  height: auto;
+}
 
 .mdbase-menu-copy {
   min-width: 0;
@@ -382,6 +596,12 @@ textarea.mdbase-field {
 .mdbase-menu-copy small {
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
+}
+
+.mdbase-menu-divider {
+  height: 1px;
+  margin: 5px 2px;
+  background: var(--color-border);
 }
 
 .mdbase-menu-note {
@@ -422,7 +642,7 @@ textarea.mdbase-field {
   fill: none;
   stroke: var(--color-text-muted);
   stroke-width: 1.6;
-  transition: transform var(--motion-quick) var(--ease-standard);
+  transition: transform var(--motion-spring) var(--ease-spring);
 }
 
 .mdbase-app-switcher[aria-expanded="true"] .mdbase-app-switcher-chevron {
@@ -436,28 +656,141 @@ textarea.mdbase-field {
   margin-inline: 3px;
 }
 
-/* The app menu's last line: the new-tab note, and a quiet link to the SDK guide. */
-.mdbase-app-menu-footer {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 2px 12px;
+.mdbase-app-menu-mcp-mark {
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
+.mdbase-menu-item:hover .mdbase-app-menu-mcp-mark,
+.mdbase-menu .mdbase-menu-item:focus-visible .mdbase-app-menu-mcp-mark {
+  stroke: var(--color-text);
+}
+
+/* "Your app here": an empty slot after the apps. Hovered or focused, it spins past the
+   family's marks and lands on a tile with a waiting caret, while a sheen crosses the row. */
 .mdbase-app-menu-build {
-  margin: -2px -6px;
-  padding: 2px 6px;
-  border-radius: var(--control-radius);
-  color: var(--color-text-soft);
-  text-decoration: none;
+  position: relative;
+  overflow: hidden;
 }
 
-.mdbase-app-menu-build:hover,
-.mdbase-menu .mdbase-app-menu-build:focus-visible {
-  outline: 0;
+.mdbase-app-menu-slot {
+  --slot-cell: 19px;
+  position: relative;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  box-sizing: border-box;
+  margin-inline: 3px;
+  overflow: hidden;
+  border: 1.5px dashed var(--color-border-strong);
+  border-radius: 6px;
+  transition: border-color var(--motion-slow) var(--ease-out);
+}
+
+.mdbase-app-menu-reel {
+  position: absolute;
+  inset: 0 0 auto;
+  display: grid;
+  grid-auto-rows: var(--slot-cell);
+  place-items: center;
+  transition: transform 0.28s var(--ease-out);
+}
+
+.mdbase-app-menu-reel > .mdbase-mark {
+  width: 15px;
+  height: 15px;
+}
+
+.mdbase-app-menu-slot-plus {
+  position: relative;
+  width: 9px;
+  height: 9px;
+}
+
+.mdbase-app-menu-slot-plus::before,
+.mdbase-app-menu-slot-plus::after {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 9px;
+  height: 1.6px;
+  background: var(--color-text-muted);
+  content: "";
+  translate: 0 -50%;
+}
+
+.mdbase-app-menu-slot-plus::after { rotate: 90deg; }
+
+.mdbase-app-menu-slot-caret {
+  width: 1.6px;
+  height: 11px;
+  border-radius: 1px;
+  background: var(--color-accent);
+}
+
+.mdbase-app-menu-build::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, light-dark(oklch(100% 0 0 / 0.75), oklch(100% 0 0 / 0.12)) 50%, transparent 70%);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-110%);
+}
+
+.mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-slot {
+  border-style: solid;
+  border-color: var(--color-accent);
+}
+
+.mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-reel {
+  transform: translateY(calc(-1 * var(--reel-stops) * var(--slot-cell)));
+  transition: transform 1.15s cubic-bezier(0.12, 0.75, 0.18, 1.04);
+}
+
+.mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-slot-caret {
+  animation: mdbase-slot-caret 1s steps(1) 1.15s infinite;
+}
+
+.mdbase-app-menu-build:is(:hover, :focus)::after {
+  animation: mdbase-slot-sheen 0.8s var(--ease-out) 0.9s;
+}
+
+@keyframes mdbase-slot-caret { 50% { opacity: 0; } }
+@keyframes mdbase-slot-sheen { to { transform: translateX(110%); } }
+
+/* The end state at once: the waiting tile, no spin, sheen or blink. */
+@media (prefers-reduced-motion: reduce) {
+  .mdbase-app-menu-reel,
+  .mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-reel { transition: none; }
+  .mdbase-app-menu-build:is(:hover, :focus) .mdbase-app-menu-slot-caret,
+  .mdbase-app-menu-build:is(:hover, :focus)::after { animation: none; }
+}
+
+.mdbase-app-menu-submenu-chevron {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: var(--color-text-muted);
+  stroke-width: 1.6;
+}
+
+.mdbase-app-menu-ai {
+  display: grid;
+}
+
+.mdbase-app-menu-ai > [aria-expanded="true"] {
   color: var(--color-text);
   background: var(--color-accent-soft);
+}
+
+.mdbase-app-submenu {
+  width: max-content;
+  min-width: 240px;
+  max-width: min(300px, calc(100vw - 16px));
 }
 
 .mdbase-app-menu-external {
@@ -497,7 +830,11 @@ textarea.mdbase-field {
   text-decoration: none;
   white-space: nowrap;
   cursor: pointer;
-  transition: color var(--motion-quick) var(--ease-standard), border-color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
+  transition:
+    color var(--motion-quick) var(--ease-standard),
+    border-color var(--motion-quick) var(--ease-standard),
+    background var(--motion-quick) var(--ease-standard),
+    scale var(--motion-spring) var(--ease-spring);
 }
 
 .mdbase-button:hover:not(:disabled) {
@@ -505,11 +842,37 @@ textarea.mdbase-field {
   background: var(--color-surface-subtle);
 }
 
+/* A press goes down fast and comes back on the spring. */
 .mdbase-button:active:not(:disabled) {
-  transform: scale(0.97);
-  transition-duration: 0s;
+  scale: 0.97;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
 }
-@media (prefers-reduced-motion: reduce) { .mdbase-button:active:not(:disabled) { transform: none; } }
+
+/* A label that changes while the button works (see ConfirmDialog). The other label lies
+   underneath at no height, so the button is as wide as the wider of the two throughout. */
+.mdbase-button-label {
+  display: inline-grid;
+  justify-items: center;
+}
+
+.mdbase-button-label::after {
+  height: 0;
+  overflow: hidden;
+  content: attr(data-other);
+  visibility: hidden;
+}
+
+.mdbase-button[aria-busy="true"] > .mdbase-button-label {
+  animation: mdbase-label-in var(--motion-base) var(--ease-out);
+}
+
+@keyframes mdbase-label-in {
+  from {
+    opacity: 0;
+    translate: 0 3px;
+  }
+}
 
 .mdbase-button.is-primary {
   border-color: var(--color-accent);
@@ -581,7 +944,16 @@ textarea.mdbase-field {
   color: var(--color-text-soft);
   background: transparent;
   cursor: pointer;
-  transition: color var(--motion-quick) var(--ease-standard), background var(--motion-quick) var(--ease-standard);
+  transition:
+    color var(--motion-quick) var(--ease-standard),
+    background var(--motion-quick) var(--ease-standard),
+    scale var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-icon-button:active:not(:disabled) {
+  scale: 0.92;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
 }
 
 .mdbase-icon-button:hover:not(:disabled),
@@ -607,29 +979,43 @@ textarea.mdbase-field {
   outline-offset: var(--focus-offset);
 }
 
-/* Switch: native button semantics (role="switch", aria-checked), one track and thumb. */
+/* Switch: native button semantics (role="switch", aria-checked), one track and thumb; the
+   Switch component from ./switch renders it. The thumb stretches while held and springs
+   across when released. */
 .mdbase-switch {
   position: relative;
+  --switch-height: 22px;
   width: 36px;
-  height: 22px;
+  height: var(--switch-height);
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   padding: 2px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-lg);
+  border-radius: calc(var(--switch-height) / 2);
   background: var(--color-surface-subtle);
   cursor: pointer;
-  transition: background var(--motion-base) var(--ease-out), border-color var(--motion-base) var(--ease-out);
+  transition:
+    background var(--motion-base) var(--ease-out),
+    border-color var(--motion-base) var(--ease-out);
 }
 
 .mdbase-switch > span {
-  width: 16px;
-  height: 16px;
-  border-radius: 50%;
+  --switch-thumb: 16px;
+  width: var(--switch-thumb);
+  height: var(--switch-thumb);
+  /* Half the height, not 50%: the thumb stays round-ended while it stretches. */
+  border-radius: calc(var(--switch-thumb) / 2);
   background: var(--color-text-muted);
   pointer-events: none;
-  transition: transform var(--motion-base) var(--ease-out), background var(--motion-base) var(--ease-out);
+  transition:
+    translate var(--motion-spring) var(--ease-spring),
+    width var(--motion-spring) var(--ease-spring),
+    background var(--motion-base) var(--ease-out);
+}
+
+.mdbase-switch:active:not(:disabled) > span {
+  width: 20px;
 }
 
 .mdbase-switch[aria-checked="true"] {
@@ -637,9 +1023,22 @@ textarea.mdbase-field {
   background: var(--color-accent);
 }
 
+/* The track's 30px inside, less the thumb. */
 .mdbase-switch[aria-checked="true"] > span {
-  transform: translateX(14px);
   background: var(--color-on-accent);
+  translate: 14px;
+}
+
+.mdbase-switch[aria-checked="true"]:active:not(:disabled) > span {
+  translate: 10px;
+}
+
+.mdbase-switch[aria-checked="true"]:dir(rtl) > span {
+  translate: -14px;
+}
+
+.mdbase-switch[aria-checked="true"]:dir(rtl):active:not(:disabled) > span {
+  translate: -10px;
 }
 
 .mdbase-switch:disabled {
@@ -647,6 +1046,112 @@ textarea.mdbase-field {
   background: var(--color-surface-subtle);
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+/* A switch and its text in one label, as Checkbox does for a checkbox. */
+.mdbase-switch-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  cursor: pointer;
+}
+
+.mdbase-switch-row:has(.mdbase-switch:disabled) {
+  cursor: not-allowed;
+}
+
+/* Segmented control (./segmented): a few exclusive choices, all in view. Native radios keep
+   the arrow keys and form state; one thumb glides to the checked option, its leading edge
+   first, so it stretches on the way. */
+.mdbase-segmented {
+  position: relative;
+  /* Equal segments, each as wide as the longest label; a stretched control shares the room. */
+  display: inline-grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  --segmented-inset: 2px;
+  padding: var(--segmented-inset);
+  border: 1px solid var(--color-border);
+  border-radius: var(--control-radius);
+  background: var(--color-surface-subtle);
+  font-size: var(--control-font-size);
+}
+
+.mdbase-segmented-thumb {
+  position: absolute;
+  top: var(--segmented-inset);
+  bottom: var(--segmented-inset);
+  border: 1px solid var(--color-border-strong);
+  /* Track radius less its padding, so the corners stay concentric. */
+  border-radius: calc(var(--control-radius) - var(--segmented-inset));
+  /* Raised reads as lighter than the track in both themes. */
+  background: light-dark(var(--color-surface), var(--color-border-strong));
+  box-shadow: var(--elevation-raised);
+  pointer-events: none;
+}
+
+.mdbase-segmented[data-moving="end"] > .mdbase-segmented-thumb {
+  transition:
+    right var(--motion-base) var(--ease-out),
+    left var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-segmented[data-moving="start"] > .mdbase-segmented-thumb {
+  transition:
+    left var(--motion-base) var(--ease-out),
+    right var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-segmented-option {
+  position: relative;
+  min-height: calc(var(--control-height) - 6px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: calc(var(--control-radius) - var(--segmented-inset));
+  color: var(--color-text-muted);
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  transition:
+    color var(--motion-quick) var(--ease-standard),
+    scale var(--motion-spring) var(--ease-spring);
+}
+
+/* The radio covers its option, so the whole option is the target. */
+.mdbase-segmented-option > input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: inherit;
+}
+
+.mdbase-segmented-option:hover {
+  color: var(--color-text-soft);
+}
+
+.mdbase-segmented-option:active:not(:has(:disabled)) {
+  scale: 0.97;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
+}
+
+.mdbase-segmented-option:has(:checked) {
+  color: var(--color-text);
+}
+
+.mdbase-segmented-option:has(:disabled) {
+  color: var(--color-text-faint);
+  cursor: not-allowed;
+}
+
+.mdbase-segmented-option:has(:focus-visible) {
+  outline: var(--focus-ring);
+  outline-offset: 1px;
 }
 
 /* Checkbox: native inputs keep Space, label activation, form state and indeterminate support.
@@ -667,7 +1172,16 @@ textarea.mdbase-field {
   color: var(--color-on-accent);
   vertical-align: middle;
   cursor: pointer;
-  transition: background var(--motion-quick) var(--ease-out), border-color var(--motion-quick) var(--ease-out);
+  transition:
+    background var(--motion-quick) var(--ease-out),
+    border-color var(--motion-quick) var(--ease-out),
+    scale var(--motion-spring) var(--ease-spring);
+}
+
+.mdbase-checkbox:active:not(:disabled) {
+  scale: 0.9;
+  transition-duration: var(--motion-press);
+  transition-timing-function: var(--ease-out);
 }
 
 .mdbase-checkbox:checked,
@@ -677,21 +1191,35 @@ textarea.mdbase-field {
   background: var(--color-accent);
 }
 
-.mdbase-checkbox:checked::after,
-.mdbase-checkbox[aria-checked="true"]::after {
-  width: 4px;
-  height: 8px;
+/* The tick is two borders of a rotated box. It is wiped in from the left: the clip is a
+   half-plane whose edge runs along the box's diagonal, which the rotation stands upright. */
+.mdbase-checkbox::after {
+  box-sizing: border-box;
+  width: 6px;
+  height: 10px;
   margin-top: -2px;
   border-right: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
   content: "";
   transform: rotate(45deg);
+  clip-path: polygon(-30px -18px, 30px 42px, -30px 90px);
+  transition: clip-path var(--motion-press) var(--ease-exit);
+}
+
+.mdbase-checkbox:checked::after,
+.mdbase-checkbox[aria-checked="true"]::after {
+  clip-path: polygon(-30px -38px, 30px 22px, -30px 90px);
+  transition: clip-path var(--motion-slow) var(--ease-out) var(--motion-press);
 }
 
 .mdbase-checkbox:indeterminate::after {
   width: 8px;
-  border-top: 2px solid currentColor;
-  content: "";
+  height: 2px;
+  margin: 0;
+  border: 0;
+  background: currentColor;
+  transform: none;
+  clip-path: none;
 }
 
 .mdbase-checkbox:hover:not(:disabled) {
@@ -735,11 +1263,12 @@ textarea.mdbase-field {
 }
 
 @media (pointer: coarse) {
-  /* Expand the hit target, not the visual control or its containing row. */
+  /* Expand the hit target, not the visual control or its containing row. The inset
+     counts from inside the border: the checkbox's 16px plus 2 × 14px is 44px. */
   .mdbase-checkbox::before,
   .mdbase-switch::before {
     position: absolute;
-    inset: -13px;
+    inset: -14px;
     content: "";
   }
 }
@@ -759,6 +1288,8 @@ textarea.mdbase-field {
   }
   .mdbase-switch > span { background: ButtonText; }
   .mdbase-switch[aria-checked="true"] > span { background: HighlightText; }
+  .mdbase-segmented-thumb { border-color: Highlight; background: Highlight; }
+  .mdbase-segmented-option:has(:checked) { color: HighlightText; forced-color-adjust: none; }
 }
 
 /* Dialogs: a native <dialog> in the top layer, drawn like a popover. */
@@ -767,10 +1298,12 @@ textarea.mdbase-field {
   max-height: calc(100dvh - 48px);
   padding: 0;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--control-radius);
+  border-radius: var(--radius-lg);
   color: var(--color-text);
   background: var(--color-surface-overlay);
   box-shadow: var(--elevation-high);
+  /* It settles into place from just below, on the spring. */
+  --overlay-from: translateY(8px) scale(0.98);
 }
 
 .mdbase-dialog::backdrop {
@@ -799,6 +1332,38 @@ textarea.mdbase-field {
   text-transform: none;
 }
 
+.mdbase-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-6);
+}
+
+.mdbase-confirm-dialog {
+  width: min(440px, calc(100vw - 32px));
+}
+
+/* The dialog sits in the top layer, so it sets its own text size rather than inheriting the page's. */
+.mdbase-confirm-dialog .mdbase-dialog-body {
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+.mdbase-confirm-dialog .mdbase-dialog-body p {
+  margin: 0;
+}
+
+/* A field the confirmation asks for: its label sits just above it. */
+.mdbase-confirm-dialog .mdbase-dialog-body > label {
+  display: grid;
+  gap: 6px;
+  font-weight: var(--font-weight-medium);
+}
+
+.mdbase-confirm-dialog .mdbase-dialog-actions {
+  margin-top: var(--space-2);
+}
+
 /* Save notices: small, quiet, and gone once there is nothing to act on. */
 .mdbase-save-notice {
   display: inline-flex;
@@ -817,6 +1382,16 @@ textarea.mdbase-field {
   stroke-width: 1.8;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+/* The saved tick draws itself. A drawn path has pathLength 1 (toast.css draws its marks too). */
+.mdbase-save-notice svg path {
+  stroke-dasharray: 1;
+  animation: mdbase-draw var(--motion-slow) var(--ease-out) backwards;
+}
+
+@keyframes mdbase-draw {
+  from { stroke-dashoffset: 1; }
 }
 
 .mdbase-save-notice.is-attention {
@@ -853,37 +1428,116 @@ textarea.mdbase-field {
   }
 }
 
+/* Durations are zeroed at the tokens (motion.css). What is left is movement that a zero
+   duration still shows. */
 @media (prefers-reduced-motion: reduce) {
   /* Without the fade, a confirmation still shows for the same time, then goes. */
   .mdbase-settle {
     animation-timing-function: steps(1, end);
   }
 
-  .mdbase-button,
-  .mdbase-icon-button,
-  .mdbase-field,
-  .mdbase-select,
-  .mdbase-select-chevron,
-  .mdbase-app-switcher,
-  .mdbase-app-switcher-chevron,
-  .mdbase-checkbox,
-  .mdbase-switch,
-  .mdbase-switch > span {
+  .mdbase-tooltip {
     transition: none;
+  }
+
+  /* A press changes colour only; nothing shrinks or stretches under it. */
+  :is(.mdbase-button, .mdbase-icon-button, .mdbase-checkbox):active:not(:disabled),
+  .mdbase-segmented-option:active:not(:has(:disabled)) {
+    scale: none;
+  }
+
+  .mdbase-switch:active:not(:disabled) > span {
+    width: var(--switch-thumb);
+  }
+
+  .mdbase-switch[aria-checked="true"]:active:not(:disabled) > span {
+    translate: 14px;
+  }
+
+  .mdbase-switch[aria-checked="true"]:dir(rtl):active:not(:disabled) > span {
+    translate: -14px;
   }
 }
 
 /* Mode changes stay inline; progress is text, never an optimistic toggle. */
-.mdbase-collection-mode { display: grid; gap: var(--space-3); min-inline-size: 0; }
-.mdbase-collection-mode :is(h3, p, ul) { margin-block: 0; }
-.mdbase-collection-mode h3 { font-size: var(--font-size-section); font-weight: var(--font-weight-medium); }
-.mdbase-collection-mode > div:last-child { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-.mdbase-collection-mode code { overflow-wrap: anywhere; }
+.mdbase-collection-mode {
+  display: grid;
+  gap: var(--space-2);
+  min-inline-size: 0;
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+.mdbase-collection-mode :is(h3, p, ul) {
+  margin-block: 0;
+}
+
+.mdbase-collection-mode h3 {
+  color: var(--muted, var(--color-text-muted));
+  font-size: var(--font-size-section);
+  font-weight: var(--font-weight-medium);
+}
+
+.mdbase-collection-mode p {
+  font-size: var(--font-size-ui);
+  line-height: 1.5;
+}
+
+.mdbase-collection-mode-current {
+  color: var(--muted, var(--color-text-muted));
+}
+
+.mdbase-collection-mode-current strong {
+  color: var(--color-text);
+  font-weight: var(--font-weight-semibold);
+}
+
+.mdbase-collection-mode p.mdbase-collection-mode-note {
+  color: var(--muted, var(--color-text-muted));
+  font-size: var(--font-size-caption);
+  line-height: 1.5;
+}
+
+.mdbase-collection-mode-status {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.mdbase-collection-mode-blocked {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.mdbase-collection-mode-blocked ul {
+  display: grid;
+  gap: 2px;
+  padding-inline-start: var(--space-4);
+}
+
+.mdbase-collection-mode [role="alert"] {
+  color: var(--color-danger);
+}
+
+.mdbase-collection-mode-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-1);
+}
+
+.mdbase-collection-mode-actions > .mdbase-button.is-tertiary:first-child {
+  margin-inline-start: -10px;
+}
+
+.mdbase-collection-mode code {
+  overflow-wrap: anywhere;
+}
 
 :focus-visible {
   outline: var(--focus-ring);
   outline-offset: var(--focus-offset);
 }
-[role="radio"][aria-checked="true"]:focus-visible { outline: var(--focus-ring); }
-.mdbase-dialog-actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
-.mdbase-confirm-dialog { width: min(440px, calc(100vw - 32px)); }
+
+[role="radio"][aria-checked="true"]:focus-visible {
+  outline: var(--focus-ring);
+}

@@ -17,7 +17,7 @@ import {applicationPhase} from "../application/phase.js";
 import type {DescribeErrorOptions} from "../describe-error.js";
 import {summarizeSync} from "../status.js";
 
-export type ApplicationFixtureAction = "start" | "authorize" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "unlock" | "close";
+export type ApplicationFixtureAction = "start" | "authorize" | "cancelAuthorization" | "approve" | "reauthorize" | "refreshCollectionList" | "select" | "chooseAnother" | "forget" | "deleteCollection" | "requestAccess" | "assess" | "configure" | "planSetup" | "applySetup" | "signOut" | "openUnsynced" | "planUnsyncedTransfer" | "transferUnsynced" | "discardUnsynced" | "unlock" | "close";
 /** The snapshot a fixture is given. `phase`, `sync` and `links` are derived
  * from it, as the SDK derives them, so tests leave them out. */
 export type ApplicationFixtureSnapshot = MdbaseApplicationSnapshot;
@@ -165,6 +165,9 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     else if (action === "select") publish({...snapshot, selectedCollectionId: collectionId ?? null});
     else if (action === "chooseAnother") publish({...snapshot, selectedCollectionId: null});
     else if (action === "signOut") publish(signedOut(snapshot));
+    // Default: the wait ends as a closed window does; a tab showing its unsynced collection shows it again.
+    else if (action === "cancelAuthorization" && snapshot.status === "authorizing") publish({...snapshot, problem: null, approval: Object.freeze({outcome: "closed" as const}),
+      status: snapshot.unsynced && snapshot.unsynced.collectionId === snapshot.selectedCollectionId ? "ready" : snapshot.signIn?.state === "paired" ? "unselected" : "signed_out"});
     // Default: the unlock succeeds and the collection opens.
     else if (action === "unlock" && snapshot.status === "needs_unlock" && snapshot.selectedCollectionId === collectionId) {
       const {unlock: _lock, ...rest} = snapshot; publish({...rest, status: "ready", problem: null});
@@ -201,6 +204,7 @@ export function createApplicationFixture(options: ApplicationFixtureOptions): Ap
     start: (request?: MdbaseApplicationRequestOptions) => run("start", request),
     signIn: (request?: MdbaseApplicationRequestOptions) => run("authorize", request),
     addCollection: (request?: MdbaseApplicationRequestOptions) => run("approve", request),
+    cancelAuthorization: (request?: MdbaseApplicationRequestOptions) => run("cancelAuthorization", request),
     select: (id: string, request?: MdbaseApplicationRequestOptions) => run("select", request, id),
     approve: (id?: string | null, request?: MdbaseApplicationRequestOptions) => run("approve", request, id ?? undefined),
     reauthorize: (request?: MdbaseApplicationRequestOptions) => run("reauthorize", request),

@@ -5,8 +5,7 @@
 `services/mcp` is the deployable `mdbase-mcp` service. It gives OAuth-capable
 MCP hosts one remote endpoint:
 
-The managed endpoint is `https://mcp.mdbase.dev/mcp`; a self-hosted gateway
-uses the operator's own HTTPS origin.
+The managed endpoint is `https://mcp.mdbase.dev/mcp`.
 
 It remains in the `mdbase-connect` repository because its upstream grants,
 relay cryptography, and request path must stay compatible with Connect. It is a
@@ -92,6 +91,10 @@ description with a link to its entry on https://mdbase.dev/apps/mcp/tools/,
 and gives every parameter a JSON type; Anthropic's directory checks all three.
 `services/mcp/src/mcp.test.ts` checks the hints, metadata and instructions.
 
+`update_record` takes `unset`, the frontmatter fields to remove, beside `patch`,
+`body` and `document`. It needs an mdbase-next collection; a legacy authority
+refuses it rather than ignoring it.
+
 The Connect grant may be narrower than the MCP OAuth scope. In that case the
 gateway rejects an unavailable operation and tells the user to reconnect with
 broader collection access; it never expands the upstream grant itself.
@@ -124,6 +127,73 @@ normalizer. Record revisions, previous revisions/types, changed fields and
 payloads stay `kind: "unknown"` with raw data, never guessed updates. A reset page
 still requires rebuilding from current state; it is not a sequence of edits.
 
+## MCP App view
+
+The gateway ships an [MCP App](https://modelcontextprotocol.io/extensions/apps):
+one interactive view, `ui://mdbase/collection-view.html`, that hosts supporting
+MCP Apps render in the conversation instead of the JSON text.
+
+- `query_records` results show as a table: one row per record, opened by its
+  name, with columns from the query's `select` (or the first few frontmatter
+  fields), a kind icon per column and **Load more** for the next cursor page.
+  The name heading and each field column heading order the query by that field,
+  a second click reversing it; the view asks `query_records` again with the new
+  `order_by`. Grouped results with no records show their groups.
+- `read_record`, `create_record`, `update_record` and `rename_record` results
+  show the record as a card: its properties in the shared property list, with
+  the type's declared fields from `describe_collection`, and its body rendered
+  with the Editor's live preview. A card the model's call produced starts
+  folded to four properties: the ones an `update_record` changed, then the
+  type's required ones, then the rest. **Show more** unfolds the other
+  properties and the body. A record opened from the table, or a view shown full
+  screen, starts unfolded.
+- An `update_record` result marks the properties it set and lists what it
+  set, removed and whether it changed the body.
+- When the connection was approved for `update`, each property is edited in
+  place, on the card and in the table's field columns (choices, switches,
+  dates, numbers and text; lists and links are changed on the card). One edit
+  is one `update_record` call with `if_revision` set to the revision the view
+  last saw, `patch` for a new value and `unset` for a removed one, so a change
+  made elsewhere is refused rather than overwritten and the old value comes
+  back. The body is edited with **Edit text**, then saved whole with **Save**
+  as one `update_record` `body`; ticking a task box saves the body with that
+  box changed. After each save the view tells the model what changed
+  (`ui/update-model-context`) where the host supports it.
+- When the connection was approved for `create` and the results are all of one
+  type (or the query names one), **New <type>** opens a form with a title and
+  the type's declared properties; **Create** makes the record with one
+  `create_record` call, shows it, and adds it to the top of the results.
+- **Open in Editor** opens the collection, or the record shown, in the mdbase
+  Editor. `list_connections` returns each connection's `editor_url`: the
+  Editor the collection's Connect server names in its public
+  `/v1/ui-configuration`, with `server` and `collection` set, or `null` when the
+  server names none or cannot be reached (cached for five minutes per server).
+  The view adds `#note=<path>`; the path stays in the URL fragment, so no
+  server receives it, and the Editor opens that note once the collection
+  starts.
+- **Full screen** asks the host to show the view over the conversation, where
+  the host offers it.
+- A failed tool call shows its message, and a `reconnect_required` failure
+  offers its approval link.
+
+The view adds no access path. It holds no token and calls nothing but the
+gateway's own tools, through the host, which applies the same OAuth grant,
+tool-approval prompts and Connect grant as a call the model makes. Hosts without
+MCP Apps still receive the same text and `structuredContent`.
+
+`services/mcp/view` is the view's source: React, the shared `@mdbase-dev/ui`
+components (property list, live preview, save notice, mark, opening screen) and
+the ext-apps `App` client. `pnpm --filter @mdbase/connect-mcp build:view` builds
+it into `services/mcp/dist-app`, and `build` runs it after the server compile;
+the gateway refuses to start without it. The resource carries only a small page
+whose script and stylesheet references name the gateway's origin. The gateway
+serves the hashed files under `/view/assets/` itself, gzipped when accepted,
+immutable and readable from hosts' sandboxed frames, and declares its origin as
+the view's only CSP `resourceDomains` entry. So the page is a few hundred bytes
+per read, and math, diagrams and other languages load only when a record needs
+them. The view's own text is in `services/mcp/view/locales`; run
+`pnpm --filter @mdbase/connect-mcp i18n:check` after changing it.
+
 ## Local development
 
 Run both TypeScript services directly on the host so each loopback origin can
@@ -136,7 +206,8 @@ PUBLIC_URL=http://127.0.0.1:8787 \
 pnpm --filter @mdbase/connect-server dev
 ```
 
-In another terminal:
+In another terminal, build the view once (`dev` does this too), then start
+the gateway:
 
 ```bash
 MDBASE_MCP_MASTER_KEY=local-development-master-key-change-me \
@@ -171,9 +242,7 @@ marker and fails closed when the configured key does not match the database.
 
 Deploy the gateway from the same immutable mdbase connect release as the
 control plane. Give it a separate PostgreSQL database, stable master key,
-health check, migration step, and HTTPS origin. The production Compose example
-and backup requirements are documented in
-[`self-hosting.md`](./self-hosting.md).
+health check, migration step, and HTTPS origin.
 
 After deployment:
 

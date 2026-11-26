@@ -58,8 +58,7 @@ Git history is the archive for finished phases, campaigns and superseded designs
 - [native-management-discovery.md](native-management-discovery.md) — native collections in `/v1/me`.
 - [portal-add-collection.md](portal-add-collection.md) — the portal's Add collection entry.
 - [collection-sharing-policy.md](collection-sharing-policy.md) — sharing synced collections.
-- [collection-mode-api.md](collection-mode-api.md) — collection mode requests and status.
-- [collection-mode-execution.md](collection-mode-execution.md) — collection mode controller.
+- [collection-mode-execution.md](collection-mode-execution.md) — collection mode switching API, controller, and recovery.
 - [collection-mode-switch-trust.md](collection-mode-switch-trust.md) — Cloud copy to Private switch-set acceptance.
 - [private-cloud-handover.md](private-cloud-handover.md) — Private to Cloud copy owner handover.
 - [service-cloud-copy-bootstrap.md](service-cloud-copy-bootstrap.md) — service-created cloud copies.
@@ -82,16 +81,14 @@ Git history is the archive for finished phases, campaigns and superseded designs
 - [timer-operation-recovery.md](timer-operation-recovery.md) — timer operation recovery.
 - [shared-feedback.md](shared-feedback.md) — shared private feedback.
 
-## Desktop, CLI and self-hosting
+## Desktop, CLI and operations
 
 - [cli-daemon.md](cli-daemon.md) — the `mdbase` CLI and daemon: collection deletion and the desktop boundary.
 - [headless.md](headless.md) — headless installation.
 - [desktop-updates.md](desktop-updates.md) — desktop update architecture.
 - [windows-store.md](windows-store.md) — Microsoft Store distribution.
-- [self-hosting.md](self-hosting.md) — production self-hosting.
 - [instance-administration.md](instance-administration.md) — instance administration.
 - [control-plane-migrations.md](control-plane-migrations.md) — control-plane database migrations.
-- [hosted-provider-migrations.md](hosted-provider-migrations.md) — hosted-provider migrations, expand-then-contract and rollback-compatible marking.
 - [usage-report.md](usage-report.md) — operator usage report.
 - [beta-observability.md](beta-observability.md) — privacy-safe operational signals.
 - [native-staging-build.md](native-staging-build.md) — staging daemon build.
@@ -114,7 +111,6 @@ Git history is the archive for finished phases, campaigns and superseded designs
 ## Testing and performance
 
 - [testing-environment.md](testing-environment.md) — development and ecosystem testing.
-- [functional-stress-testing.md](functional-stress-testing.md) — seeded functional stress runner.
 - [adversarial-file-testing.md](adversarial-file-testing.md) — hosted file lifecycle interleavings.
 - [performance.md](performance.md) — local performance profiling.
 - [benchmarks/runtime-contention/report.md](benchmarks/runtime-contention/report.md) — runtime contention invariants and reproduction.
@@ -138,40 +134,8 @@ Git history is the archive for finished phases, campaigns and superseded designs
 
 ## Decisions
 
-- [decisions/](decisions/) — ADRs 0001 and 0003–0013 (0002 was superseded by 0004).
+- [decisions/](decisions/) — active ADRs (0001, 0004, 0007–0009, 0012–0013). Legacy provider ADRs (0003, 0005, 0006, 0010, 0011) were removed with the legacy stack.
 
-## Legacy stack
+## Legacy retirement
 
-These describe the legacy Connect stack (`crates/connect-*`, legacy hosted
-provider, mirrors) and the migration of its accounts to the runtime. They go
-with that code.
-
-- [legacy-retirement.md](legacy-retirement.md) — what can be deleted, in what order, and what each step waits on.
-- [sync.md](sync.md) — legacy hosted collections and sync.
-- [hosted-provider.md](hosted-provider.md) — legacy hosted provider.
-- [architecture/hosted-queryable-execution.md](architecture/hosted-queryable-execution.md) — hosted query execution.
-- [architecture/hosted-typed-runtime-adoption.md](architecture/hosted-typed-runtime-adoption.md) — hosted typed outcomes.
-- [architecture/local-filesystem-runtime-adoption.md](architecture/local-filesystem-runtime-adoption.md) — local authority typed outcomes.
-- [hosted-execution-testing.md](hosted-execution-testing.md) — hosted execution fixtures.
-- [benchmarks/hosted-storage-model/](benchmarks/hosted-storage-model/README.md) — storage-model benchmark, fixtures and contracts read by `scripts/hosted-storage-benchmark/`.
-- [lossless-opaque-sync-acceptance.md](lossless-opaque-sync-acceptance.md) — lossless opaque-document sync.
-- [registry-schema-support.md](registry-schema-support.md) — local registry schema and recovery.
-- [managed-account-migration.md](managed-account-migration.md) — whole-account migration driver.
-- [lab-migration-run.md](lab-migration-run.md) — `next-migration-lab` runs and route-back.
-- [migration-routing.md](migration-routing.md) — routing migrated hosted collections.
-- [migration-topology-freeze.md](migration-topology-freeze.md) — topology freeze.
-- [migration-capture.md](migration-capture.md), [migration-prearchive.md](migration-prearchive.md), [migration-receiving.md](migration-receiving.md) — capture, prearchive and receiving routes.
-- [migration-archive-prefixes.md](migration-archive-prefixes.md), [migration-archive-retention.md](migration-archive-retention.md) — archive locations and retention.
-- [migration-scoped-archive.md](migration-scoped-archive.md), [migration-zero-hosted-archive.md](migration-zero-hosted-archive.md), [scoped-recovery-bytes.md](scoped-recovery-bytes.md) — archive recovery profiles.
-- [lab-cohort-archive-acceptance.md](lab-cohort-archive-acceptance.md), [lab-fixture-migration-start.md](lab-fixture-migration-start.md) — LAB archive and fixture profiles.
-- [lab-pitr-current-cp.md](lab-pitr-current-cp.md), [prekey-original-admission.md](prekey-original-admission.md) — LAB PITR adapter and admission source.
-- [migration-source-witness.md](migration-source-witness.md), [hosted-migration-current-claim.md](hosted-migration-current-claim.md), [hosted-migration-role-read.md](hosted-migration-role-read.md) — migration claims and witnesses.
-- [hosted-migration-provider.md](hosted-migration-provider.md), [hosted-migration-shadow-target.md](hosted-migration-shadow-target.md) — provider fronts and SHADOW target.
-- [hosted-migration-rollback-recovery.md](hosted-migration-rollback-recovery.md), [hosted-rollback-receipts.md](hosted-rollback-receipts.md), [hosted-rollback-provider-client.md](hosted-rollback-provider-client.md) — rollback receipts and recovery.
-- [local-rollback-bindings.md](local-rollback-bindings.md) — fenced local rollback bindings.
-- [native-migration-record.md](native-migration-record.md) — native migration cutover metadata.
-- [migration-invitation-continuity.md](migration-invitation-continuity.md), [postmigration-operation-guards.md](postmigration-operation-guards.md) — invitations and guards around migration.
-- [archive-erasure-admin.md](archive-erasure-admin.md) — pre-freeze deletion drain.
-- [legacy-notification-migration-fence.md](legacy-notification-migration-fence.md), [hosted-timer-source-snapshots.md](hosted-timer-source-snapshots.md), [legacy-timer-import-origin-schema.md](legacy-timer-import-origin-schema.md), [legacy-timer-import-target.md](legacy-timer-import-target.md) — notification and timer migration.
-- [ship/interfaces/2026-10-09-clients-local-retirement.md](ship/interfaces/2026-10-09-clients-local-retirement.md) — local connector takeover contract.
-- [ship/interfaces/2026-10-18-appendbase-abort-barrier.md](ship/interfaces/2026-10-18-appendbase-abort-barrier.md) — AppendBase abort barrier.
+- [legacy-retirement.md](legacy-retirement.md) — retirement record for the deleted legacy Connect stack (`crates/`, `packages/sync`, legacy hosted provider, server migration routes, and runtime migration/takeover crates) and the pre-merge production/`mdbase-cloud-ops` cutover checklist.

@@ -62,7 +62,7 @@ pub(super) fn file_notices(rep: &Replica<Store>) -> Vec<crate::control::Notice> 
             match hold.reason {
                 HoldReason::Conflict => "Changed here and elsewhere; file held.",
                 HoldReason::UnknownProvenance => {
-                    "Changed by a program mdbase does not recognise; file held."
+                    "mdbase could not tell which version this file was based on; file held on this computer."
                 }
                 HoldReason::DeletedElsewhere => "Deleted on another device; file held.",
                 HoldReason::ReadOnly => "Changed while read-only; file held.",

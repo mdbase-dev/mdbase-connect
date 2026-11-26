@@ -73,7 +73,7 @@ describe("pending runtime evidence", () => {
         ) as Map<number, unknown>;
         const operations = raw.get(6) as Map<number, unknown>[];
         const op = operations.find((op) => op.get(0) === 13)!;
-        op.set(0, 19);
+        op.set(0, 20);
         const page = new Map([
             [
                 0,

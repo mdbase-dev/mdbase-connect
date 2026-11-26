@@ -143,7 +143,10 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   const base = {
     mode: MODES[collection.mode] ?? collection.mode,
     canEnableSync: collection.mode === "local" && collection.state === "ready",
-    canResume: collection.state === "paused" && collection.reason !== "private_sync_pending" && collection.reason !== "collection_deleted",
+    // A collection stopped by a sync consistency check reopens on its own; Resume retries it now.
+    // One left stopped by a repeating storage fault reopens only when resumed.
+    canResume: (collection.state === "paused" && collection.reason !== "private_sync_pending" && collection.reason !== "collection_deleted")
+      || (collection.state === "failed" && (collection.reason === "sync_integrity" || collection.reason === "storage_fault")),
     paused: collection.state === "paused",
     holds
   };
@@ -169,8 +172,8 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
     case "failed": {
       // The daemon owns the recovery instructions, including the manual rejoin
       // boundary. Keep its notice intact through the existing status projection.
-      const recovery = collection.reason === "sync_revoked"
-        ? collection.notices?.find((notice) => notice.code === "sync_revoked")?.message
+      const recovery = collection.reason === "sync_revoked" || collection.reason === "storage_fault"
+        ? collection.notices?.find((notice) => notice.code === collection.reason)?.message
         : undefined;
       return { ...base, status: t(i18n)`Stopped`, detail: t(i18n)`${recovery ?? reasonText(collection.reason) ?? missingOpenReason()} Your files are untouched.` };
     }
@@ -283,7 +286,6 @@ export function describeActivity(entry: ActivityLike): string {
     case "collection_joined": return t(i18n)`${collection} was joined from your account`;
     case "collection_taken_over": return t(i18n)`${collection} moved here from mdbase Connect (its files were not touched)`;
     case "sync_enabled": return t(i18n)`${collection} now syncs${entry.detail === "synced_e2e" ? " privately" : ""}`;
-    case "sync_disabled": return t(i18n)`${collection} stopped syncing`;
     case "app_connected": return t(i18n)`${app} can now use ${collection}`;
     case "app_requested": return t(i18n)`${app} asked to use ${collection}`;
     case "app_approved": return t(i18n)`You approved ${app} for ${collection}`;
