@@ -1,7 +1,7 @@
 {
   "name": "mdbase",
   "displayName": "mdbase",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Connect Claude to the markdown collections you approve in mdbase connect.",
   "author": { "name": "mdbase", "url": "https://mdbase.dev" },
   "homepage": "https://mdbase.dev",
