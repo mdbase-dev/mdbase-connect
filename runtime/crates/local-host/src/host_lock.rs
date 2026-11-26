@@ -447,6 +447,17 @@ fn descriptor_state_in(dir: &Path) -> DescriptorState {
 }
 
 fn write_descriptor_in(dir: &Path, d: &Descriptor) -> Result<(), LockError> {
+    write_descriptor_using(dir, d, |f, bytes| {
+        f.write_all(bytes)?;
+        f.sync_data()
+    })
+}
+
+fn write_descriptor_using(
+    dir: &Path,
+    d: &Descriptor,
+    write: impl FnOnce(&mut File, &[u8]) -> io::Result<()>,
+) -> Result<(), LockError> {
     let _publication = descriptor_io_lock()?;
     let tmp = dir.join(format!("{DESCRIPTOR_NAME}.{}.tmp", std::process::id()));
     let dest = dir.join(DESCRIPTOR_NAME);
@@ -455,20 +466,18 @@ fn write_descriptor_in(dir: &Path, d: &Descriptor) -> Result<(), LockError> {
     // A stale temp file from a crashed writer is ours to remove; a planted
     // symlink is not followed because `create_new` never opens an existing path.
     let _ = std::fs::remove_file(&tmp);
+    let mut opts = OpenOptions::new();
+    opts.write(true).create_new(true);
+    #[cfg(unix)]
     {
-        let mut opts = OpenOptions::new();
-        opts.write(true).create_new(true);
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::OpenOptionsExt;
-            opts.mode(0o644)
-                .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
-        }
-        let mut f = opts.open(&tmp)?;
-        f.write_all(text.as_bytes())?;
-        f.sync_data()?;
+        use std::os::unix::fs::OpenOptionsExt;
+        opts.mode(0o644)
+            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
-    if let Err(e) = std::fs::rename(&tmp, &dest) {
+    let mut file = opts.open(&tmp)?;
+    let written = write(&mut file, text.as_bytes());
+    drop(file);
+    if let Err(e) = written.and_then(|()| std::fs::rename(&tmp, &dest)) {
         let _ = std::fs::remove_file(&tmp);
         return Err(LockError::Io(e));
     }
@@ -522,6 +531,28 @@ mod tests {
         );
         let _b = HostLock::try_acquire(&root, ".mdbase", None).unwrap();
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn disk_full_removes_failed_descriptor_temp_and_preserves_last_good_copy() {
+        let root = tmp("descriptor-full");
+        let first = Descriptor::new(HostKind::Daemon, 1);
+        let lock = HostLock::try_acquire(&root, ".mdbase", Some(first.clone())).unwrap();
+        let next = Descriptor::new(HostKind::Daemon, 2);
+        for partial in [false, true] {
+            let error = write_descriptor_using(lock.dir(), &next, |file, _| {
+                if partial {
+                    file.write_all(b"partial")?;
+                }
+                Err(io::ErrorKind::StorageFull.into())
+            })
+            .unwrap_err();
+            assert!(matches!(error, LockError::Io(e) if e.kind() == io::ErrorKind::StorageFull));
+            assert_eq!(read_descriptor(&root, ".mdbase"), Some(first.clone()));
+            assert_eq!(std::fs::read_dir(lock.dir()).unwrap().count(), 2);
+        }
+        drop(lock);
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]

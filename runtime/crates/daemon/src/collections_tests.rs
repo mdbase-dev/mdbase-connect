@@ -901,9 +901,8 @@ fn a_refused_cache_is_refused_before_the_folder_is_opened() {
     .err()
     .expect("refused");
     assert!(
-        e.0.starts_with("cache:"),
-        "refused before the folder: {}",
-        e.0
+        matches!(&e, OpenFailed::Other(why) if why == "the cached store does not hold the pinned genesis"),
+        "refused before the folder: {e}"
     );
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -1260,7 +1259,7 @@ async fn log_revocation_drops_cached_tokens_only_for_the_removed_collection() {
 }
 
 #[test]
-fn integrity_recovery_backs_off_and_resets_once_serving() {
+fn integrity_recovery_backs_off_stops_and_resets_once_serving() {
     let t0 = std::time::Instant::now();
     let s = std::time::Duration::from_secs;
     let mut r = Recovery::default();
@@ -1278,19 +1277,34 @@ fn integrity_recovery_backs_off_and_resets_once_serving() {
     assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(80)), Some(2));
     assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(80)), None);
     assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(380)), Some(3));
-    // From the fourth attempt on: every 30 minutes, never giving up.
-    let mut at = t0 + s(380);
-    for attempt in 4..=6 {
-        assert_eq!(r.step(Some(Stop::Integrity), false, at), None);
-        at += s(30 * 60);
-        assert_eq!(r.step(Some(Stop::Integrity), false, at - s(1)), None);
-        assert_eq!(r.step(Some(Stop::Integrity), false, at), Some(attempt));
-    }
+    let at = t0 + s(380 + 86_400);
+    assert_eq!(r.step(Some(Stop::Integrity), false, at), None);
+    assert!(r.integrity_exhausted());
+    assert_eq!(r.due, None);
     // Serving again resets the policy: the next stop waits 10 s again.
     assert_eq!(r.step(None, true, at), None);
     assert_eq!(r, Recovery::default());
     assert_eq!(r.step(Some(Stop::Integrity), false, at), None);
     assert_eq!(r.step(Some(Stop::Integrity), false, at + s(10)), Some(1));
+}
+
+#[test]
+fn a_transient_open_error_keeps_retrying_at_the_backoff_cap() {
+    let t0 = std::time::Instant::now();
+    let s = std::time::Duration::from_secs;
+    let mut r = Recovery::default();
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0), None);
+    assert_eq!(r.step(Some(Stop::Integrity), false, t0 + s(10)), Some(1));
+    let io = Some(Stop::OpenIo);
+    let mut at = t0 + s(11);
+    for (attempt, delay) in [(2, 60), (3, 300), (4, 1800), (5, 1800), (6, 1800)] {
+        assert_eq!(r.step(io, false, at), None);
+        assert_eq!(r.step(io, false, at + s(delay - 1)), None);
+        at += s(delay);
+        assert_eq!(r.step(io, false, at), Some(attempt));
+    }
+    assert_eq!(r.step(None, true, at), None);
+    assert_eq!(r, Recovery::default());
 }
 
 #[test]
@@ -1383,6 +1397,58 @@ async fn a_collection_stopped_by_an_integrity_incident_reopens_with_a_notice() {
     h.state = CollectionState::Failed;
     h.reason = Some(SYNC_INTEGRITY.into());
     h.retry().await;
+    assert_eq!(h.recovery, Recovery::default());
+    h.close().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_open_failure_retries_only_with_a_typed_transient_error() {
+    let dir = scratch("transient-open");
+    let context = ctx(&dir, None, None);
+    let mut e = entry(&dir, SyncMode::Local);
+    e.owner_account = Some(ACCOUNT.into());
+    e.device = Some(crate::secrets::uuid_string(&context.identity.device_id));
+    context.authority.publish_registry(&Registry {
+        collections: vec![e.clone()],
+        ..Default::default()
+    });
+    let mut h = CollectionHost::open(e, Some(context));
+    assert_eq!(settled(&h).await, (CollectionState::Ready, None));
+    h.close().await;
+    h.state = CollectionState::Opening;
+    let os_error = std::io::Error::from(std::io::ErrorKind::StorageFull);
+    let set_failure = |h: &mut CollectionHost, failure| {
+        let slot = Arc::new(OnceLock::new());
+        assert!(slot.set(Err(failure)).is_ok());
+        let (_done, done) = tokio::sync::watch::channel(true);
+        h.runtime = HostedRuntime::Open(Opener { slot, done });
+    };
+    let now = std::time::Instant::now();
+    let seconds = std::time::Duration::from_secs;
+    // A diagnostic string that looks like ENOSPC isn't evidence that it's safe to retry.
+    set_failure(&mut h, OpenFailed::Other(os_error.to_string()));
+    assert!(h.recover_due(now).is_none());
+    assert!(h.recover_due(now + seconds(3600)).is_none());
+    set_failure(&mut h, OpenFailed::RetryableIo(os_error.to_string()));
+    assert!(h.recover_due(now).is_none());
+    assert_eq!(
+        h.current(),
+        (CollectionState::Failed, Some("open_failed".into()))
+    );
+    assert!(
+        h.status()
+            .notices
+            .iter()
+            .any(|n| n.code == "open_failed" && n.message.contains("reopens it automatically"))
+    );
+    assert!(h.recover_due(now + seconds(9)).is_none());
+    let stop = h.recover_due(now + seconds(10)).unwrap();
+    stop.clone().await;
+    h = h.next_after_stop(&stop).unwrap();
+    h.refresh();
+    assert_eq!(settled(&h).await.0, CollectionState::Ready);
+    assert!(h.recover_due(now + seconds(11)).is_none());
     assert_eq!(h.recovery, Recovery::default());
     h.close().await;
     std::fs::remove_dir_all(dir).unwrap();

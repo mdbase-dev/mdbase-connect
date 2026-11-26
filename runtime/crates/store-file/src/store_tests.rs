@@ -2747,7 +2747,7 @@ fn failed_internal_deferral_barrier_is_sticky_on_subsequent_closes() {
             if !on {
                 self.closes.set(self.closes.get() + 1);
                 if self.fail_close.get() {
-                    return Err(crate::diskdb::DbError(
+                    return Err(crate::diskdb::DbError::Other(
                         "injected barrier close failure".into(),
                     ));
                 }

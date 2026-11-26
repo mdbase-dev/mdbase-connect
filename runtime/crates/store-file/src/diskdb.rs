@@ -21,7 +21,7 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::rc::Rc;
 
-use crate::index::{Batch, BatchMode, IndexError, IndexStorage, SqlValue, Stmt};
+use crate::index::{Batch, BatchMode, IndexError, IndexErrorKind, IndexStorage, SqlValue, Stmt};
 
 /// Kinds of rows (the `kind` column).
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -65,7 +65,21 @@ pub type Change = (Kind, Vec<u8>, Option<Vec<u8>>);
 
 /// Errors from a [`DiskDb`].
 #[derive(Clone, PartialEq, Eq, Debug)]
-pub struct DbError(pub String);
+pub enum DbError {
+    /// Disk or quota exhausted.
+    Full,
+    /// Other database failure.
+    Other(String),
+}
+
+impl From<DbError> for mdbn_replica::StoreError {
+    fn from(e: DbError) -> Self {
+        match e {
+            DbError::Full => Self::Full,
+            DbError::Other(detail) => Self::Io(format!("disk db: {detail}")),
+        }
+    }
+}
 
 /// The file store's own keyed state.
 pub trait DiskDb {
@@ -145,7 +159,10 @@ impl<I: IndexStorage> SqlDiskDb<I> {
 }
 
 fn err(e: IndexError) -> DbError {
-    DbError(e.to_string())
+    match e.kind {
+        IndexErrorKind::Full => DbError::Full,
+        _ => DbError::Other(e.to_string()),
+    }
 }
 
 impl<I: IndexStorage> DiskDb for SqlDiskDb<I> {
@@ -171,7 +188,7 @@ impl<I: IndexStorage> DiskDb for SqlDiskDb<I> {
             {
                 out.push((kind, key.clone(), v.clone()));
             } else {
-                return Err(DbError("fs_state: malformed row".into()));
+                return Err(DbError::Other("fs_state: malformed row".into()));
             }
         }
         Ok(out)

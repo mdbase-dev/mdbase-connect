@@ -13,7 +13,30 @@ pub struct Runtime {
 
 /// Why a runtime did not open. Messages carry no file contents.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct OpenFailed(pub String);
+pub enum OpenFailed {
+    /// Connect explicitly refused eligibility.
+    Ineligible(String),
+    /// Connect was unreachable and there was no eligible cached state.
+    Unreachable(String),
+    /// The folder's hosting check refused the open.
+    HostedElsewhere(String),
+    /// A typed, retryable local I/O failure.
+    RetryableIo(String),
+    /// Any other failure.
+    Other(String),
+}
+
+impl std::fmt::Display for OpenFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Ineligible(why) => write!(f, "ineligible: {why}"),
+            Self::Unreachable(why) => write!(f, "unreachable: {why}"),
+            Self::HostedElsewhere(why) | Self::RetryableIo(why) | Self::Other(why) => {
+                f.write_str(why)
+            }
+        }
+    }
+}
 
 impl Runtime {
     /// Open the runtime on its own thread; returns once the replica is open.
@@ -51,7 +74,8 @@ impl Runtime {
                         ) {
                             Ok(l) => Some(l),
                             Err(e) => {
-                                let _ = ready_tx.send(Err(OpenFailed(format!("log link: {e}"))));
+                                let _ =
+                                    ready_tx.send(Err(OpenFailed::Other(format!("log link: {e}"))));
                                 return;
                             }
                         },
@@ -84,7 +108,7 @@ impl Runtime {
                     let _ = ready_tx.send(Err(e));
                 }
             })
-            .map_err(|e| OpenFailed(format!("thread: {e}")))?;
+            .map_err(|e| OpenFailed::Other(format!("thread: {e}")))?;
         match ready_rx.recv() {
             Ok(Ok(())) => Ok(Runtime {
                 tx,
@@ -97,7 +121,7 @@ impl Runtime {
                 let _ = thread.join();
                 Err(e)
             }
-            Err(_) => Err(OpenFailed("runtime thread exited".into())),
+            Err(_) => Err(OpenFailed::Other("runtime thread exited".into())),
         }
     }
 

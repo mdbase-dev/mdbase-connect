@@ -28,6 +28,7 @@ use futures_util::future::{BoxFuture, Shared};
 
 use crate::control::{CollectionState, CollectionStatus, LogLocation, Notice};
 use crate::registry::{Entry, SyncMode};
+use crate::runtime::OpenFailed;
 
 /// One hosted collection.
 pub struct CollectionHost {
@@ -45,7 +46,7 @@ pub struct CollectionHost {
     telemetry_authority: Option<crate::authority::CollectionAuthority>,
     /// Last allowlisted terminal incident; retained after the actor stops.
     last_sync_failure: crate::sync_failure::Shared,
-    /// Automatic reopening after a `sync_integrity` stop or a storage fence.
+    /// Automatic reopening after a sync stop or a transient open failure.
     recovery: Recovery,
 }
 
@@ -59,13 +60,8 @@ pub const SYNC_INTEGRITY: &str = "sync_integrity";
 /// fenced again with the same cause and automatic reopening stopped.
 pub const STORAGE_FAULT: &str = "storage_fault";
 
-/// Waits before each automatic reopen, by step; later steps repeat the last.
-/// A fenced collection reopens at once on its first attempt (step = attempts);
-/// a [`SYNC_INTEGRITY`] stop starts one step in (step = attempts + 1). The
-/// replica raises those incidents for conditions it retries itself and for
-/// faults it documents as lasting until it is reopened, so such a stop is never
-/// final: a reopen re-verifies the log and the local state, and a persistent
-/// fault only stops it again.
+/// Waits before each automatic reopen, capped at 30 minutes for local I/O.
+/// A storage fence first reopens at once; integrity stops and failed opens wait.
 const RECOVERY_BACKOFF: [std::time::Duration; 5] = [
     std::time::Duration::ZERO,
     std::time::Duration::from_secs(10),
@@ -79,11 +75,17 @@ const RECOVERY_BACKOFF: [std::time::Duration; 5] = [
 /// collection stays [`STORAGE_FAULT`] until `mdbase collection resume`.
 const FENCE_REOPENS: u32 = 3;
 
+/// A reopen can re-verify the log and local state, but a persistent integrity
+/// failure needs attention rather than an endless cycle of failed reopens.
+const INTEGRITY_REOPENS: u32 = 3;
+
 /// Why a host stopped, for [`Recovery::step`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Stop<'a> {
     /// Failed for [`SYNC_INTEGRITY`].
     Integrity,
+    /// A background open failed with a retryable local I/O error.
+    OpenIo,
     /// Fenced by its own storage, with the fence's cause.
     Fenced(&'a str),
 }
@@ -103,7 +105,7 @@ impl Recovery {
     /// One observation. Serving resets the policy; a stop schedules a reopen
     /// after the backoff for the attempts so far, and returns the attempt number
     /// once it is due. Anything else (opening, paused, other failures) waits,
-    /// and so does a fence that has used up its reopens ([`Self::gave_up`]).
+    /// as do integrity stops and repeated fences that have used up their reopens.
     fn step(
         &mut self,
         stop: Option<Stop<'_>>,
@@ -115,14 +117,17 @@ impl Recovery {
             return None;
         }
         let stop = stop?;
+        if stop == Stop::Integrity && self.integrity_exhausted() {
+            return None;
+        }
         let due = match self.due {
             Some(due) => due,
             // The first observation of this stop.
             None => {
                 let step = match stop {
-                    Stop::Integrity => {
+                    Stop::Integrity | Stop::OpenIo => {
                         self.fenced = None;
-                        self.attempts as usize + 1
+                        (self.attempts as usize).saturating_add(1)
                     }
                     Stop::Fenced(cause) => {
                         let repeats = match &self.fenced {
@@ -141,9 +146,13 @@ impl Recovery {
         if self.gave_up() || now < due {
             return None;
         }
-        self.attempts += 1;
+        self.attempts = self.attempts.saturating_add(1);
         self.due = None;
         Some(self.attempts)
+    }
+
+    fn integrity_exhausted(&self) -> bool {
+        self.attempts >= INTEGRITY_REOPENS
     }
 
     /// The same storage fence ended the stop before each of the last
@@ -188,7 +197,7 @@ enum Readiness {
 }
 
 /// Filled once by the background opener: the runtime, or why it did not open.
-type RuntimeSlot = Arc<OnceLock<Result<Arc<crate::runtime::Runtime>, String>>>;
+type RuntimeSlot = Arc<OnceLock<Result<Arc<crate::runtime::Runtime>, OpenFailed>>>;
 
 #[derive(Clone)]
 struct Opener {
@@ -274,16 +283,12 @@ pub struct SyncCtx {
     pub trust: Option<Arc<crate::trust::Trust>>,
 }
 
-/// A failed background open that never touched user files: Connect refused.
-const INELIGIBLE: &str = "ineligible: ";
 /// How long the daemon waits for a collection's actor to answer a read it can
 /// do without (status details, whether a grant is already published), so one
 /// busy collection cannot stall the others.
 pub(crate) const ACTOR_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
 /// Status notice: the collection's actor did not answer within [`ACTOR_WAIT`].
 pub const NOT_RESPONDING: &str = "collection_not_responding";
-/// A failed background open of a never-opened collection while Connect was unreachable.
-const UNREACHABLE: &str = "unreachable: ";
 
 impl CollectionHost {
     /// Start hosting `entry`. Never touches the collection's files beyond a `stat`
@@ -413,15 +418,15 @@ impl CollectionHost {
                 let eligible = match (&tokens, &handle) {
                     (Some(tokens), Some(handle)) => match handle.block_on(tokens.eligibility()) {
                         Ok(()) => Ok(()),
-                        Err(crate::sync::Eligibility::Refused(why)) => Err(format!("{INELIGIBLE}{why}")),
+                        Err(crate::sync::Eligibility::Refused(why)) => Err(OpenFailed::Ineligible(why)),
                         Err(crate::sync::Eligibility::Unreachable(why)) => {
                             // Only a verified cached membership opens offline.
                             let cached = match (pinned, account) {
                                 (Some(g), Some(a)) => match &pins {
                                     Some(p) => crate::runtime::cached_eligibility(&cfg.private_dir, cfg.device_id, a, g, p),
-                                    None => Err("no pins".into()),
+                                    None => Err(OpenFailed::Other("no pins".into())),
                                 },
-                                _ => Err("no pinned genesis or account".into()),
+                                _ => Err(OpenFailed::Other("no pinned genesis or account".into())),
                             };
                             match cached {
                                 Ok(()) => {
@@ -429,7 +434,10 @@ impl CollectionHost {
                                     offline = true;
                                     Ok(())
                                 }
-                                Err(c) => Err(format!("{UNREACHABLE}{why}; {c}")),
+                                Err(OpenFailed::RetryableIo(c)) => Err(OpenFailed::RetryableIo(
+                                    format!("Connect unreachable: {why}; {c}"),
+                                )),
+                                Err(c) => Err(OpenFailed::Unreachable(format!("{why}; {c}"))),
                             }
                         }
                     },
@@ -438,11 +446,11 @@ impl CollectionHost {
                 let synced = pinned.is_some();
                 let r = match eligible {
                     Ok(()) => crate::runtime::Runtime::open(cfg, secrets, source, grants),
-                    Err(e) => Err(crate::runtime::OpenFailed(e)),
+                    Err(e) => Err(e),
                 };
                 match &r {
                     Ok(_) => tracing::info!(collection = %id, ms = started.elapsed().as_millis() as u64, "collection open"),
-                    Err(e) => tracing::error!(collection = %id, error = %e.0, "collection failed to open"),
+                    Err(e) => tracing::error!(collection = %id, error = %e, "collection failed to open"),
                 }
                 // Closed (paused/removed/signed out) while opening: stop it and wait
                 // for its thread before reporting done, so nothing it does is left
@@ -452,7 +460,7 @@ impl CollectionHost {
                         rt.stop_blocking();
                     }
                 } else {
-                    let r = r.map(Arc::new).map_err(|e| e.0);
+                    let r = r.map(Arc::new);
                     // Synced: opened is not ready. The slot is filled now (revoke
                     // barriers and close reach the runtime at once); readiness is
                     // watched separately and never holds the opener.
@@ -780,32 +788,29 @@ impl CollectionHost {
                 // Fenced: reopened by the supervisor, at once the first time.
                 _ => (CollectionState::Opening, None),
             },
-            (CollectionState::Opening, Some(Some(Err(e))))
-                if e == &format!("{INELIGIBLE}collection_deleted") =>
-            {
-                (CollectionState::Failed, Some("collection_deleted".into()))
-            }
-            (CollectionState::Opening, Some(Some(Err(e))))
-                if e == &format!("{INELIGIBLE}device_revoked") =>
-            {
-                (CollectionState::Failed, Some("sync_revoked".into()))
-            }
-            (CollectionState::Opening, Some(Some(Err(e)))) if e.starts_with(INELIGIBLE) => (
-                CollectionState::Unavailable,
-                Some("sync_not_eligible".into()),
-            ),
-            (CollectionState::Opening, Some(Some(Err(e)))) if e.starts_with(UNREACHABLE) => (
-                CollectionState::Unavailable,
-                Some("sync_unreachable".into()),
-            ),
-            // Another host (Obsidian in-app) has the folder; not a failure.
-            (CollectionState::Opening, Some(Some(Err(e)))) if e.contains("folder host lock") => (
-                CollectionState::Unavailable,
-                Some("hosted_elsewhere".into()),
-            ),
-            (CollectionState::Opening, Some(Some(Err(_)))) => {
-                (CollectionState::Failed, Some("open_failed".into()))
-            }
+            (CollectionState::Opening, Some(Some(Err(error)))) => match error {
+                OpenFailed::Ineligible(reason) if reason == "collection_deleted" => {
+                    (CollectionState::Failed, Some("collection_deleted".into()))
+                }
+                OpenFailed::Ineligible(reason) if reason == "device_revoked" => {
+                    (CollectionState::Failed, Some("sync_revoked".into()))
+                }
+                OpenFailed::Ineligible(_) => (
+                    CollectionState::Unavailable,
+                    Some("sync_not_eligible".into()),
+                ),
+                OpenFailed::Unreachable(_) => (
+                    CollectionState::Unavailable,
+                    Some("sync_unreachable".into()),
+                ),
+                OpenFailed::HostedElsewhere(_) => (
+                    CollectionState::Unavailable,
+                    Some("hosted_elsewhere".into()),
+                ),
+                OpenFailed::RetryableIo(_) | OpenFailed::Other(_) => {
+                    (CollectionState::Failed, Some("open_failed".into()))
+                }
+            },
             _ => (self.state, self.reason.clone()),
         }
     }
@@ -852,6 +857,9 @@ impl CollectionHost {
             {
                 Some(Stop::Integrity)
             }
+            None if state == CollectionState::Failed && self.retryable_open_failure() => {
+                Some(Stop::OpenIo)
+            }
             None => None,
         };
         let gave_up = self.recovery.gave_up();
@@ -870,6 +878,13 @@ impl CollectionHost {
         self.state = state;
         self.reason = reason;
         Some(self.begin_stop())
+    }
+
+    fn retryable_open_failure(&self) -> bool {
+        matches!(
+            self.runtime.opener().and_then(|o| o.slot.get()),
+            Some(Err(OpenFailed::RetryableIo(_)))
+        )
     }
 
     pub(crate) fn pending_stop(&self) -> Option<HostStop> {
@@ -1003,28 +1018,35 @@ impl CollectionHost {
             SyncMode::Synced | SyncMode::SyncedE2e => LogLocation::Hosted,
         };
         let mut notices = Vec::new();
-        if self.current().1.as_deref() == Some("collection_deleted") {
+        let (state, reason) = self.current();
+        let reason = reason.as_deref();
+        if reason == Some("collection_deleted") {
             notices.push(Notice {
                 path: None,
                 code: "collection_deleted".into(),
                 message: "This collection was deleted by its owner. Sync has stopped. Your local files are untouched. Remove the local registration with mdbase collection remove.".into(),
             });
         }
-        if self.current().1.as_deref() == Some("sync_revoked") {
+        if reason == Some("sync_revoked") {
             notices.push(Notice {
                 path: None,
                 code: "sync_revoked".into(),
                 message: "This computer was removed from this collection and can no longer sync it. To rejoin, use a new device identity in a separate mdbase profile (--state-dir), sign in, and join the collection into a new empty folder. Local edits held in this folder are kept for you to copy across. Keep this folder and the old profile until you have copied your edits.".into(),
             });
         }
-        if self.current().1.as_deref() == Some(SYNC_INTEGRITY) {
-            let next = match self.recovery.due {
-                Some(due) => format!(
-                    "mdbase reopens it automatically in about {} (attempt {})",
-                    wait_text(due.saturating_duration_since(std::time::Instant::now())),
-                    self.recovery.attempts + 1
-                ),
-                None => "mdbase reopens it automatically".into(),
+        let automatic_reopen = || match self.recovery.due {
+            Some(due) => format!(
+                "mdbase reopens it automatically in about {} (attempt {})",
+                wait_text(due.saturating_duration_since(std::time::Instant::now())),
+                self.recovery.attempts.saturating_add(1)
+            ),
+            None => "mdbase reopens it automatically".into(),
+        };
+        if reason == Some(SYNC_INTEGRITY) {
+            let next = if self.recovery.integrity_exhausted() && self.pending_stop().is_none() {
+                "automatic reopening has stopped".into()
+            } else {
+                automatic_reopen()
             };
             notices.push(Notice {
                 path: None,
@@ -1036,7 +1058,17 @@ impl CollectionHost {
                     e.id
                 ),
             });
-        } else if self.current().1.as_deref() == Some(STORAGE_FAULT) {
+        } else if reason == Some("open_failed") && self.retryable_open_failure() {
+            notices.push(Notice {
+                path: None,
+                code: "open_failed".into(),
+                message: format!(
+                    "The collection could not open because of a local storage error; {}. \
+                     Check this computer's disk and free space. `mdbase logs` has the details.",
+                    automatic_reopen()
+                ),
+            });
+        } else if reason == Some(STORAGE_FAULT) {
             notices.push(Notice {
                 path: None,
                 code: STORAGE_FAULT.into(),
@@ -1048,15 +1080,18 @@ impl CollectionHost {
                     e.id
                 ),
             });
-        } else if self.current().0 == CollectionState::Opening
+        } else if state == CollectionState::Opening
             && (self.recovery.attempts > 0 || self.fenced().is_some())
         {
             // A fenced runtime is about to reopen; a reopened one is opening.
-            let attempt = self.recovery.attempts + u32::from(self.fenced().is_some());
+            let attempt = self
+                .recovery
+                .attempts
+                .saturating_add(u32::from(self.fenced().is_some()));
             notices.push(Notice {
                 path: None,
                 code: "sync_reopening".into(),
-                message: format!("Reopening after sync stopped (attempt {attempt})."),
+                message: format!("Reopening the collection (attempt {attempt})."),
             });
         }
         if e.mode == SyncMode::SyncedE2e && self.other_devices_online == Some(0) {
