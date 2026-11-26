@@ -202,7 +202,7 @@ describe("workspace commands", () => {
     const gateway = new DemoCollectionGateway(4);
     render(<App gateway={gateway} />);
     await screen.findByRole("textbox", { name: "Note body" });
-    fireEvent.click(screen.getByRole("option", { name: /Garden notes 2/ }), { ctrlKey: true });
+    fireEvent.click(screen.getByRole("option", { name: /Garden notes 2/ }), { shiftKey: true });
     expect(screen.getByRole("group", { name: "Selected notes" })).toHaveTextContent("2 selected");
     fireEvent.keyDown(window, { key: "P", ctrlKey: true, shiftKey: true });
     const dialog = screen.getByRole("dialog", { name: "Quick open" });

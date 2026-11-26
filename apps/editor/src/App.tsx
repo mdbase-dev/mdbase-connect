@@ -23,7 +23,9 @@ import {
   PushPinIcon as Pin,
   WarningCircleIcon as CircleAlert,
   XIcon as X,
-  BrowsersIcon as Browsers, ColumnsIcon as Columns
+  BrowsersIcon as Browsers, ColumnsIcon as Columns,
+  SquareSplitHorizontalIcon as SplitHorizontal,
+  SquareSplitVerticalIcon as SplitVertical
 } from "./icons";
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor } from "./connect-types";
 import { type MdbaseRecordSessionSnapshot } from "./record-session";
@@ -152,7 +154,7 @@ import { initialEditorSurface, loadPreferences, savePreferences, type EditorPref
 import { takeQuickCapture } from "./quick-capture";
 import { activeEditorSelection, revealMarkdownLine } from "./code-editor-reveal";
 import { forgetRecentPath, rememberRecentPath, useRecentPaths } from "./recent-notes";
-import { buildEditorCommands, command, commandDefinitions, isCommandId, matchesCommandShortcut, sequencePrefixes, useShortcuts, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
+import { buildEditorCommands, command, commandDefinitions, commandShortcuts, isCommandId, matchesCommandShortcut, sequencePrefixes, useShortcuts, type CommandDefinition, type CommandId, type EditorCommand } from "./editor-commands";
 import { unlinkedMentions } from "./unlinked-mentions";
 import { loadThemePreference, saveThemePreference } from "@mdbase-dev/ui/theme";
 import { quickOpenResults, ShortcutHelp } from "./QuickOpen";
@@ -1041,11 +1043,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     if (index !== latestWorkspace.current.focused) changeTabs((current) => focusPane(current, index));
   }
 
+  /** Splits the given (or focused) pane right or down onto `path` (or its active note). */
+  function splitEditorPane(direction: SplitDirection, paneId?: string, path?: string) {
+    if (mobileLayout) return;
+    changeTabs((current) => {
+      const target = (paneId ? current.panes.find((pane) => pane.id === paneId) : undefined) ?? focusedPane(current);
+      return splitPane(current, direction, path ?? tabNote(paneTab(target)), target.id);
+    });
+  }
+
   /** Tabs and panes are for notes, on screens wide enough to show them. */
   function tabCommands(): Partial<Record<CommandId, () => void>> {
     if (surface !== "notes" || mobileLayout) return {};
     const { panes, focused } = latestWorkspace.current;
-    const splitTo = (direction: SplitDirection) => () => changeTabs((current) => splitPane(current, direction, tabNote(activeTab(current))));
+    const splitTo = (direction: SplitDirection) => () => splitEditorPane(direction);
     return {
       "new-tab": () => { setShortcutsOpen(false); setPaletteMode("tab"); setQuickOpen(true); },
       ...(panes[focused]!.tabs.length > 1 || panes.length > 1 ? { "close-tab": () => closeNoteTab(activeTab(latestWorkspace.current)) } : {}),
@@ -1749,9 +1760,11 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     })()).finally(() => setChangingFolder(false));
   }
 
-  function menuCommand(id: CommandId, icon: ReactNode, run: () => void, disabled = false, label?: string): ActionMenuItem {
+  function menuCommand(id: CommandId, icon: ReactNode, run: () => void, disabled = false, label?: string, shortcutCommandId?: CommandId): ActionMenuItem {
     const entry = command(id, run, label);
-    return { label: entry.label, icon, onSelect: entry.run, disabled, title: entry.shortcut ? `${entry.label} · ${shortcutLabel(entry.shortcut)}` : undefined };
+    const chord = entry.shortcut ?? (shortcutCommandId ? commandShortcuts(shortcutCommandId)[0] : undefined);
+    const shortcut = chord ? shortcutLabel(chord) : undefined;
+    return { label: entry.label, icon, onSelect: entry.run, disabled, ...(shortcutCommandId && shortcut ? { shortcut } : {}), title: shortcut ? `${entry.label} · ${shortcut}` : undefined };
   }
   function setPin(path: string, pinned: boolean) { updatePins(current => pinned ? [...new Set([...current, path])] : current.filter(value => value !== path)); }
   function remapPin(from: string, to: string) {
@@ -2391,6 +2404,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             {!isNew && <button className={`icon-button${focused && inspector === "properties" ? " active" : ""}`} aria-label={t`Note properties`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "properties"} onClick={() => showInspector("properties", true)}><Info aria-hidden="true" /></button>}
             {!mobileLayout && !isNew && noteComments.available && <button className={`icon-button comments-toggle${focused && inspector === "comments" ? " active" : ""}`} aria-label={t`Comments`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "comments"} onClick={() => showInspector("comments", true)}><ChatText aria-hidden="true" />{focused && noteComments.openCount > 0 && <span className="comments-toggle-count">{noteComments.openCount}</span>}</button>}
             {!mobileLayout && !isNew && noteHistory && <button className={`icon-button${focused && inspector === "history" ? " active" : ""}`} aria-label={t`Version history`} aria-keyshortcuts="Enter Space" aria-pressed={focused && inspector === "history"} onClick={() => showInspector("history", true)}><ClockCounterClockwise aria-hidden="true" /></button>}
+            {!mobileLayout && !isNew && <button className="icon-button" aria-label={commandDefinitions["split-right"].label} title={commandDefinitions["split-right"].label} onClick={() => splitEditorPane("right", pane.id, shown.path)}><SplitHorizontal aria-hidden="true" /></button>}
+            {!mobileLayout && !isNew && <button className="icon-button" aria-label={commandDefinitions["split-down"].label} title={commandDefinitions["split-down"].label} onClick={() => splitEditorPane("down", pane.id, shown.path)}><SplitVertical aria-hidden="true" /></button>}
             {focused && focusMode && <button className="mdbase-button is-tertiary focus-exit" onClick={toggleFocus}><Trans>Exit focus mode</Trans></button>}
             {mobileLayout && canCreateNotes && <button className="icon-button" aria-label={t`New note`} aria-keyshortcuts="C Control+Shift+N Meta+Shift+N" disabled={mutationsFrozen} onClick={() => openNewNote()}><FilePlus2 aria-hidden="true" /></button>}
             <div className="note-actions">
@@ -2626,7 +2641,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         onFilter={setNoteFilter}
         noteActions={(path) => listSelection.paths.length > 1 && listSelection.paths.includes(path) ? bulkActions(listSelection.paths)
           : mobileLayout ? noteActions(path) : [
-            menuCommand("open-in-new-tab", <Browsers aria-hidden="true" />, () => openInNewTab(path)),
+            menuCommand("open-in-new-tab", <Browsers aria-hidden="true" />, () => openInNewTab(path), false, undefined, "new-tab"),
             menuCommand("open-beside", <Columns aria-hidden="true" />, () => openNoteBeside(path)),
             ...noteActions(path)
           ]}
@@ -2662,6 +2677,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             return info.visible && pane?.active === panel.id ? editorPane(pane, index) : null;
           }}
           tabTitle={panelTitle}
+          tabMenu={(panel, info) => {
+            const paneIndex = workspace.panes.findIndex((candidate) => candidate.id === info.stack);
+            const pane = workspace.panes[paneIndex];
+            const tab = pane?.tabs.find((candidate) => candidate.id === panel.id);
+            const path = tab ? tabNote(tab) : undefined;
+            return [
+              { label: commandDefinitions["split-right"].label, action: () => splitEditorPane("right", info.stack, path) },
+              { label: commandDefinitions["split-down"].label, action: () => splitEditorPane("down", info.stack, path) },
+              { label: commandDefinitions["close-tab"].label, separated: true, action: () => info.close() },
+              ...(workspace.panes.length > 1 && paneIndex >= 0
+                ? [{ label: commandDefinitions["close-pane"].label, action: () => changeTabs((current) => closePane(current, paneIndex)) }]
+                : [])
+            ];
+          }}
           renderTab={(panel, info) => <>
             <span className="mp-tab-label">{panelTitle(panel)}</span>
             {/* Delete on the tab and the Close tab command close it from the keyboard. */}

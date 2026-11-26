@@ -79,6 +79,25 @@ describe("collection rail regions", () => {
     expect(within(menu).getByRole("menuitem", { name: /Editor/ })).toHaveAttribute("aria-current", "page");
   });
 
+  it("carries collectionId in the app switcher links for Journal, TaskNotes, Reader and Writer", async () => {
+    const user = userEvent.setup();
+    render(<EditorRail
+      collectionId="col-123"
+      collectionName="Writing"
+      surface="notes"
+      notes={{ onClick: vi.fn() }}
+      types={{ onClick: vi.fn() }}
+      settings={{ onClick: vi.fn() }}
+      footer={null}
+    />);
+    await user.click(screen.getByRole("button", { name: /mdbase editor/ }));
+    const menu = screen.getByRole("menu", { name: "mdbase apps" });
+    expect(within(menu).getByRole("menuitem", { name: /Reader/ })).toHaveAttribute("href", "https://lab.mdbase-reader.pages.dev/?collection=col-123");
+    expect(within(menu).getByRole("menuitem", { name: /Writer/ })).toHaveAttribute("href", "https://lab.mdbase-writer.pages.dev/?collection=col-123");
+    expect(within(menu).getByRole("menuitem", { name: /Journal/ })).toHaveAttribute("href", "https://lab.mdbase-journal-lab.pages.dev/?collection=col-123");
+    expect(within(menu).getByRole("menuitem", { name: /TaskNotes/ })).toHaveAttribute("href", "https://lab.tasknotes-app.pages.dev/?collection=col-123");
+  });
+
   it("opens the command palette from the tools group and names its key", async () => {
     const user = userEvent.setup();
     const onCommands = vi.fn();

@@ -101,7 +101,15 @@ describe("AppSwitcher", () => {
     ]);
     expect(container.querySelector(".mdbase-app-menu-mark.is-journal")).not.toBeNull();
     expect(container.querySelector(".mdbase-app-menu-mark.is-tasknotes")).not.toBeNull();
+    expect(container.querySelector(".mdbase-menu-note")?.textContent).toBe("Opens in a new tab. Sign in to the app if prompted to open this collection.");
     unmount();
+
+    window.history.replaceState(null, "", "/");
+    const withoutCollection = openMenu(
+      <AppSwitcher current="editor" urls={{ editor: "https://editor.example", journal: "https://journal.example" }} />
+    );
+    expect(withoutCollection.container.querySelector(".mdbase-menu-note")?.textContent).toBe("Opens in a new tab");
+    withoutCollection.unmount();
   });
 
   it("opens the AI assistants submenu with the official listings, the MCP guide and Memory, and omits it when mcpUrl is null", () => {

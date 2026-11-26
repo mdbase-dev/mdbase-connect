@@ -605,11 +605,13 @@ textarea.mdbase-field {
 }
 
 .mdbase-menu-note {
+  max-width: 280px;
   margin: 6px 2px 0;
   padding: 8px 8px 2px;
   border-top: 1px solid var(--color-border);
   color: var(--color-text-muted);
   font-size: var(--font-size-caption);
+  line-height: 1.4;
 }
 
 /* The app switcher: the wordmark opens the app menu. */

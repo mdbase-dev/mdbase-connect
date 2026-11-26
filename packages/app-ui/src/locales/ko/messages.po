@@ -1349,6 +1349,11 @@ msgstr "여는 중…"
 msgid "Opens in a new tab"
 msgstr "새 탭에서 열립니다"
 
+#: src/AppSwitcher.tsx
+msgctxt "App switcher"
+msgid "Opens in a new tab. Sign in to the app if prompted to open this collection."
+msgstr "새 탭에서 열립니다. 이 컬렉션을 열기 위해 요청되면 앱에 로그인하세요."
+
 #: src/filter-builder/labels.ts
 msgctxt "Filter builder"
 msgid "Operator"

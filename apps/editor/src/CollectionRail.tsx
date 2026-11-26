@@ -57,6 +57,7 @@ export function CollectionRail({ collectionId, name, count, types, activeFilter,
   const moveFolder = onPlanFolderChange && onChangeFolder ? (from: string, parent: string) => setFolderChange({ from, parent, mode: "move" }) : undefined;
   const collectionFolders = useMemo(() => folderTree(notes, files), [files, notes, i18n.locale]);
   return <><EditorRail
+    collectionId={connectionState === "unsynced" ? undefined : collectionId}
     collectionName={name}
     noteCount={count}
     typeCount={types.length}
@@ -258,6 +259,7 @@ function FolderTreeRow({ node, expanded, activeFilter, loading, onFilter, onTogg
         className={`rail-row-action${activeFilter?.kind === "folder" && activeFilter.value === node.path ? " selected" : ""}`}
         aria-current={activeFilter?.kind === "folder" && activeFilter.value === node.path ? "page" : undefined}
         aria-label={loading ? t`Show notes in ${path}, ${counts} so far` : t`Show notes in ${path}, ${counts}`}
+        title={node.path}
         data-folder-path={node.path}
         draggable={Boolean(folderActions.onMoveFolder)}
         onDragStart={(event) => { event.dataTransfer.setData(FOLDER_PATH_MIME, node.path); event.dataTransfer.effectAllowed = "move"; }}

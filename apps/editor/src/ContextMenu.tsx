@@ -5,6 +5,7 @@ import { DotsThreeIcon as MoreHorizontal } from "./icons";
 export interface ActionMenuItem {
   label: string;
   icon: ReactNode;
+  shortcut?: string;
   tone?: "default" | "danger";
   disabled?: boolean;
   title?: string;
@@ -135,7 +136,7 @@ export function ContextMenu({ label, items, children, className = "", style, sho
             close();
             item.onSelect();
           }}
-        >{item.icon}{item.label}</button>)}
+        >{item.icon}{item.label}{item.shortcut && <kbd className="menu-item-shortcut" aria-hidden="true">{item.shortcut}</kbd>}</button>)}
     </Menu>
   </div>;
 }

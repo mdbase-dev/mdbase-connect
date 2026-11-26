@@ -234,7 +234,7 @@ test("unlinked mentions stay below visible body text, use plain highlighted snip
 test("selection commands reuse bulk forms, moves and deletion Undo", async ({ page }) => {
   await page.goto("?demo=4");
   await expect(page.getByRole("textbox", { name: "Note body", exact: true })).toBeVisible();
-  await page.getByRole("option", { name: /Garden notes 2/ }).click({ modifiers: ["Control"] });
+  await page.getByRole("option", { name: /Garden notes 2/ }).click({ modifiers: ["Shift"] });
   await expect(page.getByRole("group", { name: "Selected notes" })).toContainText("2 selected");
   const command = async (query: string) => {
     await page.keyboard.press("Control+Shift+P");

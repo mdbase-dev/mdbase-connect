@@ -168,6 +168,13 @@ describe("mdbase editor", () => {
       listCollapsed: false
     });
 
+    const folderButtons = [...collectionRail.querySelectorAll<HTMLButtonElement>("[data-folder-path]")];
+    expect(folderButtons.length).toBeGreaterThan(0);
+    for (const button of folderButtons) {
+      expect(button).toHaveAttribute("title", button.dataset.folderPath);
+    }
+    expect(collectionRail.querySelector<HTMLButtonElement>('[data-folder-path="_mdbase"]')).toHaveAttribute("title", "_mdbase");
+
     await user.click(within(screen.getByRole("complementary", { name: "Collection navigation" })).getByRole("button", { name: "Settings" }));
     await user.click(screen.getByRole("button", { name: "Forget from this browser" }));
     expect(screen.getByRole("alertdialog", { name: "Forget “Writing” from this browser?" })).toBeInTheDocument();
