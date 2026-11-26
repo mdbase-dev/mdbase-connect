@@ -124,3 +124,75 @@ export function versionChange(version: NoteVersion): string | undefined {
     default: return undefined;
   }
 }
+
+export interface RestoreDiffLine {
+  kind: "added" | "removed";
+  text: string;
+}
+
+export interface RestoreChangeSummary {
+  added: number;
+  removed: number;
+  preview: RestoreDiffLine[];
+  omitted: number;
+}
+
+const MAX_LCS_LINES = 240;
+
+/** Summarize what restoring `target` over `current` will change: lines added
+ * from the restored version, lines removed from the current note, and a short
+ * peek of the first changed lines. */
+export function restoreChangeSummary(current: string, target: string, maxPreviewLines = 6): RestoreChangeSummary {
+  if (current === target) return { added: 0, removed: 0, preview: [], omitted: 0 };
+  const from = current.split("\n");
+  const to = target.split("\n");
+  const changes = from.length <= MAX_LCS_LINES && to.length <= MAX_LCS_LINES
+    ? lcsChanges(from, to)
+    : boundedChanges(from, to);
+  let added = 0;
+  let removed = 0;
+  for (const line of changes) {
+    if (line.kind === "added") added += 1;
+    else removed += 1;
+  }
+  const preview = changes.slice(0, maxPreviewLines);
+  return { added, removed, preview, omitted: Math.max(0, changes.length - preview.length) };
+}
+
+function lcsChanges(from: readonly string[], to: readonly string[]): RestoreDiffLine[] {
+  const lengths = Array.from({ length: from.length + 1 }, () => new Uint16Array(to.length + 1));
+  for (let i = from.length - 1; i >= 0; i -= 1) {
+    for (let j = to.length - 1; j >= 0; j -= 1) {
+      lengths[i]![j] = from[i] === to[j]
+        ? lengths[i + 1]![j + 1]! + 1
+        : Math.max(lengths[i + 1]![j]!, lengths[i]![j + 1]!);
+    }
+  }
+  const out: RestoreDiffLine[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < from.length || j < to.length) {
+    if (i < from.length && j < to.length && from[i] === to[j]) {
+      i += 1;
+      j += 1;
+    } else if (j >= to.length || (i < from.length && lengths[i + 1]![j]! >= lengths[i]![j + 1]!)) {
+      out.push({ kind: "removed", text: from[i]! });
+      i += 1;
+    } else {
+      out.push({ kind: "added", text: to[j]! });
+      j += 1;
+    }
+  }
+  return out;
+}
+
+function boundedChanges(from: readonly string[], to: readonly string[]): RestoreDiffLine[] {
+  let prefix = 0;
+  while (prefix < from.length && prefix < to.length && from[prefix] === to[prefix]) prefix += 1;
+  let suffix = 0;
+  while (suffix < from.length - prefix && suffix < to.length - prefix && from[from.length - suffix - 1] === to[to.length - suffix - 1]) suffix += 1;
+  return [
+    ...from.slice(prefix, from.length - suffix).map((text): RestoreDiffLine => ({ kind: "removed", text })),
+    ...to.slice(prefix, to.length - suffix).map((text): RestoreDiffLine => ({ kind: "added", text }))
+  ];
+}

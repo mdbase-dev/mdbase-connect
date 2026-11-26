@@ -257,6 +257,27 @@ describe("Note actions", () => {
     }
   });
 
+  it("exposes Note properties directly in the phone header and at the top of the phone note menu", async () => {
+    vi.stubGlobal("innerWidth", 390);
+    const user = userEvent.setup();
+    const view = render(<App gateway={new DemoCollectionGateway(4)} />);
+    try {
+      await screen.findByRole("textbox", { name: "Note body" });
+      const propertiesButton = screen.getByRole("button", { name: "Note properties" });
+      expect(propertiesButton).toBeInTheDocument();
+
+      await user.click(screen.getByRole("button", { name: "More note actions" }));
+      const menu = screen.getByRole("menu", { name: "More note actions" });
+      const items = within(menu).getAllByRole("menuitem").map((item) => item.textContent);
+      expect(items[0]).toBe("Note properties");
+      await user.click(within(menu).getByRole("menuitem", { name: "Note properties" }));
+      expect(await screen.findByRole("dialog", { name: "Note properties" })).toBeInTheDocument();
+    } finally {
+      view.unmount();
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("translates the exit-focus action in the note menu", async () => {
     await editorLocaleRuntime.initialize();
     await editorLocaleRuntime.selectLocale("it");

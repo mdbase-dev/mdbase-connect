@@ -26,7 +26,7 @@ export function useNoteSurface({ gateway, assets, owner, path, source, revision,
   const visible = useVisibleEmbedKeys(path);
   const linkTargets = useLinkTargets(gateway, path, revision, files);
   const embeddedFiles = useEmbeddedFileAssets(assets, source, files, linkTargets, visible.files);
-  const embeddedNotes = useEmbeddedNoteReferences(gateway, owner, source, notes, linkTargets, visible.notes);
+  const embeddedNotes = useEmbeddedNoteReferences(gateway, owner, source, notes, linkTargets, visible.notes, files);
   const backlinks = useBacklinks(gateway, path, revision, notes, types);
   return { linkTargets, embeddedFiles, embeddedNotes, backlinks, updateVisibleFiles: visible.updateFiles, updateVisibleNotes: visible.updateNotes };
 }

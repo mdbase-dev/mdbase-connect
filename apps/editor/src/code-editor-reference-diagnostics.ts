@@ -44,10 +44,10 @@ export async function diagnosticsForReferences(
     return [];
   }
   const byPath = new Map(suggestions.map((suggestion) => [suggestion.path, suggestion]));
-  const fix = (reference: MarkdownReference, path: string): Action => {
+  const fix = (reference: MarkdownReference, path: string, useFullPathLabel = false): Action => {
     const title = byPath.get(path)?.title ?? basename(path);
     return {
-      name: t`Link to ${title}`,
+      name: useFullPathLabel ? t`Use ${path}` : t`Link to ${title}`,
       apply(view, from, to) {
         view.dispatch({ changes: { from, to, insert: pathLink(reference, path) }, userEvent: "input" });
       }
@@ -62,10 +62,17 @@ export async function diagnosticsForReferences(
     const target = targets.get(raw(reference));
     switch (target?.kind) {
       case "ambiguous": {
-        const noteMatches = target.candidates;
+        const matches = target.candidates;
+        const areFiles = matches.length > 0 && matches.every((path) => !byPath.has(path) && !/\.md$/iu.test(path));
         return [{
-          ...diagnostic(reference.from, reference.to, t`${noteMatches.length} notes match “${reference.target}”. Use a path to disambiguate it.`),
-          actions: reference.format === "wikilink" ? noteMatches.slice(0, LINK_FIXES).map((path) => fix(reference, path)) : []
+          ...diagnostic(
+            reference.from,
+            reference.to,
+            areFiles
+              ? t`${matches.length} files match “${reference.target}”. Use a full path to disambiguate it.`
+              : t`${matches.length} notes match “${reference.target}”. Use a path to disambiguate it.`
+          ),
+          actions: reference.format === "wikilink" ? matches.slice(0, LINK_FIXES).map((path) => fix(reference, path, areFiles)) : []
         }];
       }
       case "missing":

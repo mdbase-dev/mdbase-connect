@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { NoteVersion } from "./model";
-import { dayLabel, historyTimeline, versionAuthor, versionChange } from "./note-history";
+import { dayLabel, historyTimeline, restoreChangeSummary, versionAuthor, versionChange } from "./note-history";
 
 const ME = "0192f3a4-5b6c-7d8e-9f01-23456789abcd";
 const OTHER = "11111111-2222-4333-8444-555555555555";
@@ -110,5 +110,26 @@ describe("versionChange", () => {
     expect(versionChange(version(1, noon, { kind: "created" }))).toBe("Created");
     expect(versionChange(version(1, noon, { kind: "moved", path: "archive/a.md" }))).toBe("Moved to archive/a.md");
     expect(versionChange(version(1, noon, { kind: "deleted" }))).toBe("Deleted");
+  });
+});
+
+describe("restoreChangeSummary", () => {
+  it("counts lines added and removed and returns a capped preview", () => {
+    expect(restoreChangeSummary("same", "same")).toEqual({ added: 0, removed: 0, preview: [], omitted: 0 });
+    expect(restoreChangeSummary("a\nnow\nc", "a\nthen 1\nthen 2\nc")).toEqual({
+      added: 2,
+      removed: 1,
+      preview: [
+        { kind: "removed", text: "now" },
+        { kind: "added", text: "then 1" },
+        { kind: "added", text: "then 2" }
+      ],
+      omitted: 0
+    });
+    const capped = restoreChangeSummary("1\n2\n3\n4", "a\nb\nc\nd", 3);
+    expect(capped.added).toBe(4);
+    expect(capped.removed).toBe(4);
+    expect(capped.preview).toHaveLength(3);
+    expect(capped.omitted).toBe(5);
   });
 });

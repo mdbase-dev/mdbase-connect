@@ -353,3 +353,55 @@ describe("NoteList touch selection", () => {
     coarse.mockRestore();
   });
 });
+
+describe("NoteList direct file upload and drag-and-drop", () => {
+  it("exposes Upload files in the New menu, empty state, and accepts dropped files", () => {
+    const noop = () => {};
+    const onCreate = vi.fn();
+    const onCreateOfType = vi.fn();
+    const onUploadFiles = vi.fn();
+    const onDropFiles = vi.fn();
+    render(<NoteList
+      entries={[]}
+      noteCount={0} fileCount={0} types={[]} statuses={new Map()}
+      search="" searchQuery="" searchContexts={new Map()} sort={defaultNoteSort} sortFields={[]}
+      collectionName="All notes" loading={false} structureLoading={false} filesLoading={false}
+      searchPending={false}
+      onSearch={noop} onSort={noop} onClearScope={noop}
+      onRetryStructure={noop} onRetrySearch={noop} onRetryContent={noop} onRetryFiles={noop}
+      onSelect={noop} onSelectFile={noop} onCollections={noop}
+      onCreate={onCreate} onCreateOfType={onCreateOfType}
+      onUploadFiles={onUploadFiles} onDropFiles={onDropFiles}
+    />);
+
+    // Empty state offers both Create the first note and Upload files.
+    fireEvent.click(screen.getByRole("button", { name: "Upload files" }));
+    expect(onUploadFiles).toHaveBeenCalledTimes(1);
+
+    // New menu offers both New note of type… and Upload files….
+    fireEvent.click(screen.getByRole("button", { name: "New menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Upload files…" }));
+    expect(onUploadFiles).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByRole("button", { name: "New menu" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "New note of type…" }));
+    expect(onCreateOfType).toHaveBeenCalledTimes(1);
+
+    // Drag-and-drop external files onto the list uploads them directly.
+    const list = screen.getByRole("listbox", { name: "Collection notes and files" });
+    const file = new File(["hello"], "report.pdf", { type: "application/pdf" });
+    const dataTransfer = { types: ["Files"], files: [file], dropEffect: "none" };
+    fireEvent.dragOver(list, { dataTransfer });
+    expect(list).toHaveClass("is-file-drag-over");
+    fireEvent.drop(list, { dataTransfer });
+    expect(onDropFiles).toHaveBeenCalledWith([file]);
+    expect(list).not.toHaveClass("is-file-drag-over");
+
+    // Internal note drags are ignored by the external file drop zone.
+    onDropFiles.mockClear();
+    const internal = { types: ["Files", "application/x-mdbase-note-paths"], files: [file], dropEffect: "none" };
+    fireEvent.dragOver(list, { dataTransfer: internal });
+    expect(list).not.toHaveClass("is-file-drag-over");
+    fireEvent.drop(list, { dataTransfer: internal });
+    expect(onDropFiles).not.toHaveBeenCalled();
+  });
+});

@@ -56,16 +56,22 @@ export function attachmentUploadFailure(name: string, error: unknown): Attachmen
 
 interface AttachmentUploadState {
   name: string;
+  mode: "note" | "collection";
   progress?: MdbaseFileProgress;
 }
 
 export interface AttachmentUploadController {
   input: React.RefObject<HTMLInputElement | null>;
+  uploadInput: React.RefObject<HTMLInputElement | null>;
   upload?: AttachmentUploadState;
   /** Links for the note editor whose key is `editorKey`; no other note may apply them. */
   insertion?: AttachmentInsertion;
   disabled: boolean;
   attach(files: readonly File[]): Promise<void>;
+  /** Upload files directly into the collection without modifying any note. */
+  uploadFiles(files: readonly File[], folder?: string): Promise<void>;
+  /** Open the file picker to upload files directly into the collection. */
+  pickFiles(): void;
   uploadReference: AttachmentUploader;
   /** Drop a queued insertion unless it belongs to the editor now shown. */
   keepInsertionFor(editorKey: string | undefined): void;
@@ -82,6 +88,7 @@ export function useAttachmentUpload(input: {
   setNotice: (message?: string, tone?: "info" | "success" | "error") => void
 }): AttachmentUploadController {
   const fileInput = useRef<HTMLInputElement>(null);
+  const directUploadInput = useRef<HTMLInputElement>(null);
   const sequence = useRef(0);
   // Reserve across concurrent gestures, not just within one multi-file selection.
   const reservedPaths = useRef(new Set<string>());
@@ -92,6 +99,17 @@ export function useAttachmentUpload(input: {
     if (input.scope.isFrozen) return Promise.resolve();
     const token = input.scope.token();
     return input.scope.register(token, performAttach(files, token));
+  }
+
+  function uploadFiles(files: readonly File[], folder?: string): Promise<void> {
+    if (input.scope.isFrozen || files.length === 0) return Promise.resolve();
+    const token = input.scope.token();
+    return input.scope.register(token, performDirectUpload(files, folder, token));
+  }
+
+  function pickFiles() {
+    if (input.scope.isFrozen || upload) return;
+    directUploadInput.current?.click();
   }
 
   async function performAttach(files: readonly File[], token: ReturnType<CollectionMutationScope["token"]>) {
@@ -110,6 +128,58 @@ export function useAttachmentUpload(input: {
     }
   }
 
+  async function performDirectUpload(
+    files: readonly File[],
+    folder: string | undefined,
+    token: ReturnType<CollectionMutationScope["token"]>
+  ) {
+    const occupiedPaths = reservedPaths.current;
+    const uploadedFiles: CollectionFile[] = [];
+    const failures: string[] = [];
+    const targetFolder = folder?.replace(/^\/+|\/+$/gu, "") || "Attachments";
+    input.setNotice(undefined);
+    const markProgress = trackMdbaseMarkProgress();
+    try {
+      for (const [index, source] of files.entries()) {
+        if (!input.scope.isCurrent(token)) return;
+        setUpload({ name: source.name, mode: "collection" });
+        try {
+          const uploaded = await uploadToFolder(source, targetFolder, token, occupiedPaths, {
+            onProgress: (progress) => {
+              if (!input.scope.isCurrent(token)) return;
+              setUpload({ name: source.name, mode: "collection", progress });
+              if (progress.totalBytes > 0) reportProgressFraction(markProgress.update, index, files.length, progress);
+            }
+          });
+          if (!input.scope.isCurrent(token)) return;
+          uploadedFiles.push(uploaded);
+          markProgress.update((index + 1) / files.length);
+        } catch (error) {
+          if (!input.scope.isCurrent(token)) return;
+          failures.push(attachmentUploadFailure(source.name, error).message);
+          markProgress.update((index + 1) / files.length);
+        }
+      }
+      setUpload(undefined);
+      const failed = failures.join(" ");
+      if (uploadedFiles.length === 0) {
+        input.setNotice(failed);
+        return;
+      }
+      if (failed) {
+        const uploaded = uploadedFiles.length;
+        const total = files.length;
+        input.setNotice(`${t`Uploaded ${uploaded} of ${total} files.`} ${failed}`);
+        return;
+      }
+      input.setNotice(uploadedFiles.length === 1
+        ? t`Uploaded “${files[0]!.name}”.`
+        : plural(uploadedFiles.length, { one: "Uploaded # file.", other: "Uploaded # files." }), "success");
+    } finally {
+      markProgress.cancel();
+    }
+  }
+
   async function attachEach(
     files: readonly File[],
     session: NoteSession,
@@ -121,13 +191,13 @@ export function useAttachmentUpload(input: {
   ) {
     for (const [index, source] of files.entries()) {
       if (!input.scope.isCurrent(token)) return;
-      setUpload({ name: source.name });
+      setUpload({ name: source.name, mode: "note" });
       try {
         const uploaded = await uploadToCollection(source, session, token, occupiedPaths, {
           onProgress: (progress) => {
             if (!input.scope.isCurrent(token)) return;
-            setUpload({ name: source.name, progress });
-            if (progress.totalBytes > 0) reportProgress((index + Math.min(1, progress.transferredBytes / progress.totalBytes)) / files.length);
+            setUpload({ name: source.name, mode: "note", progress });
+            if (progress.totalBytes > 0) reportProgressFraction(reportProgress, index, files.length, progress);
           }
         });
         if (!input.scope.isCurrent(token)) return;
@@ -202,8 +272,21 @@ export function useAttachmentUpload(input: {
     reserved: Set<string>,
     options: { onProgress: (progress: MdbaseFileProgress) => void }
   ): Promise<CollectionFile> {
+    const folderIndex = session.document.path.lastIndexOf("/");
+    const noteFolder = folderIndex >= 0 ? session.document.path.slice(0, folderIndex) : "";
+    const targetFolder = noteFolder ? `${noteFolder}/Attachments` : "Attachments";
+    return uploadToFolder(source, targetFolder, token, reserved, options);
+  }
+
+  async function uploadToFolder(
+    source: File,
+    targetFolder: string,
+    token: ReturnType<CollectionMutationScope["token"]>,
+    reserved: Set<string>,
+    options: { onProgress: (progress: MdbaseFileProgress) => void }
+  ): Promise<CollectionFile> {
     const occupied = new Set([...reserved, ...input.inventory.getSnapshot().files.map((file) => normalizedFilePath(file.path))]);
-    const path = availableAttachmentPath(session.document.path, source.name, occupied);
+    const path = availableFilePath(targetFolder, source.name, occupied);
     const key = normalizedFilePath(path);
     reserved.add(key);
     try {
@@ -227,9 +310,31 @@ export function useAttachmentUpload(input: {
     setUpload(undefined);
     setInsertion(undefined);
     if (fileInput.current) fileInput.current.value = "";
+    if (directUploadInput.current) directUploadInput.current.value = "";
   }
 
-  return { input: fileInput, upload, insertion, disabled: input.scope.isFrozen, attach, uploadReference, keepInsertionFor, reset };
+  return {
+    input: fileInput,
+    uploadInput: directUploadInput,
+    upload,
+    insertion,
+    disabled: input.scope.isFrozen,
+    attach,
+    uploadFiles,
+    pickFiles,
+    uploadReference,
+    keepInsertionFor,
+    reset
+  };
+}
+
+function reportProgressFraction(
+  reportProgress: (fraction: number) => void,
+  index: number,
+  total: number,
+  progress: MdbaseFileProgress
+) {
+  reportProgress((index + Math.min(1, progress.transferredBytes / progress.totalBytes)) / total);
 }
 
 export function attachmentMenuItem(
@@ -249,6 +354,42 @@ export function attachmentMenuItem(
   };
 }
 
+export function AttachmentProgress({ upload }: { upload: AttachmentUploadState }) {
+  useLingui();
+  return <div className="notice attachment-progress" role="status" aria-live="polite">
+    <FilePlus aria-hidden="true" />
+    <span>{attachmentProgressLabel(upload)}</span>
+    {upload.progress && <progress
+      max={Math.max(upload.progress.totalBytes, 1)}
+      value={upload.progress.transferredBytes}
+      aria-label={t`Attachment progress for ${upload.name}`}
+    />}
+  </div>;
+}
+
+export function CollectionFileUploadInput({
+  controller,
+  folder
+}: {
+  controller: AttachmentUploadController;
+  folder?: string;
+}) {
+  return <input
+    ref={controller.uploadInput}
+    className="attachment-input"
+    type="file"
+    multiple
+    tabIndex={-1}
+    aria-hidden="true"
+    disabled={controller.disabled}
+    onChange={(event) => {
+      const files = [...(event.currentTarget.files ?? [])];
+      event.currentTarget.value = "";
+      void controller.uploadFiles(files, folder);
+    }}
+  />;
+}
+
 export function AttachmentTransfer({ controller }: { controller: AttachmentUploadController }) {
   useLingui();
   return <>
@@ -266,15 +407,7 @@ export function AttachmentTransfer({ controller }: { controller: AttachmentUploa
         void controller.attach(files);
       }}
     />
-    {controller.upload && <div className="notice attachment-progress" role="status" aria-live="polite">
-      <FilePlus aria-hidden="true" />
-      <span>{attachmentProgressLabel(controller.upload)}</span>
-      {controller.upload.progress && <progress
-        max={Math.max(controller.upload.progress.totalBytes, 1)}
-        value={controller.upload.progress.transferredBytes}
-        aria-label={t`Attachment progress for ${controller.upload.name}`}
-      />}
-    </div>}
+    {controller.upload?.mode === "note" && <AttachmentProgress upload={controller.upload} />}
   </>;
 }
 
@@ -282,14 +415,19 @@ export function availableAttachmentPath(notePath: string, sourceName: string, oc
   const folderIndex = notePath.lastIndexOf("/");
   const noteFolder = folderIndex >= 0 ? notePath.slice(0, folderIndex) : "";
   const attachmentFolder = noteFolder ? `${noteFolder}/Attachments` : "Attachments";
+  return availableFilePath(attachmentFolder, sourceName, occupied);
+}
+
+export function availableFilePath(folder: string, sourceName: string, occupied: ReadonlySet<string>): string {
+  const targetFolder = folder.replace(/^\/+|\/+$/gu, "") || "Attachments";
   const safeName = safeAttachmentName(sourceName);
   const extensionIndex = safeName.lastIndexOf(".");
   const hasExtension = extensionIndex > 0;
   const stem = hasExtension ? safeName.slice(0, extensionIndex) : safeName;
   const extension = hasExtension ? safeName.slice(extensionIndex) : "";
-  let candidate = `${attachmentFolder}/${safeName}`;
+  let candidate = `${targetFolder}/${safeName}`;
   let copy = 2;
-  while (occupied.has(normalizedFilePath(candidate))) candidate = `${attachmentFolder}/${stem} (${copy++})${extension}`;
+  while (occupied.has(normalizedFilePath(candidate))) candidate = `${targetFolder}/${stem} (${copy++})${extension}`;
   return candidate;
 }
 

@@ -390,6 +390,96 @@ describe("typed note properties", () => {
       custom: "from-source"
     }, null, 2));
   });
+
+  it("labels empty declared fields clearly and surfaces empty declared nested parts from the same disclosure", async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const richContactType: CollectionTypeDescriptor = {
+      name: "contact",
+      schema: {
+        type: "object",
+        properties: {
+          profile: {
+            type: "object",
+            required: ["display_name"],
+            properties: {
+              display_name: { type: "string" },
+              bio: { type: "string" },
+              website: { type: "string" }
+            }
+          },
+          role: { type: "string" }
+        }
+      },
+      extensions: {}
+    };
+    const richContactNote: NoteDocument = {
+      ...contactNote,
+      frontmatter: { profile: { display_name: "Ada" } },
+      effectiveFrontmatter: { profile: { display_name: "Ada" } }
+    };
+    render(<PropertiesPanel note={richContactNote} types={[richContactType]} onClose={vi.fn()} onSave={onSave} />);
+
+    // 1 empty top-level field (role) + 2 empty declared nested parts (bio, website) = 3 empty fields.
+    const toggle = screen.getByRole("button", { name: "Show 3 empty fields" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByRole("textbox", { name: "profile bio" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "role" })).toBeNull();
+
+    await user.click(toggle);
+    expect(screen.getByRole("button", { name: "Hide empty fields" })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("textbox", { name: "role" })).toBeVisible();
+    const bio = screen.getByRole("textbox", { name: "profile bio" });
+    expect(bio).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "profile website" })).toBeVisible();
+
+    await user.type(bio, "Mathematician{Enter}");
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith("People/ada.md", {
+      profile: { display_name: "Ada", bio: "Mathematician" }
+    }), { timeout: 1_500 });
+
+    await user.click(screen.getByRole("button", { name: "Hide empty fields" }));
+    expect(screen.queryByRole("textbox", { name: "profile website" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "role" })).toBeNull();
+    expect(screen.getByRole("textbox", { name: "profile bio" })).toHaveValue("Mathematician");
+  });
+
+  it("offers the empty-fields disclosure when only declared nested parts are empty", async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    const nestedOnlyType: CollectionTypeDescriptor = {
+      name: "contact",
+      schema: {
+        type: "object",
+        properties: {
+          profile: {
+            type: "object",
+            required: ["display_name"],
+            properties: {
+              display_name: { type: "string" },
+              bio: { type: "string" },
+              website: { type: "string" }
+            }
+          }
+        }
+      },
+      extensions: {}
+    };
+    const nestedOnlyNote: NoteDocument = {
+      ...contactNote,
+      frontmatter: { profile: { display_name: "Ada" } },
+      effectiveFrontmatter: { profile: { display_name: "Ada" } }
+    };
+    render(<PropertiesPanel note={nestedOnlyNote} types={[nestedOnlyType]} onClose={vi.fn()} onSave={onSave} />);
+
+    await user.click(screen.getByRole("button", { name: "Show 2 empty fields" }));
+    expect(screen.getByRole("textbox", { name: "profile bio" })).toBeVisible();
+    expect(screen.getByRole("textbox", { name: "profile website" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Hide empty fields" }));
+    expect(screen.queryByRole("textbox", { name: "profile bio" })).toBeNull();
+  });
 });
 
 /** Types a value into a field and leaves it, which is when the list hands the value over. */

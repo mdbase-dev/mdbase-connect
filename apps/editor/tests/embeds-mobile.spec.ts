@@ -15,7 +15,8 @@ for (const width of [360, 390, 430]) {
     await page.goto("?demo=300");
     const title = page.getByRole("textbox", { name: "Note title" });
     await expect(title).toBeVisible();
-    await expect(page.locator(".editor-bar button:visible")).toHaveCount(3);
+    await expect(page.locator(".editor-bar button:visible")).toHaveCount(4);
+    await expect(page.locator(".editor-bar").getByRole("button", { name: "Note properties", exact: true })).toBeVisible();
     const newNote = (await page.locator(".editor-bar").getByRole("button", { name: "New note", exact: true }).boundingBox())!;
     const more = (await page.getByRole("button", { name: "More note actions" }).boundingBox())!;
     expect(more.x - (newNote.x + newNote.width)).toBe(0);

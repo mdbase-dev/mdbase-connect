@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 import userEvent from "@testing-library/user-event";
 import { InspectorFrame, PathLabel, SaveIndicator } from "./WorkspaceChrome";
+import { ConnectionStatus } from "./CollectionRail";
 
 afterEach(() => vi.useRealTimers());
 
@@ -77,9 +78,26 @@ describe("quiet save status", () => {
     expect(view.container).toBeEmptyDOMElement();
   });
 
-  it("says when saved changes are waiting on this device to sync", () => {
+  it("says when saved changes are kept on this device and will sync automatically", () => {
     render(<SaveIndicator state="saved" savedOnDevice />);
-    expect(screen.getByText("Saved on this device; waiting for sync")).toBeInTheDocument();
+    const notice = screen.getByText("Saved on this device · syncs automatically when online");
+    expect(notice).toBeInTheDocument();
+    expect(notice.closest(".save-indicator")).toHaveAttribute(
+      "title",
+      "Changes are saved on this device and will sync automatically when the connection returns."
+    );
+  });
+
+  it("explains automatic sync on connection status when changes are saved on this device", () => {
+    render(<ConnectionStatus state="saved_on_device" onReconnect={() => {}} />);
+    const status = screen.getByRole("status", {
+      name: "Collection changes are saved on this device and will sync automatically when the connection returns"
+    });
+    expect(status).toHaveTextContent("Saved on this device · syncs automatically when online");
+    expect(status).toHaveAttribute(
+      "title",
+      "Changes are saved on this device and will sync automatically when the connection returns."
+    );
   });
 
   it.each(["saving", "properties"] as const)("delays %s feedback and resets it on navigation", (activity) => {

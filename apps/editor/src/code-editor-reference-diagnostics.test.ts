@@ -62,6 +62,18 @@ describe("reference diagnostics", () => {
       .toEqual(["“Ada Lovelace” has no “Play” section or block."]);
   });
 
+  it("lists candidate full paths as fixes for an ambiguous file embed", async () => {
+    const editor = open("![[page.html]]");
+    const targets = linkTargets("Notes/today.md", {
+      "![[page.html]]": { kind: "ambiguous", candidates: ["Archive/page.html", "Attachments/page.html"] }
+    });
+    const [diagnostic] = await diagnosticsForReferences(editor, targets, suggestions, []);
+    expect(diagnostic.message).toBe("2 files match “page.html”. Use a full path to disambiguate it.");
+    expect(diagnostic.actions?.map(({ name }) => name)).toEqual(["Use Archive/page.html", "Use Attachments/page.html"]);
+    diagnostic.actions![1].apply(editor, diagnostic.from, diagnostic.to);
+    expect(editor.state.doc.toString()).toBe("![[Attachments/page.html]]");
+  });
+
   it("reports nothing it could not check", async () => {
     const editor = open("[[Countess]]");
     const failing = new LinkTargets({ resolveLinks: async () => { throw new Error("offline"); } }, "Notes/today.md");

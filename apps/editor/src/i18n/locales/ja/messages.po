@@ -96,6 +96,11 @@ msgstr "{0, plural, other {フィールド # 件}}"
 msgid "{0, plural, one {# match} other {# matches}}"
 msgstr "{0, plural, other {一致 # 件}}"
 
+#. placeholder {0}: summary.omitted
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {# more changed line} other {# more changed lines}}"
+msgstr "{0, plural, other {変更された行があと#行}}"
+
 #. placeholder {0}: renamePlan.affectedPaths.length
 #: src/App.tsx
 msgid "{0, plural, one {# note contains links that will change.} other {# notes contain links that will change.}}"
@@ -110,6 +115,16 @@ msgstr "{0, plural, other {# 件のノートを移動しました。}}"
 #: src/TypeBrowser.tsx
 msgid "{0, plural, one {# required field unmapped} other {# required fields unmapped}}"
 msgstr "{0, plural, other {対応付けのない必須フィールド # 件}}"
+
+#. placeholder {0}: summary.added
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {+# line added} other {+# lines added}}"
+msgstr "{0, plural, other {+# 行を追加}}"
+
+#. placeholder {0}: summary.removed
+#: src/NoteHistoryPanel.tsx
+msgid "{0, plural, one {−# line removed} other {−# lines removed}}"
+msgstr "{0, plural, other {−# 行を削除}}"
 
 #. placeholder {0}: recoveryAction.references
 #: src/use-note-actions.ts
@@ -140,6 +155,11 @@ msgstr "{0, plural, other {ファイルはアップロードされましたが�
 #: src/AttachmentUpload.tsx
 msgid "{0, plural, one {Uploaded # file. The collection file is committed; the note link is saving separately.} other {Uploaded # files. The collection file is committed; the note link is saving separately.}}"
 msgstr "{0, plural, other {#件のファイルをアップロードしました。コレクション内のファイルは保存済みです。ノートのリンクは別途保存中です。}}"
+
+#. placeholder {0}: uploadedFiles.length
+#: src/AttachmentUpload.tsx
+msgid "{0, plural, one {Uploaded # file.} other {Uploaded # files.}}"
+msgstr "{0, plural, other {# 件のファイルをアップロードしました。}}"
 
 #. placeholder {0}: contact.name
 #. placeholder {1}: contact.path
@@ -195,6 +215,18 @@ msgstr "適用した変更：{0} 件"
 #: src/TypeBrowser.tsx
 msgid "{0} choice"
 msgstr "選択肢 {0} 件"
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/code-editor-reference-diagnostics.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate it."
+msgstr "「{1}」に一致するファイルが {0} 件あります。区別するためフルパスを使用してください。"
+
+#. placeholder {0}: matches.length
+#. placeholder {1}: reference.target
+#: src/note-embeds.ts
+msgid "{0} files match “{1}”. Use a full path to disambiguate: {examples}."
+msgstr "「{1}」に一致するファイルが {0} 件あります。区別するためフルパスを使用してください: {examples}。"
 
 #. placeholder {0}: node.path
 #: src/CollectionRail.tsx
@@ -256,7 +288,7 @@ msgstr "{0} 件のリンク警告を確認してください。自動では修�
 msgid "{0} notes loaded · incomplete"
 msgstr "読み込み済みノート {0} 件 · 未完了"
 
-#. placeholder {0}: noteMatches.length
+#. placeholder {0}: matches.length
 #. placeholder {1}: reference.target
 #: src/code-editor-reference-diagnostics.ts
 msgid "{0} notes match “{1}”. Use a path to disambiguate it."
@@ -417,6 +449,10 @@ msgstr "{count, plural, other {# 件のノートを移動しました。}}"
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Restored # note.} other {Restored # notes.}}"
 msgstr "{count, plural, other {# 件のノートを復元しました。}}"
+
+#: src/PropertiesPanel.tsx
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, other {空のフィールド # 件を表示}}"
 
 #: src/use-note-actions.ts
 msgid "{count, plural, one {Updated # note.} other {Updated # notes.}}"
@@ -943,6 +979,10 @@ msgstr "一意性ルールを追加"
 msgid "Added “{0}” and opened the new type."
 msgstr "「{0}」を追加し、新しい型を開きました。"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Added:"
+msgstr "追加:"
+
 #: src/YourPersonPanel.tsx
 msgid "Adding definitions requires permission to manage this collection's types."
 msgstr "定義の追加には、このコレクションの型を管理する権限が必要です。"
@@ -1153,7 +1193,7 @@ msgstr "ファイルを添付中…"
 msgid "Attaching files is not available for this collection in mdbase editor yet."
 msgstr "このコレクションでは、mdbase editor からのファイル添付はまだ利用できません。"
 
-#. placeholder {0}: controller.upload.name
+#. placeholder {0}: upload.name
 #: src/AttachmentUpload.tsx
 msgid "Attachment progress for {0}"
 msgstr "{0}の添付進行状況"
@@ -1326,6 +1366,11 @@ msgstr "ショートカットを変更"
 #: src/note-mutation-presentation.ts
 msgid "Changed elsewhere"
 msgstr "別の場所で変更されました"
+
+#: src/CollectionRail.tsx
+#: src/WorkspaceChrome.tsx
+msgid "Changes are saved on this device and will sync automatically when the connection returns."
+msgstr "変更はこのデバイスに保存されており、接続が戻ると自動的に同期されます。"
 
 #: src/NoteCommentsPanel.tsx
 #: src/pending-note-mutation.ts
@@ -1567,8 +1612,8 @@ msgid "Collection changed before the type pack finished."
 msgstr "型パックの処理が完了する前にコレクションが変更されました。"
 
 #: src/CollectionRail.tsx
-msgid "Collection changes saved on this device; waiting for sync"
-msgstr "このデバイスにコレクションの変更を保存しました。同期を待っています"
+msgid "Collection changes are saved on this device and will sync automatically when the connection returns"
+msgstr "コレクションの変更はこのデバイスに保存されており、接続が戻ると自動的に同期されます"
 
 #: src/CollectionRail.tsx
 msgid "Collection connected"
@@ -2337,6 +2382,10 @@ msgstr "完了"
 msgid "Drag to resize · Double-click to reset"
 msgstr "ドラッグでサイズ変更 · ダブルクリックでリセット"
 
+#: src/NoteList.tsx
+msgid "Drop files to upload"
+msgstr "ファイルをドロップしてアップロード"
+
 #: src/editor-commands.ts
 msgid "Duplicate"
 msgstr "複製"
@@ -2854,6 +2903,10 @@ msgstr "見出し 3"
 #: src/EditorRail.tsx
 msgid "Hide collections sidebar"
 msgstr "コレクションのサイドバーを非表示"
+
+#: src/PropertiesPanel.tsx
+msgid "Hide empty fields"
+msgstr "空のフィールドを隠す"
 
 #: src/App.tsx
 msgid "Hide notes sidebar"
@@ -3584,6 +3637,10 @@ msgid "nested required fields"
 msgstr "入れ子の必須フィールド"
 
 #: src/NoteList.tsx
+msgid "New"
+msgstr "新規"
+
+#: src/NoteList.tsx
 msgctxt "button that creates a note"
 msgid "New"
 msgstr "新規"
@@ -3602,6 +3659,10 @@ msgstr "新規: {typeLabel}"
 #: src/CollectionRail.tsx
 msgid "New folder"
 msgstr "新しいフォルダー"
+
+#: src/NoteList.tsx
+msgid "New menu"
+msgstr "新規メニュー"
 
 #: src/App.tsx
 #: src/code-editor-completions.ts
@@ -4727,6 +4788,10 @@ msgstr "ファイルを変更せず、エディターからこのコレクショ
 msgid "Remove uniqueness rule for {0}"
 msgstr "{0}の一意性ルールを削除"
 
+#: src/NoteHistoryPanel.tsx
+msgid "Removed:"
+msgstr "削除:"
+
 #: src/editor-commands.ts
 msgid "Rename"
 msgstr "名前を変更"
@@ -5063,8 +5128,8 @@ msgstr "保存済みのアクセス"
 
 #: src/CollectionRail.tsx
 #: src/WorkspaceChrome.tsx
-msgid "Saved on this device; waiting for sync"
-msgstr "このデバイスに保存済みです。同期を待っています。"
+msgid "Saved on this device · syncs automatically when online"
+msgstr "このデバイスに保存済み · オンライン時に自動同期"
 
 #. placeholder {0}: saved.name
 #: src/use-type-definition-lifecycle.ts
@@ -5402,6 +5467,10 @@ msgstr "構造化フロントマターの条件"
 #: src/TypeBrowser.tsx
 msgid "Suggested from field names and shapes only. Confirm that the meanings agree."
 msgstr "フィールド名と構造のみから推奨しています。意味が一致するか確認してください。"
+
+#: src/NoteHistoryPanel.tsx
+msgid "Summary of changes"
+msgstr "変更の概要"
 
 #: src/App.tsx
 #: src/editor-commands.ts
@@ -6555,6 +6624,24 @@ msgstr "アップグレード"
 msgid "Upgrade <0>{0}</0> to the current Person starter. "
 msgstr "<0>{0}</0>を現在の Person 初期型にアップグレードします。 "
 
+#: src/NoteList.tsx
+msgid "Upload"
+msgstr "アップロード"
+
+#: src/NoteList.tsx
+msgid "Upload files"
+msgstr "ファイルをアップロード"
+
+#: src/editor-commands.ts
+#: src/NoteList.tsx
+msgid "Upload files…"
+msgstr "ファイルをアップロード…"
+
+#. placeholder {0}: files[0]!.name
+#: src/AttachmentUpload.tsx
+msgid "Uploaded “{0}”."
+msgstr "「{0}」をアップロードしました。"
+
 #. placeholder {0}: files[0]!.name
 #: src/AttachmentUpload.tsx
 msgid "Uploaded “{0}”. The collection file is committed; the note link is saving separately."
@@ -6576,6 +6663,14 @@ msgstr "{0}をアップロード中…"
 #: src/AttachmentUpload.tsx
 msgid "Uploading {name} took too long. Try again."
 msgstr "{name}のアップロードがタイムアウトしました。再試行してください。"
+
+#: src/NoteList.tsx
+msgid "Uploading files…"
+msgstr "ファイルをアップロード中…"
+
+#: src/code-editor-reference-diagnostics.ts
+msgid "Use {path}"
+msgstr "{path} を使用"
 
 #: src/folder-change.ts
 msgid "Use a collection-relative folder path without empty, . or .. segments."

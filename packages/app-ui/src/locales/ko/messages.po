@@ -67,11 +67,6 @@ msgstr "{app}에서 이 기기에 컬렉션을 표시하지 않습니다. 컬렉
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "{count, plural, one {# empty} other {# empty}}"
-msgstr "{count, plural, other {빈 항목 #개}}"
-
-#: src/properties/labels.ts
-msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, other {항목 #개}}"
 
@@ -93,6 +88,11 @@ msgstr "{count, plural, other {속성 #개}}"
 msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, other {#개 선택됨}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, other {빈 필드 #개 표시}}"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
@@ -916,8 +916,8 @@ msgstr "{app}에 이 컬렉션 접근을 허용하시겠습니까?"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "Hide empty"
-msgstr "빈 항목 숨기기"
+msgid "Hide empty fields"
+msgstr "빈 필드 숨기기"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"

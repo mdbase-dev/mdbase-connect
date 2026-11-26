@@ -67,11 +67,6 @@ msgstr "{app} stops showing it on this device. Nothing in the collection is dele
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "{count, plural, one {# empty} other {# empty}}"
-msgstr "{count, plural, one {# empty} other {# empty}}"
-
-#: src/properties/labels.ts
-msgctxt "Property list"
 msgid "{count, plural, one {# item} other {# items}}"
 msgstr "{count, plural, one {# item} other {# items}}"
 
@@ -93,6 +88,11 @@ msgstr "{count, plural, one {# property} other {# properties}}"
 msgctxt "Filter builder"
 msgid "{count, plural, one {# selected} other {# selected}}"
 msgstr "{count, plural, one {# selected} other {# selected}}"
+
+#: src/properties/labels.ts
+msgctxt "Property list"
+msgid "{count, plural, one {Show # empty field} other {Show # empty fields}}"
+msgstr "{count, plural, one {Show # empty field} other {Show # empty fields}}"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
@@ -916,8 +916,8 @@ msgstr "Give {app} access to this collection?"
 
 #: src/properties/labels.ts
 msgctxt "Property list"
-msgid "Hide empty"
-msgstr "Hide empty"
+msgid "Hide empty fields"
+msgstr "Hide empty fields"
 
 #: src/FeedbackMarkup.tsx
 msgid "Highlight"

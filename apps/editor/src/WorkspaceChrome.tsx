@@ -38,7 +38,7 @@ export function SaveIndicator({ state, activity, detail, identity, savedOnDevice
   const slow = useDelayedBusy(routineSave, identity);
   const idle = routineSave ? !slow : !activity && (state === "saved" || state === "waiting");
   // The SDK keeps saved changes on this device while the collection can't be reached.
-  if (idle && savedOnDevice) return <div className="save-indicator"><SaveNotice tone="pending" label={t`Saved on this device; waiting for sync`} /></div>;
+  if (idle && savedOnDevice) return <div className="save-indicator" title={t`Changes are saved on this device and will sync automatically when the connection returns.`}><SaveNotice tone="pending" label={t`Saved on this device · syncs automatically when online`} /></div>;
   if (idle) return null;
   const activityLabels: Record<NoteActivity, string> = {
     saving: t`Saving…`,

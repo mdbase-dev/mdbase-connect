@@ -37,14 +37,14 @@ describe("PropertyList", () => {
   it("shows the properties that hold something and counts the rest", () => {
     show();
     expect(rows()).toEqual(["status", "rating"]);
-    expect(get("button", "4 empty").getAttribute("aria-expanded")).toBe("false");
+    expect(get("button", "Show 4 empty fields").getAttribute("aria-expanded")).toBe("false");
   });
 
   it("shows the empty ones when asked, in the type's order, and remembers that", () => {
     const first = show();
-    click(get("button", "4 empty"));
+    click(get("button", "Show 4 empty fields"));
     expect(rows()).toEqual(["status", "due", "assignee", "estimate", "contexts", "rating"]);
-    expect(get("button", "Hide empty").getAttribute("aria-expanded")).toBe("true");
+    expect(get("button", "Hide empty fields").getAttribute("aria-expanded")).toBe("true");
     first.unmount();
     show();
     expect(rows()).toHaveLength(6);
@@ -53,7 +53,7 @@ describe("PropertyList", () => {
   it("leaves out the names it is told to hide", () => {
     show({ hidden: (name) => name === "rating" || name === "due" });
     expect(rows()).toEqual(["status"]);
-    expect(get("button", "3 empty")).toBeTruthy();
+    expect(get("button", "Show 3 empty fields")).toBeTruthy();
   });
 
   it("adds a declared property by finding it, and puts the keyboard in its value", () => {
@@ -64,7 +64,7 @@ describe("PropertyList", () => {
     expect(document.activeElement).toBe(get("textbox", "assignee"));
     enter("me");
     expect(onChange).toHaveBeenCalledWith("assignee", "me");
-    expect(get("button", "3 empty")).toBeTruthy();
+    expect(get("button", "Show 3 empty fields")).toBeTruthy();
   });
 
   it("adds a property of its own name, reading a number as a number", () => {
@@ -381,7 +381,7 @@ describe("PropertyList", () => {
     };
     const author: PropertyInfo = { name: "author", kind: "text", link: { many: false } };
     const view = show({ values: {}, declared: [author, { name: "editors", kind: "list", link: { many: true } }], records });
-    click(get("button", "2 empty"));
+    click(get("button", "Show 2 empty fields"));
     click(get("button", "Link a record in author"));
     type(get("combobox", "Link a record in author"), "al");
     expect(search).toHaveBeenLastCalledWith("al", "author");
@@ -423,6 +423,29 @@ describe("PropertyList", () => {
     show({ values: { author: "[[people/ada|Ada]]" }, declared: [] });
     expect(find("button", "Ada")).toBeNull();
     expect(document.querySelector(".mdbase-token-open")!.textContent).toBe("Ada");
+  });
+
+  it("surfaces empty declared nested parts from the same empty-fields disclosure", () => {
+    const { onChange } = show({
+      values: { profile: { display_name: "Ada" } },
+      declared: [{
+        name: "profile",
+        kind: "group",
+        parts: [
+          { name: "display_name", kind: "text", required: true },
+          { name: "bio", kind: "text" },
+          { name: "website", kind: "text" },
+        ],
+      }],
+    });
+    expect(rows()).toEqual(["profile", "profile.display_name"]);
+    click(get("button", "Show 2 empty fields"));
+    expect(rows()).toEqual(["profile", "profile.display_name", "profile.bio", "profile.website"]);
+    type(get("textbox", "profile bio"), "Mathematician");
+    key("Enter");
+    expect(onChange).toHaveBeenLastCalledWith("profile", { display_name: "Ada", bio: "Mathematician" });
+    click(get("button", "Hide empty fields"));
+    expect(rows()).toEqual(["profile", "profile.display_name"]);
   });
 
   it("shows the text a host passes in place of the shared catalogue's", () => {
