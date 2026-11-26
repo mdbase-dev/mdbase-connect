@@ -1379,6 +1379,7 @@ msgid "Delete"
 msgstr "削除"
 
 #. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
 #: src/portal-commands.ts
 msgid "Delete {0}"
 msgstr "{0}を削除"
@@ -2526,6 +2527,7 @@ msgid "Permanent allowance"
 msgstr "無期限の許容量"
 
 #: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
 msgstr "ホスト型データは完全に削除されます。コンピューター上のローカルファイルは削除されません。"
 
@@ -3562,10 +3564,6 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "それらのブラウザーでは再度ログインが必要になります。このブラウザーのログイン状態は維持されます。"
 
 #: src/ConnectApp.tsx
-msgid "To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”."
-msgstr "このコレクションを削除するには、エディターでコレクション一覧を開きます。コレクション名の横のメニューから「コレクションを削除…」を選んでください。"
-
-#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "別のコンピューター名をお試しください。絞り込みでアクセス権が取り消されることはありません。"
 
@@ -3594,7 +3592,7 @@ msgstr "別のコレクション名またはコンピューター名をお試し
 msgid "Try another name."
 msgstr "別の名前を試してください。"
 
-#. placeholder {0}: collection.name
+#. placeholder {0}: target.name
 #: src/ConnectApp.tsx
 msgid "Type {0} to confirm"
 msgstr "確認のため {0} と入力してください"

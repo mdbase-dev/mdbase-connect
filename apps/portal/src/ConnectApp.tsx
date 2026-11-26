@@ -13,7 +13,7 @@ import {
   type ManagementRequestOptions
 } from "@mdbase/connect-management";
 import { AppAccess, applicationGroups } from "./ApplicationAccess";
-import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type ReactNode, type RefObject } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
@@ -391,7 +391,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
       {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
       {activeView === "home" && <HomePage data={data} collections={collections} applications={homeApplications} origins={environmentOrigins} navigate={navigate} />}
       {activeView === "overview" && (selectedCollection
-        ? <CollectionOverview editorOrigin={editorOrigin} origins={environmentOrigins} collection={selectedCollection} applications={selectedApplications} />
+        ? <CollectionOverview error={mutationError} editorOrigin={editorOrigin} origins={environmentOrigins} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} />
         : <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
       {activeView === "storage" && selectedCollection && <Storage error={mutationError} editorOrigin={editorOrigin} collection={selectedCollection} data={data} busy={busy} perform={perform} onRefresh={() => void refresh()} />}
       {activeView === "access" && !refreshError && selectedCollection && <AppAccess error={mutationError} collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform}>
@@ -441,15 +441,21 @@ function PendingRequestBanner({ request, collectionName, count }: {
   </a>;
 }
 
-function CollectionOverview({ collection, applications, editorOrigin, origins }: {
+function CollectionOverview({ error, collection, applications, editorOrigin, origins, busy, perform }: {
   editorOrigin?: string;
   origins?: ManagedAppOrigins;
   collection: CollectionRow;
   applications: ReturnType<typeof applicationGroups>;
+  busy: BusyOperations;
+  error?: string;
+  perform: PerformOperation;
 }) {
   useLocaleRevision();
+  const [deleting, setDeleting] = useState(false);
+  const deleteTrigger = useRef<HTMLButtonElement>(null);
   const place = collection.kind === "hosted" ? collection.detail : [collection.status, collection.detail].filter(Boolean).join(" · ");
   const usable = collection.kind !== "local" || collection.available;
+  const nativeOwner = collection.kind === "native" && collection.source.access.relationship === "owner";
   const existingApps = applications.flatMap((application) => {
     const appOrigins = [
       ...application.grants.flatMap((grant) => [grant.application_origin, grant.homepage]),
@@ -462,7 +468,6 @@ function CollectionOverview({ collection, applications, editorOrigin, origins }:
   const discovery = origins && usable ? collectionDiscoveryApps(origins, collection.id, existingApps) : null;
   return <Page reading title={collection.name} status={<span className="connect-status">{collection.glyph !== "idle" && <StatusGlyph state={collection.glyph} />}{place}</span>} action={editorOrigin && usable && <a className="mdbase-button is-primary" aria-label={t(i18n)`Open in editor: ${collection.name}`} href={editorCollectionUrl(collection.id, editorOrigin)}><Trans>Open in editor</Trans></a>}>
     {collection.glyph !== "online" && collection.kind === "local" && <p className="connect-attention"><StatusGlyph state={collection.glyph} /><span>{connectionDescription(collection)}</span></p>}
-    {collection.kind === "native" && collection.source.sync === "cloud_copy" && collection.source.access.relationship === "owner" && <p><Trans>To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”.</Trans></p>}
     <section>
       <SectionTitle title={t(i18n)({ message: "Apps with access to the entire collection", context: "Connect interface" })} />
       {applications.map((application) => <div className="connect-row connect-application-row" key={application.applicationId}><div><strong>{application.applicationName}</strong><small>{host(application.grants[0]?.homepage ?? application.installations[0].application_origin)}</small></div><span>{application.installations.length ? t(i18n)({ message: "Access as your account", context: "Connect interface" }) : permissionSummary(application.grants)}</span><a className="mdbase-button is-tertiary" href={`/access?collection=${encodeURIComponent(collection.id)}`}><Trans>Review access</Trans></a></div>)}
@@ -476,6 +481,13 @@ function CollectionOverview({ collection, applications, editorOrigin, origins }:
         </AppTile>)}
       </ul>}
       {discovery.showMcp && <McpConnectRow />}
+    </section>}
+    {nativeOwner && <section>
+      <div className="connect-row">
+        <div><strong>{t(i18n)`Delete ${collection.name}`}</strong><small><Trans>Permanent for hosted data. Local files are never removed from your computers.</Trans></small></div>
+        <button ref={deleteTrigger} className="mdbase-button is-tertiary is-danger" disabled={busy.has(`collection-${collection.id}`)} onClick={() => setDeleting(true)}><Trans>Delete</Trans></button>
+      </div>
+      <DeleteCollectionDialog open={deleting} error={error} collection={collection} busy={busy.has(`collection-${collection.id}`)} returnFocusRef={deleteTrigger} perform={perform} onClose={() => setDeleting(false)} />
     </section>}
   </Page>;
 }
@@ -878,6 +890,37 @@ function collectionRows(data: ManagementOverview): CollectionRow[] {
   return [...native, ...hosted, ...local].sort((left, right) => left.name.localeCompare(right.name));
 }
 
+function DeleteCollectionDialog({ open, error, collection, busy, returnFocusRef, perform, onClose }: {
+  open: boolean;
+  error?: string;
+  collection: CollectionRow;
+  busy: boolean;
+  returnFocusRef: RefObject<HTMLButtonElement | null>;
+  perform: PerformOperation;
+  onClose(): void;
+}) {
+  useLocaleRevision();
+  const [name, setName] = useState("");
+  useEffect(() => { if (open) setName(""); }, [open]);
+  const native = collection.kind === "native" ? collection.source : null;
+  const target = { name: native ? (native.display_name ?? "New collection") : collection.name };
+  const consequence = native
+    ? t(i18n)`Permanent for hosted data. Local files are never removed from your computers.`
+    : t(i18n)`All hosted data in ${collection.name} will be permanently deleted. This cannot be undone.`;
+  return <ConfirmDialog open={open} title={t(i18n)`Delete ${collection.name}?`} consequence={consequence} confirmLabel={t(i18n)({ message: "Delete permanently", context: "Connect interface" })} pendingLabel={t(i18n)`Deleting…`} busy={busy} disabled={name !== target.name} returnFocusRef={returnFocusRef} onClose={onClose} onConfirm={async () => {
+    if (await perform(
+      `collection-${collection.id}`,
+      async options => {
+        if (native) await management.deleteNativeCollection(collection.id, target.name, options);
+        else await management.deleteHostedCollection(collection.id, options);
+      },
+      false,
+      undefined,
+      t(i18n)`Deleted ${collection.name}`
+    )) onClose();
+  }}>{error && <p role="alert">{error}</p>}<label><span><Trans>Type {target.name} to confirm</Trans></span><input className="mdbase-field" data-autofocus value={name} autoComplete="off" spellCheck={false} onChange={event => setName(event.target.value)} /></label></ConfirmDialog>;
+}
+
 function CollectionSummary({ error, className = "", collection, navigate, editorOrigin, busy, perform }: {
   className?: string;
   editorOrigin?: string;
@@ -894,13 +937,14 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
   const [name, setName] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
   const hosted = collection.kind === "hosted" ? collection.source : null;
+  const native = collection.kind === "native" ? collection.source : null;
   const active = hosted?.authority_state === "active";
   const editorId = hosted && !active ? hosted.transferred_collection_id : collection.id;
   const working = busy.has(`collection-${collection.id}`);
   const folders = hosted?.replicas.filter(replica => replica.revocation_status !== "revoked").length ?? 0;
-  const locationIcon = hosted || collection.kind === "native" && collection.source.sync === "cloud_copy" ? <Cloud aria-hidden="true" /> : <Computer aria-hidden="true" />;
+  const locationIcon = hosted || native?.sync === "cloud_copy" ? <Cloud aria-hidden="true" /> : <Computer aria-hidden="true" />;
   const canRename = !!hosted && active && hosted.access.can_rename_collection;
-  const canDelete = !!hosted?.access.can_delete_collection;
+  const canDelete = !!hosted?.access.can_delete_collection || native?.access.relationship === "owner";
   // A member of someone else's hosted collection has no action on the Storage tab.
   const hasActions = !!navigate || !hosted || canRename || canDelete;
   return <div className={`connect-collection-row ${className}`} data-list-item data-command={`collection:${collection.id}`}>
@@ -916,13 +960,11 @@ function CollectionSummary({ error, className = "", collection, navigate, editor
         {canDelete && <button role="menuitem" data-action="delete" className="mdbase-menu-item is-danger" onClick={() => { setMenuOpen(false); setName(""); setEditing("delete"); }}><Trans>Delete</Trans></button>}
       </Menu></>}
     </span>
-    {hosted && <><Dialog open={editing === "rename"} title={t(i18n)`Rename ${collection.name}`} returnFocusRef={renameReturn} closeDisabled={working} onClose={() => setEditing(null)}><form className="connect-edit-form" onSubmit={async event => {
+    {hosted && <Dialog open={editing === "rename"} title={t(i18n)`Rename ${collection.name}`} returnFocusRef={renameReturn} closeDisabled={working} onClose={() => setEditing(null)}><form className="connect-edit-form" onSubmit={async event => {
       event.preventDefault();
       if (await perform(`collection-${collection.id}`, options => management.renameHostedCollection(collection.id, name.trim(), options), false, {kind: "rename-collection", id: collection.id, name: name.trim(), previous: collection.name}, t(i18n)`Renamed ${collection.name} to ${name.trim()}`)) setEditing(null);
-    }}><label><span><Trans>Collection name</Trans></span><input className="mdbase-field" aria-label={t(i18n)`Rename ${collection.name}`} data-autofocus onFocus={event => event.currentTarget.select()} maxLength={200} value={name} onChange={event => setName(event.target.value)} /></label><footer className="mdbase-dialog-actions"><button type="button" className="mdbase-button is-tertiary" onClick={() => setEditing(null)} disabled={working}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={working || !name.trim() || name.trim() === collection.name}>{working ? t(i18n)`Saving…` : t(i18n)`Save`}</button></footer></form></Dialog>
-    <ConfirmDialog open={editing === "delete"} title={t(i18n)`Delete ${collection.name}?`} consequence={t(i18n)`All hosted data in ${collection.name} will be permanently deleted. This cannot be undone.`} confirmLabel={t(i18n)({ message: "Delete permanently", context: "Connect interface" })} pendingLabel={t(i18n)`Deleting…`} busy={working} disabled={name !== collection.name} returnFocusRef={trigger} onClose={() => setEditing(null)} onConfirm={async () => {
-      if (await perform(`collection-${collection.id}`, options => management.deleteHostedCollection(collection.id, options), false, undefined, t(i18n)`Deleted ${collection.name}`)) setEditing(null);
-    }}>{error && <p role="alert">{error}</p>}<label><span><Trans>Type {collection.name} to confirm</Trans></span><input className="mdbase-field" data-autofocus value={name} autoComplete="off" spellCheck={false} onChange={event => setName(event.target.value)} /></label></ConfirmDialog></>}
+    }}><label><span><Trans>Collection name</Trans></span><input className="mdbase-field" aria-label={t(i18n)`Rename ${collection.name}`} data-autofocus onFocus={event => event.currentTarget.select()} maxLength={200} value={name} onChange={event => setName(event.target.value)} /></label><footer className="mdbase-dialog-actions"><button type="button" className="mdbase-button is-tertiary" onClick={() => setEditing(null)} disabled={working}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={working || !name.trim() || name.trim() === collection.name}>{working ? t(i18n)`Saving…` : t(i18n)`Save`}</button></footer></form></Dialog>}
+    {canDelete && <DeleteCollectionDialog open={editing === "delete"} error={error} collection={collection} busy={working} returnFocusRef={trigger} perform={perform} onClose={() => setEditing(null)} />}
   </div>;
 }
 

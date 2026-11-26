@@ -1,6 +1,7 @@
 import { ensureDevelopmentEntitlement } from "../account/entitlements.js";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import cookie from "@fastify/cookie";
 import Fastify from "fastify";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -45,6 +46,7 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     await admin.query(`CREATE SCHEMA "${schema}"`);
     url.searchParams.set("options", `-csearch_path=${schema}`);
     db = await createDatabase(url.toString());
+    await app.register(cookie);
     registerErrorHandler(app);
     const relay = new RelayHub(db);
     app.addHook("onClose", () => relay.close());
@@ -335,6 +337,56 @@ describePg.each(["cloud_copy", "private"] as const)("%s catalog rename", sync =>
     for (const again of [await rename(f), await remove(f)]) expect(again.statusCode).toBe(installation ? 403 : 404);
     // Soft delete: the collection's row and label are retained, unreachable.
     expect(await name(f.collection)).toBe("Initial label");
+  });
+  it("lets the owner delete an orphaned collection with a Portal session and retires legacy and native revoking grants", async () => {
+    const f = await fixture();
+    const other = await fixture();
+    const browser = randomUUID(), otherBrowser = randomUUID();
+    const session = randomUUID(), otherSession = randomUUID();
+    await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',1,now()+interval '1 day')", [session, f.user, tokenHash(browser)]);
+    await db.query("INSERT INTO sessions(id,user_id,token_hash,provider,account_session_epoch,expires_at) VALUES($1,$2,$3,'password',1,now()+interval '1 day')", [otherSession, other.user, tokenHash(otherBrowser)]);
+    // Revoke the only enrolled computer so no device can authenticate or confirm local revocations.
+    await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [f.connector]);
+    // Both a legacy local-connector grant (pointing at the same collection UUID) and a native grant are pending revocation.
+    const legacyGrant = await localGrantFixture(db);
+    await db.query("UPDATE connectors SET user_id=$2 WHERE id=$1", [legacyGrant, f.user]);
+    await db.query("UPDATE collections SET user_id=$2, local_id=$3 WHERE id=$1", [legacyGrant, f.user, f.collection]);
+    await db.query("UPDATE grants SET user_id=$2, activated_at=now(), revoked_at=now() WHERE id=$1", [legacyGrant, f.user]);
+    const nativeGrant = await localGrantFixture(db);
+    await db.query(`UPDATE grants SET user_id=$2, collection_id=NULL, next_collection_id=$3,
+      next_collection_sync=$4, activated_at=now() WHERE id=$1`, [nativeGrant, f.user, f.collection, sync]);
+    await db.query("INSERT INTO next_grant_bindings(grant_id,collection_id,log_grant_id,terms_digest) VALUES($1,$2,$3,$4)",
+      [nativeGrant, f.collection, randomUUID(), Buffer.alloc(32)]);
+    await db.query("UPDATE grants SET revoked_at=now() WHERE id=$1", [nativeGrant]);
+
+    const browserHeaders = { cookie: `mdbase_session=${browser}` };
+    const otherHeaders = { cookie: `mdbase_session=${otherBrowser}` };
+    const userHeaders = { "tailscale-user-login": `${f.user}@example.test` };
+    const overview = async () => {
+      const response = await app.inject({ url: "/v1/me?native_storage=omit", headers: userHeaders });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json();
+    };
+    expect((await overview()).native_collections.map((row: { id: string }) => row.id)).toContain(f.collection);
+    expect((await overview()).grants.map((row: { id: string }) => row.id)).toEqual(expect.arrayContaining([legacyGrant, nativeGrant]));
+
+    // Foreign session and mismatched confirmation name are refused.
+    expect((await app.inject({ method: "DELETE", url: `/v1/next/collections/${f.collection}`, headers: otherHeaders, payload: { confirm_name: "Initial label" } })).statusCode).toBe(404);
+    expect((await app.inject({ method: "DELETE", url: `/v1/next/collections/${f.collection}`, headers: browserHeaders, payload: { confirm_name: "Wrong" } })).statusCode).toBe(409);
+
+    const deleted = await app.inject({ method: "DELETE", url: `/v1/next/collections/${f.collection}`, headers: browserHeaders, payload: { confirm_name: "Initial label" } });
+    expect(deleted.statusCode, deleted.body).toBe(200);
+    expect(deleted.json()).toEqual({ collection_id: f.collection, deleted: true });
+    expect(await deletionFacts(f.collection)).toHaveLength(1);
+    const after = await overview();
+    expect(after.native_collections.map((row: { id: string }) => row.id)).not.toContain(f.collection);
+    expect(after.grants).toEqual([]);
+    for (const grantId of [legacyGrant, nativeGrant]) {
+      const retry = await app.inject({ method: "DELETE", url: `/v1/grants/${grantId}`, headers: userHeaders });
+      expect(retry.statusCode).toBe(404);
+      expect(retry.json().error.code).toBe("grant_not_found");
+    }
+    expect((await db.query("SELECT bool_and(revocation_confirmed_at IS NULL) AS unconfirmed FROM grants WHERE id = ANY($1::uuid[])", [[legacyGrant, nativeGrant]])).rows[0].unconfirmed).toBe(true);
   });
   it("removes a pending grant from account management when its collection is deleted", async () => {
     const f = await fixture();

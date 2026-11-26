@@ -1379,6 +1379,7 @@ msgid "Delete"
 msgstr "Delete"
 
 #. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
 #: src/portal-commands.ts
 msgid "Delete {0}"
 msgstr "Delete {0}"
@@ -2526,6 +2527,7 @@ msgid "Permanent allowance"
 msgstr "Permanent allowance"
 
 #: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
 msgstr "Permanent for hosted data. Local files are never removed from your computers."
 
@@ -3562,10 +3564,6 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "Those browsers will need to sign in again. This browser stays signed in."
 
 #: src/ConnectApp.tsx
-msgid "To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”."
-msgstr "To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”."
-
-#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "Try a different computer name. Filtering does not revoke access."
 
@@ -3594,7 +3592,7 @@ msgstr "Try another collection or computer name."
 msgid "Try another name."
 msgstr "Try another name."
 
-#. placeholder {0}: collection.name
+#. placeholder {0}: target.name
 #: src/ConnectApp.tsx
 msgid "Type {0} to confirm"
 msgstr "Type {0} to confirm"

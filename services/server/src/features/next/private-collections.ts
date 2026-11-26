@@ -116,10 +116,11 @@ export function registerPrivateCollectionRoutes(app: FastifyInstance, options: {
   log: Pick<LogServiceClient, "controlItemAt" | "controlItemsAfter" | "head" | "mintToken">;
   /** Native registry floor for owner deletion; absent in tests that need none. */
   deletionFloor?: Pick<LogServiceClient, "recordCollectionDeletion">; now?: () => number;
+  tailscaleAuth?: boolean;
 }): void {
   if (!options.next.privateBootstrap) throw new Error("private collection routes need MDBASE_NEXT_PRIVATE_BOOTSTRAP=1");
   // With both bootstrap modes, the cloud-copy registrar mounts this shared route.
-  if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db, options.log, options.deletionFloor);
+  if (!options.next.cloudCopyBootstrap) registerCollectionNameRoutes(app, options.db, options.log, options.deletionFloor, { tailscaleAuth: options.tailscaleAuth });
   const rootKeyId = Buffer.from(options.next.policyCert.root_key_id, "hex");
   const uuid = { type: "string", pattern: "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$" };
   const proof = { device_id: uuid, challenge: { type: "string", pattern: "^[0-9a-f]{64}$" }, sig: { type: "string", pattern: "^[0-9a-f]{128}$" }, capabilities: modeCapabilitySchema };

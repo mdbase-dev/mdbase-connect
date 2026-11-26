@@ -40,14 +40,38 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
-  it.each(["owner", "member"] as const)("shows the Editor deletion path only to the cloud copy owner: %s", async relationship => {
+  it.each(["owner", "member"] as const)("offers portal collection deletion only to the native collection owner: %s", async relationship => {
     history.replaceState(null, "", "/?collection=native");
     overview.native_collections = [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: [],
       access: { relationship, role: relationship === "owner" ? "owner" : "editor", can_manage_members: relationship === "owner" } }];
     render(<ConnectApp />);
     const link = await screen.findByRole("link", { name: "Open in editor: Cloud notes" });
     expect(new URL(link.getAttribute("href")!).searchParams.get("collection")).toBe("native");
-    expect(!!screen.queryByText(/open the menu next to the collection name and choose “Delete collection…”/i)).toBe(relationship === "owner");
+    expect(!!screen.queryByRole("button", { name: "Delete" })).toBe(relationship === "owner");
+  });
+
+  it("lets the owner delete an orphaned Private collection from the portal by typing its name", async () => {
+    history.replaceState(null, "", "/collections");
+    overview.collections = [];
+    overview.native_collections = [{ id: "orphaned-private", display_name: "tasks", sync: "private", computer_ids: [],
+      access: { relationship: "owner", role: "owner", can_manage_members: false } }];
+    const remove = vi.spyOn(ConnectManagementClient.prototype, "deleteNativeCollection").mockImplementation(async () => {
+      overview.native_collections = [];
+      return { collection_id: "orphaned-private", deleted: true };
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await screen.findByText("Computer not connected");
+    await user.click(screen.getByRole("button", { name: "Actions for tasks" }));
+    await user.click(screen.getByRole("menuitem", { name: "Delete" }));
+    const dialog = screen.getByRole("dialog", { name: "Delete tasks?" });
+    const confirm = within(dialog).getByRole("button", { name: "Delete permanently" });
+    expect(confirm).toBeDisabled();
+    await user.type(within(dialog).getByRole("textbox"), "tasks");
+    expect(confirm).toBeEnabled();
+    await user.click(confirm);
+    expect(remove).toHaveBeenCalledWith("orphaned-private", "tasks", expect.any(Object));
+    await waitFor(() => expect(screen.queryByText("tasks")).not.toBeInTheDocument());
   });
 
   it("offers unapproved official apps and MCP on Collection Overview in managed environments", async () => {

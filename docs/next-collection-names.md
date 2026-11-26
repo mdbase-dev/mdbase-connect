@@ -44,7 +44,7 @@ Response (`Cache-Control: no-store`):
 {"collection_id":"11111111-1111-4111-8111-111111111111","deleted":true}
 ```
 
-The same owner, credential, enrolment, installation-scope and migration-freeze checks as rename apply. `confirm_name`, after trimming, must equal the collection's current name (`New collection` when it has none). That check sits on top of the client's own confirmation. Deletion cannot be undone. In one collection-locked transaction it:
+The same owner, credential, enrolment, installation-scope and migration-freeze checks as rename apply when called with a device or installation bearer credential. When called with no bearer credential from a signed-in Portal session (or Tailscale identity on a tailnet deployment), the server instead verifies the current account session, collection ownership, current owner membership and undeleted state without requiring an enrolled device, so an owner can always permanently delete a collection even after its computers are disconnected or removed. `confirm_name`, after trimming, must equal the collection's current name (`New collection` when it has none). That check sits on top of the client's own confirmation. Deletion cannot be undone. In one collection-locked transaction it:
 
 - records the collection's permanent deletion fact, which the log-token, bootstrap, join, create, rename, sharing and hosted-route paths already refuse;
 - revokes every application grant on the collection for every account, with their access and refresh tokens, and queues each bound log grant's revoke;

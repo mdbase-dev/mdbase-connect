@@ -62,11 +62,13 @@ export function usePortalCommands({ data, collections, applications, sessions, s
     ...(["home", "collections", "applications", "computers", "account", ...(selectedCollectionId ? ["overview", "storage", "access"] as const : [])] as const).map(view => ({ id: view, label: t(i18n)`Go to ${viewLabel(view)}`, shortcut: navigationShortcuts[view], group: "navigation", run: () => navigate(view, view === "home" ? undefined : selectedCollectionId) })),
     { id: "create", label: t(i18n)`Add collection`, shortcut: "c", group: "commands", run: () => reveal("collections", [target("create")], true) },
     ...collections.flatMap(collection => {
-      if (collection.kind !== "hosted") return [];
       const row = target(`collection:${collection.id}`);
+      const canDelete = collection.kind === "hosted"
+        ? collection.source.access.can_delete_collection
+        : collection.kind === "native" && collection.source.access.relationship === "owner";
       return [
-        ...(collection.source.authority_state === "active" && collection.source.access.can_rename_collection ? [{ id: `rename:${collection.id}`, label: t(i18n)`Rename ${collection.name}`, detail: collection.detail, shortcut: focusedItem === `collection:${collection.id}` ? "r" : undefined, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=rename]`], true) }] : []),
-        ...(collection.source.access.can_delete_collection ? [{ id: `delete:${collection.id}`, label: t(i18n)`Delete ${collection.name}`, detail: collection.detail, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=delete]`], true) }] : [])
+        ...(collection.kind === "hosted" && collection.source.authority_state === "active" && collection.source.access.can_rename_collection ? [{ id: `rename:${collection.id}`, label: t(i18n)`Rename ${collection.name}`, detail: collection.detail, shortcut: focusedItem === `collection:${collection.id}` ? "r" : undefined, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=rename]`], true) }] : []),
+        ...(canDelete ? [{ id: `delete:${collection.id}`, label: t(i18n)`Delete ${collection.name}`, detail: collection.detail, group: "commands", run: () => reveal("collections", [`${row} .connect-collection-menu > button`, `${row} [role=menuitem][data-action=delete]`], true) }] : [])
       ];
     }),
     ...applications.map(application => ({ id: `revoke-app:${application.applicationId}`, label: t(i18n)`Revoke ${application.applicationName}`, group: "commands", run: () => reveal("applications", [`${target(`app:${application.applicationId}`)} > summary`, `${target(`app:${application.applicationId}`)} .connect-revoke-application`], true) })),

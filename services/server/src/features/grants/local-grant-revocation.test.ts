@@ -7,6 +7,8 @@ import { buildPolicySnapshot } from "../relay/relay-policy.js";
 import { ExactPolicyPublisher } from "../relay/relay-policy-session.js";
 import { RelayHub } from "../relay/relay.js";
 import { registerGrantRevocationRoute } from "../authorizations/grant-revocation-route.js";
+import { registerAccountOverviewRoute } from "../account/me-routes.js";
+import { AuthenticationPolicyStore } from "../auth/authentication-policy.js";
 import { registerConnectorGrantRoutes } from "./connector-routes.js";
 import { registerErrorHandler } from "../../platform/error-handler.js";
 import { tokenHash } from "../../security.js";
@@ -376,5 +378,35 @@ describe("truthful local revocation", () => {
     const fresh = await buildPolicySnapshot(db, id, 55_000, "1");
     await confirmLocalGrantRevocations(db, id, "1", (fresh as { sequence: number }).sequence);
     expect(await localGrantRevocationStatus(db, id, id)).toBe("revoked");
+  });
+
+  it("retires a revoked local-only grant from account management once its connector is revoked", async () => {
+    const { db, id } = await fixture();
+    const relay = new RelayHub(db);
+    const app = Fastify();
+    registerGrantRevocationRoute(app, { db, relay, tailscaleAuth: true });
+    registerAccountOverviewRoute(app, {
+      db, relay, tailscaleAuth: true, publicUrl: "https://connect.test",
+      authenticationPolicy: new AuthenticationPolicyStore(db, "open")
+    });
+    const headers = { "tailscale-user-login": `${id}@example.test` };
+    const listed = async () => {
+      const response = await app.inject({ url: "/v1/me?native_storage=omit", headers });
+      expect(response.statusCode, response.body).toBe(200);
+      return response.json().grants.map((row: { id: string; revocation_status: string }) => [row.id, row.revocation_status]);
+    };
+    try {
+      await db.query("UPDATE connectors SET revoked_at = now() WHERE id = $1", [id]);
+      // Still visible while active so the user can revoke it, then disappears once revoked.
+      expect(await listed()).toEqual([[id, "active"]]);
+      const revoke = await app.inject({ method: "DELETE", url: `/v1/grants/${id}`, headers });
+      expect(revoke.statusCode, revoke.body).toBe(200);
+      expect(await listed()).toEqual([]);
+      const retry = await app.inject({ method: "DELETE", url: `/v1/grants/${id}`, headers });
+      expect(retry.statusCode).toBe(404);
+      expect(retry.json().error.code).toBe("grant_not_found");
+      expect((await db.query("SELECT revocation_confirmed_at FROM grants WHERE id=$1", [id])).rows)
+        .toEqual([{ revocation_confirmed_at: null }]);
+    } finally { await app.close(); await relay.close(); }
   });
 });
