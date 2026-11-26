@@ -15,6 +15,11 @@ msgstr "{count, plural, other {# 条记录}}"
 msgid "{count} of {total} records"
 msgstr "{total} 条记录中的 {count} 条"
 
+#: view/RecordCard.tsx
+msgctxt "Starts writing the body of a record that has none"
+msgid "Add text"
+msgstr "添加正文"
+
 #: view/View.tsx
 msgctxt "Opens the approval page for a collection whose access lapsed"
 msgid "Approve again"
@@ -29,15 +34,57 @@ msgctxt "Returns from a record to the query results"
 msgid "Back"
 msgstr "返回"
 
-#. placeholder {0}: recordTitle(record)
 #: view/RecordCard.tsx
-msgid "Body of {0}"
-msgstr "{0} 的正文"
+msgid "Body"
+msgstr "正文"
+
+#: view/RecordCard.tsx
+msgid "Body of {title}"
+msgstr "{title} 的正文"
+
+#: view/NewRecord.tsx
+msgctxt "Leaves the new record form without making it"
+msgid "Cancel"
+msgstr "取消"
+
+#: view/RecordCard.tsx
+msgctxt "Stops editing a record's body without saving"
+msgid "Cancel"
+msgstr "取消"
+
+#: view/RecordCard.tsx
+msgctxt "Names the properties the last update changed"
+msgid "Changed {changed}"
+msgstr "已更改：{changed}"
+
+#: view/RecordCard.tsx
+msgid "Changed the text"
+msgstr "已更改正文"
 
 #: view/RecordsTable.tsx
 msgctxt "Column of how many records a group holds"
 msgid "Count"
 msgstr "数量"
+
+#: view/NewRecord.tsx
+msgctxt "Makes the new record"
+msgid "Create"
+msgstr "创建"
+
+#: view/RecordCard.tsx
+msgctxt "Edits a record's body"
+msgid "Edit text"
+msgstr "编辑正文"
+
+#: view/View.tsx
+msgctxt "Returns the view to its place in the conversation"
+msgid "Exit full screen"
+msgstr "退出全屏"
+
+#: view/View.tsx
+msgctxt "Shows the view over the whole conversation"
+msgid "Full screen"
+msgstr "全屏"
 
 #: view/RecordsTable.tsx
 msgctxt "Loads the next page of query results"
@@ -53,9 +100,24 @@ msgctxt "Column of record names"
 msgid "Name"
 msgstr "名称"
 
+#: view/NewRecord.tsx
+msgctxt "Heading of the form that makes a record of a type"
+msgid "New {type}"
+msgstr "新建 {type}"
+
+#: view/RecordsTable.tsx
+msgctxt "Makes a new record of the type the results show"
+msgid "New {type}"
+msgstr "新建 {type}"
+
 #: view/RecordsTable.tsx
 msgid "No records match."
 msgstr "没有匹配的记录。"
+
+#: view/View.tsx
+msgctxt "Opens the record or collection in the mdbase Editor"
+msgid "Open in Editor"
+msgstr "在 Editor 中打开"
 
 #. placeholder {0}: shown.title
 #: view/View.tsx
@@ -73,12 +135,37 @@ msgid "Reload"
 msgstr "重新加载"
 
 #: view/RecordCard.tsx
+msgctxt "Names the properties the last update removed"
+msgid "Removed {removed}"
+msgstr "已移除：{removed}"
+
+#: view/RecordCard.tsx
+msgctxt "Saves the edited body of a record"
+msgid "Save"
+msgstr "保存"
+
+#: view/RecordCard.tsx
+msgctxt "Folds a record card back to its summary"
+msgid "Show less"
+msgstr "收起"
+
+#: view/RecordCard.tsx
+msgctxt "Unfolds a record card to all its properties and its body"
+msgid "Show more"
+msgstr "显示更多"
+
+#: view/RecordCard.tsx
+#: view/RecordsTable.tsx
 msgid "The change could not be saved."
 msgstr "无法保存此更改。"
 
 #: view/View.tsx
 msgid "The collection could not answer."
 msgstr "集合无法响应。"
+
+#: view/NewRecord.tsx
+msgid "The record could not be made."
+msgstr "无法创建记录。"
 
 #: view/RecordCard.tsx
 msgid "The record could not be read again."
@@ -87,6 +174,11 @@ msgstr "无法重新读取该记录。"
 #: view/View.tsx
 msgid "There is nothing here to show."
 msgstr "这里没有可显示的内容。"
+
+#: view/NewRecord.tsx
+msgctxt "Field for a new record's title"
+msgid "Title"
+msgstr "标题"
 
 #: view/RecordCard.tsx
 msgctxt "List of the mdbase types a record has"

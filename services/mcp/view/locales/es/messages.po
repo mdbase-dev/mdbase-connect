@@ -15,6 +15,11 @@ msgstr "{count, plural, one {# registro} other {# registros}}"
 msgid "{count} of {total} records"
 msgstr "{count} de {total} registros"
 
+#: view/RecordCard.tsx
+msgctxt "Starts writing the body of a record that has none"
+msgid "Add text"
+msgstr "Añadir texto"
+
 #: view/View.tsx
 msgctxt "Opens the approval page for a collection whose access lapsed"
 msgid "Approve again"
@@ -29,15 +34,57 @@ msgctxt "Returns from a record to the query results"
 msgid "Back"
 msgstr "Volver"
 
-#. placeholder {0}: recordTitle(record)
 #: view/RecordCard.tsx
-msgid "Body of {0}"
-msgstr "Cuerpo de {0}"
+msgid "Body"
+msgstr "Cuerpo"
+
+#: view/RecordCard.tsx
+msgid "Body of {title}"
+msgstr "Cuerpo de {title}"
+
+#: view/NewRecord.tsx
+msgctxt "Leaves the new record form without making it"
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: view/RecordCard.tsx
+msgctxt "Stops editing a record's body without saving"
+msgid "Cancel"
+msgstr "Cancelar"
+
+#: view/RecordCard.tsx
+msgctxt "Names the properties the last update changed"
+msgid "Changed {changed}"
+msgstr "Cambiado: {changed}"
+
+#: view/RecordCard.tsx
+msgid "Changed the text"
+msgstr "Texto cambiado"
 
 #: view/RecordsTable.tsx
 msgctxt "Column of how many records a group holds"
 msgid "Count"
 msgstr "Cantidad"
+
+#: view/NewRecord.tsx
+msgctxt "Makes the new record"
+msgid "Create"
+msgstr "Crear"
+
+#: view/RecordCard.tsx
+msgctxt "Edits a record's body"
+msgid "Edit text"
+msgstr "Editar texto"
+
+#: view/View.tsx
+msgctxt "Returns the view to its place in the conversation"
+msgid "Exit full screen"
+msgstr "Salir de pantalla completa"
+
+#: view/View.tsx
+msgctxt "Shows the view over the whole conversation"
+msgid "Full screen"
+msgstr "Pantalla completa"
 
 #: view/RecordsTable.tsx
 msgctxt "Loads the next page of query results"
@@ -53,9 +100,24 @@ msgctxt "Column of record names"
 msgid "Name"
 msgstr "Nombre"
 
+#: view/NewRecord.tsx
+msgctxt "Heading of the form that makes a record of a type"
+msgid "New {type}"
+msgstr "Nuevo: {type}"
+
+#: view/RecordsTable.tsx
+msgctxt "Makes a new record of the type the results show"
+msgid "New {type}"
+msgstr "Nuevo: {type}"
+
 #: view/RecordsTable.tsx
 msgid "No records match."
 msgstr "Ningún registro coincide."
+
+#: view/View.tsx
+msgctxt "Opens the record or collection in the mdbase Editor"
+msgid "Open in Editor"
+msgstr "Abrir en Editor"
 
 #. placeholder {0}: shown.title
 #: view/View.tsx
@@ -73,12 +135,37 @@ msgid "Reload"
 msgstr "Volver a cargar"
 
 #: view/RecordCard.tsx
+msgctxt "Names the properties the last update removed"
+msgid "Removed {removed}"
+msgstr "Eliminado: {removed}"
+
+#: view/RecordCard.tsx
+msgctxt "Saves the edited body of a record"
+msgid "Save"
+msgstr "Guardar"
+
+#: view/RecordCard.tsx
+msgctxt "Folds a record card back to its summary"
+msgid "Show less"
+msgstr "Mostrar menos"
+
+#: view/RecordCard.tsx
+msgctxt "Unfolds a record card to all its properties and its body"
+msgid "Show more"
+msgstr "Mostrar más"
+
+#: view/RecordCard.tsx
+#: view/RecordsTable.tsx
 msgid "The change could not be saved."
 msgstr "No se pudo guardar el cambio."
 
 #: view/View.tsx
 msgid "The collection could not answer."
 msgstr "La colección no pudo responder."
+
+#: view/NewRecord.tsx
+msgid "The record could not be made."
+msgstr "No se pudo crear el registro."
 
 #: view/RecordCard.tsx
 msgid "The record could not be read again."
@@ -87,6 +174,11 @@ msgstr "No se pudo volver a leer el registro."
 #: view/View.tsx
 msgid "There is nothing here to show."
 msgstr "No hay nada que mostrar aquí."
+
+#: view/NewRecord.tsx
+msgctxt "Field for a new record's title"
+msgid "Title"
+msgstr "Título"
 
 #: view/RecordCard.tsx
 msgctxt "List of the mdbase types a record has"

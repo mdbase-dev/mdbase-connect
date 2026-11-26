@@ -10,6 +10,8 @@ export interface Host {
   openLink(url: string): void;
   /** Tells the model what the person changed here, for its next turn. */
   tell(text: string): void;
+  /** Asks the host to show the view inline or full screen; the host's context then says which it did. */
+  display(mode: "inline" | "fullscreen"): void;
 }
 
 export function appHost(app: App): Host {
@@ -32,6 +34,9 @@ export function appHost(app: App): Host {
     },
     openLink(url) {
       void app.openLink({ url });
+    },
+    display(mode) {
+      void app.requestDisplayMode({ mode });
     },
     tell(text) {
       // A host without model context updates still shows the change; the model reads it next time it looks.

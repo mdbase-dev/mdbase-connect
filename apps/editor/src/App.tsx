@@ -176,6 +176,7 @@ import type { FileAssetSnapshot } from "./file-asset-store";
 import { useLinkTargets } from "./collection-links";
 import type { NoteSurface } from "./use-note-surface";
 import { useSessionLifecycle } from "./use-session-lifecycle";
+import { takeRequestedNote } from "./requested-note";
 import {
   activeTab, adjacentTab, backgroundNotes, changeActiveHistory, closePane, closeTab, emptyWorkspace, focusedPane, focusPane, historyStep, loadWorkspace, nextPane, openBeside, openTab,
   paneTab, renameInWorkspace, returnToNote, saveWorkspace, selectTab, splitPane, tabNote, useWorkspace, visitNote, type NoteTab, type Pane, type SplitDirection,
@@ -779,8 +780,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       const descriptionLoad = refreshDescription(current);
       const restored = loadWorkspace(mutationScope.current.token().collectionId!);
       changeWorkspace(() => restored);
-      const remembered = tabNote(activeTab(restored));
-      // Open the active tab's note alongside description; otherwise query the newest.
+      // A record another app linked to comes first, then the active tab's note.
+      const remembered = takeRequestedNote(mutationScope.current.token().collectionId!) ?? tabNote(activeTab(restored));
+      // Open that note alongside description; otherwise query the newest.
       const rememberedNote = remembered ? openNote(remembered, {}, descriptionLoad) : Promise.resolve(false);
       const [nextDescription, newestPath] = await Promise.all([
         descriptionLoad, remembered ? undefined : gateway.mostRecentNote().catch(() => undefined)

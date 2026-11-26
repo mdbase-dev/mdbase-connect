@@ -30,6 +30,7 @@ import { EditorEntryPage } from "./ConnectionScreens";
 import { configuredConnectServerUrl, editorPortalUrl } from "./connect-endpoint";
 import { editorEnvironment as environment } from "./environment";
 import { OpeningScreen } from "./LoadingScreens";
+import { captureRequestedNote } from "./requested-note";
 
 function reportLocaleLoadError(error: unknown) {
   console.warn("Editor language could not be loaded; keeping the current language.", error);
@@ -71,6 +72,8 @@ if (grantCallback) {
 }
 // One SDK owner for the module lifetime; construction does no registration IO.
 const sdk = portalUrl && !wrongOrigin && !managementTarget && !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
+// A link naming a record is read before the SDK can rewrite the address.
+if (sdk) captureRequestedNote();
 // Pages that show the editor fetch its chunks while the SDK opens, not after:
 // the lazy boundaries' own import() joins this in-flight module load. A failed
 // load is reported by the boundary that renders it.

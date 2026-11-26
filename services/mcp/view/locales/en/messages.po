@@ -15,6 +15,11 @@ msgstr "{count, plural, one {# record} other {# records}}"
 msgid "{count} of {total} records"
 msgstr "{count} of {total} records"
 
+#: view/RecordCard.tsx
+msgctxt "Starts writing the body of a record that has none"
+msgid "Add text"
+msgstr "Add text"
+
 #: view/View.tsx
 msgctxt "Opens the approval page for a collection whose access lapsed"
 msgid "Approve again"
@@ -29,15 +34,57 @@ msgctxt "Returns from a record to the query results"
 msgid "Back"
 msgstr "Back"
 
-#. placeholder {0}: recordTitle(record)
 #: view/RecordCard.tsx
-msgid "Body of {0}"
-msgstr "Body of {0}"
+msgid "Body"
+msgstr "Body"
+
+#: view/RecordCard.tsx
+msgid "Body of {title}"
+msgstr "Body of {title}"
+
+#: view/NewRecord.tsx
+msgctxt "Leaves the new record form without making it"
+msgid "Cancel"
+msgstr "Cancel"
+
+#: view/RecordCard.tsx
+msgctxt "Stops editing a record's body without saving"
+msgid "Cancel"
+msgstr "Cancel"
+
+#: view/RecordCard.tsx
+msgctxt "Names the properties the last update changed"
+msgid "Changed {changed}"
+msgstr "Changed {changed}"
+
+#: view/RecordCard.tsx
+msgid "Changed the text"
+msgstr "Changed the text"
 
 #: view/RecordsTable.tsx
 msgctxt "Column of how many records a group holds"
 msgid "Count"
 msgstr "Count"
+
+#: view/NewRecord.tsx
+msgctxt "Makes the new record"
+msgid "Create"
+msgstr "Create"
+
+#: view/RecordCard.tsx
+msgctxt "Edits a record's body"
+msgid "Edit text"
+msgstr "Edit text"
+
+#: view/View.tsx
+msgctxt "Returns the view to its place in the conversation"
+msgid "Exit full screen"
+msgstr "Exit full screen"
+
+#: view/View.tsx
+msgctxt "Shows the view over the whole conversation"
+msgid "Full screen"
+msgstr "Full screen"
 
 #: view/RecordsTable.tsx
 msgctxt "Loads the next page of query results"
@@ -53,9 +100,24 @@ msgctxt "Column of record names"
 msgid "Name"
 msgstr "Name"
 
+#: view/NewRecord.tsx
+msgctxt "Heading of the form that makes a record of a type"
+msgid "New {type}"
+msgstr "New {type}"
+
+#: view/RecordsTable.tsx
+msgctxt "Makes a new record of the type the results show"
+msgid "New {type}"
+msgstr "New {type}"
+
 #: view/RecordsTable.tsx
 msgid "No records match."
 msgstr "No records match."
+
+#: view/View.tsx
+msgctxt "Opens the record or collection in the mdbase Editor"
+msgid "Open in Editor"
+msgstr "Open in Editor"
 
 #. placeholder {0}: shown.title
 #: view/View.tsx
@@ -73,12 +135,37 @@ msgid "Reload"
 msgstr "Reload"
 
 #: view/RecordCard.tsx
+msgctxt "Names the properties the last update removed"
+msgid "Removed {removed}"
+msgstr "Removed {removed}"
+
+#: view/RecordCard.tsx
+msgctxt "Saves the edited body of a record"
+msgid "Save"
+msgstr "Save"
+
+#: view/RecordCard.tsx
+msgctxt "Folds a record card back to its summary"
+msgid "Show less"
+msgstr "Show less"
+
+#: view/RecordCard.tsx
+msgctxt "Unfolds a record card to all its properties and its body"
+msgid "Show more"
+msgstr "Show more"
+
+#: view/RecordCard.tsx
+#: view/RecordsTable.tsx
 msgid "The change could not be saved."
 msgstr "The change could not be saved."
 
 #: view/View.tsx
 msgid "The collection could not answer."
 msgstr "The collection could not answer."
+
+#: view/NewRecord.tsx
+msgid "The record could not be made."
+msgstr "The record could not be made."
 
 #: view/RecordCard.tsx
 msgid "The record could not be read again."
@@ -87,6 +174,11 @@ msgstr "The record could not be read again."
 #: view/View.tsx
 msgid "There is nothing here to show."
 msgstr "There is nothing here to show."
+
+#: view/NewRecord.tsx
+msgctxt "Field for a new record's title"
+msgid "Title"
+msgstr "Title"
 
 #: view/RecordCard.tsx
 msgctxt "List of the mdbase types a record has"

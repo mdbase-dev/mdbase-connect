@@ -15,6 +15,11 @@ msgstr "{count, plural, other {레코드 #개}}"
 msgid "{count} of {total} records"
 msgstr "레코드 {total}개 중 {count}개"
 
+#: view/RecordCard.tsx
+msgctxt "Starts writing the body of a record that has none"
+msgid "Add text"
+msgstr "텍스트 추가"
+
 #: view/View.tsx
 msgctxt "Opens the approval page for a collection whose access lapsed"
 msgid "Approve again"
@@ -29,15 +34,57 @@ msgctxt "Returns from a record to the query results"
 msgid "Back"
 msgstr "뒤로"
 
-#. placeholder {0}: recordTitle(record)
 #: view/RecordCard.tsx
-msgid "Body of {0}"
-msgstr "{0} 본문"
+msgid "Body"
+msgstr "본문"
+
+#: view/RecordCard.tsx
+msgid "Body of {title}"
+msgstr "{title} 본문"
+
+#: view/NewRecord.tsx
+msgctxt "Leaves the new record form without making it"
+msgid "Cancel"
+msgstr "취소"
+
+#: view/RecordCard.tsx
+msgctxt "Stops editing a record's body without saving"
+msgid "Cancel"
+msgstr "취소"
+
+#: view/RecordCard.tsx
+msgctxt "Names the properties the last update changed"
+msgid "Changed {changed}"
+msgstr "변경됨: {changed}"
+
+#: view/RecordCard.tsx
+msgid "Changed the text"
+msgstr "본문 변경됨"
 
 #: view/RecordsTable.tsx
 msgctxt "Column of how many records a group holds"
 msgid "Count"
 msgstr "개수"
+
+#: view/NewRecord.tsx
+msgctxt "Makes the new record"
+msgid "Create"
+msgstr "만들기"
+
+#: view/RecordCard.tsx
+msgctxt "Edits a record's body"
+msgid "Edit text"
+msgstr "텍스트 편집"
+
+#: view/View.tsx
+msgctxt "Returns the view to its place in the conversation"
+msgid "Exit full screen"
+msgstr "전체 화면 종료"
+
+#: view/View.tsx
+msgctxt "Shows the view over the whole conversation"
+msgid "Full screen"
+msgstr "전체 화면"
 
 #: view/RecordsTable.tsx
 msgctxt "Loads the next page of query results"
@@ -53,9 +100,24 @@ msgctxt "Column of record names"
 msgid "Name"
 msgstr "이름"
 
+#: view/NewRecord.tsx
+msgctxt "Heading of the form that makes a record of a type"
+msgid "New {type}"
+msgstr "새 {type}"
+
+#: view/RecordsTable.tsx
+msgctxt "Makes a new record of the type the results show"
+msgid "New {type}"
+msgstr "새 {type}"
+
 #: view/RecordsTable.tsx
 msgid "No records match."
 msgstr "일치하는 레코드가 없습니다."
+
+#: view/View.tsx
+msgctxt "Opens the record or collection in the mdbase Editor"
+msgid "Open in Editor"
+msgstr "Editor에서 열기"
 
 #. placeholder {0}: shown.title
 #: view/View.tsx
@@ -73,12 +135,37 @@ msgid "Reload"
 msgstr "새로고침"
 
 #: view/RecordCard.tsx
+msgctxt "Names the properties the last update removed"
+msgid "Removed {removed}"
+msgstr "제거됨: {removed}"
+
+#: view/RecordCard.tsx
+msgctxt "Saves the edited body of a record"
+msgid "Save"
+msgstr "저장"
+
+#: view/RecordCard.tsx
+msgctxt "Folds a record card back to its summary"
+msgid "Show less"
+msgstr "간단히 보기"
+
+#: view/RecordCard.tsx
+msgctxt "Unfolds a record card to all its properties and its body"
+msgid "Show more"
+msgstr "더 보기"
+
+#: view/RecordCard.tsx
+#: view/RecordsTable.tsx
 msgid "The change could not be saved."
 msgstr "변경 사항을 저장할 수 없습니다."
 
 #: view/View.tsx
 msgid "The collection could not answer."
 msgstr "컬렉션이 응답하지 못했습니다."
+
+#: view/NewRecord.tsx
+msgid "The record could not be made."
+msgstr "레코드를 만들 수 없습니다."
 
 #: view/RecordCard.tsx
 msgid "The record could not be read again."
@@ -87,6 +174,11 @@ msgstr "레코드를 다시 읽을 수 없습니다."
 #: view/View.tsx
 msgid "There is nothing here to show."
 msgstr "여기에 표시할 항목이 없습니다."
+
+#: view/NewRecord.tsx
+msgctxt "Field for a new record's title"
+msgid "Title"
+msgstr "제목"
 
 #: view/RecordCard.tsx
 msgctxt "List of the mdbase types a record has"
