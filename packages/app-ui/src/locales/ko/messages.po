@@ -438,6 +438,7 @@ msgid "Choose a screenshot smaller than 16 megapixels."
 msgstr "16메가픽셀 미만의 스크린샷을 선택하세요."
 
 #: src/feedback-data.ts
+msgctxt "Feedback"
 msgid "Choose a screenshot smaller than 20 MB."
 msgstr "20MB 미만의 스크린샷을 선택하세요."
 
@@ -1659,6 +1660,7 @@ msgid "Sending…"
 msgstr "보내는 중…"
 
 #: src/Feedback.tsx
+msgctxt "Feedback"
 msgid "Sent privately to the mdbase team without the screenshot, which couldn’t be attached."
 msgstr "스크린샷을 첨부할 수 없어 스크린샷 없이 mdbase 팀에 비공개로 전송되었습니다."
 
@@ -2002,6 +2004,7 @@ msgid "The screenshot could not be saved."
 msgstr "스크린샷을 저장하지 못했습니다."
 
 #: src/Feedback.tsx
+msgctxt "Feedback"
 msgid "The screenshot could not be sent and was excluded."
 msgstr "스크린샷을 전송할 수 없어 제외되었습니다."
 

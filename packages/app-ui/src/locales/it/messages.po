@@ -438,6 +438,7 @@ msgid "Choose a screenshot smaller than 16 megapixels."
 msgstr "Scegli una schermata con meno di 16 megapixel."
 
 #: src/feedback-data.ts
+msgctxt "Feedback"
 msgid "Choose a screenshot smaller than 20 MB."
 msgstr "Scegli una schermata di dimensioni inferiori a 20 MB."
 
@@ -1659,6 +1660,7 @@ msgid "Sending…"
 msgstr "Invio…"
 
 #: src/Feedback.tsx
+msgctxt "Feedback"
 msgid "Sent privately to the mdbase team without the screenshot, which couldn’t be attached."
 msgstr "Inviato privatamente al team di mdbase senza la schermata, che non è stato possibile allegare."
 
@@ -2002,6 +2004,7 @@ msgid "The screenshot could not be saved."
 msgstr "Impossibile salvare la schermata."
 
 #: src/Feedback.tsx
+msgctxt "Feedback"
 msgid "The screenshot could not be sent and was excluded."
 msgstr "Impossibile inviare la schermata, che è stata esclusa."
 

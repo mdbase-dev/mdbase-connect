@@ -193,7 +193,7 @@ export async function screenshotFromCanvas(canvas: HTMLCanvasElement, type: "ima
   throw new Error(t({ message: "The screenshot is larger than 3 MB. Choose a smaller image." }));
 }
 export async function readFeedbackScreenshot(file: File): Promise<FeedbackScreenshot> {
-  if (file.size > FEEDBACK_MAX_UPLOAD_BYTES) throw new Error(t({ message: "Choose a screenshot smaller than 20 MB." }));
+  if (file.size > FEEDBACK_MAX_UPLOAD_BYTES) throw new Error(t({ message: "Choose a screenshot smaller than 20 MB.", context: "Feedback" }));
   if (file.type !== "image/png" && file.type !== "image/jpeg") throw new Error(t({ message: "Choose a PNG or JPEG screenshot." }));
   const bytes = new Uint8Array(await file.arrayBuffer());
   const valid = file.type === "image/png" ? [137, 80, 78, 71, 13, 10, 26, 10].every((v, i) => bytes[i] === v) : bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;

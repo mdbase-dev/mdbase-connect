@@ -185,7 +185,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
         } catch (fallbackReason) {
           if (live.current) {
             setIncludeScreenshot(false);
-            setScreenshotError(t({ message: "The screenshot could not be sent and was excluded." }));
+            setScreenshotError(t({ message: "The screenshot could not be sent and was excluded.", context: "Feedback" }));
             setSubmitError(controller.signal.aborted ? t({ message: "Sending timed out. Please try again." }) : fallbackReason instanceof Error ? fallbackReason.message : t({ message: "Feedback could not be sent. Please try again." }));
           }
           return;
@@ -202,7 +202,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
     <div className="mdbase-feedback-app" ref={content}>{children}</div>
     <span className="mdbase-visually-hidden" role="status">{wiggle ? t({ message: "A problem occurred. You can use Send feedback to report it." }) : ""}</span>
     {endpoint && <Dialog open={open && !capturing && !markup} title={t({ message: "Send feedback" })} onClose={() => { if (!markup) close(); }} closeDisabled={submitting} className={`mdbase-feedback-dialog${capturing ? " is-capturing" : ""}`}>
-      {submitted ? <section className="mdbase-feedback-success"><h3 ref={successHeading} tabIndex={-1}>{feedbackTopics[submitted].thanks}</h3><p>{submittedWithoutScreenshot ? t({ message: "Sent privately to the mdbase team without the screenshot, which couldn’t be attached." }) : t({ message: "Sent privately to the mdbase team." })}</p><button type="button" className="mdbase-feedback-primary" onClick={close}>{t({ message: "Back to your work" })}</button></section> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      {submitted ? <section className="mdbase-feedback-success"><h3 ref={successHeading} tabIndex={-1}>{feedbackTopics[submitted].thanks}</h3><p>{submittedWithoutScreenshot ? t({ message: "Sent privately to the mdbase team without the screenshot, which couldn’t be attached.", context: "Feedback" }) : t({ message: "Sent privately to the mdbase team." })}</p><button type="button" className="mdbase-feedback-primary" onClick={close}>{t({ message: "Back to your work" })}</button></section> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <div className="mdbase-feedback-body" ref={body}>
           <fieldset className="mdbase-feedback-topics" disabled={submitting}><legend className="mdbase-visually-hidden">{t({ message: "Feedback type" })}</legend>{(Object.keys(feedbackTopics) as FeedbackTopic[]).map((value) => <label key={value}><input type="radio" name={`${id}-topic`} checked={topic === value} onChange={() => setTopic(value)} />{feedbackTopics[value].label}</label>)}</fieldset>
           <label className="mdbase-feedback-field"><span>{config.prompt}</span><textarea data-autofocus ref={messageField} required maxLength={FEEDBACK_MAX_MESSAGE_LENGTH} rows={5} placeholder={config.placeholder} value={message} disabled={submitting} onChange={(event) => setMessage(event.target.value)} /></label>
