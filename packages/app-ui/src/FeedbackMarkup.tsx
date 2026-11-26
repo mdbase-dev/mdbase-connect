@@ -110,7 +110,7 @@ export function FeedbackMarkup({ open, screenshot, onApply, onClose }: { open: b
       if (!canvas.current) return;
       finish(); paint(false); setBusy(true); setError("");
       const count = marks.current.length;
-      void screenshotFromCanvas(canvas.current).then((screenshot) => onApply(screenshot, count)).catch((reason: unknown) => { setBusy(false); setError(reason instanceof Error ? reason.message : t({ message: "The screenshot could not be saved." })); });
+      void screenshotFromCanvas(canvas.current, screenshot.media_type).then((next) => onApply(next, count)).catch((reason: unknown) => { setBusy(false); setError(reason instanceof Error ? reason.message : t({ message: "The screenshot could not be saved." })); });
     }}>{busy ? t({ message: "Applying…" }) : t({ message: "Apply changes" })}</button></div>
   </Dialog>;
 }

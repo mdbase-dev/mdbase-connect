@@ -7,7 +7,7 @@ import { FeedbackMarkup } from "./FeedbackMarkup.js";
 import { FeedbackVerification } from "./FeedbackVerification.js";
 import {
   FEEDBACK_ERROR_CODES, FEEDBACK_MAX_MESSAGE_LENGTH, captureFeedbackScreenshot, feedbackDiagnostics, feedbackEvents, feedbackTopics,
-  readFeedbackScreenshot, resolveFeedbackEndpoint, screenshotUrl, sendFeedback,
+  isScreenshotSendError, readFeedbackScreenshot, resolveFeedbackEndpoint, screenshotUrl, sendFeedback,
   type FeedbackApplication, type FeedbackDiagnosticEvent, type FeedbackFailure, type FeedbackScreenshot, type FeedbackSubmission, type FeedbackTopic
 } from "./feedback-data.js";
 export { feedbackApplication, resolveFeedbackEndpoint } from "./feedback-data.js";
@@ -75,6 +75,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
   const [submitError, setSubmitError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState<FeedbackTopic | null>(null);
+  const [submittedWithoutScreenshot, setSubmittedWithoutScreenshot] = useState(false);
   useEffect(() => { if (submitted) successHeading.current?.focus(); }, [submitted]);
   const [turnstileToken, setTurnstileToken] = useState("");
   const [verificationAttempt, setVerificationAttempt] = useState(0);
@@ -106,7 +107,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
   const controls = useMemo(() => ({ enabled: Boolean(endpoint), open: openFeedback, reportError, wiggle }), [endpoint, openFeedback, reportError, wiggle]);
   function resetDraft() {
     setTopic("problem"); setMessage(""); setReplyEmail(""); setIncludeCollection(false); setIncludeDiagnostics(false);
-    setScreenshot(null); setIncludeScreenshot(true); setSubmitted(null); setSubmitError(""); setScreenshotError(""); setCaptureStatus("");
+    setScreenshot(null); setIncludeScreenshot(true); setSubmitted(null); setSubmittedWithoutScreenshot(false); setSubmitError(""); setScreenshotError(""); setCaptureStatus("");
     attempt.current = null;
   }
   function close() {
@@ -155,13 +156,14 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
   }
   async function submit() {
     if (!endpoint || !message.trim() || imageOperation.current || submissionOperation.current || (turnstileSiteKey && !turnstileToken)) return;
-    const payload = {
+    const basePayload = {
       schema_version: 2 as const, application, topic, message: message.trim(),
       ...(replyEmail.trim() ? { reply_email: replyEmail.trim() } : {}),
       ...(includeCollection && collectionName ? { context: { collection_name: collectionName } } : {}),
-      ...(topic === "problem" && includeDiagnostics && diagnostics ? { diagnostics } : {}),
-      ...(screenshot && includeScreenshot ? { screenshot } : {})
+      ...(topic === "problem" && includeDiagnostics && diagnostics ? { diagnostics } : {})
     };
+    const withScreenshot = Boolean(screenshot && includeScreenshot);
+    const payload = withScreenshot && screenshot ? { ...basePayload, screenshot } : basePayload;
     const fingerprint = JSON.stringify(payload);
     if (attempt.current?.fingerprint !== fingerprint) attempt.current = { fingerprint, requestId: crypto.randomUUID() };
     const submission: FeedbackSubmission = { ...payload, request_id: attempt.current.requestId, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) };
@@ -170,8 +172,25 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
     setSubmitting(true); setSubmitError("");
     try {
       await sendFeedback(endpoint, submission, controller.signal);
-      if (live.current) { setSubmitted(topic); setScreenshot(null); }
+      if (live.current) { setSubmitted(topic); setSubmittedWithoutScreenshot(false); setScreenshot(null); }
     } catch (reason) {
+      if (withScreenshot && !controller.signal.aborted && isScreenshotSendError(reason)) {
+        const fallbackFingerprint = JSON.stringify(basePayload);
+        attempt.current = { fingerprint: fallbackFingerprint, requestId: crypto.randomUUID() };
+        const fallbackSubmission: FeedbackSubmission = { ...basePayload, request_id: attempt.current.requestId, ...(turnstileToken ? { turnstile_token: turnstileToken } : {}) };
+        try {
+          await sendFeedback(endpoint, fallbackSubmission, controller.signal);
+          if (live.current) { setSubmitted(topic); setSubmittedWithoutScreenshot(true); setScreenshot(null); }
+          return;
+        } catch (fallbackReason) {
+          if (live.current) {
+            setIncludeScreenshot(false);
+            setScreenshotError(t({ message: "The screenshot could not be sent and was excluded.", context: "Feedback" }));
+            setSubmitError(controller.signal.aborted ? t({ message: "Sending timed out. Please try again." }) : fallbackReason instanceof Error ? fallbackReason.message : t({ message: "Feedback could not be sent. Please try again." }));
+          }
+          return;
+        }
+      }
       if (live.current) setSubmitError(controller.signal.aborted ? t({ message: "Sending timed out. Please try again." }) : reason instanceof Error ? reason.message : t({ message: "Feedback could not be sent. Please try again." }));
     } finally {
       clearTimeout(timer); submissionOperation.current = null;
@@ -183,7 +202,7 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
     <div className="mdbase-feedback-app" ref={content}>{children}</div>
     <span className="mdbase-visually-hidden" role="status">{wiggle ? t({ message: "A problem occurred. You can use Send feedback to report it." }) : ""}</span>
     {endpoint && <Dialog open={open && !capturing && !markup} title={t({ message: "Send feedback" })} onClose={() => { if (!markup) close(); }} closeDisabled={submitting} className={`mdbase-feedback-dialog${capturing ? " is-capturing" : ""}`}>
-      {submitted ? <section className="mdbase-feedback-success"><h3 ref={successHeading} tabIndex={-1}>{feedbackTopics[submitted].thanks}</h3><p>{t({ message: "Sent privately to the mdbase team." })}</p><button type="button" className="mdbase-feedback-primary" onClick={close}>{t({ message: "Back to your work" })}</button></section> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
+      {submitted ? <section className="mdbase-feedback-success"><h3 ref={successHeading} tabIndex={-1}>{feedbackTopics[submitted].thanks}</h3><p>{submittedWithoutScreenshot ? t({ message: "Sent privately to the mdbase team without the screenshot, which couldn’t be attached.", context: "Feedback" }) : t({ message: "Sent privately to the mdbase team." })}</p><button type="button" className="mdbase-feedback-primary" onClick={close}>{t({ message: "Back to your work" })}</button></section> : <form onSubmit={(event) => { event.preventDefault(); void submit(); }}>
         <div className="mdbase-feedback-body" ref={body}>
           <fieldset className="mdbase-feedback-topics" disabled={submitting}><legend className="mdbase-visually-hidden">{t({ message: "Feedback type" })}</legend>{(Object.keys(feedbackTopics) as FeedbackTopic[]).map((value) => <label key={value}><input type="radio" name={`${id}-topic`} checked={topic === value} onChange={() => setTopic(value)} />{feedbackTopics[value].label}</label>)}</fieldset>
           <label className="mdbase-feedback-field"><span>{config.prompt}</span><textarea data-autofocus ref={messageField} required maxLength={FEEDBACK_MAX_MESSAGE_LENGTH} rows={5} placeholder={config.placeholder} value={message} disabled={submitting} onChange={(event) => setMessage(event.target.value)} /></label>
@@ -209,6 +228,6 @@ export function FeedbackProvider({ endpoint: configuredEndpoint, application, tu
         <footer className="mdbase-feedback-actions"><button type="button" disabled={submitting} onClick={close}>{t({ message: "Cancel" })}</button><button type="submit" className="mdbase-feedback-primary" disabled={submitting || imageBusy || !message.trim() || Boolean(turnstileSiteKey && !turnstileToken)}>{submitting ? t({ message: "Sending…" }) : t({ message: "Send feedback" })}</button></footer>
       </form>}
     </Dialog>}
-    {screenshot && <FeedbackMarkup open={markup} screenshot={screenshot} onClose={() => { setMarkup(false); setCaptureStatus(t({ message: "Markup discarded. Screenshot excluded." })); }} onApply={(next, count) => { setScreenshot(next); setIncludeScreenshot(true); setMarkup(false); setCaptureStatus(plural(count, { one: "# mark applied.", other: "# marks applied." })); }} />}
+    {screenshot && <FeedbackMarkup open={markup} screenshot={screenshot} onClose={() => { setMarkup(false); setCaptureStatus(t({ message: "Markup discarded. Screenshot excluded." })); }} onApply={(next, count) => { setScreenshot(next); setIncludeScreenshot(true); setScreenshotError(""); setMarkup(false); setCaptureStatus(plural(count, { one: "# mark applied.", other: "# marks applied." })); }} />}
   </FeedbackContext.Provider>;
 }

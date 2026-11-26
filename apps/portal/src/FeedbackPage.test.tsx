@@ -190,4 +190,57 @@ describe("shared feedback", () => {
     expect(dialog).not.toHaveAttribute("open"); await open();
     expect(screen.getByRole("textbox", { name: /What happened/ })).toHaveValue("Still here.");
   });
+
+  it("sends feedback text without the screenshot when the server rejects the screenshot", async () => {
+    const pngBytes = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="), (c) => c.charCodeAt(0));
+    const originalCreateObjectURL = URL.createObjectURL;
+    const originalRevokeObjectURL = URL.revokeObjectURL;
+    const originalDecode = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "decode");
+    const originalNaturalWidth = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalWidth");
+    const originalNaturalHeight = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalHeight");
+    const originalGetContext = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "getContext");
+    const originalToBlob = Object.getOwnPropertyDescriptor(HTMLCanvasElement.prototype, "toBlob");
+    URL.createObjectURL = vi.fn(() => "blob:mock-screenshot");
+    URL.revokeObjectURL = vi.fn();
+    Object.defineProperty(HTMLImageElement.prototype, "decode", { configurable: true, value: vi.fn().mockResolvedValue(undefined) });
+    Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => 1 });
+    Object.defineProperty(HTMLImageElement.prototype, "naturalHeight", { configurable: true, get: () => 1 });
+    Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { configurable: true, value: vi.fn(() => ({ drawImage: vi.fn() })) });
+    Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", { configurable: true, value: vi.fn((cb: BlobCallback) => cb(new Blob([pngBytes], { type: "image/png" }))) });
+
+    let verify!: (token: string) => void;
+    Object.defineProperty(window, "turnstile", { configurable: true, value: { render: vi.fn((_element, options) => { verify = options.callback; return "widget"; }), remove: vi.fn() } });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(Response.json({ error: { code: "invalid_screenshot", message: "The screenshot is invalid or too large." } }, { status: 400 }))
+      .mockResolvedValueOnce(Response.json({ ok: true, request_id: "fallback" }, { status: 202 }));
+
+    try {
+      fixture({ siteKey: "configured-key" });
+      const dialog = await open();
+      await userEvent.type(within(dialog).getByRole("textbox", { name: /What happened/ }), "My text must go through.");
+      const input = within(dialog).getByLabelText("Choose an image") as HTMLInputElement;
+      await userEvent.upload(input, new File([pngBytes], "screen.png", { type: "image/png" }));
+      expect(await within(dialog).findByRole("checkbox", { name: "Include screenshot" })).toBeChecked();
+      act(() => verify("unspent-token"));
+      await userEvent.click(within(dialog).getByRole("button", { name: "Send feedback" }));
+      expect(await screen.findByText(/without the screenshot/i)).toBeInTheDocument();
+      expect(vi.mocked(fetch)).toHaveBeenCalledTimes(2);
+      const firstBody = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body));
+      const secondBody = JSON.parse(String(vi.mocked(fetch).mock.calls[1][1]?.body));
+      expect(firstBody.screenshot).toBeDefined();
+      expect(secondBody.screenshot).toBeUndefined();
+      expect(secondBody.message).toBe("My text must go through.");
+      expect(secondBody.turnstile_token).toBe("unspent-token");
+      expect(secondBody.request_id).not.toBe(firstBody.request_id);
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL;
+      URL.revokeObjectURL = originalRevokeObjectURL;
+      if (originalDecode) Object.defineProperty(HTMLImageElement.prototype, "decode", originalDecode);
+      else delete (HTMLImageElement.prototype as Partial<HTMLImageElement>).decode;
+      if (originalNaturalWidth) Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", originalNaturalWidth);
+      if (originalNaturalHeight) Object.defineProperty(HTMLImageElement.prototype, "naturalHeight", originalNaturalHeight);
+      if (originalGetContext) Object.defineProperty(HTMLCanvasElement.prototype, "getContext", originalGetContext);
+      if (originalToBlob) Object.defineProperty(HTMLCanvasElement.prototype, "toBlob", originalToBlob);
+    }
+  });
 });

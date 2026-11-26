@@ -227,14 +227,21 @@ function validateScreenshot(value: unknown): FeedbackScreenshot {
   if (input.media_type !== "image/png" && input.media_type !== "image/jpeg") throw new RequestError(400, "invalid_screenshot", "Choose a PNG or JPEG screenshot.");
   const expectedFilename = input.media_type === "image/png" ? "screenshot.png" : "screenshot.jpg";
   if (input.filename !== expectedFilename) throw new RequestError(400, "invalid_screenshot", "The screenshot filename is invalid.");
-  const content = text(input.content_base64, "screenshot content", 4_200_000);
+  if (typeof input.content_base64 !== "string") throw new RequestError(400, "invalid_screenshot", "The screenshot encoding is invalid.");
+  if (input.content_base64.length > 4_200_000) throw new RequestError(400, "invalid_screenshot", "The screenshot is invalid or too large.");
+  const content = input.content_base64;
   if (!/^[a-zA-Z0-9+/]*={0,2}$/u.test(content)) throw new RequestError(400, "invalid_screenshot", "The screenshot encoding is invalid.");
   let bytes: Uint8Array;
   try { bytes = Uint8Array.from(atob(content), (character) => character.charCodeAt(0)); } catch { throw new RequestError(400, "invalid_screenshot", "The screenshot encoding is invalid."); }
-  if (bytes.byteLength > MAX_SCREENSHOT_BYTES || !isValidRaster(bytes, input.media_type)) {
+  if (bytes.byteLength > MAX_SCREENSHOT_BYTES) {
     throw new RequestError(400, "invalid_screenshot", "The screenshot is invalid or too large.");
   }
-  return { media_type: input.media_type, filename: expectedFilename, content_base64: content, bytes };
+  const sanitized = sanitizeRaster(bytes, input.media_type);
+  if (!sanitized) {
+    throw new RequestError(400, "invalid_screenshot", "The screenshot is invalid or too large.");
+  }
+  const contentBase64 = sanitized === bytes ? content : bytesToBase64(sanitized);
+  return { media_type: input.media_type, filename: expectedFilename, content_base64: contentBase64, bytes: sanitized };
 }
 
 async function verifyTurnstile(fetchImpl: typeof fetch, secret: string, token: string | undefined, origin: string): Promise<void> {
@@ -378,70 +385,112 @@ function text(value: unknown, field: string, maxLength: number): string {
   return value;
 }
 
-function isValidRaster(bytes: Uint8Array, type: "image/png" | "image/jpeg"): boolean {
-  return type === "image/png" ? isValidPng(bytes) : isValidJpeg(bytes);
+const STRIPPED_PNG_CHUNKS = new Set(["eXIf", "iTXt", "tEXt", "zTXt", "iDOT"]);
+
+function sanitizeRaster(bytes: Uint8Array, type: "image/png" | "image/jpeg"): Uint8Array | null {
+  return type === "image/png" ? sanitizePng(bytes) : sanitizeJpeg(bytes);
 }
 
-function isValidPng(bytes: Uint8Array): boolean {
-  if (bytes.length < 45 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) return false;
+function sanitizePng(bytes: Uint8Array): Uint8Array | null {
+  if (bytes.length < 45 || ![137, 80, 78, 71, 13, 10, 26, 10].every((value, index) => bytes[index] === value)) return null;
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   let offset = 8;
   let sawHeader = false;
+  let sawIdat = false;
+  let stripped = false;
+  const kept: Uint8Array[] = [bytes.subarray(0, 8)];
   while (offset + 12 <= bytes.length) {
     const length = view.getUint32(offset);
-    const type = String.fromCharCode(...bytes.subarray(offset + 4, offset + 8));
+    const typeBytes = bytes.subarray(offset + 4, offset + 8);
+    if (!typeBytes.every((b) => (b >= 65 && b <= 90) || (b >= 97 && b <= 122))) return null;
+    const type = String.fromCharCode(...typeBytes);
     const end = offset + 12 + length;
-    if (end > bytes.length) return false;
+    if (end > bytes.length) return null;
     if (!sawHeader) {
-      if (type !== "IHDR" || length !== 13) return false;
+      if (type !== "IHDR" || length !== 13) return null;
       const width = view.getUint32(offset + 8);
       const height = view.getUint32(offset + 12);
-      if (!validImageDimensions(width, height)) return false;
+      if (!validImageDimensions(width, height)) return null;
       sawHeader = true;
     }
-    if (["eXIf", "iTXt", "tEXt", "zTXt"].includes(type)) return false;
-    if (type === "IEND") return sawHeader && length === 0 && end === bytes.length;
+    if (type === "IDAT") sawIdat = true;
+    if (STRIPPED_PNG_CHUNKS.has(type)) stripped = true;
+    else kept.push(bytes.subarray(offset, end));
+    if (type === "IEND") {
+      if (!sawHeader || !sawIdat || length !== 0 || end !== bytes.length) return null;
+      return stripped ? concatBytes(kept) : bytes;
+    }
     offset = end;
   }
-  return false;
+  return null;
 }
 
-function isValidJpeg(bytes: Uint8Array): boolean {
-  if (bytes.length < 20 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes.at(-2) !== 0xff || bytes.at(-1) !== 0xd9) return false;
+function sanitizeJpeg(bytes: Uint8Array): Uint8Array | null {
+  if (bytes.length < 20 || bytes[0] !== 0xff || bytes[1] !== 0xd8 || bytes.at(-2) !== 0xff || bytes.at(-1) !== 0xd9) return null;
   let offset = 2;
   let sawDimensions = false;
+  let stripped = false;
+  const kept: Uint8Array[] = [bytes.subarray(0, 2)];
   while (offset < bytes.length - 2) {
+    if (bytes[offset] !== 0xff) return null;
+    const markerStart = offset;
     while (bytes[offset] === 0xff) offset += 1;
     const marker = bytes[offset++];
-    if (marker === undefined || marker === 0x00) return false;
-    if (marker === 0xda) return sawDimensions;
-    if (marker === 0xd9) return sawDimensions && offset === bytes.length;
-    if (marker >= 0xd0 && marker <= 0xd7) continue;
-    if (offset + 2 > bytes.length) return false;
+    if (marker === undefined || marker === 0x00) return null;
+    if (marker === 0xda) {
+      if (!sawDimensions || offset + 2 > bytes.length - 2) return null;
+      const sosLength = (bytes[offset] << 8) | bytes[offset + 1];
+      if (sosLength < 2 || offset + sosLength > bytes.length - 2) return null;
+      kept.push(bytes.subarray(markerStart));
+      return stripped ? concatBytes(kept) : bytes;
+    }
+    if (marker === 0xd9) return null;
+    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd7)) {
+      kept.push(bytes.subarray(markerStart, offset));
+      continue;
+    }
+    if (offset + 2 > bytes.length) return null;
     const length = (bytes[offset] << 8) | bytes[offset + 1];
-    if (length < 2 || offset + length > bytes.length) return false;
-    if ([0xe1, 0xe2, 0xed, 0xfe].includes(marker)) return false;
+    if (length < 2 || offset + length > bytes.length) return null;
+    const segmentEnd = offset + length;
     if ([0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker)) {
-      if (length < 7) return false;
+      if (length < 7) return null;
       const height = (bytes[offset + 3] << 8) | bytes[offset + 4];
       const width = (bytes[offset + 5] << 8) | bytes[offset + 6];
-      if (!validImageDimensions(width, height)) return false;
+      if (!validImageDimensions(width, height)) return null;
       sawDimensions = true;
     }
-    offset += length;
+    if ([0xe1, 0xed, 0xfe].includes(marker)) stripped = true;
+    else kept.push(bytes.subarray(markerStart, segmentEnd));
+    offset = segmentEnd;
   }
-  return false;
+  return null;
+}
+
+function concatBytes(parts: readonly Uint8Array[]): Uint8Array {
+  let total = 0;
+  for (const part of parts) total += part.byteLength;
+  const output = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    output.set(part, offset);
+    offset += part.byteLength;
+  }
+  return output;
 }
 
 function validImageDimensions(width: number, height: number): boolean {
   return width > 0 && height > 0 && width <= 8_192 && height <= 8_192 && width * height <= 16_000_000;
 }
 
-function stringToBase64(value: string): string {
-  const bytes = new TextEncoder().encode(value);
+function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (let offset = 0; offset < bytes.length; offset += 32_768) binary += String.fromCharCode(...bytes.subarray(offset, offset + 32_768));
   return btoa(binary);
+}
+
+function stringToBase64(value: string): string {
+  return bytesToBase64(new TextEncoder().encode(value));
 }
 
 function corsHeaders(origin: string): Headers {

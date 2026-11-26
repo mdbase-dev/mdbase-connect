@@ -83,6 +83,66 @@ describe("feedback Worker", () => {
     expect(provider).toHaveBeenCalledOnce();
   });
 
+  it("strips browser-emitted PNG metadata chunks (eXIf, iTXt, tEXt, zTXt, iDOT) instead of rejecting", async () => {
+    const png = Uint8Array.from(atob(ONE_PIXEL_PNG_BASE64), (c) => c.charCodeAt(0));
+    function chunk(type: string, data: Uint8Array): Uint8Array {
+      const out = new Uint8Array(12 + data.length);
+      new DataView(out.buffer).setUint32(0, data.length);
+      for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+      out.set(data, 8);
+      return out;
+    }
+    const headerEnd = 8 + 12 + 13; // signature + IHDR
+    const exif = chunk("eXIf", new Uint8Array([0x4d, 0x4d, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x08]));
+    const itxt = chunk("iTXt", new TextEncoder().encode("XML:com.adobe.xmp\0\0\0\0\0<x/>"));
+    const idot = chunk("iDOT", new Uint8Array(28));
+    const withMeta = new Uint8Array(png.length + exif.length + itxt.length + idot.length);
+    let offset = 0;
+    for (const part of [png.subarray(0, headerEnd), exif, itxt, idot, png.subarray(headerEnd)]) {
+      withMeta.set(part, offset);
+      offset += part.length;
+    }
+    const provider = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ id: "email" }));
+    const response = await createFeedbackWorker(provider).fetch(request(submission({
+      screenshot: { media_type: "image/png", filename: "screenshot.png", content_base64: btoa(String.fromCharCode(...withMeta)) }
+    })), env);
+    expect(response.status).toBe(202);
+    const email = JSON.parse(String(provider.mock.calls[0][1]?.body));
+    expect(email.attachments[0]).toEqual({ filename: "screenshot.png", content: ONE_PIXEL_PNG_BASE64 });
+  });
+
+  it("accepts JPEG ICC color profiles (APP2) and strips EXIF/IPTC/comment metadata segments", async () => {
+    const jpeg = Uint8Array.from(atob(ONE_PIXEL_JPEG_BASE64), (c) => c.charCodeAt(0));
+    function segment(marker: number, payload: Uint8Array): Uint8Array {
+      const out = new Uint8Array(4 + payload.length);
+      out[0] = 0xff; out[1] = marker;
+      out[2] = ((payload.length + 2) >> 8) & 0xff; out[3] = (payload.length + 2) & 0xff;
+      out.set(payload, 4);
+      return out;
+    }
+    const app1 = segment(0xe1, new TextEncoder().encode("Exif\0\0MM"));
+    const app2 = segment(0xe2, new TextEncoder().encode("ICC_PROFILE\0\x01\x01"));
+    const com = segment(0xfe, new TextEncoder().encode("private comment"));
+    const withSegments = new Uint8Array(jpeg.length + app1.length + app2.length + com.length);
+    let offset = 0;
+    for (const part of [jpeg.subarray(0, 2), app1, app2, com, jpeg.subarray(2)]) {
+      withSegments.set(part, offset);
+      offset += part.length;
+    }
+    const provider = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => Response.json({ id: "email" }));
+    const response = await createFeedbackWorker(provider).fetch(request(submission({
+      screenshot: { media_type: "image/jpeg", filename: "screenshot.jpg", content_base64: btoa(String.fromCharCode(...withSegments)) }
+    })), env);
+    expect(response.status).toBe(202);
+    const email = JSON.parse(String(provider.mock.calls[0][1]?.body));
+    const delivered = Uint8Array.from(atob(email.attachments[0].content), (c) => c.charCodeAt(0));
+    const expected = new Uint8Array(jpeg.length + app2.length);
+    expected.set(jpeg.subarray(0, 2), 0);
+    expected.set(app2, 2);
+    expected.set(jpeg.subarray(2), 2 + app2.length);
+    expect(delivered).toEqual(expected);
+  });
+
   it("rejects origins before reading or forwarding the body", async () => {
     const provider = vi.fn();
     const response = await createFeedbackWorker(provider).fetch(request(undefined, "https://attacker.example"), env);
@@ -139,6 +199,12 @@ describe("feedback Worker", () => {
       screenshot: { media_type: "image/png", filename: "screenshot.png", content_base64: appended }
     })), env);
     expect(polyglot.status).toBe(400);
+
+    const oversized = await worker.fetch(request(submission({
+      screenshot: { media_type: "image/png", filename: "screenshot.png", content_base64: "A".repeat(4_200_001) }
+    })), env);
+    expect(oversized.status).toBe(400);
+    expect(await oversized.json()).toMatchObject({ error: { code: "invalid_screenshot" } });
   });
 
   it("does not expose provider response details", async () => {

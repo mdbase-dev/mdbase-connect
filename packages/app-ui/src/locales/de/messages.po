@@ -438,8 +438,9 @@ msgid "Choose a screenshot smaller than 16 megapixels."
 msgstr "Wählen Sie einen Screenshot mit weniger als 16 Megapixeln aus."
 
 #: src/feedback-data.ts
-msgid "Choose a screenshot smaller than 3 MB."
-msgstr "Wählen Sie einen Screenshot mit weniger als 3 MB aus."
+msgctxt "Feedback"
+msgid "Choose a screenshot smaller than 20 MB."
+msgstr "Wählen Sie einen Screenshot mit weniger als 20 MB aus."
 
 #: src/Feedback.tsx
 msgid "Choose an image"
@@ -1659,6 +1660,11 @@ msgid "Sending…"
 msgstr "Wird gesendet…"
 
 #: src/Feedback.tsx
+msgctxt "Feedback"
+msgid "Sent privately to the mdbase team without the screenshot, which couldn’t be attached."
+msgstr "Privat an das mdbase-Team gesendet, ohne den Screenshot, der nicht angehängt werden konnte."
+
+#: src/Feedback.tsx
 msgid "Sent privately to the mdbase team."
 msgstr "Privat an das mdbase-Team gesendet."
 
@@ -1996,6 +2002,11 @@ msgstr "Der Screenshot konnte nicht gelesen werden."
 #: src/FeedbackMarkup.tsx
 msgid "The screenshot could not be saved."
 msgstr "Der Screenshot konnte nicht gespeichert werden."
+
+#: src/Feedback.tsx
+msgctxt "Feedback"
+msgid "The screenshot could not be sent and was excluded."
+msgstr "Der Screenshot konnte nicht gesendet werden und wurde ausgeschlossen."
 
 #: src/feedback-data.ts
 msgid "The screenshot does not contain a valid PNG or JPEG image."
