@@ -15,7 +15,10 @@ const pack = {
 const options = { installedBy: "dev.example.tests" };
 
 const m = (o: Record<string, CborValue>) => new Map(Object.entries(o));
-const receipt = m({ id: "example.notes", version: "1.0.0", digest: DIGEST, installed_by: "dev.example.tests", resources: [] });
+const receipt = m({
+  id: "example.notes", version: "1.0.0", digest: DIGEST, installed_by: "dev.example.tests",
+  resources: [m({ source: "note.md", target: "_types/note.md", kind: "type", mode: "managed", digest: DIGEST })],
+});
 function assessment(o: { action: string; manage?: boolean; status?: string; applicable?: boolean }): CborValue {
   const row = m({ source: "note.md", target: "_types/note.md", kind: "type", mode: "managed", action: o.action, digest: DIGEST });
   if (o.action === "conflict") { row.set("current_digest", LIVE); row.set("reason", "unmanaged target"); }
@@ -139,5 +142,47 @@ describe("type packs", () => {
     const old = await connect({ connector: new MemoryReplica({}).connector(), app });
     await expect(old.typePacks.plan(pack, options)).rejects.toSatisfy((e) => isMdbaseError(e, "upgrade_required") && e.reason === "type_packs_unsupported");
     old.close();
+  });
+
+  it("offers adoption for modified installed managed resources still declared, but not retired ones", async () => {
+    const replica = new MemoryReplica({});
+    const { connector } = withPlanner(replica, () => new Map<number, CborValue>([[0, 1], [1, m({
+      status: "conflict",
+      applicable: false,
+      definitions_manage: true,
+      assessment_digest: DIGEST,
+      desired: receipt,
+      resources: [
+        m({
+          source: "note.md", target: "_types/note.md", kind: "type", mode: "managed",
+          action: "conflict", digest: DIGEST, current_digest: LIVE, installed_digest: DIGEST,
+          reason: "_types/note.md: the managed resource was modified",
+        }),
+        // Replica fills `source` from the lock entry for retired resources too.
+        m({
+          source: "old.md", target: "_types/old.md", kind: "type", mode: "managed",
+          action: "conflict", digest: DIGEST, current_digest: LIVE, installed_digest: DIGEST,
+          reason: "_types/old.md: retired managed resource was modified",
+        }),
+      ],
+      lock: m({ target: "mdbase.lock.yaml", action: "update", digest: DIGEST }),
+    })]]));
+    const client = await connect({ connector, app });
+    const plan = await client.typePacks.plan(pack, options);
+    expect(plan.canApply).toBe(false);
+    expect(plan.adoptable).toEqual({ "_types/note.md": LIVE });
+    expect(plan.conflicts).toEqual([
+      expect.objectContaining({
+        target: "_types/note.md",
+        adoptable: { digest: LIVE },
+        message: expect.stringContaining("was changed after this pack installed it"),
+      }),
+      expect.objectContaining({
+        target: "_types/old.md",
+        message: expect.stringContaining("can't be changed"),
+      }),
+    ]);
+    expect(plan.conflicts[1]!.adoptable).toBeUndefined();
+    client.close();
   });
 });

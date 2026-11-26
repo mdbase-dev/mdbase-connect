@@ -171,11 +171,15 @@ function conflictMessage(r: TypePackResource, adoptable: boolean): string {
 function toPlan(assessment: JsonValue, pack: TypePackProvision, options: TypePackOptions): TypePackPlan {
   const a = obj(assessment);
   const resources = (Array.isArray(a.resources) ? a.resources : []).map(resource);
+  const desired = receipt(a.desired);
+  const desiredTargets = new Set(desired.resources.map((r) => r.target));
   const summary = Object.fromEntries(ACTIONS.map((k) => [k, resources.filter((r) => r.action === k).map((r) => r.target)])) as Record<TypePackAction, string[]>;
   const adoptable: Record<string, string> = {};
   const conflicts = resources.filter((r) => r.action === "conflict").map((r): TypePackConflict => {
     // A conflicting managed target the pack still declares: adoption replaces it.
-    const canAdopt = r.mode === "managed" && r.currentDigest !== undefined && r.source !== "";
+    // Replica populates `source` from the lock entry for retired resources, so
+    // check `desired.resources` rather than `r.source`.
+    const canAdopt = r.mode === "managed" && r.currentDigest !== undefined && desiredTargets.has(r.target);
     if (canAdopt) adoptable[r.target] = r.currentDigest!;
     return {
       target: r.target, kind: r.kind, ...opt("reason", r.reason), message: conflictMessage(r, canAdopt),
@@ -184,7 +188,6 @@ function toPlan(assessment: JsonValue, pack: TypePackProvision, options: TypePac
   });
   const status = str(a.status) as TypePackStatus;
   const issues = Array.isArray(a.issues) ? a.issues.map(obj) : [];
-  const desired = receipt(a.desired);
   let refusal: TypePackPlan["refusal"];
   if (a.definitions_manage !== true) {
     refusal = { code: "forbidden", message: "This app doesn't have permission to change the collection's types." };
