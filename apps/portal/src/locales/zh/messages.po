@@ -1379,6 +1379,7 @@ msgid "Delete"
 msgstr "删除"
 
 #. placeholder {0}: collection.name
+#: src/ConnectApp.tsx
 #: src/portal-commands.ts
 msgid "Delete {0}"
 msgstr "删除 {0}"
@@ -2526,6 +2527,7 @@ msgid "Permanent allowance"
 msgstr "永久额度"
 
 #: src/AccountManagement.tsx
+#: src/ConnectApp.tsx
 msgid "Permanent for hosted data. Local files are never removed from your computers."
 msgstr "托管数据将永久删除。本地文件绝不会从你的电脑上移除。"
 
@@ -3562,10 +3564,6 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "那些浏览器需要重新登录。此浏览器将保持登录。"
 
 #: src/ConnectApp.tsx
-msgid "To delete this collection, open the collection list in the editor. Open the menu next to the collection name and choose “Delete collection…”."
-msgstr "要删除此集合，请在编辑器中打开集合列表，然后在集合名称旁的菜单中选择“删除集合…”。"
-
-#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "请尝试其他电脑名称。筛选不会撤销访问权限。"
 
@@ -3594,7 +3592,7 @@ msgstr "请尝试其他集合或电脑名称。"
 msgid "Try another name."
 msgstr "请尝试其他名称。"
 
-#. placeholder {0}: collection.name
+#. placeholder {0}: target.name
 #: src/ConnectApp.tsx
 msgid "Type {0} to confirm"
 msgstr "输入 {0} 以确认"

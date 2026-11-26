@@ -5,9 +5,9 @@ import { z } from "zod";
 import type { DatabaseConnection, DatabasePool } from "../../database-types.js";
 import { audit } from "../../platform/audit-events.js";
 import { apiError, RequestValidationError } from "../../platform/http-errors.js";
-import { bearerToken, requireInstallationDeviceConnector, type ConnectorIdentity } from "../../platform/request-authentication.js";
+import { bearerToken, requireInstallationDeviceConnector, requireSessionContext, requireUser, type ConnectorIdentity } from "../../platform/request-authentication.js";
 import { tokenHash } from "../../security.js";
-import { CreateError, currentIdentity, currentMember, exactEnrolment, inTransaction, lock, refuse, refuseRevoked, type Device } from "./bootstrap-common.js";
+import { CreateError, currentAccount, currentIdentity, currentMember, currentSession, exactEnrolment, inTransaction, lock, refuse, refuseRevoked, type Device } from "./bootstrap-common.js";
 import { recordCollectionDeletionIntent, requireCollectionNotDeleted, type CollectionDeletionFact } from "./collection-deletion.js";
 import { collectionDisplayName } from "./collection-display-name.js";
 import { registerCollectionModeRoutes } from "./collection-mode-routes.js";
@@ -57,6 +57,31 @@ async function ownedCollection(client: DatabaseConnection, connector: ConnectorI
   return held.display_name;
 }
 
+type SessionOwner = { account: string; session?: string };
+
+/** The current owner's synced next collection for a Portal browser session (or
+ * Tailscale identity), held under its collection lock. No enrolled device is
+ * required, so owners can delete a collection even after its computers are gone. */
+async function ownedSessionCollection(client: DatabaseConnection, owner: SessionOwner, collection: string): Promise<string> {
+  const discovered = (await client.query<{ owner_user_id: string }>(
+    "SELECT owner_user_id FROM next_collections WHERE collection_id=$1", [collection]
+  )).rows[0];
+  if (discovered?.owner_user_id !== owner.account) throw notFound();
+  if (!(await client.query(
+    "SELECT 1 FROM users WHERE id=$1 AND account_backend='next' AND suspended_at IS NULL FOR SHARE", [owner.account]
+  )).rows.length) throw notFound();
+  if (owner.session !== undefined) await currentSession(client, owner.session, owner.account);
+  else await currentAccount(client, owner.account);
+  await lock(client, collection);
+  const held = (await client.query<{ owner_user_id: string; runtime: string; sync: string; left: boolean; display_name: string }>(
+    "SELECT owner_user_id,runtime,sync,left_sync_at IS NOT NULL AS left,COALESCE(display_name,'New collection') AS display_name FROM next_collections WHERE collection_id=$1 FOR UPDATE", [collection]
+  )).rows[0];
+  if (held?.owner_user_id !== discovered.owner_user_id || held.runtime !== "next" || !["cloud_copy", "private"].includes(held.sync) || held.left) throw notFound();
+  await currentMember(client, collection, owner.account, "owner");
+  await requireCollectionNotDeleted(client, collection);
+  return held.display_name;
+}
+
 /** Every grant on the deleted collection, for every account: app grants, including
  * native grants on a Private collection (the
  * #653 hook queues each log grant revoke), their tokens, installation scopes and
@@ -93,7 +118,13 @@ const DELETE_REFUSALS: Record<string, string> = {
 const deleteRefusal = (reply: FastifyReply, status: number, code: string) =>
   reply.code(status).send(apiError(code, DELETE_REFUSALS[code] ?? "The collection could not be deleted."));
 
-export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabasePool, log: Parameters<typeof registerCollectionModeRoutes>[2], deletionFloor?: DeletionFloorRecorder): void {
+export function registerCollectionNameRoutes(
+  app: FastifyInstance,
+  db: DatabasePool,
+  log: Parameters<typeof registerCollectionModeRoutes>[2],
+  deletionFloor?: DeletionFloorRecorder,
+  options?: { tailscaleAuth?: boolean }
+): void {
   registerCollectionModeRoutes(app, db, log);
   app.patch<{ Body: { display_name: string } }>("/v1/next/collections/:id/name", {
     bodyLimit: 4096,
@@ -137,18 +168,32 @@ export function registerCollectionNameRoutes(app: FastifyInstance, db: DatabaseP
     const body = z.object({ confirm_name: z.string().max(400) }).strict().safeParse(request.body);
     if (!params.success || !body.success) return deleteRefusal(reply, 400, "invalid_request");
     const credential = bearerToken(request);
-    const hash = credential === null ? null : tokenHash(credential);
-    const connector = await requireInstallationDeviceConnector(request, reply, db);
-    if (!connector) return reply;
+    let actor: { kind: "connector"; connector: ConnectorIdentity; hash: string } | { kind: "session"; owner: SessionOwner };
+    if (credential !== null) {
+      const connector = await requireInstallationDeviceConnector(request, reply, db);
+      if (!connector) return reply;
+      actor = { kind: "connector", connector, hash: tokenHash(credential) };
+    } else if (options?.tailscaleAuth) {
+      const user = await requireUser(request, reply, db, true);
+      if (!user) return reply;
+      actor = { kind: "session", owner: { account: user.id } };
+    } else {
+      const session = await requireSessionContext(request, reply, db);
+      if (!session) return reply;
+      actor = { kind: "session", owner: { account: session.user.id, session: session.sessionId } };
+    }
+    const actorUserId = actor.kind === "connector" ? actor.connector.user_id : actor.owner.account;
     const collection = params.data.id, confirmName = body.data.confirm_name.trim();
     let fact: CollectionDeletionFact;
     try {
       fact = await inTransaction(db, async client => {
-        const current = await ownedCollection(client, connector, hash, collection);
+        const current = actor.kind === "connector"
+          ? await ownedCollection(client, actor.connector, actor.hash, collection)
+          : await ownedSessionCollection(client, actor.owner, collection);
         if (confirmName !== current) throw new CreateError(409, "collection_name_mismatch");
-        const recorded = await recordCollectionDeletionIntent(client, collection, connector.user_id);
+        const recorded = await recordCollectionDeletionIntent(client, collection, actorUserId);
         await revokeCollectionAccess(client, collection);
-        await audit(client, connector.user_id, "next_collection.deleted", collection, { deletion_id: recorded.deletionId });
+        await audit(client, actorUserId, "next_collection.deleted", collection, { deletion_id: recorded.deletionId });
         return recorded;
       });
     } catch (error) {

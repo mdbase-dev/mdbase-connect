@@ -39,6 +39,17 @@ describe("ConnectManagementClient", () => {
     expect(fetch.mock.calls[4]?.[1]).toMatchObject({ credentials: "include", method: "POST" });
     expect(fetch.mock.calls[4]?.[1]?.body).toBeUndefined();
   });
+  it("deletes a native collection with explicit name confirmation and browser credentials", async () => {
+    const fetch = vi.fn(async () => Response.json({ collection_id: "col-1", deleted: true }));
+    vi.stubGlobal("fetch", fetch);
+    const client = new ConnectManagementClient("https://connect.example");
+    await expect(client.deleteNativeCollection("col-1", "tasks")).resolves.toEqual({ collection_id: "col-1", deleted: true });
+    expect(fetch).toHaveBeenCalledWith(new URL("https://connect.example/v1/next/collections/col-1"), expect.objectContaining({
+      credentials: "include",
+      method: "DELETE",
+      body: JSON.stringify({ confirm_name: "tasks" })
+    }));
+  });
   it("uses the account origin with explicit browser credentials", async () => {
     const fetch = vi.fn(async () => new Response(JSON.stringify({ user: { id: "person" } }), {
       status: 200,

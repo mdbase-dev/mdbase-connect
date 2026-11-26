@@ -32,9 +32,12 @@ the grant's enforcement authority has not yet confirmed completion:
 - **Hosted-provider grants**: completion follows their existing hosted authority's
   confirmation, not a local connector acknowledgement.
 
-Once a native grant is revoked and its collection has a permanent deletion fact,
-the account overview omits it and the account revoke endpoints treat it as
-`grant_not_found`. Its enforcement history retains the actual append status.
+Once a grant is revoked and its collection has a permanent deletion fact (whether
+targeted as a native collection or through a legacy local collection row for the
+same collection UUID), or once a revoked local-only grant's connector has been
+revoked and can no longer acknowledge policy snapshots, the account overview omits
+it and the account revoke endpoints treat it as `grant_not_found`. Its enforcement
+history retains the actual append or acknowledgement status.
 
 Retries retain the original barrier and confirmation timestamp. Neither a queued
 trigger nor an HTTP success response proves that log policy has appended.

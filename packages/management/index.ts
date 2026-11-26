@@ -507,6 +507,13 @@ export class ConnectManagementClient {
     return this.request(`/v1/hosted/collections/${encodeURIComponent(id)}`, { method: "DELETE" }, options);
   }
 
+  deleteNativeCollection(id: string, confirmName: string, options?: ManagementRequestOptions): Promise<{ collection_id: string; deleted: true }> {
+    return this.request(`/v1/next/collections/${encodeURIComponent(id)}`, {
+      method: "DELETE",
+      body: JSON.stringify({ confirm_name: confirmName })
+    }, options);
+  }
+
   collectionMembers(
     collectionId: string,
     options?: ManagementRequestOptions

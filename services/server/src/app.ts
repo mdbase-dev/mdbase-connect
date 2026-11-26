@@ -538,7 +538,7 @@ export async function buildApp(options: BuildOptions) {
     registerLabPitrRoutes(app, { db: options.db, next: options.nextControlPlane, log: nextLog,
       admission: { signer: nextPolicySigner!, audience: new URL(publicUrl).origin, identity: nextLog } });
     if (options.nextControlPlane.cloudCopyBootstrap) registerCloudCopyRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
-    if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog });
+    if (options.nextControlPlane.privateBootstrap) registerPrivateCollectionRoutes(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog, deletionFloor: nextLog, tailscaleAuth: options.tailscaleAuth });
     if (options.nextControlPlane.privateBootstrap) registerCollectionModeRecovery(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
     if (collectionModeExecutionEnabled(options.nextControlPlane)) registerCollectionModeExecution(app, { db: options.db, next: options.nextControlPlane, emitter: nextPolicyEmitter!, log: nextLog });
     // AK1 account keys: private only, and only with a persistent per-account rate limit.
