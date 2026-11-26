@@ -17,7 +17,7 @@ import { useCallback, useEffect, useRef, useState, Component, type FormEvent, ty
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
-import { managedOriginsFor, readRememberedCollection, rememberCollection, signInRedirectUrl } from "./portal-model";
+import { managedOriginsFor, readRememberedCollection, rememberCollection, scheduleAtDeadline, signInRedirectUrl } from "./portal-model";
 import { AppTile, McpConnectRow, collectionDiscoveryApps, type ManagedAppOrigins } from "@mdbase/connect-ui/home";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
 import { KeyboardShortcuts } from "@mdbase/connect-ui/keyboard";
@@ -127,9 +127,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const endSession = useCallback(() => { lifecycleRef.current?.abort(); setPreview(undefined); setData(undefined); }, []);
   useEffect(() => {
     const expiry = Math.min(...(data?.pending_authorizations ?? []).map(request => Date.parse(request.expires_at)));
-    if (!Number.isFinite(expiry)) return;
-    const timer = window.setTimeout(() => setData(current => current && { ...current, pending_authorizations: current.pending_authorizations.filter(request => Date.parse(request.expires_at) > Date.now()) }), Math.max(0, expiry - Date.now()));
-    return () => window.clearTimeout(timer);
+    return scheduleAtDeadline(expiry, () => setData(current => current && { ...current, pending_authorizations: current.pending_authorizations.filter(request => Date.parse(request.expires_at) > Date.now()) }));
   }, [data?.pending_authorizations]);
   useEffect(() => {
     const lifecycle = new AbortController();
