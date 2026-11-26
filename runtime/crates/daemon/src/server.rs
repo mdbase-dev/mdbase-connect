@@ -490,7 +490,9 @@ impl Daemon {
     }
 }
 
-pub(crate) use collection_mode::{format_mode_devices, format_wait_phrase, mode_label};
+pub(crate) use collection_mode::{
+    format_mode_devices, format_wait_phrase, mode_label, mode_switch_unavailable_message,
+};
 
 #[path = "collection_mode.rs"]
 mod collection_mode;

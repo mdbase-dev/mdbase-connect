@@ -676,7 +676,7 @@ impl Daemon {
                 if !p.cancel && status["execution_available"] != true {
                     return Err(ControlError::unavailable(
                         "mode_switch_unavailable",
-                        "Switching this collection isn't available yet.",
+                        mode_switch_unavailable_message(target),
                     ));
                 }
                 let request = match active {
@@ -1301,6 +1301,14 @@ pub(crate) fn mode_label(mode: &str) -> &str {
         "private" => "Private",
         "cloud_copy" => "Cloud copy",
         _ => "Unknown mode",
+    }
+}
+
+pub(crate) fn mode_switch_unavailable_message(target: &str) -> &'static str {
+    if target == "private" {
+        "Switching this collection isn't available yet. Create a new collection as Private from the start (`mdbase collection add <folder>`, then `mdbase sync enable <collection> --mode private`) and copy or move your notes into it."
+    } else {
+        "Switching this collection isn't available yet. Create a new collection with Cloud copy (`mdbase collection add <folder>`, then `mdbase sync enable <collection> --mode cloud-copy`) and copy or move your notes into it."
     }
 }
 

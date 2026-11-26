@@ -72,10 +72,7 @@ export function privateCollectionSetup(input:PrivateSetupInput):MdbasePrivateSet
     await journal.clear(mid);
   }
   function word(s:Session,review:NativeSetupReview):MdbaseSetupPlan{
-    const result=setupPlan(review.assessment,{canManage:true,canCreateRecords:s.hello.grant.capabilities.includes("records.create"),records:review.records.map(r=>({path:r.path,free:r.action==="create"}))});
-    if(!review.promoted)return result;
-    const changes=Object.freeze([...result.changes,{kind:"record" as const,target:"Existing files",message:`Recognize ${review.promoted} existing ${review.promoted===1?"file":"files"} as notes, preserving their contents.`}]);
-    return Object.freeze({...result,changes,summary:`This app will make ${changes.length} ${changes.length===1?"change":"changes"} to this collection.`});
+    return setupPlan(review.assessment,{canManage:true,canCreateRecords:s.hello.grant.capabilities.includes("records.create"),records:review.records.map(r=>({path:r.path,free:r.action==="create"})),...(review.promoted?{promoted:review.promoted}:{})});
   }
   /** Everything the review screen shows or setup writes, without the digest
    * (which binds Native's head and review clock, so it differs on every review). */

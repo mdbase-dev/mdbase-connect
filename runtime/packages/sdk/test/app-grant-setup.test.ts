@@ -189,15 +189,65 @@ describe("Private collection setup",()=>{
         resource("_types/reader-source.md", "type"), resource("schemas/org.example.comment/1.0.0.schema.json", "schema")] }] } }, { canManage: true, canCreateRecords: true, records: [] });
     expect(plan.summary).toBe("This app will make 7 changes to this collection.");
     expect(plan.changes.map(c => c.message)).toEqual([
-      "Add the shared format for this app's notes, so other apps can work with them.",
-      "Add the shared format for this app's notes, so other apps can work with them.",
+      "Add 2 shared formats for this app's notes, so other apps can work with them.",
       "Add the note type for this app.",
       "Add the set of checks for this app's note properties.",
       "Include this app's files when reading the collection.",
       "Read .base files as notes in this collection.",
       "Adjust a collection setting this app needs."]);
-    expect(plan.changes.map(c => c.target)).toEqual(["_contracts/org.example.reader.source.md", "_contracts/org.example.comment/1.0.0.md", "_types/reader-source.md", "schemas/org.example.comment/1.0.0.schema.json", "include", "record extensions", "internal setting"]);
+    expect(plan.changes.map(c => c.target)).toEqual(["_contracts/org.example.reader.source.md, _contracts/org.example.comment/1.0.0.md", "_types/reader-source.md", "schemas/org.example.comment/1.0.0.schema.json", "include", "record extensions", "internal setting"]);
     expect(plan.changes.map(c => c.message).join(" ")).not.toMatch(/reader|comment|Internal\/|include setting|record extensions setting|internal setting/i);
+  });
+  it("groups repeated shared formats, note types, checks and settings into counted lines without duplicating bullets", () => {
+    const resource = (target: string, kind: string, action: "create" | "update" | "delete" | "adopt" = "create") =>
+      ({ target, kind, mode: "managed" as const, action, installed: action !== "create" });
+    const plan = setupPlan({ status: "provision", assessmentDigest: `sha256:${"2".repeat(64)}`, review: {
+      configuration: [
+        { requirement: "views", path: "/settings/include", value: "Views/**/*.base", action: "add" },
+        { requirement: "templates", path: "/settings/include", value: "Templates/**/*.md", action: "add" },
+        { requirement: "opt-a", path: "/settings/option_a", value: true, action: "add" },
+        { requirement: "opt-b", path: "/settings/option_b", value: true, action: "add" },
+      ],
+      staged: [
+        { path: "_types/task.md", document: "a" },
+        { path: "_types/project.md", document: "b" },
+      ],
+      packs: [
+        { id: "org.example.a", version: "1.0.0", status: "install", installedVersion: null, resources: [
+          resource("_contracts/c1.md", "contract"),
+          resource("_contracts/c2.md", "contract"),
+          resource("_types/t1.md", "type"),
+          resource("_types/t2.md", "type"),
+          resource("schemas/s1.json", "schema"),
+          resource("schemas/s2.json", "schema"),
+        ] },
+        { id: "org.example.b", version: "1.0.0", status: "upgrade", installedVersion: "0.9.0", resources: [
+          resource("_contracts/c3.md", "contract"),
+          resource("_contracts/c4.md", "contract"),
+          resource("_types/u1.md", "type", "update"),
+          resource("_types/u2.md", "type", "update"),
+          resource("_types/d1.md", "type", "delete"),
+          resource("_types/d2.md", "type", "delete"),
+          resource("_types/task.md", "type", "adopt"),
+          resource("_types/project.md", "type", "adopt"),
+          resource("_contracts/match1.md", "contract", "adopt"),
+          resource("_contracts/match2.md", "contract", "adopt"),
+        ] },
+      ],
+    } }, { canManage: true, canCreateRecords: true, records: [] });
+    expect(plan.summary).toBe("This app will make 20 changes to this collection.");
+    expect(plan.changes.map(c => c.message)).toEqual([
+      "Add 4 shared formats for this app's notes, so other apps can work with them.",
+      "Add 2 note types for this app.",
+      "Add 2 sets of checks for this app's note properties.",
+      "Update 2 note types for this app.",
+      "Remove 2 note types for this app, which this app no longer uses.",
+      "Replace 2 note types for this app with this app's versions. Yours aren't kept.",
+      "Use your 2 existing shared formats for this app's notes, which already match this app's.",
+      "Include this app's files when reading the collection.",
+      "Adjust 2 collection settings this app needs.",
+    ]);
+    expect(new Set(plan.changes.map(c => c.message)).size).toBe(plan.changes.length);
   });
   it("routes non-installed_newer conflicts into setup_required while keeping newer major versions incompatible", async () => {
     const f = await nativeSetupFixture(JOURNAL);
