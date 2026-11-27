@@ -211,8 +211,8 @@ importers:
         specifier: file:vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz
         version: '@mdbase-dev/sdk@file:apps/editor/vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz'
       '@mdbase-dev/ui':
-        specifier: 0.2.47
-        version: 0.2.47(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-12c8a3bb-production-0.2.47.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+        specifier: 0.2.49
+        version: 0.2.49(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-12c8a3bb-production-0.2.47.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
       '@mdbase/connect-ui':
         specifier: workspace:*
         version: link:../../packages/ui
@@ -2329,9 +2329,9 @@ packages:
     bundledDependencies:
       - '@mdbase-dev/connect-protocol'
 
-  '@mdbase-dev/ui@0.2.47':
-    resolution: {integrity: sha512-mEPbbY7e6D0nYqVSGOZbrhY5iDYaLpB6egZjCCt1yhnV9JBBokzIhly9H4BOOWCHQr9h8380xjLSKMBDJJBEmw==}
-    version: 0.2.47
+  '@mdbase-dev/ui@0.2.49':
+    resolution: {integrity: sha512-qlUDE+gQeYie2zYOc9Ail5rgMRy5h7Y1oCE4TPmAkNwOwpNTuWSCP7Fi6ZElrJqPy8lqnK3dmi2MOyUXN7w87A==}
+    version: 0.2.49
     peerDependencies:
       '@codemirror/commands': ^6.0.0
       '@codemirror/language': ^6.0.0
@@ -8234,7 +8234,7 @@ snapshots:
       '@noble/curves': 2.4.0
       '@noble/hashes': 2.4.0
 
-  '@mdbase-dev/ui@0.2.47(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-12c8a3bb-production-0.2.47.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+  '@mdbase-dev/ui@0.2.49(@codemirror/commands@6.11.1)(@codemirror/language@6.12.4)(@codemirror/state@6.7.5)(@codemirror/view@6.43.12)(@lezer/common@1.5.2)(@lezer/markdown@1.7.2)(@lingui/core@6.9.0(@babel/core@7.29.7(supports-color@10.2.2)))(@lingui/react@6.9.0(@babel/core@7.29.7(supports-color@10.2.2))(react@19.3.0))(@mdbase-dev/i18n@packages+i18n)(@mdbase-dev/sdk@file:apps/editor/vendor/sdk-12c8a3bb-production-0.2.47.tgz)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@fontsource/azeret-mono': 5.3.0
       '@fontsource/ibm-plex-sans': 5.3.0
