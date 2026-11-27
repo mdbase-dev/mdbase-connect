@@ -354,6 +354,56 @@ fn hosted_warm_cache_repairs_large_rows_before_replaying_control() {
     assert!(reader.r.hosted_serving());
 }
 
+/// connect#1850: a key grant to a newly enrolled device waits behind the whole
+/// log backlog, so catch-up that stopped on the per-tick apply budget asks for
+/// its next slice at once instead of a second later. Each tick still applies at
+/// most one budget, and a tick that catches up asks for nothing more.
+#[test]
+fn hosted_log_catchup_asks_for_the_next_slice_at_once() {
+    let svc = world();
+    let mut writer = open(&svc, MemStore::new());
+    writer.pump();
+    let session = writer.session(G1);
+    for index in 1..=40 {
+        let ticket = writer
+            .r
+            .submit_logged(session, create(index, &format!("{index}.md"), None))
+            .unwrap();
+        writer.pump();
+        assert_eq!(writer.ack(ticket).state, ReceiptState::Confirmed);
+    }
+    let end = writer.r.head();
+    assert!(end.seq > 32, "a backlog over two ticks' budget");
+    let mut reader = open(&svc, MemStore::new());
+    pump(&mut reader.r, &mut reader.log, 100);
+    let mut applied = vec![reader.r.head().seq];
+    for _ in 0..8 {
+        if reader.r.head() == end {
+            break;
+        }
+        assert!(!reader.r.hosted_serving());
+        assert_eq!(
+            reader.r.next_wakeup(),
+            Some(reader.r.now()),
+            "behind on the apply budget: the next slice is due now"
+        );
+        reader.r.tick();
+        pump(&mut reader.r, &mut reader.log, 100);
+        applied.push(reader.r.head().seq);
+    }
+    assert_eq!(reader.r.head(), end, "caught up: {applied:?}");
+    assert!(
+        applied.windows(2).all(|w| w[1] - w[0] <= 16),
+        "one budget per tick: {applied:?}"
+    );
+    assert_eq!(applied[0], 16);
+    assert!(reader.r.hosted_serving());
+    assert!(
+        reader.r.next_wakeup().is_none_or(|at| at > reader.r.now()),
+        "caught up: no immediate wake"
+    );
+}
+
 /// Reopen after a cold restart. `keys` stands in for the KMS unwrap: the cache never
 /// holds them, so the host hands the sealer its keys at open.
 fn reopen(svc: &FakeLogService, store: MemStore, keys: Vec<u8>) -> Hosted {
