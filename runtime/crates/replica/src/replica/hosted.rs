@@ -258,7 +258,16 @@ const KEY_REBUILD_PAGE: u64 = 64;
 /// servers without the field ignore it, so it bounds memory per read but replaces no
 /// apply-side check. Apply stays one item per store commit either way.
 pub(crate) const HOSTED_READ_BYTES: u64 = 512 << 10;
-pub(super) const HOSTED_APPLY_ITEMS: u32 = 16;
+/// Log items a hosted replica applies per wake (`tick`), at most; catch-up past
+/// it continues at the next wake (`next_wakeup`, connect#1850). Items, not work:
+/// each read is also held to [`HOSTED_READ_BYTES`], and record-metadata repair
+/// runs in its own slices, so this only binds when items are small. A plain
+/// note applies in tens of microseconds natively, so the wake's fixed costs (the
+/// alarm, the host's 100 ms floor, the log read round trip, the storage flush)
+/// dominate; 64 items keeps each wake far inside the CPU limit #1754 guards
+/// while a newly enrolled device's key grant, which waits behind the whole
+/// backlog, needs a quarter of the wakes it did at 16.
+pub(crate) const HOSTED_APPLY_ITEMS: u32 = 64;
 
 impl HostedState {
     /// Record a final receipt for every ticket waiting on its mutation.
