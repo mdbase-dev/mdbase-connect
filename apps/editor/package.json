@@ -51,7 +51,7 @@
     "@mdbase-dev/connect-protocol": "file:vendor/mdbase-dev-connect-protocol-0.1.0-beta.152-3d3f95b80c9a.tgz",
     "@mdbase-dev/i18n": "workspace:*",
     "@mdbase-dev/panels": "0.4.0",
-    "@mdbase-dev/sdk": "file:vendor/sdk-e2614c11-production-0.2.43.tgz",
+    "@mdbase-dev/sdk": "file:vendor/sdk-ce360f01-production-0.2.45.tgz",
     "@mdbase-dev/sdk-self-hosted": "file:vendor/sdk-self-hosted-9df3f92db395da1a1c61744f74846f756b6852511619e696c7c6bb9c32a7308f.tgz",
     "@mdbase-dev/ui": "0.2.45",
     "@mdbase/connect-ui": "workspace:*",
