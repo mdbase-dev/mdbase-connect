@@ -148,6 +148,24 @@ impl Timestamp {
         Timestamp::checked(secs, nanos)
     }
 
+    /// Resolve a record date-time using only the durable collection zone.
+    pub(crate) fn from_record(
+        s: &str,
+        accepts_offset: bool,
+        zone: Option<NamedZone>,
+    ) -> Option<Self> {
+        if let Some(zone) = zone
+            && let Some(local) = LocalDateTime::parse(s)
+        {
+            return local.resolve(zone);
+        }
+        if accepts_offset {
+            Self::parse(s).ok()
+        } else {
+            None
+        }
+    }
+
     /// RFC 3339 in UTC with `Z`, fractional seconds only as needed (CEL's
     /// `string(timestamp)`).
     pub fn to_rfc3339(self) -> String {
@@ -169,6 +187,70 @@ impl Timestamp {
         }
         s.push('Z');
         s
+    }
+}
+
+/// Calendar and clock fields before a time zone assigns them an instant.
+pub(crate) struct LocalDateTime {
+    wall_seconds: i64,
+    nanos: u32,
+}
+
+impl LocalDateTime {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
+        if !s.is_ascii() || s.as_bytes().get(10) != Some(&b'T') {
+            return None;
+        }
+        let (year, month, day) = parse_full_date(&s[..10])?;
+        let clock = s.get(11..)?;
+        let (hours, minutes) = (num(clock.get(..2)?)?, num(clock.get(3..5)?)?);
+        if clock.as_bytes().get(2) != Some(&b':') || hours > 23 || minutes > 59 {
+            return None;
+        }
+        let (mut seconds, mut nanos) = (0, 0);
+        if !clock[5..].is_empty() {
+            let rest = clock[5..].strip_prefix(':')?;
+            seconds = num(rest.get(..2)?)?;
+            if seconds > 59 {
+                return None;
+            }
+            if !rest[2..].is_empty() {
+                let fraction = rest[2..].strip_prefix('.')?;
+                if fraction.is_empty() || !fraction.bytes().all(|b| b.is_ascii_digit()) {
+                    return None;
+                }
+                // CEL timestamps retain the first nine fractional digits.
+                for (digit, place) in fraction.bytes().zip((0..9).rev()) {
+                    nanos += u32::from(digit - b'0') * 10_u32.pow(place);
+                }
+            }
+        }
+        Some(Self {
+            wall_seconds: days_from_civil(year, month, day) * 86_400
+                + hours * 3600
+                + minutes * 60
+                + seconds,
+            nanos,
+        })
+    }
+
+    fn resolve(self, zone: NamedZone) -> Option<Timestamp> {
+        // IANA offsets are bounded by one day. Sample either side of the
+        // local time as in Temporal's compatible disambiguation.
+        let before = zone.offset_at(self.wall_seconds - 86_400);
+        let after = zone.offset_at(self.wall_seconds + 86_400);
+        let with_before = self.wall_seconds - i64::from(before);
+        let with_after = self.wall_seconds - i64::from(after);
+        // At an overlap both are valid; with_before is earlier. In a gap
+        // neither is valid; with_before advances the clock by the full gap.
+        let seconds = if before == after || zone.offset_at(with_before) == before {
+            with_before
+        } else if zone.offset_at(with_after) == after {
+            with_after
+        } else {
+            with_before
+        };
+        Timestamp::checked(seconds, self.nanos).ok()
     }
 }
 
@@ -320,12 +402,17 @@ pub(crate) fn civil_from_days(z: i64) -> (i64, i64, i64) {
 
 /// `YYYY-MM-DD` with a valid day.
 pub(crate) fn parse_date(s: &str) -> Option<(i64, i64, i64)> {
+    parse_full_date(s).filter(|(year, _, _)| *year >= 1)
+}
+
+/// RFC 3339 full-date (the grammar also admits year 0000).
+pub(crate) fn parse_full_date(s: &str) -> Option<(i64, i64, i64)> {
     let b = s.as_bytes();
-    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
+    if !s.is_ascii() || b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
         return None;
     }
     let (y, m, d) = (num(&s[0..4])?, num(&s[5..7])?, num(&s[8..10])?);
-    (y >= 1 && (1..=12).contains(&m) && (1..=days_in_month(y, m)).contains(&d)).then_some((y, m, d))
+    ((1..=12).contains(&m) && (1..=days_in_month(y, m)).contains(&d)).then_some((y, m, d))
 }
 
 pub(crate) fn format_date(y: i64, m: i64, d: i64) -> String {
@@ -797,6 +884,20 @@ fn rule(p: &mut &str) -> Option<(DayRule, i32)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn floating_clock_disambiguation_uses_the_transition_length() {
+        let zone = Some(NamedZone::get("Australia/Lord_Howe").unwrap());
+        for (local, instant) in [
+            ("2026-10-04T02:15:03.25", "2026-10-03T15:45:03.25Z"),
+            ("2026-04-05T01:45", "2026-04-04T14:45:00Z"),
+        ] {
+            assert_eq!(
+                Timestamp::from_record(local, false, zone),
+                Timestamp::parse(instant).ok()
+            );
+        }
+    }
 
     #[test]
     fn timestamps() {

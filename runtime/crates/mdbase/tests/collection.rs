@@ -342,3 +342,68 @@ fn second_host_is_refused() {
     drop(col);
     let _ = std::fs::remove_dir_all(&root);
 }
+
+#[test]
+fn changing_only_the_zone_reorders_existing_records_and_preserves_floating_values() {
+    let root = dir("floating-times");
+    std::fs::create_dir_all(root.join("_types")).unwrap();
+    let config = "spec_version: '0.3.0'\nsettings:\n  validation: error\n";
+    std::fs::write(root.join("mdbase.yaml"), config).unwrap();
+    std::fs::write(root.join("_types/task.md"), TASK_TYPE.replace(
+        "{ type: string, format: date }",
+        "{ anyOf: [{type: string, format: date-time}, {type: string, format: local-date-time}] }",
+    )).unwrap();
+    let col = Collection::open(&root).unwrap();
+    let create = |name: &str, due: &str| {
+        col.create(
+            Create::at(format!("tasks/{name}.md"))
+                .field("type", "task")
+                .field("title", name)
+                .field("status", "open")
+                .field("due", due),
+        )
+        .unwrap()
+    };
+    let local = "2026-11-01T01:30";
+    let floating = create("floating", local);
+    let offset = create("offset", "2026-11-01T06:00:00Z");
+    let updated = col
+        .update(Update::at(&floating).set("title", "Updated"))
+        .unwrap();
+    let read = col.get("tasks/floating.md").unwrap().unwrap();
+    for issues in [
+        &floating.issues,
+        &updated.issues,
+        &read.issues,
+        &col.validate_one(&floating).unwrap(),
+    ] {
+        assert_eq!(issues.len(), 1, "{issues:?}");
+        assert_eq!(issues[0].code, "timezone_required");
+    }
+    assert!(offset.issues.is_empty());
+    let order = || {
+        col.query(Query::of_type("task").order_by("due", Order::Asc))
+            .unwrap()
+            .records
+            .into_iter()
+            .map(|r| r.id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(order(), [offset.id, floating.id]);
+    for (zone, expected) in [
+        ("America/New_York", [floating.id, offset.id]),
+        ("America/Los_Angeles", [offset.id, floating.id]),
+    ] {
+        std::fs::write(
+            root.join("mdbase.yaml"),
+            format!("{config}  timezone: {zone}\n"),
+        )
+        .unwrap();
+        col.rescan().unwrap();
+        assert_eq!(order(), expected);
+        let read = col.get("tasks/floating.md").unwrap().unwrap();
+        assert!(read.issues.is_empty());
+        assert_eq!(read.revision, updated.revision);
+        assert_eq!(read.get("due"), Some(&json!(local)));
+    }
+}

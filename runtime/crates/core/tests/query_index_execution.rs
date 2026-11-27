@@ -391,3 +391,161 @@ fn projected_temporal_type_lookup_matches_catalog_unicode_case_rules() {
         [projected[0].0.temporal]
     );
 }
+
+#[test]
+fn floating_times_share_instants_across_cel_sorting_and_index_projection() {
+    let schema = TASK.replace("at: {type: string, format: date-time}", r##"at: {anyOf: [{$ref: '#/$defs/instant'}, {$ref: '#/$defs/local'}]}
+      start: {oneOf: [{$ref: '#/$defs/local'}, {$ref: '#/$defs/instant'}]}
+      clock: {$ref: '#/$defs/local'}
+      due: {anyOf: [{type: string, format: date}, {$ref: '#/$defs/instant'}, {$ref: '#/$defs/local'}]}
+      nested: {type: array, items: {$ref: '#/$defs/local'}}
+      partial: {anyOf: [{type: string, format: date-time}, {format: local-date-time}]}"##)
+        .replace("collection:", r#"    $defs:
+      instant: {type: string, format: date-time}
+      local: {type: string, format: local-date-time}
+collection:"#);
+    for zone in [None, Some("America/New_York")] {
+        let mut config = "spec_version: '0.3.0'\n".to_owned();
+        if let Some(zone) = zone {
+            config.push_str(&format!("settings: {{timezone: {zone}}}\n"));
+        }
+        let c = Catalog::load([
+            ("mdbase.yaml", config.as_str()),
+            ("_types/task.md", schema.as_str()),
+            ("_types/other.md", OTHER),
+        ]);
+        assert!(c.is_valid(), "{:?}", c.issues());
+        let types = vec!["task".into()];
+        let local = "2026-11-01T01:30";
+        // During the New York overlap this is 05:30Z (the earlier 01:30).
+        let mut fields = fm(Value::string(local));
+        for key in ["clock", "start", "due", "partial"] {
+            fields.insert(key, Value::string(local));
+        }
+        fields.insert(
+            "nested",
+            Value::List(vec![Value::string("2026-03-08T02:30:12.12345678987")]),
+        );
+        let offset = fm(Value::string("2026-11-01T06:00:00Z"));
+        let a = QueryRecord {
+            path: "tasks/a.md",
+            types: &types,
+            frontmatter: &fields,
+            body: None,
+            mtime: None,
+        };
+        let b = QueryRecord {
+            path: "tasks/b.md",
+            frontmatter: &offset,
+            ..a.clone()
+        };
+        let expr = if zone.is_some() {
+            r#"at == timestamp("2026-11-01T05:30:00Z") && raw.at == at && start == at && clock == at && record.nested[0] == timestamp("2026-03-08T07:30:12.123456789Z")"#
+        } else {
+            r#"at == "2026-11-01T01:30" && raw.at == at && start == at && clock == at && record.nested[0] == "2026-03-08T02:30:12.12345678987""#
+        };
+        let filter = format!("where: '{expr} && due == \"{local}\" && partial == due'");
+        let plan = query::compile(&parse(&filter), &c).unwrap();
+        assert_eq!(plan.matches(&a, &env()), query::Verdict::Match);
+        let types = vec!["task".into(), "other".into()];
+        assert!(!c.is_date_time(&types, &["at"]));
+        assert_eq!(
+            c.effective_values(a.path, a.types, &fields).get("at"),
+            fields.get("at")
+        );
+
+        for key in ["at", "start", "clock"] {
+            let query = parse(&format!("where: 'raw.{key} != \"{local}\"'"));
+            let plan = query::compile(&query, &c).unwrap();
+            assert_eq!(plan.candidate, query::Candidate::All);
+            assert!(!plan.exact);
+        }
+        let plan = query::compile(&parse("order_by: [{field: at}]"), &c).unwrap();
+        let ae = plan.evaluate(&a, &env(), None);
+        let be = plan.evaluate(&b, &env(), None);
+        let expected = if zone.is_some() {
+            Ordering::Less
+        } else {
+            Ordering::Greater
+        };
+        assert_eq!(plan.compare(&a, &b), expected);
+        assert_eq!(
+            plan.compare_evaluated((a.path, &ae), (b.path, &be)),
+            expected
+        );
+        let atom = |r: &QueryRecord| {
+            indexed::project_index_fields(&c, r, &[FieldRef::Effective(vec!["at".into()])], 128)
+                .unwrap()
+                .remove(0)
+                .1
+        };
+        assert_eq!(atom(&a).cmp(&atom(&b)), expected);
+        assert_eq!(
+            atom(&a).kind(),
+            if zone.is_some() {
+                AtomKind::Temporal
+            } else {
+                AtomKind::Text
+            }
+        );
+    }
+}
+
+#[test]
+fn a_spelling_rejected_by_any_matched_format_stays_text_without_a_zone_warning() {
+    use mdbn_core::validate::validate_record;
+    let local_only = TASK
+        .replace("name: task", "name: floating")
+        .replace("format: date-time", "format: local-date-time");
+    for zone in ["", "settings: {timezone: America/New_York}"] {
+        let config = format!("spec_version: '0.3.0'\n{zone}\n");
+        let c = Catalog::load([
+            ("mdbase.yaml", config.as_str()),
+            ("_types/task.md", TASK),
+            ("_types/floating.md", local_only.as_str()),
+        ]);
+        for (types, text) in [
+            (vec!["task".to_owned()], "2026-11-01T01:30"),
+            (vec!["floating".to_owned()], "2026-11-01T06:00:00Z"),
+            (
+                vec!["task".to_owned(), "floating".to_owned()],
+                "2026-11-01T01:30",
+            ),
+            (
+                vec!["task".to_owned(), "floating".to_owned()],
+                "2026-11-01T06:00:00Z",
+            ),
+        ] {
+            let source = format!("---\ntype: [{}]\nat: '{text}'\n---\n", types.join(", "));
+            let issues = validate_record(&c, "tasks/a.md", &source);
+            assert_eq!(
+                issues.iter().map(|i| i.code.as_str()).collect::<Vec<_>>(),
+                ["format_invalid"]
+            );
+            let fields = fm(Value::string(text));
+            let r = QueryRecord {
+                path: "tasks/a.md",
+                types: &types,
+                frontmatter: &fields,
+                body: None,
+                mtime: None,
+            };
+            let plan = query::compile(
+                &parse(&format!(
+                    "where: 'at == \"{text}\"'\norder_by: [{{field: at}}]"
+                )),
+                &c,
+            )
+            .unwrap();
+            assert_eq!(plan.matches(&r, &env()), query::Verdict::Match);
+            let key = indexed::project_index_fields(
+                &c,
+                &r,
+                &[FieldRef::Effective(vec!["at".into()])],
+                128,
+            )
+            .unwrap();
+            assert_eq!(key[0].1.kind(), AtomKind::Text);
+        }
+    }
+}

@@ -145,7 +145,7 @@ fn neutral_index_row_contains_actual_path_types_and_all_declared_fields() {
     assert_eq!(projected.fields[0].atom.kind, 2);
     assert_eq!(
         projected.fields[1].temporal_hint,
-        TemporalHint::DateTime as u8
+        TemporalHint::DateTime.code()
     );
     assert_eq!(projected.fields[2].atom.kind, 255);
     assert!(project_record_query_index_row(&c, &r, &[field("at"), field("at")], 256).is_err());
@@ -373,11 +373,11 @@ fn declared_profile_uses_compiled_ref_allof_properties_and_exact_top_level_names
 
 #[test]
 fn empty_generation_frame_binds_key_codec_and_projection_algorithm_versions() {
-    // Independent frame oracle: key codec 2, projection algorithm 4, SEM 1.1, no resources
+    // Independent frame oracle: key codec 2, projection algorithm 5, SEM 1.1, no resources
     // or declared fields. This is a SHA frame test, not an authorization witness.
     let mut frame = b"mdbase/v1/query-index-generation\0".to_vec();
     frame.push(2);
-    for word in [4u64, 1, 1, 0, 0] {
+    for word in [5u64, 1, 1, 0, 0] {
         frame.extend_from_slice(&word.to_be_bytes());
     }
     assert_eq!(
@@ -449,4 +449,32 @@ fn rows_carry_the_body_index_text_unless_the_capture_leaves_bodies_out() {
         [FieldRef::File("body".into())]
     );
     assert!(captured.without_body().project_row(&r).is_ok());
+}
+
+#[test]
+fn zone_change_invalidates_rows_and_reprojects_the_same_floating_bytes() {
+    let task = TASK.replace("format: date-time", "format: local-date-time");
+    let capture = |zone| {
+        let config = format!("spec_version: '0.3.0'\nsettings: {{timezone: {zone}}}\n");
+        let resources = [
+            ("mdbase.yaml".into(), config),
+            ("_types/task.md".into(), task.clone()),
+        ];
+        QueryProjectionContext::capture(
+            &resources,
+            mdbn_wire::common::Version { major: 1, minor: 1 },
+            &[field("at")],
+            256,
+        )
+        .unwrap()
+    };
+    let eastern = capture("America/New_York");
+    let utc = capture("UTC");
+    assert_ne!(eastern.generation(), utc.generation());
+    let record = row("tasks/a.md", "---\nat: '2026-11-01T01:30'\n---\n");
+    let new_key = utc.project_row(&record).unwrap().fields.remove(0);
+    let old_key = eastern.project_row(&record).unwrap().fields.remove(0);
+    assert_eq!(old_key.temporal_hint, new_key.temporal_hint);
+    assert_eq!(old_key.atom.kind, 3);
+    assert_ne!(old_key.atom, new_key.atom);
 }

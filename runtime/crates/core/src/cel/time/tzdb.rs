@@ -52,6 +52,14 @@ pub struct NamedZone {
     name: &'static str,
 }
 
+impl PartialEq for NamedZone {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
+}
+
+impl Eq for NamedZone {}
+
 impl NamedZone {
     /// Look up a named IANA zone in the release pinned by this build's semantics.
     pub fn get(name: &str) -> Result<NamedZone, TimeError> {

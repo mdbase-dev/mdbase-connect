@@ -854,19 +854,73 @@ impl Catalog {
         self.effective_frontmatter(types, &self.record_values(path, types, raw))
     }
 
-    /// Whether every one of `types` (at least one) declares `format:
-    /// date-time` for the frontmatter location `location` (object keys, `"[]"`
-    /// for an array item). CEL binds such strings as timestamps (spec 10
-    /// "Temporal Values"; `cel::CelValue::from_value_typed`).
+    /// Whether every matched schema declares a date-time at this location.
     pub fn is_date_time(&self, types: &[String], location: &[&str]) -> bool {
-        let defs: Vec<&TypeDef> = types.iter().filter_map(|n| self.type_named(n)).collect();
-        !defs.is_empty()
-            && defs.iter().all(|t| {
-                schema_at(&t.schema_document, &t.schema_entry, location)
-                    .and_then(|s| s.get("format"))
-                    .and_then(Value::as_str)
-                    == Some("date-time")
+        self.date_time_formats(types, location).is_some()
+    }
+
+    pub(crate) fn date_time_formats(
+        &self,
+        types: &[String],
+        location: &[&str],
+    ) -> Option<crate::jsonschema::DateTimeFormats> {
+        if types.is_empty() {
+            return None;
+        }
+        types
+            .iter()
+            .try_fold(crate::jsonschema::DateTimeFormats::BOTH, |common, name| {
+                Some(
+                    common.intersect(
+                        self.type_named(name)?
+                            .schema
+                            .0
+                            .date_time_formats(location)?,
+                    ),
+                )
             })
+    }
+
+    /// Record values for CEL, retaining the origin for relative link resolution.
+    pub(crate) fn cel_record(
+        &self,
+        types: &[String],
+        path: &str,
+        fields: &Map,
+    ) -> crate::cel::CelMap {
+        let mut map = crate::cel::CelMap::new().with_origin(path);
+        let zone = self.named_zone();
+        let mut location = Vec::new();
+        for (key, value) in fields.iter() {
+            location.push(key);
+            let value = crate::cel::CelValue::from_value_at(value, &mut location, zone, &|loc| {
+                self.date_time_formats(types, loc)
+            });
+            map.insert(crate::cel::Key::String(key.into()), value);
+            location.pop();
+        }
+        map
+    }
+
+    /// Bind a matched record in a CEL record context (Chapter 10).
+    pub fn record_activation<'a>(
+        &self,
+        types: &[String],
+        path: &str,
+        raw: &Map,
+        effective: &Map,
+        file: crate::cel::CelValue,
+    ) -> crate::cel::Activation<'a> {
+        crate::cel::bind_record(
+            self.cel_record(types, path, raw),
+            self.cel_record(types, path, effective),
+            file,
+            Some(path),
+        )
+    }
+
+    pub(crate) fn named_zone(&self) -> Option<crate::cel::time::NamedZone> {
+        crate::cel::time::NamedZone::get(self.settings.timezone.as_deref()?).ok()
     }
 
     /// The types a record at `path` with persisted `frontmatter` matches

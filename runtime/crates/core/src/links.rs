@@ -1098,21 +1098,24 @@ impl<'a> CelLinks<'a> {
         let doc = Document::parse_at(&rec.path, &*rec.source);
         let fm = doc.frontmatter();
         let types = self.catalog.membership(&rec.path, fm).types;
-        let effective = self.catalog.effective_values(&rec.path, &types, fm);
+        let values = self.catalog.record_values(&rec.path, &types, fm);
+        let effective = self.catalog.effective_frontmatter(&types, &values);
         let mut m = CelMap::new().with_origin(&rec.path);
         let key = |s: &str| Key::String(std::sync::Arc::from(s));
+        let effective = std::sync::Arc::new(self.catalog.cel_record(&types, &rec.path, &effective));
+        m.insert(key("record"), CelValue::Map(effective.clone()));
         m.insert(
-            key("record"),
-            crate::cel::record_map(&effective, Some(&rec.path)),
+            key("raw"),
+            CelValue::Map(std::sync::Arc::new(
+                self.catalog.cel_record(&types, &rec.path, &values),
+            )),
         );
-        let values = self.catalog.record_values(&rec.path, &types, fm);
-        m.insert(key("raw"), crate::cel::record_map(&values, Some(&rec.path)));
         m.insert(
             key("file"),
             CelValue::from_value(&self.file_value(&rec.path, &values, doc.body())),
         );
         for (k, v) in effective.iter() {
-            m.insert(key(k), CelValue::from_value(v));
+            m.insert(k.clone(), v.clone());
         }
         Some(CelValue::Map(std::sync::Arc::new(m)))
     }

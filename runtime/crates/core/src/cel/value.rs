@@ -208,43 +208,49 @@ impl CelValue {
         }
     }
 
-    /// Convert a frontmatter value, typing date-times (spec 10 "Temporal
-    /// Values"): a string at a location for which `date_time` returns true
-    /// becomes a timestamp when it is a valid RFC 3339 date-time, and stays a
-    /// string otherwise. A location is the list of object keys from the root,
-    /// with `"[]"` for an array item. The caller decides the locations from
-    /// the matched schemas (`format: date-time` in every matched schema).
+    /// Bind RFC 3339 instants at schema-declared date-time locations.
     pub fn from_value_typed(v: &Value, date_time: &dyn Fn(&[&str]) -> bool) -> CelValue {
-        fn go(v: &Value, at: &mut Vec<String>, date_time: &dyn Fn(&[&str]) -> bool) -> CelValue {
-            match v {
-                Value::Text(s) => {
-                    let loc: Vec<&str> = at.iter().map(String::as_str).collect();
-                    if date_time(&loc)
-                        && let Ok(t) = super::time::Timestamp::parse(s)
-                    {
-                        return CelValue::Timestamp(t);
-                    }
-                    CelValue::string(s)
-                }
-                Value::List(l) => {
-                    at.push("[]".to_owned());
-                    let items = l.iter().map(|x| go(x, at, date_time)).collect();
-                    at.pop();
-                    CelValue::List(Arc::new(items))
-                }
-                Value::Map(m) => {
-                    let mut out = CelMap::new();
-                    for (k, x) in m.iter() {
-                        at.push(k.to_owned());
-                        out.insert(Key::String(Arc::from(k)), go(x, at, date_time));
-                        at.pop();
-                    }
-                    CelValue::Map(Arc::new(out))
-                }
-                other => CelValue::from_value(other),
+        Self::from_value_at(v, &mut Vec::new(), None, &|loc| {
+            date_time(loc).then_some(crate::jsonschema::DateTimeFormats::BOTH)
+        })
+    }
+
+    /// Bind instants and floating clock times at schema-declared locations.
+    pub(crate) fn from_value_at<'a>(
+        v: &'a Value,
+        at: &mut Vec<&'a str>,
+        zone: Option<super::time::NamedZone>,
+        date_time: &dyn Fn(&[&str]) -> Option<crate::jsonschema::DateTimeFormats>,
+    ) -> CelValue {
+        match v {
+            Value::Text(s) => date_time(at)
+                .and_then(|formats| {
+                    Timestamp::from_record(s, formats.offset, zone.filter(|_| formats.local))
+                })
+                .map_or_else(|| Self::string(s), Self::Timestamp),
+            Value::List(items) => {
+                at.push("[]");
+                let items = items
+                    .iter()
+                    .map(|v| Self::from_value_at(v, at, zone, date_time))
+                    .collect();
+                at.pop();
+                Self::List(Arc::new(items))
             }
+            Value::Map(fields) => {
+                let mut out = CelMap::new();
+                for (key, value) in fields.iter() {
+                    at.push(key);
+                    out.insert(
+                        Key::String(key.into()),
+                        Self::from_value_at(value, at, zone, date_time),
+                    );
+                    at.pop();
+                }
+                Self::Map(Arc::new(out))
+            }
+            other => Self::from_value(other),
         }
-        go(v, &mut Vec::new(), date_time)
     }
 
     /// Convert to a frontmatter value, where the data model can hold it
