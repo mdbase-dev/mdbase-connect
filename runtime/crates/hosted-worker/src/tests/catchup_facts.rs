@@ -102,9 +102,14 @@ fn catchup_facts_show_a_wake_stopped_behind_the_log_with_a_grant_waiting() {
     );
     assert_eq!(key_grants_to(&svc, JOINING), 0);
     assert!(!h.e.serving());
+    assert_eq!(
+        h.e.next_wakeup(true),
+        Some(h.clock.get() as i64),
+        "the next catch-up slice is due at once, not a second later"
+    );
 
     // The next warm alarm catches up and grants.
-    h.clock.set(h.clock.get() + 1_000);
+    h.clock.set(h.clock.get() + 100);
     h.e.tick(h.clock.get() as i64, false);
     h.pump_pushless();
     assert_eq!(key_grants_to(&svc, JOINING), 1);

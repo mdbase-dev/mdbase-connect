@@ -1726,12 +1726,17 @@ impl<S: Store> Replica<S> {
         [
             append,
             (self.apply_fault.is_none()
-                && self.hosted.as_ref().is_some_and(|hosted| {
-                    hosted.reindex_stamp.is_some()
-                        || (hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS
-                            && self.head.seq < self.head_known)
-                }))
+                && self
+                    .hosted
+                    .as_ref()
+                    .is_some_and(|hosted| hosted.reindex_stamp.is_some()))
             .then(|| self.now().saturating_add(1000)),
+            // Log catch-up that stopped on this tick's apply budget continues at
+            // the next wake, not a second later: the budget bounds each wake's
+            // work, and a newly enrolled device's key grant waits behind the whole
+            // backlog (connect#1850). Only a tick that applied a full budget
+            // asks, so a stalled read never spins; the host keeps its own floor.
+            self.hosted_catchup_continues().then(|| self.now()),
             self.query_index_flush_due().then(|| self.now()),
             grant,
             stall_probe,
@@ -2065,5 +2070,16 @@ impl<S: Store> Replica<S> {
         let waiting = self.grant_candidate().is_some();
         let due = waiting && self.key_grant_turn().is_some_and(|at| at <= self.now());
         (waiting, due)
+    }
+
+    /// Hosted log catch-up applied this tick's whole budget and the log head is
+    /// still ahead: the next slice is due at once (connect#1850).
+    fn hosted_catchup_continues(&self) -> bool {
+        self.apply_fault.is_none()
+            && self.hosted.as_ref().is_some_and(|hosted| {
+                hosted.reindex_stamp.is_none()
+                    && hosted.applied_since_tick == super::hosted::HOSTED_APPLY_ITEMS
+                    && self.head.seq < self.head_known
+            })
     }
 }
