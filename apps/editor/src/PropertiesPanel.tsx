@@ -338,7 +338,7 @@ export function PropertiesPanel({
       </div>}
       {Object.keys(automatic).length > 0 && <section className="effective-properties" aria-label={t`Automatic properties`}>
         <div><h3><Trans>Automatic</Trans></h3><p><Trans>Provided by the note's type, not stored in this file.</Trans></p></div>
-        <PropertyList values={automatic} declared={declared.filter((field) => field.name in automatic).map(({ required: _required, ...field }) => field)} records={records} onChange={undefined} />
+        <PropertyList values={automatic} declared={providedFields(declared, automatic)} records={records} onChange={undefined} />
       </section>}
     </div> : mode === "json" ? <div id="properties-json-panel" className="raw-properties" role="tabpanel" aria-labelledby="properties-json-tab">
       <p className="raw-properties-note"><Trans>Edit the underlying property values. Other apps use these values too.</Trans></p>
@@ -420,6 +420,25 @@ function writeShowEmptyProperties(show: boolean): void {
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The declared fields as far as the type provides them: only the fields, and the parts of
+ * groups, that hold a value. Nothing in the automatic list can be filled in, so it has no
+ * empty fields to offer.
+ */
+function providedFields(declared: readonly PropertyInfo[], values: Readonly<Record<string, unknown>>): PropertyInfo[] {
+  return declared.filter((field) => field.name in values).map(({ required: _required, ...field }) => {
+    const value = values[field.name];
+    if (field.kind === "group" && field.parts && isPlainObject(value)) {
+      return { ...field, parts: providedFields(field.parts, value) };
+    }
+    if (field.kind === "list" && field.items?.kind === "group" && field.items.parts && Array.isArray(value)) {
+      const held = Object.assign({}, ...value.filter(isPlainObject)) as Record<string, unknown>;
+      return { ...field, items: { ...field.items, parts: providedFields(field.items.parts, held) } };
+    }
+    return field;
+  });
 }
 
 function countEmptyTopLevel(values: JsonObject, declared: readonly PropertyInfo[]): number {
