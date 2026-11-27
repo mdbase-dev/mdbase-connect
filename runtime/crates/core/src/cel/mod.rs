@@ -168,27 +168,36 @@ pub fn record_activation<'a>(raw: &Map, effective: &Map, file: CelValue) -> Acti
         },
         _ => None,
     };
-    let mut act = Activation::new();
-    for (k, v) in effective.iter() {
-        act.bind(k, CelValue::from_value(v));
-    }
-    act.bind("record", record_map(effective, path.as_deref()))
-        .bind("raw", record_map(raw, path.as_deref()))
-        .bind("file", file)
-        .unbound_as_null();
-    if let Some(p) = &path {
-        act.with_record_path(p);
-    }
-    act
+    let map = |fields| {
+        let map = value::map_from(fields);
+        match path.as_deref() {
+            Some(path) => map.with_origin(path),
+            None => map,
+        }
+    };
+    bind_record(map(raw), map(effective), file, path.as_deref())
 }
 
-pub(crate) fn record_map(fields: &Map, path: Option<&str>) -> CelValue {
-    let map = value::map_from(fields);
-    let map = match path {
-        Some(path) => map.with_origin(path),
-        None => map,
-    };
-    CelValue::Map(std::sync::Arc::new(map))
+pub(crate) fn bind_record<'a>(
+    raw: CelMap,
+    effective: CelMap,
+    file: CelValue,
+    path: Option<&str>,
+) -> Activation<'a> {
+    let mut act = Activation::new();
+    for (key, value) in effective.iter() {
+        if let Key::String(name) = key {
+            act.bind(name.to_string(), value.clone());
+        }
+    }
+    act.bind("record", CelValue::Map(std::sync::Arc::new(effective)))
+        .bind("raw", CelValue::Map(std::sync::Arc::new(raw)))
+        .bind("file", file)
+        .unbound_as_null();
+    if let Some(path) = path {
+        act.with_record_path(path);
+    }
+    act
 }
 
 // Compiled programs are cached and shared across threads by hosts.

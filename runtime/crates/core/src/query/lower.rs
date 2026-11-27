@@ -268,12 +268,10 @@ impl Lowerer<'_> {
             _ => return false,
         };
         let location: Vec<_> = path.iter().map(String::as_str).collect();
-        self.catalog.types().iter().any(|t| {
-            crate::types::schema_at(&t.schema_document, &t.schema_entry, &location)
-                .and_then(|s| s.get("format"))
-                .and_then(Value::as_str)
-                == Some("date-time")
-        })
+        self.catalog
+            .types()
+            .iter()
+            .any(|t| t.schema.0.date_time_formats(&location).is_some())
     }
 
     fn effective(&self, path: Vec<String>) -> FieldRef {

@@ -239,13 +239,6 @@ fn guard_passes(
     path: &str,
     clock: &OpClock,
 ) -> Result<bool, LifecycleError> {
-    let previous = ctx.previous;
-    // Date-time fields bind as timestamps (spec 10), in the draft and `old`.
-    let typed = |m: &Map| {
-        CelValue::from_value_typed(&Value::Map(m.clone()), &|loc: &[&str]| {
-            ctx.catalog.is_date_time(ctx.types, loc)
-        })
-    };
     use crate::cel::{self, CelValue};
     let fail = |message: String| LifecycleError {
         code: "lifecycle_expression_error".into(),
@@ -258,18 +251,14 @@ fn guard_passes(
             .into_iter()
             .collect(),
     ));
-    let mut act = cel::record_activation(draft, draft, file);
-    if let CelValue::Map(m) = typed(draft) {
-        for (k, v) in m.iter() {
-            if let cel::Key::String(name) = k {
-                act.bind(name.to_string(), v.clone());
-            }
-        }
-        act.bind("record", CelValue::Map(m.clone()));
-        act.bind("raw", CelValue::Map(m));
-    }
+    let mut act = ctx
+        .catalog
+        .record_activation(ctx.types, path, draft, draft, file);
     act.with_clock(cel_clock(clock.instant_ms, &clock.local_date, &clock.tz));
-    act.bind("old", typed(&previous.cloned().unwrap_or_default()));
+    let old = ctx.previous.map_or_else(cel::CelMap::new, |m| {
+        ctx.catalog.cel_record(ctx.types, path, m)
+    });
+    act.bind("old", CelValue::Map(std::sync::Arc::new(old)));
     act.bind(
         "operation",
         CelValue::from_value(&Value::Map(

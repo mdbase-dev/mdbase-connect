@@ -250,3 +250,38 @@ fn promote_types_an_untyped_record_in_the_same_write() {
     .unwrap_err();
     assert_eq!(err.reason.as_deref(), Some("data_contract_promote_typed"));
 }
+
+#[test]
+fn contract_read_and_write_keep_local_date_time_fields_verbatim() {
+    let ty = type_source("card");
+    let local = "2026-11-27T08:00";
+    for annotation in [
+        "{type: string, format: local-date-time}",
+        "{anyOf: [{type: string, format: date-time}, {type: string, format: local-date-time}]}",
+    ] {
+        let contract = CONTRACT.replace("name: {type: string}", &format!("name: {annotation}"));
+        let catalog = Catalog::load([
+            ("mdbase.yaml", "spec_version: '0.3.0'"),
+            ("_contracts/card.md", &contract),
+            ("_types/card.md", &ty),
+        ]);
+        let doc = DOC.replace("label: Old", &format!("label: '{local}'"));
+        let floating = RecordSource {
+            path: "a.md",
+            source: &doc,
+        };
+        let view = contract_record(&catalog, &selector(None), floating).unwrap();
+        assert_eq!(view.fields.get("name"), Some(&Value::string(local)));
+        assert!(
+            contract_write(
+                &catalog,
+                &selector(None),
+                Some(floating),
+                &fields("{done: true}"),
+                &[]
+            )
+            .is_ok()
+        );
+        assert!(contract_record(&catalog, &selector(None), record()).is_err());
+    }
+}

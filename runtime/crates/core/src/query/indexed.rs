@@ -57,6 +57,25 @@ pub enum TemporalHint {
     Date,
     /// Valid RFC 3339 date-time with an offset.
     DateTime,
+    /// A date-time location whose floating values resolve in this collection zone.
+    ZonedDateTime {
+        /// Durable zone for floating values.
+        zone: crate::cel::time::NamedZone,
+        /// Every matched schema also admits the offset spelling.
+        accepts_offset: bool,
+    },
+}
+
+impl TemporalHint {
+    /// Stable annotation stored alongside an atom. The zone is already bound
+    /// by the generation and the atom contains the resolved instant.
+    pub fn code(self) -> u8 {
+        match self {
+            Self::None => 0,
+            Self::Date => 1,
+            Self::DateTime | Self::ZonedDateTime { .. } => 2,
+        }
+    }
 }
 
 /// A compact, lossless SQL BLOB order key. Its Rust ordering is the SQL oracle.
@@ -348,40 +367,36 @@ impl IndexFieldSpec {
 /// A hint is present only when every matched type is known and declares the
 /// same unambiguous date/date-time format. Stores do not call this themselves.
 pub fn temporal_hint(catalog: &Catalog, types: &[String], path: &[String]) -> TemporalHint {
-    schemas_temporal_hint(
-        types.iter().map(|name| {
-            catalog
-                .type_named(name)
-                .map(|t| (&t.schema_document, t.schema_entry.as_str()))
-        }),
-        path,
-    )
-}
-
-pub(crate) fn schemas_temporal_hint<'a>(
-    schemas: impl Iterator<Item = Option<(&'a Value, &'a str)>>,
-    path: &[String],
-) -> TemporalHint {
     let location: Vec<_> = path.iter().map(String::as_str).collect();
-    let mut common = None;
-    for schema in schemas {
-        let Some((document, entry)) = schema else {
-            return TemporalHint::None;
-        };
-        let format = crate::types::schema_at(document, entry, &location)
-            .and_then(|s| s.get("format"))
-            .and_then(Value::as_str);
-        let hint = match format {
-            Some("date") => TemporalHint::Date,
-            Some("date-time") => TemporalHint::DateTime,
-            _ => return TemporalHint::None,
-        };
-        if common.is_some_and(|old| old != hint) {
-            return TemporalHint::None;
+    if let Some(formats) = catalog.date_time_formats(types, &location) {
+        if formats.local
+            && let Some(zone) = catalog.named_zone()
+        {
+            return TemporalHint::ZonedDateTime {
+                zone,
+                accepts_offset: formats.offset,
+            };
         }
-        common = Some(hint);
+        return if formats.offset {
+            TemporalHint::DateTime
+        } else {
+            TemporalHint::None
+        };
     }
-    common.unwrap_or(TemporalHint::None)
+    if !types.is_empty()
+        && types.iter().all(|name| {
+            catalog.type_named(name).is_some_and(|t| {
+                crate::types::schema_at(&t.schema_document, &t.schema_entry, &location)
+                    .and_then(|s| s.get("format"))
+                    .and_then(Value::as_str)
+                    == Some("date")
+            })
+        })
+    {
+        TemporalHint::Date
+    } else {
+        TemporalHint::None
+    }
 }
 
 /// Project trusted top-level effective fields, with read defaults and per-record
@@ -422,6 +437,10 @@ fn temporal_text(s: &str, hint: TemporalHint) -> Option<Timestamp> {
         TemporalHint::Date if s.len() == 10 => Timestamp::parse(&format!("{s}T00:00:00Z")).ok(),
         TemporalHint::Date => None,
         TemporalHint::DateTime => Timestamp::parse(s).ok(),
+        TemporalHint::ZonedDateTime {
+            zone,
+            accepts_offset,
+        } => Timestamp::from_record(s, accepts_offset, Some(zone)),
     }
 }
 
@@ -432,7 +451,7 @@ pub struct IndexGeneration {
     pub generation: u64,
     /// Confirmed log snapshot.
     pub head_seq: u64,
-    /// Catalog/schema/read-default fingerprint.
+    /// Catalog fingerprint including schemas, read defaults, and the collection timezone.
     pub catalog_hash: [u8; 32],
     /// Semantic version of the materialized keys.
     pub sem: [u32; 2],

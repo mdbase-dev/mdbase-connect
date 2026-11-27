@@ -122,6 +122,7 @@ pub fn validate_record_at(
     let mut out = membership.issues;
     let (values, path_issues) = catalog.record_values_with_issues(path, &membership.types, fm);
     out.extend(path_issues);
+    out.extend(timezone_warnings(catalog, &membership.types, &values));
     let instance = Value::Map(values);
     for name in &membership.types {
         let Some(t) = catalog.type_named(name) else {
@@ -139,6 +140,85 @@ pub fn validate_record_at(
             });
         }
     }
+    out
+}
+
+/// Warning-only single-record diagnostics for floating values with no collection
+/// zone. Read defaults participate because CEL binds effective metadata too.
+pub fn timezone_warnings(
+    catalog: &Catalog,
+    types: &[String],
+    values: &crate::value::Map,
+) -> Vec<Issue> {
+    if catalog.settings().timezone.is_some() || types.is_empty() {
+        return Vec::new();
+    }
+    fn visit<'a>(
+        v: &'a Value,
+        schema_path: &mut Vec<&'a str>,
+        pointer: &str,
+        catalog: &Catalog,
+        types: &[String],
+        out: &mut Vec<Issue>,
+    ) {
+        match v {
+            Value::Text(s)
+                if crate::cel::time::LocalDateTime::parse(s).is_some()
+                    && catalog
+                        .date_time_formats(types, schema_path)
+                        .is_some_and(|f| f.local) =>
+            {
+                out.push(
+                    Issue::new(
+                        "timezone_required",
+                        Severity::Warning,
+                        Tier::SingleRecord,
+                        "Set settings.timezone on the collection to resolve floating date-times.",
+                    )
+                    .at(pointer),
+                );
+            }
+            Value::Map(m) => {
+                for (key, child) in m.iter() {
+                    schema_path.push(key);
+                    visit(
+                        child,
+                        schema_path,
+                        &format!("{pointer}/{}", crate::jsonschema::escape(key)),
+                        catalog,
+                        types,
+                        out,
+                    );
+                    schema_path.pop();
+                }
+            }
+            Value::List(items) => {
+                schema_path.push("[]");
+                for (index, child) in items.iter().enumerate() {
+                    visit(
+                        child,
+                        schema_path,
+                        &format!("{pointer}/{index}"),
+                        catalog,
+                        types,
+                        out,
+                    );
+                }
+                schema_path.pop();
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    let effective = catalog.effective_frontmatter(types, values);
+    visit(
+        &Value::Map(effective),
+        &mut Vec::new(),
+        "",
+        catalog,
+        types,
+        &mut out,
+    );
     out
 }
 
@@ -366,6 +446,7 @@ pub fn apply_level(
         Level::Off if !explicit_validate => Vec::new(),
         Level::Warn | Level::Off => issues
             .into_iter()
+            .filter(|i| level != Level::Off || i.code != "timezone_required")
             .map(|mut i| {
                 i.severity = Severity::Warning;
                 i

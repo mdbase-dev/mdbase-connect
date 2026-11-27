@@ -16,8 +16,8 @@
 //! - `pattern` and `patternProperties` use the mdbase regex profile: the
 //!   `regex-lite` engine, unanchored. `\p{..}`, `\P{..}`, backreferences and
 //!   look-around make the schema invalid (`invalid_pattern`).
-//! - `format` asserts `date`, `time` and `date-time` (RFC 3339; offsets are
-//!   required). Other formats are annotations.
+//! - `format` asserts RFC 3339 `date`, `time`, and `date-time`, plus the
+//!   offset-free mdbase `local-date-time`. Other formats are annotations.
 //! - Only fragment references (`#`, `#/...`) resolve. HTTP(S) references are
 //!   `schema_ref_forbidden`; anything else is `schema_ref_unresolved`. Cycles
 //!   that apply a schema to the same instance again (through `$ref` and the
@@ -144,6 +144,36 @@ enum Format {
     Date,
     Time,
     DateTime,
+    LocalDateTime,
+}
+
+/// The date-time spellings admitted at a typed location. Each matched schema
+/// narrows this set, while branches in an eligible union expand it.
+#[derive(Clone, Copy, Default)]
+pub(crate) struct DateTimeFormats {
+    pub offset: bool,
+    pub local: bool,
+}
+
+impl DateTimeFormats {
+    pub const BOTH: Self = Self {
+        offset: true,
+        local: true,
+    };
+
+    pub fn intersect(self, other: Self) -> Self {
+        Self {
+            offset: self.offset && other.offset,
+            local: self.local && other.local,
+        }
+    }
+
+    fn for_format(format: Format) -> Self {
+        Self {
+            offset: format == Format::DateTime,
+            local: format == Format::LocalDateTime,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -436,6 +466,7 @@ impl Compiler<'_> {
         k.format = match m.get("format").and_then(Value::as_str) {
             Some("date") => Some(Format::Date),
             Some("time") => Some(Format::Time),
+            Some("local-date-time") => Some(Format::LocalDateTime),
             Some("date-time") => Some(Format::DateTime),
             _ => None,
         };
@@ -661,7 +692,7 @@ fn percent_decode(s: &str) -> Option<String> {
 }
 
 /// Escape a key as an RFC 6901 token.
-fn escape(key: &str) -> String {
+pub(crate) fn escape(key: &str) -> String {
     key.replace('~', "~0").replace('/', "~1")
 }
 
@@ -689,6 +720,94 @@ fn resolve_pointer<'v>(doc: &'v Value, pointer: &str) -> Option<&'v Value> {
 }
 
 impl CompiledSchema {
+    /// Keywords at this node and along its locally resolved reference chain.
+    /// Compilation has already rejected in-place reference cycles.
+    fn referenced(&self, node: u32) -> impl Iterator<Item = &Keywords> {
+        let keywords = |node| match &self.nodes[idx(node)].kind {
+            NodeKind::Schema(k) => Some(k.as_ref()),
+            NodeKind::Bool(_) => None,
+        };
+        std::iter::successors(keywords(node), move |k| k.reference.and_then(keywords))
+    }
+
+    /// A branch of a date-time union must explicitly declare a string and
+    /// a date-time format. Reference siblings constrain the same instance.
+    fn union_branch_formats(&self, node: u32) -> Option<DateTimeFormats> {
+        let mut string = false;
+        let mut formats = None;
+        for k in self.referenced(node) {
+            if let Some(types) = &k.types {
+                if types.as_slice() != [JsonType::String] {
+                    return None;
+                }
+                string = true;
+            }
+            if let Some(format) = k.format {
+                if !matches!(format, Format::DateTime | Format::LocalDateTime) {
+                    return None;
+                }
+                let current = DateTimeFormats::for_format(format);
+                formats = Some(formats.unwrap_or(DateTimeFormats::BOTH).intersect(current));
+            }
+        }
+        formats.filter(|_| string)
+    }
+
+    /// Only properties and items introduce typed child locations. All declarations
+    /// reached via local references apply together, including reference siblings.
+    pub(crate) fn date_time_formats(&self, location: &[&str]) -> Option<DateTimeFormats> {
+        let mut nodes = vec![self.entry];
+        for key in location {
+            let mut children: Vec<_> = nodes
+                .iter()
+                .flat_map(|&node| self.referenced(node))
+                .filter_map(|k| {
+                    if *key == "[]" {
+                        k.items
+                    } else {
+                        k.properties
+                            .iter()
+                            .find(|(name, _)| name == key)
+                            .map(|(_, id)| *id)
+                    }
+                })
+                .collect();
+            if children.is_empty() {
+                return None;
+            }
+            children.sort_unstable();
+            children.dedup();
+            nodes = children;
+        }
+        let mut eligible = false;
+        let mut common = DateTimeFormats::BOTH;
+        for k in nodes.into_iter().flat_map(|node| self.referenced(node)) {
+            if let Some(format) = k.format {
+                eligible |= matches!(format, Format::DateTime | Format::LocalDateTime);
+                common = common.intersect(DateTimeFormats::for_format(format));
+            }
+            for branches in [&k.any_of, &k.one_of] {
+                if branches.is_empty() {
+                    continue;
+                }
+                let formats =
+                    branches
+                        .iter()
+                        .try_fold(DateTimeFormats::default(), |mut union, &id| {
+                            let branch = self.union_branch_formats(id)?;
+                            union.offset |= branch.offset;
+                            union.local |= branch.local;
+                            Some(union)
+                        });
+                if let Some(formats) = formats {
+                    eligible = true;
+                    common = common.intersect(formats);
+                }
+            }
+        }
+        eligible.then_some(common)
+    }
+
     /// Validate `instance`. Empty means valid. See the module docs for the
     /// issue order.
     pub fn validate(&self, instance: &Value) -> Vec<SchemaIssue> {
@@ -907,20 +1026,22 @@ impl CompiledSchema {
                 let ok = match f {
                     Format::Date => is_date(s),
                     Format::Time => is_time(s),
+                    Format::LocalDateTime => crate::cel::time::LocalDateTime::parse(s).is_some(),
                     Format::DateTime => is_date_time(s),
                 };
                 if !ok {
                     let name = match f {
-                        Format::Date => "date",
-                        Format::Time => "time",
-                        Format::DateTime => "date-time",
+                        Format::Date => "RFC 3339 date",
+                        Format::Time => "RFC 3339 time",
+                        Format::LocalDateTime => "local-date-time",
+                        Format::DateTime => "RFC 3339 date-time",
                     };
                     out.push(SchemaIssue {
                         code: "format_invalid".into(),
                         keyword: "format",
                         instance_path: path.to_owned(),
                         schema_path: at("format"),
-                        message: format!("not a valid RFC 3339 {name}"),
+                        message: format!("not a valid {name}"),
                     });
                 }
             }
@@ -1247,35 +1368,16 @@ fn digits(s: &str) -> Option<u32> {
     s.parse().ok()
 }
 
-fn days_in_month(year: u32, month: u32) -> u32 {
-    match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
-        4 | 6 | 9 | 11 => 30,
-        2 if (year.is_multiple_of(4) && !year.is_multiple_of(100)) || year.is_multiple_of(400) => {
-            29
-        }
-        2 => 28,
-        _ => 0,
-    }
-}
-
-/// RFC 3339 `full-date`: `YYYY-MM-DD`.
+/// RFC 3339 full-date.
 fn is_date(s: &str) -> bool {
-    let b = s.as_bytes();
-    if b.len() != 10 || b[4] != b'-' || b[7] != b'-' {
-        return false;
-    }
-    let (Some(y), Some(m), Some(d)) = (digits(&s[..4]), digits(&s[5..7]), digits(&s[8..])) else {
-        return false;
-    };
-    (1..=12).contains(&m) && d >= 1 && d <= days_in_month(y, m)
+    crate::cel::time::parse_full_date(s).is_some()
 }
 
 /// RFC 3339 `full-time`: `HH:MM:SS[.frac](Z|±HH:MM)`. A leap second (`:60`)
 /// is valid only at 23:59 UTC.
 fn is_time(s: &str) -> bool {
     let b = s.as_bytes();
-    if b.len() < 9 || b[2] != b':' || b[5] != b':' {
+    if !s.is_ascii() || b.len() < 9 || b[2] != b':' || b[5] != b':' {
         return false;
     }
     let (Some(h), Some(mi), Some(sec)) = (digits(&s[..2]), digits(&s[3..5]), digits(&s[6..8]))
@@ -1355,6 +1457,61 @@ mod tests {
 
     fn pair(c: &str, p: &str) -> (String, String) {
         (c.to_owned(), p.to_owned())
+    }
+
+    #[test]
+    fn local_clock_format_is_offset_free_and_calendar_checked() {
+        let schema = compile(&v("{type: string, format: local-date-time}"), "").unwrap();
+        for clock in [
+            "2026-11-27T08:00",
+            "2026-11-27T08:00:00",
+            "2024-02-29T23:59:59.01234567890",
+        ] {
+            assert!(schema.validate(&Value::string(clock)).is_empty(), "{clock}");
+        }
+        for clock in [
+            "2026-02-30T08:00",
+            "2025-02-29T08:00",
+            "2026-11-27T24:00",
+            "2026-11-27T08:60",
+            "2026-11-27T08:00:60",
+            "2026-11-27T08:00:00Z",
+            "2026-11-27T08:00:00+10:00",
+            "2026-11-27T08:00-04:00",
+            "2026-11-27 08:00",
+            "2026-11-27T08:00:00.",
+            "2026-11-27T08:00.5",
+            "2026-11-27T08:00:00.٥",
+            "2026-11-27",
+        ] {
+            assert_eq!(
+                schema.validate(&Value::string(clock))[0].code,
+                "format_invalid",
+                "{clock}"
+            );
+        }
+    }
+
+    #[test]
+    fn reference_siblings_narrow_date_time_spellings_at_the_same_field() {
+        let schema = compile(
+            &v(r##"
+$defs:
+  event:
+    properties:
+      at: {type: string, format: date-time}
+$ref: '#/$defs/event'
+properties:
+  at: {type: string, format: local-date-time}
+"##),
+            "",
+        )
+        .unwrap();
+        let formats = schema.date_time_formats(&["at"]).unwrap();
+        assert!(!formats.local && !formats.offset);
+        for value in ["2026-11-01T01:30", "2026-11-01T01:30:00Z"] {
+            assert_eq!(schema.validate(&v(&format!("at: '{value}'"))).len(), 1);
+        }
     }
 
     #[test]

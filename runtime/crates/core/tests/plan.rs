@@ -693,3 +693,59 @@ fn resurrection_never_rejects_random_writes() {
         "only {rejected_at_head} head rejections exercised"
     );
 }
+
+#[test]
+fn floating_fields_warn_at_submit_without_rewriting_or_blocking_the_record() {
+    use mdbn_core::intent::Level;
+    use mdbn_core::validate::{self, Severity};
+    let mut state = base_state();
+    state.insert_resource("_types/task.md", &TASK.replace("title: {type: string}",
+        "title: {type: string}\n      at: {type: array, items: {type: string, format: local-date-time}}"));
+    let local = "2026-11-27T08:00";
+    let m = mutation(vec![Op::Create(Create {
+        id: id(10),
+        type_name: Some("task".into()),
+        frontmatter: patch(&[
+            ("title", Value::string("New")),
+            ("at", Value::List(vec![Value::string(local)])),
+        ]),
+        ..Create::default()
+    })]);
+    for (level, label) in [
+        (Level::Off, "off"),
+        (Level::Warn, "warn"),
+        (Level::Error, "error"),
+    ] {
+        state.insert_resource(
+            "mdbase.yaml",
+            &CONFIG.replace("validation: warn", &format!("validation: {label}")),
+        );
+        let p = mdbn_core::plan(
+            &m,
+            &state,
+            &PlanOptions {
+                stage: Stage::Submit { level },
+            },
+        )
+        .unwrap();
+        let source = doc_of(&p, id(10));
+        assert!(source.contains(local));
+        assert!(source.contains("2026-01-01T00:00:00.000Z"));
+        let validated = validate::apply_level(
+            validate::validate_record(&state.catalog(), "tasks/New.md", &source),
+            level,
+            true,
+        );
+        let submitted: Vec<_> = p.issues.iter().map(|r| r.issue.clone()).collect();
+        for issues in [validated, submitted] {
+            if level == Level::Off {
+                assert!(issues.is_empty());
+            } else {
+                assert_eq!(issues.len(), 1, "{issues:?}");
+                assert_eq!(issues[0].code, "timezone_required");
+                assert_eq!(issues[0].severity, Severity::Warning);
+                assert_eq!(issues[0].location.as_deref(), Some("/at/0"));
+            }
+        }
+    }
+}

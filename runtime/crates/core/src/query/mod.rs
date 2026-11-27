@@ -450,10 +450,6 @@ pub struct QueryPlan {
     pub read_defaults: Vec<(String, Map)>,
     /// Captured catalog for canonical persisted path values.
     pub value_catalog: crate::types::Catalog,
-    /// Matched-type schema documents and entry pointers, captured at compile
-    /// time for spec 10 date-time typing: (lower-case type name, document, entry).
-    /// Persisted and effective frontmatter remain unchanged.
-    pub date_time_schemas: Vec<(String, Value, String)>,
     /// The compiled `where`.
     pub where_program: Option<Program>,
     /// Named projections, in evaluation (dependency) order.
@@ -679,17 +675,6 @@ pub fn compile(query: &Query, catalog: &Catalog) -> Result<QueryPlan, QueryError
             .filter(|t| !t.read_defaults.is_empty())
             .map(|t| (t.name.to_lowercase(), t.read_defaults.clone()))
             .collect(),
-        date_time_schemas: catalog
-            .types()
-            .iter()
-            .map(|t| {
-                (
-                    t.name.to_lowercase(),
-                    t.schema_document.clone(),
-                    t.schema_entry.clone(),
-                )
-            })
-            .collect(),
         where_program,
         projections,
         select,
@@ -777,51 +762,11 @@ impl QueryPlan {
         effective: &Map,
         file: crate::cel::CelValue,
     ) -> crate::cel::Activation<'a> {
-        use crate::cel::{CelValue, Key};
-        let schemas: Vec<_> = record
-            .types
-            .iter()
-            .filter_map(|name| {
-                self.date_time_schemas
-                    .iter()
-                    .find(|(n, _, _)| *n == name.to_lowercase())
-            })
-            .collect();
-        let typed = |m: &Map| {
-            let value = CelValue::from_value_typed(&Value::Map(m.clone()), &|location| {
-                !schemas.is_empty()
-                    && schemas.len() == record.types.len()
-                    && schemas.iter().all(|(_, document, entry)| {
-                        crate::types::schema_at(document, entry, location)
-                            .and_then(|s| s.get("format"))
-                            .and_then(Value::as_str)
-                            == Some("date-time")
-                    })
-            });
-            match value {
-                CelValue::Map(m) => {
-                    CelValue::Map(std::sync::Arc::new((*m).clone().with_origin(record.path)))
-                }
-                other => other,
-            }
-        };
         let values =
             self.value_catalog
                 .record_values(record.path, record.types, record.frontmatter);
-        let mut act = crate::cel::record_activation(&values, effective, file);
-        let effective = typed(effective);
-        if let CelValue::Map(m) = &effective {
-            for (key, value) in m.iter() {
-                if let Key::String(name) = key
-                    && !matches!(&**name, "record" | "raw" | "file")
-                {
-                    act.bind(name.to_string(), value.clone());
-                }
-            }
-        }
-        act.bind("record", effective);
-        act.bind("raw", typed(&values));
-        act
+        self.value_catalog
+            .record_activation(record.types, record.path, &values, effective, file)
     }
 
     /// The canonical residual: does `record` match `types` and `where`?
@@ -1132,15 +1077,13 @@ impl QueryPlan {
                 selections.get_str(&p[0]).cloned()
             }
             FieldRef::Effective(p) | FieldRef::Persisted(p) => {
-                Some(CelValue::from_value_typed(value, &|tail| {
-                    let path: Vec<_> = p
-                        .iter()
-                        .cloned()
-                        .chain(tail.iter().map(|s| (*s).to_owned()))
-                        .collect();
-                    self.sort_hint(&FieldRef::Persisted(path), record.types)
-                        == indexed::TemporalHint::DateTime
-                }))
+                let mut path = p.iter().map(String::as_str).collect();
+                Some(CelValue::from_value_at(
+                    value,
+                    &mut path,
+                    self.value_catalog.named_zone(),
+                    &|location| self.value_catalog.date_time_formats(record.types, location),
+                ))
             }
             FieldRef::File(n) => match file_cel {
                 CelValue::Map(m) => m.get_str(n).cloned(),
@@ -1149,10 +1092,11 @@ impl QueryPlan {
             _ => None,
         }
         .unwrap_or_else(|| CelValue::from_value(value));
-        let hint = if matches!(native, CelValue::Timestamp(_)) {
-            indexed::TemporalHint::DateTime
-        } else {
-            self.sort_hint(field, record.types)
+        let hint = match self.sort_hint(field, record.types) {
+            indexed::TemporalHint::None if matches!(native, CelValue::Timestamp(_)) => {
+                indexed::TemporalHint::DateTime
+            }
+            hint => hint,
         };
         groups::Input::new(value, native, hint, budget)
     }
@@ -1213,15 +1157,7 @@ impl QueryPlan {
             FieldRef::Effective(p) | FieldRef::Persisted(p) => p,
             _ => return indexed::TemporalHint::None,
         };
-        indexed::schemas_temporal_hint(
-            types.iter().map(|name| {
-                self.date_time_schemas
-                    .iter()
-                    .find(|(n, _, _)| *n == name.to_lowercase())
-                    .map(|(_, document, entry)| (document, entry.as_str()))
-            }),
-            path,
-        )
+        indexed::temporal_hint(&self.value_catalog, types, path)
     }
 
     /// The sort value of `field` for a record.

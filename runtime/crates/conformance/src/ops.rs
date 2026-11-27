@@ -252,7 +252,7 @@ fn detect_moves(input: &Value) -> Value {
 }
 
 fn evaluate_cel(group: Group<'_>, input: &Value) -> Value {
-    use mdbn_core::cel::{Activation, CelValue, compile, record_activation};
+    use mdbn_core::cel::{Activation, CelValue, compile};
     use mdbn_core::state::StateView;
     let path = input["path"].as_str().unwrap_or("");
     let source = group.setup["files"][path].as_str().unwrap_or("");
@@ -274,7 +274,13 @@ fn evaluate_cel(group: Group<'_>, input: &Value) -> Value {
         let values = catalog.record_values(path, &types, doc.frontmatter());
         let effective = catalog.effective_frontmatter(&types, &values);
         let file = links.file_value(path, doc.frontmatter(), doc.body());
-        record_activation(&values, &effective, CelValue::from_value(&file))
+        catalog.record_activation(
+            &types,
+            path,
+            &values,
+            &effective,
+            CelValue::from_value(&file),
+        )
     };
     act.with_links(&links);
     act.with_clock(captured_clock(input));

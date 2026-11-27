@@ -283,8 +283,10 @@ fn project_record_fields(
 
 /// The projection algorithm identity, independent of log position and key codec.
 /// Bump whenever membership/default/atom projection semantics change.
-/// Version 4 adds the `file.mtime` index atom.
-pub const QUERY_PROJECTION_VERSION: u64 = 4;
+/// Version 5 resolves floating date-time atoms in the collection zone.
+/// The resource digest below includes the complete mdbase.yaml, so changing
+/// settings.timezone invalidates rows even when no schema changes.
+pub const QUERY_PROJECTION_VERSION: u64 = 5;
 
 /// Convert the supported configured fields to neutral store identities, preserving
 /// declared order. Duplicate or unsupported fields fail, never silently deduplicate.
@@ -419,7 +421,7 @@ fn project_query_row(
         .zip(declarations.iter().cloned())
         .map(|((spec, atom), field)| QueryFieldValue {
             field,
-            temporal_hint: spec.temporal as u8,
+            temporal_hint: spec.temporal.code(),
             atom: QueryAtom {
                 kind: atom.kind() as u8,
                 key: atom.key().to_vec(),

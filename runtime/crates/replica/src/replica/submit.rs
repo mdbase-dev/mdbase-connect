@@ -23,24 +23,21 @@ pub(crate) fn rejection_problem(r: &mdbn_core::plan::Rejection) -> mdbn_wire::cl
     // Problem.issues is the submitted-record diagnostic envelope. Global
     // catalog issues need a separately authorized describe/diagnostics route.
     if code == ErrorCode::InvalidRecord && !r.issues.is_empty() {
-        p.issues = Some(
-            r.issues
-                .iter()
-                .map(|issue| mdbn_wire::client::Issue {
-                    code: issue.code.clone(),
-                    severity: match issue.severity {
-                        mdbn_core::validate::Severity::Error => mdbn_wire::client::Severity::Error,
-                        mdbn_core::validate::Severity::Warning => {
-                            mdbn_wire::client::Severity::Warning
-                        }
-                    },
-                    message: issue.message.clone(),
-                    details: issue_details(issue),
-                })
-                .collect(),
-        );
+        p.issues = Some(r.issues.iter().map(wire_issue).collect());
     }
     p
+}
+
+fn wire_issue(issue: &mdbn_core::validate::Issue) -> mdbn_wire::client::Issue {
+    mdbn_wire::client::Issue {
+        code: issue.code.clone(),
+        severity: match issue.severity {
+            mdbn_core::validate::Severity::Error => mdbn_wire::client::Severity::Error,
+            mdbn_core::validate::Severity::Warning => mdbn_wire::client::Severity::Warning,
+        },
+        message: issue.message.clone(),
+        details: issue_details(issue),
+    }
 }
 
 fn issue_details(issue: &mdbn_core::validate::Issue) -> Option<mdbn_wire::common::Value> {
@@ -707,6 +704,14 @@ pub(crate) fn parsed_record_view(
     include: &Include,
 ) -> RecordView {
     let values = catalog.record_values(path, &types, doc.frontmatter());
+    let diagnostics = if include.diagnostics == Some(true)
+        && catalog.settings().validation != mdbn_core::intent::Level::Off
+    {
+        let issues = mdbn_core::validate::timezone_warnings(catalog, &types, &values);
+        (!issues.is_empty()).then(|| issues.iter().map(wire_issue).collect())
+    } else {
+        None
+    };
     RecordView {
         id: *id,
         path: path.to_string(),
@@ -740,7 +745,7 @@ pub(crate) fn parsed_record_view(
             hold: None,
             unresolved: None,
         },
-        diagnostics: None,
+        diagnostics,
         values: None,
         mtime,
     }
