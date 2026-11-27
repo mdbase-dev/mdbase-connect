@@ -47,7 +47,8 @@ describe("a record's link fields in the property list", () => {
     }} />);
 
     // Fields that hold nothing stay out of the way until they are asked for.
-    await user.click(screen.getByRole("button", { name: "2 empty" }));
+    // The shared list names its disclosure "Show 2 empty fields" from @mdbase-dev/ui 0.2.43 on, "2 empty" before.
+    await user.click(screen.getByRole("button", { name: /^(Show )?2 empty( fields)?$/ }));
     await user.click(within(row("author")).getByRole("button", { name: "Link a record in author" }));
     await user.keyboard("Katherine Johnson");
     await user.click(await screen.findByRole("option", { name: "New person “Katherine Johnson”" }));

@@ -480,6 +480,44 @@ describe("typed note properties", () => {
     await user.click(screen.getByRole("button", { name: "Hide empty fields" }));
     expect(screen.queryByRole("textbox", { name: "profile bio" })).toBeNull();
   });
+
+  it("offers no empty fields to fill in among the automatic properties", async () => {
+    localStorage.clear();
+    const user = userEvent.setup();
+    const profileType: CollectionTypeDescriptor = {
+      name: "contact",
+      schema: {
+        type: "object",
+        properties: {
+          profile: {
+            type: "object",
+            properties: {
+              display_name: { type: "string" },
+              bio: { type: "string" },
+              website: { type: "string" }
+            }
+          }
+        }
+      },
+      extensions: {}
+    };
+    // The type provides part of a group the file does not hold.
+    const providedNote: NoteDocument = {
+      ...contactNote,
+      frontmatter: {},
+      effectiveFrontmatter: { profile: { display_name: "Ada" } }
+    };
+    render(<PropertiesPanel note={providedNote} types={[profileType]} onClose={vi.fn()} onSave={vi.fn().mockResolvedValue(undefined)} />);
+
+    const automatic = screen.getByRole("region", { name: "Automatic properties" });
+    expect(within(automatic).getByText("Ada")).toBeInTheDocument();
+    expect(within(automatic).queryByRole("button", { name: /empty/ })).toBeNull();
+
+    // Revealing the note's own empty fields leaves the automatic list as the type provides it.
+    await user.click(screen.getByRole("button", { name: "Show 1 empty field" }));
+    expect(screen.getAllByRole("button", { name: "Hide empty fields" })).toHaveLength(1);
+    expect(within(automatic).queryByRole("textbox", { name: "profile bio" })).toBeNull();
+  });
 });
 
 /** Types a value into a field and leaves it, which is when the list hands the value over. */
