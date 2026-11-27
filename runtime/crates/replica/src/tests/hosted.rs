@@ -21,6 +21,7 @@ use crate::fake::{FakeLog, FakeLogService};
 use crate::log::{EndpointId, LogClient, LogError, LogPort, LogRequest, pump};
 use crate::mem::MemStore;
 use crate::plan::Planner;
+use crate::replica::HOSTED_APPLY_ITEMS;
 use crate::seal::PlainSealer;
 use crate::store::{Store, Tx};
 use crate::testkit::{TEST_OWNER, TestControlPlane, TestDevice};
@@ -364,7 +365,9 @@ fn hosted_log_catchup_asks_for_the_next_slice_at_once() {
     let mut writer = open(&svc, MemStore::new());
     writer.pump();
     let session = writer.session(G1);
-    for index in 1..=40 {
+    let budget = u64::from(HOSTED_APPLY_ITEMS);
+    for index in 1..=(2 * budget + 8) {
+        let index = u8::try_from(index).unwrap();
         let ticket = writer
             .r
             .submit_logged(session, create(index, &format!("{index}.md"), None))
@@ -373,7 +376,7 @@ fn hosted_log_catchup_asks_for_the_next_slice_at_once() {
         assert_eq!(writer.ack(ticket).state, ReceiptState::Confirmed);
     }
     let end = writer.r.head();
-    assert!(end.seq > 32, "a backlog over two ticks' budget");
+    assert!(end.seq > 2 * budget, "a backlog over two ticks' budget");
     let mut reader = open(&svc, MemStore::new());
     pump(&mut reader.r, &mut reader.log, 100);
     let mut applied = vec![reader.r.head().seq];
@@ -393,10 +396,11 @@ fn hosted_log_catchup_asks_for_the_next_slice_at_once() {
     }
     assert_eq!(reader.r.head(), end, "caught up: {applied:?}");
     assert!(
-        applied.windows(2).all(|w| w[1] - w[0] <= 16),
+        applied.windows(2).all(|w| w[1] - w[0] <= budget),
         "one budget per tick: {applied:?}"
     );
-    assert_eq!(applied[0], 16);
+    assert_eq!(applied[0], budget);
+    assert_eq!(applied.len(), 3, "three ticks for two budgets and a bit");
     assert!(reader.r.hosted_serving());
     assert!(
         reader.r.next_wakeup().is_none_or(|at| at > reader.r.now()),
@@ -638,7 +642,9 @@ fn hosted_connected_watch_and_query_cover_both_replay_slices() {
     let mut writer = open(&svc, MemStore::new());
     writer.pump();
     let session = writer.session(G2);
-    for index in 1..=17 {
+    let budget = u64::from(HOSTED_APPLY_ITEMS);
+    for index in 1..=(budget + 1) {
+        let index = u8::try_from(index).unwrap();
         let ticket = writer
             .r
             .submit_logged(session, create(index, &format!("{index}.md"), None))
@@ -653,7 +659,7 @@ fn hosted_connected_watch_and_query_cover_both_replay_slices() {
         head,
         head_chain,
     });
-    for offset in [16, 17] {
+    for offset in [budget, budget + 1] {
         reader.r.tick();
         pump(&mut reader.r, &mut reader.log, 100);
         assert_eq!(reader.r.head().seq, start + offset);
@@ -666,13 +672,13 @@ fn hosted_connected_watch_and_query_cover_both_replay_slices() {
                     .then_some(push)
             })
             .collect();
-        if offset == 16 {
+        if offset == budget {
             assert!(updates.is_empty());
         } else {
             assert!(
                 matches!(updates.as_slice(), [Push::Changes(change), Push::QueryUpdate(query)]
                 if change.reset && query.sub == sub && query.kind == UpdateKind::Snapshot &&
-                query.added.as_ref().is_some_and(|rows| rows.len() == 17))
+                query.added.as_ref().is_some_and(|rows| rows.len() as u64 == budget + 1))
             );
         }
     }
@@ -684,7 +690,9 @@ fn hosted_log_catchup_yields_and_reopens_at_the_committed_head() {
     let mut writer = open(&svc, MemStore::new());
     writer.pump();
     let session = writer.session(G1);
-    for index in 1..=24 {
+    let budget = u64::from(HOSTED_APPLY_ITEMS);
+    for index in 1..=(budget + 8) {
+        let index = u8::try_from(index).unwrap();
         let ticket = writer
             .r
             .submit_logged(session, create(index, &format!("{index}.md"), None))
@@ -695,14 +703,14 @@ fn hosted_log_catchup_yields_and_reopens_at_the_committed_head() {
     let end = writer.r.head();
     let mut reader = open(&svc, MemStore::new());
     pump(&mut reader.r, &mut reader.log, 100);
-    assert_eq!(reader.r.head().seq, 16);
+    assert_eq!(reader.r.head().seq, budget);
     assert!(!reader.r.hosted_serving());
     assert!(reader.r.next_wakeup().is_some());
     reader.r.tick_timers();
     pump(&mut reader.r, &mut reader.log, 100);
-    assert_eq!(reader.r.head().seq, 16);
+    assert_eq!(reader.r.head().seq, budget);
     let mut reader = open(&svc, reader.r.into_store().into_inner());
-    assert_eq!(reader.r.head().seq, 16);
+    assert_eq!(reader.r.head().seq, budget);
     reader.pump();
     assert_eq!(reader.r.head(), end);
     assert!(reader.r.hosted_serving());

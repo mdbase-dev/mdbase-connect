@@ -174,10 +174,10 @@ pub use approval_runtime::{
     ApprovalDisposition, ApprovalIntent, ApprovalRefusal, ApprovalReveal, ApproverCode,
 };
 pub use disk::PUBLISH_WAIT_MS;
-#[cfg(test)]
-pub(crate) use hosted::HOSTED_READ_BYTES;
 #[allow(unused_imports)]
 pub(crate) use hosted::{FreshHead, PolicyOrigin};
+#[cfg(test)]
+pub(crate) use hosted::{HOSTED_APPLY_ITEMS, HOSTED_READ_BYTES};
 pub use hosted::{
     HostedAck, HostedCache, HostedProfile, HostedRepairBoundary, HostedRepairStart, SubmitTicket,
 };

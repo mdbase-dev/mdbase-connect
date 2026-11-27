@@ -6,6 +6,8 @@ use crate::runtime::CatchupFacts;
 use mdbn_wire::envelope::{Item, KeyGrantPayload};
 
 const JOINING: B16 = B16([0x5e; 16]);
+/// The replica's hosted per-tick apply budget (`HOSTED_APPLY_ITEMS`).
+const APPLY_BUDGET: u64 = 64;
 
 fn key_grants_to(svc: &FakeLogService, device: B16) -> usize {
     svc.items(&COL)
@@ -61,7 +63,7 @@ fn catchup_facts_show_a_wake_stopped_behind_the_log_with_a_grant_waiting() {
         writer.e.tick(writer.clock.get() as i64, false);
     }
     let (session, _) = writer.e.hello(None, &hello());
-    for i in 0..60 {
+    for i in 0..80 {
         writer.e.frame(session, &create(i));
         writer.pump(false);
     }
@@ -75,7 +77,7 @@ fn catchup_facts_show_a_wake_stopped_behind_the_log_with_a_grant_waiting() {
     );
     let log_head = svc.head(&COL).0;
     assert!(
-        log_head - idle.applied > 16,
+        log_head - idle.applied > APPLY_BUDGET,
         "a backlog over one tick's budget"
     );
 
@@ -93,7 +95,7 @@ fn catchup_facts_show_a_wake_stopped_behind_the_log_with_a_grant_waiting() {
     assert_eq!(head_known, log_head, "the wake heard the log head");
     assert!(applied < head_known && !caught_up, "stopped behind the log");
     assert_eq!(
-        applied, 16,
+        applied, APPLY_BUDGET,
         "one tick's apply budget since open: no tick has run"
     );
     assert!(
