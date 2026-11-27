@@ -1,20 +1,20 @@
 {
   "schema": "tnapp/production-sdk-original/1",
-  "artifact": "sdk-e2614c11-production-0.2.43.tgz",
-  "version": "0.2.43",
-  "sourceCommit": "e2614c1106d39280f99d6e374773df6c7bf3f68e",
+  "artifact": "sdk-ce360f01-production-0.2.45.tgz",
+  "version": "0.2.45",
+  "sourceCommit": "ce360f017e56b259a62dacc689588060132eea55",
   "environment": "production",
-  "bytes": 4971448,
-  "sha256": "c99079baa3b539dbfca4c979a14e80b60d455775579089d4cba6ad1dcba27362",
-  "sri": "sha512-JyNfLus5mE+xVQ21egfYNgSUtAWhbhHu/QIKE1mL5F6MwawCGwKtfyC22oWSsDQQhTUz9y53kfL9lJV21v8/Zg==",
+  "bytes": 4971445,
+  "sha256": "2be211b4e2db712d8b167f0f498be70c1b423179d3122acb1cbe3d08f911d7ec",
+  "sri": "sha512-AEkXumhL9KS7h8heNfJ6FnD9UG+gm6IItcoLzWcj2Ku+7pwDnuFkPCeGLm6/kvH9RWDKSvz4QH7Nq28hj5ER4g==",
   "publication": {
     "repository": "mdbase-dev/mdbase-connect",
     "workflow": ".github/workflows/publish-sdk-npm.yml",
-    "ref": "refs/tags/v0.2.43",
-    "npm": "@mdbase-dev/sdk@0.2.43",
-    "integrity": "sha512-JyNfLus5mE+xVQ21egfYNgSUtAWhbhHu/QIKE1mL5F6MwawCGwKtfyC22oWSsDQQhTUz9y53kfL9lJV21v8/Zg==",
-    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.2.43.tgz",
-    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.2.43"
+    "ref": "refs/tags/v0.2.45",
+    "npm": "@mdbase-dev/sdk@0.2.45",
+    "integrity": "sha512-AEkXumhL9KS7h8heNfJ6FnD9UG+gm6IItcoLzWcj2Ku+7pwDnuFkPCeGLm6/kvH9RWDKSvz4QH7Nq28hj5ER4g==",
+    "tarball": "https://registry.npmjs.org/@mdbase-dev/sdk/-/sdk-0.2.45.tgz",
+    "attestations": "https://registry.npmjs.org/-/npm/v1/attestations/@mdbase-dev%2fsdk@0.2.45"
   },
   "trust": {
     "package": "@mdbase-dev/sdk",
@@ -43,6 +43,6 @@
       "sha256": "f1e56dbcdd434340362fb7bfdd268fb04293fedd002eddb833d8188f743b51d3"
     }
   ],
-  "artifactFacts": "sdk-e2614c11-production-0.2.43.facts.json",
-  "artifactFactsSha256": "d2510dcd09f29b9a03349eead74cf6e30f5b33d2553f56692d27dfdec2d5d491"
+  "artifactFacts": "sdk-ce360f01-production-0.2.45.facts.json",
+  "artifactFactsSha256": "31572b3526166e1a61fe5248fd56fe628a1008a012b3570a8b0bae9bb5cdec9b"
 }
