@@ -212,9 +212,15 @@ struct Exchange {
     ready: bool,
     reveal_fingerprint: Option<B32>,
 }
+// Keep expiry visible across the requester's longest regular poll (30 s) and exchange.
+const RENEWING_DISPLAY_MS: i64 = 60_000;
+
 pub(super) struct ApprovalRuntime {
     approver: Approver,
     exchanges: BTreeMap<Uuid, Exchange>,
+    // A naturally expired, verified exchange remains listable during rotation.
+    // Only its commitment and expiry survive, never its code or challenge.
+    renewing: BTreeMap<Uuid, (B32, i64)>,
     outbox: Vec<ApprovalChallenge>,
     pub(super) poisoned: bool,
     pub(super) requester_code: Option<super::approval_requester::RequesterCode>,
@@ -234,6 +240,7 @@ impl ApprovalRuntime {
         Self {
             approver: Approver::new(collection, device),
             exchanges: BTreeMap::new(),
+            renewing: BTreeMap::new(),
             outbox: Vec::new(),
             poisoned: false,
             requester_code: None,
@@ -385,6 +392,9 @@ impl<S: Store> Replica<S> {
 
     pub(super) fn cancel_stale_approvals(&mut self) {
         let now = self.now();
+        self.approval.renewing.retain(|_, (_, expires)| {
+            (*expires..expires.saturating_add(RENEWING_DISPLAY_MS)).contains(&now)
+        });
         let stale: Vec<_> = self
             .approval
             .exchanges
@@ -398,6 +408,16 @@ impl<S: Store> Replica<S> {
             .collect();
         for target in stale {
             if let Some(x) = self.approval.exchanges.remove(&target) {
+                let expires = x.challenge.expires_at_ms;
+                let until = expires.saturating_add(RENEWING_DISPLAY_MS);
+                if x.ready
+                    && (expires..until).contains(&now)
+                    && self.approval_context(x.context.session, target).as_ref() == Ok(&x.context)
+                {
+                    self.approval
+                        .renewing
+                        .insert(target, (x.context.binding.commitment, expires));
+                }
                 self.approval.approver.cancel(&target);
                 self.approval
                     .outbox
@@ -493,6 +513,7 @@ impl<S: Store> Replica<S> {
             r_a: B32(r_a),
             expires_at_ms: started.saturating_add(120_000),
         };
+        self.approval.renewing.remove(&target);
         self.approval.exchanges.insert(
             target,
             Exchange {
@@ -662,6 +683,17 @@ impl<S: Store> Replica<S> {
     ) -> ApiResult<(ApprovalIntent, ApprovalDisposition)> {
         self.cancel_stale_approvals();
         let context = self.approval_context(session, target)?;
+        if self
+            .approval
+            .renewing
+            .get(&target)
+            .is_some_and(|(c, _)| *c == context.binding.commitment)
+        {
+            return Err(ErrorCode::Conflict.err_with_reason(
+                "approval_renewing",
+                "the verification code is refreshing; compare the new code on both computers",
+            ));
+        }
         let x = self.approval.exchanges.get(&target).ok_or_else(denied)?;
         if x.context != context {
             return Err(denied());
@@ -801,6 +833,7 @@ impl<S: Store> Replica<S> {
                     .err("approval rejection outcome is unknown; reopen storage"));
             }
         }
+        self.approval.renewing.remove(&target);
         self.approval.exchanges.remove(&target);
         self.approval
             .outbox
@@ -1084,14 +1117,19 @@ impl<S: Store> Replica<S> {
                     return None;
                 }
                 // A commitment already spent on an exchange cannot be approved
-                // again; the requester logs a fresh one and shows up again.
+                // again. During natural expiry the row stays visible without a code.
                 let live = self.approval.exchanges.contains_key(&w.device)
                     || self
                         .approval
                         .pending_grant
                         .as_ref()
                         .is_some_and(|grant| grant.target == w.device && grant.sends == 0);
-                if !live && self.store.meta(&marker(&binding)).ok()?.is_some() {
+                let renewing = self
+                    .approval
+                    .renewing
+                    .get(&w.device)
+                    .is_some_and(|(c, _)| *c == binding.commitment);
+                if !live && !renewing && self.store.meta(&marker(&binding)).ok()?.is_some() {
                     return None;
                 }
                 Some(PendingDevice {

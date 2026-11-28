@@ -113,6 +113,54 @@ pub(super) async fn pending_device(
     }
 }
 
+/// Wait briefly for the signed reveal before prompting the user to compare.
+pub(super) async fn pending_code(
+    profile: &Profile,
+    device: &str,
+    collection: Option<&str>,
+    wait: Duration,
+) -> Result<String, ClientError> {
+    let deadline = tokio::time::Instant::now() + wait;
+    loop {
+        let v = call(
+            profile,
+            Method::DEVICE_PENDING,
+            json!({ "collection": collection }),
+        )
+        .await?;
+        let list: Vec<PendingDevice> =
+            serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
+        let codes: std::collections::BTreeSet<_> = list
+            .iter()
+            .filter(|d| d.device == device)
+            .map(|d| d.sas.as_deref())
+            .collect();
+        match codes.first() {
+            None => {
+                return Err(ClientError::Remote(ControlError::not_found(
+                    "that computer is not waiting to open a private collection here",
+                )));
+            }
+            Some(Some(code)) if codes.len() == 1 => return Ok((*code).to_owned()),
+            Some(Some(_)) => {
+                return Err(ClientError::Remote(ControlError::invalid(
+                    "collection_required",
+                    "more than one collection has a different code; approve one collection at a time",
+                )));
+            }
+            // None sorts first: wait for every matching collection to be ready.
+            Some(None) => {}
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(ClientError::Remote(ControlError::unavailable(
+                "approval_not_ready",
+                "the verification code is still preparing; keep both computers open and run device pending again shortly",
+            )));
+        }
+        tokio::time::sleep(Duration::from_secs(1)).await;
+    }
+}
+
 /// The registered collections and their state.
 pub(crate) async fn collections(profile: &Profile) -> Result<Vec<CollectionStatus>, ClientError> {
     let list = call(profile, Method::COLLECTION_LIST, json!({})).await?;

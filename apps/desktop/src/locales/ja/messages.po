@@ -1336,6 +1336,7 @@ msgctxt "File types that sync"
 msgid "PDFs"
 msgstr "PDF"
 
+#: src/renderer/collections-view.tsx
 #: src/renderer/device-requests.tsx
 msgid "Preparing comparison code…"
 msgstr "比較用コードを準備しています…"

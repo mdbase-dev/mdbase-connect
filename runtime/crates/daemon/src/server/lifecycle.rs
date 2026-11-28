@@ -599,7 +599,7 @@ impl Daemon {
                         ControlError::new(
                             "not_authorized",
                             &code,
-                            "Join this collection on this computer first, then try again.",
+                            "This computer is not enrolled. To delete without joining, sign in to the Portal as the owner, open Collections, choose Actions → Delete, and confirm the current shared name.",
                         )
                     }
                     crate::cloud::CloudError::Server(409, code)

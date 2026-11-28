@@ -1097,7 +1097,7 @@ test("Allow waits for a revealed code while Deny remains available", async () =>
 
 test("a waiting computer shows its comparison code and clears it after approval", async () => {
   const { page, errors } = await desktop({
-    collections: [collection({ mode: "synced_e2e", state: "opening", reason: "waiting_for_approval", approval_code: null })]
+    collections: [collection({ mode: "synced_e2e", state: "opening", sync: { last_error: "waiting_for_key" }, approval_code: null })]
   });
   try {
     await nav(page, "Collections").click();
@@ -1108,6 +1108,13 @@ test("a waiting computer shows its comparison code and clears it after approval"
     await card.getByText("Check this code matches on your other computer:", { exact: true }).waitFor();
     await card.getByText("012 345", { exact: true }).waitFor();
     await screenshot(page, "waiting-device-approval");
+    await page.evaluate(() => { window.fixture.collections[0].approval_code = null; });
+    await page.clock.runFor(5_000);
+    await card.getByText("Preparing comparison code…", { exact: true }).waitFor();
+    assert.equal(await card.locator(".approval-code").count(), 0);
+    await page.evaluate(() => { window.fixture.collections[0].approval_code = "654321"; });
+    await page.clock.runFor(5_000);
+    await card.getByText("654 321", { exact: true }).waitFor();
     await page.evaluate(() => { Object.assign(window.fixture.collections[0], { state: "ready", reason: null, approval_code: null }); });
     await page.clock.runFor(5_000);
     assert.equal(await card.locator(".approval-code").count(), 0);

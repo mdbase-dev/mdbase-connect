@@ -279,7 +279,7 @@ async fn collection_delete_stops_local_sync_only_after_acknowledgment() {
                 if reason == "device_not_enrolled" {
                     assert_eq!(
                         error.message,
-                        "Join this collection on this computer first, then try again."
+                        "This computer is not enrolled. To delete without joining, sign in to the Portal as the owner, open Collections, choose Actions → Delete, and confirm the current shared name."
                     );
                 }
             }

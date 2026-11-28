@@ -67,7 +67,7 @@ async fn collection_delete_cli_success_and_refusals() {
             Some(ControlError::new(
                 "not_authorized",
                 "device_not_enrolled",
-                "Join this collection on this computer first, then try again.",
+                "This computer is not enrolled. To delete without joining, sign in to the Portal as the owner, open Collections, choose Actions → Delete, and confirm the current shared name.",
             )),
         ),
         ("Research", None),
@@ -157,7 +157,7 @@ async fn collection_delete_cli_success_and_refusals() {
                 if reason == "device_not_enrolled" {
                     assert_eq!(
                         error.message,
-                        "Join this collection on this computer first, then try again."
+                        "This computer is not enrolled. To delete without joining, sign in to the Portal as the owner, open Collections, choose Actions → Delete, and confirm the current shared name."
                     );
                 }
                 if reason == "outcome_unknown" {
