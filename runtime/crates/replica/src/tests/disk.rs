@@ -4237,7 +4237,10 @@ fn a_disk_edit_too_large_to_append_keeps_its_bytes() {
     let svc = FakeLogService::new();
     let mut a = node(&svc, 1);
     a.r.planner = Box::new(crate::plan::CorePlanner);
-    a.disk.borrow_mut().user_write("a.md", Some("original"));
+    // Both documents are admissible alone. The base plus one copy of the
+    // replacement still exceeds the sealed limit after literal sharing.
+    let original = "x".repeat(64 * 1024);
+    a.disk.borrow_mut().user_write("a.md", Some(&original));
     settle(&mut [&mut a]);
     assert_eq!(a.r.store().record_count().unwrap(), 1);
     let doc = "y".repeat(1_000_000);
@@ -4247,20 +4250,23 @@ fn a_disk_edit_too_large_to_append_keeps_its_bytes() {
     let id = crate::Store::record_at(a.r.store(), &mdbn_core::paths::path_key("a.md"))
         .unwrap()
         .unwrap();
-    assert_eq!(a.r.store().record(&id).unwrap().unwrap().doc, "original");
+    assert!(
+        a.r.store().record(&id).unwrap().unwrap().doc == original,
+        "the refused edit must leave the confirmed document intact"
+    );
     let problems: Vec<_> =
         a.r.refused_files()
             .map(|(p, problem, _)| (p.to_string(), problem.code.clone()))
             .collect();
     assert_eq!(problems, vec![("a.md".into(), "too_large".into())]);
-    assert_eq!(a.file("a.md").as_deref(), Some(doc.as_str()));
+    assert!(a.file("a.md").as_deref() == Some(doc.as_str()));
     assert_eq!(a.disk.borrow().known.get("a.md"), Some(&h(&doc)));
     assert!(!integrity(&a));
     let Node { r, log, disk, .. } = a;
     let mut a = reopen(&svc, 1, r.into_store(), log, disk);
     a.r.planner = Box::new(crate::plan::CorePlanner);
     settle(&mut [&mut a]);
-    assert_eq!(a.file("a.md").as_deref(), Some(doc.as_str()));
+    assert!(a.file("a.md").as_deref() == Some(doc.as_str()));
     assert_eq!(a.disk.borrow().known.get("a.md"), Some(&h(&doc)));
     assert_eq!(refused(&a).len(), 1);
 }
