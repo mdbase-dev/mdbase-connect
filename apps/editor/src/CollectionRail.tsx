@@ -332,6 +332,7 @@ export function ConnectionStatus({ state, issue, onReconnect }: { state: ShownCo
     stopped: t`Collection stopped`,
     offline: t`Collection offline`,
     saved_on_device: t`Collection changes are saved on this device and will sync automatically when the connection returns`,
+    rejected: label,
     unsynced: label
   }[state];
   const title = issue ?? (state === "saved_on_device" ? t`Changes are saved on this device and will sync automatically when the connection returns.` : label);
@@ -346,6 +347,7 @@ export type ShownConnectionState = ConnectionState | Exclude<EditorSyncState, "s
 const connectionLabels: Record<ShownConnectionState, string> = {
   get connected() { return t`Connected`; },
   get reconnecting() { return t`Reconnecting`; },
+  get rejected() { return t`The note change was rejected.`; },
   get stopped() { return t`Sync stopped`; },
   get offline() { return t`Offline`; },
   get saved_on_device() { return t`Saved on this device · syncs automatically when online`; },

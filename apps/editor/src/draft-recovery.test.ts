@@ -35,6 +35,18 @@ it("expires recovery copies after seven days and clears malformed copies", () =>
   now.mockRestore();
 });
 
+it("keeps an unconfirmed checkpoint past ordinary draft expiry and through an optimistic read", () => {
+  const store = new DraftRecovery(localStorage, "server");
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  store.write("one", "note.md", { ...draft, awaitingSync: true }, ignored);
+  store.flush();
+  now.mockReturnValue(1001 + DRAFT_RETENTION_MS);
+  const saved = { body: draft.body, frontmatter: { title: "New" } };
+  expect(store.read("one", "note.md", { ...saved, pendingSync: true })).toMatchObject(draft);
+  expect(store.read("one", "note.md", saved)).toBeUndefined();
+  now.mockRestore();
+});
+
 it("does not hide storage failures or confuse deletions with unchanged properties", () => {
   const store = new DraftRecovery(localStorage, "server");
   const write = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new DOMException("Full", "QuotaExceededError"); });

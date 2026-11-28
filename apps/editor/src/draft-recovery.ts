@@ -13,9 +13,11 @@ export interface RecoveryDraft {
   patch: JsonObject;
   baseFrontmatter: JsonObject;
   savedAt: number;
+  /** An accepted device write may remain offline beyond the unsent draft retention window. */
+  awaitingSync?: true;
 }
 
-interface SavedDraftRecord { body?: string; frontmatter: JsonObject }
+interface SavedDraftRecord { pendingSync?: true; body?: string; frontmatter: JsonObject }
 
 /** A checkpoint is unnecessary only when its body AND every edited property are saved. */
 export function recoveryDraftMatchesRecord(draft: RecoveryDraft, record: SavedDraftRecord): boolean {
@@ -46,7 +48,7 @@ export class DraftRecovery {
 
   read(collection: string, path: string, saved?: SavedDraftRecord): RecoveryDraft | undefined {
     const draft = this.readKey(this.key(collection, path));
-    if (draft && saved && recoveryDraftMatchesRecord(draft, saved)) {
+    if (draft && saved && !saved.pendingSync && recoveryDraftMatchesRecord(draft, saved)) {
       this.remove(collection, path, saved);
       return;
     }
@@ -61,7 +63,7 @@ export class DraftRecovery {
     catch { this.storage.removeItem(key); return; }
     if (!value || typeof value.body !== "string" || typeof value.baseBody !== "string"
       || !object(value.patch) || !object(value.baseFrontmatter)
-      || !Number.isFinite(value.savedAt) || Date.now() - value.savedAt > DRAFT_RETENTION_MS) {
+      || !Number.isFinite(value.savedAt) || (value.awaitingSync !== true && Date.now() - value.savedAt > DRAFT_RETENTION_MS)) {
       this.storage.removeItem(key);
       return;
     }

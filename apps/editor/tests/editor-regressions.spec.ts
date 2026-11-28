@@ -134,3 +134,49 @@ test("the self-hosted form reports invalid codes and sends a full pasted code", 
   await submit.click();
   await expect.poll(() => submitted).toEqual(["12345678"]);
 });
+
+for (const reload of [true, false]) {
+  test(`an offline edit survives a rejected write in Chromium (reload ${reload})`, async ({ page, context }) => {
+    type ReplicaWindow = Window & { offlineFixture: import("@mdbase-dev/sdk/testing").TestApp };
+    await page.goto(`${fixture}?scenario=offline-replica`);
+    const editor = page.frameLocator('iframe[title="Editor"]');
+    const body = editor.getByRole("textbox", { name: "Note body" });
+    await expect(body).toHaveText("Base text");
+    await page.evaluate(async () => {
+      await navigator.serviceWorker.register("/mdbase-shell-sw.js", { type: "module" });
+      await navigator.serviceWorker.ready;
+    });
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    await context.setOffline(true);
+    await page.evaluate(() => (window as ReplicaWindow).offlineFixture.replica().setOnline(false));
+    await body.fill("Browser offline edit");
+    await expect.poll(() => page.evaluate(() => {
+      const key = Object.keys(localStorage).find(key => key.startsWith("mdbase-editor:draft:v1:"));
+      return key && JSON.parse(localStorage.getItem(key)!).awaitingSync;
+    })).toBe(true);
+    if (reload) {
+      const navigation = page.waitForEvent("framenavigated", frame => frame.url().endsWith("?scenario=offline-editor"));
+      await editor.locator("body").evaluate(() => location.reload());
+      const reloaded = await navigation;
+      expect(await reloaded.evaluate(() => navigator.onLine)).toBe(false);
+      await expect(body).toHaveText("Browser offline edit");
+      await expect(body).toBeEditable();
+    }
+    await context.setOffline(false);
+    await page.evaluate(() => {
+      const fixture = (window as ReplicaWindow).offlineFixture;
+      const [pending] = fixture.client().ledger.getSnapshot().pending;
+      fixture.replica().reject(pending.mutationId);
+      fixture.replica().editElsewhere(pending.records[0], { body: "Concurrent remote edit" });
+      fixture.replica().setOnline(true);
+    });
+    const recovery = editor.getByRole("status", { name: "Unsaved draft found" });
+    await expect(body).toHaveText("Concurrent remote edit");
+    await recovery.getByText("Review recovered text").click();
+    await expect(recovery.locator("pre")).toHaveText("Browser offline edit");
+    await recovery.getByRole("button", { name: "Restore unsaved edits" }).click();
+    await editor.getByRole("button", { name: "Keep my edits" }).click();
+    await expect.poll(() => page.evaluate(() =>
+      (window as ReplicaWindow).offlineFixture.replica().allRecords[0].body)).toBe("Browser offline edit");
+  });
+}

@@ -89,7 +89,8 @@ export class NextEditorRecords {
       patch: (change.patch ?? {}) as Record<string, PlainValue>,
       ...(change.body === undefined ? {} : { body: change.body }),
       ifRevision: base.revision,
-    }, options), current) as Promise<NoteDocument>;
+      requireLive: true,
+    }, { ...options, conflictMode: "reject" }), current) as Promise<NoteDocument>;
   }
 
   async updateProperties(path: string, patch: JsonObject, revision: string, signal?: AbortSignal): Promise<NoteDocument> {
@@ -218,10 +219,10 @@ export class NextEditorRecords {
     if (record.state.hold || record.state.unresolved)
       throw new MdbaseError({ code: "outcome_unknown", reason: "unqualified_readback", recovery: "resolve_outcome", message: t`The current note is protected. Keep the original operation for recovery before reporting it as saved.` });
     this.unknown.delete(mutation.mutationId);
-    return this.remember(record);
+    return this.remember(record, receipt.state === "pending");
   }
 
-  private remember(record: RecordView): NoteDocument {
+  private remember(record: RecordView, pendingReceipt = false): NoteDocument {
     completeSource(record);
     const key = JSON.stringify([record.path, record.revision]);
     const previous = this.seen.get(key);
@@ -239,7 +240,8 @@ export class NextEditorRecords {
       this.seenBytes -= this.seen.get(oldest)!.bytes;
       this.seen.delete(oldest);
     }
-    return { path: record.path, revision: record.revision, types: [...record.types],
+    return { ...(pendingReceipt || record.state.state === "pending" ? { pendingSync: true as const } : {}),
+      path: record.path, revision: record.revision, types: [...record.types],
       frontmatter: record.frontmatter, effectiveFrontmatter: record.effective ?? record.frontmatter,
       body: record.body, document: record.document,
       file: { path: record.path, ...(record.mtime === undefined ? {} : { mtime: new Date(record.mtime).toISOString() }) } };

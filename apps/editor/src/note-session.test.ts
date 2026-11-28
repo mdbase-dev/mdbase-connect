@@ -67,6 +67,25 @@ describe("note sessions", () => {
     expect(note.draft).toMatchObject({ title: "Remote", body: "New body\n" });
   });
 
+  it.each([true, false])("reconciles a confirmed save with a newer readback (continued typing %s)", async (continued) => {
+    const base = document("one.md", { body: "Original" });
+    const result = { ...base, revision: "3", body: "Later confirmed edit" };
+    let acknowledge!: (record: NoteDocument) => void;
+    const update = vi.fn(() => new Promise<NoteDocument>(resolve => { acknowledge = resolve; }));
+    const { session: note } = session(base, update);
+    note.record.setBody("Submitted");
+    const saving = note.record.save();
+    await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+    if (continued) note.record.setBody("Typing continued");
+    acknowledge(result);
+    await saving;
+    expect(note.record.snapshot.body).toBe(continued ? "Typing continued" : result.body);
+    expect(note.record.snapshot.state).toBe(continued ? "conflict" : "saved");
+    expect(note.record.snapshot.remote).toEqual(continued ? result : null);
+    expect(update).toHaveBeenCalledOnce();
+    note.record.dispose();
+  });
+
   it("moves one session identity between paths", () => {
     const store = new NoteSessionStore();
     const { session: note } = session(document("old.md"));

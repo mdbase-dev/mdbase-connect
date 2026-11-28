@@ -18,7 +18,10 @@ export interface NoteSummary extends QueryRecord<NoteFrontmatter> {
   effectiveFrontmatter: NoteFrontmatter;
 }
 
-export type NoteDocument = RecordDocument<NoteFrontmatter>;
+export type NoteDocument = RecordDocument<NoteFrontmatter> & {
+  /** The native record includes changes that can still be refused at the log head. */
+  pendingSync?: true;
+};
 
 export interface CollectionSnapshot {
   description: CollectionDescription;

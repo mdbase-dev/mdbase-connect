@@ -5882,6 +5882,7 @@ msgstr "Der native Schreibvorgang hat seine Änderungsidentität gewechselt."
 msgid "The new type definition hasn’t been saved."
 msgstr "Die neue Typdefinition wurde noch nicht gespeichert."
 
+#: src/CollectionRail.tsx
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
 msgstr "Die Notizänderung wurde abgelehnt."
@@ -6251,6 +6252,7 @@ msgstr "Diese Notizänderung ist nicht bestätigt. Prüfen Sie den unterbrochene
 msgid "This note changed after it was opened. Reload before saving."
 msgstr "Diese Notiz wurde nach dem Öffnen geändert. Laden Sie sie vor dem Speichern neu."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
 msgstr "Diese Notiz wurde an anderer Stelle geändert"

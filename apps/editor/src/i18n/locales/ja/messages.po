@@ -5882,6 +5882,7 @@ msgstr "ネイティブの書き込みで変更操作の識別子が変わりま
 msgid "The new type definition hasn’t been saved."
 msgstr "新しい型定義はまだ保存されていません。"
 
+#: src/CollectionRail.tsx
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
 msgstr "ノートの変更は拒否されました。"
@@ -6251,6 +6252,7 @@ msgstr "このノートの変更は未確認です。再試行前に中断され
 msgid "This note changed after it was opened. Reload before saving."
 msgstr "このノートは開いた後に変更されました。保存前に再読み込みしてください。"
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
 msgstr "このノートは別の場所で変更されました"

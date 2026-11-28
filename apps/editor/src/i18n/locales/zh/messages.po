@@ -5882,6 +5882,7 @@ msgstr "原生写入的变更标识发生了变化。"
 msgid "The new type definition hasn’t been saved."
 msgstr "新的类型定义尚未保存。"
 
+#: src/CollectionRail.tsx
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
 msgstr "笔记更改已被拒绝。"
@@ -6251,6 +6252,7 @@ msgstr "此笔记更改尚未确认。请先检查中断的操作，再重试。
 msgid "This note changed after it was opened. Reload before saving."
 msgstr "此笔记在打开后发生了更改。请在保存前重新加载。"
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
 msgstr "此笔记已在其他位置更改"

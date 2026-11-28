@@ -60,7 +60,7 @@ import { ConnectScreen } from "./ConnectionScreens";
 import type { LeaveIntent } from "@mdbase-dev/ui/collections";
 import type { EditorCollectionSwitcher } from "./editor-collections";
 import { ConflictResolver } from "./ConflictResolver";
-import { frontmatterPatch, recoveryDraftMatchesRecord, useDraftRecovery } from "./draft-recovery";
+import { frontmatterPatch, recoveryDraftMatchesRecord, type RecoveryDraft, useDraftRecovery } from "./draft-recovery";
 import { connectServerUrl } from "./connect-endpoint";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
 import { CommandPalette, shortcutLabel } from "@mdbase-dev/ui/command-palette";
@@ -595,8 +595,12 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     noteSessions.current.set(next.path, session);
     let previous = session.record.snapshot;
     const collection = mutationScope.current.token().collectionId!;
-    try { session.recoveryDraft = draftRecovery?.read(collection, next.path, next); }
+    // A replica can roll its pending projection back. Keep the last edit until
+    // a confirmed record contains it, including when this session opens offline.
+    let checkpoint: RecoveryDraft | undefined;
+    try { checkpoint = draftRecovery?.read(collection, next.path, next); }
     catch { session.recoveryError = recoveryUnavailable(); }
+    if (checkpoint && !recoveryDraftMatchesRecord(checkpoint, next)) session.recoveryDraft = checkpoint;
     if (!draftRecovery && !privateCollection) session.recoveryError = recoveryUnavailable();
     const checkpointed = (ok: boolean) => {
       const error = ok ? undefined : recoveryUnavailable();
@@ -604,25 +608,40 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       session.recoveryError = error;
       touchSession(session);
     };
+    const keep = (draft: Omit<RecoveryDraft, "savedAt">) => {
+      checkpoint = { ...draft, savedAt: Date.now() };
+      draftRecovery?.write(collection, session.document.path, draft, checkpointed);
+    };
+    if (next.pendingSync && !checkpoint) {
+      keep({ body: next.body ?? "", patch: {}, baseBody: next.body ?? "", baseFrontmatter: next.frontmatter, awaitingSync: true });
+    }
     session.record.subscribe(() => {
       const current = session.record.snapshot;
-      if (session.recoveryDraft && current.state === "saved" && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
-        session.recoveryDraft = undefined;
-      }
-      if (!session.recoveryDraft) {
-        try {
-          if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
-          if (current.dirty) draftRecovery?.write(collection, current.record.path, {
-            body: current.body, baseBody: current.record.body ?? "",
-            patch: frontmatterPatch(current.record.frontmatter, current.frontmatter),
-            baseFrontmatter: current.record.frontmatter
-          }, checkpointed);
-          else {
-            draftRecovery?.remove(collection, current.record.path, current.record);
-            if (draftRecovery) session.recoveryError = undefined;
+      try {
+        if (previous.record.path !== current.record.path) draftRecovery?.remove(collection, previous.record.path, current.record);
+        if (session.recoveryDraft) {
+          if (current.state === "saved" && !current.record.pendingSync && recoveryDraftMatchesRecord(session.recoveryDraft, current.record)) {
+            session.recoveryDraft = undefined;
           }
-        } catch { session.recoveryError = recoveryUnavailable(); }
-      }
+        } else if (current.dirty) {
+          const original = previous.record.pendingSync || current.remote ? checkpoint : undefined;
+          const baseBody = original?.baseBody ?? current.record.body ?? "";
+          const baseFrontmatter = original?.baseFrontmatter ?? current.record.frontmatter;
+          keep({ body: current.body, baseBody, patch: frontmatterPatch(baseFrontmatter, current.frontmatter), baseFrontmatter,
+            ...(current.record.pendingSync || original?.awaitingSync ? { awaitingSync: true } : {}) });
+        } else if (checkpoint && (previous.record.pendingSync || current.record.pendingSync)
+          && !recoveryDraftMatchesRecord(checkpoint, current.record)) {
+          session.recoveryDraft = checkpoint;
+        } else if (current.record.pendingSync && checkpoint && !checkpoint.awaitingSync) {
+          keep({ ...checkpoint, awaitingSync: true });
+          draftRecovery?.flush();
+        }
+        if (!current.dirty && !current.record.pendingSync && !session.recoveryDraft) {
+          draftRecovery?.remove(collection, current.record.path, current.record);
+          checkpoint = undefined;
+          if (draftRecovery) session.recoveryError = undefined;
+        }
+      } catch { session.recoveryError = recoveryUnavailable(); }
       sessionChanged(session, previous);
       previous = current;
     });
@@ -678,7 +697,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
 
   const refreshCachedNote = useCallback(async (path: string, revision?: string) => {
     const session = noteSessions.current.get(path);
-    if (!session || session.deleted || (revision !== undefined && session.document.revision === revision)) return;
+    if (!session || session.deleted || (!session.document.pendingSync && revision !== undefined && session.document.revision === revision)) return;
     // Read behind this note's own writes; the session classifies the result.
     requireSaved(await session.record.refresh());
   }, []);
@@ -2435,8 +2454,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           </div>}
           {focused && !isNew && noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
           {focused && !isNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
-            <strong><Trans>Unsaved edits from an earlier session are available.</Trans></strong>
-            <p><Trans>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</Trans></p>
+            <strong>{noteSessions.current.active.recoveryDraft.awaitingSync
+              ? <Trans>This note changed elsewhere</Trans> : <Trans>Unsaved edits from an earlier session are available.</Trans>}</strong>
+            {!noteSessions.current.active.recoveryDraft.awaitingSync && <p><Trans>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</Trans></p>}
             <details><summary><Trans>Review recovered text</Trans></summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
               {Object.keys(noteSessions.current.active.recoveryDraft.patch).length > 0 && <pre>{JSON.stringify(noteSessions.current.active.recoveryDraft.patch, null, 2)}</pre>}
             </details>

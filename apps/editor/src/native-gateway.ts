@@ -181,7 +181,8 @@ export class NativeEditorGateway implements CollectionGateway {
     if (!this.current()) return "synced";
     const phase = this.application.getSnapshot?.().phase;
     if (phase?.kind === "unsynced" && phase.collectionId === this.connection.id) return "unsynced";
-    if (this.client.ledger.getSnapshot().saveState === "saved_on_device") return "saved_on_device";
+    const { saveState } = this.client.ledger.getSnapshot();
+    if (saveState === "rejected" || saveState === "saved_on_device") return saveState;
     const sync = phase?.kind === "ready" && phase.collectionId === this.connection.id ? this.application.getSnapshot?.().sync : null;
     return sync?.connection === "offline" || sync?.health === "unreachable" || this.client.status.connection === "offline" || this.client.link !== "open" ? "offline" : "synced";
   }
@@ -636,8 +637,9 @@ export class NativeEditorGateway implements CollectionGateway {
 
   private summary(): ConnectionSummary {
     const missing = this.missingCapabilities();
+    const entry = this.entry();
     return { collectionId: this.connection.id, role: this.role(), displayName: this.connection.displayName, operations: this.operations(), fileActions: this.fileActions(),
-      ...(this.entry()?.kind === "private" ? { private: true as const } : {}),
+      ...(entry?.kind === "private" || entry?.mode === "private" ? { private: true as const } : {}),
       ...(missing.length ? { missingCapabilities: missing } : {}) };
   }
 

@@ -25,6 +25,20 @@ function render(content: React.ReactNode) {
 }
 
 async function start() {
+  if (scenario === "offline-replica") {
+    // Keep the SDK test replica in the parent while the iframe reloads Editor.
+    const fixture = await createTestApp({ collections: [{ name: "Offline notes",
+      records: [{ path: "note.md", body: "Base text" }] }] });
+    Object.assign(window, { offlineFixture: fixture });
+    render(<iframe title="Editor" style={{ width: "100%", height: "90vh" }}
+      src="?scenario=offline-editor" />);
+    return;
+  }
+  if (scenario === "offline-editor") {
+    const parent = window.parent as Window & { offlineFixture: Awaited<ReturnType<typeof createTestApp>> };
+    render(<SdkEditorRoot sdk={parent.offlineFixture.mdbase} />);
+    return;
+  }
   if (scenario === "pairing") {
     await import("../../direct/style.css");
     render(<main><DirectEditor allowed={allow} signal={life.signal} /></main>);

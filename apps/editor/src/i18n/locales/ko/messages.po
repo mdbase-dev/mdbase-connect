@@ -5882,6 +5882,7 @@ msgstr "네이티브 쓰기의 변경 ID가 달라졌습니다."
 msgid "The new type definition hasn’t been saved."
 msgstr "새 유형 정의가 저장되지 않았습니다."
 
+#: src/CollectionRail.tsx
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
 msgstr "노트 변경이 거부되었습니다."
@@ -6251,6 +6252,7 @@ msgstr "이 노트 변경은 확인되지 않았습니다. 다시 시도하기 �
 msgid "This note changed after it was opened. Reload before saving."
 msgstr "노트를 연 후 변경되었습니다. 저장하기 전에 새로고침하세요."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
 msgstr "이 노트가 다른 곳에서 변경됨"

@@ -1,9 +1,11 @@
 import type { ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "./test/locale";
+import { act, fireEvent, render, screen, waitFor, within } from "./test/locale";
 import { expect, it, vi } from "vitest";
 import { MdbaseConnectError } from "./connect-types";
 import { connectProblem } from "./connect-types";
 import { App } from "./App";
+import { SdkEditorRoot } from "./SdkEditorRoot";
+import { closeNativeFixtures, readyFixture } from "./test/native-fixture";
 import { DemoCollectionGateway } from "./demo-gateway";
 
 vi.mock("./CodeEditor", () => ({
@@ -107,4 +109,37 @@ it("says when this browser refuses the recovery copy", async () => {
   expect(screen.queryByText(/cannot be backed up/)).toBeNull();
   fireEvent(window, new Event("pagehide"));
   expect(await screen.findByRole("alert")).toHaveTextContent("Unsaved edits cannot be backed up in this browser.");
+});
+
+it.each([false, true])("preserves an offline capture and the remote body on late rejection (reload %s)", async (reload) => {
+  const fixture = await readyFixture({ confirmDelayMs: null }, replica => replica.seed({ path: "note.md", body: "Original" }));
+  try {
+    vi.spyOn(fixture.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+    const get = vi.spyOn(fixture.client, "get");
+    const first = render(<SdkEditorRoot sdk={fixture.mdbase} />);
+    const body = () => screen.findByRole("textbox", { name: "Note body" });
+    fireEvent.change(await body(), { target: { value: "Offline text" } });
+    await waitFor(() => expect(fixture.client.ledger.getSnapshot().pending).toHaveLength(1));
+    const [{ mutationId, records: [id] }] = fixture.client.ledger.getSnapshot().pending;
+    await waitFor(() => expect(get.mock.calls.some(([target]) => target === id)).toBe(true));
+    const checkpoint = () => Object.keys(localStorage).find(key => key.startsWith("mdbase-editor:draft:v1:"));
+    await waitFor(() => expect(JSON.parse(localStorage.getItem(checkpoint()!)!).body).toBe("Offline text"));
+    if (reload) {
+      first.unmount();
+      render(<SdkEditorRoot sdk={fixture.mdbase} />);
+      expect(await body()).toHaveValue("Offline text");
+      expect(screen.queryByRole("button", { name: "Restore unsaved edits" })).toBeNull();
+    }
+    act(() => {
+      fixture.replica.reject(mutationId);
+      fixture.replica.editElsewhere(id, { body: "CLI text" });
+    });
+    const recovery = await screen.findByRole("status", { name: "Unsaved draft found" });
+    expect(await body()).toHaveValue("CLI text");
+    expect(within(recovery).getByText("Offline text")).toBeInTheDocument();
+    fireEvent.click(within(recovery).getByRole("button", { name: "Restore unsaved edits" }));
+    await screen.findByRole("alert", { name: "Note changed elsewhere" });
+    expect(await body()).toHaveValue("Offline text");
+    expect((await fixture.client.get(id, { include: { body: true } })).body).toBe("CLI text");
+  } finally { closeNativeFixtures(); }
 });
