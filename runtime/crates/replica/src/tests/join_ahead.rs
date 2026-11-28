@@ -199,6 +199,71 @@ fn private_member_grant_after_join_decrypts_earlier_content() {
 }
 
 #[test]
+fn approved_private_store_with_pre_grant_keyring_repairs_once_on_reopen() {
+    use crate::store::{Store, Tx, meta_keys};
+    let (svc, mut cp, mut a) = world(CState::E2e);
+    enrol_b(&svc, &mut cp);
+    let mut b = open(&svc, 2, B_KEYS);
+    settle(&mut [&mut b]);
+    assert!(waiting_at(&b).is_some());
+    let stale = b.r.store().meta(meta_keys::KEYRING).unwrap().unwrap();
+    member_grant(&mut a, B, B_KEYS.1);
+    probe(&mut b);
+    assert!(b.r.policy.device_can_read(&B));
+    let good = b.r.store().meta(meta_keys::KEYRING).unwrap().unwrap();
+    assert_ne!(good, stale, "join-ahead persists the recovered key");
+    // Older builds advanced through the grant but still referenced the
+    // pre-grant generation. Preserve that real generation and the applied head.
+    let mut store = b.r.into_store();
+    store
+        .commit(Tx {
+            meta: vec![(meta_keys::KEYRING.into(), Some(stale))],
+            ..Default::default()
+        })
+        .unwrap();
+    let reopen = |store, trusted| {
+        node_with(
+            &svc,
+            2,
+            store,
+            trusted,
+            Some(Box::new(KeyringSealer::new(COL, B, &B_KEYS.0, &B_KEYS.1))),
+        )
+    };
+    let untrusted = reopen(store, vec![]);
+    assert!(!untrusted.r.keyring_rebuilding());
+    let mut incomplete = reopen(untrusted.r.into_store(), vec![A]);
+    let head = incomplete.r.head();
+    let writes = incomplete.r.store().data().borrow().keyring_writes;
+    assert!(incomplete.r.serves_apps().is_err());
+    incomplete
+        .r
+        .on_device_key_rebuild(Ok(crate::log::LogResponse::Read(
+            mdbn_wire::log_service::ReadResult {
+                items: Vec::new(),
+                head: head.seq,
+                head_chain: head.chain,
+                retained_from: 1,
+                behind: false,
+                snapshot: None,
+                more: false,
+            },
+        )));
+    assert!(incomplete.r.keyring_rebuild_failed());
+    assert!(incomplete.r.serves_apps().is_err());
+    assert_eq!(incomplete.r.store().data().borrow().keyring_writes, writes);
+    let mut b = reopen(incomplete.r.into_store(), vec![A]);
+    assert!(b.r.keyring_rebuilding());
+    settle(&mut [&mut b]);
+    assert_eq!(b.r.store().meta(meta_keys::KEYRING).unwrap(), Some(good));
+    let mut b = reopen(b.r.into_store(), vec![A]);
+    assert!(!b.r.keyring_rebuilding());
+    a.create(2, "after.md", "after repair");
+    settle(&mut [&mut a, &mut b]);
+    assert_eq!(b.doc(2).as_deref(), Some("after repair"));
+}
+
+#[test]
 fn private_grant_appended_while_waiting_is_found_on_the_head_push() {
     let (svc, mut cp, mut a) = world(CState::E2e);
     let entry = a.r.head().seq;

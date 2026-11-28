@@ -635,6 +635,24 @@ impl<S: Store> Replica<S> {
             .map(|b| (meta_keys::KEYRING.to_string(), Some(b.to_vec())))
     }
 
+    /// Commit a verified key recovered outside ordered apply before resuming
+    /// sync. Ordered apply may see the same key again and skip an unchanged ring.
+    pub(super) fn persist_recovered_keyring(&mut self) -> bool {
+        if let Some(meta) = self.keyring_meta()
+            && self
+                .store
+                .commit(Tx {
+                    meta: vec![meta],
+                    ..Tx::default()
+                })
+                .is_err()
+        {
+            self.terminal_store_fault("recovered_keyring_commit_failed");
+            return false;
+        }
+        true
+    }
+
     /// `policy`, `rekey`, `key_grant` (policy.md §6, sealed-envelope.md §5).
     fn apply_control_item(
         &mut self,

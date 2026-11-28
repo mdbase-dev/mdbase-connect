@@ -316,6 +316,9 @@ impl<S: Store> Replica<S> {
         }
         match outcome {
             Step::Keyed => {
+                if !self.persist_recovered_keyring() {
+                    return;
+                }
                 a.done = true;
                 a.keyed_by = keyed_by;
                 a.policy = None;
