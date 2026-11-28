@@ -41,6 +41,7 @@ interface MarkdownNoteEditorProps {
   insertion?: { id: number; text: string; block?: boolean };
   onUploadAttachment?: AttachmentUploader;
   remoteApplyToken?: number;
+  valueIsCurrent?: (value: string, remoteApplyToken: number | undefined) => boolean;
   onTitleChange: (title: string) => void;
   onTitleVisibilityChange: (visible: boolean) => void;
   onBodyChange: (body: string) => void;
@@ -144,7 +145,7 @@ function NoteHeader({ title, titleId, readOnly, provenance, titlePlaceholder, fo
 }
 
 export function MarkdownNoteEditor({ editorKey, titleId = "note-title", draft, preferences, documentId, currentPath, linkTargets, recentPaths,
-  linkSuggestions, linkTypes, onCreateLinked, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, onTitleChange, onTitleVisibilityChange, onBodyChange,
+  linkSuggestions, linkTypes, onCreateLinked, embeddedFiles, embeddedNotes, files, notes, insertion, onUploadAttachment, remoteApplyToken, valueIsCurrent, onTitleChange, onTitleVisibilityChange, onBodyChange,
   onOpenLink, onCreateLink, onPreviewLink, onDismissLinkPreview, onOpenFile, onOpenFileLink,
   onVisibleFileEmbeds, onVisibleNoteEmbeds, footer, autoFocus = true, readOnly = false, provenance,
   titlePlaceholder, focusTitle, titleProperties, onTitleCommit,
@@ -163,7 +164,7 @@ export function MarkdownNoteEditor({ editorKey, titleId = "note-title", draft, p
         onDismissLinkPreview={onDismissLinkPreview} embeddedFiles={embeddedFiles} embeddedNotes={embeddedNotes}
         onOpenFile={onOpenFile} files={files} notes={notes} onOpenFileLink={onOpenFileLink}
         onVisibleFileEmbeds={onVisibleFileEmbeds} onVisibleNoteEmbeds={onVisibleNoteEmbeds} insertion={insertion}
-        remoteApplyToken={remoteApplyToken} header={header} footer={footer} onUploadAttachment={onUploadAttachment}
+        remoteApplyToken={remoteApplyToken} valueIsCurrent={valueIsCurrent} header={header} footer={footer} onUploadAttachment={onUploadAttachment}
         commentAnchors={commentAnchors} activeComment={activeComment} commentReveal={commentReveal}
         onCommentAnchor={onCommentAnchor} commentCard={commentCard} />
     </Suspense>

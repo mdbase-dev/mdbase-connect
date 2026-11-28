@@ -3,7 +3,6 @@ import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { BacklinksPanel } from "./WorkspaceChrome";
 import { backlinkGroups } from "./collection-links";
-import { buildNoteSearchIndex } from "./note-search";
 import { unlinkedMentions } from "./unlinked-mentions";
 import type { NoteSummary } from "./model";
 
@@ -11,7 +10,7 @@ const notes: NoteSummary[] = Array.from({ length: 8 }, (_, index) => ({
   path: `Source ${index + 1}.md`, body: `# Source ${index + 1}\n\nI keep **Atlas** in my notes.`, types: [], frontmatter: {}, effectiveFrontmatter: {},
   file: { path: `Source ${index + 1}.md`, name: `Source ${index + 1}.md`, folder: "", size: 40, mtime: "" }
 }));
-const mentions = unlinkedMentions(buildNoteSearchIndex(notes), "Atlas.md", "Atlas");
+const mentions = unlinkedMentions(notes, "Atlas.md", "Atlas");
 
 describe("unlinked mention disclosure", () => {
   it("uses the shared chevron, lazily shows five plain highlighted snippets, and expands only on request", async () => {

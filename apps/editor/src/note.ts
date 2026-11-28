@@ -9,6 +9,8 @@ import {
   recordDisplayField
 } from "./field-reference";
 
+export const LARGE_NOTE_LENGTH = 100_000;
+
 /** A type name as a reader sees it: `obsidian_base` → "Obsidian base". The name itself stays the identifier everywhere else. */
 export function typeDisplayName(name: string): string {
   const words = name.replace(/[_-]+/g, " ").trim();

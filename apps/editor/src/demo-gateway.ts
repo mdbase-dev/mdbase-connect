@@ -244,7 +244,11 @@ export class DemoCollectionGateway implements CollectionGateway {
   }
 
   async mostRecentNote(): Promise<string | undefined> {
-    return [...this.notes].sort((a, b) => String(b.file.mtime).localeCompare(String(a.file.mtime)))[0]?.path;
+    let latest: NoteDocument | undefined;
+    for (const note of this.notes) {
+      if (!latest || String(note.file.mtime).localeCompare(String(latest.file.mtime)) > 0) latest = note;
+    }
+    return latest?.path;
   }
 
   async read(path: string): Promise<NoteDocument> {
@@ -895,22 +899,26 @@ function demoNote(index: number): NoteDocument {
   return demoDocument(path, title, paragraphs, index + 1);
 }
 
+const demoTagSource = composeRecordSource({ tags: ["notes", "ideas"] }, "");
+const demoTextEncoder = new TextEncoder();
+
 function demoDocument(path: string, title: string, body: string, sequence: number): NoteDocument {
   const persisted = `# ${title}\n\n${body}`.trimEnd() + "\n";
   const timestamp = new Date(Date.now() - sequence * 3_600_000).toISOString();
   const frontmatter = sequence % 3 === 0 ? { tags: ["notes", "ideas"] } : {};
+  const separator = path.lastIndexOf("/");
   return {
     path,
     frontmatter,
     effectiveFrontmatter: structuredClone(frontmatter),
     body: persisted,
-    document: composeRecordSource(frontmatter, persisted),
+    document: frontmatter.tags ? demoTagSource + persisted : persisted,
     types: sequence % 4 === 0 ? ["note"] : [],
     revision: `demo-${sequence}`,
     file: {
-      name: path.split("/").at(-1)!,
-      folder: path.split("/").slice(0, -1).join("/"),
-      size: new TextEncoder().encode(persisted).byteLength,
+      name: path.slice(separator + 1),
+      folder: separator < 0 ? "" : path.slice(0, separator),
+      size: demoTextEncoder.encode(persisted).byteLength,
       mtime: timestamp,
       tags: demoTags(frontmatter, persisted),
       links: demoLinks(persisted),
@@ -934,6 +942,7 @@ function demoTags(frontmatter: JsonObject, body: string): string[] {
 }
 
 function demoLinks(body: string): string[] {
+  if (!body.includes("[")) return [];
   const wikilinks = [...body.matchAll(/(?<!!)\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g)].map((match) => match[1].trim());
   const markdown = [...body.matchAll(/(?<!!)\[[^\]]+\]\((?!https?:\/\/)([^)#]+)(?:#[^)]*)?\)/g)].map((match) => match[1].trim());
   return [...new Set([...wikilinks, ...markdown])];
@@ -973,6 +982,7 @@ function demoResolve(raw: string, from: string, notes: readonly string[], files:
 }
 
 function demoEmbeds(body: string): string[] {
+  if (!body.includes("![")) return [];
   const wikilinks = [...body.matchAll(/!\[\[([^\]|#]+)(?:#[^\]|]*)?(?:\|[^\]]*)?\]\]/g)].map((match) => match[1].trim());
   const markdown = [...body.matchAll(/!\[[^\]]*\]\((?!https?:\/\/)([^)#]+)(?:#[^)]*)?\)/g)].map((match) => match[1].trim());
   return [...new Set([...wikilinks, ...markdown])];

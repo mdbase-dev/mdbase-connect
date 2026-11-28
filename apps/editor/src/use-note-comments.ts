@@ -158,8 +158,8 @@ export function useNoteComments({ gateway, description, notes, path, draft, inde
 
   // What the note's record holds: a heading title is part of the stored body,
   // and the editor's text starts after it.
-  const stored = draft ? persistedBody(draft.title, draft.body, draft.source) : "";
-  const lead = draft && stored.endsWith(draft.body) ? stored.length - draft.body.length : undefined;
+  const stored = available && draft ? persistedBody(draft.title, draft.body, draft.source) : "";
+  const lead = available && draft && stored.endsWith(draft.body) ? stored.length - draft.body.length : undefined;
   const placed = useMemo(() => placeThreads(threads, stored), [threads, stored]);
   const leadPoints = lead === undefined ? undefined : codePointOffset(stored, lead);
   const placedAnchors = placed.flatMap(({ thread: { root }, at }): CommentAnchor[] => {
