@@ -28,8 +28,13 @@ describe("native installation display scopes", () => {
     expect(screen.getByText(/Mobile app/)).toBeInTheDocument();
     expect(screen.getByText(/App installation/)).toBeInTheDocument();
     expect(document.querySelectorAll("time[datetime]")).toHaveLength(2);
-    expect(screen.queryByText(/11111111/)).not.toBeInTheDocument();
-    expect(screen.queryByText(/22222222/)).not.toBeInTheDocument();
+    expect(screen.getByText("Installation reference nector-a")).toBeInTheDocument();
+    expect(screen.getByText("Installation reference nector-b")).toBeInTheDocument();
+  });
+  it("keeps an unavailable scope available to review without counting its collection", () => {
+    show([installation({ available: false, role: null })]);
+    expect(document.querySelector(".connect-application > summary")).toHaveTextContent("0 collections");
+    expect(screen.getByText(/Collection no longer visible to your account/)).toBeInTheDocument();
   });
   it("does not merge two collections sharing a stored display name", () => {
     show([installation(),installation({collection_id:"collection-b",connector_id:"connector-b",installation_id:"installation-22222222"})]);
@@ -79,7 +84,7 @@ describe("native installation display scopes", () => {
     const row = screen.getByText("This installation has no approved collections.").parentElement!;
     fireEvent.click(within(row).getByRole("button", {name:"Remove installation"}));
     expect(revoke).not.toHaveBeenCalled();
-    fireEvent.click(within(screen.getByRole("dialog", {name:"Remove only this installation of Reader from your account?"})).getByRole("button", {name:"Remove installation"}));
+    fireEvent.click(within(screen.getByRole("dialog", {name:"Remove installation nector-b of Reader?"})).getByRole("button", {name:"Remove installation"}));
     await vi.waitFor(() => expect(revoke).toHaveBeenCalledExactlyOnceWith("connector-b", {}));
     expect(remove).not.toHaveBeenCalled();
   });

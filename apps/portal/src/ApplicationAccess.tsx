@@ -36,7 +36,10 @@ export function applicationGroups(grants: Grant[], installations: Installation[]
     group.installations.push(entry);
   }
   return [...groups.values()].map(group => ({
-    ...group, collectionCount: new Set([...group.grants.map(g => g.collection_id), ...group.installations.flatMap(i => i.collection_id ? [i.collection_id] : [])]).size
+    ...group, collectionCount: new Set([
+      ...group.grants.filter(grant => grant.revocation_status === "active").map(grant => grant.collection_id),
+      ...group.installations.flatMap(entry => entry.available && entry.collection_id ? [entry.collection_id] : [])
+    ]).size
   })).sort((a, b) => a.applicationName.localeCompare(b.applicationName));
 }
 
@@ -92,22 +95,26 @@ export function AppAccess({ error, groups, client, busy, perform, collectionName
         <div className="connect-application-body">
           {installationScopes(group.installations).map(({ collectionId, entries }) => <div className="connect-grant connect-row" key={collectionId ?? "creation"}>
             <div>{!collectionName && <strong>{entries[0]!.collection_name ?? t(i18n)({ message: "No collection access", context: "Connect interface" })}</strong>}<small>{countLabel(entries.length, "installation")}</small>
-              <details className="mdbase-disclosure connect-installation-details"><summary><Trans>Installation details</Trans></summary>
-                {entries.map(entry => <div key={entry.connector_id}>
-                  <small><Trans>{literal(entry.application_origin)} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })}</Trans></small>
-                  <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })}</time></Trans></small>
-                  <small>{entry.collection_id ? entry.available ? t(i18n)`Entire collection · Access as your account (${entry.role})` : t(i18n)({ message: "Previously approved · Collection no longer visible to your account" }) : t(i18n)({ message: "This installation has no approved collections." })}</small>
-                  {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>}
-                  {entry.approved_optional_file_actions.length > 0 && <small><Trans>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</Trans></small>}
-                  {entry.private_device === true && <small><Trans>Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account.</Trans></small>}
-                  {!collectionName && <ConfirmAction error={error} className="mdbase-button is-tertiary is-danger"
-                    label={t(i18n)`Remove installation`} question={t(i18n)`Remove only this installation of ${group.applicationName} from your account?`}
-                    consequence={group.installations.some(other => other.connector_id === entry.connector_id && other.private_device === true)
-                      ? t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password.`
-                      : t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely.`}
-                    confirmLabel={t(i18n)`Remove installation`} pendingLabel={t(i18n)({ message: "Removing…", context: "Connect interface" })}
-                    busy={busy.has(`installation-${entry.connector_id}`)} onConfirm={() => perform(`installation-${entry.connector_id}`, options => client.revokeInstallation(entry.connector_id, options))} />}
-                </div>)}
+              <details className="mdbase-disclosure connect-installation-details" open={!collectionName}><summary><Trans>Installation details</Trans></summary>
+                {entries.map(entry => {
+                  const reference = entry.connector_id.slice(-8);
+                  return <div key={entry.connector_id}>
+                    <small><Trans>{literal(entry.application_origin)} · {entry.device_kind === "mobile" ? t(i18n)({ message: "Mobile app", context: "Connect interface" }) : t(i18n)({ message: "App installation", context: "Connect interface" })}</Trans></small>
+                    <small><Trans>Registered <time dateTime={entry.created_at}>{formatters(i18n.locale).date(new Date(entry.created_at), { dateStyle: "short", timeStyle: "short" })}</time></Trans></small>
+                    <small><Trans>Installation reference {literal(reference)}</Trans></small>
+                    <small>{entry.collection_id ? entry.available ? t(i18n)`Entire collection · Access as your account (${entry.role})` : t(i18n)({ message: "Previously approved · Collection no longer visible to your account" }) : t(i18n)({ message: "This installation has no approved collections." })}</small>
+                    {entry.create_collections && <small><Trans>Can create collections for your account</Trans></small>}
+                    {entry.approved_optional_file_actions.length > 0 && <small><Trans>Additional file actions approved: {entry.approved_optional_file_actions.join(", ")}</Trans></small>}
+                    {entry.private_device === true && <small><Trans>Keeps this Private collection on its device. If you unlocked it in this app, the app has had your account's encryption key, which opens every Private collection on your account.</Trans></small>}
+                    {!collectionName && <ConfirmAction error={error} className="mdbase-button is-tertiary is-danger"
+                      label={t(i18n)`Remove installation`} question={t(i18n)`Remove installation ${reference} of ${group.applicationName}?`}
+                      consequence={group.installations.some(other => other.connector_id === entry.connector_id && other.private_device === true)
+                        ? t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password.`
+                        : t(i18n)`New access will stop. Copies already downloaded by the app cannot be removed remotely.`}
+                      confirmLabel={t(i18n)`Remove installation`} pendingLabel={t(i18n)({ message: "Removing…", context: "Connect interface" })}
+                      busy={busy.has(`installation-${entry.connector_id}`)} onConfirm={() => perform(`installation-${entry.connector_id}`, options => client.revokeInstallation(entry.connector_id, options))} />}
+                  </div>;
+                })}
               </details>
             </div>
             {collectionId && !collectionName && <ConfirmAction error={error} className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} question={t(i18n)`Revoke ${group.applicationName} access to ${entries[0]!.collection_name}?`} consequence={heldKey(entries) ? t(i18n)`New access will stop across all installations. Copies already downloaded cannot be removed remotely. If you unlocked a Private collection in this app, it has had your account's encryption key, and revoking access doesn't take that key back. If you no longer trust this app with your encryption password, change your encryption password.` : t(i18n)`New access will stop across all installations. Copies already downloaded cannot be removed remotely.`} pendingLabel={t(i18n)`Revoking access…`} confirmLabel={t(i18n)({ message: "Revoke collection access", context: "Connect interface" })} busy={busy.has(`scope-${group.applicationId}-${collectionId}`)} onConfirm={() => perform(`scope-${group.applicationId}-${collectionId}`, async options => {
