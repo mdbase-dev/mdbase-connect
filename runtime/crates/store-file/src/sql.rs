@@ -262,6 +262,84 @@ fn link_stmts(id: &Uuid, links: &[String], out: &mut Vec<Stmt>) {
     }
 }
 
+/// Bind complete rows within the hosted and app index codecs' parameter limit.
+fn insert_rows<const N: usize>(
+    insert: &str,
+    rows: impl IntoIterator<Item = [SqlValue; N]>,
+    out: &mut Vec<Stmt>,
+) {
+    let mut rows = rows.into_iter().peekable();
+    let tuple = format!("({})", ["?"; N].join(","));
+    let capacity = crate::index_codec::CodecLimits::HOSTED.max_parameters / N;
+    while rows.peek().is_some() {
+        let params: Vec<_> = rows.by_ref().take(capacity).flatten().collect();
+        let values = vec![tuple.as_str(); params.len() / N].join(",");
+        out.push(Stmt::new(format!("{insert} VALUES{values}"), params));
+    }
+}
+
+fn record_params(r: &RecordRow) -> StoreResult<[SqlValue; 4]> {
+    Ok([
+        b(&r.id),
+        t(&r.path_key),
+        int(u32::from(r.bucket)),
+        blob(record_c(r)?),
+    ])
+}
+
+/// Replace a snapshot chunk's records and their lookup keys in staging. A
+/// Stage::Put can replace a previously staged ID. For repeated puts within
+/// the chunk, SQLite keeps the final record and only its keys should remain.
+fn stage_records(records: &[RecordRow], out: &mut Vec<Stmt>) -> StoreResult<()> {
+    use crate::index_codec::CodecLimits;
+    let mut latest = std::collections::BTreeMap::new();
+    for chunk in records.chunks(CodecLimits::HOSTED.max_parameters / 4) {
+        let mut values = Vec::with_capacity(chunk.len());
+        for r in chunk {
+            values.push(record_params(r)?);
+            latest.insert(r.id, r);
+        }
+        insert_rows(
+            "INSERT OR REPLACE INTO sg_rec(id,path_key,bucket,row)",
+            values,
+            out,
+        );
+    }
+    let ids: Vec<_> = latest.keys().collect();
+    for chunk in ids.chunks(CodecLimits::HOSTED.max_parameters) {
+        let marks = vec!["?"; chunk.len()].join(",");
+        for table in ["sg_link", "sg_uniq"] {
+            out.push(st(
+                &format!("DELETE FROM {table} WHERE id IN ({marks})"),
+                chunk.iter().map(|id| b(id)).collect(),
+            ));
+        }
+    }
+    insert_rows(
+        "INSERT OR IGNORE INTO sg_link(k,id)",
+        latest.values().flat_map(|r| {
+            r.meta
+                .links
+                .iter()
+                .collect::<BTreeSet<_>>()
+                .into_iter()
+                .map(|key| [t(key), b(&r.id)])
+        }),
+        out,
+    );
+    insert_rows(
+        "INSERT OR IGNORE INTO sg_uniq(f,v,id)",
+        latest.values().flat_map(|r| {
+            r.meta
+                .unique
+                .iter()
+                .map(|(field, value)| [t(field), t(value), b(&r.id)])
+        }),
+        out,
+    );
+    Ok(())
+}
+
 fn enc(c: Cbor) -> StoreResult<Vec<u8>> {
     cbor::encode(&c).map_err(|_| corrupt("CBOR input"))
 }
@@ -865,12 +943,7 @@ impl<I: IndexStorage> SqlStore<I> {
             Self::del_record_stmts(&r.id, s, projections);
             s.push(st(
                 "INSERT INTO st_rec(id, path_key, bucket, row) VALUES (?, ?, ?, ?)",
-                vec![
-                    b(&r.id),
-                    t(&r.path_key),
-                    int(u32::from(r.bucket)),
-                    blob(record_c(r)?),
-                ],
+                record_params(r)?.into(),
             ));
             link_stmts(&r.id, &r.meta.links, s);
             for (f, v) in &r.meta.unique {
@@ -1663,10 +1736,12 @@ impl<I: IndexStorage> SqlStore<I> {
         match tx.stage {
             Stage::None => {}
             Stage::Put => {
-                let rows = tx.take_confirmed_rows();
+                let mut rows = tx.take_confirmed_rows();
+                let records = std::mem::take(&mut rows.records_put);
                 let mut staged = Vec::new();
                 Self::confirmed_stmts(&rows, &mut staged, false)?;
                 s.extend(staged_stmts(staged)?);
+                stage_records(&records, &mut s)?;
             }
             Stage::Swap => {
                 // Confirmed state becomes the staging area, which ends empty.
