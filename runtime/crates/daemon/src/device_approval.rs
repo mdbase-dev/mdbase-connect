@@ -98,9 +98,24 @@ struct Waiting {
     logged: Option<(B32, u64)>,
     /// Last request renewal, independent of whether it needed logging here.
     renewed_ms: u64,
+    /// Signed expiry of the last challenge this requester answered.
+    exchange_expires_ms: Option<u64>,
 }
 
 impl Waiting {
+    fn poll_delay(&self, now: u64) -> Duration {
+        let normal = if self.since.elapsed() < REQUESTER_PATIENT {
+            REQUESTER_POLL
+        } else {
+            REQUESTER_POLL_LATER
+        };
+        match self.exchange_expires_ms {
+            Some(expires) if expires > now => normal.min(Duration::from_millis(expires - now)),
+            Some(expires) if now - expires < 20_000 => Duration::from_secs(1),
+            _ => normal,
+        }
+    }
+
     fn should_renew(&self, now: u64, gap: bool, answered: bool, needs_logging: bool) -> bool {
         (gap || now.saturating_sub(self.renewed_ms) >= RELOG_MS) && !answered && !needs_logging
     }
@@ -548,6 +563,7 @@ impl Daemon {
                 read_ms: if started { 0 } else { now },
                 logged: None,
                 renewed_ms: now,
+                exchange_expires_ms: None,
             });
             match ctx
                 .cloud
@@ -574,6 +590,8 @@ impl Daemon {
                         {
                             Ok(Reply::Envelope(reveal)) => {
                                 answered = true;
+                                w.exchange_expires_ms =
+                                    u64::try_from(reveal.message.challenge().expires_at_ms).ok();
                                 // Answering trusts nobody: the approver is kept
                                 // only once its key grant keys this computer.
                                 send_reveal(&ctx.cloud, collection, &reveal, &identity, &current)
@@ -635,11 +653,12 @@ impl Daemon {
                 }
             }
         }
-        match waiting.values().map(|w| w.since.elapsed()).min() {
-            None => REQUESTER_IDLE,
-            Some(d) if d < REQUESTER_PATIENT => REQUESTER_POLL,
-            Some(_) => REQUESTER_POLL_LATER,
-        }
+        let now = now_ms();
+        waiting
+            .values()
+            .map(|w| w.poll_delay(now))
+            .min()
+            .unwrap_or(REQUESTER_IDLE)
     }
 }
 
@@ -708,12 +727,29 @@ mod tests {
     }
 
     #[test]
+    fn requester_wakes_at_verified_expiry_and_polls_for_its_replacement() {
+        let w = Waiting {
+            since: Instant::now() - REQUESTER_PATIENT,
+            read_ms: 10_000,
+            logged: None,
+            renewed_ms: 10_000,
+            exchange_expires_ms: Some(120_000),
+        };
+        assert_eq!(w.poll_delay(89_000), REQUESTER_POLL_LATER);
+        assert_eq!(w.poll_delay(119_750), Duration::from_millis(250));
+        assert_eq!(w.poll_delay(120_000), Duration::from_secs(1));
+        assert_eq!(w.poll_delay(139_999), Duration::from_secs(1));
+        assert_eq!(w.poll_delay(140_000), REQUESTER_POLL_LATER);
+    }
+
+    #[test]
     fn lost_challenge_renews_on_timer_without_restart_or_inbox_gap() {
         let w = Waiting {
             since: Instant::now(),
             read_ms: 10_000,
             logged: None,
             renewed_ms: 10_000,
+            exchange_expires_ms: None,
         };
         assert!(!w.should_renew(10_000 + RELOG_MS - 1, false, false, false));
         assert!(w.should_renew(10_000 + RELOG_MS, false, false, false));

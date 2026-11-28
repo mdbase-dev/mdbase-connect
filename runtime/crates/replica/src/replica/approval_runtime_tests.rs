@@ -1462,6 +1462,36 @@ fn denied_or_spent_requests_are_not_offered() {
 }
 
 #[test]
+fn verified_exchange_stays_listed_without_a_code_while_renewing() {
+    let (mut r, s, mut n, _, clock) = fixture();
+    let challenge = r.start_device_approval(s, NEW).unwrap();
+    let expires = challenge.expires_at_ms;
+    let (reveal, code) = answer_with_code(&r, &mut n, challenge);
+    r.receive_device_reveal(s, &reveal).unwrap();
+    clock.0.set(expires.try_into().unwrap());
+    let list = r.pending_devices(s).unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0].device, NEW);
+    assert!(!list[0].exchange_ready);
+    assert!(list[0].sas.is_none());
+    let error = r.allow_device_approval_checked(s, NEW, &code).unwrap_err();
+    assert_eq!(error.problem().reason.as_deref(), Some("approval_renewing"));
+    assert!(r.start_device_approval(s, NEW).is_err());
+    assert!(!r.send_private_key_grant_if_needed());
+    r.policy.devices.get_mut(&NEW).unwrap().sas_commit =
+        Some(B32(n.fresh(&mut TestEntropy::new(94))));
+    let next = r.start_device_approval(s, NEW).unwrap();
+    let (reveal, code) = answer_with_code(&r, &mut n, next);
+    r.receive_device_reveal(s, &reveal).unwrap();
+    assert_eq!(
+        r.pending_devices(s).unwrap()[0].sas.as_deref(),
+        Some(code.as_str())
+    );
+    r.reject_device_approval(s, NEW).unwrap();
+    assert!(r.pending_devices(s).unwrap().is_empty());
+}
+
+#[test]
 fn requester_logs_a_fresh_commitment_only_after_its_exchange_expires() {
     let (mut r, s, _, clock) = requester_fixture_with_clock();
     assert!(r.awaiting_device_approval(s));

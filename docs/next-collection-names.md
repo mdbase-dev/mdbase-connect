@@ -86,6 +86,7 @@ prefix resolves locally; a full collection UUID also works before local
 registration, so the server can explain missing enrollment. Duplicate local names
 require an ID. Confirmation always uses the **current shared name**, which may
 differ from the local alias. `--yes` does not replace `--confirm`.
+On `device_not_enrolled`, the daemon directs the owner to **Collections → Actions → Delete** in the Portal. That session can confirm the shared name without joining a local folder.
 Network failures and malformed replies after deletion dispatch report `outcome_unknown`;
 they do not establish refusal. The command does not retry an uncertain response. Refresh the authorized catalog
 before deciding on any further action; a lost response is not proof of failure.

@@ -471,37 +471,17 @@ pub(super) async fn run_command(
             let sas = if let Some(code) = checked_code {
                 code
             } else {
-                let v = call(
-                    profile,
-                    Method::DEVICE_PENDING,
-                    json!({ "collection": collection }),
-                )
-                .await?;
-                let list: Vec<PendingDevice> =
-                    serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;
-                let mut codes = list
-                    .iter()
-                    .filter(|d| d.device == device)
-                    .filter_map(|d| d.sas.as_deref());
-                let code = codes.next().ok_or_else(|| ClientError::Remote(ControlError::unavailable(
-                    "approval_not_ready", "the code is not ready; keep mdbase open on both computers and run device pending again shortly"
-                )))?;
-                if codes.any(|other| other != code) {
-                    return Err(ClientError::Remote(ControlError::invalid(
-                        "collection_required",
-                        "more than one collection has a different code; approve one collection at a time",
-                    )));
-                }
+                let code = pending_code(profile, &device, collection.as_deref()).await?;
                 if !confirm(
                     out,
                     &format!(
                         "Only allow if this matches the code on the other computer: {}. Allow?",
-                        display_code(code)
+                        display_code(&code)
                     ),
                 ) {
                     return Ok(ExitCode::FAILURE);
                 }
-                code.to_string()
+                code
             };
             let v = call(
                 profile,

@@ -171,10 +171,10 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
       </div>}
       {storageFull && <p className="collection-status-detail">{t(i18n)({ message: "Storage for this collection is full, so some files haven't synced. Free up space to sync them. If it's your collection and you're on the Free plan, you can upgrade to Plus for more storage.", context: "Local collection management" })}</p>}
       {storageFull && <button className="mdbase-button collection-account" onClick={() => void onAct(() => window.mdbaseConnect.openAccount())}><Trans>Manage in mdbase</Trans></button>}
-      {collection.approval_code && <div className="approval-check" aria-live="polite">
+      {collection.approval_code ? <div className="approval-check" aria-live="polite">
         <span><Trans>Check this code matches on your other computer:</Trans></span>
         <strong className="approval-code">{groupedApprovalCode(collection.approval_code)}</strong>
-      </div>}
+      </div> : collection.mode === "synced_e2e" && collection.state === "opening" && collection.sync?.last_error === "waiting_for_key" && <p role="status">{t(i18n)`Preparing comparison code…`}</p>}
       {collection.notices.filter((notice) => !["file_held", "collection_deleted", "sync_revoked", "resource_ingest_deferred", "resource_ingest_paths_omitted"].includes(notice.code)).map((notice, index) => <small key={`${notice.code}:${notice.path ?? index}`} className="collection-notice">{notice.path && <><code>{notice.path}</code>{": "}</>}{notice.message}</small>)}
       {previousSyncNotices.length > 0 && <details className="mdbase-disclosure collection-history">
         <summary><Trans>Technical details</Trans></summary>

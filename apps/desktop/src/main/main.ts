@@ -550,7 +550,10 @@ function pendingDevices(): Promise<PendingDeviceEntry[]> {
     }
   })();
   pendingDeviceCache = { at: Date.now(), value };
-  value.catch(() => { if (pendingDeviceCache?.value === value) pendingDeviceCache = null; });
+  // Coalesce concurrent polls, but refresh active exchanges on the next UI poll.
+  void value.then((rows) => {
+    if (rows.length && pendingDeviceCache?.value === value) pendingDeviceCache = null;
+  }, () => { if (pendingDeviceCache?.value === value) pendingDeviceCache = null; });
   return value;
 }
 
