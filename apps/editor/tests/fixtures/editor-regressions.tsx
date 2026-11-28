@@ -25,6 +25,13 @@ function render(content: React.ReactNode) {
 }
 
 async function start() {
+  if (scenario === "local-stack") {
+    // Served only by the loopback CLI/Chromium runner, with its own build-time trust.
+    const module = "/local-sdk/application/editor.js";
+    const { sdk } = await import(/* @vite-ignore */ module);
+    render(<SdkEditorRoot sdk={sdk} />);
+    return;
+  }
   if (scenario === "offline-replica") {
     // Keep the SDK test replica in the parent while the iframe reloads Editor.
     const fixture = await createTestApp({ collections: [{ name: "Offline notes",
