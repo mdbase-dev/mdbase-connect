@@ -211,6 +211,13 @@ export async function listNativeCollectionsVisibleToUser(
        identity.owner_user_id AS policy_owner_user_id,policy.revision,policy.role,policy.preset_version,
        policy.actions,policy.operations,policy.scope_ceiling,policy.file_ceiling
      FROM next_collections native
+     -- Use the account indexes to bound the search. Membership still requires
+     -- the exact current policy below. UNION lists an owned ID only once.
+     JOIN (
+       SELECT collection_id FROM next_collections WHERE owner_user_id = $1 AND runtime = 'next'
+       UNION
+       SELECT collection_id FROM collection_memberships WHERE user_id = $1 AND revoked_at IS NULL AND state = 'active'
+     ) candidate ON candidate.collection_id = native.collection_id
      JOIN users owner ON owner.id=native.owner_user_id AND owner.suspended_at IS NULL
      LEFT JOIN collection_identities identity ON identity.id=native.collection_id
      LEFT JOIN next_collection_deletion_facts deleted ON deleted.collection_id=native.collection_id
