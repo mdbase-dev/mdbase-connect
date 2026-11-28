@@ -245,7 +245,7 @@
     "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-12c8a3bb-production-0.2.47.tgz",
     "@rolldown/plugin-babel": "^0.2.4",
     "@types/jsdom": "^30.0.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^24.19.2",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "jsdom": "^29.1.1",
