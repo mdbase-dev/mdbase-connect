@@ -442,57 +442,105 @@ fn the_sealer_installs_only_keys_with_an_applied_commitment() {
         )
         .unwrap();
     assert!(matches!(a.accept_rekey(&rk2), KeyEvent::Keyed { epoch: 2 }));
+    let rk3 = a
+        .build_rekey(
+            2,
+            &[recipient(A, A_KEYS.1)],
+            RekeyReason::DeviceRevoked,
+            &mut e,
+        )
+        .unwrap();
+    assert!(matches!(a.accept_rekey(&rk3), KeyEvent::Keyed { epoch: 3 }));
     let grant = a
-        .build_key_grant(2, &recipient(B, B_KEYS.1), &mut e)
+        .build_key_grant(3, &recipient(B, B_KEYS.1), &mut e)
         .unwrap();
     // B applied rk1 in order (its commitment only: not a recipient).
-    let mut b = KeyringSealer::new(COL, B, &B_KEYS.0, &B_KEYS.1);
-    assert_eq!(b.accept_rekey(&rk1), KeyEvent::None);
-    assert_eq!(
-        b.accept_key_grant_ahead(&grant, &rk2, 1),
-        KeyEvent::Keyed { epoch: 1 }
+    let new_b = || KeyringSealer::new(COL, B, &B_KEYS.0, &B_KEYS.1);
+    let join = || {
+        let mut b = new_b();
+        assert_eq!(b.accept_rekey(&rk1), KeyEvent::None);
+        assert_eq!(
+            b.accept_key_grant_ahead(&grant, &rk3, 1),
+            KeyEvent::Keyed { epoch: 1 }
+        );
+        b
+    };
+    let held = |b: &KeyringSealer| {
+        b.testing_epoch_keys()
+            .into_iter()
+            .map(|(e, _)| e)
+            .collect::<Vec<_>>()
+    };
+    let mut b = join();
+    assert_eq!(held(&b), [1]);
+    b.set_epoch(2);
+    assert_eq!(b.current_epoch(), None);
+    assert!(
+        b.build_key_grant(2, &recipient(C, C_KEYS.1), &mut e)
+            .is_err()
     );
-    let held: Vec<u64> = b.testing_epoch_keys().iter().map(|(e, _)| *e).collect();
+    // A snapshot control read or an account-key scan cannot promote a candidate.
+    b.accept_rekey_ahead(&rk2);
+    assert_eq!(held(&b), [1]);
     assert_eq!(
-        held,
-        vec![1],
-        "the read-ahead epoch's own key is never installed"
+        b.accept_rekey(&rk2),
+        KeyEvent::None,
+        "no wrap delivered by this rekey"
     );
-    // No applied commitment for the wanted epoch: nothing.
-    let mut fresh = KeyringSealer::new(COL, B, &B_KEYS.0, &B_KEYS.1);
+    assert_eq!(held(&b), [1, 2]);
+    b.accept_rekey(&rk3);
+    assert_eq!(b.testing_epoch_keys(), a.testing_epoch_keys());
+
+    // The normal export/import used on reopen and checkpoint rollback drops
+    // both future candidates, including when restoring into the same sealer.
+    let mut restored = join();
+    restored.import(&restored.export().unwrap()).unwrap();
+    restored.accept_rekey(&rk2);
+    restored.accept_rekey(&rk3);
+    assert_eq!(held(&restored), [1]);
+
+    // Neither the intermediate history key nor the grant's own key can be
+    // installed if the real rekey differs from the one read ahead.
+    let mut mismatch = join();
+    for rk in [&rk2, &rk3] {
+        let mut other = rk.clone();
+        other.commit = B32([7; 32]);
+        mismatch.accept_rekey(&other);
+        assert_eq!(held(&mismatch), [1]);
+        mismatch.accept_rekey(rk);
+        assert_eq!(held(&mismatch), [1], "discarded the mismatched candidate");
+    }
+    // A missing wanted commitment, inconsistent applied history, or failed
+    // grant unwrap rejects the entire batch, including future candidates.
+    let mut fresh = new_b();
     assert_eq!(
-        fresh.accept_key_grant_ahead(&grant, &rk2, 1),
+        fresh.accept_key_grant_ahead(&grant, &rk3, 1),
         KeyEvent::None
     );
-    assert!(fresh.testing_epoch_keys().is_empty());
-    // A history key that fails its applied commitment: nothing installed.
-    let mut forged = KeyringSealer::new(COL, B, &B_KEYS.0, &B_KEYS.1);
+    let mut forged = new_b();
     let mut other = rk1.clone();
     other.commit = B32([7; 32]);
     forged.accept_rekey(&other);
     assert_eq!(
-        forged.accept_key_grant_ahead(&grant, &rk2, 1),
+        forged.accept_key_grant_ahead(&grant, &rk3, 1),
         KeyEvent::Inconsistent
     );
-    assert!(forged.testing_epoch_keys().is_empty());
-    // A grant epoch key that fails the rekey's commitment: nothing.
-    let mut bad = rk2.clone();
+    let mut bad = rk3.clone();
     bad.commit = B32([9; 32]);
-    let mut c = KeyringSealer::new(COL, B, &B_KEYS.0, &B_KEYS.1);
+    let mut c = new_b();
     c.accept_rekey(&rk1);
     assert_eq!(
         c.accept_key_grant_ahead(&grant, &bad, 1),
         KeyEvent::Inconsistent
     );
-    assert!(c.testing_epoch_keys().is_empty());
+    for mut rejected in [fresh, forged, c] {
+        rejected.accept_rekey(&rk2);
+        rejected.accept_rekey(&rk3);
+        assert!(held(&rejected).is_empty());
+    }
 }
 
-/// A migrated collection: A adopts its folder as generation 0, so the log holds a
-/// `base` (a control item) before B is enrolled and granted. B, unkeyed, waits
-/// at the base; the read-ahead must pass the base (it changes no device, epoch
-/// or key) to reach B's grant, appended only after B began waiting.
-#[test]
-fn a_grant_after_a_base_is_found_while_waiting_at_the_base() {
+fn adopted_world() -> (FakeLogService, Node, TestControlPlane) {
     use crate::replica::adopt::{AdoptRecords, AdoptSource, AdoptStatus};
     struct Folder;
     impl AdoptSource for Folder {
@@ -514,6 +562,65 @@ fn a_grant_after_a_base_is_found_while_waiting_at_the_base() {
     a.r.begin_adopt(Box::new(Folder));
     settle(&mut [&mut a]);
     assert_eq!(a.r.adopt_status(), Some(AdoptStatus::Done));
+    (svc, a, cp)
+}
+
+#[test]
+fn snapshot_tail_with_many_epochs_uses_one_key_wait_and_one_control_read() {
+    use crate::log::{LogClient, LogPort, LogRequest};
+    let (svc, mut a, mut cp) = adopted_world();
+    let base = a.r.head().seq;
+    for epoch in 2..=9u8 {
+        let device = B16([epoch; 16]);
+        cp.append(
+            &svc,
+            vec![enrol(device, TEST_OWNER, DeviceKind::Desktop, C_KEYS)],
+        );
+        cp.revoke(&svc, device);
+        settle(&mut [&mut a]);
+        assert_eq!(a.r.policy.epoch, u64::from(epoch));
+        a.create(epoch, &format!("epoch-{epoch}.md"), "after snapshot");
+        settle(&mut [&mut a]);
+    }
+    enrol_b(&svc, &mut cp);
+    let tip = member_grant(&mut a, B, B_KEYS.1);
+    let mut b = open(&svc, 2, B_KEYS);
+    let mut waits = std::collections::BTreeSet::new();
+    let mut control_reads = 0;
+    while b.r.head().seq < tip {
+        b.r.tick();
+        let calls = b.r.take_log_calls();
+        assert!(!calls.is_empty(), "replay stopped at {:?}", b.r.head());
+        for call in calls {
+            if matches!(&call.request, LogRequest::Read(read) if read.kinds == Some(ReadKinds::Control))
+            {
+                control_reads += 1;
+            }
+            let reply = b.log.call(call.request);
+            b.r.on_log_reply(call.id, reply);
+            if let Some(position) = waiting_at(&b) {
+                waits.insert(position);
+            }
+        }
+    }
+    assert_eq!(waits.into_iter().collect::<Vec<_>>(), [base]);
+    assert_eq!(control_reads, 1);
+    assert_eq!(b.r.stats.voided, 0);
+    assert_eq!(b.r.head(), a.r.head());
+    assert_eq!(b.r.stats.snapshots_installed, 1);
+    assert_eq!(b.doc(1).as_deref(), Some("adopted before B joined\n"));
+    for epoch in 2..=9 {
+        assert_eq!(b.doc(epoch).as_deref(), Some("after snapshot"));
+    }
+}
+
+/// A migrated collection: A adopts its folder as generation 0, so the log holds a
+/// `base` (a control item) before B is enrolled and granted. B, unkeyed, waits
+/// at the base; the read-ahead must pass the base (it changes no device, epoch
+/// or key) to reach B's grant, appended only after B began waiting.
+#[test]
+fn a_grant_after_a_base_is_found_while_waiting_at_the_base() {
+    let (svc, mut a, mut cp) = adopted_world();
     let base = a.r.head().seq;
     enrol_b(&svc, &mut cp);
     let mut b = open(&svc, 2, B_KEYS);

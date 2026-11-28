@@ -787,7 +787,11 @@ impl<S: Store> Replica<S> {
                     ItemKind::Rekey => {
                         if let Ok(rk) = mdbn_wire::envelope::RekeyPayload::from_bytes(&item.body.0)
                         {
-                            let ev = self.sealer.accept_rekey(&rk);
+                            let ev = if settled {
+                                self.sealer.accept_rekey(&rk)
+                            } else {
+                                self.sealer.accept_rekey_ahead(&rk)
+                            };
                             if settled {
                                 self.accept_private_switch(p, *chain, item, &rk, ev);
                             }

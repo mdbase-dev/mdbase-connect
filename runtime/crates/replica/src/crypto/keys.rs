@@ -216,7 +216,7 @@ pub fn seal_history(
     })
 }
 
-/// An epoch key from a history box, not yet checked against the commitment of
+/// An epoch key not yet checked against the applied commitment of
 /// the `rekey` that created its epoch. The only way to use it is
 /// [`Unverified::verify`].
 pub struct Unverified {
@@ -231,6 +231,10 @@ impl std::fmt::Debug for Unverified {
 }
 
 impl Unverified {
+    pub(crate) fn new(epoch: u64, key: Secret32) -> Self {
+        Self { epoch, key }
+    }
+
     /// The epoch this key claims to be.
     pub fn epoch(&self) -> u64 {
         self.epoch
