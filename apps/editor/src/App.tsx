@@ -2320,7 +2320,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     identity={noteSessions.current.active?.editorSessionKey ?? document?.path}
     onRetry={canEditNotes ? () => { void noteSessions.current.active?.record.save(); } : undefined}
     state={pendingNoteMutations.length > 0 ? "recovery" : saveState}
-    savedOnDevice={syncState === "saved_on_device"}
+    savedOnDevice={document?.pendingSync === true}
     activity={noteSessions.current.active?.activity}
     detail={noteSessions.current.active?.activityDetail}
     onCancel={noteSessions.current.active?.mutationCancellable ? cancelActiveMutation : undefined}
@@ -2406,7 +2406,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             {!mobileLayout && focused && noteLoading && <span role="status" className="note-opening-status" title={pendingNotePath}><Trans>Opening “{pendingNotePath}”…</Trans></span>}
             {!mobileLayout && !isNew && !canEditNotes && <span className="connect-muted"><Trans>Read only</Trans></span>}
             {!mobileLayout && (focused ? noteSaveIndicator : session && <SaveIndicator identity={session.editorSessionKey} state={session.activity === "saving" ? "saving" : session.saveState}
-              savedOnDevice={syncState === "saved_on_device"} activity={session.activity} detail={session.activityDetail} />)}
+              savedOnDevice={session.document.pendingSync === true} activity={session.activity} detail={session.activityDetail} />)}
             {mobileLayout && shownConnection !== "connected" && <div className="mobile-connection">
               <ConnectionStatus state={shownConnection} issue={connectionIssue} onReconnect={() => void refreshAfterConnectionGap()} />
             </div>}
