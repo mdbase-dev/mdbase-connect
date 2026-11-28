@@ -39,14 +39,24 @@ export function useOverviewRefresh(refresh: Refresh, view: ConnectView): void {
     };
     const refreshWhenVisible = whenVisible();
     const refreshStorageWhenVisible = whenVisible(30_000);
+    let visibleAt = -Infinity;
+    const onVisibility = () => {
+      if (document.visibilityState !== "visible") return;
+      visibleAt = performance.now();
+      refreshStorageWhenVisible();
+    };
+    // Browsers often dispatch both events when returning to a tab.
+    const onFocus = () => {
+      if (performance.now() - visibleAt >= 250) refreshStorageWhenVisible();
+    };
     const timer = window.setInterval(refreshWhenVisible, 15_000);
-    document.addEventListener("visibilitychange", refreshStorageWhenVisible);
-    window.addEventListener("focus", refreshStorageWhenVisible);
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
     window.addEventListener("online", refreshWhenVisible);
     return () => {
       controller.abort();
-      document.removeEventListener("visibilitychange", refreshStorageWhenVisible);
-      window.removeEventListener("focus", refreshStorageWhenVisible);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
       window.removeEventListener("online", refreshWhenVisible);
       window.clearInterval(timer);
     };

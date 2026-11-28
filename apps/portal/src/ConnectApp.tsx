@@ -14,7 +14,7 @@ import {
   type ManagementRequestOptions
 } from "@mdbase/connect-management";
 import { AppAccess, applicationGroups } from "./ApplicationAccess";
-import { useCallback, useEffect, useRef, useState, Component, type FormEvent, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Component, type FormEvent, type ReactNode, type RefObject } from "react";
 import { AccountManagement, DeletedAccount } from "./AccountManagement";
 import {readCollectionCreation, keepCollectionCreation, finishCollectionCreation, type CollectionCreationIntent} from "./collection-creation-intent";
 import { Brand, ThemeMenu } from "./portal-ui";
@@ -109,6 +109,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const hadSession = useRef(Boolean(preview));
   const [editorOrigin, setEditorOrigin] = useState<string>();
   const [sessions, setSessions] = useState<Awaited<ReturnType<typeof management.sessions>>["sessions"]>();
+  const [sessionsError, setSessionsError] = useState("");
   const [refreshError, setRefreshError] = useState("");
   const [refreshing, setRefreshing] = useState(true);
   const [mutationError, setMutationError] = useState("");
@@ -117,7 +118,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const [busy, setBusy] = useState<ReadonlySet<string>>(() => new Set());
   const busyRef = useRef(new Set<string>());
   const refreshGenerationRef = useRef(0);
-  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal?: AbortSignal; nativeStorage: boolean } | null>(null);
+  const refreshInFlightRef = useRef<{ promise: Promise<void>; signal: AbortSignal; nativeStorage: boolean } | null>(null);
   const nativeStorageRef = useRef(new NativeStorageReads());
   const mutationRevisionRef = useRef(0);
   const optimisticRef = useRef(new Map<string, OptimisticAction>());
@@ -125,9 +126,17 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   const navRef = useRef<HTMLElement>(null);
   const navPillRef = useRef<HTMLSpanElement>(null);
   const lifecycleRef = useRef<AbortController | null>(null);
+  const configurationRead = useRef<AbortSignal>(undefined);
+  const sessionsAccount = useRef<string>(undefined);
+  const currentView = useRef(view);
+  currentView.current = view;
   const endSession = useCallback(() => { lifecycleRef.current?.abort(); setPreview(undefined); setData(undefined); }, []);
   useEffect(() => {
-    const expiry = Math.min(...(data?.pending_authorizations ?? []).map(request => Date.parse(request.expires_at)));
+    let expiry = Infinity;
+    for (const request of data?.pending_authorizations ?? []) {
+      const deadline = Date.parse(request.expires_at);
+      if (deadline < expiry) expiry = deadline;
+    }
     return scheduleAtDeadline(expiry, () => setData(current => current && { ...current, pending_authorizations: current.pending_authorizations.filter(request => Date.parse(request.expires_at) > Date.now()) }));
   }, [data?.pending_authorizations]);
   useEffect(() => {
@@ -137,18 +146,20 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   }, []);
 
   const refresh = useCallback((signal = lifecycleRef.current?.signal, animate = false, storageAgeMs?: number): Promise<void> => {
-    if (accountDeleted || signal?.aborted) return Promise.resolve();
+    if (accountDeleted || !signal || signal.aborted) return Promise.resolve();
     const nativeStorage = nativeStorageRef.current.due(storageAgeMs);
     const pending = refreshInFlightRef.current;
-    if (pending && !pending.signal?.aborted) {
+    if (pending && !pending.signal.aborted) {
       if (pending.nativeStorage || !nativeStorage) return pending.promise;
       return pending.promise.then(() => refresh(signal, animate, storageAgeMs));
     }
     setRefreshing(true);
     const generation = ++refreshGenerationRef.current;
     const mutationRevision = mutationRevisionRef.current;
+    const isCurrent = () => !signal.aborted && !lifecycleRef.current?.signal.aborted
+      && generation === refreshGenerationRef.current && mutationRevision === mutationRevisionRef.current;
     const failed = (reason: unknown) => {
-      if (signal?.aborted || generation !== refreshGenerationRef.current) return;
+      if (!isCurrent()) return;
       if (reason instanceof ManagementApiError && reason.status === 401) {
         clearOverviewPreview(); setPreview(undefined); setData(undefined);
         location.href = signInRedirectUrl(management.baseUrl, hadSession.current);
@@ -158,31 +169,43 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     };
     const request = (async () => {
       const next = await management.overview({ signal, nativeStorage });
+      if (!isCurrent()) return;
       nativeStorageRef.current.received(next, nativeStorage);
-      if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
       writeOverviewPreview(next); setPreview(readOverviewPreview());
       hadSession.current = true;
       const update = () => {
-        if (signal?.aborted || lifecycleRef.current?.signal.aborted || generation !== refreshGenerationRef.current || mutationRevision !== mutationRevisionRef.current) return;
+        if (!isCurrent()) return;
         flushSync(() => setData([...optimisticRef.current.values()].reduce(applyOptimisticAction, next)));
       };
       await (animate ? transitionState(update) : update());
+      if (!isCurrent()) return;
       setRefreshError("");
-      void management.uiConfiguration({ signal }).then(async configuration => {
-        if (generation !== refreshGenerationRef.current) return;
-        setEditorOrigin(configuration.editor_url ? new URL(configuration.editor_url).origin : undefined);
-        if (next.authentication.provider !== "tailscale") {
-          const sessionResult = await management.sessions({ signal });
-          if (generation !== refreshGenerationRef.current) return;
-          setSessions(sessionResult.sessions);
-        }
-      }).catch(failed);
+      if (!configurationRead.current || configurationRead.current.aborted) {
+        configurationRead.current = signal;
+        void management.uiConfiguration({ signal }).then(configuration => {
+          if (!signal.aborted) setEditorOrigin(configuration.editor_url ? new URL(configuration.editor_url).origin : undefined);
+        }).catch(() => {
+          if (configurationRead.current === signal) configurationRead.current = undefined;
+        });
+      }
+      if (next.authentication.provider !== "tailscale" && (sessionsAccount.current !== next.user.id || currentView.current === "account")) {
+        void management.sessions({ signal }).then(result => {
+          if (!isCurrent()) return;
+          sessionsAccount.current = next.user.id;
+          setSessions(result.sessions);
+          setSessionsError("");
+        }).catch(reason => {
+          if (!isCurrent()) return;
+          setSessions(undefined);
+          setSessionsError(errorMessage(reason));
+        });
+      }
     })().catch(failed);
     refreshInFlightRef.current = { promise: request, signal, nativeStorage };
     const settled = () => {
       if (refreshInFlightRef.current?.promise === request) {
         refreshInFlightRef.current = null;
-        if (!signal?.aborted) setRefreshing(false);
+        if (!signal.aborted) setRefreshing(false);
       }
     };
     void request.then(settled, settled);
@@ -190,6 +213,12 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   }, [accountDeleted]);
 
   useOverviewRefresh(refresh, view);
+
+  function refreshAfterMutation(animate = false): Promise<void> {
+    mutationRevisionRef.current++;
+    const lifecycle = lifecycleRef.current?.signal;
+    return (refreshInFlightRef.current?.promise ?? Promise.resolve()).then(() => refresh(lifecycle, animate));
+  }
 
   useEffect(() => {
     const update = () => setView(viewFromPath());
@@ -248,11 +277,10 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     } finally {
       lifecycle.removeEventListener("abort", abort);
       optimisticRef.current.delete(id); clearPagePrefetch();
-      mutationRevisionRef.current++;
       busyRef.current.delete(id);
       if (!lifecycle.aborted) {
         setBusy(new Set(busyRef.current));
-        const readback = (refreshInFlightRef.current?.promise ?? Promise.resolve()).then(() => refresh(lifecycle, succeeded && !optimistic));
+        const readback = refreshAfterMutation(succeeded && !optimistic);
         if (succeeded && !optimistic) await readback;
       }
     }
@@ -292,7 +320,17 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     setNavigationOpen(false);
   }
 
-  const collections = data ? collectionRows(data) : [];
+  const locale = i18n.locale;
+  const collections = useMemo(() => data ? collectionRows(data) : [], [data, locale]);
+  const computerCollectionCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    const add = (id: string) => counts.set(id, (counts.get(id) ?? 0) + 1);
+    for (const collection of data?.collections ?? []) add(collection.connector_id);
+    for (const collection of data?.native_collections ?? []) {
+      for (const id of new Set(collection.computer_ids)) add(id);
+    }
+    return counts;
+  }, [data?.collections, data?.native_collections]);
   const requestedCollectionId = new URLSearchParams(location.search).get("collection");
   const rememberedCollectionId = readRememberedCollection();
   const selectedCollection = collections.find((collection) => collection.id === requestedCollectionId)
@@ -325,28 +363,30 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
   useNavPill(navRef, navPillRef);
 
   const activeView = selectedCollection || !isCollectionView(view) ? view : "collections";
-  const freshlyAuthorized = new Set(data?.grants
-    .filter((grant) => grant.revocation_status === "active"
-      && grant.scope.access === "full_collection"
-      && grant.scope.contracts.length === 0)
-    .map((grant) => `${grant.application_id}\0${grant.collection_id}`));
-  const activeGrants = data?.grants.filter((grant) => grant.revocation_status !== "revoked"
-    || (typeof grant.reauthorization_required_at === "string"
-      && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`))) ?? [];
-  const installations = data?.installation_access ?? [];
-  const applications = applicationGroups(activeGrants, installations);
-  // Home lists what the account can use now, as the desktop's account listing does: active grants and installations holding a collection.
-  const homeApplications = applicationGroups(data?.grants.filter((grant) => grant.revocation_status === "active") ?? [], installations.filter((entry) => entry.collection_id));
-  const selectedGrants = selectedCollection
-    ? activeGrants.filter((grant) => grant.collection_id === selectedCollection.id)
-    : [];
-  const selectedApplications = applicationGroups(selectedGrants, installations.filter((entry) => entry.collection_id === selectedCollection?.id));
-  const pendingRequest = !refreshError ? data?.pending_authorizations.find(request => Date.parse(request.expires_at) > Date.now()) : undefined;
+  const activeGrants = useMemo(() => {
+    const freshlyAuthorized = new Set(data?.grants
+      .filter(grant => grant.revocation_status === "active" && grant.scope.access === "full_collection" && grant.scope.contracts.length === 0)
+      .map(grant => `${grant.application_id}\0${grant.collection_id}`));
+    return data?.grants.filter(grant => grant.revocation_status !== "revoked"
+      || (typeof grant.reauthorization_required_at === "string" && !freshlyAuthorized.has(`${grant.application_id}\0${grant.collection_id}`))) ?? [];
+  }, [data?.grants]);
+  const installations = data?.installation_access;
+  const applications = useMemo(() => applicationGroups(activeGrants, installations ?? []), [activeGrants, installations]);
+  // Home lists active grants and installations holding a collection.
+  const homeApplications = useMemo(() => applicationGroups(
+    activeGrants.filter(grant => grant.revocation_status === "active"), installations?.filter(entry => entry.collection_id) ?? []
+  ), [activeGrants, installations]);
+  const selectedApplications = useMemo(() => applicationGroups(
+    activeGrants.filter(grant => grant.collection_id === selectedCollectionId), installations?.filter(entry => entry.collection_id === selectedCollectionId) ?? []
+  ), [activeGrants, installations, selectedCollectionId]);
+  const now = Date.now();
+  const pendingRequests = refreshError ? [] : data?.pending_authorizations.filter(request => Date.parse(request.expires_at) > now) ?? [];
+  const pendingRequest = pendingRequests[0];
   const pendingCollection = pendingRequest?.collection_id
     ? collections.find((collection) => collection.id === pendingRequest.collection_id)
     : undefined;
   const keyboard = usePortalCommands({
-    data, collections, applications, sessions, selectedCollectionId, navigate, viewLabel,
+    data, collections, applications, sessions, computerCollectionCounts, selectedCollectionId, navigate, viewLabel,
     enabled: Boolean(data) && !accountDeleted && !refreshError,
     openEditor: selectedCollection && editorOrigin && (selectedCollection.kind !== "local" || selectedCollection.available) ? () => location.assign(editorCollectionUrl(selectedCollection.id, editorOrigin)) : undefined,
     reviewRequest: pendingRequest ? () => location.assign(new URL(`/authorize/${pendingRequest.id}`, management.baseUrl).href) : undefined
@@ -387,20 +427,20 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
         onAccept={() => void acceptSharedCollection()}
         onDismiss={dismissSharedCollection}
       />}
-      {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={data.pending_authorizations.length} />}
+      {pendingRequest && <PendingRequestBanner request={pendingRequest} collectionName={pendingCollection?.name} count={pendingRequests.length} />}
       {activeView === "home" && <HomePage data={data} collections={collections} applications={homeApplications} origins={environmentOrigins} navigate={navigate} />}
       {activeView === "overview" && (selectedCollection
         ? <CollectionOverview error={mutationError} editorOrigin={editorOrigin} origins={environmentOrigins} collection={selectedCollection} applications={selectedApplications} busy={busy} perform={perform} />
-        : <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />)}
+        : <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} rows={collections} busy={busy} perform={perform} navigate={navigate} />)}
       {activeView === "storage" && selectedCollection && <Storage error={mutationError} editorOrigin={editorOrigin} collection={selectedCollection} data={data} busy={busy} perform={perform} onRefresh={() => void refresh()} />}
       {activeView === "access" && !refreshError && selectedCollection && <AppAccess error={mutationError} collectionName={selectedCollection.name} groups={selectedApplications} client={management} busy={busy} perform={perform}>
         <section><SectionTitle title={t(i18n)({ message: "Your person record", context: "Connect interface" })} /><div className="connect-row"><div><strong><Trans>Use an existing person or create a note</Trans></strong><small><Trans>Link your account to an editable record in this collection. Collection access is approved separately.</Trans></small></div>{editorOrigin && <a href={`${editorSurfaceUrls(selectedCollection.id, editorOrigin).settings}#your-person`}><Trans>Choose or create my person record</Trans></a>}</div></section>
         {selectedCollection.kind !== "local" && selectedCollection.source.access.can_manage_members && <CollectionSharingPanel error={mutationError} key={selectedCollection.id} sharingAvailable={data.collection_sharing_available === true} seatLimit={seatLimit(data, selectedCollection.source.access.relationship)} navigate={navigate} collection={selectedCollection.source} busy={busy} perform={perform} />}
       </AppAccess>}
-      {activeView === "collections" && <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} busy={busy} perform={perform} navigate={navigate} />}
+      {activeView === "collections" && <Collections error={mutationError} key={data.user.id} editorOrigin={editorOrigin} data={data} rows={collections} busy={busy} perform={perform} navigate={navigate} />}
       {activeView === "applications" && !refreshError && <AppAccess error={mutationError} editorOrigin={editorOrigin} groups={applications} client={management} busy={busy} perform={perform} />}
-      {activeView === "computers" && <Computers error={mutationError} data={data} busy={busy} perform={perform} />}
-      {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} onOverviewRefresh={refresh} onSignedOut={endSession} onDeleted={() => { clearOverviewPreview(); lifecycleRef.current?.abort(); setAccountDeleted(true); }} />}
+      {activeView === "computers" && <Computers error={mutationError} data={data} collectionCounts={computerCollectionCounts} busy={busy} perform={perform} />}
+      {activeView === "account" && <AccountManagement client={management} overview={data} sessions={sessions} sessionsError={sessionsError} onOverviewRefresh={afterMutation => afterMutation ? refreshAfterMutation() : refresh()} onSignedOut={endSession} onDeleted={() => { clearOverviewPreview(); lifecycleRef.current?.abort(); setAccountDeleted(true); }} />}
       {activeView === "feedback" && feedbackEnabled && <FeedbackPage onDone={() => selectedCollection ? navigate("overview", selectedCollection.id) : navigate("home")} />}
       {activeView === "feedback" && !feedbackEnabled && <Page title={t(i18n)({ message: "Feedback unavailable", context: "Connect interface" })} intro={t(i18n)({ message: "This deployment has not configured a feedback destination." })}><section><Empty title={t(i18n)({ message: "Feedback is unavailable", context: "Connect interface" })} body={t(i18n)({ message: "Contact the person who operates this mdbase Connect deployment." })} /></section></Page>}
       </>}
@@ -688,9 +728,10 @@ function Storage({ error, collection, data, busy, perform, editorOrigin, onRefre
   </Page>;
 }
 
-function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
+function Collections({ error, data, rows, busy, perform, navigate, editorOrigin }: {
   editorOrigin?: string;
   data: ManagementOverview;
+  rows: CollectionRow[];
   busy: BusyOperations;
   error?: string;
   perform: PerformOperation;
@@ -704,11 +745,14 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
   const [creationConfirmed, setCreationConfirmed] = useState(false);
   const [location, setLocation] = useState("");
   const [query, setQuery] = useState("");
+  const filter = useRef<HTMLInputElement>(null);
   const cloud = location === "cloud";
-  const rows = collectionRows(data);
-  const initialIds = useRef(new Set(rows.map(collection => collection.id)));
+  const [initialIds] = useState(() => new Set(rows.map(collection => collection.id)));
   const terms = query.trim().toLocaleLowerCase(i18n.locale).split(/\s+/u).filter(Boolean);
-  const visible = rows.filter(collection => terms.every(term => `${collection.name} ${collection.detail}`.toLocaleLowerCase(i18n.locale).includes(term)));
+  const visible = terms.length ? rows.filter(collection => {
+    const searchable = `${collection.name} ${collection.detail}`.toLocaleLowerCase(i18n.locale);
+    return terms.every(term => searchable.includes(term));
+  }) : rows;
   const canCreate = data.collection_creation_available === true;
   function choose(location = "") {
     const pending = readCollectionCreation(data.user.id);
@@ -757,9 +801,9 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
   </div>;
   return <Page title={t(i18n)({ message: "Collections", context: "Connect interface" })} intro={rows.length ? t(i18n)({ message: "Open a collection in the editor or manage how it syncs." }) : undefined} action={rows.length > 0 && <button data-command="create" className="mdbase-button is-secondary" onClick={() => choose()}><Plus aria-hidden="true" /><Trans>Add collection</Trans></button>}>
     <section className="connect-collections-list" aria-label={t(i18n)({ message: "Collections", context: "Connect interface" })}>
-      {rows.length >= 10 && <ListFilter label={t(i18n)`Filter collections`} value={query} onChange={setQuery} />}
-      {visible.map(collection => <CollectionSummary error={error} key={collection.id} className={initialIds.current.has(collection.id) ? "" : "is-new"} collection={collection} navigate={navigate} editorOrigin={editorOrigin} busy={busy} perform={perform} />)}
-      {rows.length > 0 && visible.length === 0 && <Empty title={t(i18n)`No collections match`} body={t(i18n)`Try another collection or computer name.`} action={<button className="mdbase-button is-tertiary" onClick={() => setQuery("")}><Trans>Clear filter</Trans></button>} />}
+      {(rows.length >= 10 || query) && <ListFilter label={t(i18n)`Filter collections`} value={query} onChange={setQuery} inputRef={filter} />}
+      {visible.map(collection => <CollectionSummary error={error} key={collection.id} className={initialIds.has(collection.id) ? "" : "is-new"} collection={collection} navigate={navigate} editorOrigin={editorOrigin} busy={busy} perform={perform} />)}
+      {rows.length > 0 && visible.length === 0 && <Empty title={t(i18n)`No collections match`} body={t(i18n)`Try another collection or computer name.`} action={<button className="mdbase-button is-tertiary" onClick={() => { setQuery(""); filter.current?.focus(); }}><Trans>Clear filter</Trans></button>} />}
       {rows.length === 0 && <><Empty icon={false} title={t(i18n)({ message: "No collections", context: "Connect interface" })} body={t(i18n)`Choose where your first collection lives.`} />{choices}</>}
     </section>
     <Dialog open={creating} title={t(i18n)({ message: "Add collection", context: "Connect interface" })} closeDisabled={busy.has("create-collection")} onClose={() => setCreating(false)}>
@@ -795,8 +839,9 @@ function CollectionQuotaNotice({ data, message }: { data: ManagementOverview; me
   </div>;
 }
 
-function Computers({ error, data, busy, perform }: {
+function Computers({ error, data, collectionCounts, busy, perform }: {
   data: ManagementOverview;
+  collectionCounts: ReadonlyMap<string, number>;
   busy: BusyOperations;
   error?: string;
   perform: PerformOperation;
@@ -808,18 +853,17 @@ function Computers({ error, data, busy, perform }: {
   const trigger = useRef<HTMLButtonElement>(null);
   const query = search.trim().toLocaleLowerCase(i18n.locale);
   const renameReturn = useRef<HTMLElement | null>(null);
-  const visible = data.connectors.filter(connector => connector.name.toLocaleLowerCase(i18n.locale).includes(query));
+  const visible = query ? data.connectors.filter(connector => connector.name.toLocaleLowerCase(i18n.locale).includes(query)) : data.connectors;
   return <Page title={t(i18n)({ message: "Computers", context: "Connect interface" })} intro={t(i18n)({ message: "Registered computers stay listed when offline. Revoking one also invalidates grants routed through it." })}>
     <section>
       <SectionTitle title={t(i18n)({ message: "Registered computers", context: "Connect interface" })} count={data.connectors.length} />
-      {data.connectors.length >= 10 && <ListFilter label={t(i18n)`Filter computers`} value={search} onChange={setSearch} />}
+      {(data.connectors.length >= 10 || search) && <ListFilter label={t(i18n)`Filter computers`} value={search} onChange={setSearch} />}
       {visible.map((connector) => {
         const working = busy.has(`computer-${connector.id}`) || busy.has(`rename-computer-${connector.id}`);
         const upgradeRequired = connector.compatibility === "upgrade_required";
         const updateRecommended = connector.update_recommended === true;
         const online = !upgradeRequired && isConnectorOnline(connector.last_seen_at);
-        const collectionCount = data.collections.filter((collection) => collection.connector_id === connector.id).length
-          + (data.native_collections ?? []).filter((collection) => collection.computer_ids?.includes(connector.id)).length;
+        const collectionCount = collectionCounts.get(connector.id) ?? 0;
         return <div className="connect-collection-row connect-computer-row" key={connector.id} data-list-item data-command={`computer:${connector.id}`} tabIndex={-1}>
           <span className="connect-location-glyph"><Computer aria-hidden="true" /></span>
           <div className="connect-collection-name"><strong>{connector.name}</strong><small>{countLabel(collectionCount, "collection")} · {connector.last_seen_at ? t(i18n)`Seen ${relativeTime(connector.last_seen_at)}` : t(i18n)({ message: "Not connected yet", context: "Connect interface" })}</small></div>

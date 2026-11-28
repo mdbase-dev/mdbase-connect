@@ -1,6 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { i18n } from "@mdbase-dev/ui/i18n";
 import { managedAppOrigins } from "../../../scripts/lib/managed-app-origins.mjs";
+import { isDiagnosticMessage } from "./request-error.mjs";
 import type {
   AvailableCollection,
   ContractRequirement,
@@ -80,6 +81,7 @@ export function rememberCollection(collectionId: string): void {
 }
 
 export function initials(value: string) { return value.split(/\s+/).map((part) => part[0]).join("").slice(0, 2).toUpperCase(); }
+
 export function message(value: unknown) {
   if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
   let detail = value instanceof Error ? value.message : String(value);
@@ -88,7 +90,7 @@ export function message(value: unknown) {
     const first = Array.isArray(diagnostics) ? diagnostics[0] : undefined;
     if (first && typeof first === "object") {
       const diagnostic = first as { message?: unknown; path?: unknown };
-      if (typeof diagnostic.message === "string") {
+      if (typeof diagnostic.message === "string" && !isDiagnosticMessage(diagnostic.message)) {
         detail = typeof diagnostic.path === "string"
           ? `${diagnostic.message} (${diagnostic.path})`
           : diagnostic.message;

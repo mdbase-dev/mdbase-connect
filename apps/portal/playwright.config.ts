@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 const port = Number(process.env.PORT ?? 4801);
 export default defineConfig({
   testDir: "./tests",
-  testMatch: ["visual.spec.ts", "review-flows.spec.ts", "review-motion.spec.ts", "review-r8.spec.ts", "interaction-budget.spec.ts"],
+  testMatch: ["visual.spec.ts", "review-flows.spec.ts", "review-motion.spec.ts", "review-r8.spec.ts", "interaction-budget.spec.ts", "workspace-audit.spec.ts"],
   workers: 2,
   reporter: "line",
   use: {

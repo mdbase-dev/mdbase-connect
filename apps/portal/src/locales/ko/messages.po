@@ -2713,11 +2713,6 @@ msgstr "설치 삭제"
 msgid "Remove installation {reference} of {0}?"
 msgstr "{0}의 설치 {reference}을(를) 제거할까요?"
 
-#. placeholder {0}: group.applicationName
-#: src/ApplicationAccess.tsx
-#~ msgid "Remove only this installation of {0} from your account?"
-#~ msgstr "계정에서 {0}의 이 설치만 삭제할까요?"
-
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
 #: src/ConnectApp.tsx
@@ -2769,11 +2764,6 @@ msgstr "기존 파일 교체"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "비밀번호를 바꾸면 계정에 연결된 다른 모든 브라우저 세션에서 로그아웃됩니다."
-
-#. placeholder {0}: response.status
-#: src/api.ts
-msgid "Request failed with HTTP {0}."
-msgstr "HTTP {0} 오류로 요청에 실패했습니다."
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
@@ -3597,6 +3587,7 @@ msgstr "시간대"
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "다른 컴퓨터 이름을 입력하세요. 필터링은 접근 권한을 해지하지 않습니다."
 
+#: src/AccountManagement.tsx
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx

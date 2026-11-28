@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor, within } from "./test/render";
 import { StrictMode } from "react";
-import { ConnectManagementClient, type AccountData, type ManagementOverview } from "@mdbase/connect-management";
+import { ConnectManagementClient, ManagementApiError, type AccountData, type ManagementOverview } from "@mdbase/connect-management";
 import { AccountManagement } from "./AccountManagement";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,6 +40,20 @@ afterEach(() => {
 });
 
 describe("ConnectApp", () => {
+  it("keeps Account usable when sessions fail and retries without showing the backend code", async () => {
+    history.replaceState(null, "", "/account");
+    vi.spyOn(ConnectManagementClient.prototype, "sessions")
+      .mockRejectedValueOnce(new ManagementApiError(409, "http_error", "session_index_unavailable"))
+      .mockResolvedValue({ sessions: [] });
+    render(<ConnectApp />);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Something went wrong on mdbase. Try again.");
+    expect(screen.getByRole("heading", { name: "Account" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Browser sessions" })).toBeInTheDocument();
+    fireEvent.click(within(alert).getByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(alert).not.toBeInTheDocument());
+  });
+
   it.each(["owner", "member"] as const)("offers portal collection deletion only to the native collection owner: %s", async relationship => {
     history.replaceState(null, "", "/?collection=native");
     overview.native_collections = [{ id: "native", display_name: "Cloud notes", sync: "cloud_copy", computer_ids: [],
@@ -361,6 +375,20 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
     expect(screen.queryByRole("link", { name: /Review request/ })).not.toBeInTheDocument();
+  });
+
+  it("counts only live requests and expires them even when another deadline is invalid", async () => {
+    vi.useFakeTimers();
+    overview.pending_authorizations = ["invalid", "expired", "active"].map(id => ({
+      id, flow: "authorization_code", requested_operations: ["read"], application_id: "reader", application_name: "Reader",
+      expires_at: id === "invalid" ? "invalid" : new Date(Date.now() + (id === "expired" ? -1 : 1000)).toISOString(),
+      distribution: "web", homepage: "https://reader.example", project_url: null, icon: null
+    }));
+    render(<ConnectApp />);
+    await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+    expect(screen.getByRole("link", { name: /Reader is waiting/ })).toHaveAttribute("href", `${location.origin}/authorize/active`);
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.queryByText(/Reader is waiting/)).not.toBeInTheDocument();
   });
 
   it("prefetches account details on navigation intent", async () => {
@@ -808,8 +836,8 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
-    expect(await screen.findByText("Reader app")).toBeInTheDocument();
-    expect(screen.getByText("Entire collection · Access as your account (owner)")).toBeInTheDocument();
+    await user.click(await screen.findByText("Reader app"));
+    expect(await screen.findByText("Entire collection · Access as your account (owner)")).toBeInTheDocument();
     expect(screen.queryByText(/permissions ·/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Revoke collection access" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "POST")).toBe(false);
@@ -824,9 +852,10 @@ describe("ConnectApp", () => {
     const user = userEvent.setup();
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
+    await user.click(await screen.findByText("Reader app"));
     expect(await screen.findByText("No collection access")).toBeInTheDocument();
     expect(screen.getByText("Can create collections for your account")).toBeInTheDocument();
-    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(await screen.findByRole("button", { name: "Revoke app" }));
     expect(vi.mocked(fetch).mock.calls.some(([, init]) => init?.method === "DELETE")).toBe(false);
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => new URL(String(input)).pathname === "/v1/account/installations/installation-connector" && init?.method === "DELETE")).toBe(true));
@@ -927,6 +956,32 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("button", { name: /^Sign out$/ }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
     await waitFor(() => expect(vi.mocked(fetch).mock.calls.filter(([, init]) => init?.method === "DELETE").map(([input]) => new URL(String(input)).pathname)).toEqual(["/v1/account/sessions/other-22222222"]));
+  });
+
+  it("reads sessions again after a revoke overlaps a background overview read", async () => {
+    history.replaceState(null, "", "/account");
+    const other = { id: "other", provider: "password" as const, client_name: "Other browser", current: false,
+      created_at: "2026-01-01T00:00:00Z", last_seen_at: "2026-01-01T00:00:00Z", expires_at: "2027-01-01T00:00:00Z" };
+    const reads = vi.spyOn(ConnectManagementClient.prototype, "sessions").mockResolvedValue({ sessions: [other] });
+    const revoke = vi.spyOn(ConnectManagementClient.prototype, "revokeSession").mockImplementation(async () => {
+      reads.mockResolvedValue({ sessions: [] });
+    });
+    const user = userEvent.setup();
+    vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: /^Sign out$/ }));
+    let finishOverview!: () => void;
+    const readOverview = vi.spyOn(ConnectManagementClient.prototype, "overview").mockImplementationOnce(() => new Promise(resolve => {
+      finishOverview = () => resolve(structuredClone(overview));
+    }));
+    fireEvent(window, new Event("focus"));
+    expect(readOverview).toHaveBeenCalledTimes(1);
+    await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Sign out" }));
+    expect(revoke).toHaveBeenCalledWith(other.id);
+    await act(async () => finishOverview());
+    await waitFor(() => expect(screen.queryByText(other.client_name)).not.toBeInTheDocument());
+    expect(readOverview).toHaveBeenCalledTimes(2);
+    expect(reads).toHaveBeenCalledTimes(2);
   });
 
   it("puts current-browser sign-out above sessions and signs out only this browser once", async () => {
@@ -1192,6 +1247,31 @@ describe("ConnectApp", () => {
     beforeEach(() => {
       vi.useFakeTimers();
       vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
+    });
+
+    it("reads configuration once and only refreshes sessions on Account after loading the command palette data", async () => {
+      const calls = (path: string) => vi.mocked(fetch).mock.calls.filter(([input]) => new URL(String(input)).pathname === path).length;
+      render(<ConnectApp />);
+      await settle();
+      await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+      fireEvent.click(screen.getByRole("link", { name: "Apps" }));
+      await settle();
+      expect(calls("/v1/ui-configuration")).toBe(1);
+      expect(calls("/v1/account/sessions")).toBe(1);
+      fireEvent.click(screen.getByRole("link", { name: "Account" }));
+      await settle();
+      expect(calls("/v1/account/sessions")).toBe(2);
+      expect(calls("/v1/ui-configuration")).toBe(1);
+    });
+
+    it("uses one overview read when a visibility refresh settles before the paired focus event", async () => {
+      render(<ConnectApp />);
+      await settle();
+      fireEvent(document, new Event("visibilitychange"));
+      await settle();
+      fireEvent(window, new Event("focus"));
+      await settle();
+      expect(overviewReads()).toEqual(["", omitted]);
     });
 
     it("reads storage on load, focus and visibility but leaves it out of the 15-second refresh", async () => {
@@ -1777,6 +1857,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Apps" }));
 
+    await user.click(screen.getByText("Reading list"));
     expect(await screen.findByText("Legacy scoped access is revoked. Reauthorize this app for the entire collection.")).toBeInTheDocument();
     expect(screen.getByText("Reauthorization required")).toBeInTheDocument();
 
@@ -1813,6 +1894,7 @@ describe("ConnectApp", () => {
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Apps" }));
 
+    await user.click(screen.getByText("Photo catalog"));
     expect(await screen.findByText("Revoking…")).toBeInTheDocument();
     expect(screen.getByText(kind === "local"
       ? /Waiting for the computer holding this collection to confirm enforcement/
@@ -1830,6 +1912,8 @@ describe("ConnectApp", () => {
     const { container } = render(<ConnectApp />);
     await screen.findByRole("heading", { name: "Garden notes" });
     await user.click(screen.getByRole("link", { name: "Apps" }));
+    await user.click(screen.getByText("Reading list"));
+    await screen.findByText(/4 permissions · lab\.tasknotes-app/);
     const grants = [...container.querySelectorAll("details.connect-grant")];
     expect(grants).toHaveLength(2);
     expect(grants.map(grant => grant.querySelector("summary")?.textContent)).toEqual(expect.arrayContaining([
@@ -1886,7 +1970,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(await screen.findByRole("button", { name: "Revoke app" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
     await waitFor(() => expect(screen.queryByText("Reading list")).not.toBeInTheDocument());
@@ -1920,7 +2004,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(await screen.findByRole("button", { name: "Revoke app" }));
     const confirm = within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" });
 
     fireEvent.click(confirm);
@@ -1953,7 +2037,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(await screen.findByRole("button", { name: "Revoke app" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
 
     expect(await within(screen.getByRole("dialog")).findByRole("alert")).toHaveTextContent(
@@ -1971,7 +2055,7 @@ describe("ConnectApp", () => {
     render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(await screen.findByRole("button", { name: "Revoke app" }));
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
     vi.mocked(fetch).mockImplementation((input, init) => {
       if (new URL(String(input)).pathname === "/v1/grants/revoke-batch") {
@@ -2008,7 +2092,7 @@ describe("ConnectApp", () => {
     const rendered = render(<ConnectApp />);
     await user.click(await screen.findByRole("link", { name: "Apps" }));
     await user.click(screen.getByText("Reading list"));
-    await user.click(screen.getByRole("button", { name: "Revoke app" }));
+    await user.click(await screen.findByRole("button", { name: "Revoke app" }));
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Revoke app" }));
     await waitFor(() => expect(mutationSignal).toBeDefined());
     const overviewCalls = vi.mocked(fetch).mock.calls.filter(([input]) =>

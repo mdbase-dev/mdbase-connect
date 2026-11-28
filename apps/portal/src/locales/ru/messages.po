@@ -2713,11 +2713,6 @@ msgstr "Удалить установку"
 msgid "Remove installation {reference} of {0}?"
 msgstr "Удалить установку {reference} приложения {0}?"
 
-#. placeholder {0}: group.applicationName
-#: src/ApplicationAccess.tsx
-#~ msgid "Remove only this installation of {0} from your account?"
-#~ msgstr "Удалить из вашей учётной записи только эту установку {0}?"
-
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
 #: src/ConnectApp.tsx
@@ -2769,11 +2764,6 @@ msgstr "Заменять существующие файлы"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "При смене пароля завершатся все остальные сеансы браузера в этой учётной записи."
-
-#. placeholder {0}: response.status
-#: src/api.ts
-msgid "Request failed with HTTP {0}."
-msgstr "Ошибка запроса HTTP {0}."
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
@@ -3597,6 +3587,7 @@ msgstr "Часовой пояс"
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "Попробуйте другое имя компьютера. Фильтрация не отзывает доступ."
 
+#: src/AccountManagement.tsx
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx
