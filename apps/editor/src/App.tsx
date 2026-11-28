@@ -30,6 +30,7 @@ import {
 import { MdbaseConnectError, type CollectionDescription, type CollectionTypeDescriptor } from "./connect-types";
 import { type MdbaseRecordSessionSnapshot } from "./record-session";
 import {
+  startTransition,
   useCallback,
   useDeferredValue,
   useEffect,
@@ -94,6 +95,7 @@ import type {
   NoteDocument
 } from "./model";
 import {
+  LARGE_NOTE_LENGTH,
   createdBody,
   editableNote,
   noteHeadings,
@@ -1098,7 +1100,9 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     }
   }, [newNotes]);
 
-  const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors, i18n.locale]);
+  const searchIndexNeeded = Boolean(deferredSearch.trim()) || (quickOpen && paletteMode !== "new-note");
+  const searchIndex = useMemo(() => searchIndexNeeded ? searchIndexCache.current.build(allNotes, typeDescriptors) : [],
+    [searchIndexNeeded, allNotes, typeDescriptors, i18n.locale]);
   const searchedResults = useMemo(() => {
     return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch, undefined, undefined, bodySearch) : undefined;
   }, [bodySearch, bodySearchState.matchesVersion, deferredSearch, searchIndex, i18n.locale]);
@@ -1145,7 +1149,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description, i18n.locale]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors, i18n.locale]);
   const takenPaths = useMemo(() => occupiedPaths([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)]), [allNotes, fileInventory.files]);
-  const mentions = useMemo(() => document ? unlinkedMentions(searchIndex, document.path, draft?.title ?? noteTitle(document, typeDescriptors)) : [], [searchIndex, document, draft?.title, typeDescriptors, i18n.locale]);
+  const mentionTitle = draft?.title ?? (document ? noteTitle(document, typeDescriptors) : "");
+  const mentionInput = useMemo(() => ({ notes: allNotes, path: selectedPath, title: mentionTitle, types: typeDescriptors, locale: i18n.locale }),
+    [allNotes, selectedPath, mentionTitle, typeDescriptors, i18n.locale]);
+  const deferredMentions = useDeferredValue(mentionInput);
+  const mentions = useMemo(() => deferredMentions.path && deferredMentions.path === selectedPath
+    ? unlinkedMentions(deferredMentions.notes, deferredMentions.path, deferredMentions.title, deferredMentions.types)
+    : [], [deferredMentions, selectedPath]);
   const noteComments = useNoteComments({ gateway, description, notes: allNotes, path: document?.path, draft, indexController, surface: {
     panelOpen: inspector === "comments", openPanel: () => showInspector("comments"),
     canWrite: canCreateNotes && !noteReadOnly && surface === "notes" && !openNew && !selectedCollectionFile,
@@ -2321,7 +2331,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const session = focused ? undefined : backgroundSession(pane);
     return <PaneSurface key={pane.id} file={focused ? undefined : backgroundFile(pane)} assets={fileAssetStore} surface={{
       gateway, assets: fileAssetStore, owner: embedOwner, revision: collectionRevision, files: fileInventory.files, notes: allNotes, types: typeDescriptors,
-      ...(focused ? { path: notePath, source: noteBody } : { path: session?.document.path, source: session?.draft.body ?? "" })
+      ...(focused ? { path: notePath, documentKey: shownEditorKey, source: noteBody }
+        : { path: session?.document.path, documentKey: session?.editorSessionKey, source: session?.draft.body ?? "" })
     }}>{(around, backgroundAsset) => paneBody(pane, index, around, backgroundAsset)}</PaneSurface>;
   };
   /** The name of the file in the focused pane, when it shows one. */
@@ -2475,7 +2486,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             <button className="primary-confirm-action mdbase-button is-primary" onClick={() => void performRename(renamePlan, true)}><Trans>Rename and update links</Trans></button>
           </div>}
           {/* A new note and the saved note it becomes share this editor: same place, same key, so the caret stays where it is. */}
-          <MarkdownNoteEditor footer={deletedElsewhere ? undefined : <BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
+          <MarkdownNoteEditor footer={deletedElsewhere ? undefined : <BacklinksPanel key={shown.path} id={ids.backlinks} mentions={isNew || !focused ? [] : mentions} onLinkMention={focused && !isNew && canEditNotes && !mutationsFrozen ? (mention) => void linkUnlinkedMention(mention) : undefined} linking={linkingMention} notes={around.backlinks.notes} types={typeDescriptors} loading={around.backlinks.loading} error={around.backlinks.error} onRetry={around.backlinks.retry} mentionsLoading={contentIndexing || (!isNew && focused && deferredMentions !== mentionInput)} mentionsError={contentError} onFindMentions={focused && !isNew && !contentComplete && !contentIndexing && !contentError ? () => setMentionsOpen(true) : undefined} onRetryMentions={() => void loadContentIndex()} onOpen={navigateToNote} />} editorKey={shown.key} titleId={ids.title}
             draft={shown} preferences={preferences} documentId={paneDocumentId(pane, shown.key)} readOnly={readOnly}
             provenance={mobileLayout ? <>
               {notePathControl}
@@ -2497,7 +2508,13 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             embeddedFiles={around.embeddedFiles} embeddedNotes={around.embeddedNotes} files={fileInventory.files} notes={allNotes}
             onUploadAttachment={focused && !isNew && canAttachFiles && !attachments.disabled ? attachments.uploadReference : undefined}
             insertion={focused && !isNew && attachments.insertion?.editorKey === shown.key ? attachments.insertion : undefined} onTitleVisibilityChange={focused ? setNoteTitleVisible : noop}
-            onTitleChange={(title) => editPane({ title })} onBodyChange={(body) => editPane({ body })}
+            onTitleChange={(title) => editPane({ title })} onBodyChange={(body) => {
+              // CodeMirror has applied the input and the session keeps it synchronously.
+              // Let the surrounding React workspace yield to painting a long note.
+              if (!isNew && session && body.length >= LARGE_NOTE_LENGTH) startTransition(() => editPane({ body }));
+              else editPane({ body });
+            }}
+            valueIsCurrent={!isNew && session ? (body, token) => session.draft.body === body && session.replaced === token : undefined}
             onOpenLink={(path, options) => options?.where === "tab" ? openInNewTab(path) : options?.where === "beside" ? openNoteBeside(path) : navigateToNote(path)}
             onCreateLink={createLinkedNote} onPreviewLink={notePreviewController.request}
             onDismissLinkPreview={notePreviewController.dismiss} onOpenFile={setOpenFileAsset} onOpenFileLink={navigateToFile}

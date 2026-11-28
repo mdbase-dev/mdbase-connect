@@ -1,4 +1,5 @@
 import { act, render, screen } from "./test/locale";
+import { EditorView } from "@codemirror/view";
 import userEvent from "@testing-library/user-event";
 import { lazy, Suspense } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -49,6 +50,27 @@ describe("CodeEditor mount focus ownership", () => {
       act(() => { vi.advanceTimersByTime(900); });
       expect(container.querySelector(".cm-remote-change")).not.toBeInTheDocument();
     } finally { vi.useRealTimers(); }
+  });
+
+  it("keeps newer input when a delayed render supplies an older draft", () => {
+    let current = { value: "Original", token: 0 };
+    const props = {
+      label: "Note body", autoFocus: false,
+      valueIsCurrent: (value: string, token: number | undefined) => value === current.value && token === current.token,
+      onChange: (value: string) => { current.value = value; }
+    };
+    const { rerender } = render(<CodeEditor {...props} value={current.value} remoteApplyToken={0} />);
+    const view = EditorView.findFromDOM(screen.getByRole("textbox", { name: "Note body" }))!;
+    act(() => view.dispatch({ changes: { from: view.state.doc.length, insert: " AB" } }));
+
+    rerender(<CodeEditor {...props} value="Original A" remoteApplyToken={0} />);
+    expect(view.state.doc.toString()).toBe("Original AB");
+
+    current = { value: "Remote copy", token: 1 };
+    rerender(<CodeEditor {...props} value={current.value} remoteApplyToken={1} />);
+    expect(view.state.doc.toString()).toBe("Remote copy");
+    rerender(<CodeEditor {...props} value="Original AB" remoteApplyToken={0} />);
+    expect(view.state.doc.toString()).toBe("Remote copy");
   });
 
   it("keeps search typing out of the note when the lazy editor mounts later", async () => {

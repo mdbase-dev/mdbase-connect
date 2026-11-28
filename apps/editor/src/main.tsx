@@ -13,8 +13,6 @@ import { feedbackEndpoint, turnstileSiteKey } from "./feedback";
 import type { Surface } from "./app-state-types";
 import { createRoot } from "react-dom/client";
 import { AppErrorBoundary } from "./AppErrorBoundary";
-import { DemoCollectionGateway } from "./demo-gateway";
-import { createEditorMdbase, SdkEditorRoot } from "./SdkEditorRoot";
 import { EnvironmentBadge } from "./EnvironmentBadge";
 import { deliverAppGrantCallbackFrom, isAppGrantCallback } from "./private-collections";
 import "@mdbase-dev/ui/motion.css";
@@ -36,7 +34,6 @@ function reportLocaleLoadError(error: unknown) {
   console.warn("Editor language could not be loaded; keeping the current language.", error);
 }
 
-const EditorApp = lazy(() => import("./App").then((module) => ({ default: module.App })));
 // The Connect console is retired from the Editor: accounts, access and collection
 // management live on the Connect portal. Keep old /connect bookmarks working by
 // forwarding them to this build's portal, and never mount management (or an SDK
@@ -59,10 +56,9 @@ const demoCount = !managementTarget && (import.meta.env.DEV || import.meta.env.V
 const demoDelay = demoCount > 0
   ? Number(new URL(location.href).searchParams.get("delay") ?? 0)
   : 0;
-const demoGateway = demoCount > 0 ? new DemoCollectionGateway(demoCount, demoDelay) : null;
 // The explicit demo build has no native SDK owner; preserve its loopback E2E
 // entry while applying exact target origins to every real native entry.
-const wrongOrigin = !demoGateway && ((environment === "staging" && location.origin !== "https://editor-staging.mdbase.dev")
+const wrongOrigin = !(demoCount > 0) && ((environment === "staging" && location.origin !== "https://editor-staging.mdbase.dev")
   || (environment === "production" && location.origin !== "https://editor.mdbase.dev"));
 // The Private collection consent popup returns here: hand its result to the
 // waiting editor tab and close, without starting a second SDK owner.
@@ -70,14 +66,33 @@ const grantCallback = !managementTarget && isAppGrantCallback(new URL(location.h
 if (grantCallback) {
   void deliverAppGrantCallbackFrom(new URL(location.href)).catch(() => {});
 }
-// One SDK owner for the module lifetime; construction does no registration IO.
-const sdk = portalUrl && !wrongOrigin && !managementTarget && !demoGateway && !grantCallback ? createEditorMdbase({ origin: location.origin, environment }) : null;
+const demoEntry = Boolean(portalUrl && demoCount > 0 && !grantCallback);
+const nativeEntry = Boolean(portalUrl && !wrongOrigin && !managementTarget && !demoEntry && !grantCallback);
 // A link naming a record is read before the SDK can rewrite the address.
-if (sdk) captureRequestedNote();
-// Pages that show the editor fetch its chunks while the SDK opens, not after:
-// the lazy boundaries' own import() joins this in-flight module load. A failed
-// load is reported by the boundary that renders it.
-if (sdk || demoGateway) for (const chunk of [import("./App"), import("./CodeEditor")]) chunk.catch(() => {});
+if (nativeEntry) captureRequestedNote();
+// Fetch the workspace alongside its gateway. The HTML opening screen stays in
+// place until the entry can mount, without committing a second loading screen
+// while React waits for the imported module.
+const appChunk = nativeEntry || demoEntry ? import("./App") : undefined;
+if (appChunk) {
+  void appChunk.catch(() => {});
+  void import("./CodeEditor").catch(() => {});
+}
+type WorkspaceProps = { onFeedbackContext(surface: Surface, collectionName?: string): void };
+const loadWorkspace = () => {
+  if (nativeEntry) return import("./SdkEditorRoot").then(({ createEditorMdbase, SdkEditorRoot }) => {
+    // One SDK owner for the module lifetime. Construction does no registration IO.
+    const sdk = createEditorMdbase({ origin: location.origin, environment });
+    return { default: (props: WorkspaceProps) => <SdkEditorRoot sdk={sdk} {...props} /> };
+  });
+  if (demoEntry) return Promise.all([appChunk!, import("./demo-gateway")]).then(([{ App }, { DemoCollectionGateway }]) => {
+    const gateway = new DemoCollectionGateway(demoCount, demoDelay);
+    return { default: (props: WorkspaceProps) => <App gateway={gateway} {...props} /> };
+  });
+};
+const loadedWorkspace = loadWorkspace();
+// The error boundary renders a rejected entry the same way as a failed lazy panel.
+const Workspace = loadedWorkspace ? await loadedWorkspace.then(({ default: Entry }) => Entry, () => lazy(() => loadedWorkspace)) : null;
 
 function EditorWorkspace() {
   useLingui();
@@ -89,8 +104,7 @@ function EditorWorkspace() {
     <AppErrorBoundary>{!portalUrl ? <EditorEntryPage title={t`This collection link is invalid`}><Trans>Return to Collections and open the collection again.</Trans></EditorEntryPage>
       : wrongOrigin ? <EditorEntryPage title={t`This Editor build cannot open collections here`}><Trans>Open the Editor configured for your mdbase environment from Collections.</Trans></EditorEntryPage>
       : grantCallback ? <p className="mdbase-connect-status"><Trans>You can close this window.</Trans></p>
-      : sdk ? <SdkEditorRoot sdk={sdk} onFeedbackContext={updateContext} />
-      : demoGateway ? <EditorApp gateway={demoGateway} onFeedbackContext={updateContext} /> : null}</AppErrorBoundary>
+      : Workspace ? <Workspace onFeedbackContext={updateContext} /> : null}</AppErrorBoundary>
   </FeedbackProvider>;
 }
 

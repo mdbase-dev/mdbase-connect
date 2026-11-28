@@ -21,7 +21,7 @@ import { forEachDiagnostic, lintGutter, setDiagnosticsEffect, linter, lintKeymap
 import { closeSearchPanel, highlightSelectionMatches, search, searchKeymap } from "@codemirror/search";
 import { registerActiveEditor, unregisterActiveEditor } from "./code-editor-reveal";
 import { changedSpan } from "./changed-span";
-import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension } from "@codemirror/state";
+import { Compartment, EditorSelection, EditorState, Prec, StateEffect, StateField, Transaction, type Extension, type Text } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -105,6 +105,8 @@ interface CodeEditorProps {
   onUploadAttachment?: AttachmentUploader;
   onBlur?: () => void;
   remoteApplyToken?: number;
+  /** The session can be ahead of a React render after a later edit or remote replacement. */
+  valueIsCurrent?: (value: string, remoteApplyToken: number | undefined) => boolean;
   header?: ReactNode;
   footer?: ReactNode;
   /** The passages of the note's open comment threads. */
@@ -187,6 +189,7 @@ export function CodeEditor({
   onUploadAttachment,
   onBlur,
   remoteApplyToken,
+  valueIsCurrent,
   header,
   footer,
   commentAnchors: anchors = EMPTY_ANCHORS,
@@ -208,6 +211,9 @@ export function CodeEditor({
   const viewRef = useRef<EditorView | undefined>(undefined);
   const appliedRemoteToken = useRef<number | null>(null);
   const onChangeRef = useRef(onChange);
+  const valueIsCurrentRef = useRef(valueIsCurrent);
+  valueIsCurrentRef.current = valueIsCurrent;
+  const lastChange = useRef<{ doc: Text; value: string } | undefined>(undefined);
   const syncing = useRef(false);
   const historyMode = useRef(new Compartment());
   const vimMode = useRef(new Compartment());
@@ -265,7 +271,7 @@ export function CodeEditor({
   commentCardRef.current = commentCard;
   const onUploadAttachmentRef = useRef(onUploadAttachment);
   onUploadAttachmentRef.current = variant === "writer" && language === "markdown" ? onUploadAttachment : undefined;
-  const lineSeparator = useRef(lineSeparatorFor(value));
+  const [lineSeparator] = useState(() => lineSeparatorFor(value));
   const [focused, setFocused] = useState(false);
   const [touch] = useState(() => typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches);
   // The bottom of the screen the touch formatting bar and keyboard cover; the caret scrolls clear of it.
@@ -313,7 +319,7 @@ export function CodeEditor({
       }) : [],
       syntaxHighlighting(mdbaseHighlightStyle),
       mdbasePopupTheme,
-      languageMode.current.of(language === "markdown" ? markdownSupport() : []),
+      languageMode.current.of(language === "markdown" ? markdownMode : noLanguage),
       wrapping.current.of(lineWrapping ? EditorView.lineWrapping : []),
       typewriterMode.current.of([]),
       completions.current.of(variant === "writer" && language === "markdown" ? writerAutocomplete(
@@ -364,7 +370,10 @@ export function CodeEditor({
       EditorView.domEventHandlers({ focus: () => { setFocused(true); }, blur: () => { setFocused(false); } }),
       EditorView.updateListener.of((update) => {
         if (update.docChanged && !syncing.current) {
-          onChangeRef.current?.(restoreLineSeparators(update.state.doc.toString(), lineSeparator.current));
+          const doc = update.state.doc;
+          const next = restoreLineSeparators(doc.toString(), lineSeparator);
+          lastChange.current = { doc, value: next };
+          onChangeRef.current?.(next);
         }
       })
     ];
@@ -401,7 +410,7 @@ export function CodeEditor({
           && !activeElement?.closest("[role='dialog'], [role='alertdialog'], [role='combobox']")) view.focus();
     });
     return () => {
-      if (documentId) rememberEditor(documentId, view, lineSeparator.current);
+      if (documentId) rememberEditor(documentId, view, lineSeparator);
       if (documentId) unregisterActiveEditor(documentId, view);
       onDismissLinkPreviewRef.current?.();
       view.destroy();
@@ -558,12 +567,9 @@ export function CodeEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    if (language === "markdown") {
-      view.dispatch({ effects: languageMode.current.reconfigure(markdownSupport()) });
-      return;
-    }
-    if (language === "plain") {
-      view.dispatch({ effects: languageMode.current.reconfigure([]) });
+    if (language === "markdown" || language === "plain") {
+      const extension = language === "markdown" ? markdownMode : noLanguage;
+      if (languageMode.current.get(view.state) !== extension) view.dispatch({ effects: languageMode.current.reconfigure(extension) });
       return;
     }
     let cancelled = false;
@@ -587,13 +593,17 @@ export function CodeEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
+    if (valueIsCurrentRef.current && !valueIsCurrentRef.current(value, remoteApplyToken)) return;
     let externalReset = false;
     if (remoteApplyToken !== undefined && appliedRemoteToken.current !== remoteApplyToken) {
       externalReset = appliedRemoteToken.current !== null;
       appliedRemoteToken.current = remoteApplyToken;
     }
-    if (!externalReset && restoreLineSeparators(view.state.doc.toString(), lineSeparator.current) === value) return;
-    const before = view.state.doc.toString().split("\n");
+    const doc = view.state.doc;
+    if (!externalReset && lastChange.current?.doc === doc && lastChange.current.value === value) return;
+    const current = doc.toString();
+    if (!externalReset && restoreLineSeparators(current, lineSeparator) === value) return;
+    const before = current.split("\n");
     const after = value.replace(/\r\n?/g, "\n").split("\n");
     let first = 0;
     let last = after.length;
@@ -602,7 +612,7 @@ export function CodeEditor({
     syncing.current = true;
     // Replace only the changed span, so the selection, folds and rendering elsewhere map through it.
     view.dispatch({
-      changes: changedSpan(view.state.doc.toString(), after.join("\n")),
+      changes: changedSpan(current, after.join("\n")),
       effects: externalReset ? historyMode.current.reconfigure([history(), historyField.init(() => EMPTY_HISTORY_STATE)]) : undefined,
       annotations: externalReset ? Transaction.addToHistory.of(false) : undefined
     });
@@ -720,16 +730,6 @@ function contentAttributes(label: string, variant: EditorVariant, language: stri
   };
 }
 
-/** GitHub-flavoured Markdown (tables, strikethrough, autolinks, task lists),
- * matching the read-only renderer and the reference parser, with JSON and YAML
- * highlighting inside fenced code, and `$…$`/`$$…$$` math for the live preview. */
-function markdownSupport(): Extension {
-  return [
-    markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages, extensions: [markdownMath], addKeymap: false }),
-    Prec.high(keymap.of(markdownKeymap))
-  ];
-}
-
 // The language's own keymap, except that Enter on an empty item or quoted line
 // ends the list or quote, however loose the list, Backspace on an empty nested
 // item lifts it a level, and Shift-Enter stays in the item.
@@ -745,6 +745,14 @@ const fencedCodeLanguages = [
   LanguageDescription.of({ name: "JSON", alias: ["json5", "jsonc"], extensions: ["json"], load: () => import("@codemirror/lang-json").then((module) => module.json()) }),
   LanguageDescription.of({ name: "YAML", alias: ["yml"], extensions: ["yaml", "yml"], load: () => import("@codemirror/lang-yaml").then((module) => module.yaml()) })
 ];
+/** GitHub-flavoured Markdown (tables, strikethrough, autolinks, task lists),
+ * matching the read-only renderer and the reference parser, with JSON and YAML
+ * highlighting inside fenced code, and `$…$`/`$$…$$` math for the live preview. */
+const markdownMode = [
+  markdown({ base: markdownLanguage, codeLanguages: fencedCodeLanguages, extensions: [markdownMath], addKeymap: false }),
+  Prec.high(keymap.of(markdownKeymap))
+];
+const noLanguage: Extension = [];
 
 const editorSetup = (variant: EditorVariant, hasFooter = false): Extension => [
   highlightSpecialChars(),
