@@ -64,6 +64,23 @@ describe("app binary index (file ABI v1)", () => {
     expect(reply).toEqual(Uint8Array.from([...MAGIC, 2, ...u32(1), ...u32(vals.length), ...i64((1n << 64n) - 1n, true), ...i64(-(1n << 63n)), ...u32(vals.length), ...vals.flatMap(value)]));
     index.close();
   });
+  it("returns an exact-size result up to the byte limit and fences one byte over", () => {
+    const { host, inner, index } = memory();
+    // One statement has a 37-byte header; a blob adds a tag and a u32 length.
+    const blob = new Uint8Array(APP_INDEX_LIMITS.maxBytes - 42);
+    blob[blob.length - 1] = 255;
+    const result = { columns: 1, values: [{ kind: "Blob" as const, value: blob }], changes: 0n, lastInsertRowid: 0n };
+    const run = vi.spyOn(inner, "run").mockReturnValue([result]);
+    try {
+      const reply = host.run(select());
+      expect(reply.byteLength).toBe(APP_INDEX_LIMITS.maxBytes);
+      expect(reply.buffer.byteLength).toBe(reply.byteLength);
+      expect(reply.at(-1)).toBe(255);
+      run.mockReturnValue([{ ...result, values: [{ kind: "Blob", value: new Uint8Array(blob.length + 1) }] }]);
+      expectError(host.run(select()), 2);
+      expect(index.needsRecovery).toBe(true);
+    } finally { index.close(); }
+  });
   it("uses actual SQLite types, not JS integer/REAL inference", () => {
     const { host, index } = memory();
     const vals: SqlValue[] = [{ kind: "Integer", value: 9007199254740993n }, { kind: "Real", value: 2 }, { kind: "Blob", value: Uint8Array.of(1, 2) }];

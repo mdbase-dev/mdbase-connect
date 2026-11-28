@@ -460,10 +460,12 @@ export function structMap(entries: [number, CborValue | undefined][]): Map<numbe
   return m;
 }
 
+const hexBytes = Array.from({ length: 256 }, (_, n) => n.toString(16).padStart(2, "0"));
+
 /** Lowercase hex. */
 export function toHex(b: Uint8Array): string {
   let s = "";
-  for (const x of b) s += x.toString(16).padStart(2, "0");
+  for (const x of b) s += hexBytes[x]!;
   return s;
 }
 
