@@ -95,7 +95,7 @@ export function SettingsView({ description, connection, noteCount, preferences, 
         <details className="settings-details">
           <summary><span><Trans context="settings view">Details</Trans></span><ChevronRight aria-hidden="true" /></summary>
           <FactRow label={t({ message: "Specification", context: "settings view" })} value={description.specVersion} />
-          <FactRow label={t({ message: "Types folder", context: "settings view" })} value={stringValue(settings.types_folder, "_types")} mono />
+          <FactRow label={t({ message: "Types folder", context: "settings view" })} value={stringValue(settings.types_folder, t`Not reported`)} mono />
           <FactRow label={t({ message: "Explicit type keys", context: "settings view" })} value={explicitTypeKeys.length ? explicitTypeKeys.join(", ") : t({ message: "Disabled", context: "explicit type keys setting" })} />
           <FactRow label={t({ message: "Validation", context: "settings view" })} value={stringValue(settings.validation, "error")} />
           <FactRow label={t({ message: "Runtime", context: "settings view" })} value={runtime.enabled === true ? t`Enabled · ${stringValue(runtime.profile_version, "0.1.0")}` : t({ message: "Disabled", context: "collection runtime" })} />

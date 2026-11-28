@@ -427,6 +427,27 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(read).toHaveBeenCalledWith(id, 7, expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
 
+  it("attributes untagged web writes only when both the Editor device and account match", async () => {
+    const f = await fixture({}, seedNotes);
+    const signIn = f.mdbase.getSnapshot().signIn!;
+    const author = { account: signIn.accountId!, device: signIn.deviceId };
+    const version = { seq: 7, time: 1_762_000_000_000, author, kind: "edited" as const,
+      path: "notes/plan.md", source: "api" as const, deviceKind: "app_runtime" as const };
+    const others = [
+      { ...version, seq: 6, app: "dev.example.other" },
+      { ...version, seq: 5, author: { ...author, device: crypto.randomUUID() } },
+      { ...version, seq: 4, author: { ...author, account: crypto.randomUUID() } },
+      { ...version, seq: 3, source: "external" as const },
+      { ...version, seq: 2, deviceKind: "desktop" as const }
+    ];
+    const page = { versions: [version, ...others], from: 1 };
+    vi.spyOn(f.client.history, "list").mockResolvedValueOnce(page);
+    expect(await f.gateway.noteHistory.list(version.path)).toEqual({
+      ...page, versions: [{ ...version, app: "dev.mdbase.editor" }, ...others]
+    });
+    expect(page.versions[0]).not.toHaveProperty("app");
+  });
+
   it("passes a replica's history refusal through for the panel to explain", async () => {
     const f = await fixture({}, seedNotes);
     vi.spyOn(f.connection.records.history, "list").mockRejectedValueOnce(

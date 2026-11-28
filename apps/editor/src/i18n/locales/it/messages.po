@@ -2538,6 +2538,10 @@ msgstr "Inserisci non più di {0} caratteri."
 msgid "Enter text."
 msgstr "Inserisci il testo."
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "Inserisci il codice di abbinamento di otto cifre."
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "Intera raccolta"
@@ -3054,6 +3058,10 @@ msgstr "Schema JSON non valido"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON non valido."
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "Le modifiche non valide alle proprietà sono state scartate."
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "Non esposto"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "Non adesso"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "Non indicata"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "Questo caricamento di file non è confermato. Risolvere l'operazione ori
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "Questa cartella contiene allegati. Lo spostamento non può ancora preservare i riferimenti ai file incorporati. Sposta invece le note individualmente; gli allegati rimarranno al loro posto."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "Questa è la versione più vecchia della nota disponibile in mdbase."
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "Questa nota è già stata spostata altrove."
@@ -6755,6 +6771,10 @@ msgstr "Attendi il completamento dell'indice di note e allegati prima di modific
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "In attesa di approvazione…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "In attesa che il computer renda disponibile questa raccolta"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

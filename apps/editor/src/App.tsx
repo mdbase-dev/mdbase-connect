@@ -2707,6 +2707,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
           error={propertiesError}
           readOnly={noteReadOnly}
           onClose={() => setInspector(undefined)}
+          onDiscardInvalid={() => setNotice(t`Invalid property edits were discarded.`, "info")}
           onSave={saveProperties}
           onSaveDocument={(source, previousSource) => saveRecordSource(document.path, source, previousSource)}
         />}

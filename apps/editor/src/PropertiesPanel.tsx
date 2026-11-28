@@ -35,6 +35,7 @@ interface PropertiesPanelProps {
   error?: string;
   readOnly?: boolean;
   onClose: () => void;
+  onDiscardInvalid?: () => void;
   onSave: (path: string, value: JsonObject) => Promise<void>;
   onSaveDocument?: (document: string, previousDocument: string) => Promise<NoteDocument | false> | NoteDocument | false;
 }
@@ -47,6 +48,7 @@ export function PropertiesPanel({
   error,
   readOnly = false,
   onClose,
+  onDiscardInvalid,
   onSave,
   onSaveDocument
 }: PropertiesPanelProps) {
@@ -109,6 +111,8 @@ export function PropertiesPanel({
     .filter(([name, value]) => !(name in draft) || JSON.stringify(draft[name]) !== JSON.stringify(value)));
   const latestDraft = useRef(draft);
   const latestFieldsInvalid = useRef(fieldsInvalid);
+  const notifyInvalidDiscard = useRef<(() => void) | undefined>(undefined);
+  notifyInvalidDiscard.current = !readOnly && (rawError || (changed && fieldsInvalid)) ? onDiscardInvalid : undefined;
   const saveCallback = useRef(onSave);
   const lastSubmitted = useRef(initialFingerprint);
   const saveGeneration = useRef(0);
@@ -169,6 +173,7 @@ export function PropertiesPanel({
     return () => window.clearTimeout(timer);
   }, [changed, draft, draftFingerprint, fieldsInvalid, note.path, readOnly, retry, validationFingerprint]);
   useEffect(() => () => {
+    notifyInvalidDiscard.current?.();
     const latest = latestDraft.current;
     const fingerprint = JSON.stringify(latest);
     if (!readOnlyRef.current && !latestFieldsInvalid.current && fingerprint !== lastSubmitted.current) {

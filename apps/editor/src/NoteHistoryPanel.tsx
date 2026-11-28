@@ -162,7 +162,9 @@ function Horizon({ timeline, onOlder }: { timeline: Timeline; onOlder: () => voi
   if (timeline.next !== undefined) {
     return <button type="button" className="mdbase-button is-tertiary history-older" onClick={onOlder}><Trans>Show older versions</Trans></button>;
   }
-  if (timeline.versions.at(-1)?.kind === "created") return null;
+  const oldest = timeline.versions.at(-1);
+  if (oldest?.kind === "created") return null;
+  if (oldest?.source === "external") return <p className="history-horizon"><Trans>This is the earliest version mdbase has for this note.</Trans></p>;
   const since = timeline.fromTime === undefined ? undefined : dateLabel(timeline.fromTime);
   return <p className="history-horizon">
     {timeline.versions.length === 0 ? <Trans>No earlier versions of this note are kept.</Trans> : <Trans>Earlier versions are no longer kept.</Trans>}

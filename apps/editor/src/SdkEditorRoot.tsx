@@ -3,7 +3,7 @@ import { t } from "@lingui/core/macro";
 import { useLingui } from "@lingui/react";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { createMdbase, type Mdbase, type MdbaseApplicationDeclaration, type MdbaseClient } from "@mdbase-dev/sdk";
-import { CollectionGate, CollectionSwitcher, defaultCollectionCopy, type CollectionSection, type CollectionSectionItem, type CollectionSectionItemAction, type CollectionView } from "@mdbase-dev/ui/collections";
+import { CollectionGate, CollectionProblem, CollectionSwitcher, defaultCollectionCopy, type CollectionSection, type CollectionSectionItem, type CollectionSectionItemAction, type CollectionView } from "@mdbase-dev/ui/collections";
 import { OpeningScreen } from "./LoadingScreens";
 import { FeedbackButton } from "@mdbase-dev/ui/feedback";
 import { describeError } from "@mdbase-dev/sdk/describe";
@@ -75,6 +75,8 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   const snapshot = useSyncExternalStore((listener) => sdk.subscribe(listener), () => sdk.getSnapshot(), () => sdk.getSnapshot());
   // Developer-only detail (e.g. which manifest fields a registration refusal named): logs, never the screen.
   const problem = snapshot.status === "blocked" ? describeError(snapshot) : null;
+  const waiting = snapshot.phase.kind === "problem" && privateWaitReason(snapshot.phase.problem.key);
+  const waitingHeading = waiting ? t`Waiting for your computer to serve this collection` : undefined;
   const developerMessage = problem?.developerMessage ?? null;
   useEffect(() => { if (developerMessage) console.warn(t`mdbase editor: ${developerMessage}`); }, [developerMessage]);
   const priv = usePrivateSection(sdk, privates);
@@ -107,12 +109,38 @@ export function SdkEditorRoot({ sdk, renderNative, onFeedbackContext, privateCol
   // those lines above the editor without pushing it past the viewport.
   return <div className="editor-collection-frame">
     <CollectionGate mdbase={sdk} app={editorCollectionApp} allowPrivate={false} allowDelete unsynced extraActions={extraActions} sections={sections}
+      copy={waitingHeading ? { problemHeading: waitingHeading, problemHeadingUnnamed: waitingHeading } : undefined}
       renderAppCollection={() => priv.scope && <NativeScopeView key={priv.scope.connection.generation} application={priv.scope.actions}
         connection={priv.scope.connection} declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}>
-      {(connection) => <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk} connection={connection}
-        declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />}
+      {(connection) => {
+        const entry = snapshot.collections.find((entry) => entry.collectionId === connection.id);
+        return <>
+          {entry?.kind === "private" && snapshot.phase.kind === "ready" && !privateWaitReason(snapshot.phase.problem?.key) &&
+            <PrivateConnectionNotice sdk={sdk} connection={connection} availability={entry.availability} />}
+          <NativeScopeView key={`${connection.id}:${connection.generation}`} application={sdk} connection={connection}
+            declaration={declaration} switcher={switcher} renderNative={renderNative} onFeedbackContext={onFeedbackContext} />
+        </>;
+      }}
     </CollectionGate>
   </div>;
+}
+
+function privateWaitReason(key?: string) {
+  return key === "device_offline" || key === "device_not_serving" ? key : undefined;
+}
+
+/** Show an actionable reason in the open workspace while the SDK reconnects. */
+function PrivateConnectionNotice({ sdk, connection, availability }: {
+  sdk: Mdbase; connection: EditorConnection; availability?: CollectionAvailability;
+}) {
+  const client = connection.records;
+  const subscribe = useCallback((listener: () => void) => client.onLink(listener), [client]);
+  const reason = useSyncExternalStore(subscribe, () => {
+    if (client.link !== "reconnecting") return undefined;
+    return privateWaitReason(describeError(client.linkProblem)?.key)
+      ?? (availability?.state === "unavailable" ? privateWaitReason(availability.reason) : undefined);
+  });
+  return reason ? <CollectionProblem mdbase={sdk} app={editorCollectionApp} problem={reason} /> : null;
 }
 
 /** Session fence only: this never assigns account ownership to a stored custom grant. */

@@ -66,6 +66,15 @@ describe("note history", () => {
     expect(screen.getAllByRole("button", { name: /mdbase editor/ })).toHaveLength(2);
   });
 
+  it("describes the earliest disk edit without claiming that a version was discarded", async () => {
+    const history = gateway([{ versions: [version(9, 1), version(5, 90, { source: "external" })],
+      from: 3, fromTime: now - 120 * 60_000 }]);
+    panel(history);
+    expect(await screen.findByText("This is the earliest version mdbase has for this note.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Edited outside mdbase/ })).toBeInTheDocument();
+    expect(screen.queryByText(/no longer kept|history goes back/i)).not.toBeInTheDocument();
+  });
+
   it("shows a version as a read-only diff against the note now", async () => {
     const user = userEvent.setup();
     const history = gateway([{ versions: [version(9, 1), version(4, 60, { kind: "created" })], from: 1 }], { 4: "# A\n\nThen\n" });
