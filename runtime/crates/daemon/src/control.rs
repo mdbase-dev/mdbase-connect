@@ -435,8 +435,7 @@ pub enum CollectionState {
     Ready,
     /// Serving, with known sync work unfinished: unconfirmed changes, disk
     /// ingestion, an inbound or outbound file transfer, or a resync. Reported
-    /// only in observed status (see [`CollectionState::observed`]); serving
-    /// decisions never see it.
+    /// only in observed status (see [`CollectionState::observed`]).
     Syncing,
     /// Serving, with a log move (sync enable) in progress.
     Moving,
@@ -447,6 +446,11 @@ pub enum CollectionState {
 }
 
 impl CollectionState {
+    /// Whether this state can open replica sessions, including observed sync progress.
+    pub(crate) fn is_serving(self) -> bool {
+        matches!(self, Self::Ready | Self::Syncing | Self::Moving)
+    }
+
     /// The state to report for one observation of a synced collection's
     /// counters: a serving collection with unfinished work is `syncing`, never
     /// `ready`. Derived from the same counters the status carries, so no status
@@ -989,6 +993,23 @@ mod tests {
             last_error: None,
             resyncing,
             unsupported_entries: 0,
+        }
+    }
+
+    #[test]
+    fn sync_progress_preserves_session_availability() {
+        use CollectionState as S;
+        let busy = counters(1, false, "online");
+        for state in [
+            S::Paused,
+            S::Opening,
+            S::Ready,
+            S::Moving,
+            S::Unavailable,
+            S::Failed,
+        ] {
+            let observed = state.observed(SyncMode::SyncedE2e, Some(&busy));
+            assert_eq!(observed.is_serving(), matches!(state, S::Ready | S::Moving));
         }
     }
 

@@ -665,7 +665,7 @@ async fn daemon(profile: &Profile, mut status: CollectionStatus) -> Result<Trans
         let list = crate::cli::collections(profile).await?;
         status = crate::cli::pick(&list, &status.id)?.clone();
     }
-    if status.state != CollectionState::Ready {
+    if !status.state.is_serving() {
         return Err(not_ready(&status).into());
     }
     let collection = crate::attest::uuid_bytes(&status.id)

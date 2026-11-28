@@ -554,7 +554,7 @@ impl Daemon {
         Ok(())
     }
 
-    /// Account deletion is separate from local unregister: no local state changes.
+    /// Account deletion stops the local synced host and preserves its registration and files.
     pub(super) async fn delete_collection(
         &self,
         p: DeleteCollection,
@@ -616,6 +616,21 @@ impl Daemon {
                     e => cloud_refusal(e),
                 }
             })?;
+        let stop = self
+            .inner
+            .lock()
+            .await
+            .hosts
+            .iter_mut()
+            .find(|host| {
+                let entry = host.entry();
+                entry.id == id && entry.mode != SyncMode::Local
+            })
+            .map(CollectionHost::deleted);
+        if let Some(stop) = stop {
+            self.bump();
+            stop.await;
+        }
         Ok(json!({ "collection_id": id, "deleted": true }))
     }
 
@@ -722,6 +737,13 @@ pub(super) fn join_refusal(error: crate::cloud::CloudError) -> ControlError {
     match error {
         crate::cloud::CloudError::Server(404, code) if code == "not_found" => {
             ControlError::not_found("No collection with this ID is available to this account")
+        }
+        crate::cloud::CloudError::Server(409, code) if code == "device_revoked" => {
+            ControlError::new(
+                "not_authorized",
+                &code,
+                crate::collections::REVOKED_REJOIN_HINT,
+            )
         }
         other => cloud_refusal(other),
     }

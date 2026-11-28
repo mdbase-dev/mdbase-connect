@@ -30,6 +30,10 @@ use crate::control::{CollectionState, CollectionStatus, LogLocation, Notice};
 use crate::registry::{Entry, SyncMode};
 use crate::runtime::OpenFailed;
 
+/// Recovery for a collection-scoped device revocation. Re-pairing the old identity
+/// with the account alone cannot restore its collection enrollment.
+pub(crate) const REVOKED_REJOIN_HINT: &str = "This computer was removed from this collection and can no longer sync it. To rejoin, use a new device identity in a separate mdbase profile (--state-dir), sign in, and join the collection into a new empty folder. Local edits held in this folder are kept for you to copy across. Keep this folder and the old profile until you have copied your edits.";
+
 /// One hosted collection.
 pub struct CollectionHost {
     entry: Entry,
@@ -822,10 +826,7 @@ impl CollectionHost {
 
     /// Whether the replica serves requests.
     pub fn is_serving(&self) -> bool {
-        matches!(
-            self.state(),
-            CollectionState::Ready | CollectionState::Moving
-        )
+        self.state().is_serving()
     }
 
     /// Approval can make an opened Private replica ready, but cannot serve requests.
@@ -912,7 +913,9 @@ impl CollectionHost {
     /// Only the registration that still owns this completed stop may reopen.
     /// Keep its backoff, diagnostic and live grant source across the new open.
     pub(crate) fn next_after_stop(&self, stop: &HostStop) -> Option<Self> {
-        if !matches!(&self.runtime, HostedRuntime::Stopping(s) if s.ptr_eq(stop)) {
+        if self.reason.as_deref() == Some("collection_deleted")
+            || !matches!(&self.runtime, HostedRuntime::Stopping(s) if s.ptr_eq(stop))
+        {
             return None;
         }
         Some(Self {
@@ -961,6 +964,14 @@ impl CollectionHost {
         self.state = CollectionState::Paused;
     }
 
+    /// Publish an acknowledged deletion before releasing the registry lock.
+    /// Keep the registration so the owner can recover local files and unregister it.
+    pub(crate) fn deleted(&mut self) -> HostStop {
+        self.state = CollectionState::Failed;
+        self.reason = Some("collection_deleted".into());
+        self.begin_stop()
+    }
+
     fn begin_stop(&mut self) -> HostStop {
         self.cancel.store(true, Ordering::SeqCst);
         self.telemetry_authority = None;
@@ -968,11 +979,16 @@ impl CollectionHost {
             return stop;
         }
         let runtime = std::mem::take(&mut self.runtime);
+        let deleted = self.reason.as_deref() == Some("collection_deleted");
         let stop = async move {
             if let HostedRuntime::Open(opener) = runtime
                 && let Some(rt) = opener.finish().await
             {
-                rt.stop().await;
+                if deleted {
+                    rt.stop_deleted().await;
+                } else {
+                    rt.stop().await;
+                }
             }
         }
         .boxed()
@@ -1031,7 +1047,7 @@ impl CollectionHost {
             notices.push(Notice {
                 path: None,
                 code: "sync_revoked".into(),
-                message: "This computer was removed from this collection and can no longer sync it. To rejoin, use a new device identity in a separate mdbase profile (--state-dir), sign in, and join the collection into a new empty folder. Local edits held in this folder are kept for you to copy across. Keep this folder and the old profile until you have copied your edits.".into(),
+                message: REVOKED_REJOIN_HINT.into(),
             });
         }
         let automatic_reopen = || match self.recovery.due {

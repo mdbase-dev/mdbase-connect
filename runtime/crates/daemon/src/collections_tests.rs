@@ -1402,6 +1402,26 @@ async fn a_collection_stopped_by_an_integrity_incident_reopens_with_a_notice() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[tokio::test]
+async fn acknowledged_deletion_supersedes_a_recovery_already_stopping_the_host() {
+    let dir = scratch("deleted-during-recovery");
+    let mut host = host(&dir, SyncMode::Synced, ctx(&dir, None, None));
+    host.state = CollectionState::Failed;
+    host.reason = Some(SYNC_INTEGRITY.into());
+    let now = std::time::Instant::now();
+    assert!(host.recover_due(now).is_none());
+    let recovery = host
+        .recover_due(now + std::time::Duration::from_secs(10))
+        .unwrap();
+    host.deleted().await;
+    assert!(host.next_after_stop(&recovery).is_none());
+    assert_eq!(
+        host.current(),
+        (CollectionState::Failed, Some("collection_deleted".into()))
+    );
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn an_open_failure_retries_only_with_a_typed_transient_error() {
     let dir = scratch("transient-open");

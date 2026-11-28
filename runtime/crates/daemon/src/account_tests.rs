@@ -117,7 +117,7 @@ const ALICE: &str = "11111111-1111-4111-8111-111111111111";
 const BOB: &str = "22222222-2222-4222-8222-222222222222";
 
 #[tokio::test]
-async fn collection_delete_uses_owner_credential_and_keeps_local_state() {
+async fn collection_delete_stops_local_sync_only_after_acknowledgment() {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     const COLLECTION: &str = "44444444-4444-4444-8444-444444444444";
     let dir = crate::testutil::TestDir::new("collection-delete");
@@ -150,6 +150,18 @@ async fn collection_delete_uses_owner_credential_and_keeps_local_state() {
             crate::authority::account_id(BOB).unwrap(),
         )
         .unwrap();
+    {
+        let mut inner = d.inner.lock().await;
+        let mut entry = inner.registry.collections[0].clone();
+        entry.id = COLLECTION.into();
+        entry.mode = SyncMode::Synced;
+        entry.owner_account = Some(ALICE.into());
+        std::fs::create_dir_all(&entry.root).unwrap();
+        std::fs::write(entry.root.join("keep.md"), "local edit").unwrap();
+        inner.registry.collections = vec![entry.clone()];
+        inner.hosts.push(CollectionHost::open(entry, None));
+        d.authority.publish_registry(&inner.registry);
+    }
     let before = serde_json::to_value(&d.inner.lock().await.registry).unwrap();
     let fixture = tokio::spawn(async move {
         for (confirm, status, body) in [
@@ -276,6 +288,17 @@ async fn collection_delete_uses_owner_credential_and_keeps_local_state() {
                 json!({"collection_id":COLLECTION,"deleted":true})
             ),
         }
+        let status = d.status().await.collections.remove(0);
+        if reason.is_none() {
+            assert_eq!(status.state, crate::control::CollectionState::Failed);
+            assert_eq!(status.reason.as_deref(), Some("collection_deleted"));
+        } else {
+            assert_eq!(status.reason.as_deref(), Some("runtime_pending"));
+        }
+        assert_eq!(
+            std::fs::read_to_string(status.root.join("keep.md")).unwrap(),
+            "local edit"
+        );
         assert_eq!(
             serde_json::to_value(&d.inner.lock().await.registry).unwrap(),
             before
