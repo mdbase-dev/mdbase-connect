@@ -756,7 +756,7 @@ impl<S: Store> Replica<S> {
         let checkpoint = super::apply_checkpoint::Checkpoint::capture(self);
         // The epochs' commitments first (the rekeys read ahead), then each key.
         for rk in &a.rekeys {
-            let _ = self.sealer.accept_rekey(rk);
+            let _ = self.sealer.accept_rekey_ahead(rk);
         }
         let my_kem = self.sealer.kem_public().unwrap_or_else(|| {
             crate::crypto::hpke::KemKeyPair::from_secret(&self.secrets.kem_sk).pk

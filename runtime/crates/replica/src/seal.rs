@@ -336,6 +336,11 @@ pub trait Sealer {
     /// Learn from a valid `rekey`: record its commitment and, if this device is a
     /// recipient, unwrap the new key and the history (each checked).
     fn accept_rekey(&mut self, p: &RekeyPayload) -> KeyEvent;
+    /// Evaluate a rekey during a control-only read. Only ordered replay may
+    /// promote candidates retained from a join-ahead grant.
+    fn accept_rekey_ahead(&mut self, p: &RekeyPayload) -> KeyEvent {
+        self.accept_rekey(p)
+    }
     /// Learn from a valid `key_grant`: if it is for this device, unwrap the key and
     /// check it against the commitment of the rekey that created its epoch.
     fn accept_key_grant(&mut self, p: &KeyGrantPayload) -> KeyEvent;
@@ -344,7 +349,7 @@ pub trait Sealer {
     /// prefix, and the `rekey` that created that epoch (also read ahead). The grant's
     /// key is checked against that rekey's commitment only to open its history box;
     /// a key is installed only if this sealer already holds its epoch's commitment
-    /// from an applied rekey, and the grant epoch's own key never is. `Keyed` only
+    /// from an applied rekey. Later keys remain unverified until ordered apply. `Keyed` only
     /// when `want`'s key is now held. Sealers without history refuse (`None`).
     fn accept_key_grant_ahead(
         &mut self,
@@ -414,6 +419,8 @@ pub struct KeyringSealer {
     signer: DeviceSigner,
     kem: KemKeyPair,
     keys: Keyring,
+    /// Candidates from one usable later grant. Neither readable nor exported.
+    staged: BTreeMap<u64, keys::Unverified>,
     commits: BTreeMap<u64, B32>,
     /// History boxes of applied rekeys, for a device later keyed by a grant.
     histories: BTreeMap<u64, SealedBox>,
@@ -445,6 +452,7 @@ impl KeyringSealer {
             signer: DeviceSigner::from_seed(sign_seed),
             kem: KemKeyPair::from_secret(kem_sk),
             keys: Keyring::new(),
+            staged: BTreeMap::new(),
             commits: BTreeMap::new(),
             histories: BTreeMap::new(),
             epoch: 0,
@@ -901,6 +909,19 @@ impl Sealer for KeyringSealer {
     }
 
     fn accept_rekey(&mut self, p: &RekeyPayload) -> KeyEvent {
+        let delivery = self.accept_rekey_ahead(p);
+        if let Some(candidate) = self.staged.remove(&p.epoch)
+            && delivery == KeyEvent::None
+            && let Ok((epoch, key)) = candidate.verify(&self.collection, &p.commit)
+        {
+            // The later grant supplied this key. Preserve the delivery event
+            // of the actual rekey for private-switch and hosted admission.
+            self.keys.insert(epoch, key);
+        }
+        delivery
+    }
+
+    fn accept_rekey_ahead(&mut self, p: &RekeyPayload) -> KeyEvent {
         self.commits.insert(p.epoch, p.commit);
         if p.from != 0 {
             self.histories.insert(p.epoch, p.history.clone());
@@ -985,8 +1006,7 @@ impl Sealer for KeyringSealer {
         {
             return KeyEvent::None;
         }
-        // The grant epoch's key, against the commitment read ahead: used only to
-        // open the history box, never installed.
+        // The read-ahead commitment authenticates the key for opening this box.
         let Ok(key) = keys::open_key_grant(grant, &self.collection, &self.kem, &rekey.commit)
         else {
             return KeyEvent::Inconsistent;
@@ -995,13 +1015,20 @@ impl Sealer for KeyringSealer {
         else {
             return KeyEvent::Inconsistent;
         };
-        drop(key);
-        // An older key is installed only once checked against the
-        // commitment of a rekey this replica applied in order. Epochs without one
-        // are skipped; any mismatch installs nothing.
+        // Publish the candidates only if the whole applied prefix checks out
+        // and the grant supplies the wanted key. Limit them to this grant's
+        // epoch range even if its history contains unexpected entries.
+        let mut staged = BTreeMap::new();
         let mut verified = Vec::new();
         for h in history {
-            let Some(c) = self.commits.get(&h.epoch()).copied() else {
+            let epoch = h.epoch();
+            if epoch > want {
+                if epoch < grant.epoch {
+                    staged.insert(epoch, h);
+                }
+                continue;
+            }
+            let Some(c) = self.commits.get(&epoch).copied() else {
                 continue;
             };
             match h.verify(&self.collection, &c) {
@@ -1012,6 +1039,8 @@ impl Sealer for KeyringSealer {
         if !verified.iter().any(|(e, _)| *e == want) {
             return KeyEvent::None;
         }
+        staged.insert(grant.epoch, keys::Unverified::new(grant.epoch, key));
+        self.staged = staged;
         for (e, k) in verified {
             self.keys.insert(e, k);
         }
@@ -1124,11 +1153,13 @@ impl Sealer for KeyringSealer {
         ))
         .map_err(|_| bad())?;
         let k = b.get(8..8 + n).ok_or_else(bad)?;
-        self.keys = Keyring::from_bytes(k)?;
+        let keys = Keyring::from_bytes(k)?;
         let rest = &b[8 + n..];
         if !rest.len().is_multiple_of(40) {
             return Err(bad());
         }
+        self.staged.clear();
+        self.keys = keys;
         self.commits = rest
             .chunks(40)
             .map(|c| {

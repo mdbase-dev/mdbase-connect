@@ -20,7 +20,9 @@
 //! - a valid grant of a later epoch (a rekey ahead) is checked against that rekey's
 //!   commitment only to open its history box (`sealed-envelope.md` §5.2). Of the
 //!   older keys, only those whose commitment came from an applied rekey are
-//!   installed ([`crate::Sealer::accept_key_grant_ahead`]).
+//!   installed. Later keys, including the grant key, stay in memory as
+//!   unverified candidates until ordered apply checks each rekey commitment.
+//!   Replay can then continue without another control scan for the same grant.
 //!
 //! A key whose commitment was only read ahead is never installed. A service that
 //! hides or reorders control items can therefore withhold keys, but cannot plant
