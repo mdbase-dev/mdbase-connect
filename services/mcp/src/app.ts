@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { MdbaseAppManifest } from "@mdbase-dev/connect-protocol";
 import { ZodError, z } from "zod";
 import type { DatabasePool } from "./db.js";
+import { GatewayOperationError } from "./errors.js";
 import type { McpRuntimeConfig } from "./config.js";
 import { PostgresGrantKeyStore } from "./key-store.js";
 import { ConnectGateway } from "./connect.js";
@@ -89,6 +90,9 @@ export async function buildApp(options: BuildOptions) {
   app.setErrorHandler((error, request, reply) => {
     if (error instanceof OAuthError) {
       return reply.code(error.status).send({ error: error.code, error_description: error.message });
+    }
+    if (error instanceof GatewayOperationError) {
+      return reply.code(503).send({ error: "temporarily_unavailable", error_description: "Connect could not start authorization. Try signing in to your MCP application again shortly." });
     }
     if (error instanceof ZodError) {
       return reply.code(400).send({
@@ -209,6 +213,13 @@ export async function buildApp(options: BuildOptions) {
         return reply.code(400).type("text/html; charset=utf-8").send(page(
           "Connection could not be completed",
           "The authorization response is invalid. Return to your MCP application and connect again."
+        ));
+      }
+      if (error instanceof GatewayOperationError) {
+        request.log.warn({ event: "mcp_oauth_completion_failed", reason: error.code }, "MCP authorization could not be completed");
+        return reply.code(500).type("text/html; charset=utf-8").send(page(
+          "Connection could not be completed",
+          "Connect could not confirm this approval. Return to your MCP application and start a new sign-in."
         ));
       }
       throw error;

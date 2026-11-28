@@ -7,7 +7,7 @@ import { LEGACY } from "./next-gateway.js";
 const id = "01911111-1111-7111-8111-111111111111";
 function fixture() {
   const gateway = new ConnectGateway({} as any, new SecretBox(Buffer.alloc(32, 7)), {} as any, "https://connect.example", {} as any, "https://mcp.example/callback");
-  const row = { collection_id: id, operations: ["describe", "query"] };
+  const row = { collection_id: id, operations: ["describe", "query"], credentials_ciphertext: "rejected-credentials" };
   const fresh = vi.spyOn(gateway as any, "freshConnection").mockResolvedValue(row);
   vi.spyOn(gateway as any, "credentials").mockReturnValue({ accessToken: "access" });
   vi.spyOn(gateway.next, "run").mockResolvedValue(LEGACY);
@@ -17,10 +17,10 @@ function fixture() {
 describe("MCP authority gates", () => {
   it.each([undefined, [], ["future"], ["query-metadata-v1"]])("sends no metadata query without complete advertisement %j", async flags => {
     const { gateway } = fixture();
-    const send = vi.spyOn(gateway as any, "sendOperation").mockImplementation(async (_row, _op, _input, requestId) => ({ ok: true, status: 200, body: { protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION, request_id: requestId, ok: true, result: { protocol_version: 1, collection_id: id, authority_capabilities: flags } } }));
+    const send = vi.spyOn(gateway as any, "sendOperation").mockImplementation(async (_row, _credentials, _op, _input, requestId) => ({ ok: true, status: 200, body: { protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION, request_id: requestId, ok: true, result: { protocol_version: 1, collection_id: id, authority_capabilities: flags } } }));
     await expect(gateway.operation("tenant", "connection", "query", { output: "metadata" })).rejects.toMatchObject({ code: "unsupported_authority_feature" });
     expect(send).toHaveBeenCalledOnce();
-    expect(send.mock.calls[0][1]).toBe("describe");
+    expect(send.mock.calls[0][2]).toBe("describe");
   });
 
   it("does not discover without describe approval or mistake discovery failure for missing support", async () => {
@@ -37,7 +37,7 @@ describe("MCP authority gates", () => {
   it("repeats metadata discovery after renewal rather than borrowing previous support", async () => {
     const { gateway, fresh } = fixture();
     const calls: string[] = [];
-    const send = vi.spyOn(gateway as any, "sendOperation").mockImplementation(async (_row, operation, _input, requestId) => {
+    const send = vi.spyOn(gateway as any, "sendOperation").mockImplementation(async (_row, _credentials, operation, _input, requestId) => {
       calls.push(operation as string);
       if (operation === "query") return { ok: false, status: 401, body: {} };
       return { ok: true, status: 200, body: { protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION, request_id: requestId, ok: true,
@@ -45,17 +45,17 @@ describe("MCP authority gates", () => {
     });
     await expect(gateway.operation("tenant", "connection", "query", { output: "metadata" })).rejects.toMatchObject({ code: "unsupported_authority_feature" });
     expect(calls).toEqual(["describe", "query", "describe"]);
-    expect(fresh.mock.calls.map(call => call[2])).toEqual([false, true]);
+    expect(fresh.mock.calls.map(call => call[2])).toEqual([undefined, "rejected-credentials"]);
     expect(send).toHaveBeenCalledTimes(3);
   });
 
   it("leaves ordinary queries unchanged without discovery or new permissions", async () => {
     const { gateway, row } = fixture(); row.operations = ["query"];
-    const send = vi.spyOn(gateway as any, "sendOperation").mockImplementation(async (_row, _operation, _input, requestId) => ({ ok: true, status: 200,
+    const send = vi.spyOn(gateway as any, "sendOperation").mockImplementation(async (_row, _credentials, _operation, _input, requestId) => ({ ok: true, status: 200,
       body: { protocol_version: OPERATION_TRANSPORT_PROTOCOL_VERSION, request_id: requestId, ok: true, result: { valid: true, result: { results: [] } } } }));
     await expect(gateway.operation("tenant", "connection", "query", {})).resolves.toMatchObject({ valid: true });
     expect(send).toHaveBeenCalledOnce();
-    expect(send.mock.calls[0][1]).toBe("query");
+    expect(send.mock.calls[0][2]).toBe("query");
   });
 
   it("rechecks operation approval after authentication renewal", async () => {
@@ -70,5 +70,15 @@ describe("MCP authority gates", () => {
     const { gateway, row } = fixture(); Object.assign(row, { id: "connection", display_name: "Notes" }); row.operations = ["query"];
     vi.spyOn(gateway as any, "sendOperation").mockResolvedValue({ ok: false, status: 409, body: { error: { code: "collection_unavailable", message: "mdbase has been updated.", details: { reason: "moved_to_next_runtime" } } } });
     await expect(gateway.operation("tenant", "connection", "query", {})).rejects.toMatchObject({ code: "reconnect_required", details: { connection_id: "connection" } });
+  });
+
+  it("returns actionable authority errors without forwarding raw messages or details", async () => {
+    const { gateway } = fixture();
+    vi.spyOn(gateway as any, "sendOperation").mockResolvedValue({
+      ok: false, status: 503, body: { error: { code: "temporarily_unavailable", message: "internal message", details: { secret: "internal value" } } }
+    });
+    await expect(gateway.operation("tenant", "connection", "query", {})).rejects.toMatchObject({
+      code: "temporarily_unavailable", message: "The collection could not complete the request. Try again shortly.", details: undefined
+    });
   });
 });

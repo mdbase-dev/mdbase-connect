@@ -149,11 +149,13 @@ describe("Native token refresh", () => {
           { status: 400 }
         );
       }));
+      const keyRead = vi.spyOn(keyStore, "get");
       await expect(gateway.operation(setId, connectionId, "query", {})).rejects.toMatchObject({
-        code: "invalid_grant",
-        message: "Refresh token is invalid or expired."
+        code: "reconnect_required",
+        message: "Its collection access expired or was withdrawn. Approve Native Notes again to continue."
       });
       expect(verifiedProof).toBe(true);
+      expect(keyRead).toHaveBeenCalledWith(key.handle, expect.objectContaining({ query: expect.any(Function), release: expect.any(Function) }));
     } finally {
       await db.end();
     }
@@ -178,19 +180,22 @@ describe("links to a collection in the Editor", () => {
     });
     vi.stubGlobal("fetch", fetch);
     const warn = vi.fn();
+    const query = vi.fn(async (_sql: string) => ({ rows }));
     const gateway = new ConnectGateway(
-      { query: async () => ({ rows }) } as any, new SecretBox(Buffer.alloc(32, 7)), new MemoryGrantKeyStore(), "https://connect.example",
+      { query } as any, new SecretBox(Buffer.alloc(32, 7)), new MemoryGrantKeyStore(), "https://connect.example",
       {} as any, "https://mcp.example/callback", warn
     );
-    const links = await gateway.editorLinks("set");
-    expect(Object.fromEntries(links)).toEqual({
+    const links = await gateway.listConnectionsWithEditorLinks("set");
+    expect(query).toHaveBeenCalledOnce();
+    expect(query.mock.calls[0]?.[0]).not.toContain("credentials_ciphertext");
+    expect(Object.fromEntries(links.map(({ id, editor_url }) => [id, editor_url]))).toEqual({
       a: `https://editor.example/?server=https%3A%2F%2Fpublic.example&collection=${collectionId}`,
       b: `https://editor.example/?server=https%3A%2F%2Fpublic.example&collection=${otherCollectionId}`,
       c: null,
       d: null
     });
     expect(warn).toHaveBeenCalledWith({ event: "editor_link_unavailable", reason: "https://down.example UI configuration answered 503" });
-    await gateway.editorLinks("set");
+    await gateway.listConnectionsWithEditorLinks("set");
     // The answers are kept; the server that failed is asked again.
     expect(fetch.mock.calls.map(([url]) => String(url)).sort()).toEqual([
       "https://connect.example/v1/ui-configuration",

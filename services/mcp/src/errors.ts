@@ -8,7 +8,9 @@ export class GatewayOperationError extends Error {
   }
 
   /** The connection's grant must be approved again; tool results carry a re-approval link. */
-  static reconnectRequired(connection: { id: string; display_name: string }): GatewayOperationError {
-    return new GatewayOperationError("reconnect_required", `${connection.display_name} needs to be approved again for the updated mdbase.`, { connection_id: connection.id });
+  static reconnectRequired(connection: { id: string; display_name: string }, reason?: string): GatewayOperationError {
+    return new GatewayOperationError("reconnect_required", reason
+      ? `${reason} Approve ${connection.display_name} again to continue.`
+      : `${connection.display_name} needs to be approved again for the updated mdbase.`, { connection_id: connection.id });
   }
 }

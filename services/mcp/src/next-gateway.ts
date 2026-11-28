@@ -4,7 +4,7 @@
 // runs the tool there. Collections the control plane does not route stay on the
 // legacy authority path until it is removed.
 import { connect, controlRouteResolver, isMdbaseError, routeFromControl, uuidv7, type KeyPair, type MdbaseClient, type RecordView, type Write } from "@mdbase-dev/sdk/thin-client";
-import { describeError } from "@mdbase-dev/sdk/describe";
+import { describeError, problemCodeOf } from "@mdbase-dev/sdk/describe";
 import type { GrantKeyStore } from "./grant-crypto.js";
 import { GatewayOperationError } from "./errors.js";
 import { gatewayConnector } from "./next-connector.js";
@@ -106,7 +106,7 @@ export class NextGateway {
         // again: a write keeps its mutation ID, so it is not applied twice.
         const closed = session.hosted && isMdbaseError(error, "unavailable") && !error.reason;
         const again = closed && rerunnable(operation, input) && retry < HOSTED_RETRIES && !signal?.aborted && this.now() - started < HOSTED_RERUN_WITHIN_MS;
-        if (!again) throw gatewayError(error, !!connection.native);
+        if (!again) throw gatewayError(error);
       } finally {
         this.touch(connection.id, session);
       }
@@ -155,9 +155,11 @@ export class NextGateway {
       // The SDK reports a route it could not resolve as a replica it could not reach.
       // Keep what Connect said, so that the open neither waits on it nor hides it.
       let refused: unknown = null;
+      let initialRoute: typeof route | undefined = route;
       const resolveRoute = connection.native ? async () => {
         try {
-          const current = await this.route(connection, token.value, false);
+          const current = initialRoute ?? await this.route(connection, token.value, false);
+          initialRoute = undefined;
           if (current === LEGACY) throw new GatewayOperationError("control_error", "Native collection routing is unavailable.");
           if (current.grant !== route.grant) throw new GatewayOperationError("authorization_changed", "Connect returned a different routing grant.");
           return routeFromControl({ collection: connection.collection_id, ...current }, token.value);
@@ -189,7 +191,7 @@ export class NextGateway {
     try {
       session = await abortable(opening, signal);
     } catch (error) {
-      throw gatewayError(error, !!connection.native);
+      throw gatewayError(error);
     }
     // Dropped while it opened: open another.
     return session.ended || this.dropped.has(opening) ? this.session(connection, accessToken, signal) : session;
@@ -232,14 +234,14 @@ export class NextGateway {
     }
     const body = await response.json().catch(() => null) as RouteBody | null;
     if (!connection.native && (response.status === 404 || response.status === 405)) return LEGACY;
-    if (response.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Connect access expired.");
+    if (response.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Collection access expired. Reconnect the collection and retry.");
     if (!connection.native && response.status === 409 && body?.error?.code === "client_key_required" && attach) {
       if (await this.attach(connection, accessToken, body.error.details, signal)) return this.route(connection, accessToken, false, signal);
       throw GatewayOperationError.reconnectRequired(connection);
     }
     if (response.status === 409) throw GatewayOperationError.reconnectRequired(connection);
     if (!response.ok || typeof body?.grant !== "string" || !Array.isArray(body.targets)) {
-      throw new GatewayOperationError(body?.error?.code ?? "control_error", `Connect could not route ${connection.display_name}.`);
+      throw new GatewayOperationError("control_error", `Connect could not reach ${connection.display_name}. Try again shortly.`);
     }
     if (connection.native) validateNativeRoute(connection, body);
     // A grant superseded by, or removed from, a next collection: the legacy path
@@ -509,10 +511,17 @@ async function settle(pending: Promise<Write>, readBack: (() => Promise<RecordVi
   return view;
 }
 
-function gatewayError(error: unknown, native = false): unknown {
+function gatewayError(error: unknown): unknown {
   if (!isMdbaseError(error)) return error;
-  const description = native ? describeError(error) : null;
-  return new GatewayOperationError(error.reason ?? error.code, description ? `${description.title}. ${description.message}` : error.message, error.retryAfterMs ? { retry_after_ms: error.retryAfterMs } : undefined);
+  if (error.reason === "cursor_expired" || error.reason === "cursor_stale" || error.reason === "invalid_query_cursor") {
+    return new GatewayOperationError(error.reason, "The query cursor is no longer usable. Run the query again without the cursor.");
+  }
+  if (error.reason === "query_budget_exceeded") {
+    return new GatewayOperationError(error.reason, "The query exceeded the collection's work limit. Narrow the filter or select fewer fields and try again.");
+  }
+  const description = describeError(error);
+  const code = error.reason && problemCodeOf(error.reason) ? error.reason : error.code;
+  return new GatewayOperationError(code, description ? `${description.title}. ${description.message}` : "The collection request could not be completed. Try again shortly.", description?.retryAfterMs ? { retry_after_ms: description.retryAfterMs } : undefined);
 }
 
 interface RouteBody {
@@ -531,8 +540,9 @@ function validateNativeRoute(connection: NextConnection, body: RouteBody): void 
   }
   const reason = body.availability?.state === "unavailable" ? body.availability.reason : undefined;
   if (reason || body.targets?.length === 0) {
-    const description = describeError({ state: "unavailable", reason: reason ?? "no_device_registered" });
-    throw new GatewayOperationError(reason ?? "no_device_registered", description
+    const code = reason ? (problemCodeOf(reason) ? reason : "collection_unavailable") : "no_device_registered";
+    const description = describeError({ state: "unavailable", reason: code });
+    throw new GatewayOperationError(code, description
       ? `${description.title}. ${description.message}` : "This collection is unavailable. Try again shortly.");
   }
 }

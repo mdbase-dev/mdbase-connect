@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { applicationOperationSelectionIsAtomic } from "@mdbase-dev/connect-protocol";
@@ -12,6 +12,7 @@ import { PostgresGrantKeyStore } from "./key-store.js";
 import { applicationInstallationId } from "./grant-crypto.js";
 import { buildApp } from "./app.js";
 import { createDatabase } from "./db.js";
+import { GatewayOperationError } from "./errors.js";
 import type { McpRuntimeConfig } from "./config.js";
 import { SecretBox, pkceChallenge } from "./security.js";
 
@@ -244,6 +245,31 @@ describe("mdbase MCP gateway", () => {
     } finally { await fixture.app.close(); await fixture.db.end(); }
   });
 
+  it("claims denial before a competing approval can exchange the code", async () => {
+    const fixture = await nativeOAuth();
+    onTestFinished(async () => { await fixture.app.close(); await fixture.db.end(); });
+    const removeKey = PostgresGrantKeyStore.prototype.delete;
+    let started!: () => void;
+    let resume!: () => void;
+    const deleting = new Promise<void>(resolve => { started = resolve; });
+    const allowed = new Promise<void>(resolve => { resume = resolve; });
+    vi.spyOn(PostgresGrantKeyStore.prototype, "delete").mockImplementation(async function (this: PostgresGrantKeyStore, handle) {
+      started();
+      await allowed;
+      return removeKey.call(this, handle);
+    });
+    const state = fixture.upstream.authorizationProofs[0]!.binding.state!;
+    const denial = fixture.app.inject({ url: `/oauth/connect/callback?${new URLSearchParams({ state, error: "access_denied" })}` }).then(response => response);
+    await deleting;
+    try {
+      expect((await fixture.callback()).statusCode).toBe(400);
+      expect(fixture.upstream.fetch.mock.calls.some(([url]) => String(url).endsWith("/oauth/token"))).toBe(false);
+    } finally {
+      resume();
+      expect((await denial).statusCode).toBe(302);
+    }
+  });
+
   it("presents each MCP sign-in to Connect as its own installation, kept for collections added in that sign-in", async () => {
     const fixture = await nativeOAuth();
     try {
@@ -272,6 +298,40 @@ describe("mdbase MCP gateway", () => {
       await expect(fixture.gateway.operation(row.connection_set_id, row.id, "query", {})).rejects.toMatchObject({ code: "no_device_registered" });
       expect(fixture.upstream.refreshProofs).toHaveLength(1);
     } finally { await fixture.app.close(); await fixture.db.end(); }
+  });
+
+  it("reuses renewed credentials when a second call reports a stale authentication failure", async () => {
+    const fixture = await nativeOAuth();
+    onTestFinished(async () => { await fixture.app.close(); await fixture.db.end(); });
+    expect((await fixture.callback()).statusCode).toBe(302);
+    const row = (await fixture.db.query("SELECT id, connection_set_id FROM mcp_connections")).rows[0];
+    const checkout = vi.spyOn(fixture.db, "connect");
+    const run = vi.spyOn(fixture.gateway.next, "run");
+    run.mockResolvedValueOnce({ results: [] });
+    const query = () => fixture.gateway.operation(row.connection_set_id, row.id, "query", {});
+    await query();
+    expect(checkout).not.toHaveBeenCalled();
+    const initialAccess = run.mock.calls[0]![1];
+    let started!: () => void;
+    let resume!: () => void;
+    const inFlight = new Promise<void>(resolve => { started = resolve; });
+    const delayed = new Promise<void>(resolve => { resume = resolve; });
+    const expired = new GatewayOperationError("authority_authentication_expired", "Access expired.");
+    run.mockImplementationOnce(async () => { started(); await delayed; throw expired; });
+    run.mockRejectedValueOnce(expired);
+    run.mockResolvedValue({ results: [] });
+    const stale = query();
+    try {
+      await Promise.race([inFlight, stale]);
+      await query();
+    } finally {
+      resume();
+      await stale;
+    }
+    expect(fixture.upstream.refreshProofs).toHaveLength(1);
+    const renewedAccess = run.mock.calls.at(-2)![1];
+    expect(renewedAccess).not.toBe(initialAccess);
+    expect(run.mock.calls.at(-1)![1]).toBe(renewedAccess);
   });
 
   it.each(["collection_id", "grant_id"])("binds native operations to the stored completion's %s", async field => {
@@ -407,6 +467,11 @@ describe("mdbase MCP gateway", () => {
     vi.stubGlobal("fetch", upstream.fetch);
     const db = await createDatabase("memory");
     const { app, oauth, gateway } = await buildApp({ db, config: testConfig(), view: TEST_VIEW });
+    let client: Client | undefined;
+    onTestFinished(async () => {
+      try { await client?.close(); }
+      finally { await app.close(); await db.end(); }
+    });
 
     const registration = await app.inject({
       method: "POST",
@@ -544,7 +609,7 @@ describe("mdbase MCP gateway", () => {
     );
 
     const address = await app.listen({ host: "127.0.0.1", port: 0 });
-    const client = new Client({ name: "gateway-test", version: "1.0.0" });
+    client = new Client({ name: "gateway-test", version: "1.0.0" });
     const transport = new StreamableHTTPClientTransport(new URL(`${address}/mcp`), {
       requestInit: { headers: { authorization: `Bearer ${accessToken}` } }
     });
@@ -577,6 +642,7 @@ describe("mdbase MCP gateway", () => {
       valid: true,
       result: { results: [{ path: "notes/second.md" }] }
     });
+    expect(queried.content).toEqual([{ type: "text", text: JSON.stringify(queried.structuredContent) }]);
     expect(upstream.operationAuthorizations).toContain("Bearer hosted-access-two-refreshed");
     expect(upstream.refreshProofs).toHaveLength(1);
     expect(upstream.operationProofs).toHaveLength(1);
@@ -736,9 +802,6 @@ describe("mdbase MCP gateway", () => {
       { signal: cancellation.signal }
     )).rejects.toMatchObject({ name: "AbortError" });
 
-    await client.close();
-    await app.close();
-    await db.end();
   });
 });
 
@@ -848,8 +911,8 @@ describe("refresh token rotation", () => {
     try {
       const callback = new URL((await fixture.callback()).headers.location!);
       const token = (body: Record<string, unknown>) => app.inject({ method: "POST", url: "/oauth/token", payload: body });
-      const refresh = (refreshToken: unknown, clientId = fixture.clientId) =>
-        token({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId });
+      const refresh = (refreshToken: unknown, clientId = fixture.clientId, resource?: string) =>
+        token({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, resource });
       const first = (await token({
         grant_type: "authorization_code", code: callback.searchParams.get("code"), client_id: fixture.clientId,
         redirect_uri: "https://client.example/callback", code_verifier: fixture.verifier
@@ -869,6 +932,9 @@ describe("refresh token rotation", () => {
       expect(await oauth.authenticate(third.json().access_token)).not.toBeNull();
 
       await db.query("UPDATE mcp_refresh_tokens SET used_at = $1 WHERE used_at IS NOT NULL", [new Date(Date.now() - 60_000)]);
+      expect((await refresh(first.refresh_token, "another-client")).statusCode).toBe(400);
+      expect((await refresh(first.refresh_token, fixture.clientId, "https://other.example/mcp")).statusCode).toBe(400);
+      expect(await oauth.authenticate(third.json().access_token)).not.toBeNull();
       const reused = await refresh(first.refresh_token);
       expect(reused.statusCode).toBe(400);
       expect(reused.json()).toMatchObject({ error: "invalid_grant" });

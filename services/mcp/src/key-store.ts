@@ -1,5 +1,5 @@
 import type { GrantKeyRecord, GrantKeyStore } from "./grant-crypto.js";
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { SecretBox } from "./security.js";
 
 const MAX_U64 = "18446744073709551615";
@@ -48,8 +48,8 @@ export class PostgresGrantKeyStore implements GrantKeyStore {
     };
   }
 
-  async get(handle: string): Promise<GrantKeyRecord | null> {
-    const result = await this.db.query<{
+  async get(handle: string, db: DatabaseQueryable = this.db): Promise<GrantKeyRecord | null> {
+    const result = await db.query<{
       agreement_public_key: string | null;
       agreement_private_key_ciphertext: string | null;
       signing_public_key: string | null;

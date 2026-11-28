@@ -5,7 +5,7 @@
 import { randomBytes } from "node:crypto";
 import { keyPairFromSecret, type KeyPair } from "@mdbase-dev/sdk/thin-client";
 import type { GrantKeyRecord } from "./grant-crypto.js";
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { SecretBox } from "./security.js";
 
 const field = (bytes: Uint8Array) => {
@@ -54,8 +54,8 @@ export class NoiseKeyStore {
     return pair;
   }
 
-  async get(grantKeyHandle: string): Promise<KeyPair | null> {
-    const row = (await this.db.query<{ public_key: string; private_key_ciphertext: string }>(
+  async get(grantKeyHandle: string, db: DatabaseQueryable = this.db): Promise<KeyPair | null> {
+    const row = (await db.query<{ public_key: string; private_key_ciphertext: string }>(
       "SELECT public_key, private_key_ciphertext FROM mcp_grant_keys WHERE handle = $1", [noiseHandle(grantKeyHandle)]
     )).rows[0];
     if (!row) return null;
