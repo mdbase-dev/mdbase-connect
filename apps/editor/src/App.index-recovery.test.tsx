@@ -41,17 +41,23 @@ it("shows a stopped connection and explicit retry after a permanent watch failur
   } finally { unmount(); }
 });
 
-it("keeps partial results on a search budget refusal and starts a different search without Retry", async () => {
+it.each(["budget", "transient"] as const)("keeps partial results on a %s search failure and starts a different search", async (failure) => {
   const gateway = new DemoCollectionGateway(999);
-  vi.spyOn(gateway, "searchBodies").mockRejectedValueOnce(new MdbaseError({
+  const error = failure === "budget" ? new MdbaseError({
     code: "too_large", reason: "query_budget_exceeded", recovery: "fix_request", message: "Query budget exceeded"
-  })).mockResolvedValue([]);
+  }) : new Error("The collection did not return a complete list of notes.");
+  vi.spyOn(gateway, "searchBodies").mockRejectedValueOnce(error).mockResolvedValue([]);
   render(<App gateway={gateway} />);
   await screen.findByText("1,000 notes · 2 files");
   const input = screen.getByPlaceholderText("Search");
   fireEvent.change(input, { target: { value: "999" } });
-  expect(await screen.findByText(/Search limit reached/)).toHaveTextContent("1 found so far · incomplete");
-  expect(screen.queryByRole("button", { name: "Retry search" })).not.toBeInTheDocument();
+  expect(await screen.findByText(/1 found so far · incomplete/)).toBeInTheDocument();
+  if (failure === "budget") {
+    expect(screen.getByText(/Search limit reached/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry search" })).not.toBeInTheDocument();
+  } else {
+    expect(screen.getByRole("button", { name: "Retry search" })).toBeInTheDocument();
+  }
   fireEvent.change(input, { target: { value: "998" } });
   expect(await screen.findByText("1 found · relevance")).toBeInTheDocument();
 });

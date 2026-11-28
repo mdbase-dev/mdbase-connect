@@ -101,7 +101,7 @@ describe("prepareHtmlPreviewDocument", () => {
     expect(parsed.getElementById("http")?.getAttribute("target")).toBe("_blank");
     expect(parsed.getElementById("http")?.getAttribute("rel")).toBe("noopener noreferrer");
 
-    expect(parsed.getElementById("anchor")?.getAttribute("href")).toBe("#section-2");
+    expect(parsed.getElementById("anchor")?.getAttribute("href")).toBe("about:srcdoc#section-2");
     expect(parsed.getElementById("anchor")?.getAttribute("target")).toBeNull();
 
     for (const id of ["js", "data", "blob", "rel", "area-js"]) {

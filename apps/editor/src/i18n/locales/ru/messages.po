@@ -1032,6 +1032,10 @@ msgstr "Добавляет типов: {0}"
 msgid "Adds 1 type"
 msgstr "Добавляет 1 тип"
 
+#: src/editor-commands.ts
+msgid "Adds a link in the note body"
+msgstr "Вставляет ссылку в текст заметки"
+
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
 msgstr "Принять и обновить"
@@ -1698,10 +1702,6 @@ msgstr "Удобный"
 #: src/EditorRail.tsx
 msgid "Commands"
 msgstr "Команды"
-
-#: src/EditorRail.tsx
-msgid "Commands · {key} outside text"
-msgstr "Команды · {key} вне текста"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -4300,10 +4300,6 @@ msgstr "Уменьшить отступ"
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "вне текстовых полей"
-
-#: src/editor-commands.ts
-msgid "outside text; add a link while typing"
-msgstr "вне текста; при вводе — вставить ссылку"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"

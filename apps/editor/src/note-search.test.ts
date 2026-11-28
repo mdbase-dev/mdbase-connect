@@ -263,6 +263,10 @@ describe("note search", () => {
     expect(c.context.kind).toBe("body");
     expect(c.context.text).toContain("launch");
     expect(c.context.ranges.length).toBeGreaterThan(0);
+    texts.set("C.md", "New launch excerpt.");
+    expect(c.context.text).toBe("New launch excerpt.");
+    texts.delete("C.md");
+    expect(c.context.text).toBe("");
     // A short word matched elsewhere does not rule out the excerpt of the words asked.
     const [mixed] = searchNoteResults(listed, "launch C", Infinity, undefined, bodies);
     expect(mixed.note.path).toBe("C.md");

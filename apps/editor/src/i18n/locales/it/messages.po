@@ -1032,6 +1032,10 @@ msgstr "Aggiunge {0} tipi"
 msgid "Adds 1 type"
 msgstr "Aggiunge 1 tipo"
 
+#: src/editor-commands.ts
+msgid "Adds a link in the note body"
+msgstr "Inserisce un link nel corpo della nota"
+
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
 msgstr "Adotta e aggiorna"
@@ -1698,10 +1702,6 @@ msgstr "Comodo"
 #: src/EditorRail.tsx
 msgid "Commands"
 msgstr "Comandi"
-
-#: src/EditorRail.tsx
-msgid "Commands · {key} outside text"
-msgstr "Comandi · {key} fuori dal testo"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -4300,10 +4300,6 @@ msgstr "Riduci rientro"
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "input di testo esterni"
-
-#: src/editor-commands.ts
-msgid "outside text; add a link while typing"
-msgstr "fuori dal testo; aggiungi un link durante la scrittura"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"

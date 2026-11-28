@@ -128,7 +128,8 @@ function RailCommands({ onClick }: { onClick: () => void }) {
   useShortcuts();
   const chord = commandShortcuts("command-palette")[0];
   const key = chord ? shortcutLabel(chord) : undefined;
-  return <button className="quick-open-trigger" title={key ? t`Commands · ${key} outside text` : t`Commands`} onClick={onClick}>
+  const label = t`Commands`;
+  return <button className="quick-open-trigger" title={key ? `${label} · ${key}` : label} onClick={onClick}>
     <span><Command aria-hidden="true" /><span className="rail-row-label"><Trans>Commands</Trans></span></span>
     {key && <>{" "}<kbd>{key}</kbd></>}
   </button>;

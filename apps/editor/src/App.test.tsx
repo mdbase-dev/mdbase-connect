@@ -720,19 +720,20 @@ describe("mdbase editor", () => {
     expect(gateway.watchCalls).toBe(1);
   });
 
-  it.each(["ctrlKey", "metaKey"] as const)("uses P everywhere and shares K search outside text inputs (%s)", async (modifier) => {
+  it.each(["ctrlKey", "metaKey"] as const)("uses P everywhere and opens Commands with K outside the note body (%s)", async (modifier) => {
     render(<App gateway={new DemoCollectionGateway(4)} />);
     const body = await screen.findByRole("textbox", { name: "Note body" });
     const search = screen.getByRole("combobox", { name: "Search notes and files" });
     expect(screen.getByRole("button", { name: /^Commands / }).title).toContain("K");
-    for (const target of [search, body, screen.getByRole("button", { name: "Note properties" })]) {
+    const title = screen.getByRole("textbox", { name: "Note title" });
+    for (const target of [title, search, body, screen.getByRole("button", { name: "Note properties" })]) {
       target.focus();
-      const unhandled = fireEvent.keyDown(target, { key: "k", [modifier]: true });
-      if (target.tagName === "BUTTON") expect(unhandled).toBe(false);
-      if (target.tagName === "BUTTON") {
+      // The mocked writer lacks CodeMirror's key target. Its link chord is covered in Chromium.
+      if (target !== body) {
+        expect(fireEvent.keyDown(target, { key: "k", [modifier]: true })).toBe(false);
         expect(screen.getByRole("dialog", { name: "Quick open" })).toBeInTheDocument();
         fireEvent.keyDown(window, { key: "Escape" });
-      } else expect(screen.queryByRole("dialog", { name: "Quick open" })).not.toBeInTheDocument();
+      }
       fireEvent.keyDown(target, { key: "p", [modifier]: true });
       expect(screen.getByRole("dialog", { name: "Quick open" })).toBeInTheDocument();
       fireEvent.keyDown(window, { key: "Escape" });

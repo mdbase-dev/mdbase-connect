@@ -10,7 +10,7 @@ export const commandDefinitions = {
   "filter-type": { get label() { return t`Filter by type`; } },
   "clear-filter": { get label() { return t`All notes`; } },
   "quick-open": { get label() { return t`Quick open`; }, shortcut: "mod+P", group: "Navigate" },
-  "command-palette": { get label() { return t`Commands`; }, shortcut: "mod+K", aliases: ["mod+shift+P"], group: "Navigate", get scope() { return t`outside text; add a link while typing`; } },
+  "command-palette": { get label() { return t`Commands`; }, shortcut: "mod+K", aliases: ["mod+shift+P"], group: "Navigate", get scope() { return t`Adds a link in the note body`; } },
   "new-note": { get label() { return t`New note`; }, shortcut: "C", aliases: ["mod+shift+N"], group: "Note" },
   "new-note-of-type": { get label() { return t`New note of type…`; }, shortcut: "shift+C", group: "Note" },
   "upload-files": { get label() { return t`Upload files…`; }, group: "Note" },

@@ -42,6 +42,8 @@ export function prepareHtmlPreviewDocument(source: string): string {
   for (const link of document_.querySelectorAll("a[href], area[href]")) {
     const raw = link.getAttribute("href")?.trim() ?? "";
     if (raw.startsWith("#")) {
+      // A relative fragment in srcdoc resolves against the parent page's URL.
+      link.setAttribute("href", `about:srcdoc${raw}`);
       link.removeAttribute("target");
       continue;
     }
