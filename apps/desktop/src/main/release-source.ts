@@ -1,4 +1,4 @@
-import { verify, type Bundle } from "sigstore";
+import type { Bundle } from "sigstore";
 import { randomUUID } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
 import { isUpdateServiceUnavailable, UpdateServiceUnavailable } from "./update-service-error";
@@ -313,6 +313,8 @@ async function verifyReleaseBundle(
   trustCacheDirectory: string,
   signal?: AbortSignal
 ): Promise<void> {
+  // Initializing Sigstore and TUF is only needed for an actual update check.
+  const { verify } = await import("sigstore");
   const verifyAt = async (cachePath: string): Promise<void> => {
     signal?.throwIfAborted();
     await verify(bundle as Bundle, payload, {

@@ -88,7 +88,6 @@ fieldset legend { margin-bottom: 6px; }
 .setting-row .update-actions { display: flex; gap: 8px; }
 .setting-row .mdbase-segmented { gap: 0; }
 .setting-toggle.disabled .toggle-copy strong { color: var(--muted); }
-.setting-toggle.disabled .toggle-copy small { color: var(--faint); }
 .portal-connection-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .disconnect-button { margin: 0; }
 .privacy-block { display: block; padding: 18px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
@@ -138,6 +137,12 @@ fieldset legend { margin-bottom: 6px; }
 .collection-remove { color: var(--danger); }
 .collection-card-main { display: grid; grid-template-columns: 20px minmax(0, 1fr); align-items: start; gap: 8px; min-width: 0; }
 .collection-card-main > svg { width: 20px; height: 20px; color: var(--muted); }
+.collection-pagination { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; margin-top: 12px; }
+.collection-card:focus-visible, .activity-list li:focus-visible, .approval-prompt:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: var(--focus-offset);
+}
+.home-collections + .mdbase-button { margin-top: 12px; }
 .collection-card-main > div { display: grid; gap: 3px; min-width: 0; }
 .collection-card-main h3 { overflow: hidden; margin: 0; font-size: var(--font-size-ui); text-overflow: ellipsis; white-space: nowrap; }
 .collection-card-main code { overflow: hidden; color: var(--muted); font-size: var(--font-size-caption); text-overflow: ellipsis; white-space: nowrap; }
@@ -150,7 +155,7 @@ fieldset legend { margin-bottom: 6px; }
 .collection-holds li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
 .collection-holds li > div:first-child { display: grid; gap: 2px; min-width: 0; }
 .collection-holds small { color: var(--muted); }
-.new-access { margin-left: 8px; padding: 1px 6px; border-radius: 3px; color: var(--paper); background: var(--connected); font-size: var(--font-size-caption); }
+.new-access { margin-left: 8px; padding: 1px 6px; border-radius: 3px; color: var(--connected); background: var(--color-surface-subtle); font-size: var(--font-size-caption); }
 .activity-list { display: grid; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
 .activity-list li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: var(--font-size-caption); }
 .activity-list time { flex: 0 0 auto; color: var(--muted); font-size: var(--font-size-caption); }

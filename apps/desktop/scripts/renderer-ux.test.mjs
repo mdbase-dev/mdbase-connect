@@ -34,13 +34,13 @@ after(async () => {
 // presentation (wording, grouping) is covered by test/daemon-view.test.mjs.
 const unavailableUpdate = { phase: "unavailable", current_version: "test", channel: "beta", message: "Development build", can_check: false, can_install: false };
 
-async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [], apps = [], updateStatus = unavailableUpdate } = {}) {
+async function desktop({ signedIn = true, collections = [], access = [], devices = [], activity = [], apps = [], updateStatus = unavailableUpdate, delayDevices = false } = {}) {
   const page = await browser.newPage({ viewport: { width: 1060, height: 720 } });
   await page.route("**/*", (route) => new URL(route.request().url()).origin === origin ? route.continue() : route.abort());
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.clock.install();
-  await page.addInitScript(({ signedIn, collections, access, devices, activity, apps, updateStatus }) => {
+  await page.addInitScript(({ signedIn, collections, access, devices, activity, apps, updateStatus, delayDevices }) => {
     const calls = [];
     const record = (name) => async (...args) => { calls.push([name, ...args]); return null; };
     const fixture = {
@@ -62,13 +62,13 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
     window.mdbaseConnect = {
       getLocale: async () => localStorage.getItem("fixture:locale") ?? "en",
       setLocale: async (locale) => { calls.push(["setLocale", locale]); localStorage.setItem("fixture:locale", locale); },
-      status: async () => fixture.status(),
+      status: async () => structuredClone(fixture.status()),
       updateStatus: async () => fixture.updateStatus,
       checkForUpdates: async () => { calls.push(["checkForUpdates"]); return fixture.updateStatus; },
       installUpdate: async () => { calls.push(["installUpdate"]); return fixture.updateStatus; },
       listCollections: async () => fixture.collections,
-      listAccess: async () => fixture.access,
-      listApps: async () => ({ applications: fixture.apps }),
+      listAccess: async () => structuredClone(fixture.access),
+      listApps: async () => ({ applications: structuredClone(fixture.apps) }),
       openApp: record("openApp"),
       openAccount: record("openAccount"),
       getSettings: async () => ({ require_grant_approval: fixture.requireApproval }),
@@ -114,14 +114,17 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
         fixture.holds = (fixture.holds ?? []).filter((h) => h.id !== hold);
         return null;
       },
-      listActivity: async () => fixture.activity ?? [],
+      listActivity: async () => structuredClone(fixture.activity ?? []),
       updateCollection: async (id, changes) => { calls.push(["updateCollection", id, changes]); if (fixture.failUpdate) throw new Error(fixture.failUpdate); return { ...fixture.collections[0], ...changes }; },
       renameComputer: async (name) => { calls.push(["renameComputer", name]); fixture.account = { ...fixture.account, computerName: name }; return { name }; },
       approveAccess: record("approveAccess"),
       acknowledgeAccess: record("acknowledgeAccess"),
       revokeAccess: record("revokeAccess"),
       denyAccess: record("denyAccess"),
-      listPendingDevices: async () => fixture.devices ?? [],
+      listPendingDevices: async () => {
+        if (delayDevices && !fixture.releaseDevices) await new Promise(resolve => { fixture.releaseDevices = resolve; });
+        return structuredClone(fixture.devices ?? []);
+      },
       approveDevice: async (...args) => { calls.push(["approveDevice", ...args]); fixture.devices = []; return {}; },
       rejectDevice: record("rejectDevice"),
       signIn: async () => {
@@ -135,7 +138,7 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
     for (const [name, method] of Object.entries(window.mdbaseConnect)) {
       window.mdbaseConnect[name] = (...args) => { fixture.counts[name] = (fixture.counts[name] ?? 0) + 1; return method(...args); };
     }
-  }, { signedIn, collections, access, devices, activity, apps, updateStatus });
+  }, { signedIn, collections, access, devices, activity, apps, updateStatus, delayDevices });
   await page.goto(origin);
   await page.getByText(signedIn ? "Connected securely" : "Not signed in", { exact: true }).first().waitFor().catch(error => { throw new Error(`${error.message}\nRenderer errors: ${errors.join("; ")}`); });
   const calls = (name) => page.evaluate((name) => window.fixture.calls.filter((call) => call[0] === name).map((call) => call.slice(1)), name);
@@ -592,12 +595,11 @@ for (const theme of ["light", "dark"]) {
 test("a window hidden to the tray makes no daemon calls; showing it refreshes once and polling resumes", async () => {
   const { page, errors } = await desktop({ collections: [collection()] });
   const counts = () => page.evaluate(() => ({ ...window.fixture.counts }));
-  const polled = ["status", "listCollections", "listAccess", "getSettings", "getLaunchAtLogin", "listActivity", "listPendingDevices", "listApps"];
+  const polled = ["status", "listAccess", "listPendingDevices", "listApps"];
   try {
     await page.clock.runFor(5_000);
     await page.evaluate(() => window.fixture.setVisibility("hidden"));
     const hidden = await counts();
-    // 24 refresh intervals, 12 move-status intervals and 2 app-list intervals.
     await page.clock.runFor(120_000);
     assert.deepEqual(await counts(), hidden);
     await page.evaluate(() => window.fixture.setVisibility("visible"));
@@ -605,10 +607,63 @@ test("a window hidden to the tray makes no daemon calls; showing it refreshes on
     for (const name of polled) assert.equal(shown[name] - hidden[name], 1, `${name} once on showing`);
     await page.clock.runFor(5_000);
     const resumed = await counts();
-    for (const name of ["status", "listCollections", "listPendingDevices"]) assert.equal(resumed[name] - shown[name], 1, `${name} resumed`);
+    for (const name of ["status", "listAccess", "listPendingDevices"]) assert.equal(resumed[name] - shown[name], 1, `${name} resumed`);
+    for (const name of ["listCollections", "getSettings", "getLaunchAtLogin", "listActivity"]) assert.equal(resumed[name], undefined, `${name} was not needed on Home`);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });
+
+test("slow device approval reads never overlap or delay the connection and collection snapshots", async () => {
+  const { page, errors } = await desktop({ collections: [collection()], delayDevices: true });
+  try {
+    await nav(page, "Collections").click();
+    await page.getByRole("heading", { name: "Notes", exact: true }).waitFor();
+    await page.evaluate(() => {
+      window.fixture.collections[0].name = "Renamed notes";
+      window.fixture.devices = [{ collection: "c-notes", device: "d1", name: "Laptop", kind: "desktop" }];
+    });
+    await page.clock.runFor(15_000);
+    await page.getByRole("heading", { name: "Renamed notes", exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => window.fixture.counts.listPendingDevices), 1);
+    await page.evaluate(() => window.fixture.releaseDevices());
+    await page.locator(".approval-prompt").filter({ hasText: "Laptop" }).waitFor();
+    await page.clock.runFor(5_000);
+    assert.equal(await page.evaluate(() => window.fixture.counts.listPendingDevices), 2);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+for (const theme of ["light", "dark"]) {
+  test(`large collection lists stay bounded and searchable by keyboard in ${theme}`, async () => {
+    const collections = Array.from({ length: 1000 }, (_, index) =>
+      collection({ id: `c-${index}`, name: `Notes ${String(index).padStart(3, "0")}`, mode: "synced" }));
+    const { page, errors } = await desktop({ collections });
+    try {
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: "reduce" });
+      assert.equal(await page.locator(".home-collections li").count(), 12);
+      const all = page.getByRole("button", { name: "View all collections" });
+      await all.focus();
+      await page.keyboard.press("Enter");
+      await page.getByText("Page 1 of 25", { exact: true }).waitFor();
+      assert.equal(await page.locator(".collection-card").count(), 40);
+      await page.waitForFunction(() => window.fixture.counts.collectionModeStatus > 0);
+      assert.ok(await page.evaluate(() => window.fixture.counts.collectionModeStatus < 40), "offscreen cards do not spawn mode-status reads");
+      const next = page.getByRole("button", { name: "Next page" });
+      await next.focus();
+      await page.keyboard.press("Enter");
+      const focused = page.locator(".collection-card:focus");
+      assert.match(await focused.innerText(), /Notes 040/);
+      assert.notEqual(await focused.evaluate(element => getComputedStyle(element).outlineStyle), "none");
+      const filter = page.getByRole("searchbox", { name: "Filter collections" });
+      await filter.fill("Notes 999");
+      assert.equal(await page.locator(".collection-card").count(), 1);
+      await page.getByRole("heading", { name: "Notes 999" }).waitFor();
+      await filter.fill("not a match");
+      await page.getByRole("status").filter({ hasText: "No collections match your filter." }).waitFor();
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
 
 test("the mark builds only during sign-in and reduced motion stays static", async () => {
   const { page, errors } = await desktop({ signedIn: false });
@@ -729,7 +784,7 @@ test("adding a collection asks for sign-in first; one sign-in survives navigatio
     await screenshot(page, "sign-in-navigation");
     assert.equal(await page.getByText("Waiting for browser approval", { exact: true }).isVisible(), true);
     await page.evaluate(() => { window.fixture.account = { configured: true, serverUrl: "https://connect.example.test", online: true, pairing: null, lastError: null }; });
-    await page.clock.runFor(2_000);
+    await page.clock.runFor(5_000);
     await nav(page, "Collections").click();
     await page.getByRole("button", { name: "Sign in with your browser" }).waitFor({ state: "detached" });
     await page.getByRole("button", { name: "Add existing", exact: true }).click();
@@ -745,7 +800,7 @@ test("a failed sign-in shows the daemon's reason and offers a fresh one", async 
     await page.getByRole("button", { name: "Sign in with your browser" }).click();
     await page.getByText("Waiting for browser approval", { exact: true }).waitFor();
     await page.evaluate(() => { window.fixture.account = { ...window.fixture.account, pairing: null, lastError: "sign_in_expired" }; });
-    await page.clock.runFor(2_000);
+    await page.clock.runFor(5_000);
     await page.getByText("The sign-in request expired. Start again.", { exact: true }).waitFor();
     await page.getByRole("button", { name: "Sign in with your browser" }).click();
     await page.getByText("Waiting for browser approval", { exact: true }).waitFor();

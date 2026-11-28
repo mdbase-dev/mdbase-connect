@@ -135,7 +135,7 @@ const REASONS: Record<string, string> = {
 
 function reasonText(reason: string | undefined): string | undefined {
   if (!reason) return undefined;
-  return REASONS[reason] ?? reason.replaceAll("_", " ");
+  return Object.hasOwn(REASONS, reason) ? REASONS[reason] : undefined;
 }
 
 export function presentCollection(collection: CollectionLike): CollectionPresentation {
@@ -188,7 +188,7 @@ export function presentCollection(collection: CollectionLike): CollectionPresent
   if (pendingText) waiting.push(pendingText);
   if (holds > 0) waiting.push(t(i18n)`${plural(holds, { one: "# file waiting for you", other: "# files waiting for you" })}`);
   if (sync.unresolved > 0) waiting.push(t(i18n)`${plural(sync.unresolved, { one: "# unresolved conflict", other: "# unresolved conflicts" })}`);
-  if (sync.last_error) waiting.push(t(i18n)`sync problem: ${sync.last_error.replaceAll("_", " ")}`);
+  if (sync.last_error) waiting.push(reasonText(sync.last_error) ?? t(i18n)`Sync needs attention.`);
   const status = sync.resyncing ? t(i18n)({ message: "Catching up…", context: "Local connection status" })
     : sync.connection === "online" ? (sync.pending > 0 ? t(i18n)({ message: "Syncing…", context: "Local connection status" }) : t(i18n)({ message: "Up to date", context: "Local connection status" }))
       : sync.connection === "connecting" ? t(i18n)({ message: "Connecting…", context: "Local connection status" }) : t(i18n)({ message: "Offline", context: "Local connection status" });

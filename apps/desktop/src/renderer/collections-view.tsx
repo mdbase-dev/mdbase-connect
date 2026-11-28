@@ -1,7 +1,8 @@
 import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import React, { useEffect, useId, useRef, useState } from "react";
+import React, { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Dialog } from "@mdbase-dev/ui/dialog";
 import { Menu } from "@mdbase-dev/ui/menu";
 import { ConfirmDialog } from "@mdbase-dev/ui/confirm-dialog";
@@ -14,6 +15,7 @@ import { message, relativeTime, syncEnableMessage } from "./view-model";
 type Act = (action: () => Promise<unknown>) => Promise<void>;
 
 const MODE_CHECK_COOLDOWN_MS = 15_000;
+const COLLECTIONS_PER_PAGE = 40;
 
 function readModeStatus(value: unknown): CollectionModeStatus | null {
   if (!value || typeof value !== "object") return null;
@@ -38,15 +40,33 @@ export function CollectionsView({ collections, devices, computerName, busy, onAd
   onNotice(value: string): void;
   onRefresh(): Promise<void> | void;
 }) {
-  useLocaleRevision();
+  const localeRevision = useLocaleRevision();
   const [query, setQuery] = useState("");
+  const [page, setPage] = useState(0);
+  const list = useRef<HTMLDivElement>(null);
   const [syncTarget, setSyncTarget] = useState<DaemonCollection | null>(null);
   const [lastSyncTarget, setLastSyncTarget] = useState<DaemonCollection | null>(null);
   const [syncFailure, setSyncFailure] = useState<string | null>(null);
-  const openSync = (collection: DaemonCollection | null) => { setSyncFailure(null); setSyncTarget(collection); if (collection) setLastSyncTarget(collection); };
+  const openSync = useCallback((collection: DaemonCollection | null) => {
+    setSyncFailure(null);
+    setSyncTarget(collection);
+    if (collection) setLastSyncTarget(collection);
+  }, []);
   const syncCollection = lastSyncTarget && (collections.find(collection => collection.id === lastSyncTarget.id) ?? lastSyncTarget);
-  const sorted = collections.filter(collection => `${collection.name} ${collection.root}`.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase())).sort((a, b) => a.name.localeCompare(b.name));
-  const deviceNames = Object.fromEntries(devices.filter((device) => device.name).map((device) => [device.device, device.name!]));
+  const sorted = useMemo(() => [...collections].sort((a, b) => a.name.localeCompare(b.name, i18n.locale)), [collections, localeRevision]);
+  const matching = useMemo(() => {
+    const filter = query.trim().toLocaleLowerCase(i18n.locale);
+    return filter ? sorted.filter((collection) => `${collection.name} ${collection.root}`.toLocaleLowerCase(i18n.locale).includes(filter)) : sorted;
+  }, [sorted, query, localeRevision]);
+  const pages = Math.ceil(matching.length / COLLECTIONS_PER_PAGE);
+  const currentPage = Math.min(page, Math.max(0, pages - 1));
+  const start = currentPage * COLLECTIONS_PER_PAGE;
+  useEffect(() => { if (page !== currentPage) setPage(currentPage); }, [currentPage, page]);
+  const deviceNames = useMemo(() => Object.fromEntries(devices.filter((device) => device.name).map((device) => [device.device, device.name!])), [devices]);
+  function changePage(next: number) {
+    flushSync(() => setPage(next));
+    list.current?.querySelector<HTMLElement>(".collection-card")?.focus();
+  }
   return (
     <div className="workspace-stack">
       <section>
@@ -54,12 +74,19 @@ export function CollectionsView({ collections, devices, computerName, busy, onAd
           <button className="mdbase-button" disabled={busy} onClick={onAdd}><Trans>Add existing</Trans></button>
           <button className="mdbase-button is-primary" disabled={busy} onClick={onCreate}><Trans>Create</Trans></button>
         </SectionHeading>
-        {(collections.length >= 10 || query) && <ListFilter label={t(i18n)`Filter collections`} value={query} onChange={setQuery} />}
+        {(collections.length >= 10 || query) && <ListFilter label={t(i18n)`Filter collections`} value={query} onChange={(value) => { setQuery(value); setPage(0); }} />}
         {collections.length === 0
           ? <Empty title={t(i18n)({ message: "No collections yet", context: "Local collection management" })} text={t(i18n)({ message: "Add a folder of Markdown notes or create a new collection." })} />
-          : <div className="collection-list">{sorted.map((collection) => (
-            <CollectionCard key={collection.id} collection={collection} deviceNames={deviceNames} computerName={computerName} busy={busy} onAct={onAct} onNotice={onNotice} onRefresh={onRefresh} onTurnOnSync={() => openSync(collection)} />
-          ))}</div>}
+          : matching.length === 0
+            ? <p role="status"><Trans>No collections match your filter.</Trans></p>
+            : <div ref={list} className="collection-list">{matching.slice(start, start + COLLECTIONS_PER_PAGE).map((collection) => (
+              <CollectionCard key={collection.id} collection={collection} deviceNames={deviceNames} computerName={computerName} busy={busy} onAct={onAct} onNotice={onNotice} onRefresh={onRefresh} onTurnOnSync={openSync} />
+            ))}</div>}
+        {pages > 1 && <nav className="collection-pagination" aria-label={t(i18n)`Collection pages`}>
+          <button className="mdbase-button" disabled={currentPage === 0} onClick={() => changePage(currentPage - 1)}><Trans>Previous page</Trans></button>
+          <span role="status">{t(i18n)`Page ${currentPage + 1} of ${pages}`}</span>
+          <button className="mdbase-button" disabled={currentPage === pages - 1} onClick={() => changePage(currentPage + 1)}><Trans>Next page</Trans></button>
+        </nav>}
       </section>
       {syncCollection && <TurnOnSyncDialog key={syncCollection.id} open={syncTarget !== null} collection={syncCollection} busy={busy} error={syncFailure} onAct={onAct} onClose={() => openSync(null)} onConfirm={(mode) => onAct(async () => {
         setSyncFailure(null);
@@ -77,7 +104,7 @@ export function CollectionsView({ collections, devices, computerName, busy, onAd
   );
 }
 
-function CollectionCard({ collection, deviceNames, computerName, busy, onAct, onNotice, onRefresh, onTurnOnSync }: {
+const CollectionCard = memo(function CollectionCard({ collection, deviceNames, computerName, busy, onAct, onNotice, onRefresh, onTurnOnSync }: {
   collection: DaemonCollection;
   deviceNames: Readonly<Record<string, string>>;
   computerName: string;
@@ -85,7 +112,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
   onAct: Act;
   onNotice(value: string): void;
   onRefresh(): Promise<void> | void;
-  onTurnOnSync(): void;
+  onTurnOnSync(collection: DaemonCollection): void;
 }) {
   useLocaleRevision();
   const view = presentCollection(collection);
@@ -102,6 +129,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
   const [menuOpen, setMenuOpen] = useState(false);
   const [removeOpen, setRemoveOpen] = useState(false);
   const menuId = useId();
+  const card = useRef<HTMLElement>(null);
   const menuTrigger = useRef<HTMLButtonElement>(null);
   const lastModeCheck = useRef(0);
   const modeOpenRef = useRef(modeOpen);
@@ -115,27 +143,33 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
       return;
     }
     let active = true;
+    let inView = false;
+    let checking = false;
+    lastModeCheck.current = -Infinity;
     const check = () => {
+      if (!inView || document.visibilityState !== "visible" || modeOpenRef.current || checking
+          || Date.now() - lastModeCheck.current < MODE_CHECK_COOLDOWN_MS) return;
+      checking = true;
       lastModeCheck.current = Date.now();
       void window.mdbaseConnect.collectionModeStatus(collection.id)
-        .then((value) => { if (active) setModeStatus(readModeStatus(value)); })
-        .catch(() => { /* Older servers or non-owners expose no mode controls. */ });
+        .then((value) => { if (active && !modeOpenRef.current) setModeStatus(readModeStatus(value)); })
+        .catch(() => { /* Older servers or non-owners expose no mode controls. */ })
+        .finally(() => { checking = false; });
     };
-    check();
-    const onVisible = () => {
-      if (document.visibilityState === "visible" && !modeOpenRef.current && Date.now() - lastModeCheck.current >= MODE_CHECK_COOLDOWN_MS) {
-        check();
-      }
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => { active = false; document.removeEventListener("visibilitychange", onVisible); };
+    const observer = new IntersectionObserver(([entry]) => {
+      inView = entry.isIntersecting;
+      if (active) check();
+    });
+    observer.observe(card.current!);
+    document.addEventListener("visibilitychange", check);
+    return () => { active = false; observer.disconnect(); document.removeEventListener("visibilitychange", check); };
   }, [collection.id, collection.mode, isSynced]);
 
   const pendingMode = modeStatus?.change ?? null;
   const modeNeedsDevice = pendingMode?.phase === "waiting_for_device" || pendingMode?.phase === "waiting_for_devices";
   const modeAbandoned = pendingMode?.phase === "abandoned";
   return (
-    <article className="collection-card" data-list-item data-command={`collection:${collection.id}`} tabIndex={-1} onKeyDown={event => {
+    <article ref={card} className="collection-card" data-list-item data-command={`collection:${collection.id}`} tabIndex={-1} onKeyDown={event => {
       if (event.key === "Enter" && event.target === event.currentTarget && !busy) {
         event.preventDefault();
         menuTrigger.current!.focus();
@@ -150,7 +184,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
         </div>
       </div>
       <div className="collection-card-status"><span>{view.status}</span><small title={view.mode}>{view.mode}</small></div>
-      <button ref={menuTrigger} className="mdbase-button is-tertiary collection-menu-trigger" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuId} disabled={busy} onClick={() => setMenuOpen((open) => !open)}>
+      <button ref={menuTrigger} className="mdbase-button is-tertiary collection-menu-trigger" aria-label={t(i18n)`Actions for ${collection.name}`} aria-haspopup="menu" aria-expanded={menuOpen} aria-controls={menuOpen ? menuId : undefined} disabled={busy} onClick={() => setMenuOpen((open) => !open)}>
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><circle cx="3" cy="8" r="1" /><circle cx="8" cy="8" r="1" /><circle cx="13" cy="8" r="1" /></svg>
       </button>
       {view.detail && <p className="collection-status-detail">{view.detail}</p>}
@@ -188,7 +222,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
         {isSynced && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setFilesOpen((open) => !open); }}><Trans>Synced files</Trans></button>}
         {isSynced && modeStatus?.execution_available === true && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setModeOpen((open) => !open); }}>{t(i18n)({ message: "Storage mode", context: "Local collection management" })}</button>}
         {view.holds > 0 && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setHoldsOpen((open) => !open); }}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
-        {view.canEnableSync && <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); onTurnOnSync(); }}><Trans>Turn on sync</Trans></button>}
+        {view.canEnableSync && <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); onTurnOnSync(collection); }}><Trans>Turn on sync</Trans></button>}
         {!view.paused && <button role="menuitem" className="mdbase-menu-item" disabled={busy || collection.state === "opening"} onClick={() => { closeMenu(true); void onAct(() => window.mdbaseConnect.setCollectionEnabled(collection.id, false)); }}>{t(i18n)({ message: "Pause", context: "Local collection management" })}</button>}
         <button role="menuitem" className="mdbase-menu-item collection-remove" disabled={busy} onClick={() => { closeMenu(false); setRemoveOpen(true); }}><Trans context="Remove a local collection connection">Remove</Trans></button>
       </Menu>
@@ -223,7 +257,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
       {holdsOpen && <Holds collection={collection} busy={busy} onAct={onAct} />}
     </article>
   );
-}
+});
 
 /** Name and description. The draft survives a failed save; nothing is editable while saving. */
 function Details({ collection, onDone }: { collection: DaemonCollection; onDone(saved: DaemonCollection | null): void }) {

@@ -40,6 +40,14 @@ test("transport wrappers do not alter sign-in and network guidance", () => {
   assert.equal(message(new Error("Error invoking remote method 'connect:account:sign-in': TypeError: Failed to fetch")), "mdbase connect could not reach the service. Check your connection and try again.");
 });
 
+test("machine error codes and daemon exit diagnostics use safe recovery copy", () => {
+  for (const detail of ["mode_projection_pending", "Denied: request_key_unavailable", "mdbase device approve failed (exit 3).", "internal"]) {
+    const error = new Error(`Error invoking remote method 'connect:devices:approve': DaemonControlError: ${detail}`);
+    assert.match(message(error), /^mdbase connect could not complete the action\./);
+    assert.match(syncEnableMessage(error), /^Sync could not be turned on\. Try again\./);
+  }
+});
+
 test("a failed turn-on of sync is explained in plain words", () => {
   const wrapped = (detail) => new Error(`Error invoking remote method 'connect:collections:sync-enable': DaemonControlError: ${detail}`);
   const trust = syncEnableMessage(wrapped("this build has no authenticated trust for synced collections"));
