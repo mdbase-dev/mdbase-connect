@@ -1345,6 +1345,10 @@ msgstr "Criando conta…"
 msgid "Creating collections is unavailable on this server."
 msgstr "Não é possível criar coleções neste servidor."
 
+#: src/ConnectApp.tsx
+msgid "Creating your collection. This can take a moment."
+msgstr "Estamos criando sua coleção. Isso pode levar um momento."
+
 #: src/onboarding-view.tsx
 msgid "Creating your first collection"
 msgstr "Criando sua primeira coleção"
@@ -3803,6 +3807,10 @@ msgstr "Aguardando sincronização"
 msgid "We couldn't confirm collection creation finished. Please try again."
 msgstr "Não conseguimos confirmar que a criação da coleção terminou. Tente novamente."
 
+#: src/ConnectApp.tsx
+msgid "We couldn't confirm whether the collection was created. Retrying won't create a second copy."
+msgstr "Não foi possível confirmar se a coleção foi criada. Tentar novamente não criará uma segunda cópia."
+
 #: src/onboarding-view.tsx
 msgid "We couldn't create your collection"
 msgstr "Não foi possível criar sua coleção"
@@ -3923,10 +3931,6 @@ msgstr "Sua conta mdbase será atualizada em breve, então {app} ainda não pode
 #: src/portal-model.ts
 msgid "Your mdbase account's upgrade was paused, so {app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help."
 msgstr "A atualização da sua conta mdbase foi pausada, então {app} ainda não pode usá-la. Sua conta e suas coleções continuam funcionando com seus aplicativos mdbase atuais. Envie um e-mail para support@mdbase.dev se precisar de ajuda."
-
-#: src/ConnectApp.tsx
-msgid "Your original request is kept. Retry it to avoid creating another collection."
-msgstr "Sua solicitação original foi preservada. Tente novamente para evitar criar outra coleção."
 
 #: src/auth-view.tsx
 msgid "Your other browser sessions have been signed out. This browser is now signed in with the new password."

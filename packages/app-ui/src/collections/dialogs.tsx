@@ -2,6 +2,7 @@ import { describeError } from "@mdbase-dev/sdk/describe";
 import { useEffect, useId, useState, type JSX, type RefObject } from "react";
 
 import { ConfirmDialog } from "../ConfirmDialog.js";
+import { Dialog } from "../Dialog.js";
 import type { CollectionRow } from "./model.js";
 import { type RowDialog } from "./parts.js";
 import type { CollectionUi, DeleteCollectionOutcome } from "./use-collection-ui.js";
@@ -83,6 +84,11 @@ export function RowDialogs({ ui, dialog, onClose, returnFocusRef }: { readonly u
   useEffect(() => { if (dialog) setLast(dialog); }, [dialog]);
   const target = dialog ?? last;
   if (!target) return null;
+  if (target.kind === "delete" && "private" in target.row && target.row.private) {
+    return <Dialog open={Boolean(dialog)} returnFocusRef={returnFocusRef} title={ui.copy.privateDeleteTitle} onClose={onClose}>
+      <p>{ui.copy.privateDeleteBody}</p>
+    </Dialog>;
+  }
   return target.kind === "forget"
     ? <ForgetCollectionDialog key={target.row.id} open={Boolean(dialog)} returnFocusRef={returnFocusRef} ui={ui} collection={target.row} onClose={onClose} />
     : <DeleteCollectionDialog key={target.row.id} open={Boolean(dialog)} returnFocusRef={returnFocusRef} ui={ui} collection={target.row} onClose={(outcome) => { onClose(); target.onClose?.(outcome); }} />;

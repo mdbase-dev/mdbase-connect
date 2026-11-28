@@ -851,6 +851,32 @@ describe("auto start", () => {
 });
 
 describe("delete outcome", () => {
+  it("directs relay collection owners to the owning computer and keeps deletion available for installation collections", () => {
+    const { mdbase, entry } = fakeMdbase({ kind: "choosing", lastApproval: null }, {
+      collections: [
+        { collectionId: A, displayName: "Relay notes", role: "owner", kind: "private" },
+        { collectionId: B, displayName: "Shared relay notes", role: "editor", kind: "private" },
+        { collectionId: C, displayName: "Cloud notes", role: "owner" },
+      ],
+    });
+    render(<CollectionGate mdbase={entry} app={app} allowDelete>{() => null}</CollectionGate>);
+    act(() => button("More for Relay notes").click());
+    act(() => button("Delete collection…").click());
+    const guidance = document.querySelector("dialog")!;
+    expect(guidance.textContent).toContain("To delete this Private collection, use the mdbase CLI on the computer that holds it.");
+    expect(guidance.querySelector("input")).toBeNull();
+    expect(mdbase.deleteCollection).not.toHaveBeenCalled();
+    act(() => button("Close").click());
+    act(() => button("More for Shared relay notes").click());
+    expect(document.querySelector('[role="menuitem"].is-danger')).toBeNull();
+    expect(document.querySelector('[role="menu"]')?.textContent).not.toContain("Delete collection");
+    key(document.activeElement!, "Escape");
+    act(() => button("More for Cloud notes").click());
+    act(() => button("Delete collection…").click());
+    expect(document.querySelector("dialog")?.textContent).toContain("Delete Cloud notes?");
+    expect(document.querySelector("dialog input")).not.toBeNull();
+  });
+
   function Host({ entry, onClose }: { entry: Mdbase; onClose: (outcome: DeleteCollectionOutcome) => void }) {
     const ui = useCollectionUi({ mdbase: entry, app });
     return <DeleteCollectionDialog ui={ui} collection={{ id: A, name: "Alpha" }} onClose={onClose} />;

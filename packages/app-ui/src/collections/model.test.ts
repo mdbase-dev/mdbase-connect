@@ -91,7 +91,11 @@ describe("collectionView", () => {
     expect(collectionView(snapshot({ kind: "choosing", lastApproval: { kind: "add", outcome: "closed", collectionId: null } }, { collections: [] }), app))
       .toMatchObject({ heading: "Give TaskNotes a collection", notice: { message: "No collection was added." } });
     expect(collectionView(snapshot({ kind: "authorizing", purpose: "approve", collectionId: B }), app))
-      .toMatchObject({ heading: "Continue in the mdbase window", lead: "Review access to Recipes there." });
+      .toMatchObject({ heading: "Continue in the mdbase window TaskNotes opened", lead: "Review access to Recipes there." });
+    expect(collectionView(snapshot({ kind: "authorizing", purpose: "sign_in", collectionId: null }, { signIn: null }), app))
+      .toMatchObject({ heading: "Continue in the mdbase window TaskNotes opened", lead: "Sign in and choose a collection there." });
+    expect(collectionView(snapshot({ kind: "authorizing", purpose: "add", collectionId: null }), app))
+      .toMatchObject({ heading: "Continue in the mdbase window TaskNotes opened", lead: "Choose or create a collection there." });
   });
 
   it("describes availability, roles and same-named collections in the rows", () => {
