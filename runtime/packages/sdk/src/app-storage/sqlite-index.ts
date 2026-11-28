@@ -185,9 +185,9 @@ export class SqliteIndex {
     });
   }
 
-  private column(st: PreparedStmt, i: number): SqlValue {
+  private column(st: PreparedStmt, i: number, tag: number): SqlValue {
     const capi = this.sqlite3.capi;
-    switch (capi.sqlite3_column_type(st.pointer, i)) {
+    switch (tag) {
       case SQLITE_NULL:
         return { kind: "Null" };
       case SQLITE_INTEGER: {
@@ -242,9 +242,9 @@ export class SqliteIndex {
           while (st.step()) {
             if (limits && ++rows > limits.maxRows) throw new IndexError("Full", "index reply row budget exceeded");
             for (let c = 0; c < columns; c++) {
+              if (limits && ++valueCount > limits.maxValues) throw new IndexError("Full", "index reply value budget exceeded");
+              const tag = capi.sqlite3_column_type(st.pointer, c);
               if (limits) {
-                if (++valueCount > limits.maxValues) throw new IndexError("Full", "index reply value budget exceeded");
-                const tag = capi.sqlite3_column_type(st.pointer, c);
                 if (tag === SQLITE_TEXT || tag === SQLITE_BLOB) {
                   // Check native byte length BEFORE copying a large string/blob into JS.
                   addBytes(5);
@@ -253,7 +253,7 @@ export class SqliteIndex {
                 else if (tag === SQLITE_NULL) addBytes(1);
                 else throw new IndexError("Other", "unknown SQLite value type");
               }
-              values.push(this.column(st, c));
+              values.push(this.column(st, c, tag));
             }
           }
           out.push({

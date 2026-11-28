@@ -2,6 +2,7 @@
 // No app accounts, Connect services, existing profiles, or production access.
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import assert from "node:assert/strict";
 import { build } from "esbuild";
@@ -11,6 +12,15 @@ const playwright = await import(process.env.PLAYWRIGHT_MODULE ? pathToFileURL(pr
 const assets = new Map();
 for (const name of ["index.js", "app-sqlite-index.js", "app-binary-index.js", "sqlite-index.js", "collection-sql.js"]) {
   assets.set(`/storage/${name}`, { type: "text/javascript", bytes: await readFile(new URL(`../dist/app-storage/${name}`, import.meta.url)) });
+}
+// Set SDK_SQLITE_BASE_SRC to the baseline SDK src directory for paired 10k runs.
+const base = process.env.SDK_SQLITE_BASE_SRC;
+if (base) {
+  for (const [variant, src] of [["A", base], ["B", new URL("../src", import.meta.url).pathname]]) {
+    const bundle = await build({ entryPoints: [resolve(src, "app-storage/app-sqlite-index.ts")],
+      bundle: true, platform: "browser", format: "esm", write: false });
+    assets.set(`/storage/${variant}.js`, { type: "text/javascript", bytes: bundle.outputFiles[0].contents });
+  }
 }
 const sqliteAssets = readPackagedSqlite();
 assets.set("/native/sqlite3.js", { type: "text/javascript", bytes: sqliteAssets.initializer });
@@ -43,13 +53,14 @@ const param=p=>{
  if(p.kind==='Text')return [3,...data(utf8.encode(p.value))];
  throw Error('unsupported smoke value');
 };
-const run=(batch)=>{
- const bytes=Uint8Array.from([...utf8.encode('MDBIDX\\0\\x01'),0,batch.mode==='Transaction'?0:1,...u32(batch.stmts.length),
+const pack=batch=>Uint8Array.from([...utf8.encode('MDBIDX\\0\\x01'),0,batch.mode==='Transaction'?0:1,...u32(batch.stmts.length),
   ...batch.stmts.flatMap(s=>[...data(utf8.encode(s.sql)),...u32(s.params.length),...s.params.flatMap(param)])]);
+const execute=bytes=>{
  const reply=host.run(bytes);
  if(reply[8]!==2)throw Error('binary SQL smoke operation failed');
  return reply;
 };
+const run=batch=>execute(pack(batch));
 const query=sql=>{
  const reply=run({mode:'Autocommit',stmts:[{sql,params:[]}]});
  const view=new DataView(reply.buffer,reply.byteOffset,reply.byteLength);
@@ -78,6 +89,40 @@ onmessage=async ({data:m})=>{
     run({mode:'Transaction',stmts});
    }
    value={rows:Number(query('SELECT count(*) FROM _app_probe_tasks')),writeMs:performance.now()-start};
+  } else if(m.op==='profile') {
+   const writes=[], reads=[], size=10000, page=100;
+   for(let offset=0;offset<size;offset+=page) {
+    writes.push(pack({mode:'Transaction',stmts:Array.from({length:page},(_,i)=>({
+     sql:'INSERT OR REPLACE INTO _app_probe_tasks VALUES (?,?)',
+     params:[{kind:'Integer',value:BigInt(offset+i)},{kind:'Text',value:'fixture task '+(offset+i)}]
+    }))}));
+    reads.push(pack({mode:'Autocommit',stmts:[{sql:'SELECT id,body FROM _app_probe_tasks WHERE id>=? ORDER BY id LIMIT 100',
+     params:[{kind:'Integer',value:BigInt(offset)}]}]}));
+   }
+   run({mode:'Autocommit',stmts:[{sql:'CREATE TABLE IF NOT EXISTS _app_probe_tasks(id INTEGER PRIMARY KEY,body TEXT)',params:[]}]});
+   const start=performance.now();
+   for(const bytes of writes) execute(bytes);
+   const wrote=performance.now();
+   const replies=reads.map(execute);
+   const read=performance.now();
+   // Check all page values outside the timed region.
+   const decoder=new TextDecoder();
+   for(let p=0;p<replies.length;p++){
+    const bytes=replies[p], view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+    if(view.getUint32(33,true)!==page*2) throw Error('page cardinality');
+    let at=37;
+    for(let i=0;i<page;i++){
+     const id=p*page+i;
+     if(bytes[at++]!==1 || view.getBigInt64(at,true)!==BigInt(id)) throw Error('page id');
+     at+=8;
+     if(bytes[at++]!==3) throw Error('page text type');
+     const length=view.getUint32(at,true); at+=4;
+     if(decoder.decode(bytes.subarray(at,at+length))!=='fixture task '+id) throw Error('page text');
+     at+=length;
+    }
+    if(at!==bytes.length) throw Error('page size');
+   }
+   value={writeMs:wrote-start,readMs:read-wrote};
   } else if(m.op==='count') value={rows:Number(query('SELECT count(*) FROM _app_probe_tasks'))};
   else if(m.op==='close') { state.index.close(); state.pool.pauseVfs(); state=null; value={closed:true}; }
   else throw Error('unsupported smoke command');
@@ -86,6 +131,10 @@ onmessage=async ({data:m})=>{
 };
 `;
 assets.set("/worker.js", { type: "text/javascript", bytes: worker });
+if (base) for (const variant of ["A", "B"]) {
+  assets.set(`/worker-${variant}.js`, { type: "text/javascript",
+    bytes: worker.replace("/storage/index.js", `/storage/${variant}.js`) });
+}
 const proxyRequests = [];
 const server = createServer((req, res) => {
   if (req.url.includes("sqlite3-opfs-async-proxy")) proxyRequests.push(req.url);
@@ -107,10 +156,10 @@ try {
   page.on("console", message => { if (["warning", "error"].includes(message.type())) diagnostics.push(message.text()); });
   page.on("pageerror", error => diagnostics.push(error.message));
   await page.goto(`http://127.0.0.1:${server.address().port}/`);
-  const results = await page.evaluate(async () => {
+  const results = await page.evaluate(async compare => {
     if (!crossOriginIsolated) throw new Error("SQLite smoke requires cross-origin isolation");
     let worker, id = 0;
-    const startWorker = () => { worker = new Worker("/worker.js", { type: "module" }); };
+    const startWorker = (url = "/worker.js") => { worker = new Worker(url, { type: "module" }); };
     const call = (op, count) => new Promise((resolve, reject) => {
       const requestId = ++id;
       const timer = setTimeout(() => { worker.terminate(); reject(new Error("SQLite smoke timed out")); }, 15000);
@@ -124,6 +173,20 @@ try {
     });
     const results = [];
     try {
+      if (compare) {
+        // One warm-up pair, then eight measured pairs; same OPFS file and SQLite build.
+        for (let pair = 0; pair <= 8; pair++) {
+          for (const variant of (pair % 2 ? ["A", "B"] : ["B", "A"])) {
+            startWorker(`/worker-${variant}.js`);
+            await call("open");
+            const sample = await call("profile");
+            await call("close");
+            worker.terminate();
+            if (pair) results.push({ pair, variant, ...sample });
+          }
+        }
+        return results;
+      }
       for (const size of [1000, 5000, 20000]) {
         startWorker();
         const open = await call("open");
@@ -150,7 +213,7 @@ try {
       }
       return results;
     } finally { worker?.terminate(); }
-  });
+  }, Boolean(base));
   assert.deepEqual(proxyRequests, [], "SAH-pool startup must not request the unused async proxy");
   assert.deepEqual(diagnostics.filter(text => /opfs|sqlite/i.test(text)), [], "SQLite startup must not warn or fail");
   console.log(JSON.stringify({ browser: browser.version(), sqlite: "3.53.4-build2", sqlBoundary: "MDBIDX-v1", crashDurability: "unqualified", results }));

@@ -86,25 +86,42 @@ function request(bytes: Uint8Array): Batch {
 }
 
 class Writer {
-  private readonly parts: Uint8Array[] = [];
+  private bytes = new Uint8Array(128);
+  private view = new DataView(this.bytes.buffer);
   private length = 0;
   private values = 0;
   constructor(op: number) { this.put(MAGIC); this.byte(op); }
-  private put(b: Uint8Array): void {
-    if (b.length > APP_INDEX_LIMITS.maxBytes - this.length) throw full();
-    this.length += b.length;
-    this.parts.push(b);
+  private reserve(size: number): number {
+    const start = this.length;
+    const end = start + size;
+    if (end > APP_INDEX_LIMITS.maxBytes) throw full();
+    if (end > this.bytes.length) {
+      const capacity = Math.min(APP_INDEX_LIMITS.maxBytes, Math.max(end, this.bytes.length * 2));
+      const next = new Uint8Array(capacity);
+      next.set(this.bytes.subarray(0, start));
+      this.bytes = next;
+      this.view = new DataView(next.buffer);
+    }
+    this.length = end;
+    return start;
   }
-  byte(n: number): void { this.put(Uint8Array.of(n)); }
+  private put(b: Uint8Array): void {
+    const at = this.reserve(b.length);
+    this.bytes.set(b, at);
+  }
+  byte(n: number): void {
+    const at = this.reserve(1);
+    this.bytes[at] = n;
+  }
   u32(n: number): void {
     if (!Number.isSafeInteger(n) || n < 0 || n > 0xffffffff) throw invalid();
-    const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, n, true); this.put(b);
+    const at = this.reserve(4);
+    this.view.setUint32(at, n, true);
   }
   int(n: bigint, signed: boolean): void {
     if (typeof n !== "bigint" || n < (signed ? I64_MIN : 0n) || n > (signed ? I64_MAX : U64_MAX)) throw invalid();
-    const b = new Uint8Array(8), v = new DataView(b.buffer);
-    if (signed) v.setBigInt64(0, n, true); else v.setBigUint64(0, n, true);
-    this.put(b);
+    const at = this.reserve(8);
+    if (signed) this.view.setBigInt64(at, n, true); else this.view.setBigUint64(at, n, true);
   }
   data(b: Uint8Array): void { this.u32(b.length); this.put(b); }
   value(v: SqlValue): void {
@@ -114,7 +131,10 @@ class Writer {
       case "Integer": this.byte(1); this.int(v.value, true); return;
       case "Real": {
         if (!Number.isFinite(v.value)) throw invalid();
-        this.byte(2); const b = new Uint8Array(8); new DataView(b.buffer).setFloat64(0, v.value, true); this.put(b); return;
+        this.byte(2);
+        const at = this.reserve(8);
+        this.view.setFloat64(at, v.value, true);
+        return;
       }
       case "Text": this.byte(3); this.data(encoder.encode(v.value)); return;
       case "Blob": this.byte(4); this.data(v.value); return;
@@ -122,10 +142,7 @@ class Writer {
     }
   }
   done(): Uint8Array {
-    const out = new Uint8Array(this.length);
-    let at = 0;
-    for (const part of this.parts) { out.set(part, at); at += part.length; }
-    return out;
+    return this.bytes.slice(0, this.length);
   }
 }
 
