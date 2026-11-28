@@ -2538,6 +2538,10 @@ msgstr "Введите не более {0} символов."
 msgid "Enter text."
 msgstr "Введите текст."
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "Введите восьмизначный код сопряжения."
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "Вся коллекция"
@@ -3054,6 +3058,10 @@ msgstr "недопустимая JSON Schema"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "Недопустимый JSON."
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "Недопустимые изменения свойств были отброшены."
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "Не предоставляется"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "Не сейчас"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "Не указана"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "Загрузка файла не подтверждена. Разреш�
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "В этой папке есть вложения. При их перемещении пока нельзя сохранить встроенные ссылки на файлы. Перемещайте заметки по отдельности: вложения останутся на месте."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "Это самая ранняя версия этой заметки в mdbase."
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "Эта заметка уже перемещена в другое место."
@@ -6755,6 +6771,10 @@ msgstr "Дождитесь полного индекса заметок и вл�
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "Ожидание подтверждения…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "Ожидание, пока ваш компьютер предоставит эту коллекцию"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

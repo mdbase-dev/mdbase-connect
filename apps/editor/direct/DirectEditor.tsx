@@ -30,6 +30,7 @@ export function DirectEditor({ allowed, signal, invitation, invalidInvitation }:
   const [screen, show] = useState<Screen>({ kind: "busy" });
   const current = useRef(screen);
   const [address, setAddress] = useState(invitation ?? "");
+  const [pairingError, setPairingError] = useState(false);
   const [remember, setRemember] = useState(false);
   const [supportsPins, setSupportsPins] = useState(true);
   function supported(server: string) {
@@ -156,8 +157,7 @@ export function DirectEditor({ allowed, signal, invitation, invalidInvitation }:
       if (!window.confirm(t`Open the invitation from ${host}?`)) return;
       close();
     }
-    if (pairingInput.current) pairingInput.current.value = "";
-    setAddress(next); setAddressError(false);
+    changeAddress(next);
     void restore(next);
   });
   useEffect(() => {
@@ -177,8 +177,13 @@ export function DirectEditor({ allowed, signal, invitation, invalidInvitation }:
     if (!server) { setAddressError(true); document.getElementById("backend")?.focus(); return; }
     if (!supported(server)) return;
     const field = pairingInput.current!;
-    const code = field.value;
-    if (!/^[0-9]{8}$/u.test(code)) { field.reportValidity(); field.focus(); return; }
+    const code = field.value.replace(/[\s-]/gu, "");
+    if (!/^[0-9]{8}$/u.test(code)) {
+      setPairingError(true);
+      field.focus();
+      return;
+    }
+    setPairingError(false);
     field.value = "";
     transition({ kind: "busy" });
     try {
@@ -202,6 +207,7 @@ export function DirectEditor({ allowed, signal, invitation, invalidInvitation }:
   function changeAddress(value: string) {
     setAddress(value);
     setAddressError(false);
+    setPairingError(false);
     if (pairingInput.current) pairingInput.current.value = "";
   }
   return <><header><p className="product">mdbase editor{" · "}{t`Advanced`}</p>
@@ -235,7 +241,9 @@ export function DirectEditor({ allowed, signal, invitation, invalidInvitation }:
         {!pinned && server && <strong>{backendHost(server)}</strong>}
         <p>{t`Check the server address with the person who gave you the code. Pairing lets this editor read and edit notes while connected.`}</p>
         <label>{t`8-digit pairing code`}<input ref={pairingInput} id="pairing" type="text" autoComplete="one-time-code"
-          inputMode="numeric" pattern="[0-9]{8}" maxLength={8} required /></label>
+          inputMode="numeric" required aria-invalid={pairingError}
+          aria-describedby={pairingError ? "pairing-error" : undefined} onChange={() => setPairingError(false)} /></label>
+        {pairingError && <p id="pairing-error" role="alert">{t`Enter the eight-digit pairing code.`}</p>}
         <label className="checkbox"><input id="remember" type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} />
           {t`Remember this browser`}</label>
         <small>{t`Without this option, reloading the page requires a new code.`}</small>

@@ -2538,6 +2538,10 @@ msgstr "{0}文字以内で入力してください。"
 msgid "Enter text."
 msgstr "テキストを入力してください。"
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "8 桁のペアリングコードを入力してください。"
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "コレクション全体"
@@ -3054,6 +3058,10 @@ msgstr "無効な JSON Schema"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON が無効です。"
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "無効なプロパティの変更は破棄されました。"
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "公開されていません"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "後で"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "報告なし"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "このファイルのアップロードは未確認です。再試行前
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "このフォルダーには添付ファイルがあります。移動すると埋め込まれたファイル参照を維持できません。ノートを個別に移動してください。添付ファイルは元の場所に残ります。"
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "これは mdbase にあるこのノートの最も古いバージョンです。"
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "このノートはすでに別の場所に移動しました。"
@@ -6755,6 +6771,10 @@ msgstr "フォルダーを変更する前に、ノートと添付ファイルの
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "承認を待っています…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "コンピューターがこのコレクションを提供するのを待っています"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

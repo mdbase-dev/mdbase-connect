@@ -19,6 +19,22 @@ vi.mock("./DeferredCodeEditor", async () => ({
 afterEach(() => vi.useRealTimers());
 
 describe("typed note properties", () => {
+  it("reports a discarded invalid change only if the user edited the properties", () => {
+    const onSave = vi.fn();
+    const onDiscardInvalid = vi.fn();
+    const type = { ...eventType, schema: { type: "object", properties: { rating: { type: "integer", maximum: 5 } } } };
+    const open = (rating: number) => render(<PropertiesPanel note={{ ...eventNote, frontmatter: { rating } }}
+      types={[type]} onClose={vi.fn()} onDiscardInvalid={onDiscardInvalid} onSave={onSave} />);
+    open(9).unmount();
+    expect(onDiscardInvalid).not.toHaveBeenCalled();
+    const panel = open(3);
+    commit(screen.getByRole("textbox", { name: "rating" }), "9");
+    expect(screen.getByText("Enter 5 or less.")).toBeVisible();
+    panel.unmount();
+    expect(onDiscardInvalid).toHaveBeenCalledOnce();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
   it("shows values that are not what the type says and saves only once each is put right", async () => {
     vi.useFakeTimers();
     const onSave = vi.fn().mockResolvedValue(undefined);

@@ -2538,6 +2538,10 @@ msgstr "输入不超过 {0} 个字符。"
 msgid "Enter text."
 msgstr "输入文本。"
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "请输入八位配对码。"
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "整个集合"
@@ -3054,6 +3058,10 @@ msgstr "JSON 架构无效"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON 无效。"
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "无效的属性修改已丢弃。"
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "未公开"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "暂不"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "未报告"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "此文件上传尚未确认。请先处理其原始操作，再重试。
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "此文件夹包含附件。移动附件时尚无法保留嵌入的文件引用。请改为逐个移动笔记；附件将保留在原位置。"
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "这是 mdbase 中此笔记最早的版本。"
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "此笔记已移至其他位置。"
@@ -6755,6 +6771,10 @@ msgstr "更改文件夹前，请等待笔记和附件索引全部完成。"
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "等待批准…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "正在等待你的电脑提供此集合"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

@@ -55,6 +55,7 @@ export default defineConfig(({ mode }) => ({
     // CSP allows fonts only from 'self', so never inline one (KaTeX has fonts under the 4 KB default) as a data: URL.
     assetsInlineLimit: (file) => /\.(woff2?|ttf|otf)$/.test(file) ? false : undefined,
     rolldownOptions: {
+      ...(mode === "e2e" ? { input: ["index.html", "tests/fixtures/editor-regressions.html"] } : {}),
       output: {
         entryFileNames: `assets/[name]-[hash]-${buildId}.js`,
         chunkFileNames: `assets/[name]-[hash]-${buildId}.js`

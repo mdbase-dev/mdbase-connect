@@ -2538,6 +2538,10 @@ msgstr "Digite no máximo {0} caracteres."
 msgid "Enter text."
 msgstr "Digite um texto."
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "Digite o código de pareamento de oito dígitos."
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "Coleção inteira"
@@ -3054,6 +3058,10 @@ msgstr "JSON Schema inválido"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON inválido."
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "As alterações inválidas nas propriedades foram descartadas."
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "Não exposto"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "Agora não"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "Não informada"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "O envio deste arquivo não foi confirmado. Resolva a operação original
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "Esta pasta contém anexos. Ao movê-los, ainda não é possível preservar referências a arquivos incorporados. Mova as notas individualmente; os anexos permanecerão no lugar."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "Esta é a versão mais antiga desta nota no mdbase."
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "Esta nota já foi movida para outro lugar."
@@ -6755,6 +6771,10 @@ msgstr "Aguarde o índice completo de notas e anexos antes de alterar uma pasta.
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "Aguardando aprovação…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "Aguardando o computador disponibilizar esta coleção"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

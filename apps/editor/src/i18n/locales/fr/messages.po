@@ -2538,6 +2538,10 @@ msgstr "Saisissez au plus {0} caractères."
 msgid "Enter text."
 msgstr "Saisissez du texte."
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "Saisissez le code d’association à huit chiffres."
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "Collection entière"
@@ -3054,6 +3058,10 @@ msgstr "schéma JSON non valide"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON non valide."
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "Les modifications non valides des propriétés ont été abandonnées."
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "Non exposé"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "Pas maintenant"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "Non indiqué"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "Cet envoi de fichier n’est pas confirmé. Résolvez l’opération d�
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "Ce dossier contient des pièces jointes. Leur déplacement ne peut pas encore préserver les références de fichiers intégrés. Déplacez plutôt les notes une à une ; les pièces jointes resteront en place."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "Il s’agit de la plus ancienne version de cette note dans mdbase."
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "Cette note a déjà été déplacée ailleurs."
@@ -6755,6 +6771,10 @@ msgstr "Attendez l’index complet des notes et des pièces jointes avant de mod
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "En attente d’approbation…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "En attente que votre ordinateur mette cette collection à disposition"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

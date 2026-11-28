@@ -2538,6 +2538,10 @@ msgstr "Enter no more than {0} characters."
 msgid "Enter text."
 msgstr "Enter text."
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "Enter the eight-digit pairing code."
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "Entire collection"
@@ -3054,6 +3058,10 @@ msgstr "invalid JSON Schema"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "Invalid JSON."
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "Invalid property edits were discarded."
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "Not exposed"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "Not now"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "Not reported"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "This file upload is not confirmed. Resolve its original operation before
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "This is the earliest version mdbase has for this note."
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "This note already moved elsewhere."
@@ -6755,6 +6771,10 @@ msgstr "Wait for the complete note and attachment index before changing a folder
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "Waiting for approval…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "Waiting for your computer to serve this collection"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

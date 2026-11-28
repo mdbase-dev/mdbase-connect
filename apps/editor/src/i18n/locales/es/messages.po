@@ -2538,6 +2538,10 @@ msgstr "Introduce como máximo {0} caracteres."
 msgid "Enter text."
 msgstr "Introduce texto."
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "Introduce el código de emparejamiento de ocho dígitos."
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "Toda la colección"
@@ -3054,6 +3058,10 @@ msgstr "Esquema JSON no válido"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "JSON no válido."
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "Se descartaron los cambios no válidos en las propiedades."
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "No expuesto"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "Ahora no"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "No indicado"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "Esta subida de archivo sigue sin confirmar. Resuelve su operación origi
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "Esta carpeta contiene archivos adjuntos. Al moverlos, todavía no se pueden conservar las referencias a archivos incrustados. En su lugar, mueve las notas una por una; los archivos adjuntos se quedarán donde están."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "Esta es la versión más antigua de esta nota en mdbase."
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "Esta nota ya se movió a otro lugar."
@@ -6755,6 +6771,10 @@ msgstr "Espera a que se complete el índice de notas y archivos adjuntos antes d
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "Esperando aprobación…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "Esperando a que tu ordenador sirva esta colección"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

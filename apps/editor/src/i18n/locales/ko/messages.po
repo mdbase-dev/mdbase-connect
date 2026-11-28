@@ -2538,6 +2538,10 @@ msgstr "최대 {0}자까지 입력하세요."
 msgid "Enter text."
 msgstr "텍스트를 입력하세요."
 
+#: direct/DirectEditor.tsx
+msgid "Enter the eight-digit pairing code."
+msgstr "8자리 페어링 코드를 입력하세요."
+
 #: src/TypeBrowser.tsx
 msgid "Entire collection"
 msgstr "전체 컬렉션"
@@ -3054,6 +3058,10 @@ msgstr "잘못된 JSON Schema"
 #: src/SchemaValueEditor.tsx
 msgid "Invalid JSON."
 msgstr "잘못된 JSON입니다."
+
+#: src/App.tsx
+msgid "Invalid property edits were discarded."
+msgstr "유효하지 않은 속성 변경 사항이 삭제되었습니다."
 
 #: direct/DirectEditor.tsx
 msgid "Invitation"
@@ -3895,6 +3903,10 @@ msgstr "노출되지 않음"
 #: src/YourPersonPanel.tsx
 msgid "Not now"
 msgstr "나중에"
+
+#: src/settings/SettingsView.tsx
+msgid "Not reported"
+msgstr "보고되지 않음"
 
 #: src/App.tsx
 msgid "Not saved yet"
@@ -6219,6 +6231,10 @@ msgstr "이 파일 업로드는 확인되지 않았습니다. 다시 시도하�
 msgid "This folder contains attachments. Moving them cannot yet preserve embedded file references. Move the notes individually instead; attachments will stay in place."
 msgstr "이 폴더에는 첨부 파일이 있습니다. 이동하면 삽입된 파일 참조를 보존할 수 없습니다. 노트를 하나씩 이동하세요. 첨부 파일은 그대로 둡니다."
 
+#: src/NoteHistoryPanel.tsx
+msgid "This is the earliest version mdbase has for this note."
+msgstr "mdbase에 있는 이 노트의 가장 오래된 버전입니다."
+
 #: src/App.tsx
 msgid "This note already moved elsewhere."
 msgstr "이 노트는 이미 다른 곳으로 이동했습니다."
@@ -6755,6 +6771,10 @@ msgstr "폴더를 변경하기 전에 노트 및 첨부 파일 색인을 완전�
 #: src/YourPersonPanel.tsx
 msgid "Waiting for approval…"
 msgstr "승인 대기 중…"
+
+#: src/SdkEditorRoot.tsx
+msgid "Waiting for your computer to serve this collection"
+msgstr "컴퓨터가 이 컬렉션을 제공하기를 기다리는 중"
 
 #: src/SdkEditorRoot.tsx
 msgid "Waiting for your computer…"

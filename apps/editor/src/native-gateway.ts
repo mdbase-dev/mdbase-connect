@@ -42,6 +42,7 @@ import type {
   TypePackApplyResult
 } from "./model";
 import type { EditorSyncState } from "./app-state-types";
+import { EDITOR_APP_ID } from "./note-history";
 
 type CollectionOperation = CollectionDescription["operations"][number];
 
@@ -347,7 +348,16 @@ export class NativeEditorGateway implements CollectionGateway {
       const { id } = await this.client.get({ path }, { signal });
       const history = await this.client.history.list(id, { ...(before === undefined ? {} : { before }), signal });
       this.check();
-      return history;
+      // A local app-runtime write may have no grant to supply the app name.
+      // The paired account and device together identify this installation.
+      const signIn = this.application.getSnapshot?.().signIn;
+      if (signIn?.state !== "paired" || !signIn.accountId) return history;
+      return {
+        ...history,
+        versions: history.versions.map((version) => version.app === undefined && version.source === "api"
+          && version.deviceKind === "app_runtime" && version.author.device === signIn.deviceId
+          && version.author.account === signIn.accountId ? { ...version, app: EDITOR_APP_ID } : version)
+      };
     },
     version: async (path, seq, { signal: outer } = {}) => {
       const signal = this.signal(outer, HISTORY_TIMEOUT_MS);
