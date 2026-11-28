@@ -13,6 +13,7 @@ import {
 import {
   APPLICATION_AUTHORIZATION_PROTOCOL_VERSION,
   APPLICATION_CAPABILITY_DEFINITIONS,
+  CONNECT_PROBLEM_CATALOG,
   OPERATION_TRANSPORT_PROTOCOL_VERSION,
   applicationFileRequest,
   type ApplicationCapabilityId,
@@ -30,7 +31,7 @@ import {
 } from "@mdbase-dev/connect-protocol";
 import { NEXT_CAPABILITY_FILE_ACTIONS } from "@mdbase-dev/connect-protocol/next-authorization";
 import { z } from "zod";
-import type { DatabasePool } from "./db.js";
+import type { DatabasePool, DatabaseQueryable } from "./db.js";
 import { SecretBox } from "./security.js";
 import { GatewayOperationError } from "./errors.js";
 import { LEGACY, NextGateway } from "./next-gateway.js";
@@ -135,6 +136,11 @@ interface ConnectionRow {
   refresh_expires_at: Date | string;
 }
 
+const CONNECTION_SELECT = `SELECT id, connection_set_id, upstream_url, upstream_client_id, collection_id,
+  grant_id, display_name, operations, scope, encryption, key_handle,
+  credentials_ciphertext, access_expires_at, refresh_expires_at
+  FROM mcp_connections WHERE id = $1 AND connection_set_id = $2`;
+
 const { version: MCP_PACKAGE_VERSION } = createRequire(import.meta.url)("../package.json") as { version: string };
 
 export class ConnectGateway {
@@ -171,7 +177,7 @@ export class ConnectGateway {
       || typeof body?.application?.manifest_digest !== "string"
       || !/^[0-9a-f]{64}$/u.test(body.application.manifest_digest)
     ) {
-      throw upstreamError(body, "Connect could not register the MCP application.");
+      throw new GatewayOperationError("application_registration_failed", "Connect could not register the MCP application.");
     }
     return {
       id: body.application.id,
@@ -242,7 +248,7 @@ export class ConnectGateway {
     });
     const body = await response.json().catch(() => null);
     if (!response.ok || typeof body?.authorization_uri !== "string") {
-      throw upstreamError(body, "Connect authorization could not be started.");
+      throw new GatewayOperationError("authorization_start_failed", "Connect authorization could not be started.");
     }
     return z.url().parse(body.authorization_uri);
   }
@@ -268,11 +274,11 @@ export class ConnectGateway {
       })
     });
     const raw = await response.json().catch(() => null);
-    if (!response.ok) throw upstreamError(raw, "Connect authorization could not be completed.");
+    if (!response.ok) throw new GatewayOperationError("authorization_exchange_failed", "Connect authorization could not be completed.");
     const token = tokenResponseSchema.parse(raw);
     await this.assertTokenBinding(token, input.keyHandle, input.applicationId, input);
     const connection = await this.saveConnection(input.connectionSetId, input.applicationId, input.keyHandle, token);
-    return summary(connection);
+    return summary({ ...connection, encrypted: connection.encryption !== null });
   }
 
   /**
@@ -296,36 +302,35 @@ export class ConnectGateway {
   }
 
   async listConnections(connectionSetId: string): Promise<ConnectionSummary[]> {
-    const result = await this.db.query<ConnectionRow>(
-      `SELECT id, connection_set_id, upstream_url, upstream_client_id, collection_id,
-              grant_id, display_name, operations, scope, encryption, key_handle,
-              credentials_ciphertext, access_expires_at, refresh_expires_at
+    return (await this.connectionSummaries(connectionSetId)).map(summary);
+  }
+
+  private async connectionSummaries(connectionSetId: string) {
+    const result = await this.db.query<ConnectionSummaryRow & { upstream_url: string }>(
+      `SELECT id, upstream_url, collection_id, display_name, operations, scope, encryption IS NOT NULL AS encrypted
        FROM mcp_connections WHERE connection_set_id = $1 ORDER BY display_name, id`,
       [connectionSetId]
     );
-    return result.rows.map(summary);
+    return result.rows;
   }
 
   /**
    * Each connection's link to its collection in the Editor its Connect server names, or null when
    * the server names none or cannot say right now (the link is a convenience, not access).
    */
-  async editorLinks(connectionSetId: string): Promise<Map<string, string | null>> {
-    const result = await this.db.query<Pick<ConnectionRow, "id" | "upstream_url" | "collection_id">>(
-      "SELECT id, upstream_url, collection_id FROM mcp_connections WHERE connection_set_id = $1",
-      [connectionSetId]
-    );
-    return new Map(await Promise.all(result.rows.map(async (row): Promise<[string, string | null]> => {
+  async listConnectionsWithEditorLinks(connectionSetId: string): Promise<Array<ConnectionSummary & { editor_url: string | null }>> {
+    const rows = await this.connectionSummaries(connectionSetId);
+    return Promise.all(rows.map(async (row) => {
       const editor = await this.editor(new URL(row.upstream_url).origin).catch((error: unknown) => {
         this.warn({ event: "editor_link_unavailable", reason: error instanceof Error ? error.message : String(error) });
         return null;
       });
-      if (!editor) return [row.id, null];
+      if (!editor) return { ...summary(row), editor_url: null };
       const link = new URL("/", editor.origin);
       link.searchParams.set("server", editor.server);
       link.searchParams.set("collection", row.collection_id);
-      return [row.id, link.href];
-    })));
+      return { ...summary(row), editor_url: link.href };
+    }));
   }
 
   private editor(server: string): Promise<EditorEntry | null> {
@@ -353,17 +358,19 @@ export class ConnectGateway {
     options: { requestId?: string; signal?: AbortSignal } = {}
   ): Promise<Result> {
     const requestId = options.requestId ?? randomUUID();
-    for (const force of [false, true]) {
-      const connection = await this.freshConnection(connectionSetId, connectionId, force, options.signal);
+    let rejectedCredentials: string | undefined;
+    for (const retry of [false, true]) {
+      const connection = await this.freshConnection(connectionSetId, connectionId, rejectedCredentials, options.signal);
+      options.signal?.throwIfAborted();
       if (!connection.operations.includes(operation)) {
         throw new GatewayOperationError(
           "insufficient_collection_access",
           `${connection.display_name} was not approved for ${operation}. Reconnect it with broader access.`
         );
       }
+      const credentials = this.credentials(connection);
+      const completion = credentials.nativeCompletion;
       try {
-        const credentials = this.credentials(connection);
-        const completion = credentials.nativeCompletion;
         if (completion) {
           if (credentials.authority || connection.encryption) throw new GatewayOperationError("authorization_changed", "Native access cannot use legacy credentials.");
           await this.assertNativeBinding(nativeCompletionSchema.parse(completion), connection.key_handle,
@@ -379,20 +386,22 @@ export class ConnectGateway {
         if (operation === "update" && (input as { unset?: unknown } | undefined)?.unset !== undefined) {
           throw new GatewayOperationError("unsupported_operation", `${connection.display_name} cannot remove fields through unset. Pass the whole file as document instead.`);
         }
-        await this.requireQueryOutput(connection, operation, input, options.signal);
-        const attempt = await this.sendOperation<Result>(connection, operation, input, requestId, options.signal);
-        if (attempt.status === 401 && !force) continue;
+        await this.requireQueryOutput(connection, credentials, operation, input, options.signal);
+        const attempt = await this.sendOperation(connection, credentials, operation, input, requestId, options.signal);
+        if (attempt.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Collection access expired. Reconnect the collection and retry.");
         return await this.operationResult<Result>(connection, attempt, requestId);
       } catch (error) {
-        if (!force && error instanceof GatewayOperationError && error.code === "authority_authentication_expired") continue;
-        if (this.credentials(connection).nativeCompletion) {
+        if (!retry && error instanceof GatewayOperationError && error.code === "authority_authentication_expired") {
+          rejectedCredentials = connection.credentials_ciphertext;
+          continue;
+        }
+        if (completion) {
           const reason = error instanceof GatewayOperationError && ["no_device_registered", "device_offline", "sync_required", "access_removed", "desktop_update_required", "old_connector_running", "collection_not_yet_migrated"].includes(error.code)
             ? error.code : "native_route_failed";
           this.warn({ event: "mcp_native_routing_failed", reason });
         }
         // The legacy authority retired this collection for mdbase-next; this
         // connection's grant predates the move and must be approved again.
-        if (error instanceof GatewayOperationError && error.details?.reason === "moved_to_next_runtime") throw GatewayOperationError.reconnectRequired(connection);
         throw error;
       }
     }
@@ -404,7 +413,11 @@ export class ConnectGateway {
     attempt: Awaited<ReturnType<ConnectGateway["sendOperation"]>>,
     requestId: string
   ): Promise<Result> {
-    if (!attempt.ok) throw upstreamError(attempt.body, "The authority operation failed.");
+    if (!attempt.ok) {
+      const problem = attempt.body?.error;
+      if (problem?.details?.reason === "moved_to_next_runtime") throw GatewayOperationError.reconnectRequired(connection);
+      throw operationProblem(problem?.code);
+    }
     if (!attempt.request) {
       if (
         attempt.body?.protocol_version !== OPERATION_TRANSPORT_PROTOCOL_VERSION
@@ -436,17 +449,12 @@ export class ConnectGateway {
       envelope
     );
     if (!decrypted.ok) {
-      throw new GatewayOperationError(
-        decrypted.problem.code === "unknown"
-          ? decrypted.problem.server_code
-          : decrypted.problem.code,
-        decrypted.problem.message
-      );
+      throw operationProblem(decrypted.problem.code);
     }
     return decrypted.result;
   }
 
-  private async requireQueryOutput(connection: ConnectionRow, operation: CollectionOperation, input: unknown, signal?: AbortSignal): Promise<void> {
+  private async requireQueryOutput(connection: ConnectionRow, credentials: StoredCredentials, operation: CollectionOperation, input: unknown, signal?: AbortSignal): Promise<void> {
     if (operation !== "query" || !input || typeof input !== "object" || !("output" in input)) return;
     if (input.output !== "metadata" || ("include_body" in input && input.include_body === true)) {
       throw new GatewayOperationError("invalid_request", "Metadata output cannot include body hydration.");
@@ -456,8 +464,8 @@ export class ConnectGateway {
     // No global/persistent cache: evidence belongs to this selected grant/route.
     if (!connection.operations.includes("describe")) throw new GatewayOperationError("unsupported_authority_feature", "Metadata output requires authenticated describe discovery.");
     const id = randomUUID();
-    const attempt = await this.sendOperation(connection, "describe", {}, id, signal);
-    if (attempt.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Authority authentication expired.");
+    const attempt = await this.sendOperation(connection, credentials, "describe", {}, id, signal);
+    if (attempt.status === 401) throw new GatewayOperationError("authority_authentication_expired", "Collection access expired. Reconnect the collection and retry.");
     const description = await this.operationResult<{ protocol_version: number; collection_id: string; authority_capabilities?: unknown }>(connection, attempt, id);
     if (description?.protocol_version !== 1 || description.collection_id !== connection.collection_id) throw new GatewayOperationError("invalid_operation_response", "Invalid authority description.");
     const flags = capabilityFlags(description.authority_capabilities);
@@ -466,8 +474,9 @@ export class ConnectGateway {
     }
   }
 
-  private async sendOperation<Result>(
+  private async sendOperation(
     connection: ConnectionRow,
+    credentials: StoredCredentials,
     operation: CollectionOperation,
     input: unknown,
     requestId: string,
@@ -478,7 +487,6 @@ export class ConnectGateway {
     body: any;
     request?: Awaited<ReturnType<typeof encryptRelayRequest>>;
   }> {
-    const credentials = this.credentials(connection);
     let request: Awaited<ReturnType<typeof encryptRelayRequest>> | undefined;
     let body: unknown = input ?? {};
     let url: string;
@@ -545,27 +553,31 @@ export class ConnectGateway {
   private async freshConnection(
     setId: string,
     connectionId: string,
-    force: boolean,
+    rejectedCredentials?: string,
     signal?: AbortSignal
   ): Promise<ConnectionRow> {
+    signal?.throwIfAborted();
+    const parameters = [connectionId, setId];
+    const select = async (db: DatabaseQueryable, lock: string): Promise<ConnectionRow> => {
+      const { rows: [row] } = await db.query<ConnectionRow>(CONNECTION_SELECT + lock, parameters);
+      if (!row) throw new GatewayOperationError("connection_not_found", "That collection connection is unavailable. Call list_connections for the current connections.");
+      return row;
+    };
+    const usable = (row: ConnectionRow) => row.credentials_ciphertext !== rejectedCredentials && new Date(row.access_expires_at).getTime() > Date.now() + 30_000;
+    if (rejectedCredentials === undefined) {
+      const connection = await select(this.db, "");
+      if (usable(connection)) return connection;
+    }
     const client = await this.db.connect();
     try {
       await client.query("BEGIN");
-      const selected = await client.query<ConnectionRow>(
-        `SELECT id, connection_set_id, upstream_url, upstream_client_id, collection_id,
-                grant_id, display_name, operations, scope, encryption, key_handle,
-                credentials_ciphertext, access_expires_at, refresh_expires_at
-         FROM mcp_connections WHERE id = $1 AND connection_set_id = $2 FOR UPDATE`,
-        [connectionId, setId]
-      );
-      let connection = selected.rows[0];
-      if (!connection) throw new GatewayOperationError("connection_not_found", "That collection connection is unavailable.");
-      if (!force && new Date(connection.access_expires_at).getTime() > Date.now() + 30_000) {
+      const connection = await select(client, " FOR UPDATE");
+      if (usable(connection)) {
         await client.query("COMMIT");
         return connection;
       }
       if (new Date(connection.refresh_expires_at).getTime() <= Date.now()) {
-        throw new GatewayOperationError("connection_expired", `Reconnect ${connection.display_name} to continue.`);
+        throw GatewayOperationError.reconnectRequired(connection, "Its collection access expired.");
       }
       const credentials = this.credentials(connection);
       const refreshUrl = `${connection.upstream_url}/oauth/token`;
@@ -583,9 +595,12 @@ export class ConnectGateway {
             "POST",
             refreshUrl,
             refreshBody,
-            credentials.refreshToken
+            credentials.refreshToken,
+            client
           )
         : {};
+      signal?.throwIfAborted();
+      // Once Connect starts rotating the token, finish saving it even if this tool call is cancelled.
       const response = await fetch(refreshUrl, {
         method: "POST",
         headers: {
@@ -593,11 +608,19 @@ export class ConnectGateway {
           ...proof
         },
         body: refreshBody,
-        signal
-      });
+        signal: AbortSignal.timeout(10_000),
+        redirect: "error"
+      }).catch(() => { throw new GatewayOperationError("refresh_unavailable", "Connect could not renew collection access. Retry the tool call shortly."); });
       const raw = await response.json().catch(() => null);
-      if (!response.ok) throw upstreamError(raw, `Reconnect ${connection.display_name} to continue.`);
-      const token = tokenResponseSchema.parse(raw);
+      if (!response.ok) {
+        if (raw?.error === "invalid_grant" || raw?.error?.code === "invalid_grant") {
+          throw GatewayOperationError.reconnectRequired(connection, "Its collection access expired or was withdrawn.");
+        }
+        throw new GatewayOperationError("refresh_unavailable", "Connect could not renew collection access. Retry the tool call shortly.");
+      }
+      const parsed = tokenResponseSchema.safeParse(raw);
+      if (!parsed.success) throw new GatewayOperationError("invalid_operation_response", "Connect returned an invalid credential renewal. Reconnect the collection to restore access.");
+      const token = parsed.data;
       if (token.collection_id !== connection.collection_id || token.grant_id !== connection.grant_id) {
         throw new GatewayOperationError("authorization_changed", "Connect returned a different collection grant.");
       }
@@ -609,7 +632,7 @@ export class ConnectGateway {
           authorizationId: credentials.nativeCompletion.authorization_request_id,
           manifestDigest: credentials.nativeCompletion.application_manifest_digest,
           connectionSetId: connection.connection_set_id
-        } : undefined);
+        } : undefined, client);
       const updated = await client.query<ConnectionRow>(
         `UPDATE mcp_connections
          SET display_name = $2, operations = $3::jsonb, scope = $4::jsonb,
@@ -630,9 +653,8 @@ export class ConnectGateway {
           new Date(Date.now() + token.refresh_expires_in * 1_000)
         ]
       );
-      connection = updated.rows[0];
       await client.query("COMMIT");
-      return connection;
+      return updated.rows[0]!;
     } catch (error) {
       await client.query("ROLLBACK").catch(() => undefined);
       throw error;
@@ -647,7 +669,8 @@ export class ConnectGateway {
     method: string,
     url: string,
     body: string,
-    credential: string
+    credential: string,
+    db?: DatabaseQueryable
   ): Promise<Record<string, string>> {
     if (!connection.key_handle) {
       throw new GatewayOperationError(
@@ -657,7 +680,7 @@ export class ConnectGateway {
     }
     const target = new URL(url);
     return signAuthorityRequest(
-      this.keyStore,
+      { get: handle => this.keyStore.get(handle, db) },
       connection.key_handle,
       publicKey,
       {
@@ -673,7 +696,8 @@ export class ConnectGateway {
     token: ConnectTokenResponse,
     keyHandle: string | null,
     applicationId: string,
-    expectedNative?: { authorizationId: string; manifestDigest: string; connectionSetId: string }
+    expectedNative?: { authorizationId: string; manifestDigest: string; connectionSetId: string },
+    db?: DatabaseQueryable
   ): Promise<void> {
     if (token.native_completion) {
       const completion = token.native_completion;
@@ -685,7 +709,7 @@ export class ConnectGateway {
       ) {
         throw new GatewayOperationError("grant_key_mismatch", "Connect returned a native grant for a different authorization.");
       }
-      await this.assertNativeBinding(completion, keyHandle, applicationId, expectedNative.connectionSetId, token.collection_id, token.grant_id);
+      await this.assertNativeBinding(completion, keyHandle, applicationId, expectedNative.connectionSetId, token.collection_id, token.grant_id, db);
       return;
     }
     if (token.authority) {
@@ -695,7 +719,7 @@ export class ConnectGateway {
           "Connect returned a remote authority capability for another service or collection."
         );
       }
-      const key = keyHandle ? await this.keyStore.get(keyHandle) : null;
+      const key = keyHandle ? await this.keyStore.get(keyHandle, db) : null;
       if (
         !key
         || token.authority.proof_public_key !== key.signingPublicKey
@@ -710,7 +734,7 @@ export class ConnectGateway {
     if (!token.encryption || !keyHandle) {
       throw new GatewayOperationError("encryption_required", "Connect did not establish encrypted local access.");
     }
-    const key = await this.keyStore.get(keyHandle);
+    const key = await this.keyStore.get(keyHandle, db);
     if (
       !key
       || key.agreementPublicKey
@@ -789,13 +813,13 @@ export class ConnectGateway {
     return JSON.parse(this.secrets.decrypt(connection.credentials_ciphertext)) as StoredCredentials;
   }
 
-  private async assertNativeBinding(completion: z.infer<typeof nativeCompletionSchema>, keyHandle: string | null, applicationId: string, connectionSetId: string, collectionId: string, grantId: string): Promise<void> {
-    const key = keyHandle ? await this.keyStore.get(keyHandle) : null;
-    const noise = keyHandle ? await this.noise.get(keyHandle) : null;
+  private async assertNativeBinding(completion: z.infer<typeof nativeCompletionSchema>, keyHandle: string | null, applicationId: string, connectionSetId: string, collectionId: string, grantId: string, db?: DatabaseQueryable): Promise<void> {
+    const key = keyHandle ? await this.keyStore.get(keyHandle, db) : null;
+    const noise = keyHandle ? await this.noise.get(keyHandle, db) : null;
     if (!key || !noise
       || completion.application_id !== applicationId
       || completion.application_declaration_id !== this.manifest.id
-      || !await this.isOwnInstallation(completion.application_installation_id, connectionSetId, applicationId)
+      || !await this.isOwnInstallation(completion.application_installation_id, connectionSetId, applicationId, db)
       || completion.application_origin !== this.applicationOrigin
       || completion.collection_id !== collectionId || completion.grant_id !== grantId
       || completion.grant_signing_public_key !== key.signingPublicKey
@@ -804,14 +828,14 @@ export class ConnectGateway {
     }
   }
 
-  private async isOwnInstallation(installationId: string, connectionSetId: string, applicationId: string): Promise<boolean> {
-    const own = await this.keyStore.get(`${INSTALLATION_HANDLE_PREFIX}${connectionSetId}`);
+  private async isOwnInstallation(installationId: string, connectionSetId: string, applicationId: string, db?: DatabaseQueryable): Promise<boolean> {
+    const own = await this.keyStore.get(`${INSTALLATION_HANDLE_PREFIX}${connectionSetId}`, db);
     if (own && installationId === await applicationInstallationId(own)) return true;
     // Compatibility: native connections approved before installations were per
     // connection set are bound to the one installation the whole gateway used.
     // Remove this, and delete that key, once Connect holds no live grant of the
     // MCP application under that installation id.
-    const shared = await this.keyStore.get(`mcp-application-identity:v3:${this.connectUrl}:${applicationId}`);
+    const shared = await this.keyStore.get(`mcp-application-identity:v3:${this.connectUrl}:${applicationId}`, db);
     return shared !== null && installationId === await applicationInstallationId(shared);
   }
 }
@@ -836,33 +860,33 @@ function credentialsFromToken(token: ConnectTokenResponse): StoredCredentials {
   };
 }
 
-function summary(connection: ConnectionRow): ConnectionSummary {
+type ConnectionSummaryRow = Pick<ConnectionRow, "id" | "collection_id" | "display_name" | "operations" | "scope"> & { encrypted: boolean };
+
+function summary(connection: ConnectionSummaryRow): ConnectionSummary {
   return {
     id: connection.id,
     collection_id: connection.collection_id,
     display_name: connection.display_name,
     operations: connection.operations,
     scope: connection.scope,
-    authority: connection.encryption ? "local" : "remote"
+    authority: connection.encrypted ? "local" : "remote"
   };
 }
 
-function upstreamError(body: any, fallback: string): GatewayOperationError {
-  return new GatewayOperationError(
-    typeof body?.error?.code === "string"
-      ? body.error.code
-      : typeof body?.error === "string"
-        ? body.error
-        : "upstream_error",
-    typeof body?.error?.message === "string"
-      ? body.error.message
-      : typeof body?.error_description === "string"
-        ? body.error_description
-        : fallback,
-    body?.error?.details && typeof body.error.details === "object" && !Array.isArray(body.error.details)
-      ? body.error.details as Record<string, unknown>
-      : undefined
-  );
+function operationProblem(code: unknown): GatewayOperationError {
+  if (typeof code !== "string" || !Object.hasOwn(CONNECT_PROBLEM_CATALOG, code)) {
+    return new GatewayOperationError("operation_outcome_unknown", "The collection did not confirm the request. For a change, check the record before retrying with the same mutation ID.");
+  }
+  const { recovery } = CONNECT_PROBLEM_CATALOG[code as keyof typeof CONNECT_PROBLEM_CATALOG];
+  switch (recovery) {
+    case "reauthorize": return new GatewayOperationError(code, "Collection access was refused. Reconnect the collection and retry.");
+    case "refresh":
+    case "resolve_conflict": return new GatewayOperationError(code, "Collection data changed. Read the latest record or restart the query before retrying.");
+    case "fix_request": return new GatewayOperationError(code, "The collection rejected the request. Check the tool arguments and collection schema before retrying.");
+    case "retry": return new GatewayOperationError(code, "The collection could not complete the request. Try again shortly.");
+    case "choose_collection": return new GatewayOperationError(code, "The collection is unavailable. Call list_connections to check which collections are available.");
+    default: return new GatewayOperationError(code, "The collection could not confirm the request. Check the latest collection state before retrying.");
+  }
 }
 
 function capabilityFlags(value: unknown): string[] {

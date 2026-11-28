@@ -70,10 +70,12 @@ describe("NextGateway", () => {
     expect(setup.open).not.toHaveBeenCalled();
   });
 
-  it("opens a native target with its distinct log grant, not its OAuth grant", async () => {
+  it("opens a native target with its distinct log grant and reuses initial discovery", async () => {
     const ready = await fixture([{ status: 200, body: { ...routed.body, authorization_grant: grantId } }], 200, true);
     await expect(ready.gateway.run(native, "access", "query", {}, "req-1")).resolves.toEqual({ results: [], meta: { has_more: false } });
     expect(ready.open).toHaveBeenLastCalledWith(expect.objectContaining({ grant: "log-grant" }));
+    await ready.open.mock.calls[0]![0].resolveRoute!();
+    expect(ready.calls).toHaveLength(1);
     ready.gateway.close();
   });
 
@@ -81,11 +83,12 @@ describe("NextGateway", () => {
     { collection: "col-1", grant: grantId, targets: [], availability: { state: "unavailable", reason: "device_offline" }, code: "device_offline" },
     { collection: "other", grant: grantId, targets: [{ kind: "hosted" }], code: "authorization_changed" },
     { collection: "col-1", grant: "different-log-grant", authorization_grant: grantId, targets: [{ kind: "hosted" }], code: "authorization_changed" }
-  ])("revalidates native discovery when opening the network session: $code", async response => {
+  ])("revalidates native discovery after the initial route: $code", async response => {
     const setup = await fixture([
       { status: 200, body: { ...routed.body, grant: grantId } }, { status: 200, body: response }
     ], 200, true);
     await setup.gateway.run(native, "access", "query", {}, "req-1");
+    await setup.open.mock.calls[0]![0].resolveRoute!();
     await expect(setup.open.mock.calls[0]![0].resolveRoute!()).rejects.toMatchObject({ code: response.code });
     setup.gateway.close();
   });
@@ -202,13 +205,13 @@ describe("NextGateway", () => {
       const sleep = vi.fn(async (_ms: number) => undefined);
       const setup = await fixture([hostedRoute, { status: 409, body: {} }], 200, true, sleep);
       // As the SDK does: a route that cannot be resolved surfaces as an unreachable replica.
-      setup.open.mockImplementationOnce(async ({ resolveRoute }) => {
+      setup.open.mockImplementation(async ({ resolveRoute }) => {
         await resolveRoute!().catch(() => { throw mdbaseError("unavailable", "cannot reach the replica"); });
-        throw new Error("unreachable");
+        throw handshakeClosed();
       });
       await expect(setup.gateway.run(native, "access", "query", {}, "req-1")).rejects.toMatchObject({ code: "reconnect_required" });
-      expect(setup.open).toHaveBeenCalledTimes(1);
-      expect(sleep).not.toHaveBeenCalled();
+      expect(setup.open).toHaveBeenCalledTimes(2);
+      expect(sleep).toHaveBeenCalledOnce();
     });
 
     it("lets a caller that gives up leave the wait", async () => {

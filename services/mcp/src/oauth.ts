@@ -220,9 +220,17 @@ export class OAuthService {
     if (!pending || pending.completed_at || new Date(pending.expires_at).getTime() <= Date.now()) {
       throw new OAuthError("invalid_request", "This Connect authorization has expired or was already used.");
     }
+    // Claim both outcomes before exchanging the code or deleting its key.
+    const claimed = await this.db.query(
+      `UPDATE mcp_upstream_authorizations SET completed_at = now()
+       WHERE id = $1 AND completed_at IS NULL AND expires_at > now() RETURNING id`,
+      [pending.id]
+    );
+    if (!claimed.rows[0]) {
+      throw new OAuthError("invalid_request", "This Connect authorization has expired or was already used.");
+    }
     if (input.error || !input.code) {
       await this.keyStore.delete(pending.key_handle);
-      await this.db.query("UPDATE mcp_upstream_authorizations SET completed_at = now() WHERE id = $1", [pending.id]);
       if (pending.kind === "initial" && pending.authorization_request_id) {
         const authorization = await this.authorizationRequest(pending.authorization_request_id);
         await this.db.query("UPDATE mcp_authorization_requests SET denied_at = now() WHERE id = $1", [authorization.id]);
@@ -238,16 +246,6 @@ export class OAuthService {
       return { kind: "additional", error: "Collection access was not approved." };
     }
     const verifier = this.secrets.decrypt(pending.code_verifier);
-    // Claim once before exchanging the upstream code or persisting a connection.
-    // Concurrent/replayed callbacks must never attach a second grant to this request.
-    const claimed = await this.db.query(
-      `UPDATE mcp_upstream_authorizations SET completed_at = now()
-       WHERE id = $1 AND completed_at IS NULL AND expires_at > now() RETURNING id`,
-      [pending.id]
-    );
-    if (!claimed.rows[0]) {
-      throw new OAuthError("invalid_request", "This Connect authorization has expired or was already used.");
-    }
     if (pending.kind === "initial" && pending.authorization_request_id) {
       await this.authorizationRequest(pending.authorization_request_id);
     }
@@ -335,18 +333,37 @@ export class OAuthService {
           || canonicalResource(body.resource ?? code.resource, this.resource) !== code.resource) {
         throw new OAuthError("invalid_grant", "The authorization code is invalid or expired.");
       }
-      const used = await this.db.query(
-        "UPDATE mcp_authorization_codes SET used_at = now() WHERE id = $1 AND used_at IS NULL RETURNING id",
-        [code.id]
-      );
-      if (!used.rows[0]) throw new OAuthError("invalid_grant", "The authorization code was already used.");
-      return this.issueTokens(code);
+      const transaction = await this.db.connect();
+      try {
+        await transaction.query("BEGIN");
+        const used = await transaction.query(
+          "UPDATE mcp_authorization_codes SET used_at = $2 WHERE id = $1 AND used_at IS NULL AND expires_at > $2 RETURNING id",
+          [code.id, new Date()]
+        );
+        if (!used.rows[0]) throw new OAuthError("invalid_grant", "The authorization code is invalid or expired.");
+        const tokens = await this.issueTokens(code, transaction);
+        await transaction.query("COMMIT");
+        return tokens;
+      } catch (error) {
+        await transaction.query("ROLLBACK").catch(() => undefined);
+        throw error;
+      } finally {
+        transaction.release();
+      }
     }
-    // Refresh tokens rotate. The row lock orders a rotation and a reuse of the
-    // same token, so a revocation also covers the successor a rotation issued.
+    // Every rotation and replay locks the connection set before reading token state.
+    // Revocation must include successors issued by a concurrent rotation of a different token.
+    const hash = tokenHash(body.refresh_token);
     const transaction = await this.db.connect();
     try {
       await transaction.query("BEGIN");
+      const family = await transaction.query(
+        `SELECT id FROM mcp_connection_sets WHERE id = (
+           SELECT connection_set_id FROM mcp_refresh_tokens WHERE token_hash = $1 AND client_id = $2
+         ) FOR UPDATE`,
+        [hash, body.client_id]
+      );
+      if (!family.rows[0]) throw new OAuthError("invalid_grant", "The refresh token is invalid or expired.");
       const result = await transaction.query<{
         id: string;
         client_id: string;
@@ -358,33 +375,33 @@ export class OAuthService {
         revoked_at: Date | string | null;
       }>(
         `SELECT id, client_id, connection_set_id, resource, scopes, expires_at, used_at, revoked_at
-         FROM mcp_refresh_tokens WHERE token_hash = $1 FOR UPDATE`,
-        [tokenHash(body.refresh_token)]
+         FROM mcp_refresh_tokens WHERE token_hash = $1`,
+        [hash]
       );
       const refresh = result.rows[0];
-      if (refresh?.used_at && !refresh.revoked_at) {
-        if (Date.now() - new Date(refresh.used_at).getTime() > REFRESH_REUSE_GRACE_MS) {
+      if (!refresh || refresh.revoked_at || canonicalResource(body.resource ?? refresh.resource, this.resource) !== refresh.resource) {
+        throw new OAuthError("invalid_grant", "The refresh token is invalid or expired.");
+      }
+      const now = new Date();
+      if (refresh.used_at) {
+        if (now.getTime() - new Date(refresh.used_at).getTime() > REFRESH_REUSE_GRACE_MS) {
           // A rotated token came back, so it or its successor is held by someone
           // else. Revoke the whole family: every token issued from one
           // authorization shares its connection set.
           for (const table of ["mcp_refresh_tokens", "mcp_access_tokens"]) {
             await transaction.query(
-              `UPDATE ${table} SET revoked_at = now() WHERE connection_set_id = $1 AND revoked_at IS NULL`,
-              [refresh.connection_set_id]
+              `UPDATE ${table} SET revoked_at = $2 WHERE connection_set_id = $1 AND revoked_at IS NULL`,
+              [refresh.connection_set_id, now]
             );
           }
           await transaction.query("COMMIT");
         }
         throw new OAuthError("invalid_grant", "The refresh token was already used.");
       }
-      if (!refresh
-          || refresh.revoked_at
-          || new Date(refresh.expires_at).getTime() <= Date.now()
-          || refresh.client_id !== body.client_id
-          || canonicalResource(body.resource ?? refresh.resource, this.resource) !== refresh.resource) {
+      if (new Date(refresh.expires_at).getTime() <= now.getTime()) {
         throw new OAuthError("invalid_grant", "The refresh token is invalid or expired.");
       }
-      await transaction.query("UPDATE mcp_refresh_tokens SET used_at = now() WHERE id = $1", [refresh.id]);
+      await transaction.query("UPDATE mcp_refresh_tokens SET used_at = $2 WHERE id = $1", [refresh.id, now]);
       const tokens = await this.issueTokens(refresh, transaction);
       await transaction.query("COMMIT");
       return tokens;
@@ -523,7 +540,7 @@ export class OAuthService {
     connection_set_id: string;
     resource: string;
     scopes: McpScope[];
-  }, db: DatabaseQueryable = this.db): Promise<Record<string, unknown>> {
+  }, db: DatabaseQueryable): Promise<Record<string, unknown>> {
     const accessToken = randomToken("mcp");
     const refreshToken = randomToken("mrf");
     await db.query(

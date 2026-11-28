@@ -5,7 +5,7 @@ import type { CollectionChangesPage, CollectionOperation } from "@mdbase-dev/con
 import { normalizeCollectionChange } from "./change-events.js";
 import { z } from "zod";
 import { ConnectGateway, GatewayOperationError } from "./connect.js";
-import { OAuthService, type McpAuthContext } from "./oauth.js";
+import { OAuthError, OAuthService, type McpAuthContext } from "./oauth.js";
 
 const connectionId = z.uuid().describe("Opaque connection ID returned by list_connections");
 const path = z.string().min(1).max(1_024).describe("Collection-relative record path");
@@ -59,41 +59,35 @@ export function createMcpServer(
     title: "List mdbase collections",
     description: "List the mdbase collections the user has approved for this connector and the operations each one allows. Call it first: every other tool needs a connection_id it returns. If the collection the user means is not listed, use add_connection. editor_url, when present, opens the collection in the mdbase Editor for the user.",
     annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false }
-  }, async () => {
-    const [connections, editors] = await Promise.all([
-      gateway.listConnections(context.connectionSetId),
-      gateway.editorLinks(context.connectionSetId)
-    ]);
-    return toolResult({ connections: connections.map((connection) => ({ ...connection, editor_url: editors.get(connection.id) ?? null })) });
-  });
+  }, () => connectionTool(async () => ({ connections: await gateway.listConnectionsWithEditorLinks(context.connectionSetId) })));
 
   registerTool("add_connection", {
     title: "Connect another mdbase collection",
     description: "Create a single-use browser link, valid for ten minutes, where the user can approve another mdbase collection and its permissions. Use it when the user asks to connect, add or approve another collection (for example \"connect my reading list too\"), or when the collection they mean is not in list_connections. Give the user the link: nothing is approved until they open it and approve in the browser, so call list_connections afterwards and never claim approval happened before it shows the collection.",
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
-  }, async () => {
+  }, () => connectionTool(async () => {
     const authorizationUrl = await oauth.createConnectionTicket(context);
-    return toolResult({
+    return {
       authorization_url: authorizationUrl,
       expires_in: 600,
       instruction: "Ask the user to open this link and approve a collection, then call list_connections again."
-    });
-  });
+    };
+  }));
 
   registerTool("reconnect_collection", {
     title: "Reconnect an mdbase collection",
     description: "Create a single-use browser link, valid for ten minutes, that opens the approval screen on one connected collection so the user can renew or broaden its approval. Use it when a tool fails because the collection's approval has lapsed or does not allow the operation. Nothing changes until the user approves in the browser; call list_connections afterwards.",
     inputSchema: { connection_id: connectionId },
     annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false }
-  }, async ({ connection_id }) => {
+  }, ({ connection_id }) => connectionTool(async () => {
     const authorizationUrl = await oauth.createConnectionTicket(context, connection_id);
-    return toolResult({
+    return {
       authorization_url: authorizationUrl,
       connection_id,
       expires_in: 600,
       instruction: "Ask the user to open this link and review the preselected collection approval, then call list_connections again."
-    });
-  });
+    };
+  }));
 
   registerTool("describe_collection", {
     title: "Describe an mdbase collection",
@@ -352,7 +346,7 @@ async function operationTool(
         retry: "Reuse this request_id as mutation_id when retrying the exact mutation."
       },
       outcome: value
-    } : value);
+    } : value, operation === "query");
   } catch (error) {
     // A grant that could not take a Noise key silently: one-click re-approval link.
     if (error instanceof GatewayOperationError && error.code === "reconnect_required") {
@@ -376,7 +370,9 @@ async function operationTool(
       : {
           error: {
             code: "operation_failed",
-            message: "The collection operation failed.",
+            message: options.mutationReceipt
+              ? "The gateway could not confirm the change. Check the record or retry the exact change using the same mutation ID."
+              : "The gateway could not complete the collection request. Try again shortly.",
             ...(options.mutationReceipt ? { request_id: options.requestId } : {})
           }
         };
@@ -387,10 +383,21 @@ async function operationTool(
   }
 }
 
-function toolResult(value: unknown) {
+async function connectionTool(run: () => Promise<Record<string, unknown>>) {
+  try {
+    return toolResult(await run());
+  } catch (error) {
+    const problem = error instanceof OAuthError
+      ? { code: error.code, message: error.message }
+      : { code: "connection_request_failed", message: "The gateway could not complete the connection request. Try again shortly." };
+    return { ...toolResult({ error: problem }), isError: true };
+  }
+}
+
+function toolResult(value: unknown, compact = false) {
   const structuredContent = isObject(value) ? value : { result: value };
   return {
-    content: [{ type: "text" as const, text: JSON.stringify(value, null, 2) }],
+    content: [{ type: "text" as const, text: JSON.stringify(value, null, compact ? undefined : 2) }],
     structuredContent
   };
 }

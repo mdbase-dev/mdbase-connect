@@ -17,6 +17,8 @@ import {
   type GrantEncryption
 } from "@mdbase-dev/connect-protocol";
 
+import type { DatabaseQueryable } from "./db.js";
+
 const MAX_U64 = 18_446_744_073_709_551_615n;
 const REQUEST_INFO = "mdbase-connect relay request key v1";
 const RESPONSE_INFO = "mdbase-connect relay response key v1";
@@ -35,7 +37,7 @@ export interface GrantKeyRecord {
 
 export interface GrantKeyStore {
   create(handle: string): Promise<GrantKeyRecord>;
-  get(handle: string): Promise<GrantKeyRecord | null>;
+  get(handle: string, db?: DatabaseQueryable): Promise<GrantKeyRecord | null>;
   nextCounter(handle: string): Promise<string>;
   delete(handle: string): Promise<void>;
 }
@@ -136,7 +138,7 @@ export async function signApplicationAuthorization(
 
 /** Sign one remote-authority or token-refresh request with the approved grant key. */
 export async function signAuthorityRequest(
-  store: GrantKeyStore,
+  store: Pick<GrantKeyStore, "get">,
   handle: string,
   expectedPublicKey: string,
   input: AuthorityProofInput
@@ -330,7 +332,7 @@ async function requireAgreementKey(
 }
 
 async function requireSigningKey(
-  store: GrantKeyStore,
+  store: Pick<GrantKeyStore, "get">,
   handle: string,
   expectedPublicKey: string
 ): Promise<GrantKeyRecord> {
