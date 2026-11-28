@@ -112,6 +112,7 @@ export function noteRecordAdapter(
 ): MdbaseRecordSessionAdapter<NoteDocument> {
   return {
     revision: (note) => note.revision,
+    pendingSync: (note) => Boolean(note.pendingSync),
     body: (note) => note.body ?? "",
     frontmatter: (note) => note.frontmatter,
     write: (base, change) => outcome(() => guard(() => gateway.update(base, change))),

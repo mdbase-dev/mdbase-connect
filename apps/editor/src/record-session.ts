@@ -23,6 +23,7 @@ export type MdbaseRecordSessionState =
 export interface MdbaseRecordSessionAdapter<R> {
   revision(record: R): string;
   body(record: R): string;
+  pendingSync?(record: R): boolean;
   frontmatter?(record: R): JsonObject;
   write(base: R, change: MdbaseRecordChange, options?: ConnectRequestOptions): Promise<ConnectOutcome<R>>;
   read?(base: R, options?: ConnectRequestOptions): Promise<ConnectOutcome<R>>;
@@ -358,7 +359,17 @@ export class MdbaseRecordSession<R> {
   private acknowledge(result: R, sent: Sent): void {
     this.seen.add(this.adapter.revision(result));
     this.record = result;
-    if (sent.body !== undefined) this.baseBody = sent.body;
+    const returned = this.adapter.body(result);
+    const submitted = sent.body ?? this.baseBody;
+    if (this.adapter.pendingSync?.(result)) {
+      // The pending receipt can race a rollback. The checkpoint owns the
+      // submitted text until the device learns the outcome.
+      this.baseBody = submitted;
+    } else {
+      if (this.body === submitted) this.body = returned;
+      else if (returned !== submitted && this.body !== returned) this.remote = result;
+      this.baseBody = returned;
+    }
     for (const [key, value] of Object.entries(sent.patch ?? {})) {
       if (key in this.patch && sameJson(this.patch[key], value)) delete this.patch[key];
     }
@@ -401,7 +412,10 @@ export class MdbaseRecordSession<R> {
   }
 
   private classify(record: R): void {
-    if (this.adapter.revision(record) === this.adapter.revision(this.record)) return;
+    if (this.adapter.revision(record) === this.adapter.revision(this.record)) {
+      if (this.adapter.pendingSync?.(this.record) && !this.adapter.pendingSync(record)) this.record = record;
+      return;
+    }
     const baseBody = this.adapter.body(this.record);
     const remoteBody = this.adapter.body(record);
     const bodyChanged = remoteBody !== baseBody;

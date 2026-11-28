@@ -5,6 +5,10 @@
  *
  *   node runtime/packages/sdk/scripts/app-private-device-local-e2e.mjs
  *
+ * --editor-offline runs the Editor cloud-copy trials on the CLI stack with real
+ * hosted and escrow Workers. Build prerequisites are listed at the top of
+ * apps/editor/scripts/offline-conflict-e2e.mjs.
+ *
  * Options: `--rebuild` rebuilds the cargo artifacts; `--keep` keeps the run's
  * scratch directory and logs. Environment: `PLAYWRIGHT_MODULE` (a Playwright
  * `index.mjs` with Chromium installed; default as the browser smokes),
@@ -77,7 +81,7 @@
  *   never contacted. The browser uses its own WebCrypto and IndexedDB in a
  *   throwaway Chromium profile. */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -88,7 +92,6 @@ import { tmpdir } from "node:os";
 import { extname, join, normalize, resolve, sep } from "node:path";
 import { pathToFileURL } from "node:url";
 import { build } from "esbuild";
-import { startHostedPostgres } from "../../../../scripts/lib/hosted-postgres-container.mjs";
 import { availableTcpPort, delay, poll } from "../../../../scripts/lib/test-runtime.mjs";
 import { bundleLocalServer, checkout, e2eRoot, ensureAppRuntime, ensureDesktop, ensureLocalSdk, ensureStack, ensureTools, runtimeRoot } from "./app-private-device-local-stack.mjs";
 
@@ -145,7 +148,7 @@ try {
 `;
 
 const flags = new Set(process.argv.slice(2));
-for (const flag of flags) if (!["--rebuild", "--keep"].includes(flag)) throw Error(`unknown option ${flag}`);
+for (const flag of flags) if (!["--rebuild", "--keep", "--editor-offline"].includes(flag)) throw Error(`unknown option ${flag}`);
 const rebuild = flags.has("--rebuild"), keep = flags.has("--keep");
 const step = name => console.log(`ok - ${name}`);
 const section = name => console.log(`\n== ${name}`);
@@ -168,7 +171,7 @@ step(`local stack ${connectOrigin} (Connect), ${logOrigin} (log service)`);
 
 // --------------------------------------------------------------------- the run
 const run = join(e2eRoot, "runs", `${new Date().toISOString().replace(/[:.]/g, "-")}-${process.pid}`);
-mkdirSync(run, { recursive: true });
+mkdirSync(run, { recursive: true, mode: 0o700 });
 // Short: the daemon's Unix sockets live under its state directory.
 const scratch = await mkdtemp(join(tmpdir(), "mdpd-"));
 const cleanup = [];
@@ -274,17 +277,24 @@ const json = exchange => { try { return JSON.parse(exchange.reply.toString("utf8
 const bearer = exchange => /^Bearer (.+)$/.exec(exchange.headers.authorization ?? "")?.[1] ?? null;
 const pathOf = exchange => exchange.path.split("?")[0];
 
-let pg, postgres, connect_, log, hold = null;
+let pg, connect_, log, hold = null;
 let failed = false;
-try {
+async function runStack() {
   // ------------------------------------------------------------ the local stack
   section("local stack");
   const connectPort = await portFree(connectOrigin), logPort = await portFree(logOrigin);
-  postgres = await startHostedPostgres("private-device-e2e");
-  cleanup.push(() => postgres.stop());
-  await postgres.createDatabase("private_device_e2e_test");
-  const databaseUrl = postgres.databaseUrl("private_device_e2e_test");
-  step(`disposable PostgreSQL container ${postgres.container}`);
+  const container = `private-device-e2e-${nonce}`, pgPassword = randomUUID();
+  const docker = (...args) => execFileSync("docker", args, { encoding: "utf8", env: { ...process.env, POSTGRES_PASSWORD: pgPassword }, stdio: ["ignore", "pipe", "pipe"] }).trim();
+  docker("run", "--rm", "-d", "--name", container, "--tmpfs", "/var/lib/postgresql", "-e", "POSTGRES_USER=mdbase",
+    "-e", "POSTGRES_PASSWORD", "-e", "POSTGRES_DB=private_device_e2e_test", "-p", "127.0.0.1::5432", "postgres:18-alpine");
+  cleanup.push(() => docker("stop", container));
+  const port = docker("port", container, "5432/tcp").split(":").pop();
+  await poll(() => {
+    docker("exec", container, "pg_isready", "-h", "127.0.0.1", "-U", "mdbase");
+    return true;
+  }, "the disposable PostgreSQL server did not start", 300, 250);
+  const databaseUrl = `postgres://mdbase:${pgPassword}@127.0.0.1:${port}/private_device_e2e_test`;
+  step(`disposable PostgreSQL container ${container}`);
 
   const logInner = await availableTcpPort(), connectInner = await availableTcpPort();
   const logServer = child("log-service", tools.log, ["--listen", `127.0.0.1:${logInner}`, "--backend", "mem", "--public-base", logOrigin],
@@ -293,11 +303,14 @@ try {
   await poll(async () => (await fetch(`${logOrigin}/health`)).ok, "the log service never answered", 100, 100);
   step("native log service (memory backend) behind its recording front");
 
+  const editor = flags.has("--editor-offline")
+    ? await import("../../../../apps/editor/scripts/offline-conflict-e2e.mjs") : null;
   // Outbound cloud-copy service settings the listing route's mount requires; nothing listens there.
   const token = () => randomBytes(24).toString("hex");
   const serverEnv = { PATH: process.env.PATH, ...stack.serverEnv, PORT: String(connectInner), DATABASE_URL: databaseUrl,
     MDBASE_NEXT_CLOUD_COPY_BOOTSTRAP: "1", MDBASE_NEXT_HOSTED_SERVICE_URL: "http://127.0.0.1:9", MDBASE_NEXT_ESCROW_SERVICE_URL: "http://127.0.0.1:9",
     MDBASE_NEXT_HOSTED_SERVICE_TOKEN: token(), MDBASE_NEXT_ESCROW_SERVICE_TOKEN: token(), MDBASE_NEXT_HOSTED_INTERNAL_TOKEN: token(), MDBASE_NEXT_ESCROW_INTERNAL_TOKEN: token() };
+  const startCloudServices = editor && await editor.cloudCopyServices({ checkout, run, sdkLocal, stack, env: serverEnv, cleanup });
   // The stand-in for the portal build: one inert page, served by the real server's approval-page rule.
   const portalDist = join(run, "portal"); mkdirSync(portalDist, { recursive: true });
   writeFileSync(join(portalDist, "index.html"), '<!doctype html><meta charset="utf-8"><title>Portal stand-in</title><p>Portal stand-in: the test performs the portal\'s requests.</p>');
@@ -311,8 +324,8 @@ try {
     exited.catch(() => {});
     await Promise.race([exited, poll(async () => (await fetch(`${connectOrigin}/health`)).ok, "the Connect server never answered", 300, 100)]);
   }
-  await bootConnect(false);
-  step("Connect server (own entry, PostgreSQL, private bootstrap, app devices OFF)");
+  await bootConnect(flags.has("--editor-offline"));
+  step("Connect server (own entry, PostgreSQL, private bootstrap)");
 
   const require_ = createRequire(join(checkout, "services/server/package.json"));
   pg = new (require_("pg").Pool)({ connectionString: databaseUrl, max: 2 });
@@ -338,7 +351,7 @@ try {
   };
 
   // ------------------------------------------------------- step 1: the desktop
-  section("1. the desktop creates a Private collection, sets the account key and writes a record");
+  section(editor ? "1. the desktop creates a cloud copy and writes a record" : "1. the desktop creates a Private collection, sets the account key and writes a record");
   const state = join(scratch, "s"), folder = join(scratch, "notes"), home = join(scratch, "h");
   await mkdir(home, { recursive: true });
   // Nothing of the person's desktop session is inherited: its own HOME, XDG
@@ -369,7 +382,8 @@ try {
     const cli = spawn(desktopBinary, ["--state-dir", state, "--json", ...args], { env: desktopEnv, cwd: scratch, stdio: ["pipe", "pipe", "pipe"] });
     let out = "", err = ""; cli.stdout.on("data", part => { out += part; }); cli.stderr.on("data", part => { err += part; });
     cli.once("error", refused);
-    cli.once("exit", code => {
+    cli.stdin.on("error", error => { if (error.code !== "EPIPE") refused(error); });
+    cli.once("close", code => {
       if (code === 0) { try { done(out.trim() ? JSON.parse(out) : null); } catch { refused(Error(`mdbase ${args.join(" ")}: unreadable output:\n${out}`)); } return; }
       const error = Error(`mdbase ${args.join(" ")} failed (${code}):\n${out}${err}`); error.stdout = out; refused(error);
     });
@@ -398,19 +412,25 @@ try {
   const added = await mdbase(["collection", "add", folder, "--name", "Private notes"]);
   await poll(async () => (await mdbase(["collection", "list"])).some(c => c.id === added.id && c.state === "ready"), "the collection never became ready", 300, 100);
   const collectionId = added.id;
-  const enabled = await mdbase(["sync", "enable", collectionId, "--mode", "private"]);
-  console.log(`   sync enable: ${JSON.stringify(enabled)}`);
-  await poll(async () => (await rows("SELECT sync FROM next_collections WHERE collection_id=$1", [collectionId]))[0]?.sync === "private", "Connect never recorded the Private collection", 300, 100);
-  const recorded = (await rows("SELECT * FROM next_collections WHERE collection_id=$1", [collectionId]))[0];
-  console.log(`   next_collections row: ${JSON.stringify(recorded)}`);
-  const setup = await mdbase(["private", "setup"], password);
-  const recoveryKey = setup.recovery_key;
-  assert.equal(typeof recoveryKey, "string", "private setup returns the recovery key once");
-  console.log(`   private setup: ${JSON.stringify({ ...setup, recovery_key: "(kept)" })}`);
-  console.log(`   private status: ${JSON.stringify(await mdbase(["private", "status"]))}`);
+  let recoveryKey, activateHosted;
+  if (startCloudServices) {
+    activateHosted = await startCloudServices(collectionId);
+    await mdbase(["sync", "enable", collectionId, "--mode", "cloud-copy", "--yes"]);
+  } else {
+    const enabled = await mdbase(["sync", "enable", collectionId, "--mode", "private"]);
+    console.log(`   sync enable: ${JSON.stringify(enabled)}`);
+    await poll(async () => (await rows("SELECT sync FROM next_collections WHERE collection_id=$1", [collectionId]))[0]?.sync === "private", "Connect never recorded the Private collection", 300, 100);
+    const recorded = (await rows("SELECT * FROM next_collections WHERE collection_id=$1", [collectionId]))[0];
+    console.log(`   next_collections row: ${JSON.stringify(recorded)}`);
+    const setup = await mdbase(["private", "setup"], password);
+    recoveryKey = setup.recovery_key;
+    assert.equal(typeof recoveryKey, "string", "private setup returns the recovery key once");
+    console.log(`   private setup: ${JSON.stringify({ ...setup, recovery_key: "(kept)" })}`);
+    console.log(`   private status: ${JSON.stringify(await mdbase(["private", "status"]))}`);
+  }
   await mdbase(["create", "--path", desktopPath, "--type", "task", "--fields", JSON.stringify({ title: desktopMarker, status: "open" }), "-C", folder]);
   assert.match(readFileSync(join(folder, desktopPath), "utf8"), new RegExp(desktopMarker));
-  step(`Private collection ${collectionId}, account key set with an encryption password, record ${desktopPath} written`);
+  step(`${editor ? "Cloud copy" : "Private collection"} ${collectionId}, record ${desktopPath} written`);
   // ------------------------------------------------------------------ the app
   section("the app (Chromium, the SDK's local application build, real app-runtime WASM)");
   const appPort = await availableTcpPort(), appOrigin = `http://127.0.0.1:${appPort}`;
@@ -423,6 +443,7 @@ try {
   await build({ entryPoints: [join(appDirectory, "page.mjs")], outfile: join(appDirectory, "e2e-page.js"), bundle: true, format: "esm", platform: "browser", target: "es2022", logLevel: "error" });
   const types = { ".js": "text/javascript", ".mjs": "text/javascript", ".wasm": "application/wasm", ".json": "application/json", ".map": "application/json", ".html": "text/html" };
   const sdkDist = join(sdkLocal, "dist");
+  const editorShell = editor && await editor.prepare({ checkout, run, sdkLocal, declaration });
   const appServer = createServer((request, response) => {
     const path = new URL(request.url, appOrigin).pathname;
     const send = (file, type) => { response.writeHead(200, { "content-type": type, "cache-control": "no-store" }); createReadStream(file).pipe(response); };
@@ -434,6 +455,7 @@ try {
       const file = normalize(join(sdkDist, path.slice(5)));
       if (file.startsWith(sdkDist + sep) && existsSync(file) && statSync(file).isFile()) return send(file, types[extname(file)] ?? "application/octet-stream");
     }
+    if (editorShell && editor.serve(editorShell, path, response)) return;
     response.writeHead(404); response.end();
   });
   await new Promise((ready, refused) => { appServer.once("error", refused); appServer.listen(appPort, "127.0.0.1", ready); });
@@ -448,7 +470,7 @@ try {
     const browserLog = createWriteStream(join(run, `browser-${profile}.log`), { flags: "a" });
     page.on("console", message => browserLog.write(`${message.type()}: ${message.text()}\n`));
     page.on("pageerror", error => browserLog.write(`pageerror: ${error?.stack ?? error}\n`));
-    await page.goto(`${appOrigin}/`);
+    await page.goto(`${appOrigin}/`, { waitUntil: "commit", timeout: 90_000 });
     await page.waitForFunction(() => window.e2eReady === true || typeof window.e2eFailed === "string", null, { timeout: 60_000 });
     const broken = await page.evaluate(() => window.e2eFailed ?? null);
     if (broken) throw Error(`the app page failed to load: ${broken}`);
@@ -483,6 +505,22 @@ try {
     const connectorId = (await rows("SELECT connector_id FROM installation_device_pairings WHERE pairing_id=$1", [pairingId]))[0].connector_id;
     const view = await settle(browser, ["choosing", "ready", "needs_unlock", "needs_setup", "opening", "problem", "signed_out"]);
     return { from, pairingId, shown, approval: approval.value, receipt, token: receipt.token, connectorId, view };
+  }
+  if (editor) {
+    section("Editor offline conflict trials");
+    await editor.seedTrials({ folder, mdbase, collectionId });
+    const browser = await open("editor");
+    const signed = await signInApp(browser, () => ({
+      collection_ids: [collectionId], create_collections: false, selected_collection_id: collectionId,
+    }));
+    if (signed.view.phase.kind === "choosing") await app(browser, "select", collectionId);
+    await awaitExchange(signed.from, exchange => exchange.method === "POST" &&
+      pathOf(exchange) === `/v1/next/collections/${collectionId}/devices` && exchange.status === 200, "browser enrollment");
+    await activateHosted();
+    await settle(browser, ["ready"]);
+    await app(browser, "close");
+    await editor.runTrials({ ...browser, appOrigin, collectionId, folder, mdbase });
+    return;
   }
   const listing = (from, token_) => awaitExchange(from, exchange => exchange.method === "GET" && pathOf(exchange) === "/v1/next/collections" && bearer(exchange) === token_ && exchange.status === 200, "the installation's collection listing");
   const scopeRows = connectorId => rows("SELECT collection_id, private_device FROM installation_collection_scopes WHERE connector_id=$1 ORDER BY collection_id", [connectorId]);
@@ -846,13 +884,17 @@ try {
   step(`${log.exchanges.length} requests and ${log.streams.length} sockets, ${total(fromApp)} bytes from the app and ${total(fromOthers)} from the desktop and Connect: no record title, body or path in the clear`);
 
   console.log("\nPASS: the Private device path, end to end on the local stack");
+}
+
+try {
+  await runStack();
 } catch (error) {
   failed = true;
   console.error(`\nFAILED: ${error?.stack ?? error}`);
   console.error(`logs: ${run}`);
 } finally {
   // What Connect was asked and answered (throwaway credentials of a disposable database), for reading a failure.
-  if (connect_) writeFileSync(join(run, "connect-exchanges.jsonl"), connect_.exchanges.map(exchange => JSON.stringify({ method: exchange.method, path: exchange.path, status: exchange.status,
+  if (connect_ && !flags.has("--editor-offline")) writeFileSync(join(run, "connect-exchanges.jsonl"), connect_.exchanges.map(exchange => JSON.stringify({ method: exchange.method, path: exchange.path, status: exchange.status,
     origin: exchange.headers.origin ?? null, request: exchange.body.toString("utf8").slice(0, 2000), reply: exchange.reply?.toString("utf8").slice(0, 4000) ?? null })).join("\n") + "\n");
   // Bounded: a step that hangs must not keep the container or a child alive.
   for (const close of cleanup.reverse()) await Promise.race([Promise.resolve().then(close).catch(() => {}), delay(15_000)]);

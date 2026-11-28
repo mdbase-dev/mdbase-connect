@@ -5882,6 +5882,7 @@ msgstr "La escritura nativa cambió su identidad de mutación."
 msgid "The new type definition hasn’t been saved."
 msgstr "La nueva definición de tipo no se ha guardado."
 
+#: src/CollectionRail.tsx
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
 msgstr "Se rechazó el cambio de la nota."
@@ -6251,6 +6252,7 @@ msgstr "Este cambio en la nota sigue sin confirmar. Revisa la operación interru
 msgid "This note changed after it was opened. Reload before saving."
 msgstr "Esta nota cambió después de abrirse. Vuelve a cargarla antes de guardar."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
 msgstr "Esta nota cambió en otro lugar"

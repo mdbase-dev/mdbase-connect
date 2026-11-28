@@ -48,8 +48,8 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     expect(saved.body).toBe("Changed body\n");
     expect(saved.frontmatter.status).toBe("done");
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ id: f.record.id, revision: base.revision }),
-      { patch: { status: "done" }, body: "Changed body\n", ifRevision: base.revision },
-      expect.objectContaining({ mutationId: expect.any(String), signal: expect.any(AbortSignal) }));
+      { patch: { status: "done" }, body: "Changed body\n", ifRevision: base.revision, requireLive: true },
+      expect.objectContaining({ mutationId: expect.any(String), conflictMode: "reject", signal: expect.any(AbortSignal) }));
     expect(f.adapter.pendingMutations()).toEqual([]);
   });
 
@@ -176,7 +176,7 @@ describe("NextEditorRecords (SDK stand-in, not LAB)", () => {
     const f = await fixture(true);
     const base = await f.adapter.read(f.record.path);
     vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
-    expect((await f.adapter.updateProperties(base.path, { status: "done" }, base.revision))?.frontmatter.status).toBe("done");
+    expect(await f.adapter.updateProperties(base.path, { status: "done" }, base.revision)).toMatchObject({ pendingSync: true, frontmatter: { status: "done" } });
     expect(f.adapter.pendingMutations()).toEqual([]);
   });
 

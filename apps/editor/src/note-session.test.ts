@@ -17,7 +17,7 @@ function document(path: string, overrides: Partial<NoteDocument> = {}): NoteDocu
   };
 }
 
-function session(note: NoteDocument, update = vi.fn(async (base: NoteDocument, change: MdbaseRecordChange) => ({
+function session(note: NoteDocument, update = vi.fn(async (base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> => ({
   ...base, revision: "2", body: change.body ?? base.body
 }))) {
   const gateway = { update, read: vi.fn(async () => note), recoverNoteMutation: vi.fn(), pendingNoteMutations: () => [] };
@@ -65,6 +65,25 @@ describe("note sessions", () => {
     note.record.receive(document("one.md", { revision: "9", body: "# Remote\n\nNew body\n" }));
     expect(note.reproject()).toBe(true);
     expect(note.draft).toMatchObject({ title: "Remote", body: "New body\n" });
+  });
+
+  it.each([true, false])("reconciles a confirmed save with a newer readback (continued typing %s)", async (continued) => {
+    const base = document("one.md", { body: "Original" });
+    const result = { ...base, revision: "3", body: "Later confirmed edit" };
+    let acknowledge!: (record: NoteDocument) => void;
+    const update = vi.fn(() => new Promise<NoteDocument>(resolve => { acknowledge = resolve; }));
+    const { session: note } = session(base, update);
+    note.record.setBody("Submitted");
+    const saving = note.record.save();
+    await vi.waitFor(() => expect(update).toHaveBeenCalledOnce());
+    if (continued) note.record.setBody("Typing continued");
+    acknowledge(result);
+    await saving;
+    expect(note.record.snapshot.body).toBe(continued ? "Typing continued" : result.body);
+    expect(note.record.snapshot.state).toBe(continued ? "conflict" : "saved");
+    expect(note.record.snapshot.remote).toEqual(continued ? result : null);
+    expect(update).toHaveBeenCalledOnce();
+    note.record.dispose();
   });
 
   it("moves one session identity between paths", () => {

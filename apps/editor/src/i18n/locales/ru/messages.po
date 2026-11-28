@@ -5882,6 +5882,7 @@ msgstr "При записи в источник изменился иденти�
 msgid "The new type definition hasn’t been saved."
 msgstr "Новое определение типа ещё не сохранено."
 
+#: src/CollectionRail.tsx
 #: src/next-editor-records.ts
 msgid "The note change was rejected."
 msgstr "Изменение заметки отклонено."
@@ -6251,6 +6252,7 @@ msgstr "Изменение заметки не подтверждено. Про�
 msgid "This note changed after it was opened. Reload before saving."
 msgstr "Заметка изменилась после открытия. Перезагрузите её перед сохранением."
 
+#: src/App.tsx
 #: src/ConflictResolver.tsx
 msgid "This note changed elsewhere"
 msgstr "Эта заметка изменена в другом месте"
