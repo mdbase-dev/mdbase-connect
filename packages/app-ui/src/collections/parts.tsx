@@ -123,7 +123,7 @@ export function RowMore({ row, ui, onDialog, tabbable = true }: {
 }): JSX.Element {
   const canDelete = ui.options.allowDelete === true && row.role === "owner";
   const entries: MenuEntry[] = [{ id: "forget", label: ui.copy.removeFromList, onSelect: () => onDialog({ kind: "forget", row }) }];
-  if (canDelete) entries.push({ id: "delete", label: ui.copy.deleteCollection, danger: true, onSelect: () => onDialog({ kind: "delete", row }) });
+  if (canDelete) entries.push({ id: "delete", label: ui.copy.deleteCollection, danger: !row.private, onSelect: () => onDialog({ kind: "delete", row }) });
   return <RowMenuButton label={ui.say("moreFor", { collection: row.name })} entries={entries} tabbable={tabbable} />;
 }
 

@@ -701,6 +701,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
   const [intent, setIntent] = useState<CollectionCreationIntent | null>(() => readCollectionCreation(data.user.id));
   const [name, setName] = useState(() => readCollectionCreation(data.user.id)?.displayName ?? "");
   const [creationError, setCreationError] = useState<string | null>(null);
+  const [creationConfirmed, setCreationConfirmed] = useState(false);
   const [location, setLocation] = useState("");
   const [query, setQuery] = useState("");
   const cloud = location === "cloud";
@@ -715,6 +716,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     setName(pending?.displayName ?? "");
     setLocation(pending ? "cloud" : location);
     setCreationError(null);
+    setCreationConfirmed(false);
     setCreating(true);
   }
   function validateName() {
@@ -733,7 +735,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     } catch {
       setCreationError(t(i18n)({ message: "This browser could not keep your creation request. No request was sent." })); return;
     }
-    const created = await perform("create-collection", async options => {
+    await perform("create-collection", async options => {
       try {await management.createCollection(original, options);}
       catch (error) {
         setCreationError(errorMessage(error));
@@ -744,11 +746,10 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
         }
         throw error;
       }
-    }, true, undefined, t(i18n)`Created ${original.displayName}`);
-    if (created) {
+      setCreationConfirmed(true);
       try {finishCollectionCreation(original);} catch {setCreationError(t(i18n)({ message: "Created, but this browser could not clear its request. Retrying will use the same collection." })); return;}
       setIntent(null); setCreating(false); setName("");
-    }
+    }, true, undefined, t(i18n)`Created ${original.displayName}`);
   }
   const choices = <div className="connect-location-choices">
     <button data-command={!rows.length && canCreate ? "create" : undefined} data-autofocus={canCreate || undefined} className="connect-location-choice" disabled={!canCreate} onClick={() => choose("cloud")}><Cloud aria-hidden="true" /><span><strong><Trans>New collection</Trans></strong><small><Trans>Starts with a cloud copy, so apps can use it from any device. Add it to a computer later.</Trans></small></span></button>
@@ -769,7 +770,8 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
         <label><span><Trans>Collection name</Trans></span><input className="mdbase-field" autoFocus maxLength={200} value={name} disabled={intent !== null || busy.has("create-collection")} aria-invalid={Boolean(creationError)} aria-describedby="collection-create-error" onBlur={validateName} onChange={event => setName(event.target.value)} /></label>
         <p className="connect-field-error" role={creationError ? "alert" : undefined} id="collection-create-error">{creationError}</p>
         {!canCreate && <p><Trans>Creating collections is unavailable on this server.</Trans></p>}
-        {intent && <p role="status"><Trans>Your original request is kept. Retry it to avoid creating another collection.</Trans></p>}
+        {busy.has("create-collection") ? <p role="status"><Trans>Creating your collection. This can take a moment.</Trans></p>
+          : intent && !creationConfirmed && <p role="status"><Trans>We couldn't confirm whether the collection was created. Retrying won't create a second copy.</Trans></p>}
         <footer className="mdbase-dialog-actions"><button className="mdbase-button is-tertiary" type="button" disabled={busy.has("create-collection")} onClick={() => setCreating(false)}><Trans>Cancel</Trans></button><button className="mdbase-button is-primary" disabled={!canCreate || busy.has("create-collection")}>{busy.has("create-collection") ? t(i18n)({ message: "Creating…", context: "Connect interface" }) : intent ? t(i18n)({ message: "Retry creation", context: "Connect interface" }) : t(i18n)({ message: "Create", context: "Connect interface" })}</button></footer>
       </form>}
       {location === "native" && <div className="connect-edit-form"><p><Trans>Choose or create a folder in the desktop app. Collection files stay on this computer.</Trans></p><DesktopLink href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink></div>}

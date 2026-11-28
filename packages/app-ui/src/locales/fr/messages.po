@@ -568,8 +568,8 @@ msgstr "Continuer"
 
 #: src/collections/copy.ts
 msgctxt "Collection access interface"
-msgid "Continue in the mdbase window"
-msgstr "Continuer dans la fenêtre mdbase"
+msgid "Continue in the mdbase window {app} opened"
+msgstr "Continuez dans la fenêtre mdbase ouverte par {app}"
 
 #: src/CollectionModeControl.tsx
 msgctxt "Collection storage mode"
@@ -664,6 +664,11 @@ msgstr "Supprimer la colonne"
 msgctxt "table"
 msgid "Delete columns"
 msgstr "Supprimer les colonnes"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "Delete on the owning computer"
+msgstr "Supprimer depuis l’ordinateur qui héberge la collection"
 
 #: src/live-preview/table-controls.ts
 msgctxt "table"
@@ -2086,6 +2091,11 @@ msgstr "Conseil"
 #: src/CommandPalette.tsx
 msgid "to close"
 msgstr "pour fermer"
+
+#: src/collections/copy.ts
+msgctxt "Collection access interface"
+msgid "To delete this Private collection, use the mdbase CLI on the computer that holds it."
+msgstr "Pour supprimer cette collection privée, utilisez la CLI mdbase sur l’ordinateur où elle est stockée."
 
 #: src/CommandPalette.tsx
 msgid "to move"

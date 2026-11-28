@@ -1428,7 +1428,7 @@ describe("ConnectApp", () => {
     expect(alert).toHaveTextContent(`Your plan allows ${limit} ${limit === 1 ? "collection" : "collections"} to sync. You're using ${limit}.`);
     expect(alert).toHaveTextContent("delete a synced collection you own if Delete is available.");
     expect(Boolean(dialog.queryByRole("link", { name: "Upgrade to Plus" }))).toBe(upgrade);
-    expect(dialog.queryByText(/Your original request is kept/)).not.toBeInTheDocument();
+    expect(dialog.queryByText(/couldn't confirm whether/)).not.toBeInTheDocument();
     expect(dialog.queryByRole("button", { name: "Retry creation" })).not.toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "Close" }));
     await user.click(add);
@@ -1448,10 +1448,11 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("button", { name: /New collection/ }));
 
     const originalFetch = vi.mocked(fetch).getMockImplementation()!;
+    const responses: Array<(response: Response) => void> = [];
     vi.mocked(fetch).mockImplementation((input, init) => {
       const path = new URL(String(input)).pathname;
       if (path === "/v1/account/collections" && init?.method === "POST") {
-        return Promise.resolve(Response.json({ error: { code, message: "Try again later." } }, { status }));
+        return new Promise(resolve => responses.push(resolve));
       }
       return originalFetch(input, init);
     });
@@ -1460,7 +1461,14 @@ describe("ConnectApp", () => {
     await user.type(input, "Field notes");
     await user.click(screen.getByRole("button", { name: "Create" }));
 
+    const dialog = within(screen.getByRole("dialog", { name: "Add collection" }));
+    expect(dialog.getByRole("status")).toHaveTextContent("Creating your collection. This can take a moment.");
+    expect(dialog.queryByRole("alert")).not.toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Creating…" })).toBeDisabled();
+    await act(async () => responses[0]!(Response.json({ error: { code, message: "Try again later." } }, { status })));
+
     expect(await screen.findByRole("alert")).toHaveTextContent(expected);
+    expect(dialog.getByRole("status")).toHaveTextContent("We couldn't confirm whether the collection was created. Retrying won't create a second copy.");
     expect(input).toHaveValue("Field notes");
     expect(input).toBeDisabled();
     expect(screen.getByRole("button", { name: "Retry creation" })).toBeInTheDocument();
@@ -1470,6 +1478,10 @@ describe("ConnectApp", () => {
     const second = JSON.parse(String(vi.mocked(fetch).mock.calls.filter(([url,init])=>new URL(String(url)).pathname==="/v1/account/collections"&&init?.method==="POST")[1][1]!.body));
     expect(second).toEqual(first);
     expect(Object.keys(second).sort()).toEqual(["account_id","display_name","request_id","timezone"]);
+    expect(dialog.getByRole("status")).toHaveTextContent("Creating your collection. This can take a moment.");
+    expect(dialog.queryByRole("alert")).not.toBeInTheDocument();
+    await act(async () => responses[1]!(Response.json({ collection_id: overview.collections[0]!.id })));
+    await waitFor(() => expect(screen.queryByLabelText("Collection name")).not.toBeInTheDocument());
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
   });
@@ -1484,11 +1496,33 @@ describe("ConnectApp", () => {
     await user.click(await screen.findByRole("button",{name:"Add collection"}));
     expect(screen.getByLabelText("Collection name")).toHaveValue("Uncertain name");
     expect(screen.getByLabelText("Collection name")).toBeDisabled();
+    expect(screen.getByText(/couldn't confirm whether the collection was created/)).toBeInTheDocument();
     expect(screen.getByRole("button",{name:"Retry creation"})).toBeDisabled();
     expect(screen.queryByRole("combobox", { name: "Location" })).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "Open desktop app" })).not.toBeInTheDocument();
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(vi.mocked(fetch).mock.calls.every(([,init])=>!init?.method||init.method==="GET")).toBe(true);
+  });
+
+  it("shows the confirmed result if the browser cannot clear its saved creation request", async () => {
+    history.replaceState(null, "", "/collections");
+    const key = `mdbase.connect.collection-creation:${overview.user.id}`;
+    const removeItem = Storage.prototype.removeItem;
+    vi.spyOn(Storage.prototype, "removeItem").mockImplementation(function (this: Storage, name) {
+      if (name === key) throw new DOMException("Storage is unavailable", "SecurityError");
+      removeItem.call(this, name);
+    });
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    await user.click(await screen.findByRole("button", { name: "Add collection" }));
+    await user.click(screen.getByRole("button", { name: /New collection/ }));
+    await user.type(screen.getByLabelText("Collection name"), "Field notes");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    const dialog = within(screen.getByRole("dialog", { name: "Add collection" }));
+    expect(await dialog.findByRole("alert")).toHaveTextContent("Created, but this browser could not clear its request.");
+    expect(dialog.queryByRole("status")).not.toBeInTheDocument();
+    expect(dialog.getByRole("button", { name: "Retry creation" })).toBeEnabled();
+    expect(localStorage.getItem(key)).not.toBeNull();
   });
 
   it("renames from overflow and confirms destructive collection actions in a modal", async () => {

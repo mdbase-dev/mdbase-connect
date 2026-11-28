@@ -1345,6 +1345,10 @@ msgstr "正在创建账户…"
 msgid "Creating collections is unavailable on this server."
 msgstr "此服务器无法创建集合。"
 
+#: src/ConnectApp.tsx
+msgid "Creating your collection. This can take a moment."
+msgstr "正在创建你的集合，可能需要一点时间。"
+
 #: src/onboarding-view.tsx
 msgid "Creating your first collection"
 msgstr "正在创建您的第一个集合"
@@ -3803,6 +3807,10 @@ msgstr "等待同步"
 msgid "We couldn't confirm collection creation finished. Please try again."
 msgstr "无法确认集合已创建完成。请重试。"
 
+#: src/ConnectApp.tsx
+msgid "We couldn't confirm whether the collection was created. Retrying won't create a second copy."
+msgstr "无法确认集合是否已创建。重试不会创建重复的集合。"
+
 #: src/onboarding-view.tsx
 msgid "We couldn't create your collection"
 msgstr "无法创建您的集合"
@@ -3923,10 +3931,6 @@ msgstr "你的 mdbase 账户即将升级，{app} 暂时无法使用它。升级�
 #: src/portal-model.ts
 msgid "Your mdbase account's upgrade was paused, so {app} can't use it yet. Your account and collections still work with your current mdbase apps. Email support@mdbase.dev if you need help."
 msgstr "你的 mdbase 账户升级已暂停，因此 {app} 暂时无法使用它。你的账户和集合仍可在当前的 mdbase 应用中使用。如需帮助，请发送邮件至 support@mdbase.dev。"
-
-#: src/ConnectApp.tsx
-msgid "Your original request is kept. Retry it to avoid creating another collection."
-msgstr "原始请求已保留。请重试该请求，避免创建另一个集合。"
 
 #: src/auth-view.tsx
 msgid "Your other browser sessions have been signed out. This browser is now signed in with the new password."
