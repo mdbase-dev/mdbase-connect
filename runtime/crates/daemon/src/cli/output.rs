@@ -47,6 +47,25 @@ impl Output {
     }
 }
 
+/// Keep the original device.pending field for scripts using older CLI releases.
+pub(super) fn pending_json(mut devices: Value) -> Value {
+    if let Some(rows) = devices.as_array_mut() {
+        for row in rows {
+            if let Some(code) = row.get("sas") {
+                row["approval_code"] = code.clone();
+            }
+        }
+    }
+    devices
+}
+
+#[test]
+fn pending_json_exposes_the_status_key_and_preserves_the_original_code() {
+    let rows = pending_json(json!([{"sas": "012345"}, {"device": "waiting"}]));
+    assert_eq!(rows[0], json!({"sas": "012345", "approval_code": "012345"}));
+    assert_eq!(rows[1], json!({"device": "waiting"}));
+}
+
 pub(super) fn print_status(s: &DaemonStatus) {
     let r = &s.readiness;
     if r.ready {

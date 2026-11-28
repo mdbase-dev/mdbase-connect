@@ -427,7 +427,7 @@ pub(super) async fn run_command(
             )
             .await?;
             if out.json {
-                out.value(&v);
+                out.value(&pending_json(v));
             } else {
                 let list: Vec<PendingDevice> =
                     serde_json::from_value(v).map_err(|e| ClientError::Protocol(e.to_string()))?;

@@ -1652,6 +1652,18 @@ fn an_unknown_collection_is_not_found_not_refused() {
 }
 
 #[test]
+fn revoked_join_explains_how_to_pair_a_new_identity() {
+    let error = join_refusal(crate::cloud::CloudError::Server(
+        409,
+        "device_revoked".into(),
+    ));
+    assert_eq!(error.code, "not_authorized");
+    assert_eq!(error.reason.as_deref(), Some("device_revoked"));
+    assert!(error.message.contains("--state-dir"));
+    assert!(error.message.contains("new empty folder"));
+}
+
+#[test]
 fn only_the_legacy_identity_entry_is_removed() {
     let id = "4c18af2e-b04a-4b77-b83e-493c3695962e";
     for (before, after) in [
