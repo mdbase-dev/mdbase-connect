@@ -221,8 +221,12 @@ test("keeps application summaries and access links separate at narrow widths", a
       }));
       for (const difference of sectionLayout) expect(difference, `section action alignment at ${width}px`).toBeLessThan(3);
       if (width <= 760) {
-        for (const margin of await page.locator(".connect-page > section").evaluateAll((sections) => sections.map((section) => parseFloat(getComputedStyle(section).marginTop)))) {
-          expect(margin).toBe(0);
+        const margins = await page.locator(".connect-page > section").evaluateAll((sections) =>
+          sections.map((section) => parseFloat(getComputedStyle(section).marginTop))
+        );
+        expect(margins[0]).toBe(0);
+        for (const margin of margins.slice(1)) {
+          expect(margin).toBe(28);
         }
       }
       await expect(page.locator(".connect-page > header .connect-status")).toHaveText(/^Connected/);
