@@ -158,7 +158,6 @@ interface Window {
     checkForUpdates(): Promise<DesktopUpdateStatus>;
     installUpdate(): Promise<DesktopUpdateStatus>;
     setEarlyAccess(enabled: boolean): Promise<DesktopUpdateStatus>;
-    listCollections(): Promise<DaemonCollection[]>;
     addCollection(): Promise<DaemonCollection | null>;
     chooseCreateFolder(): Promise<string | null>;
     createCollection(input: { parent: string; name: string }): Promise<DaemonCollection>;

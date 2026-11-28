@@ -556,6 +556,10 @@ msgid "Collection name must be between 1 and 100 characters."
 msgstr "Le nom de la collection doit contenir entre 1 et 100 caractères."
 
 #: src/renderer/collections-view.tsx
+msgid "Collection pages"
+msgstr "Pages de collections"
+
+#: src/renderer/collections-view.tsx
 msgid "Collection settings"
 msgstr "Paramètres de la collection"
 
@@ -1014,6 +1018,10 @@ msgstr "mdbase ne peut pas joindre le service de synchronisation. La collection 
 msgid "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase."
 msgstr "mdbase ne peut pas accéder au stockage sécurisé de cet ordinateur. Déverrouillez votre trousseau ou redémarrez mdbase."
 
+#: src/renderer/view-model.ts
+msgid "mdbase connect could not complete the action. Try again. If it keeps failing, restart mdbase connect."
+msgstr "mdbase connect n’a pas pu terminer l’action. Réessayez. Si le problème persiste, redémarrez mdbase connect."
+
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
@@ -1181,6 +1189,10 @@ msgstr "Les nouvelles applications attendent désormais votre approbation sur ce
 msgid "New collection"
 msgstr "Nouvelle collection"
 
+#: src/renderer/collections-view.tsx
+msgid "Next page"
+msgstr "Page suivante"
+
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1194,6 +1206,10 @@ msgstr "Aucune application connectée"
 #: src/renderer/home-view.tsx
 msgid "No apps yet"
 msgstr "Aucune app pour l’instant"
+
+#: src/renderer/collections-view.tsx
+msgid "No collections match your filter."
+msgstr "Aucune collection ne correspond au filtre."
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1322,6 +1338,11 @@ msgctxt "File types that sync"
 msgid "Other files"
 msgstr "Autres fichiers"
 
+#. placeholder {0}: currentPage + 1
+#: src/renderer/collections-view.tsx
+msgid "Page {0} of {pages}"
+msgstr "Page {0} sur {pages}"
+
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Pause"
@@ -1340,6 +1361,10 @@ msgstr "PDF"
 #: src/renderer/device-requests.tsx
 msgid "Preparing comparison code…"
 msgstr "Préparation du code de comparaison…"
+
+#: src/renderer/collections-view.tsx
+msgid "Previous page"
+msgstr "Page précédente"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
@@ -1652,10 +1677,13 @@ msgstr "Changement du mode de stockage…"
 msgid "Sync could not be turned on: {0} {unchanged}"
 msgstr "Impossible d’activer la synchronisation : {0} {unchanged}"
 
-#. placeholder {0}: sync.last_error.replaceAll("_", " ")
+#: src/renderer/view-model.ts
+msgid "Sync could not be turned on. Try again. {unchanged}"
+msgstr "La synchronisation n’a pas pu être activée. Réessayez. {unchanged}"
+
 #: src/renderer/daemon-view.mts
-msgid "sync problem: {0}"
-msgstr "problème de synchronisation : {0}"
+msgid "Sync needs attention."
+msgstr "La synchronisation nécessite votre attention."
 
 #: src/renderer/view-model.ts
 msgid "Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. {unchanged}"
@@ -2033,6 +2061,10 @@ msgstr "La version {version} est en cours de déploiement sur {percentage} % des
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "Vidéo"
+
+#: src/renderer/home-view.tsx
+msgid "View all collections"
+msgstr "Afficher toutes les collections"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"

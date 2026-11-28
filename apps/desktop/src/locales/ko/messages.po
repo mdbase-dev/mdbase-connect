@@ -556,6 +556,10 @@ msgid "Collection name must be between 1 and 100 characters."
 msgstr "컬렉션 이름은 1~100자여야 합니다."
 
 #: src/renderer/collections-view.tsx
+msgid "Collection pages"
+msgstr "컬렉션 페이지"
+
+#: src/renderer/collections-view.tsx
 msgid "Collection settings"
 msgstr "컬렉션 설정"
 
@@ -1014,6 +1018,10 @@ msgstr "mdbase가 동기화 서비스에 연결할 수 없습니다. 다시 온�
 msgid "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase."
 msgstr "이 컴퓨터의 보안 저장소에 접근할 수 없습니다. 키체인의 잠금을 해제하거나 mdbase를 다시 시작하세요."
 
+#: src/renderer/view-model.ts
+msgid "mdbase connect could not complete the action. Try again. If it keeps failing, restart mdbase connect."
+msgstr "mdbase connect에서 작업을 완료하지 못했습니다. 다시 시도하세요. 문제가 계속되면 mdbase connect를 다시 시작하세요."
+
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
@@ -1181,6 +1189,10 @@ msgstr "새 앱은 이제 이 컴퓨터에서 승인할 때까지 대기합니�
 msgid "New collection"
 msgstr "새 컬렉션"
 
+#: src/renderer/collections-view.tsx
+msgid "Next page"
+msgstr "다음 페이지"
+
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1194,6 +1206,10 @@ msgstr "연결된 앱 없음"
 #: src/renderer/home-view.tsx
 msgid "No apps yet"
 msgstr "아직 앱 없음"
+
+#: src/renderer/collections-view.tsx
+msgid "No collections match your filter."
+msgstr "필터에 일치하는 컬렉션이 없습니다."
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1322,6 +1338,11 @@ msgctxt "File types that sync"
 msgid "Other files"
 msgstr "기타 파일"
 
+#. placeholder {0}: currentPage + 1
+#: src/renderer/collections-view.tsx
+msgid "Page {0} of {pages}"
+msgstr "전체 {pages}페이지 중 {0}페이지"
+
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Pause"
@@ -1340,6 +1361,10 @@ msgstr "PDF"
 #: src/renderer/device-requests.tsx
 msgid "Preparing comparison code…"
 msgstr "비교 코드 준비 중…"
+
+#: src/renderer/collections-view.tsx
+msgid "Previous page"
+msgstr "이전 페이지"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
@@ -1652,10 +1677,13 @@ msgstr "저장 모드 전환 중…"
 msgid "Sync could not be turned on: {0} {unchanged}"
 msgstr "동기화를 켤 수 없습니다: {0} {unchanged}"
 
-#. placeholder {0}: sync.last_error.replaceAll("_", " ")
+#: src/renderer/view-model.ts
+msgid "Sync could not be turned on. Try again. {unchanged}"
+msgstr "동기화를 켤 수 없습니다. 다시 시도하세요. {unchanged}"
+
 #: src/renderer/daemon-view.mts
-msgid "sync problem: {0}"
-msgstr "동기화 문제: {0}"
+msgid "Sync needs attention."
+msgstr "동기화 상태를 확인해 주세요."
 
 #: src/renderer/view-model.ts
 msgid "Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. {unchanged}"
@@ -2033,6 +2061,10 @@ msgstr "버전 {version}이(가) 설치의 {percentage}%에 배포되고 있습�
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "동영상"
+
+#: src/renderer/home-view.tsx
+msgid "View all collections"
+msgstr "모든 컬렉션 보기"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"

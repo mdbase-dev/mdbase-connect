@@ -1,58 +1,34 @@
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import React, { useEffect, useState } from "react";
-import { accountProblemText, cloudSetting, type CloudSetting } from "./daemon-view.mjs";
-import { markPairingCompleted } from "./onboarding-state.mjs";
+import React, { useState } from "react";
+import { accountProblemText, type CloudSetting } from "./daemon-view.mjs";
 import { StatusDot } from "./ui-components";
 import { message } from "./view-model";
-
-const POLL_MS = 2_000;
 
 /**
  * Sign this computer in to mdbase. The daemon owns the sign-in: it returns an
  * approval page, and its status reports `pairing` until the browser approves and
  * `signed_in` afterwards. Nothing restarts; collections can be added once signed in.
  */
-export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSignedIn }: {
+export function SignInPanel({ cloud, resumeAuthorization = false, reason, onPairing }: {
   cloud: CloudSetting;
   resumeAuthorization?: boolean;
   /** Why sign-in is needed now, for example after trying to add a collection. */
   reason?: string | null;
-  onSignedIn(): void;
+  onPairing(uri: string): void;
 }) {
   useLocaleRevision();
-  const [account, setAccount] = useState<CloudSetting>(cloud);
   const [starting, setStarting] = useState(false);
   const [failure, setFailure] = useState("");
-  useEffect(() => setAccount(cloud), [cloud]);
-
-  const waiting = account.pairing ?? null;
-  useEffect(() => {
-    if (!waiting) return;
-    let active = true;
-    const timer = window.setInterval(() => {
-      void window.mdbaseConnect.status().then((status) => {
-        if (!active) return;
-        const next = cloudSetting(status);
-        setAccount(next);
-        if (next.configured && !next.pairing) {
-          markPairingCompleted(localStorage);
-          onSignedIn();
-        } else if (!next.pairing && next.lastError) {
-          setFailure(accountProblemText(next.lastError) ?? "");
-        }
-      }).catch(() => undefined);
-    }, POLL_MS);
-    return () => { active = false; window.clearInterval(timer); };
-  }, [waiting, onSignedIn]);
+  const waiting = cloud.pairing;
 
   async function begin() {
     setStarting(true);
     setFailure("");
     try {
       const started = await window.mdbaseConnect.signIn();
-      setAccount((current) => ({ ...current, pairing: started.verificationUri, lastError: null }));
+      onPairing(started.verificationUri);
     } catch (error) {
       setFailure(message(error));
     } finally {
@@ -60,7 +36,7 @@ export function SignInPanel({ cloud, resumeAuthorization = false, reason, onSign
     }
   }
 
-  const problem = failure || (!waiting && accountProblemText(account.lastError)) || "";
+  const problem = failure || (!waiting && accountProblemText(cloud.lastError)) || "";
   return (
     <section className="pairing-panel" aria-label={t(i18n)({ message: "Sign in", context: "Connect interface" })}>
       <div className="pairing-intro">
