@@ -5,6 +5,7 @@ import { buildApp } from "../../app.js";
 import { createDatabase, type DatabasePool } from "../../db.js";
 import { inTransaction } from "./bootstrap-common.js";
 import { nativeCollectionQuotaUsage, registerNextCollection } from "./policy-outbox.js";
+import { nextFileBytes } from "./storage-usage.js";
 
 const testUrl = process.env.MDBASE_CONNECT_TEST_DATABASE_URL;
 const approved = process.env.MDBASE_CONNECT_DESTRUCTIVE_TEST_APPROVAL === "I APPROVE MDBASE CONNECT DESTRUCTIVE POSTGRES TESTS";
@@ -79,6 +80,23 @@ describePg("native synced collection entitlement admission", () => {
     expect(await nativeCollectionQuotaUsage(db, owner)).toBe(1);
     await expect(register(owner)).rejects.toMatchObject({ code: "account_collection_quota_exceeded" });
     expect(await count(owner)).toBe(3);
+  });
+
+  it("reads file usage only for this owner's held native logs, including collections that left sync", async () => {
+    const owner = await account("open_beta_v1");
+    const kept = randomUUID(), left = randomUUID(), deleted = randomUUID();
+    await register(owner, kept);
+    await register(owner, left, "private");
+    await register(owner, deleted);
+    await register(owner, randomUUID(), "cloud_copy", "shadow");
+    await register(await account("free_v1"));
+    await db.query("UPDATE next_collections SET left_sync_at=now() WHERE collection_id=$1", [left]);
+    await db.query("INSERT INTO next_collection_deletion_facts(collection_id,deletion_id,lifecycle_epoch,authority) VALUES($1,$2,1,'cp-intent')", [deleted, randomUUID()]);
+
+    const storageStatus = vi.fn(async (_id: string) => ({ usedBytes: 1, quotaBytes: 10, fileBytes: 1, fileQuotaBytes: 10 }));
+    expect(await nextFileBytes(db, { storageStatus }, owner)).toBe(2);
+    expect(storageStatus.mock.calls.map(([id]) => id).sort()).toEqual([kept, left].sort());
+    expect(await nativeCollectionQuotaUsage(db, owner)).toBe(1);
   });
 
   it("counts owners, not shared memberships, local catalogs or SHADOW imports", async () => {
