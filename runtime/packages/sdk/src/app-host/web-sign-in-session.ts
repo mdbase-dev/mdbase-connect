@@ -398,7 +398,7 @@ export class AppWebSignInSession<Connection> {
    * sign-in gesture; a pending ledger keeps its SAME request for authorize(). */
   start(): Promise<AppWebSignInSnapshot> {
     return this.operation(async () => {
-      if (this.flow && this.base.status !== "blocked") return this.getSnapshot();
+      if (this.flow && (this.base.status !== "blocked" || this.base.problem === "installation_removed")) return this.getSnapshot();
       this.publish({status: "starting", problem: null, signOutResult: null});
       const p = this.options;
       this.flow ??= await AppProtectedInstallationSignIn.open({...p, mode: p.storeMode ?? "open", signal: this.flowLifetime.signal,
@@ -439,6 +439,7 @@ export class AppWebSignInSession<Connection> {
    * exchange, confirmation or attestation controls are needed by consumers. */
   authorize(options: {readonly collectionHint?: string | null} = {}): Promise<AppWebSignInSnapshot> {
     this.check();
+    if (this.base.problem === "installation_removed") return Promise.reject(failure("refused"));
     if (this.authorizationRateLimit && Date.now() < this.authorizationRetryAt) return Promise.reject(this.authorizationRateLimit);
     const poll = this.pending !== null && this.pending === this.polling ? this.pending : null;
     if (!this.flow || (this.pending && !poll)) return Promise.reject(failure("busy"));
@@ -465,7 +466,15 @@ export class AppWebSignInSession<Connection> {
         if (view.state === "paired") {
           await this.openDevice(); this.check();
           await this.abandonUnfinishedNativeChoice();
-          const consent = await this.flow!.startCollectionConsent(this.installation!, this.options.requestedCreateCollections ?? this.options.freshRequestedCreateCollections ?? false, hint, this.options.freshRequestedPrivateDevice === true); this.check();
+          let consent;
+          try {
+            consent = await this.flow!.startCollectionConsent(this.installation!, this.options.requestedCreateCollections ?? this.options.freshRequestedCreateCollections ?? false, hint, this.options.freshRequestedPrivateDevice === true);
+          } catch (error) {
+            if (!await this.handleRemovedInstallation(error)) throw error;
+            portal.close();
+            return this.getSnapshot();
+          }
+          this.check();
           this.consentPending = true; portal.navigate(consent.verificationUri);
         } else {
           const started = await this.flow!.start(hint).catch(error => this.renewFromGesture(error)); this.check(); portal.navigate(started.verificationUri);
@@ -762,7 +771,13 @@ export class AppWebSignInSession<Connection> {
   /** `kept`: this installation's last listing instead of a read. It is not an
    * accepted inventory, so an approval missing from it is not a removal. */
   private async refreshCollections(kept: readonly AppInstallationCollection[] | null = null): Promise<void> {
-    const collections = kept ?? await this.flow!.listApprovedCollections(this.installation!); this.check();
+    let collections: readonly AppInstallationCollection[];
+    try { collections = kept ?? await this.flow!.listApprovedCollections(this.installation!); }
+    catch (error) {
+      if (await this.handleRemovedInstallation(error)) return;
+      throw error;
+    }
+    this.check();
     this.listCached = kept !== null;
     if (!kept) for (const id of this.flow!.view().collectionIds) if (!collections.some(c => c.collectionId === id)) this.removedScopes.add(id);
     const visible = Object.freeze(collections.filter(c => !this.forgotten.has(c.collectionId)));
@@ -784,6 +799,21 @@ export class AppWebSignInSession<Connection> {
     if ((this.options.autoSelect ?? "only") !== "only") return;
     if (this.freshApproval && picked && visible.some(c => c.collectionId === picked)) await this.openSlot(picked, true);
     else if (visible.length === 1) await this.openSlot(visible[0]!.collectionId, true);
+  }
+  /** Only Connect's exact refusal of this installation's own bearer ends
+   * access across its scopes. Keep the ledger for explicit, per-scope recovery. */
+  private async handleRemovedInstallation(error: unknown): Promise<boolean> {
+    if (!(error instanceof AppInstallationSignInError) || !isAppServerProblem(error.server) ||
+        error.server.status !== 401 || error.server.code !== "invalid_connector") return false;
+    this.check();
+    this.listCached = false;
+    for (const id of this.flow!.view().collectionIds) this.removedScopes.add(id);
+    this.consentPending = false;
+    this.closeApprovalWindow();
+    for (const slot of this.slots.values()) { slot.usable = false; slot.lifetime?.abort(); }
+    this.publish({status: "blocked", problem: "installation_removed", problemDetail: webSignInProblem(error).detail, collections: Object.freeze([])});
+    await this.closeSlots(); this.check(); this.changed();
+    return true;
   }
   private schedulePoll(): void {
     if (this.pending && !this.closing && !this.options.signal.aborted) return; // Keep ONE original occupied slot.
@@ -1100,8 +1130,8 @@ export class AppWebSignInSession<Connection> {
    * signed-in start; Connect's has not been read since. The owner calls
    * `refreshCollectionList` once, when that read can no longer delay a page. */
   collectionListCached(): boolean { return this.listCached; }
-  /** Accepted COMPLETE inventory omission or terminal native/log refusal only.
-   * Local Forget, failed GETs and transient transport failures do not qualify. */
+  /** A complete inventory omission, a terminal scope refusal, or rejection of
+   * the installation's bearer. Transport and unrelated HTTP failures stay separate. */
   scopeWasRemoved(collectionId: string): boolean {return this.removedScopes.has(collectionId);}
   removedScopeIds(): readonly string[] {return Object.freeze([...this.removedScopes]);}
   /** Explicit hosted/browser gesture permission, not a diagnostic-code test.

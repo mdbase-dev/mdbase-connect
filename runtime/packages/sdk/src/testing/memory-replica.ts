@@ -732,12 +732,13 @@ export class MemoryReplica {
       if (rawCursor !== undefined) {
         const expectedPrefix = `cq:${fingerprint}:`;
         if (!rawCursor.startsWith(expectedPrefix)) throw mdbaseError("invalid_request", "cursor query changed", "invalid_query_cursor");
-        start = Number(rawCursor.slice(expectedPrefix.length));
-        if (!Number.isInteger(start) || start < 0) throw mdbaseError("invalid_request", "malformed cursor", "invalid_query_cursor");
+        const continuation = rawCursor.slice(expectedPrefix.length);
+        if (!/^\d+:\d+$/u.test(continuation)) throw mdbaseError("invalid_request", "malformed cursor", "invalid_query_cursor");
+        start = this.pageStart(continuation);
       }
       const slice = rows.slice(start, start + limit);
       const page: w.QueryResult = { records: slice.map((x) => this.view(x.r)), complete: true, asOf: this.viewVersion };
-      if (start + limit < rows.length) page.cursor = `cq:${fingerprint}:${start + limit}`;
+      if (start + limit < rows.length) page.cursor = `cq:${fingerprint}:${this.pageCursor(start + limit)}`;
       return contractQueryResult.enc({
         version: 1, page, contractDigest: contractDigest(impls[0]!),
         records: slice.map((x) => ({ id: x.r.id, implementations: x.implementations })),

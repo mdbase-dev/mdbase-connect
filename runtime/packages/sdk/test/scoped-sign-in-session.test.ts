@@ -20,7 +20,7 @@ const rootOwner="bundle:scoped-unit";
 const hex=(b:Uint8Array)=>Array.from(b,x=>x.toString(16).padStart(2,"0")).join("");
 const release:AppBundledReleaseTrust={schema:"mdbn-app-trust/release/1",environment:"production",cpOrigin,logOrigin:"https://log.example.test",assetSha256:"11".repeat(32),source:{repository:"mdbase-dev/mdbase-connect",commit:"22".repeat(20),version:"test"},trustedRoots:[new Uint8Array(32).fill(3)],policyPins:Uint8Array.of(1)};
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();vi.useRealTimers();});
-async function fixture(device:string|null=null) {
+async function fixture(device:string|null=null, rootCollections=[sibling]) {
   vi.useFakeTimers();vi.stubGlobal("crypto",webcrypto);vi.stubGlobal("location",{origin});
   const trace:string[]=[], ledgers=new Map<string,Uint8Array>(), parent=new AbortController(), locks=signInLocks();
   const legacyName=`mdbase-app-sign-in-v1-${appId}-${cpOrigin}`;
@@ -55,13 +55,16 @@ async function fixture(device:string|null=null) {
   type Row={request:InstallationRequest;account:string|null;connector:string;proof:Record<string,string>|null;token:string};
   const rows=new Map<string,Row>(), consents=new Map<string,{request:InstallationRequest;owner:Row;approved:boolean}>(), starts:InstallationRequest[]=[], requests:{path:string;body:unknown}[]=[];
   let portalAccount=B, failure:"none"|"429"|"unknown"="none", eraseFailure=false,partialErase=false;
+  let rootRefusal: {status:number;code:string} | null = null;
   const respond=(value:unknown,status=200,headers:Record<string,string>={})=>new Response(JSON.stringify(value),{status,headers});
   const fetcher=vi.fn(async(input:string|URL|Request,init?:RequestInit)=>{
     const path=new URL(String(input)).pathname,body=init?.body?JSON.parse(String(init.body)):undefined;
+    const isRoot=(init?.headers as Record<string,string> | undefined)?.authorization===`Bearer ${root.token}`;
     requests.push({path,body});trace.push(`http:${path}`);
     if(path==="/v1/pairing-requests"){
       const r=body.installation as InstallationRequest;starts.push({...r});
       if(r.reconsent){
+        if(isRoot&&rootRefusal)return respond({error:{code:rootRefusal.code}},rootRefusal.status);
         // Connect's re-consent: the installation's own credential, a window bound to the target it names.
         const owner=[...rows.values()].find(old=>old.request.installation_id===r.installation_id&&old.request.device_id===r.device_id);
         if(!owner||(init?.headers as Record<string,string>).authorization!==`Bearer ${owner.token}`)return respond({error:{code:"installation_credential_required",message:"credential required"}},403);
@@ -79,8 +82,8 @@ async function fixture(device:string|null=null) {
       return respond({pairing_id:r.request_id,pairing_secret:r.pairing_secret,verification_uri:`${cpOrigin}/pair/${r.request_id}`,expires_in:600,installation_device:true,app_id:appId,app_origin:origin,app_name:"Scoped notes",recovery_collection_id:r.recovery_collection_id},201);
     }
     if(path==="/v1/next/collections"){
-      const token=(init?.headers as Record<string,string>).authorization;
-      const ids=token===`Bearer ${root.token}`?[sibling]:[target];
+      if(isRoot&&rootRefusal)return respond({error:{code:rootRefusal.code}},rootRefusal.status);
+      const ids=isRoot?rootCollections:[target];
       return respond({collections:ids.map(id=>({collection_id:id,display_name:id===target?"Target":"Sibling",role:"owner"}))});
     }
     const id=path.split("/")[3]!,consent=consents.get(id);
@@ -122,9 +125,57 @@ async function fixture(device:string|null=null) {
   const sessionOptions:AppWebSignInSessionOptions<{id:string;isCurrent():boolean}>={appId,appName:"Scoped notes",origin,cpOrigin,environment:"production",release,owner:rootOwner,signal:parent.signal,fetch:fetcher,locks:locks.port,autoSelect:"never",loadRuntime:async()=>new Uint8Array([1]),openPortal,openCollection,...(device?{freshRequestedPrivateDevice:true}:{})};
   const session=new AppScopedSignInSession(sessionOptions);
   await session.start();
-  return {session,parent,read,ledgers,root,rows,starts,requests,trace,windows,hostOpen,erase,openCollection,fetcher,guardHeld,locks,options:sessionOptions,setAccount:(value:string)=>{portalAccount=value;},setFailure:(value:typeof failure)=>{failure=value;},failErase:()=>{eraseFailure=true;},failPartialErase:()=>{partialErase=true;}};
+  return {session,parent,read,ledgers,root,rows,starts,requests,trace,windows,hostOpen,erase,openCollection,fetcher,guardHeld,locks,options:sessionOptions,setAccount:(value:string)=>{portalAccount=value;},setFailure:(value:typeof failure)=>{failure=value;},setRootRefusal:(status:number,code:string)=>{rootRefusal={status,code};},failErase:()=>{eraseFailure=true;},failPartialErase:()=>{partialErase=true;}};
 }
 describe("composed scoped browser recovery",()=>{
+  it.each(["listing", "consent"] as const)("recovers an approved collection after the root installation is refused during %s", async source => {
+    const f = await fixture(null, [target, sibling]);
+    try {
+      await f.session.openCollection(target);
+      const original = f.session.connection(target);
+      expect(original?.isCurrent()).toBe(true);
+      f.setRootRefusal(401, "invalid_connector");
+      if (source === "listing") await f.session.refreshCollectionList();
+      else {
+        await f.session.authorize({ collectionHint: target });
+        expect(f.windows[0]?.closed).toBe(true);
+        expect(f.windows[0]?.navigate).not.toHaveBeenCalled();
+      }
+      expect(f.session.viewFor(target)).toMatchObject({ status: "blocked", problem: "installation_removed", collections: [], removedScopeIds: [target, sibling] });
+      expect(f.session.connection(target)).toBeNull();
+      expect(original?.isCurrent()).toBe(false);
+      expect(f.erase).not.toHaveBeenCalled();
+      expect(erasure.eraseAppCollectionAccess).not.toHaveBeenCalled();
+
+      f.setAccount(A);
+      await f.session.authorize({ collectionHint: target });
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(f.starts.at(-1)).toMatchObject({ recovery_collection_id: target });
+      expect(f.starts.at(-1)?.installation_id).not.toBe(f.root.installationId);
+      expect(f.starts.at(-1)?.device_id).not.toBe(f.root.deviceId);
+      expect(f.starts.at(-1)).not.toHaveProperty("reconsent");
+      expect(f.session.viewFor(target).collections.map(c => c.collectionId)).toEqual([target]);
+      await f.session.openCollection(target);
+      expect(f.session.connection(target)?.isCurrent()).toBe(true);
+      expect(f.session.viewFor(target).removedScopeIds).toEqual([sibling]);
+      expect(f.erase).not.toHaveBeenCalled();
+    } finally { await f.session.close(); }
+  });
+
+  it.each([[403, "invalid_connector"], [401, "other_refusal"]] as const)("retains approval after unrelated HTTP %s %s", async (status, code) => {
+    const f = await fixture(null, [target, sibling]);
+    try {
+      await f.session.openCollection(target);
+      const original = f.session.connection(target);
+      f.setRootRefusal(status, code);
+      await expect(f.session.refreshCollectionList()).rejects.toMatchObject({ server: { status, code } });
+      expect(f.session.viewFor(target)).toMatchObject({ status: "ready", removedScopeIds: [] });
+      expect(f.session.connection(target)).toBe(original);
+      expect(original?.isCurrent()).toBe(true);
+      expect(f.erase).not.toHaveBeenCalled();
+    } finally { await f.session.close(); }
+  });
+
   it("asks again for device access only for a collection the original installation held as Private device access",async()=>{
     const f=await fixture(target);f.setAccount(A);
     await f.session.authorize({collectionHint:target});await vi.advanceTimersByTimeAsync(1000);

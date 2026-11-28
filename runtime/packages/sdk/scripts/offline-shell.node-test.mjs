@@ -67,7 +67,7 @@ test("shell worker installs only pinned public files; offline navigation works w
     };
     installOfflineShell(worker, manifest);
     await run("install");
-    assert.deepEqual(fetched, [origin + "/index.html", origin + "/", origin + "/404.html", origin + "/404", origin + "/help/index.html", origin + "/help/", origin + "/assets/lazy.js"]);
+    assert.deepEqual(fetched, [origin + "/", origin + "/404", origin + "/help/", origin + "/assets/lazy.js"]);
     stores.set("mdbase-shell:/:old", new Map());
     stores.set("mdbase-artifacts:other", new Map());
     await run("activate");
@@ -119,7 +119,6 @@ test("shell worker installs only pinned public files; offline navigation works w
     assert.equal(stores.has("mdbase-shell:/:older"), false);
     // An incomplete/mixed clean-URL deployment cannot activate or destroy the last good cache.
     globalThis.fetch = async url => {
-      if (url.endsWith(".html")) throw new TypeError("redirect");
       return new Response("different deployment");
     };
     installOfflineShell(worker, { ...manifest, version: "two" });
@@ -138,6 +137,21 @@ test("shell worker installs only pinned public files; offline navigation works w
     assert.equal(refused.at(-1), origin + "/assets/lazy.js");
     assert.equal(stores.has("mdbase-shell:/:one"), true);
     assert.equal(stores.has("mdbase-shell:/:three"), false);
+
+    // A direct-file host can serve HTML even when a clean URL is missing or
+    // its SPA fallback renders a different page. Pinned cache keys stay put.
+    const direct = [];
+    globalThis.fetch = async url => {
+      const path = new URL(url).pathname;
+      direct.push(path);
+      if (path === "/404") return new Response("Not found", { status: 404 });
+      if (path === "/help/") return new Response("SPA fallback");
+      return new Response(publicBytes);
+    };
+    installOfflineShell(worker, { ...manifest, version: "direct" });
+    await run("install");
+    assert.deepEqual(direct, ["/", "/404", "/404.html", "/help/", "/help/index.html", "/assets/lazy.js"]);
+    assert.deepEqual([...stores.get("mdbase-shell:/:direct").keys()], manifest.assets.map(asset => origin + "/" + asset.path));
   } finally { globalThis.caches = original.caches; globalThis.fetch = original.fetch; }
 });
 

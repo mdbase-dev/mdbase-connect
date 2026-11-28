@@ -81,7 +81,7 @@ export const PROBLEM_CODES = [
   "invalid_request", "invalid_record", "not_found", "conflict", "unauthenticated", "forbidden", "collection_invalid",
   "unavailable", "rate_limited", "quota_exceeded", "too_large", "outcome_unknown", "internal",
   // Sign-in, open and sign-out.
-  "refused", "expired", "approval_window_closed", "account_confirmation_required", "recovery_required", "open_failed", "device_keys_unavailable",
+  "refused", "expired", "approval_window_closed", "account_confirmation_required", "recovery_required", "installation_removed", "open_failed", "device_keys_unavailable",
   "busy", "open_in_another_tab", "not_authorized", "sign_out_pending_writes", "sign_out_failed",
   // Application entry.
   "application_popup_blocked", "sign_in_window", "application_not_yet_available", "application_failed",
@@ -127,7 +127,7 @@ const COPY = {
   old_connector_running: ["Quit the old mdbase Connect app", "The old mdbase Connect app is still running on the computer that has this collection. Quit it there (including its menu-bar or tray icon), then open the mdbase desktop app.", "retry", "warning"],
   sync_required: ["Give this app access again", "Access to this collection changed since you approved this app. Approve it again to keep using the collection.", "approve", "warning", false, "Approve again"],
   no_device_registered: ["Turn on sync for this collection", "No computer is offering this collection to apps. Open the mdbase desktop app on the computer that has it and turn on sync. Web apps can reach a collection once sync is on.", "retry", "info"],
-  installation_scope_removed: ["Access was removed", "This app's previous installation cannot regain access to this collection. Request access again to approve a new installation for this collection. Your other collections keep their access.", "approve", "warning", false, "Request access again"],
+  installation_scope_removed: ["Access was removed", "This app's previous installation cannot regain access to this collection. Request access again to approve a new installation for this collection.", "approve", "warning", false, "Request access again"],
   access_removed: ["You no longer have access", "You were removed from this collection, so this app can't open it. Ask its owner to add you again, or choose another collection.", "choose_collection", "warning"],
   collection_deleted: ["Collection deleted", "This collection was deleted, so it can't be opened any more. Choose another collection.", "choose_collection", "info"],
   collection_unavailable: ["Collection not available", "This collection can't be opened from this app right now. It may no longer be shared with this app, or the computer that offered it stopped. Choose another collection, or try again later.", "choose_collection", "warning"],
@@ -154,6 +154,7 @@ const COPY = {
   outcome_unknown: ["Not sure that worked", "The connection dropped before mdbase confirmed it. Check whether it went through before trying again.", "resolve_outcome", "warning"],
   internal: GENERIC,
   refused: ["Sign-in didn't go through", "mdbase didn't accept this sign-in. Try signing in again.", "sign_in", "warning"],
+  installation_removed: ["This app's access was removed", "Sign out of this app on this device, then sign in to approve a new installation.", "none", "warning"],
   expired: ["Sign-in timed out", "The sign-in request expired. Start again to get a new one.", "sign_in", "warning"],
   approval_window_closed: ["Sign-in wasn't finished", "The mdbase window was closed before access was approved. Sign in again to continue.", "sign_in", "info"],
   account_confirmation_required: ["Confirm your account", "Confirm which mdbase account to use, then continue.", "sign_in", "info"],

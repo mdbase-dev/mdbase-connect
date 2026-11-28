@@ -24,6 +24,15 @@ it("a scoped wrong-account refusal names only the original account and offers th
   expect(phase.problem.message).not.toContain("recovery_account_mismatch");expect(phase.problem.message).not.toContain(A);
 });
 
+it("offers scoped reapproval for a removed installation and sign-out guidance without a scope",()=>{
+  const removed=snap({status:"blocked",selectedCollectionId:null,collections:[],problem:"installation_removed",removedScopeIds:[A]});
+  expect(applicationPhase(removed)).toMatchObject({kind:"problem",collectionId:A,
+    problem:{key:"installation_scope_removed",action:"approve",actionLabel:"Request access again"}});
+  const none={state:"none",problem:null,usable:null,requested:{collectionId:null,source:"none",displayName:null,approved:false}} as const;
+  expect(applicationPhase({...removed,selection:none})).toMatchObject({kind:"problem",collectionId:null,
+    problem:{key:"installation_removed",action:"none",message:"Sign out of this app on this device, then sign in to approve a new installation."}});
+});
+
 it("takes the person's language for every described problem and notice",()=>{
   const messages={access_removed:{title:"Accès retiré",message:"Demandez à nouveau l'accès."},recovery_account_mismatch:{title:"Autre compte"},unlock_failed:{message:"Réessayez."},refused:{title:"Connexion refusée"}};
   expect(applicationPhase(snap({status:"blocked",problem:"access_removed"}),{messages})).toMatchObject({kind:"problem",problem:{key:"access_removed",title:"Accès retiré",message:"Demandez à nouveau l'accès."}});

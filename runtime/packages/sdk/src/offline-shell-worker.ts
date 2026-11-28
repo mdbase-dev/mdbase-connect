@@ -36,6 +36,26 @@ export function installOfflineShell(worker: ShellWorker, manifest: OfflineShellM
   const root = new URL(manifest.base, worker.location.origin);
   const index = new URL("index.html", root).href;
   const assets = new Map(manifest.assets.map(asset => [new URL(asset.path, root).href, asset.sha256]));
+  const fetchAsset = async (url: string, expected: string): Promise<Response> => {
+    const response = await fetch(url, { cache: "reload", credentials: "omit", redirect: "error" });
+    if (!response.ok) throw new Error("Offline shell asset unavailable");
+    const bytes = await response.clone().arrayBuffer();
+    const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    const actual = Array.from(hash, byte => byte.toString(16).padStart(2, "0")).join("");
+    if (actual !== expected) throw new Error("Offline shell asset changed during deployment");
+    return response;
+  };
+  const fetchPinnedAsset = (url: string, expected: string): Promise<Response> => {
+    const cleanUrl = new URL(url);
+    if (!cleanUrl.pathname.endsWith(".html")) return fetchAsset(url, expected);
+    // Pages redirects HTML filenames to clean URLs. Prefer that URL, and try
+    // the filename for hosts that serve it directly or rewrite the clean URL.
+    // Both responses must match the manifest and redirects are still refused.
+    cleanUrl.pathname = cleanUrl.pathname.endsWith("/index.html")
+      ? cleanUrl.pathname.slice(0, -"index.html".length)
+      : cleanUrl.pathname.slice(0, -".html".length);
+    return fetchAsset(cleanUrl.href, expected).catch(() => fetchAsset(url, expected));
+  };
   /** The pinned page a navigation names: `dir/` is `dir/index.html`, a clean URL
    * `page` is `page.html`. Its query is the page's own business, never a cache key. */
   const pinnedPage = (url: URL): string | undefined => {
@@ -63,27 +83,7 @@ export function installOfflineShell(worker: ShellWorker, manifest: OfflineShellM
       const cache = await caches.open(name);
       try {
         // Sequential fetches bound peak memory for the native WASM assets.
-        for (const [url, expected] of assets) {
-          const options: RequestInit = { cache: "reload", credentials: "omit", redirect: "error" };
-          let response: Response;
-          try { response = await fetch(url, options); }
-          catch (error) {
-            const canonical = new URL(url);
-            if (!canonical.pathname.endsWith(".html")) throw error;
-            // Pages and similar hosts redirect HTML filenames to clean URLs. Try
-            // that one public path directly; never follow arbitrary redirects.
-            canonical.pathname = canonical.pathname.endsWith("/index.html")
-              ? canonical.pathname.slice(0, -"index.html".length)
-              : canonical.pathname.slice(0, -".html".length);
-            response = await fetch(canonical.href, options);
-          }
-          if (!response.ok) throw new Error("Offline shell asset unavailable");
-          const bytes = await response.clone().arrayBuffer();
-          const hash = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-          const actual = Array.from(hash, byte => byte.toString(16).padStart(2, "0")).join("");
-          if (actual !== expected) throw new Error("Offline shell asset changed during deployment");
-          await cache.put(url, response);
-        }
+        for (const [url, expected] of assets) await cache.put(url, await fetchPinnedAsset(url, expected));
       } catch (error) {
         await caches.delete(name);
         throw error;
