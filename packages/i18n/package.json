@@ -70,8 +70,8 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "@testing-library/react": "^16.3.2",
-    "jsdom": "^29.1.1",
-    "vitest": "^4.1.11",
+    "jsdom": "^31.0.1",
+    "vitest": "^5.1.1",
     "eslint": "^10.1.0",
     "typescript-eslint": "^8.65.0"
   }
