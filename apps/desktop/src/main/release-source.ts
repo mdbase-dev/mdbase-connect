@@ -1,6 +1,7 @@
 import { verify, type Bundle } from "sigstore";
 import { randomUUID } from "node:crypto";
 import { rename, rm } from "node:fs/promises";
+import { isUpdateServiceUnavailable, UpdateServiceUnavailable } from "./update-service-error";
 import {
   acceptsReleaseChannel,
   channelForVersion,
@@ -44,6 +45,26 @@ const MAX_ROLLOUT_BYTES = 4 * 1024;
 const MAX_BUNDLE_BYTES = 4 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 15_000;
 const responseTimeouts = new WeakMap<Response, ReturnType<typeof setTimeout>>();
+
+const transportCodes = new Set([
+  "EAI_AGAIN", "ENOTFOUND", "ECONNREFUSED", "ECONNRESET", "ECONNABORTED", "EPIPE",
+  "ETIMEDOUT", "ENETDOWN", "ENETUNREACH", "EHOSTUNREACH",
+  "UND_ERR_SOCKET", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"
+]);
+
+function temporaryServiceStatus(status: unknown): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
+
+/** Sigstore's TUF fetcher can wrap a transport error in one or more causes. */
+function transportFailure(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (isUpdateServiceUnavailable(error) || error.name === "AbortError" || error.name === "TimeoutError") return true;
+  if ("code" in error && typeof error.code === "string" && transportCodes.has(error.code)) return true;
+  if ("statusCode" in error && temporaryServiceStatus(error.statusCode)) return true;
+  if (error instanceof AggregateError) return error.errors.length > 0 && error.errors.every(transportFailure);
+  return transportFailure(error.cause);
+}
 
 export interface ReleaseCandidate {
   manifest: UpdateManifest;
@@ -127,9 +148,13 @@ export async function* releaseCandidates(options: ReleaseSourceOptions): AsyncGe
     }
   }
   if (!found && rejected.length > 0) {
+    const otherFailure = rejected.find(error => !transportFailure(error));
+    if (!otherFailure) {
+      throw new UpdateServiceUnavailable("The update service did not respond.", { cause: rejected[0] });
+    }
     throw new AggregateError(
       rejected,
-      `No release had valid signed update metadata. ${rejected[0].message}`
+      `No release had valid signed update metadata. ${otherFailure.message}`
     );
   }
 }
@@ -389,13 +414,15 @@ async function request(
     signal: signal ? AbortSignal.any([controller.signal, signal]) : controller.signal
   }).catch((error) => {
     clearTimeout(timeout);
-    throw error;
+    signal?.throwIfAborted();
+    throw new UpdateServiceUnavailable("The update request did not complete.", { cause: error });
   });
   if (!response.ok) {
     clearTimeout(timeout);
     await response.body?.cancel().catch(() => undefined);
     if (response.status === 404 && init.missing === "null") return null;
-    throw new Error(`Update service returned HTTP ${response.status}.`);
+    const detail = `Update service returned HTTP ${response.status}.`;
+    throw temporaryServiceStatus(response.status) ? new UpdateServiceUnavailable(detail) : new Error(detail);
   }
   if (!response.url.startsWith("https://")) {
     clearTimeout(timeout);
@@ -422,6 +449,9 @@ async function readLimited(response: Response, maximum: number): Promise<Buffer>
       chunks.push(bytes);
     }
     return Buffer.concat(chunks, length);
+  } catch (error) {
+    if (!transportFailure(error)) throw error;
+    throw new UpdateServiceUnavailable("The update response did not complete.", { cause: error });
   } finally {
     const timeout = responseTimeouts.get(response);
     if (timeout) clearTimeout(timeout);

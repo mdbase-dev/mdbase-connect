@@ -11,6 +11,7 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const { UpdateCoordinator } = require("../dist/main/update-coordinator.js");
+const { findLatestRelease } = require("../dist/main/release-source.js");
 const { parseUpdateManifest } = require("../dist/main/update-policy.js");
 const { UpdateStateStore } = require("../dist/main/update-state.js");
 
@@ -83,6 +84,26 @@ async function fixture() {
     store: new UpdateStateStore(join(directory, "state.json"))
   };
 }
+
+test("an offline discovery reports an unreachable service and permits another check", async (context) => {
+  const { path, store } = await fixture();
+  context.after(() => rm(path, { force: true }));
+  const runtime = backend({
+    findLatest: signal => findLatestRelease({
+      channel: "beta", signal, trustCacheDirectory: "/tmp/not-used",
+      async fetchImpl() { throw new TypeError("fetch failed"); }
+    })
+  });
+  const coordinator = new UpdateCoordinator(store, runtime);
+  await coordinator.initialize();
+  const offline = await coordinator.check(true);
+  assert.equal(offline.phase, "failed");
+  assert.equal(offline.message, "Could not reach the update service. Check your connection and try again.");
+  assert.equal(offline.can_check, true);
+  assert.equal(offline.can_install, false);
+  runtime.findLatest = async () => ({ manifest: signedManifest() });
+  assert.equal((await coordinator.check(true)).phase, "ready");
+});
 
 test("a verified automatic release downloads, becomes ready and installs the app only", async () => {
   const { path, store } = await fixture();
@@ -192,7 +213,7 @@ test("a CONNECT blackhole during real Sigstore verification fails closed and per
   worker.postMessage("expire");
   const [result] = await expired;
   assert.equal(result.status.phase, "failed");
-  assert.match(result.status.message, /^Could not verify updates: .*timed out/i);
+  assert.equal(result.status.message, "Could not reach the update service. Check your connection and try again.");
   assert.equal(result.status.can_install, false);
   assert.equal(result.trustedVersion, undefined);
   assert.equal(result.settled, true);

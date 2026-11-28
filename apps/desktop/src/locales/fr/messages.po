@@ -634,6 +634,10 @@ msgctxt "Desktop application"
 msgid "Could not check for updates"
 msgstr "Impossible de vérifier les mises à jour"
 
+#: src/main/update-coordinator.ts
+msgid "Could not reach the update service. Check your connection and try again."
+msgstr "Impossible de joindre le service de mise à jour. Vérifiez votre connexion, puis réessayez."
+
 #. placeholder {0}: message(error)
 #: src/main/update-coordinator.ts
 msgid "Could not verify updates: {0}"
