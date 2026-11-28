@@ -22,6 +22,12 @@ test("connection: an account problem is explained in plain words, never as a cod
   assert.equal(accountProblemText(null), undefined);
 });
 
+test("collection status does not present unfamiliar daemon reason codes as copy", () => {
+  assert.equal(presentCollection({ mode: "local", state: "unavailable", reason: "unmapped_reason" }).detail, undefined);
+  const sync = { pending: 0, holds: 0, unresolved: 0, connection: "offline", last_error: "transport_reset" };
+  assert.equal(presentCollection({ mode: "synced", state: "ready", sync }).detail, "Sync needs attention.");
+});
+
 test("account: sign-in and Settings read the account from the same status response", () => {
   assert.deepEqual(cloudSetting({ account: { signed_in: true, online: true, server: "https://connect.example", computer_name: "Desk" } }), {
     configured: true, serverUrl: "https://connect.example", online: true, pairing: null, lastError: null, computerName: "Desk"

@@ -7,9 +7,11 @@ import { managedAppOrigins } from "../../../../scripts/lib/managed-app-origins.m
 import { presentCollection } from "./daemon-view.mjs";
 import { Empty } from "./ui-components";
 import { pollWhileVisible } from "./visible-poll.mjs";
+import { retainSnapshot } from "./snapshot.mjs";
 import { message, type Route } from "./view-model";
 
 const APPS_POLL_MS = 60_000;
+const COLLECTION_PREVIEW_SIZE = 12;
 
 const listFormat = (names: string[]) => new Intl.ListFormat(i18n.locale, { type: "conjunction" }).format(names);
 
@@ -34,10 +36,10 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
   useEffect(() => {
     let current = true;
     const load = () => window.mdbaseConnect.listApps().then(
-      (result) => { if (current) { setApproved(result.applications); setFailure(null); } },
+      (result) => { if (current) { setApproved((previous) => retainSnapshot(previous, result.applications)); setFailure(null); } },
       (reason) => { if (current) setFailure(message(reason)); }
     );
-    const stopPolling = pollWhileVisible(() => void load(), APPS_POLL_MS);
+    const stopPolling = pollWhileVisible(load, APPS_POLL_MS);
     return () => { current = false; stopPolling(); };
   }, []);
 
@@ -85,7 +87,7 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
             <button className="mdbase-button" disabled={busy} onClick={onCreate}><Trans>Create collection</Trans></button>
           </div>
         </> : <ul className="home-collections">
-          {collections.map(collection => {
+          {collections.slice(0, COLLECTION_PREVIEW_SIZE).map(collection => {
             const view = presentCollection(collection);
             const apps = usedBy.get(collection.id) ?? [];
             return <li key={collection.id}>
@@ -97,6 +99,7 @@ export function HomeView({ environment, collections, pendingApps, busy, onNaviga
             </li>;
           })}
         </ul>}
+        {collections.length > COLLECTION_PREVIEW_SIZE && <button className="mdbase-button" onClick={() => onNavigate("collections")}><Trans>View all collections</Trans></button>}
       </section>
 
       {(yours.some(app => app.url) || suggested.length > 0) &&

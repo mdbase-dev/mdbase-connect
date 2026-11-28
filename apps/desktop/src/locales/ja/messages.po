@@ -556,6 +556,10 @@ msgid "Collection name must be between 1 and 100 characters."
 msgstr "コレクション名は 1～100 文字にしてください。"
 
 #: src/renderer/collections-view.tsx
+msgid "Collection pages"
+msgstr "コレクション一覧のページ"
+
+#: src/renderer/collections-view.tsx
 msgid "Collection settings"
 msgstr "コレクション設定"
 
@@ -1014,6 +1018,10 @@ msgstr "mdbase は同期サービスに接続できません。オンライン�
 msgid "mdbase cannot reach this computer's secure storage. Unlock your keychain or restart mdbase."
 msgstr "このコンピューターの安全なストレージにアクセスできません。キーチェーンのロックを解除するか、mdbase を再起動してください。"
 
+#: src/renderer/view-model.ts
+msgid "mdbase connect could not complete the action. Try again. If it keeps failing, restart mdbase connect."
+msgstr "mdbase connect で操作を完了できませんでした。もう一度お試しください。問題が続く場合は mdbase connect を再起動してください。"
+
 #: src/main/main.ts
 msgctxt "Desktop application"
 msgid "mdbase connect could not initialize"
@@ -1181,6 +1189,10 @@ msgstr "新しいアプリは、このコンピューターでの承認を待つ
 msgid "New collection"
 msgstr "新しいコレクション"
 
+#: src/renderer/collections-view.tsx
+msgid "Next page"
+msgstr "次のページ"
+
 #: src/renderer/activity-view.tsx
 msgctxt "Connect interface"
 msgid "No activity yet"
@@ -1194,6 +1206,10 @@ msgstr "接続済みアプリはありません"
 #: src/renderer/home-view.tsx
 msgid "No apps yet"
 msgstr "アプリはまだありません"
+
+#: src/renderer/collections-view.tsx
+msgid "No collections match your filter."
+msgstr "フィルターに一致するコレクションはありません。"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
@@ -1322,6 +1338,11 @@ msgctxt "File types that sync"
 msgid "Other files"
 msgstr "その他のファイル"
 
+#. placeholder {0}: currentPage + 1
+#: src/renderer/collections-view.tsx
+msgid "Page {0} of {pages}"
+msgstr "{pages} ページ中 {0} ページ目"
+
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"
 msgid "Pause"
@@ -1340,6 +1361,10 @@ msgstr "PDF"
 #: src/renderer/device-requests.tsx
 msgid "Preparing comparison code…"
 msgstr "比較用コードを準備しています…"
+
+#: src/renderer/collections-view.tsx
+msgid "Previous page"
+msgstr "前のページ"
 
 #: src/renderer/main.tsx
 msgid "Previous version restored"
@@ -1652,10 +1677,13 @@ msgstr "保存モードを切り替えています…"
 msgid "Sync could not be turned on: {0} {unchanged}"
 msgstr "同期を有効にできませんでした: {0} {unchanged}"
 
-#. placeholder {0}: sync.last_error.replaceAll("_", " ")
+#: src/renderer/view-model.ts
+msgid "Sync could not be turned on. Try again. {unchanged}"
+msgstr "同期を有効にできませんでした。もう一度お試しください。 {unchanged}"
+
 #: src/renderer/daemon-view.mts
-msgid "sync problem: {0}"
-msgstr "同期の問題: {0}"
+msgid "Sync needs attention."
+msgstr "同期の確認が必要です。"
 
 #: src/renderer/view-model.ts
 msgid "Sync setup stopped, and the collection is paused. Close this window, then choose Resume before trying again. {unchanged}"
@@ -2033,6 +2061,10 @@ msgstr "バージョン {version} はインストールの {percentage}% に展�
 msgctxt "File types that sync"
 msgid "Video"
 msgstr "動画"
+
+#: src/renderer/home-view.tsx
+msgid "View all collections"
+msgstr "すべてのコレクションを表示"
 
 #: src/renderer/collections-view.tsx
 msgctxt "Local collection management"

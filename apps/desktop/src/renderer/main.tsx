@@ -23,7 +23,8 @@ import { HomeView } from "./home-view";
 import { cloudSetting, groupAccess, presentConnection, type CloudSetting } from "./daemon-view.mjs";
 import { updateActions } from "../main/update-actions";
 import { consumePairingCompleted } from "./onboarding-state.mjs";
-import { pollWhileVisible } from "./visible-poll.mjs";
+import { pollWhileVisible, singleFlight } from "./visible-poll.mjs";
+import { retainCollections, retainSnapshot } from "./snapshot.mjs";
 import { SignInPanel } from "./sign-in-panel";
 import {
   MobileProductBar,
@@ -63,7 +64,7 @@ const POLL_MS = 5_000;
 function App() {
   useLocaleRevision();
   const [route, setRoute] = useState<Route>("overview");
-  const [status, setStatus] = useState<DaemonStatus | null>(null);
+  const [status, setStatus] = useState<DaemonStatus["account"] | null>(null);
   const [checked, setChecked] = useState(false);
   const [cloud, setCloud] = useState<CloudSetting | null>(null);
   const [collections, setCollections] = useState<DaemonCollection[]>([]);
@@ -80,29 +81,52 @@ function App() {
   const [createOpen, setCreateOpen] = useState(false);
   const [navigationOpen, setNavigationOpen] = useState(false);
 
-  const generation = useRef(0);
-  const refresh = useCallback(async () => {
-    const mine = ++generation.current;
+  const currentRoute = useRef(route);
+  currentRoute.current = route;
+  const wasPairing = useRef(false);
+  const refresh = useMemo(() => singleFlight(async () => {
     const api = window.mdbaseConnect;
-    const [nextStatus, nextCollections, nextAccess, nextSettings, nextStartup, nextActivity, nextDevices] = await Promise.allSettled([
-      api.status(), api.listCollections(), api.listAccess(), api.getSettings(), api.getLaunchAtLogin(), api.listActivity(),
-      api.listPendingDevices()
+    const view = currentRoute.current;
+    await Promise.allSettled([
+      api.status().then((next) => {
+        const account = cloudSetting(next);
+        const paired = account.configured && !account.pairing;
+        if (paired && (consumePairingCompleted(localStorage) || wasPairing.current)) {
+          setRoute("collections");
+          setSignInReason(null);
+        }
+        if (paired || account.lastError) wasPairing.current = false;
+        if (account.pairing) wasPairing.current = true;
+        setStatus((previous) => retainSnapshot(previous, next.account));
+        setCloud((previous) => retainSnapshot(previous, account));
+        setCollections((previous) => retainCollections(previous, next.collections));
+        setChecked(true);
+      }, () => {
+        // The connection indicator is live. The collection list keeps its last value.
+        setStatus(null);
+        setChecked(true);
+      }),
+      api.listAccess().then((next) => setAccess((previous) => retainSnapshot(previous, next))),
+      view === "settings" || view === "access"
+        ? api.getSettings().then((next) => setRequireApproval(next.require_grant_approval))
+        : undefined,
+      view === "activity"
+        ? api.listActivity().then((next) => setActivity((previous) => retainSnapshot(previous, next)), () => setActivity(null))
+        : undefined
     ]);
-    if (mine !== generation.current) return;
-    setChecked(true);
-    // A live connection indicator is never last-known; lists keep their last value.
-    setStatus(nextStatus.status === "fulfilled" ? nextStatus.value : null);
-    if (nextStatus.status === "fulfilled") setCloud(cloudSetting(nextStatus.value));
-    if (nextCollections.status === "fulfilled") setCollections(nextCollections.value);
-    if (nextAccess.status === "fulfilled") setAccess(nextAccess.value);
-    if (nextDevices.status === "fulfilled") setDevices(nextDevices.value);
-    if (nextSettings.status === "fulfilled") setRequireApproval(nextSettings.value.require_grant_approval);
-    if (nextStartup.status === "fulfilled") setStartup(nextStartup.value);
-    setActivity(nextActivity.status === "fulfilled" ? nextActivity.value : null);
-  }, []);
+  }), []);
+  const refreshDevices = useMemo(() => singleFlight(async () => {
+    const next = await window.mdbaseConnect.listPendingDevices().catch(() => null);
+    if (next) setDevices((previous) => retainSnapshot(previous, next));
+  }), []);
+  const refreshAfterAction = useCallback(async () => {
+    void refreshDevices(true);
+    await refresh(true);
+  }, [refresh, refreshDevices]);
 
   useEffect(() => {
-    const stopPolling = pollWhileVisible(() => void refresh(), POLL_MS);
+    const stopPolling = pollWhileVisible(refresh, POLL_MS);
+    const stopDevices = pollWhileVisible(refreshDevices, POLL_MS);
     const removeNavigation = window.mdbaseConnect.onNavigate((next) => {
       const target = next.startsWith("access") ? "access" : next;
       if (["overview", "collections", "access", "activity", "settings"].includes(target)) setRoute(target as Route);
@@ -117,19 +141,27 @@ function App() {
     }).catch(() => undefined);
     return () => {
       stopPolling();
+      stopDevices();
       removeNavigation();
       removeUpdateStatus();
     };
-  }, [refresh]);
+  }, [refresh, refreshDevices]);
 
-  const onSignedIn = useCallback(() => {
-    setSignInReason(null);
-    void refresh();
+  const onPairing = useCallback((pairing: string) => {
+    wasPairing.current = true;
+    setCloud((previous) => previous && { ...previous, pairing, lastError: null });
+    void refresh(true);
   }, [refresh]);
 
   useEffect(() => {
-    if (cloud?.configured && consumePairingCompleted(localStorage)) setRoute("collections");
-  }, [cloud?.configured]);
+    if (route === "settings" || route === "activity" || route === "access") void refresh(true);
+    if (route !== "settings") return;
+    let active = true;
+    void window.mdbaseConnect.getLaunchAtLogin().then((next) => {
+      if (active) setStartup(next);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [route, refresh]);
 
   const act = useCallback(async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -137,7 +169,7 @@ function App() {
     setNotice(null);
     try {
       await action();
-      await refresh();
+      await refreshAfterAction();
       signalMdbaseMark("saved");
     } catch (reason) {
       signalMdbaseMark("error");
@@ -145,7 +177,7 @@ function App() {
     } finally {
       setBusy(false);
     }
-  }, [refresh]);
+  }, [refreshAfterAction]);
 
   /** Collections are registered to an account, so adding one needs sign-in first. */
   function requireSignIn(): boolean {
@@ -173,7 +205,7 @@ function App() {
   const names = useMemo(() => Object.fromEntries(collections.map((c) => [c.id, c.name])), [collections]);
   const groups = useMemo(() => groupAccess(access), [access]);
   const pendingApps = useMemo(() => [...new Set(groups.pending.map(entry => entry.app_name))], [groups]);
-  const connection = presentConnection(status, checked);
+  const connection = presentConnection(status && { account: status, collections }, checked);
   const copy = routeCopy[route];
   const selectRoute = (next: Route) => {
     // A confirmation belongs to the view it was shown in.
@@ -233,7 +265,7 @@ function App() {
           </div>
 
           {cloud !== null && !cloud.configured && <div hidden={route === "activity"}>
-            <SignInPanel cloud={cloud} reason={signInReason} onSignedIn={onSignedIn} />
+            <SignInPanel cloud={cloud} reason={signInReason} onPairing={onPairing} />
           </div>}
 
           {(route === "overview" || route === "collections") &&
@@ -241,7 +273,7 @@ function App() {
 
           {route === "overview" ? (
             cloud?.configured ? <HomeView
-              environment={status?.account.environment}
+              environment={status?.environment}
               collections={collections}
               pendingApps={pendingApps}
               busy={busy}
@@ -252,7 +284,7 @@ function App() {
               onAct={act}
             /> : null
           ) : route === "collections" ? (
-            <CollectionsView collections={collections} devices={devices} computerName={cloud?.computerName ?? t(i18n)`This computer`} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} onRefresh={refresh} />
+            <CollectionsView collections={collections} devices={devices} computerName={cloud?.computerName ?? t(i18n)`This computer`} busy={busy} onAdd={addExisting} onCreate={openCreate} onAct={act} onNotice={setNotice} onRefresh={refreshAfterAction} />
           ) : route === "access" ? (
             <AccessView groups={groups} names={names} busy={busy} requireApproval={requireApproval} movedWaiting={collections.filter((c) => c.notices?.some((n) => n.code === "private_sync_pending")).length} onAct={act} onNotice={setNotice} />
           ) : route === "activity" ? (
@@ -264,6 +296,7 @@ function App() {
               connectionDetail={connection.detail}
               requireApproval={requireApproval}
               startup={startup}
+              onStartupChange={setStartup}
               updateStatus={updateStatus}
               busy={busy}
               onAct={act}
@@ -281,7 +314,7 @@ function App() {
             setRoute("collections");
             setError(null);
             setNotice(t(i18n)`${created.name} was created.`);
-            await refresh();
+            await refreshAfterAction();
           } finally {
             setBusy(false);
           }
@@ -317,12 +350,13 @@ function CreateCollectionDialog({ open, busy, onClose, onCreate }: {
   );
 }
 
-function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, startup, updateStatus, busy, onAct, onNotice }: {
+function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, startup, onStartupChange, updateStatus, busy, onAct, onNotice }: {
   cloud: CloudSetting | null;
   connectionLabel: string;
   connectionDetail?: string;
   requireApproval: boolean | null;
   startup: StartupSetting;
+  onStartupChange(startup: StartupSetting): void;
   updateStatus: DesktopUpdateStatus | null;
   busy: boolean;
   onAct(action: () => Promise<unknown>): Promise<void>;
@@ -374,7 +408,7 @@ function Settings({ cloud, connectionLabel, connectionDetail, requireApproval, s
             disabled={!startup.available || busy}
             stateLabel={startup.available ? startup.enabled ? t(i18n)`On` : t(i18n)`Off` : t(i18n)`Unavailable`}
             onChange={(checked) => void onAct(async () => {
-              await window.mdbaseConnect.setLaunchAtLogin(checked);
+              onStartupChange(await window.mdbaseConnect.setLaunchAtLogin(checked));
               onNotice(checked ? t(i18n)({ message: "mdbase connect will start at login." }) : t(i18n)({ message: "Launch at login is off.", context: "Connect interface" }));
             })}
           />

@@ -9,7 +9,6 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
   checkForUpdates: () => ipcRenderer.invoke("connect:updates:check"),
   installUpdate: () => ipcRenderer.invoke("connect:updates:install"),
   setEarlyAccess: (enabled: boolean) => ipcRenderer.invoke("connect:updates:early-access", enabled === true),
-  listCollections: () => ipcRenderer.invoke("connect:collections:list"),
   addCollection: () => ipcRenderer.invoke("connect:collections:add"),
   chooseCreateFolder: () => ipcRenderer.invoke("connect:collections:choose-create"),
   createCollection: (input: { parent: string; name: string }) =>

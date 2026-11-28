@@ -10,24 +10,44 @@ export interface IntervalTimers {
   clearInterval(timer: unknown): void;
 }
 
+/** Share a read in progress. After a mutation, wait for it and request fresh data. */
+export function singleFlight(task: () => Promise<void>) {
+  let current: Promise<void> | undefined;
+  const run = () => current ??= task().finally(() => { current = undefined; });
+  return async (fresh = false) => {
+    if (fresh) await current;
+    await run();
+  };
+}
+
 /**
- * Runs `task` now and every `intervalMs` while the page is visible. A window
+ * Runs `task` now and every `intervalMs` while the page is visible, skipping
+ * ticks while the previous request is in flight. A window
  * closed to the tray or minimised is hidden, so it makes no calls; becoming
  * visible again runs `task` once at once and resumes the interval. Returns the
  * function that stops it.
  */
 export function pollWhileVisible(
-  task: () => void,
+  task: () => void | Promise<void>,
   intervalMs: number,
   page: VisibilitySource = document,
   timers: IntervalTimers = window
 ): () => void {
   let timer: unknown = null;
+  let running = false;
+  const tick = () => {
+    if (running) return;
+    const result = task();
+    if (result) {
+      running = true;
+      void result.then(() => { running = false; }, () => { running = false; });
+    }
+  };
   const follow = () => {
     if (page.visibilityState === "visible") {
       if (timer !== null) return;
-      task();
-      timer = timers.setInterval(task, intervalMs);
+      tick();
+      timer = timers.setInterval(tick, intervalMs);
     } else if (timer !== null) {
       timers.clearInterval(timer);
       timer = null;

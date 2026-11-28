@@ -29,6 +29,7 @@ import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { guardDesktopProcessOutput } from "./process-output";
 import { isTrustedSender } from "./ipc-trust";
+import { PendingDevicePoll } from "./pending-device-poll";
 import { createTrayImage } from "./tray-image";
 import { appUpdateBackend, type ElectronUpdateBackend } from "./electron-update-backend";
 import { ensureBundledDaemon } from "./next-daemon";
@@ -159,14 +160,18 @@ async function initializeDaemon(): Promise<void> {
     ensureInstalled: () => ensureInstalledDaemon(runtime!, profile!)
   });
   let oldRuntimeCopiesRemoved = false;
+  let previousHealth: string | undefined;
   session.subscribe((state) => {
     if (state.phase === "ready" && !oldRuntimeCopiesRemoved) {
       oldRuntimeCopiesRemoved = true;
       removeOldRuntimeCopies(app.getPath("userData"))
         .catch((error) => console.warn("Could not remove the old connector's runtime copies:", error));
     }
-    refreshTrayMenu();
-    mainWindow?.webContents.send("connect:daemon-state", state);
+    const health = healthLabel(state);
+    if (health !== previousHealth) {
+      previousHealth = health;
+      refreshTrayMenu();
+    }
   });
 }
 
@@ -270,10 +275,6 @@ function registerIpc(): void {
   ipcMain.handle("connect:updates:install", async (event) => {
     trustedIpc(event);
     return bootGate.install(() => updater.install());
-  });
-  ipcMain.handle("connect:collections:list", async (event) => {
-    trustedIpc(event);
-    return requestReadyAgent("collection.list");
   });
   ipcMain.handle("connect:collections:add", async (event) => {
     trustedIpc(event);
@@ -493,27 +494,25 @@ function registerIpc(): void {
   // has answered and holds the key (up to a few minutes).
   ipcMain.handle("connect:devices:pending", async (event) => {
     trustedIpc(event);
-    return pendingDevices();
+    return pendingDevices.read();
   });
   ipcMain.handle("connect:devices:approve", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid approval.");
-    pendingDeviceCache = null;
     const sas = value.sas;
     if (typeof sas !== "string" || !/^[0-9]{6}$/u.test(sas)) throw new Error(t(i18n)`Check the verification code before allowing.`);
     return bootGate.request(() => daemonCli().run([
       "device", "approve", deviceIdOf(value.device), collectionIdOf(value.collectionId),
       "--checked-code", sas
-    ], 250_000));
+    ], 250_000)).finally(() => pendingDevices.invalidate());
   });
   ipcMain.handle("connect:devices:reject", async (event, input: unknown) => {
     trustedIpc(event);
     const value = asObject(input, "Invalid request.");
-    pendingDeviceCache = null;
     return requestReadyAgent("device.reject", {
       collection: collectionIdOf(value.collectionId),
       device: deviceIdOf(value.device)
-    }, 30_000);
+    }, 30_000).finally(() => pendingDevices.invalidate());
   });
   ipcMain.handle("connect:settings:get", async (event) => {
     trustedIpc(event);
@@ -542,28 +541,16 @@ function deviceIdOf(value: unknown): string {
 
 interface PendingDeviceEntry { collection: string; collection_name: string; device: string; name?: string; kind: string }
 
-/** Each `device pending` call spawns the CLI, so the renderer's poll is served from a short cache. */
-const PENDING_DEVICE_TTL_MS = 20_000;
-let pendingDeviceCache: { at: number; value: Promise<PendingDeviceEntry[]> } | null = null;
-
-function pendingDevices(): Promise<PendingDeviceEntry[]> {
-  if (pendingDeviceCache && Date.now() - pendingDeviceCache.at < PENDING_DEVICE_TTL_MS) return pendingDeviceCache.value;
-  const value = (async () => {
-    try {
-      return await bootGate.request(() => daemonCli().run<PendingDeviceEntry[]>(["device", "pending"], 30_000));
-    } catch (error) {
-      // A daemon without device approval yet has nothing to show.
-      if (error instanceof DaemonControlError && error.reason === "not_implemented") return [];
-      throw error;
-    }
-  })();
-  pendingDeviceCache = { at: Date.now(), value };
-  // Coalesce concurrent polls, but refresh active exchanges on the next UI poll.
-  void value.then((rows) => {
-    if (rows.length && pendingDeviceCache?.value === value) pendingDeviceCache = null;
-  }, () => { if (pendingDeviceCache?.value === value) pendingDeviceCache = null; });
-  return value;
-}
+// Each read spawns the CLI and may take longer than several renderer ticks.
+const pendingDevices = new PendingDevicePoll(async () => {
+  try {
+    return await bootGate.request(() => daemonCli().run<PendingDeviceEntry[]>(["device", "pending"], 30_000));
+  } catch (error) {
+    // A daemon without device approval yet has nothing to show.
+    if (error instanceof DaemonControlError && error.reason === "not_implemented") return [];
+    throw error;
+  }
+}, 20_000);
 
 function grantIdOf(value: unknown): string {
   if (typeof value !== "string" || !/^[0-9a-f-]{32,36}$/iu.test(value)) throw new Error("Invalid grant ID.");
