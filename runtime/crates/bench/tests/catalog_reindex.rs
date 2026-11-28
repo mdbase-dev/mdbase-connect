@@ -53,7 +53,7 @@ struct Profiled {
 fn kind(sql: &str) -> String {
     let table = sql
         .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-        .find(|w| w.starts_with("st_"))
+        .find(|w| w.starts_with("st_") || w.starts_with("sg_"))
         .unwrap_or("-");
     if sql.contains("'delete-all'") {
         return format!("fts-delete-all:{table}");
@@ -503,6 +503,28 @@ fn compact_then_tail(
         }
     }
     snapshot
+}
+
+/// Install the same snapshot into seven empty SQLite databases. Fixture
+/// construction, database open, tail replay and indexed reads are untimed.
+#[test]
+#[ignore = "manual release timing (#1648)"]
+fn snapshot_install_at_10k() {
+    let svc = FakeLogService::new();
+    let (writer_store, _) = store("install_writer", false);
+    let mut writer = open(&svc, writer_store, 101);
+    let snapshot = snapshot_then_tail(&svc, &mut writer, 10_000, 1, "tasks/t01*.md");
+    for run in 1..=7 {
+        let (device_store, stats) = store("install_device", false);
+        let mut device = open(&svc, device_store, 102);
+        stats.borrow_mut().clear();
+        let started = Instant::now();
+        device.install_only();
+        let elapsed = started.elapsed();
+        assert_eq!(device.r.head().seq, snapshot);
+        assert_eq!(device.r.store().record_count().unwrap(), 10_050);
+        report(&format!("snapshot install {run}"), elapsed, &stats);
+    }
 }
 
 /// A device opening a 10k collection for the first time: it installs a

@@ -1088,6 +1088,56 @@ fn sql_staging_survives_a_restart_through_the_file_store() {
     );
 }
 
+#[test]
+fn staged_record_batches_replace_old_lookup_keys() {
+    use mdbn_store_file::SqlStore;
+    use mdbn_store_file::testing::replica::conformance::record;
+    use mdbn_store_file::testing::replica::store::Stage;
+    let dir = scratch("bulk-stage");
+    let idx = SqliteIndex::open(dir.join("i.db"), IndexDurability::Durable).unwrap();
+    let mut store = SqlStore::open(Rc::new(RefCell::new(idx))).unwrap();
+    let row = |n, key: &str| {
+        let mut r = record(n, &format!("r{n}.md"), key);
+        r.meta.links = vec![key.into(), key.into()];
+        r.meta.unique = vec![("slug".into(), key.into())];
+        r
+    };
+    let mut put = |rows| {
+        store
+            .commit(Tx {
+                stage: Stage::Put,
+                records_put: rows,
+                ..Tx::default()
+            })
+            .unwrap();
+    };
+    put(vec![row(1, "previous chunk")]);
+    let mut rows: Vec<_> = (1..=101).map(|n| row(n, "shared")).collect();
+    rows.push(row(1, "final"));
+    put(rows);
+    assert_eq!(store.record_count().unwrap(), 0);
+    store
+        .commit(Tx {
+            stage: Stage::Swap,
+            ..Tx::default()
+        })
+        .unwrap();
+    assert_eq!(store.record_count().unwrap(), 101);
+    let final_row = row(1, "final");
+    assert_eq!(
+        store.record(&final_row.id).unwrap(),
+        Some(final_row.clone())
+    );
+    for (key, count) in [("previous chunk", 0), ("shared", 100), ("final", 1)] {
+        let links = store.referrers(&[key.into()]).unwrap();
+        let holders = store.unique_holders("slug", key).unwrap();
+        assert_eq!(links.len(), count);
+        assert_eq!(holders.len(), count);
+        assert_eq!(links.contains(&final_row.id), key == "final");
+        assert_eq!(holders.contains(&final_row.id), key == "final");
+    }
+}
+
 /// The app-local tentative store over a Disposable SQLite index (as OPFS
 /// reports): the raw SqlStore refuses it, the typed composition opens it,
 /// passes store conformance, keeps pending rows across a reopen, never holds
