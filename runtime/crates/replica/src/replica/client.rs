@@ -122,6 +122,9 @@ impl<S: Store> Replica<S> {
         if self.lost_control_pending() {
             return Err("re-syncing after a lost log tail; only the hosting app is served");
         }
+        if self.private_key_repair_blocked() {
+            return Err("the collection key is being verified against the applied policy");
+        }
         if self.key_untrusted {
             return Err("the collection key is not trusted on this device");
         }

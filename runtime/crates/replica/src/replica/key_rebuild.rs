@@ -1,4 +1,4 @@
-//! Keyring rebuild on open for stores that never hold the keyring
+//! Keyring rebuild on open for incomplete Private keyrings and stores that never hold the keyring
 //! ([`KeyringPersistence::RebuildOnOpen`]): the app's OPFS/sqlite-wasm store.
 //!
 //! The keyring is kept in memory only, so a reopen over confirmed state
@@ -47,10 +47,25 @@ pub(crate) struct DeviceKeyRebuild {
 }
 
 impl<S: Store> Replica<S> {
+    /// Older persistent stores can contain the rekey commitment but lack the
+    /// key learned during join-ahead, even after ordered apply passed the grant.
+    /// Replay only for a device its applied Private policy already admits.
+    fn missing_private_key(&self) -> bool {
+        self.policy.cstate == Some(mdbn_wire::policy::CState::E2e)
+            && self.policy.device_can_read(&self.cfg.device_id)
+            && !self.key_untrusted
+            && self.sealer.current_epoch().is_none()
+    }
+
     /// At open: whether the keyring must be rebuilt before anything syncs.
     /// Returns true when a rebuild was started (it queues its own reads and the
     /// head fetch once done).
-    pub(crate) fn start_device_key_rebuild(&mut self) -> bool {
+    pub(crate) fn start_device_key_rebuild(&mut self, imported_keyring: bool) -> bool {
+        if self.store.keyring_persistence() != KeyringPersistence::RebuildOnOpen
+            && !(imported_keyring && self.missing_private_key())
+        {
+            return false;
+        }
         self.start_device_key_rebuild_inner(false)
     }
 
@@ -61,7 +76,6 @@ impl<S: Store> Replica<S> {
     fn start_device_key_rebuild_inner(&mut self, force: bool) -> bool {
         if self.hosted.is_some()
             || self.local_only()
-            || (!force && self.store.keyring_persistence() != KeyringPersistence::RebuildOnOpen)
             || self.head.seq == 0
             || (force && self.sealer.export().is_none())
         {
@@ -100,9 +114,22 @@ impl<S: Store> Replica<S> {
     /// keyring is still running. An optional history repair (which keeps the
     /// keyring it already has) is not this.
     pub(crate) fn keyring_reopen_pending(&self) -> bool {
-        self.device_keys
-            .as_ref()
-            .is_some_and(|k| k.rollback.is_none())
+        self.store.keyring_persistence() == KeyringPersistence::RebuildOnOpen
+            && self
+                .device_keys
+                .as_ref()
+                .is_some_and(|k| k.rollback.is_none())
+    }
+
+    /// A persistent store under mandatory repair cannot use replayed keys as
+    /// serving authority until the entire shadow matches the applied policy.
+    pub(super) fn private_key_repair_blocked(&self) -> bool {
+        self.store.keyring_persistence() != KeyringPersistence::RebuildOnOpen
+            && (self.device_keys_failed
+                || self
+                    .device_keys
+                    .as_ref()
+                    .is_some_and(|k| k.rollback.is_none()))
     }
 
     /// Queue the next control read of the rebuild, if one is due.
@@ -245,6 +272,12 @@ impl<S: Store> Replica<S> {
             return self.device_key_rebuild_fail("stored policy differs from the log's");
         }
         self.sealer.set_epoch(self.policy.epoch);
+        if k.rollback.is_none()
+            && self.sealer.current_epoch().is_some()
+            && !self.persist_recovered_keyring()
+        {
+            return;
+        }
         self.check_key_trust();
         self.status_dirty = true;
         // The host's open queues a head fetch alongside the first control read
