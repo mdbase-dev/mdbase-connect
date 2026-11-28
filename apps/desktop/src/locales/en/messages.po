@@ -555,6 +555,10 @@ msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
 msgstr "Collection name must be between 1 and 100 characters."
 
+#: src/renderer/collections-view.tsx
+msgid "Collection settings"
+msgstr "Collection settings"
+
 #: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -662,6 +666,11 @@ msgstr "create records and files"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Create the folder in"
+
+#. placeholder {0}: settings.timezone
+#: src/renderer/collections-view.tsx
+msgid "Current time zone is {0}."
+msgstr "Current time zone is {0}."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -939,6 +948,10 @@ msgid "Link Obsidian"
 msgstr "Link Obsidian"
 
 #: src/renderer/collections-view.tsx
+msgid "Loading collection settings…"
+msgstr "Loading collection settings…"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Loading…"
 
@@ -1182,6 +1195,10 @@ msgstr "No apps yet"
 msgctxt "Local collection management"
 msgid "No collections yet"
 msgstr "No collections yet"
+
+#: src/renderer/collections-view.tsx
+msgid "No time zone is set for this collection."
+msgstr "No time zone is set for this collection."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -1461,6 +1478,10 @@ msgstr "Save"
 msgctxt "Local collection management"
 msgid "Save details"
 msgstr "Save details"
+
+#: src/renderer/collections-view.tsx
+msgid "Save time zone"
+msgstr "Save time zone"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1857,6 +1878,14 @@ msgstr "This version of mdbase is no longer supported. Version {0} is verified; 
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "This version of mdbase is too old for the service. Update mdbase."
 
+#: src/renderer/collections-view.tsx
+msgid "Time zone"
+msgstr "Time zone"
+
+#: src/renderer/collections-view.tsx
+msgid "Times without an offset will be read in the new time zone."
+msgstr "Times without an offset will be read in the new time zone."
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Turn off approval"
@@ -1941,6 +1970,11 @@ msgstr "Updates are available in installed builds."
 msgctxt "Desktop application"
 msgid "Updates have not been checked yet."
 msgstr "Updates have not been checked yet."
+
+#. placeholder {0}: settings.detected_timezone
+#: src/renderer/collections-view.tsx
+msgid "Use {0}"
+msgstr "Use {0}"
 
 #: src/renderer/collections-view.tsx
 msgid "Use my unsent edit"

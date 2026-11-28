@@ -9,10 +9,10 @@ export interface AccountCollectionCreationOptions {
   hostedCollections?: boolean;
   native?: CloudCopyBootstrapOptions;
 }
-export interface AccountCollectionRequest {requestId: string; displayName: string; timezone: string}
+export interface AccountCollectionRequest {requestId: string; displayName: string; timezone: string | null}
 interface Intent {
   user_id: string; request_id: string; collection_id: string; display_name: string;
-  timezone: string; runtime: "legacy" | "next"; published_at: Date | null;
+  timezone: string | null; runtime: "legacy" | "next"; published_at: Date | null;
 }
 type Principal = (client: DatabaseConnection) => Promise<void>;
 
@@ -57,7 +57,7 @@ async function original(client: DatabaseConnection, intent: Intent, principal: P
 async function publish(client: DatabaseConnection, intent: Intent): Promise<void> {
   const marked = await client.query(
     `UPDATE account_collection_creations SET published_at=COALESCE(published_at,now())
-     WHERE user_id=$1 AND request_id=$2 AND collection_id=$3 AND display_name=$4 AND timezone=$5 AND runtime=$6 RETURNING 1`,
+     WHERE user_id=$1 AND request_id=$2 AND collection_id=$3 AND display_name=$4 AND timezone IS NOT DISTINCT FROM $5 AND runtime=$6 RETURNING 1`,
     [intent.user_id, intent.request_id, intent.collection_id, intent.display_name, intent.timezone, intent.runtime]
   );
   if (!marked.rows.length) throw new CreateError(409, "creation_intent_mismatch");

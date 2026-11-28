@@ -555,6 +555,10 @@ msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
 msgstr "Название коллекции должно содержать от 1 до 100 символов."
 
+#: src/renderer/collections-view.tsx
+msgid "Collection settings"
+msgstr "Настройки коллекции"
+
 #: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -662,6 +666,11 @@ msgstr "создавать записи и файлы"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Создать папку в"
+
+#. placeholder {0}: settings.timezone
+#: src/renderer/collections-view.tsx
+msgid "Current time zone is {0}."
+msgstr "Текущий часовой пояс — {0}."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -939,6 +948,10 @@ msgid "Link Obsidian"
 msgstr "Связать Obsidian"
 
 #: src/renderer/collections-view.tsx
+msgid "Loading collection settings…"
+msgstr "Загрузка настроек коллекции…"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Загрузка…"
 
@@ -1182,6 +1195,10 @@ msgstr "Пока нет приложений"
 msgctxt "Local collection management"
 msgid "No collections yet"
 msgstr "Коллекций пока нет"
+
+#: src/renderer/collections-view.tsx
+msgid "No time zone is set for this collection."
+msgstr "Для этой коллекции не задан часовой пояс."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -1461,6 +1478,10 @@ msgstr "Сохранить"
 msgctxt "Local collection management"
 msgid "Save details"
 msgstr "Сохранить сведения"
+
+#: src/renderer/collections-view.tsx
+msgid "Save time zone"
+msgstr "Сохранить часовой пояс"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1857,6 +1878,14 @@ msgstr "Эта версия mdbase больше не поддерживаетс�
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "Эта версия mdbase слишком старая для сервиса. Обновите mdbase."
 
+#: src/renderer/collections-view.tsx
+msgid "Time zone"
+msgstr "Часовой пояс"
+
+#: src/renderer/collections-view.tsx
+msgid "Times without an offset will be read in the new time zone."
+msgstr "Время без смещения будет интерпретироваться в новом часовом поясе."
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Turn off approval"
@@ -1941,6 +1970,11 @@ msgstr "Обновления доступны в установленных сб
 msgctxt "Desktop application"
 msgid "Updates have not been checked yet."
 msgstr "Обновления ещё не проверялись."
+
+#. placeholder {0}: settings.detected_timezone
+#: src/renderer/collections-view.tsx
+msgid "Use {0}"
+msgstr "Использовать {0}"
 
 #: src/renderer/collections-view.tsx
 msgid "Use my unsent edit"

@@ -1,5 +1,6 @@
 import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import {MdbaseError,isErrorCode} from "../errors.js";
+import {isCollectionTimezoneName} from "../app-host/collection-timezone.js";
 import {AppInstallationSignInError} from "../app-host/installation-sign-in.js";
 import {AppCpAuthorityError} from "../app-host/cp-authority.js";
 import {AppCloudCopyBootstrapError} from "../app-host/cloud-copy-bootstrap.js";
@@ -71,6 +72,8 @@ export function applicationWorkerRequest(value:unknown,binding:string):Applicati
   }else if(action==="authorize"){
     // Optional transient collection hint (canonical UUID) for Connect preselection.
     if(payload!==null&&(typeof payload!=="string"||!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(payload)||payload==="00000000-0000-0000-0000-000000000000"))fail();
+  }else if(action==="openUnsynced"){
+    if(payload!==null&&!isCollectionTimezoneName(payload))fail();
   }else if(action==="foreground"){if(typeof payload!=="boolean")fail();}
   else if(action==="approvalClosed"){if(payload!==true)fail();}
   else if(payload!==null)fail();

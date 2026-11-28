@@ -117,11 +117,15 @@ fn portal_initialization_is_atomic_logged_and_replays_without_overwriting_edits(
     hosted.pump(false);
     let before = svc.head(&COL).0;
     assert_eq!(
-        hosted.e.initialize_collection(REQUEST, "UTC", true),
+        hosted
+            .e
+            .initialize_collection(REQUEST, Some("Australia/Melbourne"), true),
         Pending
     );
     assert_eq!(
-        hosted.e.initialize_collection(REQUEST, "UTC", false),
+        hosted
+            .e
+            .initialize_collection(REQUEST, Some("Australia/Melbourne"), false),
         Pending
     );
     assert_eq!(svc.head(&COL).0, before);
@@ -136,6 +140,13 @@ fn portal_initialization_is_atomic_logged_and_replays_without_overwriting_edits(
     joined.pump(false);
     let store = joined.e.replica().store();
     let config = store.resource(CONFIG).unwrap().unwrap();
+    assert_eq!(
+        mdbn_core::types::Catalog::load([(CONFIG, config.as_str())])
+            .settings()
+            .timezone
+            .as_deref(),
+        Some("Australia/Melbourne"),
+    );
     let original = readme(store).unwrap();
     assert_eq!(
         original.doc,
@@ -176,7 +187,9 @@ fn portal_initialization_is_atomic_logged_and_replays_without_overwriting_edits(
     let mut retried = open_with_entropy(&svc, 4);
     retried.pump(false);
     assert_eq!(
-        retried.e.initialize_collection(REQUEST, "UTC", true),
+        retried
+            .e
+            .initialize_collection(REQUEST, Some("Australia/Melbourne"), true),
         Confirmed
     );
     retried.pump(false);
@@ -187,6 +200,34 @@ fn portal_initialization_is_atomic_logged_and_replays_without_overwriting_edits(
     );
     assert_eq!(readme(store).unwrap().doc, edited_readme);
     assert_eq!(svc.head(&COL).0, edited_head);
+}
+
+#[test]
+fn portal_initialization_omits_missing_or_unrecognized_timezones() {
+    for timezone in [None, Some("local"), Some("Mars/Olympus"), Some("CET")] {
+        let (svc, _) = genesis_fixture();
+        let mut hosted = open(&svc);
+        hosted.pump(false);
+        assert_eq!(
+            hosted.e.initialize_collection(REQUEST, timezone, true),
+            Pending
+        );
+        hosted.pump(false);
+        assert_eq!(
+            hosted.e.initialize_collection(REQUEST, timezone, false),
+            Confirmed
+        );
+        let config = hosted
+            .e
+            .replica()
+            .store()
+            .resource(CONFIG)
+            .unwrap()
+            .unwrap();
+        let catalog = mdbn_core::types::Catalog::load([(CONFIG, config.as_str())]);
+        assert!(catalog.is_valid());
+        assert_eq!(catalog.settings().timezone, None);
+    }
 }
 
 #[test]
@@ -213,12 +254,12 @@ fn ordinary_open_keeps_root_defaults_and_seed_conflicts_do_not_partially_write()
         })],
     );
     assert_eq!(
-        hosted.e.initialize_collection(REQUEST, "UTC", true),
+        hosted.e.initialize_collection(REQUEST, Some("UTC"), true),
         Pending
     );
     hosted.pump(false);
     assert_eq!(
-        hosted.e.initialize_collection(REQUEST, "UTC", false),
+        hosted.e.initialize_collection(REQUEST, Some("UTC"), false),
         Refused
     );
     let store = hosted.e.replica().store();

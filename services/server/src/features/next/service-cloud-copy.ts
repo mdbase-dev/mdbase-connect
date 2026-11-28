@@ -84,7 +84,7 @@ export async function loadCloudCopyRecords(client: DatabaseConnection, collectio
   return records;
 }
 
-export async function initializeHostedCloudCopy(options: CloudCopyBootstrapOptions, collection: string, requestId: string, timezone: string, beforeRetry: () => Promise<void>): Promise<void> {
+export async function initializeHostedCloudCopy(options: CloudCopyBootstrapOptions, collection: string, requestId: string, timezone: string | null, beforeRetry: () => Promise<void>): Promise<void> {
   const deployments = options.next.cloudCopyBootstrap;
   if (!deployments) throw new CreateError(503, "not_ready");
   const selected = pitrDeployments(deployments, options.next.logService.labPitr, collection);

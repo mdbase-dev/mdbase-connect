@@ -50,6 +50,19 @@ describe("ConnectApp", () => {
     expect(!!screen.queryByRole("button", { name: "Delete" })).toBe(relationship === "owner");
   });
 
+  it("directs time-zone settings to an app with collection access", async () => {
+    render(<ConnectApp />);
+    await screen.findByRole("heading", { name: "Collection settings" });
+    expect(screen.getByText("Use mdbase Desktop or an app with access to this collection to view or change its time zone.")).toBeInTheDocument();
+    const requests = vi.mocked(fetch).mock.calls.map(([url, init]) => ({
+      path: new URL(String(url)).pathname, method: init?.method ?? "GET",
+    }));
+    expect(requests).toContainEqual({ path: "/v1/me", method: "GET" });
+    expect(requests.filter(({ path, method }) =>
+      method !== "GET" || /\/(?:resources|records|grants|authorize)(?:\/|$)/.test(path),
+    )).toEqual([]);
+  });
+
   it("lets the owner delete an orphaned Private collection from the portal by typing its name", async () => {
     history.replaceState(null, "", "/collections");
     overview.collections = [];

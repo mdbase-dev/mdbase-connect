@@ -85,6 +85,14 @@ async function desktop({ signedIn = true, collections = [], access = [], devices
         if (failure) throw new Error(failure);
         return null;
       },
+      collectionTimezone: async (id, timezone) => {
+        calls.push(["collectionTimezone", id, timezone ?? null]);
+        if (timezone !== undefined) {
+          if (!["Australia/Melbourne", "Europe/London"].includes(timezone)) throw new Error("Enter a valid IANA time zone.");
+          fixture.timezone = timezone;
+        }
+        return { timezone: fixture.timezone ?? null, detected_timezone: "Australia/Melbourne" };
+      },
       collectionModeStatus: async (collectionId) => {
         calls.push(["collectionModeStatus", collectionId]);
         return typeof fixture.modeStatus === "function"
@@ -1165,6 +1173,31 @@ test("collection details keep the draft when saving fails, then save name and de
     await card.getByRole("button", { name: "Save details" }).click();
     await page.getByText("Journal was saved.", { exact: true }).waitFor();
     assert.deepEqual((await calls("updateCollection")).at(-1), ["c-notes", { name: "Journal", description: "Daily notes" }]);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test("collection settings offer the device time zone and validate deliberate changes", async () => {
+  const { page, errors, calls } = await desktop({ collections: [collection()] });
+  try {
+    await nav(page, "Collections").click();
+    const card = page.locator(".collection-card").filter({ hasText: "Notes" });
+    await collectionAction(page, "Collection settings", card);
+    await card.getByText("No time zone is set for this collection.").waitFor();
+    await card.getByText("Times without an offset will be read in the new time zone.").waitFor();
+    assert.deepEqual(await calls("collectionTimezone"), [["c-notes", null]]);
+    await card.getByRole("button", { name: "Use Australia/Melbourne" }).click();
+    await card.getByText("Current time zone is Australia/Melbourne.").waitFor();
+    assert.equal(await card.getByRole("button", { name: "Use Australia/Melbourne" }).count(), 0);
+    await card.getByLabel("Time zone").fill("Mars/Olympus");
+    await card.getByRole("button", { name: "Save time zone" }).click();
+    await card.getByRole("alert").filter({ hasText: "Enter a valid IANA time zone." }).waitFor();
+    await card.getByLabel("Time zone").fill("Europe/London");
+    await card.getByRole("button", { name: "Save time zone" }).click();
+    await card.getByText("Current time zone is Europe/London.").waitFor();
+    assert.deepEqual(await calls("collectionTimezone"), [
+      ["c-notes", null], ["c-notes", "Australia/Melbourne"], ["c-notes", "Mars/Olympus"], ["c-notes", "Europe/London"],
+    ]);
     assert.deepEqual(errors, []);
   } finally { await page.close(); }
 });

@@ -209,12 +209,13 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await page.reload(); await picker().waitFor(); await choose("Work notes");
     await approve().click(); await done();
     assert.deepEqual(posts.map(post => post.body), [{fingerprint: base.fingerprint, collection_ids: [second], create_collections: false, selected_collection_id: second}], "additive consent neither withdraws nor re-grants retained access");
+    const expectedTimezone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
     await load(); await choose("Create a new collection…");
     await page.getByLabel("New collection name", {exact: true}).fill("New notes");
     await approve().click(); await done();
     assert.equal(posts.length, 2);
     assert.ok(posts[0].path.endsWith("/collections"));
-    assert.deepEqual(posts[0].body, {display_name: "New notes"});
+    assert.deepEqual(posts[0].body, {display_name: "New notes", timezone: expectedTimezone});
     assert.deepEqual(posts[1].body, {fingerprint: base.fingerprint, collection_ids: [created], create_collections: true, selected_collection_id: created});
     await load(); await choose("Create a new collection…");
     await page.getByLabel("New collection name").fill("Original name");
@@ -225,7 +226,7 @@ export async function auditPortalInstallationApproval(localPage, origin) {
     await page.waitForTimeout(1200);
     assert.equal(posts.length, 1, "read-only reconciliation never resubmits uncertain creation");
     failCreation = false; await approve().click(); await done();
-    assert.deepEqual(posts.slice(0, 2).map(post => post.body), [{display_name: "Original name"}, {display_name: "Original name"}], "explicit retry resumes the original name/target");
+    assert.deepEqual(posts.slice(0, 2).map(post => post.body), [{display_name: "Original name", timezone: expectedTimezone}, {display_name: "Original name", timezone: expectedTimezone}], "explicit retry resumes the original name/target");
     await load(); await choose("Personal notes"); loseApproval = true;
     await approve().click(); await done();
     assert.equal(posts.length, 1, "lost approval reply is observed, not replayed");

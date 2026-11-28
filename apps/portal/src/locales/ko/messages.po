@@ -1079,6 +1079,10 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "컬렉션 권한"
 
+#: src/ConnectApp.tsx
+msgid "Collection settings"
+msgstr "컬렉션 설정"
+
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 #: src/HomePage.tsx
@@ -3564,6 +3568,10 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "해당 브라우저에서 다시 로그인해야 합니다. 이 브라우저는 로그인 상태를 유지합니다."
 
 #: src/ConnectApp.tsx
+msgid "Time zone"
+msgstr "시간대"
+
+#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "다른 컴퓨터 이름을 입력하세요. 필터링은 접근 권한을 해지하지 않습니다."
 
@@ -3720,6 +3728,10 @@ msgstr "{0}자 이상 사용하세요."
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
 msgstr "15자 이상 입력하세요. 공백도 사용할 수 있습니다."
+
+#: src/ConnectApp.tsx
+msgid "Use mdbase Desktop or an app with access to this collection to view or change its time zone."
+msgstr "mdbase Desktop 또는 이 컬렉션에 접근할 수 있는 앱을 사용하여 시간대를 확인하거나 변경하세요."
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."

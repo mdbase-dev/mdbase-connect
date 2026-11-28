@@ -20,6 +20,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json.workspace = true
 # Wipe the hex/JSON seed buffers the identity file goes through.
 zeroize = { version = "1", features = ["derive", "serde"] }
+iana-time-zone = "0.1"
 getrandom = { version = "0.3", default-features = false }
 
 [target.'cfg(unix)'.dependencies]

@@ -390,7 +390,7 @@ export class PasswordAccountService {
           userId,
           emailIdentityId
         });
-        await scheduleStarterCollection(connection, userId, input.timezone ?? "UTC");
+        await scheduleStarterCollection(connection, userId, input.timezone ?? null);
       }
       await connection.query(
         `INSERT INTO sessions

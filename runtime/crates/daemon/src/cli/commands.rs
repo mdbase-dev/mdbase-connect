@@ -16,6 +16,21 @@ pub(super) async fn run_command(
     out: &Output,
 ) -> Result<ExitCode, ClientError> {
     match cmd {
+        Command::Init {
+            path,
+            name,
+            timezone,
+        } => {
+            let path = std::path::absolute(&path).map_err(ClientError::Io)?;
+            mdbn_local_host::init_collection_config(&path, name.as_deref(), timezone.as_deref())
+                .map_err(ClientError::Io)?;
+            if out.json {
+                out.value(&json!({ "path": path }));
+            } else {
+                println!("Collection folder: {}", path.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
         #[cfg(unix)]
         Command::SelfHost(_) | Command::PairApp { .. } => {
             unreachable!("handled before resolving a managed profile")
@@ -85,6 +100,7 @@ pub(super) async fn run_command(
                 profile,
                 Method::COLLECTION_ADD,
                 json!(AddCollection {
+                    initialize: false,
                     path,
                     name,
                     remove_legacy_identity,

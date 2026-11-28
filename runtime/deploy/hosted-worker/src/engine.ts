@@ -324,7 +324,7 @@ export class Engine {
     return this.ex.hd_log_request_head() === 1;
   }
 
-  initializeCollection(requestId: string, timezone: string, start: boolean): number {
+  initializeCollection(requestId: string, timezone: string | null, start: boolean): number {
     const id = Uint8Array.from(requestId.replaceAll("-", "").match(/../g)!, pair => Number.parseInt(pair, 16));
     return this.ex.hd_initialize_collection(...this.put(encode([id, timezone])), Number(start));
   }

@@ -4414,7 +4414,7 @@ Mdbase@application/front-door.ts
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
   unlock: (collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions & { readonly timezone?: string; }): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 MdbaseAccessRequest@application/file-access.ts
   readonly files: readonly FileAction[]
@@ -5950,7 +5950,7 @@ TestMdbase@testing/test-app.ts
   start: (options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
   subscribe: (listener: () => void) => () => void
   unlock: (collectionId: string, secret: MdbaseUnlockSecret, options?: MdbaseApplicationRequestOptions) => Promise<MdbaseSnapshot>
-  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
+  readonly unsynced: { open(options?: MdbaseApplicationRequestOptions & { readonly timezone?: string; }): Promise<MdbaseSnapshot>; planTransfer(options?: MdbaseTransferPlanOptions): Promise<MdbaseTransferPlan>; transfer(plan: MdbaseTransferPlan, options?: MdbaseTransferOptions): Promise<MdbaseTransferResult>; discard(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>; }
 
 TextOrBlob@wire.ts
   = string | AttachmentHoldContent | BlobRef

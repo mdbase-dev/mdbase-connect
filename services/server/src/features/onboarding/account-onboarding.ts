@@ -5,7 +5,7 @@ import { STARTER_TEMPLATE_VERSION } from "./starter-collection.js";
 export async function scheduleStarterCollection(
   db: DatabaseQueryable,
   userId: string,
-  timezone = "UTC"
+  timezone: string | null = null
 ): Promise<string> {
   const collectionId = randomUUID();
   const scheduled = await db.query<{ starter_collection_id: string }>(

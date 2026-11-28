@@ -198,6 +198,23 @@ describe("approval collection chooser",()=>{
     expect(screen.getByRole("button",{name:"Open Reader"})).toBeEnabled();
     expect(vi.mocked(api)).toHaveBeenCalledTimes(1);
   });
+  it.each([["Australia/Melbourne", "Australia/Melbourne"], ["local", null]])("passes the browser time zone %s when creating in pairing", async (reported, expected) => {
+    vi.mocked(api).mockReset().mockResolvedValue({ pairing: { ...preparedPairing(), can_create_collection: true } });
+    render(<Pairing pairingId="pairing" />);
+    const create = await screen.findByRole("button", { name: "Create a new collection…" });
+    const zone = vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockReturnValue({ timeZone: reported } as Intl.ResolvedDateTimeFormatOptions);
+    try {
+      fireEvent.click(create);
+      fireEvent.change(screen.getByRole("textbox", { name: "New collection name" }), { target: { value: "New notes" } });
+      fireEvent.click(screen.getByRole("button", { name: "Open Reader" }));
+      await waitFor(() => expect(vi.mocked(api)).toHaveBeenCalledWith("/v1/pairing-requests/pairing/collections", {
+        method: "POST", body: JSON.stringify({ display_name: "New notes", timezone: expected }),
+      }));
+    } finally {
+      zone.mockRestore();
+    }
+  });
   it("shows markup-shaped application and collection names literally",async()=>{
     const app="<0/> <b>Planner</b>", name="<b>Notes</b> <1/>";
     vi.mocked(api).mockClear();

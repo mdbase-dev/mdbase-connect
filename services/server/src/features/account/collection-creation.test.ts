@@ -159,6 +159,24 @@ describe("account collection immutable intent",()=>{
     await expect(createAccountCollection(f.options,account,input,f.principal)).rejects.toMatchObject({code:"collection_unavailable"});
     expect(createServiceCloudCopy).toHaveBeenCalledTimes(1);
   });
+  it("forwards a missing browser zone as null and rejects invalid supplied zones", async () => {
+    const f = fixture();
+    const app = Fastify();
+    registerAccountCollectionCreationRoutes(app, f.options);
+    vi.mocked(requireSessionContext).mockResolvedValue({user:{id:account},sessionId:"original"} as never);
+    const payload = {account_id:account, request_id:requestId, display_name:input.displayName};
+    const create = (timezone?: string) => app.inject({method:"POST",url:"/v1/account/collections",payload:{...payload,timezone}});
+    for (const timezone of ["", "local", "Mars/Olympus", "+05:30"]) {
+      expect((await create(timezone)).statusCode).toBe(400);
+    }
+    expect(f.fetchImpl).not.toHaveBeenCalled();
+    const result = await create();
+    expect(result.statusCode).toBe(200);
+    expect(JSON.parse(String(f.fetchImpl.mock.calls[0]?.[1]?.body))).toMatchObject({
+      collection:result.json().collection.id, request_id:requestId, timezone:null,
+    });
+    await app.close();
+  });
   it("requires the flipped-account fact and current principal before effects",async()=>{
     const f=fixture("next",false);
     await expect(createAccountCollection(f.options,account,input,f.principal)).rejects.toMatchObject({code:"account_not_ready"});

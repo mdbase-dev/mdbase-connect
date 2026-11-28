@@ -1079,6 +1079,10 @@ msgctxt "Application access approval"
 msgid "Collection permissions"
 msgstr "Sammlungsberechtigungen"
 
+#: src/ConnectApp.tsx
+msgid "Collection settings"
+msgstr "Sammlungseinstellungen"
+
 #: src/AccountManagement.tsx
 #: src/ConnectApp.tsx
 #: src/HomePage.tsx
@@ -3564,6 +3568,10 @@ msgid "Those browsers will need to sign in again. This browser stays signed in."
 msgstr "Diese Browser müssen sich erneut anmelden. Dieser Browser bleibt angemeldet."
 
 #: src/ConnectApp.tsx
+msgid "Time zone"
+msgstr "Zeitzone"
+
+#: src/ConnectApp.tsx
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "Versuchen Sie einen anderen Computernamen. Filtern widerruft keinen Zugriff."
 
@@ -3720,6 +3728,10 @@ msgstr "Verwende mindestens {0} Zeichen."
 #: src/auth-view.tsx
 msgid "Use at least 15 characters. Spaces are welcome."
 msgstr "Verwenden Sie mindestens 15 Zeichen. Leerzeichen sind erlaubt."
+
+#: src/ConnectApp.tsx
+msgid "Use mdbase Desktop or an app with access to this collection to view or change its time zone."
+msgstr "Verwende mdbase Desktop oder eine App mit Zugriff auf diese Sammlung, um ihre Zeitzone anzuzeigen oder zu ändern."
 
 #: src/AccountManagement.tsx
 msgid "Use this when someone cannot invite your verified email address."

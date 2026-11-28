@@ -466,7 +466,7 @@ export class MdbaseEntry {
           return Object.freeze({...result,retired:await runtime.retireUnsynced(plan.source,plan.destination,request)});
         }),
         discard:(options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{await this.call(async runtime=>{await this.started(runtime,options);return runtime.queue(()=>runtime.discardUnsynced(options));});}),
-        open:(options?:MdbaseApplicationRequestOptions)=>this.track(async()=>{
+        open:(options?:MdbaseApplicationRequestOptions & {readonly timezone?: string})=>this.track(async()=>{
           const selection=this.choose();this.privates?.close();
           if(selection.getSnapshot().requested.collectionId!==null)await selection.select(null,{...options,history:"replace"});
           await this.call(async runtime=>{await this.started(runtime,options);return runtime.queue(()=>runtime.openUnsynced(options));});

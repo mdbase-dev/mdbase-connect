@@ -55,7 +55,12 @@ fn init_open_and_not_a_collection() {
     assert!(matches!(e, Error::NotACollection { .. }), "{e}");
     assert!(e.to_string().contains("Collection::init"));
     let col = Collection::init(&root, InitOptions::default()).unwrap();
-    assert!(root.join("mdbase.yaml").is_file());
+    let yaml = std::fs::read_to_string(root.join("mdbase.yaml")).unwrap();
+    let config = mdbn_core::types::Catalog::load([("mdbase.yaml", yaml.as_str())]);
+    assert_eq!(
+        config.settings().timezone,
+        mdbn_local_host::SystemZones::detected_machine_zone()
+    );
     assert!(root.join(".mdbase/host.lock").is_file());
     assert!(root.join(".mdbase/library/index.sqlite").is_file());
     drop(col);
@@ -94,9 +99,18 @@ fn init_writes_metadata_layout_only_for_new_configs_and_preserves_readmes() {
 
     let root = dir("existing-layout");
     std::fs::create_dir_all(&root).unwrap();
-    let original = "spec_version: '0.3.0'\nsettings:\n  timezone: UTC\n";
+    let original = "spec_version: '0.3.0'\nsettings:\n  types_folder: Types\n";
     std::fs::write(root.join("mdbase.yaml"), original).unwrap();
-    drop(Collection::init(&root, InitOptions::default()).unwrap());
+    drop(
+        Collection::init(
+            &root,
+            InitOptions {
+                name: None,
+                timezone: Some("Europe/London".into()),
+            },
+        )
+        .unwrap(),
+    );
     assert_eq!(
         std::fs::read_to_string(root.join("mdbase.yaml")).unwrap(),
         original

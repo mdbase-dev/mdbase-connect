@@ -555,6 +555,10 @@ msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
 msgstr "Le nom de la collection doit contenir entre 1 et 100 caractères."
 
+#: src/renderer/collections-view.tsx
+msgid "Collection settings"
+msgstr "Paramètres de la collection"
+
 #: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -662,6 +666,11 @@ msgstr "créer des enregistrements et des fichiers"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "Créer le dossier dans"
+
+#. placeholder {0}: settings.timezone
+#: src/renderer/collections-view.tsx
+msgid "Current time zone is {0}."
+msgstr "Le fuseau horaire actuel est {0}."
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -939,6 +948,10 @@ msgid "Link Obsidian"
 msgstr "Lier Obsidian"
 
 #: src/renderer/collections-view.tsx
+msgid "Loading collection settings…"
+msgstr "Chargement des paramètres de la collection…"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "Chargement…"
 
@@ -1182,6 +1195,10 @@ msgstr "Aucune app pour l’instant"
 msgctxt "Local collection management"
 msgid "No collections yet"
 msgstr "Aucune collection pour l’instant"
+
+#: src/renderer/collections-view.tsx
+msgid "No time zone is set for this collection."
+msgstr "Aucun fuseau horaire n’est défini pour cette collection."
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -1461,6 +1478,10 @@ msgstr "Enregistrer"
 msgctxt "Local collection management"
 msgid "Save details"
 msgstr "Enregistrer les détails"
+
+#: src/renderer/collections-view.tsx
+msgid "Save time zone"
+msgstr "Enregistrer le fuseau horaire"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1857,6 +1878,14 @@ msgstr "Cette version de mdbase n’est plus prise en charge. La version vérifi
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "Cette version de mdbase est trop ancienne pour le service. Mettez mdbase à jour."
 
+#: src/renderer/collections-view.tsx
+msgid "Time zone"
+msgstr "Fuseau horaire"
+
+#: src/renderer/collections-view.tsx
+msgid "Times without an offset will be read in the new time zone."
+msgstr "Les heures sans décalage seront interprétées dans le nouveau fuseau horaire."
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Turn off approval"
@@ -1941,6 +1970,11 @@ msgstr "Les mises à jour sont disponibles dans les versions installées."
 msgctxt "Desktop application"
 msgid "Updates have not been checked yet."
 msgstr "Les mises à jour n’ont pas encore été vérifiées."
+
+#. placeholder {0}: settings.detected_timezone
+#: src/renderer/collections-view.tsx
+msgid "Use {0}"
+msgstr "Utiliser {0}"
 
 #: src/renderer/collections-view.tsx
 msgid "Use my unsent edit"

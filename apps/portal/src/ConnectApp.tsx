@@ -3,6 +3,7 @@ import { t, plural } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import {
+  browserCollectionTimezone,
   ConnectManagementClient,
   ManagementApiError,
   type HostedCollection,
@@ -480,6 +481,10 @@ function CollectionOverview({ error, collection, applications, editorOrigin, ori
       </ul>}
       {discovery.showMcp && <McpConnectRow />}
     </section>}
+    <section>
+      <SectionTitle title={t(i18n)`Collection settings`} />
+      <div className="connect-row"><div><strong><Trans>Time zone</Trans></strong><small><Trans>Use mdbase Desktop or an app with access to this collection to view or change its time zone.</Trans></small></div></div>
+    </section>
     {nativeOwner && <section>
       <div className="connect-row">
         <div><strong>{t(i18n)`Delete ${collection.name}`}</strong><small><Trans>Permanent for hosted data. Local files are never removed from your computers.</Trans></small></div>
@@ -722,7 +727,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     if (!cloud || !canCreate || busy.has("create-collection") || !validateName()) return;
     let original: CollectionCreationIntent;
     try {
-      original = readCollectionCreation(data.user.id) ?? {accountId:data.user.id, requestId:crypto.randomUUID(), displayName:name.trim(), timezone:Intl.DateTimeFormat().resolvedOptions().timeZone};
+      original = readCollectionCreation(data.user.id) ?? {accountId:data.user.id, requestId:crypto.randomUUID(), displayName:name.trim(), timezone:browserCollectionTimezone()};
       keepCollectionCreation(original);
       setIntent(original); setName(original.displayName); setCreationError(null);
     } catch {

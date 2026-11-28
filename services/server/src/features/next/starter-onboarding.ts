@@ -27,18 +27,18 @@ import { ServiceDeviceError } from "./service-devices.js";
 /** Seals the starter template as a new cloud copy's first content. Idempotent per
  * collection: the same request returns the same readback; other content is refused. */
 export interface StarterContentPort {
-  seal(input: { collection: string; templateVersion: typeof STARTER_TEMPLATE_VERSION; timezone: string }): Promise<unknown>;
+  seal(input: { collection: string; templateVersion: typeof STARTER_TEMPLATE_VERSION; timezone: string | null }): Promise<unknown>;
 }
 
 type NativeStarter =
   | { status: "not_scheduled" }
   | { status: "pending" }
-  | { status: "ready" | "deleted"; collectionId: string; templateVersion: string; timezone: string };
+  | { status: "ready" | "deleted"; collectionId: string; templateVersion: string; timezone: string | null };
 
 interface Reservation {
   starter_collection_id: string;
   template_version: string;
-  timezone: string;
+  timezone: string | null;
   provisioned_at: Date | null;
 }
 
@@ -83,7 +83,7 @@ async function provisionNativeStarter(
        FROM account_onboarding WHERE user_id = $1 FOR UPDATE`, [account]
     )).rows[0];
     if (!row) return { status: "not_scheduled" };
-    if (row.template_version !== STARTER_TEMPLATE_VERSION || !isIanaTimezone(row.timezone)) throw new CreateError(409, "starter_unavailable");
+    if (row.template_version !== STARTER_TEMPLATE_VERSION || (row.timezone !== null && !isIanaTimezone(row.timezone))) throw new CreateError(409, "starter_unavailable");
     if (row.provisioned_at) return settled(client, account, row);
     const collection = row.starter_collection_id;
     if ((await client.query("SELECT 1 FROM hosted_collections WHERE id = $1", [collection])).rows.length) throw new CreateError(409, "starter_unavailable");
@@ -123,7 +123,7 @@ async function provisionNativeStarter(
     // Exactly the reservation that was claimed: any drift stops, never re-targets.
     const marked = await client.query(
       `UPDATE account_onboarding SET provisioned_at = COALESCE(provisioned_at, now()), provisioning_started_at = NULL, updated_at = now()
-       WHERE user_id = $1 AND starter_collection_id = $2 AND template_version = $3 AND timezone = $4
+       WHERE user_id = $1 AND starter_collection_id = $2 AND template_version = $3 AND timezone IS NOT DISTINCT FROM $4
        RETURNING provisioned_at`, [account, row.starter_collection_id, row.template_version, row.timezone]
     );
     if (!marked.rows.length) throw new CreateError(409, "starter_unavailable");

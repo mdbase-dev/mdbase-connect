@@ -13,8 +13,8 @@ import { pathToFileURL } from "node:url";
 import { build } from "../node_modules/esbuild/lib/main.js";
 const file = process.argv[2]; if (!file) throw new Error("explicit app-runtime.wasm required");
 const out = new URL("../../../target/app-sdk-smoke/", import.meta.url); mkdirSync(out, { recursive: true });
-await build({ stdin: { contents: 'export * from "./src/app-host/wasm-runtime.ts"; export * from "./src/app-host/cp-authority.ts"; export { uuidToBytes } from "./src/codec.ts"; export * from "./src/cbor.ts"; export { ed25519 } from "@noble/curves/ed25519.js"; export { sha256 } from "@noble/hashes/sha2.js"; export * from "./src/app-storage/app-binary-index.ts";', resolveDir: new URL("../", import.meta.url).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", out).pathname });
-const { AppWasmRuntime, AppCpLogAuthority, AppBinaryIndexHost, appSqlHost, encode, decode, uuidToBytes, ed25519, sha256 } = await import(new URL("helpers.mjs", out));
+await build({ stdin: { contents: 'export * from "./src/app-host/wasm-runtime.ts"; export * from "./src/app-host/cp-authority.ts"; export { uuidToBytes } from "./src/codec.ts"; export * from "./src/cbor.ts"; export { ed25519 } from "@noble/curves/ed25519.js"; export { sha256 } from "@noble/hashes/sha2.js"; export * from "./src/app-storage/app-binary-index.ts"; export { initializeAppCollectionConfig } from "./src/app-host/collection-timezone.ts"; export { MdbaseClient } from "./src/client.ts"; export { inProcessConnector } from "./src/transport/inprocess.ts";', resolveDir: new URL("../", import.meta.url).pathname }, bundle: true, platform: "node", format: "esm", outfile: new URL("helpers.mjs", out).pathname });
+const { AppWasmRuntime, AppCpLogAuthority, AppBinaryIndexHost, appSqlHost, encode, decode, uuidToBytes, ed25519, sha256, initializeAppCollectionConfig, MdbaseClient, inProcessConnector } = await import(new URL("helpers.mjs", out));
 const bytes = readFileSync(file);
 let db = new DatabaseSync(":memory:");
 const v = db.prepare("SELECT sqlite_version() AS v").get().v.split(".").map(Number);
@@ -119,9 +119,27 @@ try {
   assert.equal(local.observations().status.mode, "local_only"); assert.deepEqual(local.takeLogCalls(), []);
   assert.throws(() => local.bindLogTransport({ endpoint: 0, collection: unsynced().collection, isCurrent: () => true }));
   assert.throws(() => local.signCpLogToken(new Uint8Array(32)));
+  const localCollection = unsynced().collection;
+  const signal = new AbortController().signal;
+  const assertTimezone = async runtime => {
+    const client = await MdbaseClient.connect({
+      app: {name:"initial-config-smoke", version:"1"},
+      connector: inProcessConnector(runtime, {collection:localCollection}), reconnect:false, signal,
+    });
+    try {
+      const config = await client.resources.get("mdbase.yaml", {signal});
+      assert.equal(config.state, "confirmed");
+      assert.equal(config.text, 'spec_version: "0.3.0"\nsettings:\n  timezone: "Australia/Melbourne"\n');
+    } finally { client.close(); }
+  };
+  await initializeAppCollectionConfig(local, localCollection, "Australia/Melbourne", signal);
+  await assertTimezone(local);
   assert.equal(await local.close(), true);
   const reopened = await AppWasmRuntime.create(bytes, index()); reopened.openUnsyncedConsuming(unsynced("existing"));
-  assert.equal(reopened.observations().status.mode, "local_only"); assert.equal(await reopened.close(), true);
+  assert.equal(reopened.observations().status.mode, "local_only");
+  await initializeAppCollectionConfig(reopened, localCollection, "Europe/London", signal);
+  await assertTimezone(reopened);
+  assert.equal(await reopened.close(), true);
   const both = await AppWasmRuntime.create(bytes, index()); both.openUnsyncedConsuming(unsynced("existing"));
   // One open per module; a second fails closed (fenced, never a clean close).
   assert.throws(() => both.openAppConsuming(config("existing"))); assert.equal(await both.close(), false);

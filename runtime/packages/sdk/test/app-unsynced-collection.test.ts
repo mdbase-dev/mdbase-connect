@@ -1,5 +1,5 @@
 import {IDBFactory,IDBKeyRange} from "fake-indexeddb";
-import {beforeEach,expect,it} from "vitest";
+import {beforeEach,expect,it,vi} from "vitest";
 import {appUnsyncedIdentity,appUnsyncedMoved,appUnsyncedRetired,noteAppUnsyncedMoved,appUnsyncedWork,discardAppUnsynced,eraseAppUnsyncedStorage,forgetAppUnsyncedRetired,openAppUnsyncedCollection,pruneAppUnsyncedRetired,retireAppUnsynced} from "../src/app-host/unsynced-collection.js";
 
 const uuid=/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/;
@@ -27,6 +27,27 @@ it("two Workers racing to create agree on one collection",async()=>{
 const putRow=(name:string,key:string,value:unknown)=>new Promise<void>((resolve,reject)=>{
   const open=indexedDB.open(name,1);open.onerror=()=>reject(open.error);
   open.onsuccess=()=>{const tx=open.result.transaction("unsynced","readwrite");tx.objectStore("unsynced").put(value,key);tx.oncomplete=()=>{open.result.close();resolve();};};
+});
+
+it("pins the creating browser zone and leaves older identities without one", async () => {
+  const signal = new AbortController().signal;
+  const resolved = vi.spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions");
+  try {
+    resolved.mockImplementation(() => ({timeZone: "Australia/Melbourne"} as Intl.ResolvedDateTimeFormatOptions));
+    const made = (await appUnsyncedIdentity("zoned", true, signal))!;
+    expect(made.timezone).toBe("Australia/Melbourne");
+    expect((await appUnsyncedIdentity("zoned", true, signal, "Europe/London"))!.timezone).toBe("Australia/Melbourne");
+    expect((await appUnsyncedIdentity("explicit", true, signal, "Europe/London"))!.timezone).toBe("Europe/London");
+    for (const [index, zone] of ["", "local", "Mars/Olympus", "+05:30"].entries()) {
+      resolved.mockImplementation(() => ({timeZone: zone} as Intl.ResolvedDateTimeFormatOptions));
+      expect((await appUnsyncedIdentity(`invalid-${index}`, true, signal))!.timezone).toBeNull();
+    }
+    const {timezone: _timezone, ...legacy} = made;
+    await putRow("zoned", "current", legacy);
+    expect(await appUnsyncedIdentity("zoned", true, signal, "Europe/London")).toEqual(legacy);
+  } finally {
+    resolved.mockRestore();
+  }
 });
 
 it("reads the work marker without creating the database, and refuses a malformed one",async()=>{

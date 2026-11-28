@@ -111,6 +111,7 @@ impl Daemon {
                     .await
             }
             Method::COLLECTION_DELETE => self.delete_collection(params(req)?).await,
+            Method::COLLECTION_TIMEZONE => self.collection_timezone(params(req)?).await,
             Method::COLLECTION_UPDATE => {
                 let p: UpdateCollection = params(req)?;
                 self.update_collection(p).await

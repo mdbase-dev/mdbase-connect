@@ -360,6 +360,19 @@ export interface ManagementRequestOptions {
   timeoutMs?: number | null;
 }
 
+/** Read the creating browser's IANA zone. An unavailable zone stays unset. */
+export function browserCollectionTimezone(): string | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    if (timezone.length > 100 || !/^(?:UTC|[A-Z][A-Za-z0-9_+-]*(?:\/[A-Z][A-Za-z0-9_+-]*)+)$/.test(timezone)) return null;
+    new Intl.DateTimeFormat("en", { timeZone: timezone });
+    return timezone;
+  } catch {
+    return null;
+  }
+}
+
 export class ConnectManagementClient {
   readonly baseUrl: string;
 
@@ -487,12 +500,12 @@ export class ConnectManagementClient {
   }
 
   createCollection(
-    input: {accountId: string; requestId: string; displayName: string; timezone: string},
+    input: {accountId: string; requestId: string; displayName: string; timezone?: string | null},
     options?: ManagementRequestOptions
   ): Promise<void> {
     return this.request("/v1/account/collections", {
       method: "POST",
-      body: JSON.stringify({account_id:input.accountId, request_id:input.requestId, display_name:input.displayName, timezone:input.timezone})
+      body: JSON.stringify({account_id:input.accountId, request_id:input.requestId, display_name:input.displayName, timezone:input.timezone === undefined ? browserCollectionTimezone() : input.timezone})
     }, options);
   }
 

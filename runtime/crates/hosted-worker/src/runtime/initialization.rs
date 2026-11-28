@@ -32,18 +32,12 @@ impl<S: Store> Engine<S> {
     pub(crate) fn initialize_collection(
         &mut self,
         request: Uuid,
-        timezone: &str,
+        timezone: Option<&str>,
         start: bool,
     ) -> Initialization {
         use Initialization::{Confirmed, Pending, Refused};
 
-        if request.0 == [0; 16]
-            || timezone.is_empty()
-            || timezone.len() > 100
-            || !timezone
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || b"_+/-".contains(&byte))
-        {
+        if request.0 == [0; 16] {
             return Refused;
         }
         if !matches!(self.admission(), HostedAdmission::Verified(_)) {
@@ -87,15 +81,22 @@ impl<S: Store> Engine<S> {
         ) else {
             return Pending;
         };
+        let mut config = String::from(
+            "spec_version: \"0.3.0\"\nsettings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n",
+        );
+        if let Some(zone) = timezone
+            .filter(|zone| mdbn_core::types::is_plausible_iana_zone(zone))
+            .and_then(|zone| mdbn_core::cel::time::tzdb::NamedZone::get(zone).ok())
+        {
+            config.push_str(&format!("  timezone: \"{}\"\n", zone.name()));
+        }
         let _ = self.replica.submit_logged(
             session,
             SubmitParams {
                 ops: vec![
                     Op::ResourcePut(ResourcePut {
                         path: mdbn_core::types::CONFIG_PATH.into(),
-                        doc: Text::Inline(format!(
-                            "spec_version: \"0.3.0\"\nsettings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n  timezone: \"{timezone}\"\n"
-                        )),
+                        doc: Text::Inline(config),
                         base_revision: None,
                         must_not_exist: Some(true),
                     }),

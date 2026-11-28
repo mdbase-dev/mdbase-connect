@@ -26,11 +26,11 @@ use tokio::sync::{Mutex, mpsc, watch};
 use crate::access::{AccessEntry, AccessEvent, AccessList, AccessState, CachedGrant};
 use crate::collections::CollectionHost;
 use crate::control::{
-    AccountInfo, AddCollection, Check, CollectionRef, CollectionStatus, ConflictSummary,
-    ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync, GrantRef, HoldAction,
-    HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice, PROTOCOL,
-    READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, SetSyncFiles, Settings, SyncFiles,
-    UpdateCollection,
+    AccountInfo, AddCollection, Check, CollectionRef, CollectionStatus, CollectionTimezone,
+    ConflictSummary, ControlError, DaemonStatus, DeleteCollection, DeviceInfo, EnableSync,
+    GrantRef, HoldAction, HoldResolved, HoldSummary, JoinCollection, Method, NotReady, Notice,
+    PROTOCOL, READINESS_SCHEMA, Readiness, Request, ResolveHold, Response, SetSyncFiles, Settings,
+    SyncFiles, UpdateCollection,
 };
 use crate::fsutil;
 use crate::instance::{InstanceLock, LockError};
@@ -53,6 +53,7 @@ mod relay_host;
 mod runtime_calls;
 mod startup;
 mod status;
+mod timezone;
 
 use account::*;
 use dispatch::*;

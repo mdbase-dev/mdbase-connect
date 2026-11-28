@@ -68,6 +68,7 @@ const folder = join(scratch, "notes");
 const env = {
   ...process.env,
   MDBASE_ENV: "test",
+  TZ: "Australia/Melbourne",
   MDBASE_SECRET_BACKEND: "insecure-test-file",
   // Never let the isolated daemon find this computer's connector state.
   MDBASE_CONNECT_HOME: join(scratch, "no-connect"),
@@ -90,6 +91,16 @@ async function mdbase(...args) {
 }
 
 try {
+  const initialized = join(scratch, "initialized");
+  await mdbase("init", initialized, "--name", "New notes");
+  const config = await readFile(join(initialized, "mdbase.yaml"), "utf8");
+  if (!config.includes('timezone: "Australia/Melbourne"')) throw new Error("CLI init did not record the device time zone");
+  const original = 'spec_version: "0.3.0"\n# Existing collection\n';
+  await writeFile(join(initialized, "mdbase.yaml"), original);
+  await mdbase("init", initialized, "--timezone", "Europe/London");
+  if (await readFile(join(initialized, "mdbase.yaml"), "utf8") !== original) throw new Error("CLI init changed an existing config");
+  step("CLI init records a time zone only on first creation");
+
   await mkdir(join(folder, "_types"), { recursive: true });
   await mkdir(join(folder, "tasks"));
   await writeFile(join(folder, "mdbase.yaml"), 'spec_version: "0.3.0"\nname: Notes\n');
