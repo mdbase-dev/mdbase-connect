@@ -8,7 +8,10 @@ import test from "node:test";
 const require = createRequire(import.meta.url);
 const { ensureNextDaemon, bundledNextDaemon, nextDaemonRunner } = require("../dist/main/next-daemon.js");
 const version = "0.2.0-beta.1";
-const ready = (v = version) => ({ registration: "installed", binary_version: v, readiness: { ready: true, binary_version: v } });
+const ready = (v = version) => ({
+  registration: "installed", binary_version: v,
+  readiness: { ready: true, binary_version: v, schema_version: 1, control_protocol: 1 }
+});
 function runner(results) {
   const calls = [];
   return { calls, run: async (args) => { calls.push(args); assert.ok(results.length); return results.shift(); } };
@@ -34,6 +37,55 @@ test("equal and newer installations are never overwritten; stopped service is st
     ]);
     assert.deepEqual(await ensureNextDaemon(stopped.run, version), { outcome: "already_installed", version: installed, started: true });
     assert.deepEqual(stopped.calls[1], ["--json", "service", "start"]);
+  }
+});
+
+test("a ready matching or newer daemon takes precedence over an older registered binary", async () => {
+  for (const running of [version, "0.2.0-beta.2"]) {
+    const status = { ...ready(running), binary_version: "0.1.0" };
+    const active = runner([{ exitCode: 0, value: status }]);
+    assert.deepEqual(await ensureNextDaemon(active.run, version), { outcome: "attached", version: running });
+    assert.equal(active.calls.length, 1);
+
+    const unavailable = runner([{ exitCode: 0, value: { ...status, manager_unavailable: true } }]);
+    assert.deepEqual(await ensureNextDaemon(unavailable.run, version), { outcome: "attached", version: running });
+    assert.equal(unavailable.calls.length, 1);
+  }
+});
+
+test("without user systemd the GUI starts only the intended runtime and does not swap or roll back a service", async () => {
+  for (const [status, heldBack, expected, source] of [
+    [{ registration: "absent" }, undefined, version, "bundle"],
+    [{ ...ready("0.1.0"), readiness: null }, undefined, version, "bundle"],
+    [{ ...ready("0.3.0"), readiness: null }, undefined, "0.3.0", "registered"],
+    [{ ...ready("0.1.0"), readiness: null }, version, "0.1.0", "registered"]
+  ]) {
+    const unavailable = { exitCode: 0, value: { ...status, manager_unavailable: true } };
+    const { run, calls } = runner([unavailable]);
+    const starts = [];
+    const rollback = runner([]);
+    assert.deepEqual(await ensureNextDaemon(run, version, {
+      heldBack, rollback: rollback.run, startDirect: async (...args) => { starts.push(args); }
+    }), { outcome: "started_direct", version: expected });
+    assert.deepEqual(starts, [[expected, source]]);
+    assert.deepEqual(calls, [["--json", "service", "status"]]);
+    await assert.rejects(ensureNextDaemon(runner([unavailable]).run, version), /Launch Desktop/);
+    await assert.rejects(ensureNextDaemon(runner([unavailable]).run, version, {
+      rollback: rollback.run, startDirect: async () => { throw new Error("direct launch failed"); }
+    }), /direct launch failed/);
+    assert.equal(rollback.calls.length, 0);
+  }
+});
+
+test("an older or incompatible live daemon is never stopped or taken over by direct startup", async () => {
+  const incompatible = ready();
+  incompatible.readiness.control_protocol = 2;
+  for (const live of [ready("0.1.0"), incompatible]) {
+    const { run, calls } = runner([{ exitCode: 0, value: { ...live, manager_unavailable: true } }]);
+    await assert.rejects(ensureNextDaemon(run, version, {
+      startDirect: async () => assert.fail("another process owns the profile")
+    }), /another mdbase daemon is running/);
+    assert.equal(calls.length, 1);
   }
 });
 
@@ -146,7 +198,7 @@ test("a bundled daemon that does not start is rolled back, held back on later la
   const fake = async (path, own, ready) => {
     await writeFile(path, `#!/usr/bin/env node
 const fs = require("node:fs");
-const report = (v, ok) => console.log(JSON.stringify({ registration: "installed", binary_version: v, readiness: ok ? { ready: true, binary_version: v } : null }));
+const report = (v, ok) => console.log(JSON.stringify({ registration: "installed", binary_version: v, readiness: ok ? { ready: true, binary_version: v, control_protocol: 1, schema_version: 1 } : null }));
 if (process.argv.includes("status")) { const v = fs.readFileSync(${JSON.stringify(installed)}, "utf8"); report(v, true); }
 else { fs.writeFileSync(${JSON.stringify(installed)}, ${JSON.stringify(own)}); report(${JSON.stringify(own)}, ${ready}); process.exit(${ready ? 0 : 3}); }
 `);

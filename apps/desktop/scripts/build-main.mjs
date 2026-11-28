@@ -28,6 +28,7 @@ await build({
     "src/main/update-policy.ts",
     "src/main/update-state.ts",
     "src/main/next-daemon.ts",
+    "src/main/direct-daemon.ts",
     "src/main/daemon-client.ts",
     "src/main/daemon-cli.ts",
     "src/main/daemon-session.ts",

@@ -88,7 +88,7 @@ async function update(userData: string): Promise<number> {
     const { result, holding } = await ensureBundledDaemon(store, runtime, stateDir);
     log(holding
       ? `mdbase ${runtime.version} did not start on this computer, so mdbase ${result.version} keeps running.`
-      : `mdbase ${result.version} is installed.`);
+      : `mdbase ${result.version} is ${result.outcome === "attached" ? "running" : "installed"}.`);
   } catch (error) {
     log(`The mdbase daemon was not updated: ${error instanceof Error ? error.message : String(error)}`);
     failed = true;

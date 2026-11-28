@@ -2,7 +2,8 @@ import { execFile as execFileCallback } from "node:child_process";
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { previousRuntimeBinary } from "./daemon-cli";
+import { previousRuntimeBinary, runtimeBinary } from "./daemon-cli";
+import { CONTROL_PROTOCOL } from "./daemon-client";
 import { compareVersions } from "./update-policy";
 import type { UpdateStateStore } from "./update-state";
 
@@ -29,6 +30,8 @@ export type CliRunner = (args: string[]) => Promise<CliResult>;
 export type NextDaemonOutcome =
   | { outcome: "already_installed"; version: string; started: boolean }
   | { outcome: "installed"; version: string }
+  | { outcome: "attached"; version: string }
+  | { outcome: "started_direct"; version: string }
   /** The bundled version did not become ready; `version` is the restored previous one. */
   | { outcome: "rolled_back"; version: string; failed: string; reason: string };
 
@@ -37,12 +40,20 @@ export interface EnsureOptions {
   rollback?: CliRunner | null;
   /** A bundled version that already failed and was rolled back: don't retry it. */
   heldBack?: string | null;
+  /** GUI-only Linux startup without a user service manager. */
+  startDirect?: (version: string, source: "bundle" | "registered") => Promise<void>;
 }
 
 interface ServiceStatus {
   registration: unknown;
   binary_version?: unknown;
-  readiness?: { ready?: unknown; binary_version?: unknown } | null;
+  manager_unavailable?: unknown;
+  readiness?: {
+    ready?: unknown;
+    binary_version?: unknown;
+    schema_version?: unknown;
+    control_protocol?: unknown;
+  } | null;
 }
 
 /**
@@ -63,12 +74,8 @@ function serviceStatus(result: CliResult, command: string): ServiceStatus {
 }
 
 function installedVersion(status: ServiceStatus): string | null {
-  const version = typeof status.binary_version === "string"
-    ? status.binary_version
-    : typeof status.readiness?.binary_version === "string"
-      ? status.readiness.binary_version
-      : null;
-  return version;
+  return status.registration === "installed" && typeof status.binary_version === "string"
+    ? status.binary_version : null;
 }
 
 function atLeast(version: string | null, bundled: string): boolean {
@@ -80,12 +87,16 @@ function atLeast(version: string | null, bundled: string): boolean {
   }
 }
 
-/** Registered and ready, running `version` (any version when omitted). */
-function healthy(value: Record<string, unknown> | null, version?: string): value is Record<string, unknown> & ServiceStatus {
-  const health = value as ServiceStatus | null;
-  return !!health && health.registration === "installed" && health.readiness?.ready === true &&
-    typeof health.readiness.binary_version === "string" &&
-    (version === undefined || health.readiness.binary_version === version);
+export function compatibleVersion(readiness: ServiceStatus["readiness"]): string | null {
+  const version = readiness?.binary_version;
+  return readiness?.schema_version === 1 && readiness.control_protocol === CONTROL_PROTOCOL &&
+    typeof version === "string" && atLeast(version, version) ? version : null;
+}
+
+function healthyInstalledVersion(result: CliResult): string | null {
+  const status = result.value as ServiceStatus | null;
+  return result.exitCode === 0 && status?.registration === "installed" && status.readiness?.ready === true
+    ? compatibleVersion(status.readiness) : null;
 }
 
 /**
@@ -100,17 +111,43 @@ export async function ensureNextDaemon(
 ): Promise<NextDaemonOutcome> {
   const status = serviceStatus(await run(["--json", "service", "status"]), "status");
   const version = installedVersion(status);
-  if (status.registration === "installed" && version &&
-      (atLeast(version, bundledVersion) || options.heldBack === bundledVersion)) {
-    if (status.readiness === null || status.readiness === undefined) {
-      const started = await run(["--json", "service", "start"]);
-      if (started.exitCode !== 0) throw serviceFailure("start", started);
-      if (!healthy(started.value, version)) {
-        throw new Error("The installed mdbase daemon did not become ready after starting.");
-      }
-      return { outcome: "already_installed", version, started: true };
+  const held = options.heldBack === bundledVersion;
+  const keepRegistered = version !== null && (atLeast(version, bundledVersion) || held);
+  const running = compatibleVersion(status.readiness);
+  const managerUnavailable = status.manager_unavailable === true;
+
+  // Registration describes what the manager would start. The socket answers
+  // for the daemon Desktop will actually use. With a manager and no valid
+  // registration, keep the normal install path so the service starts at login.
+  if (running && (managerUnavailable || status.registration === "installed") &&
+      (atLeast(running, bundledVersion) || (keepRegistered && running === version))) {
+    return !managerUnavailable && running === version
+      ? { outcome: "already_installed", version: running, started: false }
+      : { outcome: "attached", version: running };
+  }
+
+  if (managerUnavailable) {
+    const directVersion = keepRegistered ? version : bundledVersion;
+    if (status.readiness) {
+      throw new Error("The user systemd session is unavailable and another mdbase daemon is running. Stop it with `mdbase daemon stop` and relaunch Desktop to update it.");
     }
-    return { outcome: "already_installed", version, started: false };
+    if (!options.startDirect) {
+      throw new Error("The user systemd session is unavailable. Launch Desktop to start mdbase for the session.");
+    }
+    await options.startDirect(directVersion, directVersion === bundledVersion ? "bundle" : "registered");
+    return { outcome: "started_direct", version: directVersion };
+  }
+  if (keepRegistered) {
+    if (status.readiness) {
+      if (!running) throw new Error("The installed mdbase daemon uses an incompatible control protocol.");
+      return { outcome: "attached", version: running };
+    }
+    const started = await run(["--json", "service", "start"]);
+    if (started.exitCode !== 0) throw serviceFailure("start", started);
+    if (healthyInstalledVersion(started) !== version) {
+      throw new Error("The installed mdbase daemon did not become ready after starting.");
+    }
+    return { outcome: "already_installed", version, started: true };
   }
   let failure: Error;
   try {
@@ -123,12 +160,13 @@ export async function ensureNextDaemon(
   const after = await run(["--json", "service", "status"]).catch(() => null);
   if (!after?.value || installedVersion(after.value as unknown as ServiceStatus) !== bundledVersion) throw failure;
   const restored = await options.rollback(["--json", "service", "install"]);
-  if (restored.exitCode !== 0 || !healthy(restored.value)) {
+  const restoredVersion = healthyInstalledVersion(restored);
+  if (!restoredVersion) {
     throw new Error(`${failure.message} Restoring the previous mdbase daemon also failed.`);
   }
   return {
     outcome: "rolled_back",
-    version: restored.value.readiness!.binary_version as string,
+    version: restoredVersion,
     failed: bundledVersion,
     reason: failure.message
   };
@@ -139,7 +177,7 @@ async function installBundled(run: CliRunner, bundledVersion: string): Promise<N
   if (installed.exitCode === 2) throw new Error("mdbase refused to install its service for this profile.");
   if (installed.exitCode === 3) throw new Error("The mdbase daemon was installed but did not become ready.");
   if (installed.exitCode !== 0) throw serviceFailure("install", installed);
-  if (!healthy(installed.value, bundledVersion)) {
+  if (healthyInstalledVersion(installed) !== bundledVersion) {
     throw new Error("The mdbase daemon did not report a healthy installation of the bundled version.");
   }
   return { outcome: "installed", version: bundledVersion };
@@ -153,25 +191,28 @@ async function installBundled(run: CliRunner, bundledVersion: string): Promise<N
 export async function ensureBundledDaemon(
   store: UpdateStateStore,
   bundled: BundledNextDaemon,
-  stateDir: string
+  stateDir: string,
+  startDirect?: (binary: string, version: string) => Promise<void>
 ): Promise<{ result: NextDaemonOutcome; holding: boolean }> {
   const held = (await store.load()).daemon_held_back;
   const previous = previousRuntimeBinary(stateDir);
   const result = await ensureNextDaemon(nextDaemonRunner(bundled.binary), bundled.version, {
     heldBack: held?.version,
-    rollback: existsSync(previous) ? nextDaemonRunner(previous) : null
+    rollback: existsSync(previous) ? nextDaemonRunner(previous) : null,
+    startDirect: startDirect && ((version, source) =>
+      startDirect(source === "bundle" ? bundled.binary : runtimeBinary(stateDir), version))
   });
   if (result.outcome === "rolled_back") {
     await store.update((state) => {
       state.daemon_held_back = { version: result.failed, reason: result.reason };
     });
-  } else if (held && result.version === bundled.version) {
+  } else if (held && atLeast(result.version, bundled.version)) {
     await store.update((state) => {
       delete state.daemon_held_back;
     });
   }
   const holding = result.outcome === "rolled_back" ||
-    (held?.version === bundled.version && result.version !== bundled.version);
+    (held?.version === bundled.version && !atLeast(result.version, bundled.version));
   return { result, holding };
 }
 
