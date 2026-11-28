@@ -24,6 +24,7 @@ import { DaemonCli, type DaemonProfile } from "./daemon-cli";
 import { DaemonControlError } from "./daemon-client";
 import { resolveDaemonRuntime, type DaemonRuntime } from "./daemon-runtime";
 import { DaemonSession, healthLabel } from "./daemon-session";
+import { DirectDaemon } from "./direct-daemon";
 import { routeForDeepLink, shouldRegisterDeepLinks } from "./deep-link";
 import { buildEditorUrl } from "./editor-url";
 import { guardDesktopProcessOutput } from "./process-output";
@@ -48,6 +49,8 @@ let startupFailed = false;
 let runtime: DaemonRuntime | null = null;
 let profile: DaemonProfile | null = null;
 let session: DaemonSession | null = null;
+let directDaemon: DirectDaemon | null = null;
+let stoppingDirectDaemon = false;
 let cli: DaemonCli | null = null;
 let quitting = false;
 let updateStore: UpdateStateStore;
@@ -145,6 +148,9 @@ async function initializeDaemon(): Promise<void> {
     env: process.env
   });
   profile = await DaemonCli.discover(runtime.binary, runtime.isolatedStateDir);
+  if (process.platform === "linux" && profile.target === "installed_service") {
+    directDaemon = new DirectDaemon(profile.control);
+  }
   cli = new DaemonCli(() => runtime!.binary, profile.target, profile.stateDir);
   session = new DaemonSession({
     profile,
@@ -170,7 +176,9 @@ async function initializeDaemon(): Promise<void> {
  * copy and held back until a later app update brings another version.
  */
 async function ensureInstalledDaemon(bundled: DaemonRuntime, current: DaemonProfile): Promise<void> {
-  const { result, holding } = await ensureBundledDaemon(updateStore, bundled, current.stateDir);
+  const direct = directDaemon;
+  const { result, holding } = await ensureBundledDaemon(updateStore, bundled, current.stateDir,
+    direct ? (binary, version) => direct.start(binary, version) : undefined);
   updater.setDaemonNotice(holding
     ? msg`mdbase ${bundled.version} did not start on this computer, so mdbase ${result.version} keeps running. The next app update tries again.`
     : null);
@@ -766,8 +774,7 @@ app.whenReady().then(async () => {
     initialize: async () => { await updater.initialize(); },
     start: async () => {
       await daemonInitialization;
-      // The daemon is an OS service (or an isolated development daemon); the app
-      // attaches to it and never starts the old connector.
+      // Attach after ensuring the daemon for this profile is running.
       await daemonSession().start();
     },
     blockedReason: () => null
@@ -826,8 +833,20 @@ app.on("activate", () => {
   mainWindow?.show();
 });
 
-app.on("before-quit", () => {
+app.on("before-quit", (event) => {
   quitting = true;
-  // Detach only: the daemon keeps serving collections after the window closes.
   session?.stop();
+  if (stoppingDirectDaemon) {
+    event.preventDefault();
+    return;
+  }
+  const stopped = directDaemon?.stop();
+  if (stopped) {
+    event.preventDefault();
+    stoppingDirectDaemon = true;
+    void stopped.finally(() => {
+      stoppingDirectDaemon = false;
+      app.quit();
+    });
+  }
 });

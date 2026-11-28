@@ -7,9 +7,8 @@ import { ensureNextDaemon, nextDaemonRunner } from "./next-daemon";
 /**
  * Keeping the app attached to the mdbase daemon.
  *
- * - Installed profile: the daemon is an OS service. The app makes sure the bundled
- *   version (or a newer self-installed one) is registered and running
- *   (`mdbase service status|install|start`, `next-daemon.ts`), never the old connector.
+ * - Installed profile: the app starts or updates the OS service, or uses a
+ *   foreground daemon for the Desktop session when Linux user systemd is absent.
  * - Isolated profile (development, tests): `mdbase --state-dir … daemon start`; no service
  *   manager is touched.
  *
@@ -169,8 +168,7 @@ export class DaemonSession {
     this.timer = setTimeout(() => {
       this.timer = null;
       if (this.stopped) return;
-      // A stopped isolated daemon is restarted; an installed service is restarted by
-      // its manager (and `ensureRunning` repairs a missing registration).
+      // Re-run startup for this profile before opening another connection.
       this.connect().catch((reason) => {
         if (!this.stopped && !this.timer) this.scheduleReconnect(reason instanceof Error ? reason.message : String(reason));
       });

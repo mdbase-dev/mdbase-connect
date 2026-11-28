@@ -94,13 +94,18 @@ pub struct ServiceStatus {
     /// The binary the registration runs.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binary: Option<PathBuf>,
-    /// That binary's `--version`.
+    /// The registered binary's on-disk version. The running version is in
+    /// `readiness.binary_version` and may differ.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub binary_version: Option<String>,
     /// Starts at login.
     pub enabled: bool,
     /// The daemon's readiness, if one answers on this profile's endpoint.
     pub readiness: Option<Readiness>,
+    /// On Linux, the user systemd manager is unavailable. Omitted on other
+    /// platforms and when the manager could be contacted.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub manager_unavailable: bool,
     /// Whether today's connector is still registered on this machine (read-only check).
     pub connector_registered: bool,
 }
@@ -236,7 +241,7 @@ async fn execute(cmd: ServiceCmd, profile: &Profile) -> Result<ServiceStatus, Se
             wait_ready(profile, &version).await?;
         }
     }
-    status(profile, &os).await
+    status(profile, &os, matches!(cmd, ServiceCmd::Status)).await
 }
 
 fn require_installed(os: &platform::Manager) -> Result<(), ServiceError> {
@@ -394,7 +399,11 @@ fn readiness_matches(readiness: &Readiness, version: &str) -> bool {
         && readiness.schema_version == crate::control::READINESS_SCHEMA
 }
 
-async fn status(profile: &Profile, os: &platform::Manager) -> Result<ServiceStatus, ServiceError> {
+async fn status(
+    profile: &Profile,
+    os: &platform::Manager,
+    probe_manager: bool,
+) -> Result<ServiceStatus, ServiceError> {
     let reg = os.query()?;
     let expected = runtime_binary(profile);
     let (registration, binary, enabled) = match reg {
@@ -411,8 +420,20 @@ async fn status(profile: &Profile, os: &platform::Manager) -> Result<ServiceStat
             )
         }
     };
-    let binary_version = binary.as_deref().and_then(binary_version);
+    // Stale definitions can name a different executable. Only probe our
+    // profile's registered runtime copy.
+    let binary_version = binary
+        .as_deref()
+        .filter(|_| registration == "installed")
+        .and_then(binary_version);
     let readiness = client::ping(&profile.control).await.ok();
+    #[cfg(target_os = "linux")]
+    let manager_unavailable = probe_manager && platform::user_manager_unavailable().await;
+    #[cfg(not(target_os = "linux"))]
+    let manager_unavailable = {
+        let _ = probe_manager;
+        false
+    };
     Ok(ServiceStatus {
         manager: platform::MANAGER,
         name: os.name(),
@@ -422,6 +443,7 @@ async fn status(profile: &Profile, os: &platform::Manager) -> Result<ServiceStat
         binary_version,
         enabled,
         readiness,
+        manager_unavailable,
         connector_registered: os.connector_registered(),
     })
 }
@@ -558,10 +580,13 @@ fn print_status(s: &ServiceStatus) {
     );
     if let Some(b) = &s.binary {
         println!(
-            "binary:    {} ({})",
+            "registered binary: {} ({})",
             b.display(),
             s.binary_version.as_deref().unwrap_or("version unknown")
         );
+    }
+    if s.manager_unavailable {
+        println!("manager:   user systemd session unavailable");
     }
     match &s.readiness {
         Some(r) if r.ready => println!("daemon:    ready (version {})", r.binary_version),
@@ -610,6 +635,67 @@ mod platform {
     use super::*;
 
     pub const MANAGER: &str = "systemd";
+
+    /// Query a property of the manager itself. A missing unit or a failed
+    /// daemon start says nothing about whether the manager can be reached.
+    pub async fn user_manager_unavailable() -> bool {
+        let mut cmd = tokio::process::Command::new("systemctl");
+        cmd.args(["--user", "show", "--property=Version", "--value"])
+            .env("LC_ALL", "C")
+            .stdin(std::process::Stdio::null())
+            .kill_on_drop(true);
+        match tokio::time::timeout(Duration::from_secs(5), cmd.output()).await {
+            Ok(Err(e)) => e.kind() == io::ErrorKind::NotFound,
+            Ok(Ok(output)) if !output.status.success() => {
+                missing_user_manager(&String::from_utf8_lossy(&output.stderr))
+            }
+            _ => false,
+        }
+    }
+
+    fn missing_user_manager(stderr: &str) -> bool {
+        stderr.lines().any(|line| {
+            let line = line.trim();
+            let bus_failure = line.starts_with("Failed to connect to bus:")
+                || line.starts_with("Failed to connect to user scope bus ");
+            (bus_failure
+                && [
+                    "No such file or directory",
+                    "No medium found",
+                    "Connection refused",
+                ]
+                .iter()
+                .any(|reason| line.ends_with(reason)))
+                || line.ends_with("Process org.freedesktop.systemd1 exited with status 1")
+                || line.ends_with(
+                    "The name org.freedesktop.systemd1 was not provided by any .service files",
+                )
+        })
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn only_missing_user_manager_errors_enable_direct_start() {
+        for error in [
+            "Failed to connect to bus: No medium found",
+            "Failed to connect to user scope bus via local transport: No such file or directory",
+            "Failed to connect to bus: Connection refused",
+            "Failed to get properties: Process org.freedesktop.systemd1 exited with status 1",
+            "Failed to get properties: The name org.freedesktop.systemd1 was not provided by any .service files",
+        ] {
+            assert!(missing_user_manager(error), "{error}");
+        }
+        for error in [
+            "Failed to connect to bus: Permission denied",
+            "Failed to get properties: Access denied",
+            "Failed to connect to bus: Connection timed out",
+            "Unit mdbase.service not found.",
+            "Failed to start mdbase.service: Unit mdbase.service is masked.",
+            "",
+        ] {
+            assert!(!missing_user_manager(error), "{error}");
+        }
+    }
 
     pub struct Manager {
         unit_dir: PathBuf,
