@@ -402,25 +402,11 @@ export function decode(
       if (prior.version !== 4) break;
       prior = prior.previous;
     }
-    const plan = modelResourcePlan(v.plan);
-    if (
-      plan.resourceOps.some(
-        (op) =>
-          op.kind !== "resource_put" ||
-          (!op.mustNotExist &&
-            ![
-              "mdbase.yaml",
-              "mdbase.lock.yaml",
-              "mdbase.provisions.yaml",
-            ].includes(op.path)),
-      )
-    )
-      fail("binding");
     const intent: ModelResourceSetupRoundIntent = Object.freeze({
       version: 4,
       scope: bound,
       mutationId: v.mutationId,
-      plan,
+      plan: modelResourcePlan(v.plan),
       phase: v.phase,
       previous,
     });

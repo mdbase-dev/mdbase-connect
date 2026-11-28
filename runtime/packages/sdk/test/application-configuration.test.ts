@@ -480,21 +480,58 @@ describe("scoped application configuration phase", () => {
 describe("reviewable setup plan/apply", () => {
   const target = "_types/task.md", adopted = `sha256:${"ef".repeat(32)}`;
   const welcome = "---\ntitle: Welcome\n---\nStart here.\n";
-  // Stand-in for native Core: an unmanaged task type conflicts until adopted.
   let live = `sha256:${"cd".repeat(32)}`;
-  function reviewing(f: Awaited<ReturnType<typeof fixture>>) {
+  function reviewing(f: Awaited<ReturnType<typeof fixture>>, resource = { target, kind: "type", installed: false }, revision = live) {
+    const path = resource.target, doc = "Synthetic resource";
     vi.mocked(f.port.assess).mockImplementation(async (_manifest, _signal, decisions) => {
-      const adopt = decisions?.adopt?.[target] === live, done = vi.mocked(f.port.apply).mock.calls.length > 0;
+      const adopt = decisions?.adopt?.[path] === revision, done = vi.mocked(f.port.apply).mock.calls.length > 0;
       const status = done ? "current" as const : adopt ? "provision" as const : "conflict" as const;
       const assessmentDigest = adopt ? adopted : digest;
       if (!decisions) return { status, assessmentDigest };
-      return { status, assessmentDigest, review: { configuration: [], staged: adopt ? [{ path: target, document: "Synthetic resource" }] : [],
-        packs: [{ id: "org.example.task", version: "1.0.0", status: done ? "current" as const : "install" as const, installedVersion: null,
-          resources: done ? [] : [{ target, kind: "type", mode: "managed" as const, installed: false, currentDigest: live, action: adopt ? "adopt" as const : "conflict" as const }] }] } };
+      return { status, assessmentDigest, review: { configuration: [], staged: adopt ? [{ path, document: doc }] : [],
+        packs: [{ id: "org.example.task", version: "1.0.0", status: done ? "current" as const : resource.installed ? "conflict" as const : "install" as const,
+          installedVersion: resource.installed ? "1.0.0" : null,
+          resources: done ? [] : [{ ...resource, mode: "managed" as const, currentDigest: revision, action: adopt ? "adopt" as const : "conflict" as const }] }] } };
     });
-    vi.mocked(f.port.apply).mockImplementation(async () => ({ ...plan, assessmentDigest: adopted,
-      resourceOps: [{ kind: "resource_put", path: target, doc: "Synthetic resource", mustNotExist: false, baseRevision: live }] }));
+    vi.mocked(f.port.apply).mockClear().mockImplementation(async () => ({ ...plan, assessmentDigest: adopted,
+      resourceOps: [{ kind: "resource_put", path, doc, mustNotExist: false, baseRevision: revision }],
+      resourceReadback: [{ path, doc }] }));
   }
+  it("replaces a modified installed contract after verified v3 and v4 setups", async () => {
+    const f = await fixture();
+    const path = "_mdbase/contracts/journal.entry.md", doc = "Synthetic resource";
+    try {
+      f.status("provision");
+      vi.mocked(f.port.apply).mockImplementation(async () => {
+        f.status("current");
+        return { ...plan, resourceOps: [{ kind: "resource_put", path, doc, mustNotExist: true }], resourceReadback: [{ path, doc }] };
+      });
+      await f.helper.configure();
+      const submit = vi.spyOn(f.client, "submit");
+      for (const version of [3, 4]) {
+        const previous = await f.journal.load(f.controller.signal);
+        expect(previous).toMatchObject({ version, phase: "verified" });
+        const installed = await f.client.resources.get(path);
+        await (await f.client.submit([{ kind: "resource_put", path, doc: `user edit after v${version}`, baseRevision: installed.revision }])).confirmed;
+        const edited = await f.client.resources.get(path);
+        reviewing(f, { target: path, kind: "contract", installed: true }, edited.revision);
+        submit.mockClear();
+        const conflict = await f.helper.plan();
+        expect(conflict).toMatchObject({ canApply: false, adoptable: { [path]: edited.revision } });
+        const reviewed = await f.helper.plan({ adopt: conflict.adoptable });
+        expect(reviewed.canApply).toBe(true);
+        await f.helper.apply(reviewed);
+        const next = await f.journal.load(f.controller.signal);
+        expect(next).toMatchObject({ version: 4, phase: "verified", previous });
+        expect(next!.mutationId).not.toBe(previous!.mutationId);
+        expect(submit).toHaveBeenCalledTimes(1);
+        expect(submit).toHaveBeenCalledWith([{ kind: "resource_put", path, doc, mustNotExist: false, baseRevision: edited.revision }],
+          expect.objectContaining({ mutationId: next!.mutationId }));
+        expect((await f.client.resources.get(path)).revision).toBe(installed.revision);
+        expect(f.helper.getSnapshot().assessment?.status).toBe("ready");
+      }
+    } finally { await f.close(); }
+  });
   it("reviews a conflict, adopts it and writes setup plus free starter records in one mutation", async () => {
     const f = await fixture();
     try {
