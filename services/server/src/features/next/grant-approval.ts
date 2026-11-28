@@ -78,7 +78,7 @@ async function grantContext(db: DatabaseQueryable, grantId: string): Promise<Gra
      FROM grants g
      JOIN users u ON u.id = g.user_id
      LEFT JOIN collections col ON col.id = g.collection_id
-     LEFT JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, g.hosted_collection_id::text, g.next_collection_id::text)
+     LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, g.hosted_collection_id, g.next_collection_id)
      LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
      LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
      WHERE g.id = $1 OR binding.log_grant_id = $1`,
