@@ -1032,6 +1032,10 @@ msgstr "型を{0}件追加"
 msgid "Adds 1 type"
 msgstr "型を1件追加"
 
+#: src/editor-commands.ts
+msgid "Adds a link in the note body"
+msgstr "ノート本文ではリンクを挿入します"
+
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
 msgstr "採用して更新"
@@ -1698,10 +1702,6 @@ msgstr "標準"
 #: src/EditorRail.tsx
 msgid "Commands"
 msgstr "コマンド"
-
-#: src/EditorRail.tsx
-msgid "Commands · {key} outside text"
-msgstr "コマンド · テキスト外で {key}"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -4300,10 +4300,6 @@ msgstr "インデント解除"
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "テキスト入力欄の外"
-
-#: src/editor-commands.ts
-msgid "outside text; add a link while typing"
-msgstr "テキスト外。入力中はリンクを挿入"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"

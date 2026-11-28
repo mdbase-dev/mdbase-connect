@@ -89,8 +89,7 @@ describe("keyboard discovery", () => {
     const separator = platform === "Linux x86_64" ? "+" : "";
     expect(screen.getByText(`${modifier}${separator}P`, { selector: "kbd" })).toBeInTheDocument();
     expect(screen.getAllByText(`${modifier}${separator}K`, { selector: "kbd" })).toHaveLength(1);
-    expect(screen.getByText("Commands", { selector: "dt" })).toHaveTextContent("Commandsoutside text; add a link while typing");
-    expect(screen.getByText("outside text; add a link while typing", { selector: "small" })).toBeInTheDocument();
+    expect(screen.getByText("Commands", { selector: "dt" })).toHaveTextContent("CommandsAdds a link in the note body");
     for (const group of ["Navigate", "Note", "Text"]) expect(screen.getByRole("heading", { name: group })).toBeInTheDocument();
     expect(screen.getByText("G T", { selector: "kbd" })).toBeInTheDocument();
   });

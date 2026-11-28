@@ -1032,6 +1032,10 @@ msgstr "Adiciona {0} tipos"
 msgid "Adds 1 type"
 msgstr "Adiciona 1 tipo"
 
+#: src/editor-commands.ts
+msgid "Adds a link in the note body"
+msgstr "Insere um link no corpo da nota"
+
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
 msgstr "Adotar e atualizar"
@@ -1698,10 +1702,6 @@ msgstr "Confortável"
 #: src/EditorRail.tsx
 msgid "Commands"
 msgstr "Comandos"
-
-#: src/EditorRail.tsx
-msgid "Commands · {key} outside text"
-msgstr "Comandos · {key} fora do texto"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -4300,10 +4300,6 @@ msgstr "Diminuir recuo"
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "fora dos campos de texto"
-
-#: src/editor-commands.ts
-msgid "outside text; add a link while typing"
-msgstr "fora do texto; inserir um link ao digitar"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"

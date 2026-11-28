@@ -71,6 +71,8 @@ for (const width of [900, 390]) {
     if (width === 390) await page.getByRole("menuitem", { name: "Note properties" }).click();
     const dialog = page.getByRole("dialog", { name: "Note properties" });
     await expect(dialog).toHaveAttribute("aria-modal", "true");
+    await expect(dialog.locator(".panel-header")).toHaveCSS("height", "52px");
+    if (width === 900) await expect(page.locator(".editor-bar")).toHaveCSS("height", "52px");
     const close = dialog.getByRole("button", { name: "Close properties" });
     await expect(close).toBeFocused();
     expect(await dialog.evaluate(el => el.matches(":modal"))).toBe(true);
@@ -86,7 +88,7 @@ for (const width of [900, 390]) {
   });
 }
 
-test("quick open uses P inside and outside the writer; K only creates links", async ({ page }) => {
+test("P opens the note picker and K opens Commands outside the note body", async ({ page }) => {
   await page.goto("?demo=12");
   const search = page.getByRole("combobox", { name: "Search notes and files" });
   const body = page.getByRole("textbox", { name: "Note body", exact: true });
@@ -98,10 +100,14 @@ test("quick open uses P inside and outside the writer; K only creates links", as
     await page.keyboard.press("Escape");
     await expect(target).toBeFocused();
   }
-  await search.focus();
-  await page.keyboard.press("Control+k");
-  await expect(search).toBeFocused();
-  await expect(page.getByRole("dialog", { name: "Quick open" })).toHaveCount(0);
+  const title = page.getByRole("textbox", { name: "Note title" });
+  for (const target of [title, search]) {
+    await target.press("Control+k");
+    const palette = page.getByRole("dialog", { name: "Quick open" });
+    await expect(palette.getByRole("combobox")).toHaveValue(">");
+    await page.keyboard.press("Escape");
+    await expect(target).toBeFocused();
+  }
   await replaceOpeningNoteBody(body, "");
   await body.focus();
   await page.keyboard.press("Control+k");

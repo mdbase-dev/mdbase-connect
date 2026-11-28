@@ -414,7 +414,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const focusedLinkTargets = useLinkTargets(gateway, notePath, collectionRevision, fileInventory.files);
   const fileWorkspace = useFileWorkspace(fileAssetStore, fileInventory.files, notePath);
   const { selectedFile: selectedCollectionFile, setSelectedFile: setSelectedCollectionFile, selectedAsset: selectedFileAsset,
-    pendingFilePath, setPendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset } = fileWorkspace;
+    pendingFilePath, openAsset: openFileAsset, setOpenAsset: setOpenFileAsset } = fileWorkspace;
   /** The file a pane without the focus shows over its active tab, by tab, kept while another pane has the focus. */
   const [backgroundFiles, setBackgroundFiles] = useState<Readonly<Record<string, CollectionFile>>>({});
   const backgroundFile = (pane: Pane) => {
@@ -715,7 +715,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     if (cached?.deleted) return false;
     closeNewNote();
     setSelectedCollectionFile(undefined);
-    setPendingFilePath(undefined);
     setNotice(undefined);
     setNoteOpenFailure(undefined);
     setPropertiesError(undefined);
@@ -948,7 +947,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     closeNewNote();
     closeSidePanels();
     setSelectedCollectionFile(file);
-    setPendingFilePath(file.path);
     setMobilePane("editor");
     setNotice(undefined);
   }
@@ -998,10 +996,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     // A pane that gains the focus shows its own note, never another pane's while its own loads.
     if (!path || paneChanged && (!cached || cached.deleted)) showNoNote();
     if (path) navigateToNote(path, { historyIndex: arriving.history.index, keepList: paneChanged });
-    if (restored) {
-      setSelectedCollectionFile(restored);
-      setPendingFilePath(restored.path);
-    }
+    if (restored) setSelectedCollectionFile(restored);
   }
 
   function switchTab(tab: NoteTab) {
@@ -1287,7 +1282,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     setPendingNotePath(undefined);
     setNoteOpenFailure(undefined);
     setSelectedCollectionFile(undefined);
-    setPendingFilePath(undefined);
     setOpenFileAsset(undefined);
     setBackgroundFiles({});
     setBackgroundFailures({});
@@ -1413,7 +1407,6 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
       closeNewNote();
       cancelNoteNavigation();
       setSelectedCollectionFile(undefined);
-      setPendingFilePath(undefined);
       setNotice(undefined);
       saveCurrentInBackground();
       setSurface("notes");
@@ -2002,17 +1995,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         setQuickOpen(false); setShortcutsOpen(false);
         return;
       }
-      if (matchesCommandShortcut("quick-open", event) || matchesCommandShortcut("command-palette", event) && (!typing || event.shiftKey)) {
+      // The unshifted command chord belongs to link insertion in the note body.
+      const writing = event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content");
+      const commands = matchesCommandShortcut("command-palette", event) && (!writing || event.shiftKey);
+      if (commands || matchesCommandShortcut("quick-open", event)) {
         event.preventDefault();
         setShortcutsOpen(false);
-        setPaletteMode(matchesCommandShortcut("command-palette", event) ? "commands" : "notes");
+        setPaletteMode(commands ? "commands" : "notes");
         setQuickOpen(true);
-        return;
-      }
-      // In text the palette's chord belongs to the writer's link insertion; elsewhere in a field it must not reach the browser.
-      if (matchesCommandShortcut("command-palette", event)
-          && !(event.target instanceof Element && event.target.closest(".code-editor-writer .cm-content"))) {
-        event.preventDefault();
         return;
       }
       if (quickOpen || shortcutsOpen) return;

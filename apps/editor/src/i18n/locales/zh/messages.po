@@ -1032,6 +1032,10 @@ msgstr "添加 {0} 个类型"
 msgid "Adds 1 type"
 msgstr "添加 1 个类型"
 
+#: src/editor-commands.ts
+msgid "Adds a link in the note body"
+msgstr "在笔记正文中插入链接"
+
 #: src/catalog-pack-installation.tsx
 msgid "Adopt and update"
 msgstr "纳入管理并更新"
@@ -1698,10 +1702,6 @@ msgstr "舒适"
 #: src/EditorRail.tsx
 msgid "Commands"
 msgstr "命令"
-
-#: src/EditorRail.tsx
-msgid "Commands · {key} outside text"
-msgstr "命令 · 在文本外按 {key}"
 
 #: src/editor-commands.ts
 msgid "Comment on the selection"
@@ -4300,10 +4300,6 @@ msgstr "减少缩进"
 #: src/editor-commands.ts
 msgid "outside text inputs"
 msgstr "在文本输入框外"
-
-#: src/editor-commands.ts
-msgid "outside text; add a link while typing"
-msgstr "在文本外；输入时插入链接"
 
 #: src/TypeBrowser.tsx
 msgid "Pack"
