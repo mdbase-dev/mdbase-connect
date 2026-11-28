@@ -17,7 +17,7 @@ function document(path: string, overrides: Partial<NoteDocument> = {}): NoteDocu
   };
 }
 
-function session(note: NoteDocument, update = vi.fn(async (base: NoteDocument, change: MdbaseRecordChange) => ({
+function session(note: NoteDocument, update = vi.fn(async (base: NoteDocument, change: MdbaseRecordChange): Promise<NoteDocument> => ({
   ...base, revision: "2", body: change.body ?? base.body
 }))) {
   const gateway = { update, read: vi.fn(async () => note), recoverNoteMutation: vi.fn(), pendingNoteMutations: () => [] };
