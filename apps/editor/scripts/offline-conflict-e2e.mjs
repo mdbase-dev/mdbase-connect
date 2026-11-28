@@ -138,9 +138,12 @@ async function pendingWrite(page, collectionId, path, body) {
   return page.evaluate(async ({ collectionId, path, body }) => {
     const { sdk } = await import("/local-sdk/application/editor.js");
     const records = sdk.connection(collectionId).records;
-    const record = await records.get({ path });
+    const record = await records.get({ path }, { include: { body: true } });
+    if (record.state.state !== "pending" || record.body !== body) return null;
+    // With an observed revision the SDK submits body edits. Read the resulting
+    // text from the replica and identify its one captured update to this record.
     const entries = (await records.pendingWrites()).filter(write => write.ops.some(op =>
-      op.kind === "update" && op.id === record.id && op.body === body));
+      op.kind === "update" && op.id === record.id && (op.body !== undefined || op.bodyEdits?.length)));
     if (entries.length !== 1) return null;
     const { mutation, state } = await records.receipt(entries[0].receipt.mutation);
     return state === "pending" && mutation === entries[0].receipt.mutation ? mutation : null;
