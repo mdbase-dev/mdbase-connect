@@ -80,6 +80,78 @@ fn raw_source_projection_roundtrips_without_coercion_after_reopen() {
 }
 
 #[test]
+fn index_only_backfill_reads_small_and_large_sources_in_order() {
+    let (mut store, index, _, _, refs) = open("raw_mixed_sizes", vec![], &["priority"]);
+    let mut rows: Vec<_> = (1..=8).map(|n| row(n, &format!("priority: {n}"))).collect();
+    // The source exceeds its 256 KiB share of the page, but fits a single read.
+    rows[3].doc.push_str(&"x".repeat(300 << 10));
+    rows[3].revision = revision(rows[3].doc.as_bytes());
+    store
+        .commit(Tx {
+            records_put: rows.clone(),
+            ..Tx::default()
+        })
+        .unwrap();
+    let projected = rows
+        .iter()
+        .map(|r| {
+            let mut entry = project_record_query_index_row(&catalog(), r, &refs, 8192).unwrap();
+            entry.body = None;
+            entry
+        })
+        .collect();
+    store
+        .commit(Tx {
+            query_index: Some(QueryIndexTx {
+                generation: [7; 32],
+                replace_specs: Some(query_index_fields(&refs, 8192).unwrap()),
+                rows: projected,
+                publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
+            }),
+            ..Tx::default()
+        })
+        .unwrap();
+    assert!(ready(&index));
+    for (i, row) in rows.iter().enumerate() {
+        assert_eq!(
+            raw(&index, i as u16 + 1)[1],
+            SqlValue::Blob(row.revision.0.to_vec())
+        );
+    }
+}
+
+#[test]
+fn index_only_body_replacement_removes_previous_trigrams() {
+    let note = row(1, "priority: 1");
+    let (mut store, index, _, _, refs) = open("replace_fts_row", vec![note.clone()], &["priority"]);
+    let count = |word: &str| {
+        sql(
+            &index,
+            "SELECT count(*) FROM st_qbody WHERE st_qbody MATCH ?",
+            vec![SqlValue::Text(word.into())],
+        )
+    };
+    assert_eq!(count("body"), vec![SqlValue::Integer(1)]);
+    let mut projected = project_record_query_index_row(&catalog(), &note, &refs, 8192).unwrap();
+    projected.body = Some("replacement".into());
+    store
+        .commit(Tx {
+            query_index: Some(QueryIndexTx {
+                generation: [7; 32],
+                replace_specs: None,
+                rows: vec![projected],
+                publish_at: Some(Head::GENESIS),
+                completes_backfill: false,
+            }),
+            ..Tx::default()
+        })
+        .unwrap();
+    assert_eq!(count("body"), vec![SqlValue::Integer(0)]);
+    assert_eq!(count("replacement"), vec![SqlValue::Integer(1)]);
+}
+
+#[test]
 fn raw_backfill_reuses_index_transactions_and_unavailable_is_not_empty() {
     let (mut store, index, _, _, refs) = open("raw_backfill", vec![], &["priority"]);
     let r = row(2, "priority: 2\ntags: [task]");

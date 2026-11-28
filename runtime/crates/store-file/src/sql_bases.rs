@@ -15,7 +15,9 @@ use mdbn_replica::store::{RecordRow, Stage, StoreError, StoreResult, Tx};
 use mdbn_wire::cbor::{self, Cbor};
 use mdbn_wire::schema::Wire;
 
-use crate::index::{Batch, BatchMode, IndexError, IndexErrorKind, IndexStorage, SqlValue, Stmt};
+use crate::index::{
+    Batch, BatchMode, IndexError, IndexErrorKind, IndexStorage, SqlValue, Stmt, StmtResult,
+};
 
 pub(crate) const SCHEMA: &[&str] = &[
     "CREATE TABLE IF NOT EXISTS st_qraw_state(slot INTEGER PRIMARY KEY CHECK(slot=0),generation BLOB NOT NULL,ready INTEGER NOT NULL CHECK(ready IN (0,1)),version INTEGER NOT NULL)",
@@ -131,7 +133,7 @@ const SETTLE: &str = "INSERT OR REPLACE INTO st_kv(k,v) SELECT 'qraw_settled',ge
 
 pub(crate) fn delete_row(id: &[u8], out: &mut Vec<Stmt>) {
     out.push(Stmt::new("DELETE FROM st_qraw WHERE id=?", vec![blob(id)]));
-    candidate::delete(id, out);
+    candidate::delete(&[id], out);
 }
 
 fn state<I: IndexStorage>(index: &Rc<RefCell<I>>) -> StoreResult<Option<([u8; 32], bool)>> {
@@ -165,29 +167,49 @@ fn state<I: IndexStorage>(index: &Rc<RefCell<I>>) -> StoreResult<Option<([u8; 32
     )))
 }
 
-/// A cold R6 index-only backfill may read one bounded authoritative row. Warm
-/// projection reads will use only `st_qraw`, never this document-blob path.
-fn backfill_row<I: IndexStorage>(
+/// Fetch small authoritative source rows for a projection page in one host call.
+/// Split a 2 MiB payload allowance across the requested IDs. A larger row is
+/// represented by its length and fetched on its own, subject to the same 4 MiB
+/// per-record bound. Missing and over-bound rows still make coverage incomplete.
+fn backfill_sources<I: IndexStorage>(
     index: &Rc<RefCell<I>>,
-    id: &[u8],
-) -> StoreResult<Option<RecordRow>> {
-    let result = index
+    ids: &[&[u8]],
+) -> StoreResult<std::vec::IntoIter<StmtResult>> {
+    if ids.is_empty() {
+        return Ok(Vec::new().into_iter());
+    }
+    let per_row = if ids.len() == 1 {
+        MAX_RECORD_BLOB
+    } else {
+        (2 << 20) / ids.len() as i64
+    };
+    let stmts = ids.iter().map(|id| Stmt::new(
+        "SELECT CASE WHEN length(row)<=? THEN row WHEN length(row)<=? THEN length(row) END FROM st_rec WHERE id=?",
+        vec![SqlValue::Integer(per_row), SqlValue::Integer(MAX_RECORD_BLOB), blob(id)],
+    )).collect();
+    let results = index
         .borrow_mut()
         .run(&Batch {
             mode: BatchMode::Autocommit,
-            stmts: vec![Stmt::new(
-                "SELECT CASE WHEN length(row)<=? THEN row ELSE NULL END FROM st_rec WHERE id=?",
-                vec![SqlValue::Integer(MAX_RECORD_BLOB), blob(id)],
-            )],
+            stmts,
         })
         .map_err(error)?;
-    let [result] = result.as_slice() else {
-        return Err(corrupt());
-    };
-    if result.columns != 1 {
+    if results.len() != ids.len() || results.iter().any(|r| r.columns != 1 || r.values.len() > 1) {
         return Err(corrupt());
     }
-    match result.values.as_slice() {
+    Ok(results.into_iter())
+}
+
+fn backfill_row<I: IndexStorage>(
+    index: &Rc<RefCell<I>>,
+    id: &[u8],
+    mut source: StmtResult,
+) -> StoreResult<Option<RecordRow>> {
+    if matches!(source.values.as_slice(), [SqlValue::Integer(size)] if (1..=MAX_RECORD_BLOB).contains(size))
+    {
+        source = backfill_sources(index, &[id])?.next().ok_or_else(corrupt)?;
+    }
+    match source.values.as_slice() {
         [] | [SqlValue::Null] => Ok(None),
         [value] => crate::sql::record_d(value).map(Some),
         _ => Err(corrupt()),
@@ -256,6 +278,17 @@ pub(crate) fn maintenance<I: IndexStorage>(
             vec![blob(&update.generation), SqlValue::Integer(VERSION)],
         ));
     }
+    if !reset {
+        let projected_ids: Vec<_> = update.rows.iter().map(|row| row.id.0.as_slice()).collect();
+        candidate::delete(&projected_ids, &mut out);
+    }
+    let missing_sources: Vec<_> = update
+        .rows
+        .iter()
+        .filter(|row| !put.contains_key(&row.id))
+        .map(|row| row.id.0.as_slice())
+        .collect();
+    let mut sources = backfill_sources(index, &missing_sources)?;
     let mut unavailable = false;
     for projected in &update.rows {
         if !ids.insert(projected.id) {
@@ -265,10 +298,13 @@ pub(crate) fn maintenance<I: IndexStorage>(
         let row = if let Some(row) = put.get(&projected.id) {
             *row
         } else {
-            old = backfill_row(index, &projected.id.0)?;
+            old = backfill_row(index, &projected.id.0, sources.next().ok_or_else(corrupt)?)?;
             let Some(row) = old.as_ref() else {
                 unavailable = true;
-                delete_row(&projected.id.0, &mut out);
+                out.push(Stmt::new(
+                    "DELETE FROM st_qraw WHERE id=?",
+                    vec![blob(&projected.id.0)],
+                ));
                 continue;
             };
             row
@@ -282,7 +318,10 @@ pub(crate) fn maintenance<I: IndexStorage>(
         };
         let Some(payload) = capture(row, &mut tag_steps_left) else {
             unavailable = true;
-            delete_row(&row.id.0, &mut out);
+            out.push(Stmt::new(
+                "DELETE FROM st_qraw WHERE id=?",
+                vec![blob(&row.id.0)],
+            ));
             continue;
         };
         bytes = match bytes
@@ -293,15 +332,12 @@ pub(crate) fn maintenance<I: IndexStorage>(
             Some(n) if n <= MAX_TX_BYTES => n,
             _ => return Ok(invalidate()),
         };
-        if payload.is_unreadable() {
-            candidate::delete(&row.id.0, &mut out);
-        } else if fact_bytes.saturating_add(payload.fact_bytes) <= MAX_TX_BYTES {
+        if fact_bytes.saturating_add(payload.fact_bytes) <= MAX_TX_BYTES {
             fact_bytes += payload.fact_bytes;
             out.extend(payload.facts);
-        } else {
+        } else if !payload.is_unreadable() {
             // Optional facts that cannot fit remain UNKNOWN, never a partial
             // field/tag inventory certified as complete.
-            candidate::delete(&row.id.0, &mut out);
             out.push(Stmt::new(
                 "INSERT INTO st_qraw_fact(id,known) VALUES(?,0)",
                 vec![blob(&row.id.0)],
