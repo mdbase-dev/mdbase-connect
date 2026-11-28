@@ -471,7 +471,13 @@ pub(super) async fn run_command(
             let sas = if let Some(code) = checked_code {
                 code
             } else {
-                let code = pending_code(profile, &device, collection.as_deref()).await?;
+                // Only the interactive prompt can compare a newly arrived code.
+                let wait = if out.yes {
+                    Duration::ZERO
+                } else {
+                    Duration::from_secs(15)
+                };
+                let code = pending_code(profile, &device, collection.as_deref(), wait).await?;
                 if !confirm(
                     out,
                     &format!(

@@ -118,8 +118,9 @@ pub(super) async fn pending_code(
     profile: &Profile,
     device: &str,
     collection: Option<&str>,
+    wait: Duration,
 ) -> Result<String, ClientError> {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    let deadline = tokio::time::Instant::now() + wait;
     loop {
         let v = call(
             profile,
