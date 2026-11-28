@@ -34,7 +34,7 @@ describe("Portal keyboard scope", () => {
     } finally { retained.remove(); }
   });
   function Host({ enabled = true }: { enabled?: boolean }) {
-    const keyboard = usePortalCommands({ data: undefined, collections: [], applications: [], sessions: undefined, selectedCollectionId: undefined, navigate, viewLabel: view => view, enabled, openEditor: undefined, reviewRequest: undefined });
+    const keyboard = usePortalCommands({ data: undefined, collections: [], applications: [], sessions: undefined, computerCollectionCounts: new Map(), selectedCollectionId: undefined, navigate, viewLabel: view => view, enabled, openEditor: undefined, reviewRequest: undefined });
     return <><input aria-label="Filter" /><div contentEditable aria-label="Editor" />
       <main className="connect-main"><button data-command="create" onClick={create}>Create</button></main>
       {keyboard.open && <dialog open aria-label="Commands" />}

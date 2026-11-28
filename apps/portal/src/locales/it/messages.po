@@ -2713,11 +2713,6 @@ msgstr "Rimuovi installazione"
 msgid "Remove installation {reference} of {0}?"
 msgstr "Rimuovere l’installazione {reference} di {0}?"
 
-#. placeholder {0}: group.applicationName
-#: src/ApplicationAccess.tsx
-#~ msgid "Remove only this installation of {0} from your account?"
-#~ msgstr "Rimuovere dal tuo account solo questa installazione di {0}?"
-
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
 #: src/ConnectApp.tsx
@@ -2769,11 +2764,6 @@ msgstr "Sostituisci i file esistenti"
 #: src/auth-view.tsx
 msgid "Replacing your password signs out every other browser session connected to the account."
 msgstr "La sostituzione della password disconnette tutte le altre sessioni del browser collegate all'account."
-
-#. placeholder {0}: response.status
-#: src/api.ts
-msgid "Request failed with HTTP {0}."
-msgstr "Richiesta non riuscita con HTTP {0}."
 
 #: src/authorization-view.tsx
 msgid "Request unavailable"
@@ -3597,6 +3587,7 @@ msgstr "Fuso orario"
 msgid "Try a different computer name. Filtering does not revoke access."
 msgstr "Prova un altro nome di computer. Il filtro non revoca l'accesso."
 
+#: src/AccountManagement.tsx
 #: src/auth-view.tsx
 #: src/authority-workflows.tsx
 #: src/authorization-view.tsx

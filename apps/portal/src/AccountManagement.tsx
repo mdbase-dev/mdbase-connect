@@ -40,11 +40,12 @@ const PLUS_PRICE_LABELS: Record<PlusInterval, string> = { month: "US$10", year: 
 const PLUS_ACTIVATION_POLL_MS = 2_000;
 const PLUS_ACTIVATION_POLLS = 15;
 
-export function AccountManagement({ client, overview, sessions, onOverviewRefresh, onDeleted, onSignedOut }: {
+export function AccountManagement({ client, overview, sessions, sessionsError, onOverviewRefresh, onDeleted, onSignedOut }: {
   client: ConnectManagementClient;
   overview: ManagementOverview;
   sessions?: AccountSession[];
-  onOverviewRefresh(): Promise<void>;
+  sessionsError?: string;
+  onOverviewRefresh(afterMutation?: boolean): Promise<void>;
   onDeleted(): void;
   onSignedOut(): void;
 }) {
@@ -78,6 +79,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
     new URLSearchParams(location.search).get("checkout") === "success" ? "waiting" : null);
   const refreshOverview = useRef(onOverviewRefresh);
   refreshOverview.current = onOverviewRefresh;
+  const accountRead = useRef(0);
   const plusActive = Boolean(overview.billing?.plus);
 
   const handleError = useCallback((reason: unknown) => {
@@ -89,16 +91,17 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
   }, [client, onSignedOut]);
 
   const refresh = useCallback(async (signal?: AbortSignal) => {
+    const read = ++accountRead.current;
     setLoading(true);
     try {
       const next = await (takeAccountPrefetch(client) ?? client.account({ signal }));
-      if (signal?.aborted) return;
+      if (signal?.aborted || read !== accountRead.current) return;
       setAccount(next);
     } catch (reason) {
-      if (signal?.aborted) return;
+      if (signal?.aborted || read !== accountRead.current) return;
       handleError(reason);
     } finally {
-      if (!signal?.aborted) setLoading(false);
+      if (!signal?.aborted && read === accountRead.current) setLoading(false);
     }
   }, [client, handleError]);
 
@@ -166,7 +169,7 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       clearPagePrefetch();
       finishOperation(id);
       // Refresh failure must not reinterpret an acknowledged mutation as failure.
-      if (saved) void onOverviewRefresh().catch(() => {
+      if (saved) void onOverviewRefresh(true).catch(() => {
         setError(t(i18n)({ message: "Your change was saved, but account details could not refresh. Reload to check the latest details." }));
       });
     }
@@ -376,8 +379,9 @@ export function AccountManagement({ client, overview, sessions, onOverviewRefres
       <div data-command="sign-out" className="connect-row-actions connect-session-actions" role="group" aria-label={t(i18n)({ message: "Browser session actions", context: "Account management" })}>
         <ConfirmAction className="mdbase-button is-tertiary is-danger" label={t(i18n)({ message: "Sign out of this browser", context: "Account management" })} question={t(i18n)`Sign out of this browser?`} consequence={t(i18n)`You will need to sign in again to manage your collections.`} confirmLabel={t(i18n)`Sign out`} pendingLabel={t(i18n)({ message: "Signing out…", context: "Account management" })} error={error} busy={busy.has("logout")} onConfirm={signOutCurrentBrowser} />
       </div>
-      {!sessions && <p className="connect-muted"><Trans>Checking active sessions…</Trans></p>}
-      {sessions && sessions.length >= 10 && <ListFilter label={t(i18n)`Filter sessions`} value={sessionQuery} onChange={setSessionQuery} />}
+      {sessionsError ? <div className="connect-notice error" role="alert">{sessionsError}<button className="mdbase-button is-tertiary" onClick={() => void onOverviewRefresh()}><Trans>Try again</Trans></button></div>
+        : !sessions && <p className="connect-muted"><Trans>Checking active sessions…</Trans></p>}
+      {sessions && (sessions.length >= 10 || sessionQuery) && <ListFilter label={t(i18n)`Filter sessions`} value={sessionQuery} onChange={setSessionQuery} />}
       {sessions && visibleSessions?.length === 0 && <Empty title={t(i18n)`No sessions match`} body={t(i18n)`Try another name.`} />}
       {visibleSessions?.map((session) => <div className="connect-row" key={session.id} data-list-item data-command={`session:${session.id}`} tabIndex={-1}>
         <div><strong>{session.client_name}</strong><small>{session.current ? t(i18n)({ message: "This browser, active now", context: "Account management" }) : t(i18n)`Last used ${relativeTime(session.last_seen_at)}`}</small><small><Trans>Signed in <time dateTime={session.created_at}>{formatters(i18n.locale).date(new Date(session.created_at), { dateStyle: "short", timeStyle: "short" })}</time></Trans></small></div>

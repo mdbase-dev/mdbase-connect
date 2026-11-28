@@ -1,10 +1,11 @@
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode, type RefObject } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 import { ManagementApiError } from "@mdbase/connect-management";
 import { Tooltip } from "@mdbase-dev/ui/tooltip";
+import { isDiagnosticMessage } from "./request-error.mjs";
 
 export function ConnectPreview({ title, rows, pending, error, retry }: {
   title: string;
@@ -45,10 +46,12 @@ export function ConnectPage({ title, intro, status, action, reading = false, chi
     const track = (event: FocusEvent) => {
       const target = event.target;
       if (!(target instanceof HTMLElement) || target.closest("dialog")) return;
-      focused = target.closest("[data-list-item]");
+      const row = target.closest<HTMLElement>("[data-list-item]");
+      focused = page.contains(row) ? row : null;
+      if (!focused) { targets = []; return; }
       const rows = [...page.querySelectorAll<HTMLElement>("[data-list-item]")];
-      const index = focused ? rows.indexOf(focused) : -1;
-      targets = index < 0 ? [] : [...rows.slice(index + 1), ...rows.slice(0, index).reverse()];
+      const index = rows.indexOf(focused);
+      targets = [...rows.slice(index + 1), ...rows.slice(0, index).reverse()];
     };
     const observer = new MutationObserver(() => {
       if (!focused || focused.isConnected || document.querySelector("dialog[open]")) return;
@@ -104,10 +107,11 @@ export function ConnectEmpty({ title, body, action, icon = true }: {
   </div>;
 }
 
-export function ListFilter({ label, value, onChange }: { label: string; value: string; onChange(value: string): void }) {
+export function ListFilter({ label, value, onChange, inputRef }: { label: string; value: string; onChange(value: string): void; inputRef?: RefObject<HTMLInputElement | null> }) {
   useLocaleRevision();
-  const input = useRef<HTMLInputElement>(null);
-  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /><kbd aria-hidden="true">/</kbd></label><Tooltip label={t(i18n)`Clear search`}><button type="button" className="mdbase-icon-button" hidden={!value} onClick={() => { onChange(""); input.current!.focus(); }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m6 6 12 12M18 6 6 18" /></svg></button></Tooltip></div>;
+  const fallbackRef = useRef<HTMLInputElement>(null);
+  const input = inputRef ?? fallbackRef;
+  return <div className="connect-list-filter"><label><span className="mdbase-visually-hidden">{label}</span><input ref={input} className="mdbase-field" type="search" aria-label={label} placeholder={label} value={value} onChange={event => onChange(event.target.value)} /><kbd aria-hidden="true">/</kbd></label><Tooltip label={t(i18n)`Clear search`}><button type="button" className="mdbase-icon-button" hidden={!value} onClick={() => { onChange(""); input.current?.focus(); }}><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.6"><path d="m6 6 12 12M18 6 6 18" /></svg></button></Tooltip></div>;
 }
 
 export function DesktopLink({ href, role, children }: { href: string; role?: "menuitem"; children: ReactNode }) {
@@ -141,12 +145,16 @@ export function isCollectionQuotaRefusal(value: unknown): boolean {
 }
 
 export function errorMessage(value: unknown): string {
-  if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
   if (isCollectionQuotaRefusal(value)) return t(i18n)`Your account has reached its synced collection limit.`;
   const detail = value instanceof Error ? value.message : String(value);
-  return /failed to fetch|networkerror|network request failed/i.test(detail)
-    ? t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." })
-    : detail;
+  if (value instanceof ManagementApiError && (value.status >= 500 || value.code === "invalid_response"
+    || isDiagnosticMessage(detail, value.code))) {
+    return t(i18n)`Something went wrong on mdbase. Try again.`;
+  }
+  if (/failed to fetch|networkerror|network request failed/i.test(detail)) {
+    return t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." });
+  }
+  return detail;
 }
 
 /** A portal page; Home and a collection's overview share `/`. */

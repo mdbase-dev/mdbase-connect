@@ -1,5 +1,7 @@
 import { t } from "@lingui/core/macro";
 import { i18n } from "@mdbase-dev/ui/i18n";
+import { isDiagnosticMessage } from "./request-error.mjs";
+
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -10,12 +12,11 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new ApiError(
-      response.status,
-      response.status >= 500 ? t(i18n)`Something went wrong on mdbase. Try again.` : body?.error?.message ?? t(i18n)`Request failed with HTTP ${response.status}.`,
-      typeof body?.error?.code === "string" ? body.error.code : undefined,
-      body?.error?.details
-    );
+    const code = typeof body?.error?.code === "string" ? body.error.code : undefined;
+    const message = body?.error?.message;
+    const detail = response.status < 500 && typeof message === "string" && !isDiagnosticMessage(message, code)
+      ? message : t(i18n)`Something went wrong on mdbase. Try again.`;
+    throw new ApiError(response.status, detail, code, body?.error?.details);
   }
   return body as T;
 }
