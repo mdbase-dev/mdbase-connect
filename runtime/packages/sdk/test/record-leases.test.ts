@@ -177,6 +177,147 @@ describe("shared native record leases", () => {
         expect(update).toHaveBeenCalledTimes(1);
         lease.release();
     });
+    it.each([false, true])("restores refused fields and unsets without reverting peer edits (reopen %s)", async reopen => {
+        const f = await fixture(true);
+        let client = f.client;
+        let lease = await client.records.open(f.record.id);
+        vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+        lease.session.patchFrontmatter({ category: "local", title: undefined });
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        const { mutationId } = f.client.ledger.getSnapshot().pending[0]!;
+        if (reopen) {
+            lease.release();
+            client = await f.replica.client();
+            clients.push(client);
+            lease = await client.records.open(f.record.id);
+        }
+        // An edit made after local acceptance must survive rejection too.
+        lease.session.patchFrontmatter({ category: "later typing" });
+        f.replica.reject(mutationId);
+        await vi.waitFor(() => expect(lease.session.getSnapshot().state).toBe("conflict"));
+        f.replica.editElsewhere(f.record.id, { body: "peer body", frontmatter: { extra: "peer field" } });
+        await vi.waitFor(() => expect(lease.session.getSnapshot()).toMatchObject({
+            state: "conflict", remote: { body: "peer body", frontmatter: { title: "Original", extra: "peer field" } },
+        }));
+        lease.session.resolve({ keep: "mine" });
+        expect(lease.session.getSnapshot().body).toBe("peer body");
+        expect(lease.session.getSnapshot().frontmatter).toEqual({ category: "later typing", extra: "peer field" });
+        vi.spyOn(client, "awaitReceipt").mockImplementationOnce(async mutation => {
+            f.replica.confirmAll();
+            return client.receipt(mutation);
+        });
+        expect(await lease.session.flush()).toMatchObject({ ok: true });
+        const saved = await client.get(f.record.id, { include: { body: true } });
+        expect(saved.body).toBe("peer body");
+        expect(saved.frontmatter).toEqual({ category: "later typing", extra: "peer field" });
+        lease.release();
+    });
+    it.each(["set", "unset"])("retains a divergent pending field %s and subsequent typing", async mode => {
+        const f = await fixture(true), lease = await f.client.records.open(f.record.id);
+        const update = vi.spyOn(f.client, "update");
+        vi.spyOn(f.client, "awaitReceipt").mockImplementationOnce(async mutation => {
+            lease.session.patchFrontmatter({ later: "typed during save" });
+            f.replica.reject(mutation);
+            return { mutation, state: "pending" };
+        });
+        lease.session.patchFrontmatter({ title: mode === "set" ? "local" : undefined });
+        const expected = mode === "set" ? { title: "local", later: "typed during save" } : { later: "typed during save" };
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { reason: "unqualified_readback" } });
+        expect(lease.session.getSnapshot().frontmatter).toEqual(expected);
+        const mutation = update.mock.calls[0]![2]!.mutationId;
+        expect(lease.session.getSnapshot().recovery?.mutationId).toBe(mutation);
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code: "conflict" } });
+        expect(lease.session.getSnapshot().lastReceipt).toMatchObject({ mutation, state: "rejected" });
+        expect(lease.session.getSnapshot().frontmatter).toEqual(expected);
+        expect(update).toHaveBeenCalledTimes(1);
+        lease.release();
+    });
+    it("accepts another offline edit and adopts a peer edit following genuine confirmation", async () => {
+        const f = await fixture(true), lease = await f.client.records.open(f.record.id);
+        const update = vi.spyOn(f.client, "update");
+        vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+        lease.session.patchFrontmatter({ title: "Offline title" });
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        lease.session.setBody("Offline body");
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        f.replica.confirmAll();
+        f.replica.editElsewhere(f.record.id, { body: "Later peer body", frontmatter: { title: "Later peer title" } });
+        await vi.waitFor(() => expect(lease.session.getSnapshot()).toMatchObject({
+            state: "saved", body: "Later peer body", frontmatter: { title: "Later peer title" }, remote: null,
+        }));
+        expect(update).toHaveBeenCalledTimes(2);
+        lease.release();
+    });
+    it("adopts a confirmed record that already contains the newer draft after rollback", async () => {
+        const f = await fixture(true), lease = await f.client.records.open(f.record.id);
+        const update = vi.spyOn(f.client, "update");
+        vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+        lease.session.setBody("First");
+        lease.session.patchFrontmatter({ title: undefined });
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        const { mutationId } = f.client.ledger.getSnapshot().pending[0]!;
+        lease.session.setBody("Second");
+        lease.session.patchFrontmatter({ title: "Second" });
+        f.replica.reject(mutationId);
+        f.replica.editElsewhere(f.record.id, { body: "Second", frontmatter: { title: "Second" } });
+        await vi.waitFor(() => expect(lease.session.getSnapshot()).toMatchObject({
+            state: "saved", dirty: false, body: "Second", frontmatter: { title: "Second" }, remote: null,
+            lastReceipt: { mutation: mutationId, state: "rejected" },
+        }));
+        expect(update).toHaveBeenCalledTimes(1);
+        lease.release();
+    });
+    it("keeps matching readbacks editable on device until the exact receipt confirms", async () => {
+        const f = await fixture(true), lease = await f.client.records.open(f.record.id);
+        const get = f.client.get.bind(f.client);
+        vi.spyOn(f.client, "get").mockImplementation(async (...args) => {
+            const row = await get(...args);
+            return { ...row, state: { ...row.state, state: "confirmed" } };
+        });
+        vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+        lease.session.setBody("Local");
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        lease.session.patchFrontmatter({ title: undefined });
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        expect(lease.session.getSnapshot().lastReceipt?.state).toBe("pending");
+        expect(lease.session.getSnapshot().frontmatter).toEqual({});
+        f.replica.confirmAll();
+        await vi.waitFor(() => expect(lease.session.getSnapshot()).toMatchObject({
+            state: "saved", lastReceipt: { state: "confirmed" },
+        }));
+        lease.release();
+    });
+    it.each([false, true])("discards a refresh spanning an offline write (stale failure %s)", async fail => {
+        const f = await fixture(true);
+        const original = f.client.get.bind(f.client);
+        let finish!: () => void;
+        const blocked = new Promise<void>(resolve => { finish = resolve; });
+        let replayed!: () => void;
+        const replay = new Promise<void>(resolve => { replayed = resolve; });
+        const get = vi.spyOn(f.client, "get").mockImplementationOnce(original)
+            .mockImplementationOnce(async (...args) => {
+                const earlier = await original(...args);
+                await blocked;
+                if (fail) throw mdbaseError("not_found", "stale refresh");
+                return earlier;
+            });
+        const lease = await f.client.records.open(f.record.id);
+        const states: string[] = [];
+        lease.session.subscribe(() => states.push(lease.session.getSnapshot().state));
+        vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+        lease.session.setBody("Offline body");
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        get.mockImplementationOnce(async (...args) => {
+            replayed();
+            return original(...args);
+        });
+        finish();
+        await replay;
+        expect(states).not.toContain("conflict");
+        expect(states).not.toContain("deleted");
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "saved_on_device", body: "Offline body" });
+        lease.release();
+    });
     it("an offline autosave whose receipt wait runs out is saved on device, then saved once online", async () => {
         const f = await fixture(false),
             update = vi.spyOn(f.client, "update");

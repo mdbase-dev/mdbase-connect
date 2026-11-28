@@ -3,7 +3,7 @@ import type { MdbaseClient, UpdateInput, Write } from "../client.js";
 import { MdbaseError, mdbaseError } from "../errors.js";
 import { WriteRefusal } from "../session.js";
 import { toPlain, toValue, uuidv7, type PlainValue } from "../values.js";
-import type { JsonValue, Receipt, RecordView } from "../plain.js";
+import { fieldOf, type JsonValue, type Receipt, type RecordView } from "../plain.js";
 import type { Problem } from "../wire.js";
 import {
     complete,
@@ -36,12 +36,26 @@ type Captured = {
     body: string;
     patch: Map<string, CborValue | undefined>;
 };
+// A null key denotes the body. Each field keeps only its latest local intent,
+// even when several writes are accepted on the device before going online.
+type PendingEdits = Map<string | null, { mutation: string; value: CborValue | undefined }>;
+
+function matches(record: RecordView, key: string | null, value: CborValue | undefined): boolean {
+    if (key === null) return value === record.body;
+    const actual = fieldOf(record.frontmatter, key);
+    if (actual === undefined || value === undefined) return actual === value;
+    // RecordView exposes the SDK's plain projection of native values.
+    return equal(toValue(actual), toValue(toPlain(value)));
+}
+
 export class RecordSessionImpl {
     private base: RecordView;
     private body: string;
     private patch = new Map<string, CborValue | undefined>();
     private remote: RecordView | null = null;
     private captured: Captured | null = null;
+    private pendingEdits: PendingEdits = new Map();
+    private driveGeneration = 0;
     private lastReceipt: Receipt | null = null;
     private state: RecordSessionState;
     private why: Problem | null = null;
@@ -66,7 +80,7 @@ export class RecordSessionImpl {
         complete(record);
         this.base = copy(record);
         this.body = record.body!;
-        this.state = isProtected(record) ? "conflict" : resting(record);
+        this.state = isProtected(record) ? "conflict" : this.restState;
         this.publish();
     }
     async restore(
@@ -96,8 +110,26 @@ export class RecordSessionImpl {
                 recovery: { ...hint, receipt: null, write: null },
             };
         }
-        // A pending write from an earlier session is kept on this device and
-        // settled by the write ledger; the record stays editable.
+        if (!this.active && !hint && this.base.state.state === "pending" && !this.pendingEdits.size) {
+            const edits: PendingEdits = new Map();
+            for (const { ops, receipt } of await this.client.pendingWrites({ signal })) {
+                for (const op of ops) {
+                    if (op.kind !== "update" || op.id !== this.id) continue;
+                    const mutation = receipt.mutation;
+                    // SDK body writes may be encoded as splices. The replica
+                    // already applied them; keep its projected body verbatim.
+                    if (op.body !== undefined || op.bodyEdits?.length) {
+                        const body = op.body ?? receipt.records?.find(record => record.id === this.id)?.body ?? this.base.body!;
+                        edits.set(null, { mutation, value: body });
+                    }
+                    for (const [key, value] of Object.entries(op.patch ?? {}))
+                        edits.set(key, { mutation, value: toValue(value) });
+                    for (const key of op.unset ?? []) edits.set(key, { mutation, value: undefined });
+                }
+            }
+            this.charge(this.body, this.patch, this.base, this.remote, this.lastReceipt, this.captured, edits);
+            this.pendingEdits = edits;
+        }
         signal?.throwIfAborted();
         if (this.captured) {
             this.state = "recovery";
@@ -115,8 +147,11 @@ export class RecordSessionImpl {
     get dirty(): boolean {
         return this.body !== this.base.body || this.patch.size > 0;
     }
+    private get restState(): "saved" | "saved_on_device" {
+        return !this.pendingEdits.size && confirmed(this.base) ? "saved" : "saved_on_device";
+    }
     get retained(): boolean {
-        return this.dirty || this.captured !== null || !confirmed(this.base);
+        return this.dirty || this.captured !== null || this.pendingEdits.size > 0 || !confirmed(this.base);
     }
     getSnapshot = (): RecordSessionSnapshot => this.snapshot;
     subscribe = (listener: () => void): (() => void) => {
@@ -187,7 +222,7 @@ export class RecordSessionImpl {
             this.state !== "conflict" &&
             this.state !== "deleted"
         ) {
-            this.state = this.dirty ? "unsaved" : resting(this.base);
+            this.state = this.dirty ? "unsaved" : this.restState;
             this.why = null;
         }
         this.publish();
@@ -200,6 +235,7 @@ export class RecordSessionImpl {
         remote = this.remote,
         receipt = this.lastReceipt,
         captured = this.captured,
+        pendingEdits = this.pendingEdits,
     ): void {
         let bytes =
             retainedBytes(base) +
@@ -217,6 +253,8 @@ export class RecordSessionImpl {
                     ),
                 ).byteLength *
                     2;
+        for (const [key, edit] of pendingEdits)
+            bytes += encode([key, edit.mutation, edit.value ?? null]).byteLength * 2;
         if (receipt) bytes += retainedBytes(receipt);
         this.reserve(bytes);
     }
@@ -275,11 +313,77 @@ export class RecordSessionImpl {
         complete(record, this.id);
         return record;
     }
-    /** A pending local body may disappear from the projection before its
-     * rejection arrives. Keep it available for explicit resolution. */
-    private pendingBodyChanged(current: RecordView): boolean {
-        return this.base.state.state === "pending" && this.base.body !== current.body && this.body !== current.body;
+    /** The projection can change after either a refusal or a successful write
+     * followed by a peer edit. Only the original MID distinguishes them. */
+    private async readWithReceipts(signal: AbortSignal) {
+        const receipts = new Map<string, Receipt>();
+        for (;;) {
+            const current = await this.read(signal);
+            if (this.captured) return { current, receipts };
+            const count = receipts.size;
+            for (const [key, { mutation, value }] of this.pendingEdits) {
+                const present = matches(current, key, value);
+                if (!confirmed(current) && present) continue;
+                if (!receipts.has(mutation)) {
+                    const receipt = await this.client.receipt(mutation, { signal });
+                    signal.throwIfAborted();
+                    if (receipt.mutation !== mutation)
+                        throw refusal("outcome_unknown", "native receipt changed identity", "mutation_identity_mismatch");
+                    receipts.set(mutation, receipt);
+                }
+                const receipt = receipts.get(mutation)!;
+                if (receipt.state === "unknown" || (receipt.state === "pending" && !present))
+                    throw refusal("outcome_unknown", "the projection does not qualify this device write yet", "unqualified_readback");
+            }
+            // The projection can advance during receipt lookup. Re-read after
+            // each newly consulted group, including any other mutations exposed by that read.
+            if (receipts.size === count) return { current, receipts };
+        }
     }
+
+    /** Restore only a refused write's missing edits. Newer typing and field
+     * edits win, including an explicit unset; unrelated remote fields survive. */
+    private reconcilePending(current: RecordView, receipts: Map<string, Receipt>): void {
+        if (!receipts.size) return;
+        const remaining = new Map(this.pendingEdits);
+        const patch = new Map(this.patch);
+        const bodyEdited = this.body !== this.base.body;
+        let body = bodyEdited ? this.body : current.body!;
+        let rolledBack = false;
+        for (const [key, { mutation, value }] of this.pendingEdits) {
+            const receipt = receipts.get(mutation);
+            if (!receipt || receipt.state === "pending" || receipt.state === "unknown") continue;
+            remaining.delete(key);
+            if ((receipt.state !== "rejected" && receipt.status !== "conflicted") || matches(current, key, value)) continue;
+            rolledBack = true;
+            if (key === null) {
+                if (!bodyEdited) body = value as string;
+            } else if (!patch.has(key)) {
+                patch.set(key, value);
+            }
+        }
+        const last = this.lastReceipt && (receipts.get(this.lastReceipt.mutation) ?? this.lastReceipt);
+        if (rolledBack) {
+            for (const [key, value] of patch) {
+                if (matches(current, key, value)) patch.delete(key);
+            }
+            const differs = body !== current.body || patch.size > 0;
+            this.charge(body, patch, current, differs ? current : null, last, this.captured, remaining);
+            this.base = copy(current);
+            this.remote = differs ? copy(current) : null;
+            this.body = body;
+            this.patch = patch;
+            if (differs) {
+                this.state = "conflict";
+                this.why = refusal("conflict", "a device write was refused at head", "record_session_conflict").toProblem();
+            }
+        } else {
+            this.charge(this.body, this.patch, this.base, this.remote, last, this.captured, remaining);
+        }
+        this.pendingEdits = remaining;
+        this.lastReceipt = last;
+    }
+
     /** Native change notifications are hints only; hydrate the same UUID. */
     refresh = (): Promise<void> => {
         if (!this.active) return Promise.resolve();
@@ -291,8 +395,13 @@ export class RecordSessionImpl {
         this.refreshRunning = (async () => {
             do {
                 this.refreshAgain = false;
+                const generation = this.driveGeneration;
                 try {
-                    const current = await this.read(signal);
+                    const { current, receipts } = await this.readWithReceipts(signal);
+                    if (generation !== this.driveGeneration) {
+                        this.refreshAgain = true;
+                        continue;
+                    }
                     if (this.captured || this.running) {
                         // A captured write settles from its receipt, never from
                         // this hint; re-settle it here so a write that confirms
@@ -301,14 +410,15 @@ export class RecordSessionImpl {
                             void this.start(false, {}).catch(() => {});
                         continue;
                     }
+                    this.reconcilePending(current, receipts);
                     this.charge(this.body, this.patch, this.base, current);
-                    if (!this.dirty && !this.pendingBodyChanged(current)) {
+                    if (!this.dirty) {
                         this.base = copy(current);
                         this.body = current.body!;
                         this.remote = null;
                         this.state = isProtected(current)
                             ? "conflict"
-                            : resting(current);
+                            : this.restState;
                         this.why = null;
                     } else if (
                         current.revision !== this.base.revision ||
@@ -325,6 +435,10 @@ export class RecordSessionImpl {
                     this.publish();
                 } catch (error) {
                     if (signal.aborted) return;
+                    if (generation !== this.driveGeneration || this.running) {
+                        this.refreshAgain = !this.running;
+                        continue;
+                    }
                     this.why = problem(error);
                     this.state =
                         this.why.code === "not_found"
@@ -377,10 +491,14 @@ export class RecordSessionImpl {
             until: Date.now() + duration,
             margin: Math.min(2_000, Math.floor(duration / 4)),
         };
-        const drive = () => this.drive(signal, budget, write);
+        const drive = () => {
+            this.driveGeneration++;
+            return this.drive(signal, budget, write);
+        };
         const run: Promise<RecordFlushResult> = (
             prior ? prior.then(drive, drive) : drive()
         ).finally(() => {
+            this.driveGeneration++;
             limit.clear();
             if (this.running !== run) return;
             this.running = null;
@@ -404,14 +522,15 @@ export class RecordSessionImpl {
                     continue;
                 }
                 if (!submit)
-                    return confirmed(this.base)
+                    return this.restState === "saved"
                         ? { ok: true, record: copy(this.base) }
                         : {
                               ok: true,
                               record: copy(this.base),
                               saved: "on_device",
                           };
-                const current = await this.read(signal);
+                const { current, receipts } = await this.readWithReceipts(signal);
+                this.reconcilePending(current, receipts);
                 if (isProtected(current)) {
                     this.charge(this.body, this.patch, this.base, current);
                     this.remote = copy(current);
@@ -427,15 +546,15 @@ export class RecordSessionImpl {
                         "the original record was deleted",
                         "record_deleted",
                     );
-                if (!this.dirty && !this.pendingBodyChanged(current)) {
+                if (!this.dirty) {
                     this.charge(current.body!, this.patch, current, null);
                     this.base = copy(current);
                     this.body = current.body!;
                     this.remote = null;
-                    this.state = resting(current);
+                    this.state = this.restState;
                     this.why = null;
                     this.publish();
-                    return confirmed(current)
+                    return this.restState === "saved"
                         ? { ok: true, record: copy(current) }
                         : { ok: true, record: copy(current), saved: "on_device" };
                 }
@@ -599,14 +718,22 @@ export class RecordSessionImpl {
         // Still pending after the wait: the write is kept on this device and the
         // ledger settles it. Not a failure, and nothing is resubmitted.
         const kept = receipt.state === "pending";
-        const missingPendingBody = kept && captured.body !== this.base.body && current.body !== captured.body;
-        if (missingPendingBody || (kept ? isProtected(current) : !confirmed(current)))
+        const edits: PendingEdits = new Map(this.pendingEdits);
+        const submitted = new Map<string | null, CborValue | undefined>(captured.patch);
+        if (captured.body !== this.base.body) submitted.set(null, captured.body);
+        for (const [key, value] of submitted) {
+            if (kept) edits.set(key, { mutation: receipt.mutation, value });
+            else edits.delete(key);
+        }
+        if (kept ? isProtected(current) || [...submitted].some(([key, value]) => !matches(current, key, value))
+                 : !confirmed(current))
             throw refusal(
                 "outcome_unknown",
                 "record readback does not qualify the native receipt",
                 "unqualified_readback",
             );
-        this.charge(this.body, this.patch, current, null);
+        this.charge(this.body, this.patch, current, null, receipt, null, edits);
+        this.pendingEdits = edits;
         const sameBody = this.body === captured.body;
         for (const [key, value] of captured.patch) {
             const latest = this.patch.get(key);
@@ -622,7 +749,7 @@ export class RecordSessionImpl {
         if (sameBody) this.body = current.body!;
         this.captured = null;
         this.remote = null;
-        this.state = this.dirty ? "unsaved" : resting(current);
+        this.state = this.dirty ? "unsaved" : this.restState;
         this.why = null;
         this.publish();
     }
@@ -644,7 +771,7 @@ export class RecordSessionImpl {
         const body =
             "body" in choice
                 ? choice.body
-                : choice.keep === "theirs"
+                : choice.keep === "theirs" || this.body === this.base.body
                   ? remote.body!
                   : this.body;
         const patch =
@@ -661,10 +788,6 @@ export class RecordSessionImpl {
         this.publish();
         this.schedule();
     };
-}
-/** A clean record's state: confirmed is saved, pending is saved on this device. */
-function resting(record: RecordView): RecordSessionState {
-    return confirmed(record) ? "saved" : "saved_on_device";
 }
 function equal(a: CborValue, b: CborValue): boolean {
     const x = encode(a),
