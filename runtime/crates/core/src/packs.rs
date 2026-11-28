@@ -840,7 +840,9 @@ pub fn assess_type_pack(
                 live.as_deref(),
                 opts.preserve_seed_targets.contains(&target),
                 opts.adopt.get(&target),
-                &|doc| implements_as_desired(&desired_state, &target, &r.document, doc),
+                &|doc, scope| {
+                    implements_as_desired(&desired_state, &target, &r.document, doc, scope)
+                },
                 &mut p,
             ),
         }
@@ -1128,7 +1130,7 @@ fn plan_seed(
     live: Option<&str>,
     preserved: bool,
     adopt: Option<&Hash>,
-    fits: &dyn Fn(&str) -> bool,
+    fits: &dyn Fn(&str, ImplementationScope) -> bool,
     p: &mut PlannedResource,
 ) {
     let previous_origin = entry.and_then(|e| e.origin_digest);
@@ -1161,7 +1163,7 @@ fn plan_seed(
         p.origin = Some(r.digest);
         return;
     }
-    if preserved || r.baselines.is_empty() {
+    if preserved {
         return;
     }
     if let Some(b) = r
@@ -1175,7 +1177,22 @@ fn plan_seed(
         p.upgrade_baseline = Some((b.digest, b.version));
         return;
     }
-    if previous_origin == Some(r.digest) {
+    let declares_contracts =
+        || split_frontmatter(&r.document).is_some_and(|fm| fm.contains_key("implements"));
+    // An existing implementation elsewhere also satisfies a first install.
+    if entry.is_none()
+        && r.kind == "type"
+        && declares_contracts()
+        && !fits(live, ImplementationScope::Collection)
+    {
+        p.action = Action::Conflict;
+        p.reason = Some(format!(
+            "{}: the existing type does not implement the pack's contracts",
+            r.target
+        ));
+        return;
+    }
+    if r.baselines.is_empty() || previous_origin == Some(r.digest) {
         return;
     }
     if let Some(b) = r
@@ -1212,15 +1229,14 @@ fn plan_seed(
     candidates.sort_by_key(|(distance, _)| *distance);
     for (_, b) in candidates {
         if let Ok(doc) = merge_type(&b.document, live, &r.document)
-            && fits(&doc)
+            && fits(&doc, ImplementationScope::Target)
         {
             upgrade_seed(r, b, live, doc, p);
             return;
         }
     }
     // It already implements the contracts the app needs: keeping it is enough.
-    if split_frontmatter(&r.document).is_some_and(|fm| fm.contains_key("implements")) && fits(live)
-    {
+    if declares_contracts() && fits(live, ImplementationScope::Target) {
         return;
     }
     p.reason = Some(format!(
@@ -1230,7 +1246,7 @@ fn plan_seed(
 }
 
 /// Whether any record belongs to the type defined at `target`.
-fn type_in_use(state: &dyn StateView, target: &str) -> bool {
+pub fn type_in_use(state: &dyn StateView, target: &str) -> bool {
     let catalog = state.catalog();
     let names: BTreeSet<&str> = catalog
         .types()
@@ -1283,15 +1299,22 @@ fn upgrade_seed(r: &PackResource, b: &Baseline, live: &str, doc: String, p: &mut
     }
 }
 
-/// Whether `candidate` at `target` validates and implements every contract
+#[derive(Clone, Copy)]
+enum ImplementationScope {
+    Target,
+    Collection,
+}
+
+/// Whether the candidate catalog validates at `target` and implements every contract
 /// version that `desired` would, over the pack's own definitions.
 fn implements_as_desired(
     state: &dyn StateView,
     target: &str,
     desired: &str,
     candidate: &str,
+    scope: ImplementationScope,
 ) -> bool {
-    let implemented = |doc: &str| {
+    let implemented = |doc: &str, scope| {
         let mut staged = Overlay::new(state);
         staged.apply_effect(&Effect::PutResource {
             path: target.to_owned(),
@@ -1311,13 +1334,19 @@ fn implements_as_desired(
         let contracts: BTreeSet<(String, String)> = catalog
             .implementations()
             .iter()
-            .filter(|i| names.contains(i.type_name.as_str()))
+            .filter(|i| {
+                matches!(scope, ImplementationScope::Collection)
+                    || names.contains(i.type_name.as_str())
+            })
             .map(|i| (i.contract.clone(), i.version.to_string()))
             .collect();
         (valid, contracts)
     };
-    let (valid, contracts) = implemented(candidate);
-    valid && implemented(desired).1.is_subset(&contracts)
+    let (valid, contracts) = implemented(candidate, scope);
+    valid
+        && implemented(desired, ImplementationScope::Target)
+            .1
+            .is_subset(&contracts)
 }
 
 /// Three-way merge of type frontmatter (spec 05A seed upgrades): the live

@@ -254,6 +254,11 @@ describe("scoped application configuration phase", () => {
     const { currentDigest: _digest, ...inUse } = kept;
     expect(setupPlan(pack("upgrade", [inUse]), input)).toMatchObject({ canApply: false, adoptable: {}, refusal: { code: "setup_conflict",
       message: expect.stringContaining("can't be set up automatically") } });
+    const existing = { ...kept, action: "conflict", installed: false };
+    expect(setupPlan(pack("upgrade", [existing]), input)).toMatchObject({ canApply: false, adoptable: { "_types/task.md": digest },
+      conflicts: [{ message: 'The existing note type at "_types/task.md" differs from the one this app needs. You can replace it with this app\'s version.' }] });
+    expect(setupPlan(pack("upgrade", [{ ...existing, currentDigest: undefined }]), input)).toMatchObject({ canApply: false, adoptable: {},
+      conflicts: [{ message: expect.stringContaining("rename it and update the notes that use it") }] });
     // Chosen: Core stages the app's version over exactly the reviewed revision.
     const replacing = { ...kept, action: "adopt" as const, reason: undefined };
     const chosenPlan = setupPlan({ ...pack("upgrade", [replacing]), review: { ...pack("upgrade", [replacing]).review, staged: [{ path: "_types/task.md", document: "app's" }] } }, input);

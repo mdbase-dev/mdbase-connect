@@ -510,6 +510,46 @@ fn seed_pack(version: u32) -> mdbn_core::packs::Pack {
     .unwrap()
 }
 
+#[test]
+fn existing_seed_requires_review_only_when_it_lacks_the_pack_contract() {
+    let pack = seed_pack(1);
+    let mut state = MemState::new();
+    let plan = |state: &MemState| {
+        assess_type_pack(state, &pack, &opts())
+            .unwrap()
+            .resources
+            .into_iter()
+            .find(|r| r.target == SEED)
+            .unwrap()
+    };
+    state.insert_resource(SEED, SEED_V1_REWRITTEN);
+    assert_eq!(plan(&state).action, Action::Preserve);
+    state.insert_resource(SEED, &SEED_V1.replace("A note.", "My custom note."));
+    assert!(plan(&state).reason.is_none());
+
+    state.insert_resource(SEED, TYPE);
+    let vacant = plan(&state);
+    assert_eq!(vacant.action, Action::Conflict);
+    assert!(vacant.reason.is_some() && vacant.replaceable());
+    assert_eq!(vacant.live, Some(revision(TYPE)));
+
+    state.insert_record(Uuid([1; 16]), "existing.md", "---\ntype: note\n---\n");
+    let used = plan(&state);
+    assert!(used.in_use && !used.replaceable());
+    assert_eq!(used.document, None);
+
+    state.insert_resource(
+        "_types/other.md",
+        &SEED_V1.replace("name: note", "name: other"),
+    );
+    let supported = plan(&state);
+    assert_eq!(supported.action, Action::Preserve);
+    assert!(supported.reason.is_none());
+
+    // A receipt distinguishes a person's later edit from a first-install collision.
+    assert!(plan(&legacy_seed(1, TYPE)).reason.is_none());
+}
+
 /// Install `version`, then leave the receipt as a legacy installer wrote it
 /// (no seed origins) and the seed as `live`.
 fn legacy_seed(version: u32, live: &str) -> MemState {

@@ -51,6 +51,35 @@ impl CelMap {
         CelMap::default()
     }
 
+    // Frontmatter maps already guarantee unique string keys in insertion order.
+    fn from_fields<'a>(
+        fields: &'a Map,
+        mut convert: impl FnMut(&'a str, &'a Value) -> CelValue,
+    ) -> Self {
+        let mut entries = Vec::with_capacity(fields.len());
+        for (key, value) in fields.iter() {
+            entries.push((Key::String(key.into()), convert(key, value)));
+        }
+        Self {
+            entries,
+            origin: None,
+        }
+    }
+
+    pub(crate) fn from_fields_at<'a>(
+        fields: &'a Map,
+        at: &mut Vec<&'a str>,
+        zone: Option<super::time::NamedZone>,
+        date_time: &dyn Fn(&[&str]) -> Option<crate::jsonschema::DateTimeFormats>,
+    ) -> Self {
+        Self::from_fields(fields, |key, value| {
+            at.push(key);
+            let value = CelValue::from_value_at(value, at, zone, date_time);
+            at.pop();
+            value
+        })
+    }
+
     /// A record map read from the record at `path`.
     pub fn with_origin(mut self, path: &str) -> CelMap {
         self.origin = Some(Arc::from(path));
@@ -237,18 +266,9 @@ impl CelValue {
                 at.pop();
                 Self::List(Arc::new(items))
             }
-            Value::Map(fields) => {
-                let mut out = CelMap::new();
-                for (key, value) in fields.iter() {
-                    at.push(key);
-                    out.insert(
-                        Key::String(key.into()),
-                        Self::from_value_at(value, at, zone, date_time),
-                    );
-                    at.pop();
-                }
-                Self::Map(Arc::new(out))
-            }
+            Value::Map(fields) => Self::Map(Arc::new(CelMap::from_fields_at(
+                fields, at, zone, date_time,
+            ))),
             other => Self::from_value(other),
         }
     }
@@ -314,11 +334,7 @@ impl CelValue {
 
 /// Map a frontmatter map into a CEL map.
 pub fn map_from(m: &Map) -> CelMap {
-    let mut out = CelMap::new();
-    for (k, v) in m.iter() {
-        out.insert(Key::String(Arc::from(k)), CelValue::from_value(v));
-    }
-    out
+    CelMap::from_fields(m, |_, v| CelValue::from_value(v))
 }
 
 /// Heterogeneous numeric ordering (CEL): int, uint and double compare by value;

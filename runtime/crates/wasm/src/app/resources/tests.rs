@@ -1,5 +1,12 @@
 //! Real Core producer/codec tests, not an app-runtime/native write witness.
 use super::*;
+fn assess(
+    inventory: &[(String, String)],
+    manifest: &Value,
+    decisions: &Decisions,
+) -> Result<Assessed, OpenFailure> {
+    assess_with_usage(inventory, manifest, decisions, &mut |_| Err(invalid()))
+}
 fn manifest() -> Value {
     mdbn_core::yaml::parse_value(
         r#"
@@ -319,6 +326,34 @@ fn rev(source: &str) -> String {
 fn overwrites(ops: &[Op], path: &str) -> bool {
     ops.iter()
         .any(|op| matches!(op, Op::ResourcePut(r) if r.path == path && !r.must_not_exist))
+}
+#[test]
+fn seed_replacement_needs_record_evidence_at_review_and_apply() {
+    let contract = "---\nkind: mdbase.contract\nid: example.task\nversion: 1.0.0\ncontract_type: record\nrecord_schema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}}}\n---\n";
+    let desired = "---\nkind: mdbase.type\nname: task\nversion: 1\nschema:\n  dialect: json-schema-2020-12\n  value: {type: object, properties: {title: {type: string}}}\nimplements:\n  - {contract: example.task, version: ^1.0.0, fields: {title: title}}\n---\n";
+    let target = "_types/task.md";
+    let declaration = pack_declaration_mode(desired, "seed");
+    let mut inventory = Vec::new();
+    put(&mut inventory, "_contracts/example.task.md", contract);
+    put(&mut inventory, target, THEIRS);
+    let chosen = adopting(target, &rev(THEIRS));
+    for used in [false, true] {
+        let mut usage = |path: &str| {
+            assert_eq!(path, target);
+            Ok(used)
+        };
+        let (review, _, _) =
+            assess_with_usage(&inventory, &declaration, &Decisions::default(), &mut usage).unwrap();
+        assert!(!review.applicable);
+        assert_eq!(review.type_packs[0].resources[0].replaceable(), !used);
+        let applied = assess_with_usage(&inventory, &declaration, &chosen, &mut usage);
+        if used {
+            assert!(applied.is_err());
+        } else {
+            assert!(overwrites(&applied.unwrap().1, target));
+        }
+    }
+    assert!(assess(&inventory, &declaration, &chosen).is_err());
 }
 #[test]
 fn adoption_allows_modified_installed_managed_and_excludes_preserved_seeds() {

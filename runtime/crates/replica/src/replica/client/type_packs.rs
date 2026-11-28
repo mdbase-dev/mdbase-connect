@@ -343,6 +343,24 @@ fn write(op: Op) -> ApiResult<TypePackWrite> {
 }
 
 impl<S: Store> Replica<S> {
+    /// Whether a seed at this target has records in the unrestricted local
+    /// view, including pending edits. A resource-only inventory cannot tell.
+    pub fn seed_type_in_use(&self, session: SessionId, target: &str) -> ApiResult<bool> {
+        self.require_resource_inventory_read(session)?;
+        let base = StoreView::new(&self.store, self.catalog.clone());
+        let used = mdbn_core::packs::type_in_use(
+            &LayerView {
+                base: &base,
+                layer: &self.layer,
+            },
+            target,
+        );
+        match base.error() {
+            Some(error) => Err(store_err(error)),
+            None => Ok(used),
+        }
+    }
+
     pub(crate) fn type_pack_plan(
         &mut self,
         session: SessionId,
