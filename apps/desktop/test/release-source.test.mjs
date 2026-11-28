@@ -156,6 +156,34 @@ test("cancelled verification cannot trust a late result or try another release",
   await rejected;
 });
 
+test("a failed tag fetch or a service 503 is reported as unreachable", async () => {
+  for (const fetchImpl of [
+    async () => { throw new TypeError("fetch failed", { cause: Object.assign(new Error("DNS"), { code: "ENOTFOUND" }) }); },
+    fetchMap({ [tagIndexUrl]: 503 })
+  ]) {
+    await assert.rejects(findLatestRelease({ channel: "beta", trustCacheDirectory: "/tmp/not-used", fetchImpl }), { code: "update_service_unavailable" });
+  }
+});
+
+test("TUF transport errors stay distinct from signed metadata rejection", async () => {
+  const versions = ["0.1.0-beta.9", "0.1.0-beta.10"];
+  const fetchImpl = fetchMap(releases(versions.map(version => `v${version}`), versions));
+  const unavailable = new Error("error refreshing TUF metadata", {
+    cause: Object.assign(new Error("Request failed"), { code: "ECONNRESET" })
+  });
+  const options = { channel: "beta", trustCacheDirectory: "/tmp/not-used", fetchImpl };
+  await assert.rejects(findLatestRelease({
+    ...options, async verifyBundle() { throw unavailable; }
+  }), { code: "update_service_unavailable" });
+  await assert.rejects(findLatestRelease({
+    ...options,
+    async verifyBundle(_bundle, payload) {
+      if (JSON.parse(payload).version === versions[1]) throw unavailable;
+      throw new Error("signature verification failed");
+    }
+  }), /No release had valid signed update metadata.*signature verification failed/);
+});
+
 test("release discovery lists tags with one ls-refs request and verifies the exact workflow-and-tag identity", async () => {
   const calls = [];
   const requests = [];

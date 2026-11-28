@@ -634,6 +634,10 @@ msgctxt "Desktop application"
 msgid "Could not check for updates"
 msgstr "업데이트를 확인하지 못했습니다"
 
+#: src/main/update-coordinator.ts
+msgid "Could not reach the update service. Check your connection and try again."
+msgstr "업데이트 서비스에 연결할 수 없습니다. 네트워크 연결을 확인하고 다시 시도하세요."
+
 #. placeholder {0}: message(error)
 #: src/main/update-coordinator.ts
 msgid "Could not verify updates: {0}"

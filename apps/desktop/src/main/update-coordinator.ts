@@ -1,6 +1,7 @@
 import { t, msg } from "@lingui/core/macro";
 import type { MessageDescriptor } from "@lingui/core";
 import { i18n } from "@mdbase-dev/ui/i18n";
+import { isUpdateServiceUnavailable, UpdateServiceUnavailable } from "./update-service-error";
 import {
   compareVersions,
   decideUpdate,
@@ -167,11 +168,11 @@ export class UpdateCoordinator {
     }
     const controller = new AbortController();
     let timeout: ReturnType<typeof setTimeout> | undefined;
-    const deadline = (ms: number, reason: string) => {
+    const deadline = (ms: number, reason: Error) => {
       clearTimeout(timeout);
-      timeout = setTimeout(() => controller.abort(new Error(reason)), ms);
+      timeout = setTimeout(() => controller.abort(reason), ms);
     };
-    deadline(CHECK_TIMEOUT_MS, "Update check timed out after 60 seconds.");
+    deadline(CHECK_TIMEOUT_MS, new UpdateServiceUnavailable("Update check timed out after 60 seconds."));
     this.operation = this.checkExclusive(manual, controller.signal, deadline).finally(() => {
       clearTimeout(timeout);
       this.operation = null;
@@ -216,7 +217,7 @@ export class UpdateCoordinator {
   private async checkExclusive(
     manual: boolean,
     signal: AbortSignal,
-    deadline: (ms: number, reason: string) => void
+    deadline: (ms: number, reason: Error) => void
   ): Promise<DesktopUpdateStatus> {
     if (!this.backend.packaged) return this.status();
     this.setStatus({
@@ -274,7 +275,7 @@ export class UpdateCoordinator {
         const downloading = msg`Downloading verified version ${manifest.version}…`;
         this.setStatus({ phase: "downloading", ...shown, progress: 0, message: downloading, can_check: false, can_install: false });
         signal.throwIfAborted();
-        deadline(STAGE_TIMEOUT_MS, "Update download timed out after 15 minutes.");
+        deadline(STAGE_TIMEOUT_MS, new Error("Update download timed out after 15 minutes."));
         await this.duringCheck(this.backend.stageAutomatic(manifest, decision.target, (progress) => {
           if (signal.aborted) return;
           this.setStatus({ phase: "downloading", progress, message: downloading, can_check: false, can_install: false });
@@ -313,7 +314,9 @@ export class UpdateCoordinator {
       this.candidate = null;
       this.setStatus({
         phase: "failed",
-        message: msg`Could not verify updates: ${message(error)}`,
+        message: isUpdateServiceUnavailable(error)
+          ? msg`Could not reach the update service. Check your connection and try again.`
+          : msg`Could not verify updates: ${message(error)}`,
         can_check: true,
         can_install: false
       });
