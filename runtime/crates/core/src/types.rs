@@ -910,18 +910,10 @@ impl Catalog {
         path: &str,
         fields: &Map,
     ) -> crate::cel::CelMap {
-        let mut map = crate::cel::CelMap::new().with_origin(path);
-        let zone = self.named_zone();
-        let mut location = Vec::new();
-        for (key, value) in fields.iter() {
-            location.push(key);
-            let value = crate::cel::CelValue::from_value_at(value, &mut location, zone, &|loc| {
-                self.date_time_formats(types, loc)
-            });
-            map.insert(crate::cel::Key::String(key.into()), value);
-            location.pop();
-        }
-        map
+        crate::cel::CelMap::from_fields_at(fields, &mut Vec::new(), self.named_zone(), &|loc| {
+            self.date_time_formats(types, loc)
+        })
+        .with_origin(path)
     }
 
     /// Bind a matched record in a CEL record context (Chapter 10).

@@ -157,7 +157,7 @@ fn budget_error(what: &str) -> ApiError {
     ErrorCode::TooLarge.err_with_reason(
         "query_budget_exceeded",
         format!(
-            "{what} exceeds the query budget of {MAX_SELECTED} records and {MAX_BYTES} bytes; \
+            "processing {what} would exceed the query budget of {MAX_SELECTED} records and {MAX_BYTES} bytes; \
              narrow the query, or for indexed queries set a positive limit and follow the returned cursor"
         ),
     )
@@ -332,7 +332,7 @@ impl<S: Store> Replica<S> {
             let hydrated = self
                 .store
                 .hydrate_query_at(&ids, self.head, &mut budget)
-                .map_err(|e| indexed_err(e, "the records this query has to read"))?;
+                .map_err(|e| indexed_err(e, "the records needed to evaluate this query"))?;
             let mut by_id: BTreeMap<Uuid, RecordRow> =
                 hydrated.into_iter().map(|r| (r.id, r)).collect();
             if by_id.len() != ids.len() {
@@ -371,7 +371,7 @@ impl<S: Store> Replica<S> {
         }
         // A first record beyond the whole budget on its own still refuses.
         if read == 0 && !full && !page.rows.is_empty() {
-            return Err(budget_error("the records this query has to read"));
+            return Err(budget_error("the records needed to evaluate this query"));
         }
         let has_more = full || read < page.rows.len() || page.has_more;
         let frontier = has_more.then(|| page.rows[read - 1].clone());
@@ -586,7 +586,7 @@ impl<S: Store> Replica<S> {
         match budget {
             Some(b) => b
                 .charge(1, bytes as u64)
-                .map_err(|_| budget_error("the records this query has to read")),
+                .map_err(|_| budget_error("the records needed to evaluate this query")),
             None => Ok(()),
         }
     }
