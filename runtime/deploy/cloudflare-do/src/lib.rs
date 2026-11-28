@@ -543,28 +543,46 @@ impl Txn for DoTxn<'_> {
         control_only: bool,
     ) -> LsResult<Vec<StoredItem>> {
         let filter = if control_only { "AND kind <> 1" } else { "" };
+        // The first item always advances the reader. NULL marks the first item
+        // over the byte cap without copying its payload from SQLite into Wasm.
         let q = format!(
-            "SELECT seq, kind, bytes, appended_at FROM (
-               SELECT seq, kind, bytes, appended_at, sum(length(bytes)) OVER (ORDER BY seq) AS run
-               FROM items WHERE seq > ? {filter} ORDER BY seq LIMIT ?)
-             WHERE run <= ? OR run = length(bytes) ORDER BY seq"
+            "SELECT seq, kind, appended_at,
+                    CASE WHEN row_number() OVER page = 1 OR sum(length(bytes)) OVER page <= ?
+                         THEN bytes END AS bytes
+             FROM items WHERE seq > ? {filter}
+             WINDOW page AS (ORDER BY seq ROWS UNBOUNDED PRECEDING)
+             ORDER BY seq LIMIT ?"
         );
-        let max = max_bytes.min(1 << 52) as i64;
-        let rows = self.be.exec(
-            &q,
-            vec![int(after as i64), int(limit.min(1 << 52) as i64), int(max)],
-        )?;
-        Ok(rows
-            .iter()
-            .map(|r| StoredItem {
-                seq: as_i64(&r[0]) as u64,
-                kind: as_i64(&r[1]) as u64,
-                bytes: as_bytes(&r[2]),
-                appended_at: as_i64(&r[3]),
+        let cursor = self
+            .be
+            .sql
+            .exec_raw(
+                &q,
+                vec![
+                    int(max_bytes.min(1 << 52) as i64),
+                    int(after as i64),
+                    int(limit.min(1 << 52) as i64),
+                ],
+            )
+            .map_err(ls_err)?;
+        let mut items = Vec::new();
+        for row in cursor.raw() {
+            let mut row = row.map_err(ls_err)?;
+            let bytes = match row.pop() {
+                Some(SqlStorageValue::Blob(bytes)) => bytes,
+                Some(SqlStorageValue::Null) => break,
+                _ => return Err(ls_err("invalid items payload")),
+            };
+            items.push(StoredItem {
+                seq: as_i64(&row[0]) as u64,
+                kind: as_i64(&row[1]) as u64,
+                appended_at: as_i64(&row[2]),
+                bytes,
                 token: None,
                 refs: vec![],
-            })
-            .collect())
+            });
+        }
+        Ok(items)
     }
 
     async fn tokens(&mut self, tokens: &[B16], now: i64) -> LsResult<Vec<Option<u64>>> {
