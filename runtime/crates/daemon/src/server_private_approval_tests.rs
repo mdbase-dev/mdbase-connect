@@ -122,6 +122,7 @@ pub(super) async fn open(d: &Daemon, collection: B16, pin: B32, origin: Origin) 
     };
     let mut inner = d.inner.lock().await;
     inner.registry.collections = vec![entry.clone()];
+    inner.registry.save(&d.profile.registry_file()).unwrap();
     d.authority.publish_registry(&inner.registry);
     inner.hosts.push(CollectionHost::open(entry, Some(ctx)));
 }
@@ -202,7 +203,7 @@ pub(super) async fn serve_connect(
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn opening_private_host_answers_approval_and_shows_matching_code() {
+async fn approved_private_joiner_restarts_with_offline_edit_and_remote_commits() {
     private_join_with_history(false).await;
 }
 
@@ -301,12 +302,13 @@ async fn private_join_with_history(renewed: bool) {
     .await
     .expect("A never became ready");
     let runtime_a = a.inner.lock().await.hosts[0].runtime().unwrap();
-    let document = "# Private history\n";
+    let document = "---\ntitle: base\n---\n";
+    let note = B16(new_uuid_v7());
     assert_eq!(
         submit_as(
             &runtime_a,
             vec![Op::Create(Create {
-                id: B16(new_uuid_v7()),
+                id: note,
                 path: Some("private.md".into()),
                 type_name: None,
                 frontmatter: None,
@@ -461,13 +463,155 @@ async fn private_join_with_history(renewed: bool) {
         json!([])
     );
 
+    if !renewed {
+        assert_eq!(
+            submit_as(
+                &runtime_b,
+                vec![Op::Create(Create {
+                    id: B16(new_uuid_v7()),
+                    path: Some("from-b.md".into()),
+                    type_name: None,
+                    frontmatter: None,
+                    body: None,
+                    document: Some(Text::Inline("B before restart\n".into())),
+                })],
+                new_uuid_v7()
+            )
+            .await
+            .unwrap(),
+            mdbn_wire::client::ReceiptState::Confirmed
+        );
+        let link = SyncConfig::path(
+            &b.profile.state_dir.join("collections"),
+            &collection.to_uuid_string(),
+        );
+        let approver = keys_a.device.to_uuid_string();
+        tokio::time::timeout(Duration::from_secs(20), async {
+            while !SyncConfig::load(&link)
+                .unwrap()
+                .unwrap()
+                .trusted_signers
+                .contains(&approver)
+                || record_doc(&runtime_a, "from-b.md").await.is_none()
+            {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .expect("SAS approver persisted and B's edit synchronized before shutdown");
+    }
     b.shutdown.send_replace(true);
     request_task.await.unwrap();
-    for d in [a, b] {
-        d.shutdown.send_replace(true);
-        d.stop_tasks().await;
-        d.inner.lock().await.hosts[0].close().await;
+    drop(runtime_b);
+    b.stop_tasks().await;
+    b.inner.lock().await.hosts[0].close().await;
+    if !renewed {
+        restart_after_offline_edits(&a, b, &dir_b, note, document).await;
     }
+    a.shutdown.send_replace(true);
+    a.stop_tasks().await;
+    a.inner.lock().await.hosts[0].close().await;
     cp_server.abort();
     log_server.abort();
+}
+
+async fn restart_after_offline_edits(
+    a: &Arc<Daemon>,
+    b: Arc<Daemon>,
+    dir: &TestDir,
+    note: B16,
+    base: &str,
+) {
+    use mdbn_wire::intent::{DocVersion, Document};
+    let registry = b.inner.lock().await.registry.clone();
+    let collection = &registry.collections[0].id;
+    let runtime_a = a.inner.lock().await.hosts[0].runtime().unwrap();
+    let device = keys(&b).device;
+    let root = &registry.collections[0].root;
+    let version = |doc: &str| DocVersion {
+        path: "private.md".into(),
+        doc: Text::Inline(doc.into()),
+    };
+    let offline = "---\ntitle: offline B\n---\n";
+    let remote = "---\ntitle: online A\n---\n";
+    std::fs::write(root.join("private.md"), offline).unwrap();
+    let mut ops = vec![Op::Document(Document {
+        id: note,
+        base: Some(version(base)),
+        new: Some(version(remote)),
+        if_revision: None,
+    })];
+    for i in 0..20 {
+        ops.push(Op::Create(Create {
+            id: B16(new_uuid_v7()),
+            path: Some(format!("burst-{i}.md")),
+            type_name: None,
+            frontmatter: None,
+            body: None,
+            document: Some(Text::Inline(format!("Remote note {i}\n"))),
+        }));
+    }
+    assert_eq!(
+        submit_as(&runtime_a, ops, new_uuid_v7()).await.unwrap(),
+        mdbn_wire::client::ReceiptState::Confirmed
+    );
+    let mut restarted = daemon(dir);
+    let fresh = Arc::get_mut(&mut restarted).unwrap();
+    fresh.secrets = b.secrets.clone();
+    fresh.trust = b.trust.clone();
+    assert!(restarted.self_weak.set(Arc::downgrade(&restarted)).is_ok());
+    drop(b);
+    initialize(restarted.clone()).await;
+    assert_eq!(keys(&restarted).device, device);
+    let until = tokio::time::Instant::now() + Duration::from_secs(20);
+    loop {
+        let status = collection_status(&restarted).await;
+        if status["state"] == "ready"
+            && status["sync"]["pending"] == 0
+            && status["sync"]["confirmed_record_digest"]["records"] == 22
+        {
+            assert!(status["approval_code"].is_null());
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < until,
+            "B after restart: {status}"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    for i in 0..20 {
+        assert_eq!(
+            std::fs::read_to_string(root.join(format!("burst-{i}.md"))).unwrap(),
+            format!("Remote note {i}\n")
+        );
+    }
+    let params = json!({"collection": collection});
+    let holds = control(&restarted, "collection.holds", params.clone())
+        .await
+        .unwrap();
+    assert_eq!(holds[0]["path"], "private.md", "{holds}");
+    assert_eq!(holds[0]["reason"], "conflict");
+    assert_eq!(
+        std::fs::read_to_string(root.join("private.md")).unwrap(),
+        offline
+    );
+    let runtime_b = restarted.inner.lock().await.hosts[0].runtime().unwrap();
+    assert_eq!(
+        record_doc(&runtime_b, "private.md").await.unwrap().1,
+        remote
+    );
+    let conflicts = control(&restarted, "collection.conflicts", params)
+        .await
+        .unwrap();
+    assert_eq!(conflicts[0]["field"], "title", "{conflicts}");
+    assert_eq!(
+        control(a, "device.pending", json!({})).await.unwrap(),
+        json!([])
+    );
+    restarted.shutdown.send_replace(true);
+    restarted.stop_tasks().await;
+    restarted.inner.lock().await.hosts[0].close().await;
+    if let Some(link) = restarted.link.lock().unwrap().take() {
+        link.stop();
+    }
 }

@@ -213,7 +213,7 @@ fn every_serving_verification_rebuild_repair_revocation_gate_refuses_consumer() 
             9 => n.r.device_keys_failed = true,
             10 => {
                 n.r.store = crate::mem::MemStore::shared(n.r.store.data()).with_keyring_rebuild();
-                assert!(n.r.start_device_key_rebuild());
+                assert!(n.r.start_device_key_rebuild(false));
                 assert!(n.r.keyring_rebuilding());
             }
             11 => n.r.apply_fault = Some(crate::Fence::Store),

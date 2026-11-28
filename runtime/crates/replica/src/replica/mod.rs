@@ -840,11 +840,14 @@ impl<S: Store> Replica<S> {
             }
         }
         let mut sealer = sealer;
-        if let Some(k) = store.meta(meta_keys::KEYRING)? {
+        let imported_keyring = if let Some(k) = store.meta(meta_keys::KEYRING)? {
             sealer
-                .import(&k)
+                .import(&zeroize::Zeroizing::new(k))
                 .map_err(|e| OpenError::Corrupt(format!("keyring: {e:?}")))?;
-        }
+            true
+        } else {
+            false
+        };
         sealer.set_epoch(policy.epoch);
         let resurrected =
             lost_tail::decode_resurrected(store.meta(meta_keys::RESURRECT)?.as_deref())
@@ -1071,7 +1074,7 @@ impl<S: Store> Replica<S> {
             // Host-only pending rows may resume. Granted rows fail closed until
             // a freshly authenticated local source is installed after open.
             r.local_commit();
-        } else if !r.start_device_key_rebuild() {
+        } else if !r.start_device_key_rebuild(imported_keyring) {
             r.queue_head_fetch();
         }
         Ok(r)
