@@ -80,7 +80,7 @@ export interface ModelPackSetupIntent {
 export interface ModelResourcePlan {
   /** Explicit config-only variant; absent retains the original nonempty packs. */
   readonly planKind?: "configuration-only";
-  /** New additive rounds only; absent retains every original factory guard. */
+  /** Follow-up setup rounds only; absent retains every original factory guard. */
   readonly sourcePolicy?: "current-only";
   readonly assessmentDigest: string;
   readonly provisionDigest: string;
@@ -108,7 +108,7 @@ export interface ModelResourceSetupIntent {
   readonly plan: ModelResourcePlan;
   readonly phase: ModelSetupPhase;
 }
-/** Additive setup after a verified operation. The entire prior journal is
+/** Follow-up setup after a verified operation. The entire prior journal is
  * retained unchanged; a new mutation/plan never replaces its original intent.
  */
 export interface ModelResourceSetupRoundIntent {

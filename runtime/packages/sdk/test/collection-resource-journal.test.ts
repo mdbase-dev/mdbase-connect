@@ -328,11 +328,12 @@ describe("resource setup in the original protected model ledger", () => {
         );
       }
       const retained = structuredClone(previous);
-      const next = await store.prepareResourceRound(
-        { ...plan, sources: [] },
-        previous.mutationId,
-        signal(),
-      );
+      const replace = { ...puts[0]!, doc: "Reviewed replacement", mustNotExist: false, baseRevision: hash };
+      const retire = { kind: "resource_delete" as const, path: "_types/retired.md", baseRevision: hash };
+      const changes = { ...plan, sources: [], resourceOps: [replace, retire],
+        resourceReadback: [{ path: replace.path, doc: replace.doc }, { path: retire.path, doc: null }] };
+      const next = await store.prepareResourceRound(changes, previous.mutationId, signal());
+      expect(next.plan).toEqual(changes);
       expect(next.version).toBe(4);
       expect(next.mutationId).not.toBe(previous.mutationId);
       expect(next.previous).toEqual(retained);
@@ -366,7 +367,7 @@ describe("resource setup in the original protected model ledger", () => {
       expect(await journal().load(signal())).toEqual(before);
     },
   );
-  it("rejects cross-scope/unverified ancestors, re-used mutation IDs and destructive additive plans", () => {
+  it("rejects cross-scope/unverified ancestors, re-used mutation IDs and unguarded or inconsistent resource changes", () => {
     const previous = {
       version: 3,
       scope,
@@ -382,26 +383,23 @@ describe("resource setup in the original protected model ledger", () => {
       previous,
       phase: "prepared",
     };
-    expect(decode(round, scope)).toEqual(round);
+    const replace = { ...puts[0]!, mustNotExist: false, baseRevision: hash };
+    const retire = { kind: "resource_delete", path: "_types/retired.md", baseRevision: hash };
+    const changes = {
+      ...plan,
+      resourceOps: [replace, retire],
+      resourceReadback: [...plan.resourceReadback, { path: retire.path, doc: null }],
+    };
     for (const invalid of [
       { ...round, previous: { ...previous, phase: "attempted" } },
-      {
-        ...round,
-        previous: {
-          ...previous,
-          scope: { ...scope, collection: scope.account },
-        },
-      },
+      { ...round, previous: { ...previous, scope: { ...scope, collection: scope.account } } },
       { ...round, mutationId: previous.mutationId },
-      {
-        ...round,
-        plan: {
-          ...plan,
-          resourceOps: [
-            { ...puts[0]!, mustNotExist: false, baseRevision: hash },
-          ],
-        },
-      },
+      { ...round, plan: { ...changes, resourceOps: [{ ...puts[0]!, mustNotExist: false }] } },
+      { ...round, plan: { ...changes, resourceOps: [{ ...replace, mustNotExist: true }] } },
+      { ...round, plan: { ...changes, resourceOps: [{ kind: retire.kind, path: retire.path }] } },
+      { ...round, plan: { ...changes, resourceOps: [{ ...retire, baseRevision: "unreviewed" }] } },
+      { ...round, plan: { ...changes, resourceReadback: plan.resourceReadback } },
+      { ...round, plan: { ...changes, resourceReadback: [...plan.resourceReadback, { path: retire.path, doc: "retained" }] } },
     ])
       expect(() => decode(invalid, scope)).toThrow();
   });
