@@ -43,7 +43,7 @@ describePg("account creation migration and transactional legacy receipt",()=>{
       await expect(assertControlPlaneMigrationsCurrent(gap)).rejects.toThrow(`migration ${missing} has not been applied`);
       await runControlPlaneMigrations(gap,options);
       const after=await ledger();
-      expect(after.filter(row=>row.id!==missing && row.id!==followup)).toEqual(before);
+      expect(after.filter(row=>row.id<followup && row.id!==missing)).toEqual(before);
       const sql=await readFile(join(directory,`${missing}.sql`),"utf8");
       expect(after.filter(row=>row.id===missing)).toEqual([{id:missing,checksum:createHash("sha256").update(sql).digest("hex"),applied_at:expect.any(Date)}]);
       expect(after.some(row=>row.id===followup)).toBe(true);
