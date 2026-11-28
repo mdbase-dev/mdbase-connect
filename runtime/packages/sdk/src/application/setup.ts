@@ -181,8 +181,8 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
         const canAdopt = r.currentDigest !== undefined;
         if (canAdopt) adoptable[r.target] = r.currentDigest!;
         conflicts.push({ target: r.target, ...(canAdopt ? { adoptable: { digest: r.currentDigest! } } : {}),
-          message: seed && !r.installed
-            ? `This collection already has a note type named "${name(r.target)}". ${canAdopt
+          message: seed && r.kind === "type" && !r.installed
+            ? `The existing note type at "${r.target}" differs from the one this app needs. ${canAdopt
               ? "You can replace it with this app's version."
               : "Change the existing type to support this app, or rename it and update the notes that use it. Then run setup again."}`
             : canAdopt && seed ? `Your ${thing.bare} has changes that can't be combined with the version this app needs. You can replace it with this app's version.`

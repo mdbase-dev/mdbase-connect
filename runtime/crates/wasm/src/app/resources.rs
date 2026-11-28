@@ -5,7 +5,7 @@ use mdbn_core::{
     contracts::jcs_digest,
     ids::Hash,
     intent::Op,
-    packs::{AssessOptions, load_pack},
+    packs::{AssessOptions, Mode, load_pack},
     setup::envelope::{self, CollectionSetup, CollectionSetupTypePack},
     state::MemState,
     value::{Map, Value},
@@ -318,10 +318,11 @@ type Assessed = (
 /// written over exactly the reviewed revision: the write's `baseRevision` is
 /// the reviewed digest, so any edit since review refuses the whole mutation.
 /// Adoption binds the assessment digest, never the provision identity.
-fn assess(
+fn assess_with_usage(
     resources: &[(String, String)],
     manifest: &Value,
     decisions: &Decisions,
+    in_use: &mut dyn FnMut(&str) -> Result<bool, OpenFailure>,
 ) -> Result<Assessed, OpenFailure> {
     let mut setup = setup(manifest)?;
     let mut state = MemState::new();
@@ -331,8 +332,23 @@ fn assess(
     resolve(&state, &mut setup)?;
     let adopted = envelope::reviewed_resource_adoptions(&state, &setup, &decisions.adopt)
         .map_err(|_| invalid())?;
-    let assessment =
+    let mut assessment =
         envelope::assess_collection_resources(&state, &setup, &adopted).map_err(|_| invalid())?;
+    for row in assessment
+        .type_packs
+        .iter_mut()
+        .flat_map(|pack| &mut pack.resources)
+    {
+        // An inventory of definitions alone cannot establish that a seed is
+        // unused. Verify both the offer and any previously reviewed choice.
+        let replacing = adopted.contains_key(&row.target);
+        if row.mode == Mode::Seed && (replacing || row.replaceable()) {
+            row.in_use = in_use(&row.target)?;
+            if replacing && row.in_use {
+                return Err(invalid());
+            }
+        }
+    }
     let operations = if assessment.applicable {
         envelope::apply_collection_resources(&state, &setup, assessment.assessment_digest, &adopted)
             .map_err(|_| invalid())?
@@ -420,7 +436,11 @@ impl AppRuntime {
                 }
                 cursor = Some(next);
             }
-            answer(&inventory.rows, &parsed)
+            answer(&inventory.rows, &parsed, &mut |target| {
+                replica
+                    .seed_type_in_use(SessionId(session), target)
+                    .map_err(|_| invalid())
+            })
         })();
         wipe(bytes);
         respond(result)
@@ -456,7 +476,7 @@ pub fn setup_inventory_consuming(bytes: &mut [u8]) -> Vec<u8> {
             };
             inventory.push(path.clone(), source.clone())?;
         }
-        answer(&inventory.rows, &parsed)
+        answer(&inventory.rows, &parsed, &mut |_| Err(invalid()))
     })();
     wipe(bytes);
     respond(result)
@@ -517,8 +537,13 @@ impl Inventory {
         Ok(())
     }
 }
-fn answer(inventory: &[(String, String)], r: &Parsed) -> Result<Cbor, OpenFailure> {
-    let (assessment, operations, adopted) = assess(inventory, &r.manifest, &r.choices)?;
+fn answer(
+    inventory: &[(String, String)],
+    r: &Parsed,
+    in_use: &mut dyn FnMut(&str) -> Result<bool, OpenFailure>,
+) -> Result<Cbor, OpenFailure> {
+    let (assessment, operations, adopted) =
+        assess_with_usage(inventory, &r.manifest, &r.choices, in_use)?;
     let status = if !assessment.applicable {
         "conflict"
     } else if operations.is_empty() {

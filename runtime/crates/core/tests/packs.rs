@@ -538,6 +538,14 @@ fn existing_seed_requires_review_only_when_it_lacks_the_pack_contract() {
     assert!(used.in_use && !used.replaceable());
     assert_eq!(used.document, None);
 
+    state.insert_resource(
+        "_types/other.md",
+        &SEED_V1.replace("name: note", "name: other"),
+    );
+    let supported = plan(&state);
+    assert_eq!(supported.action, Action::Preserve);
+    assert!(supported.reason.is_none());
+
     // A receipt distinguishes a person's later edit from a first-install collision.
     assert!(plan(&legacy_seed(1, TYPE)).reason.is_none());
 }
