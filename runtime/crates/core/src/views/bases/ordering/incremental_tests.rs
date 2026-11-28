@@ -121,9 +121,13 @@ fn inventory_boundary_and_incomplete_or_mixed_keys_fail_stickily() {
         .unwrap_err(),
         EvaluationFailure::MetadataUnavailable("sort_keys_incomplete")
     );
+    // Mixed kinds order by text instead of refusing the whole view.
     let values = vec![
-        vec![RuntimeValue::Number(1.0)],
-        vec![RuntimeValue::String("1".into())],
+        vec![RuntimeValue::String("open".into())],
+        vec![RuntimeValue::Number(2.0)],
+        vec![RuntimeValue::List(vec![RuntimeValue::String(
+            "done".into(),
+        )])],
     ];
     let mut budget = IncrementalBasesBudget::new();
     assert_eq!(
@@ -133,8 +137,8 @@ fn inventory_boundary_and_incomplete_or_mixed_keys_fail_stickily() {
             capture(),
             &mut budget
         )
-        .unwrap_err(),
-        EvaluationFailure::UnsupportedConstruct("mixed_ordering_types")
+        .unwrap(),
+        vec![1, 2, 0]
     );
 }
 #[test]

@@ -29,8 +29,12 @@ members into collision-prone labels, normalize their order, or duplicate rows.
 Lists sort lexicographically using the existing explicit string/null comparison
 capture, with a shorter equal prefix first; descending reverses the result.
 This is deterministic native/WASM ordering, not a claim to reproduce Obsidian's
-ambient locale collator. Unsupported mixed element types still visibly refuse,
-just as mixed scalar ordering does. Obsidian's broader loose scalar coercions
+ambient locale collator. Values of different kinds, as list elements or as
+scalars, compare by their text under that same capture: Obsidian 1.15.0's group
+order compares mismatched values by `toString()`, and its row sort by display
+text, rather than refusing. Its row sort additionally ranks a boolean against
+any other kind by truthiness; that rule is not reproduced, so a boolean also
+compares as `true`/`false` text. Obsidian's broader loose scalar coercions
 (including singleton-list/scalar equality) are not newly qualified here.
 
 Objects, durations and errors remain unsupported keys, even nested in a list.

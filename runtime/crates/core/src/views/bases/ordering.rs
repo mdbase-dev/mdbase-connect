@@ -87,7 +87,8 @@ fn cell_at(
     }
 }
 /// Compare qualified same-type scalars and whole lists (lexicographic, prefix
-/// first). Objects/durations/errors and mixed types never get JSON fallback ranks.
+/// first). Values of different kinds compare by their text, as Obsidian orders
+/// them. Objects/durations/errors never get JSON fallback ranks.
 pub fn compare_typed(
     left: &RuntimeValue,
     right: &RuntimeValue,
@@ -116,13 +117,7 @@ pub fn compare_typed(
             })
         }
         (left, right) if has_link(left) || has_link(right) => {
-            let (Some(a), Some(b)) = (link_order_text(left), link_order_text(right)) else {
-                return fail(
-                    budget,
-                    EvaluationFailure::UnsupportedConstruct("mixed_ordering_types"),
-                );
-            };
-            compare_text(&a, &b, capture, budget)
+            compare_text(&order_text(left), &order_text(right), capture, budget)
         }
         (RuntimeValue::List(a), RuntimeValue::List(b)) => {
             for (left, right) in a.iter().zip(b) {
@@ -141,10 +136,7 @@ pub fn compare_typed(
             Ok(a.value().millis().cmp(&b.value().millis()))
         }
         (RuntimeValue::String(a), RuntimeValue::String(b)) => compare_text(a, b, capture, budget),
-        _ => fail(
-            budget,
-            EvaluationFailure::UnsupportedConstruct("mixed_ordering_types"),
-        ),
+        _ => compare_text(&order_text(left), &order_text(right), capture, budget),
     }
 }
 fn compare_text(
@@ -172,16 +164,14 @@ fn has_link(value: &RuntimeValue) -> bool {
         _ => false,
     }
 }
-/// Obsidian orders links among text by what it shows: a scalar's alias, or the
-/// written text. Listed links always show as written.
-fn link_order_text(value: &RuntimeValue) -> Option<String> {
+/// The text Obsidian compares when two values are not the same kind (its
+/// `toString()`, or a link's display). A scalar link shows its alias, or the
+/// written text; listed links always show as written. Only the collation
+/// differs: this uses the captured string order, not Obsidian's locale collator.
+fn order_text(value: &RuntimeValue) -> String {
     match value {
-        RuntimeValue::Link(link) => {
-            Some(link.display().map_or_else(|| link.source(), str::to_owned))
-        }
-        RuntimeValue::String(text) => Some(text.clone()),
-        RuntimeValue::List(_) => Some(value.plain_string()),
-        _ => None,
+        RuntimeValue::Link(link) => link.display().map_or_else(|| link.source(), str::to_owned),
+        _ => value.plain_string(),
     }
 }
 /// Stable fallible merge-sort of row indices: multilevel ASC/DESC, preserving

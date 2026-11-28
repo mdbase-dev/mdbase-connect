@@ -165,7 +165,7 @@ fn date_grouping_requires_capture_and_does_not_use_display_strings_as_keys() {
     );
 }
 #[test]
-fn structured_errors_nonfinite_and_mixed_types_never_get_json_fallback_order() {
+fn structured_errors_and_nonfinite_values_never_get_json_fallback_order() {
     for value in [
         RuntimeValue::Object(BTreeMap::new()),
         RuntimeValue::Error("synthetic".into()),
@@ -179,16 +179,58 @@ fn structured_errors_nonfinite_and_mixed_types_never_get_json_fallback_order() {
             ))
         ));
     }
+}
+#[test]
+fn different_kinds_compare_by_their_text_as_obsidian_does() {
+    let text = |s: &str| RuntimeValue::String(s.into());
+    let cases = [
+        // Number 1 shows as "1"; a status board with `status: 1` still loads.
+        (RuntimeValue::Number(1.0), text("1"), Ordering::Equal),
+        (RuntimeValue::Number(10.0), text("9"), Ordering::Less),
+        (RuntimeValue::Bool(true), text("open"), Ordering::Greater),
+        (
+            RuntimeValue::Bool(false),
+            RuntimeValue::Number(0.0),
+            Ordering::Greater,
+        ),
+        (
+            RuntimeValue::List(vec![text("done")]),
+            text("open"),
+            Ordering::Less,
+        ),
+        (
+            RuntimeValue::List(vec![text("a"), RuntimeValue::Number(2.0)]),
+            RuntimeValue::List(vec![text("a"), text("10")]),
+            Ordering::Greater,
+        ),
+    ];
+    for (left, right, expected) in cases {
+        let mut budget = WorkBudget::new();
+        assert_eq!(
+            compare_typed(&left, &right, capture(), &mut budget).unwrap(),
+            expected,
+            "{left:?} vs {right:?}"
+        );
+        let mut budget = WorkBudget::new();
+        assert_eq!(
+            compare_typed(&right, &left, capture(), &mut budget).unwrap(),
+            expected.reverse()
+        );
+    }
+    // Text needs captured collation, whatever kinds produced it.
     let mut budget = WorkBudget::new();
     assert_eq!(
         compare_typed(
             &RuntimeValue::Number(1.0),
-            &RuntimeValue::String("1".into()),
-            capture(),
+            &text("2"),
+            OrderingCapture {
+                nulls: NullOrder::Last,
+                strings: StringOrder::Unavailable,
+            },
             &mut budget
         )
         .unwrap_err(),
-        EvaluationFailure::UnsupportedConstruct("mixed_ordering_types")
+        EvaluationFailure::MetadataUnavailable("sort_collation_not_captured")
     );
 }
 #[test]
