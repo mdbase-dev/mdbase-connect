@@ -41,9 +41,28 @@ function storage(rows, info = { c: 0, r: 0 }) {
 const op = (b) => b[8];
 const errKind = (b) => b[9];
 
-test("results are typed and well formed", () => {
-  const out = runIndex(storage([[1, "a"], [2, null]]), req([["SELECT", [5n, "x"]]]));
-  assert.equal(op(out), 2);
+test("preserves each statement header and mixed typed values across buffer growth", () => {
+  const blob = Uint8Array.from({ length: 200 }, (_, i) => i);
+  const s = storage([[null, -2, "é", blob.buffer]], { c: 3, r: -1 });
+  const out = runIndex(s, req([["SELECT", []], ["SELECT", []]]));
+  // Four columns, changes=3, rowid=-1, four values (all little endian).
+  const header = Buffer.from("04000000 0300000000000000 ffffffffffffffff 04000000".replaceAll(" ", ""), "hex");
+  const values = Buffer.from("00 01feffffffffffffff 0302000000c3a9 04c8000000".replaceAll(" ", ""), "hex");
+  assert.deepEqual(Buffer.from(out), Buffer.concat([
+    Buffer.from([...MAGIC, 2, 2, 0, 0, 0]), header, values, blob, header, values, blob,
+  ]));
+});
+
+test("the complete reply fits at exactly 4 MiB and refuses the next byte", () => {
+  // Run header (13), one statement header (24), blob tag and length (5).
+  const exact = (4 << 20) - 42;
+  const read = size => runIndex(storage([[new ArrayBuffer(size)]]), req([["SELECT", []]]));
+  const reply = read(exact);
+  assert.equal(op(reply), 2);
+  assert.equal(reply.length, 4 << 20);
+  const over = read(exact + 1);
+  assert.equal(op(over), 3);
+  assert.equal(errKind(over), 2);
 });
 
 test("a REAL parameter or unsafe integer is refused before any SQL", () => {

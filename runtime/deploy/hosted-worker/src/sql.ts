@@ -23,6 +23,7 @@ const MAX_SQL = 100 << 10;
 const MAX_STATEMENTS = 16_384;
 const MAX_VALUES = 131_072;
 const MAX_COLUMNS = 100;
+const STATEMENT_HEADER_BYTES = 4 + 8 + 8 + 4;
 
 type Ex = { memory: WebAssembly.Memory; alloc(n: number): number };
 type Val = null | number | string | ArrayBuffer;
@@ -55,31 +56,44 @@ class Reader {
   end() { if (this.off !== this.b.length) throw new Fail(OTHER, "trailing bytes"); }
 }
 
-/** Bytes and values are budgeted across a whole reply (shared by sub-writers). */
-class Budget {
-  bytes = 0;
-  values = 0;
-}
+const utf8 = new TextEncoder();
 
+/** One bounded reply buffer. Offsets remain valid when it grows. */
 class Writer {
-  private parts: Uint8Array[] = [];
-  private len = 0;
-  constructor(readonly budget: Budget = new Budget()) {}
-  private push(b: Uint8Array) {
-    this.len += b.length;
-    this.budget.bytes += b.length;
-    if (this.budget.bytes > MAX_BYTES) throw new Fail(FULL, "reply over budget");
-    this.parts.push(b);
+  private buffer = new Uint8Array(64);
+  private view = new DataView(this.buffer.buffer);
+  private length = 0;
+
+  reserve(n: number) {
+    const offset = this.length;
+    const end = offset + n;
+    if (end > MAX_BYTES) throw new Fail(FULL, "reply over budget");
+    if (end > this.buffer.length) {
+      const capacity = Math.min(MAX_BYTES, Math.max(end, this.buffer.length * 2));
+      const next = new Uint8Array(capacity);
+      next.set(this.buffer.subarray(0, offset));
+      this.buffer = next;
+      this.view = new DataView(next.buffer);
+    }
+    this.length = end;
+    return offset;
   }
-  append(w: Writer) {
-    for (const p of w.parts) this.parts.push(p);
-    this.len += w.len;
+  u8(v: number) { const at = this.reserve(1); this.buffer[at] = v; }
+  u32(v: number) { const at = this.reserve(4); this.view.setUint32(at, v, true); }
+  i64(v: bigint) { const at = this.reserve(8); this.view.setBigInt64(at, v, true); }
+  bytes(b: Uint8Array) {
+    this.u32(b.length);
+    const at = this.reserve(b.length);
+    this.buffer.set(b, at);
   }
-  u8(v: number) { this.push(Uint8Array.of(v)); }
-  u32(v: number) { const b = new Uint8Array(4); new DataView(b.buffer).setUint32(0, v, true); this.push(b); }
-  u64(v: bigint) { const b = new Uint8Array(8); new DataView(b.buffer).setBigUint64(0, v, true); this.push(b); }
-  i64(v: bigint) { const b = new Uint8Array(8); new DataView(b.buffer).setBigInt64(0, v, true); this.push(b); }
-  bytes(b: Uint8Array) { this.u32(b.length); this.push(b); }
+  // The cursor supplies the value count and SQLite change information only
+  // after iteration. Fill its reserved statement header in the same buffer.
+  statementHeader(at: number, columns: number, changes: number, rowid: number, count: number) {
+    this.view.setUint32(at, columns, true);
+    this.view.setBigUint64(at + 4, BigInt(changes), true);
+    this.view.setBigInt64(at + 12, BigInt(rowid), true);
+    this.view.setUint32(at + 20, count, true);
+  }
   value(v: Val) {
     if (v === null) return this.u8(0);
     if (typeof v === "number") {
@@ -88,15 +102,12 @@ class Writer {
       this.u8(1);
       return this.i64(BigInt(v));
     }
-    if (typeof v === "string") { this.u8(3); return this.bytes(new TextEncoder().encode(v)); }
+    if (typeof v === "string") { this.u8(3); return this.bytes(utf8.encode(v)); }
     this.u8(4);
     this.bytes(new Uint8Array(v));
   }
   done() {
-    const out = new Uint8Array(this.len);
-    let o = 0;
-    for (const p of this.parts) { out.set(p, o); o += p.length; }
-    return out;
+    return this.buffer.subarray(0, this.length);
   }
 }
 
@@ -127,7 +138,7 @@ function error(e: unknown): Uint8Array {
   w.u8(f.kind);
   if (f.stmt === undefined) w.u8(0);
   else { w.u8(1); w.u32(f.stmt); }
-  w.bytes(new TextEncoder().encode(f.message.slice(0, 512)));
+  w.bytes(utf8.encode(f.message.slice(0, 512)));
   return w.done();
 }
 
@@ -204,7 +215,7 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
     const w = new Writer();
     header(w, 2);
     w.u32(stmts.length);
-    let rows = 0;
+    let rows = 0, values = 0;
     const run = () => {
       stmts.forEach((s, i) => {
         at = i;
@@ -218,13 +229,13 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
         if (columns > MAX_COLUMNS) throw new Fail(FULL, "too many columns", i);
         // Encode while iterating: the shared budget stops a large result long
         // before it is materialized.
-        const vals = new Writer(w.budget);
+        const headerOffset = w.reserve(STATEMENT_HEADER_BYTES);
         let count = 0;
         for (const row of cursor.raw()) {
           if (++rows > MAX_ROWS) throw new Fail(FULL, "rows over budget", i);
           for (const v of row) {
-            if (++w.budget.values > MAX_VALUES) throw new Fail(FULL, "too many values", i);
-            vals.value(v as Val);
+            if (++values > MAX_VALUES) throw new Fail(FULL, "too many values", i);
+            w.value(v as Val);
             count++;
           }
         }
@@ -232,11 +243,7 @@ export function runIndex(storage: DurableObjectStorage, request: Uint8Array): Ui
         if (!Number.isSafeInteger(info.c) || info.c < 0 || !Number.isSafeInteger(info.r)) {
           throw new Fail(OTHER, "unsafe changes/rowid", i);
         }
-        w.u32(columns);
-        w.u64(BigInt(info.c));
-        w.i64(BigInt(info.r));
-        w.u32(count);
-        w.append(vals);
+        w.statementHeader(headerOffset, columns, info.c, info.r, count);
       });
     };
     if (mode === 0) storage.transactionSync(run);

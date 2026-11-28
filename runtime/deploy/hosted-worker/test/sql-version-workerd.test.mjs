@@ -18,7 +18,7 @@ function run(storage,statements,mode=0){
  const request=Uint8Array.from([...magic,0,mode,...u32(statements.length),...statements.flatMap(sql=>{
   const b=enc.encode(sql);return [...u32(b.length),...b,...u32(0)];
  })]);
- const bytes=runIndex(storage,request),op=bytes[8];if(op!==2)return {op};
+ const bytes=runIndex(storage,request),op=bytes[8];if(op!==2)return {op,kind:bytes[9]};
  const view=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength),values=[],columns=[];let at=13;
  for(let i=0;i<statements.length;i++){
   columns.push(view.getUint32(at,true));at+=20;const count=view.getUint32(at,true);at+=4;const row=[];
@@ -38,6 +38,9 @@ export class Probe extends DurableObject {
   if(action==="/migrate"||action==="/fail")return Response.json(run(storage,[
    "CREATE TABLE st_upgrade_probe(k INTEGER)","PRAGMA user_version=1",
    ...(action==="/fail"?["INSERT INTO missing_schema_migration_table VALUES(1)"]:[])
+  ]));
+  if(action==="/over-budget")return Response.json(run(storage,[
+   "UPDATE st_pending SET b=x'99' WHERE k=0","SELECT zeroblob(4194304)"
   ]));
   if(action==="/future")return Response.json(run(storage,["PRAGMA user_version=2"],1));
   if(action==="/corrupt")sql.exec("DELETE FROM st_schema");
@@ -71,6 +74,8 @@ test("DO schema floor survives reopen; migration DDL/stamp roll back together wi
     assert.deepEqual(await call("/state"), expected(0, 0, 0), "legacy floor read must do no DDL");
     assert.equal((await call("/fail")).op, 3);
     assert.deepEqual(await call("/state"), expected(0, 0, 0), "failed migration preserves old schema and pending bytes");
+    assert.deepEqual(await call("/over-budget"), {op: 3, kind: 2});
+    assert.deepEqual(await call("/state"), expected(0, 0, 0), "an oversized reply rolls back preceding writes");
     assert.equal((await call("/migrate")).op, 2);
     assert.deepEqual(await call("/state"), expected(1, 1, 1));
     await mf.dispose();
