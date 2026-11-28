@@ -172,21 +172,50 @@ pub fn state<I: IndexStorage>(index: &Rc<RefCell<I>>) -> StoreResult<Option<Quer
 const TOUCHED_COVERAGE: &str = "UPDATE st_qstate SET ready=0 WHERE slot=0 AND (EXISTS(SELECT 1 FROM st_rec WHERE id=?) IS NOT EXISTS(SELECT 1 FROM st_qrecord WHERE id=?) OR EXISTS(SELECT 1 FROM st_rec WHERE id=?) IS NOT EXISTS(SELECT 1 FROM st_qmtime WHERE id=?) OR (SELECT count(*) FROM st_field WHERE id=?) IS NOT CASE WHEN EXISTS(SELECT 1 FROM st_rec WHERE id=?) THEN (SELECT count(*) FROM st_qspec) ELSE 0 END OR EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field WHERE f.id=? AND s.field IS NULL) OR (SELECT count(*) FROM st_qrecord WHERE id=?) > 1)";
 
 pub(crate) fn delete_row(id: &[u8], stmts: &mut Vec<Stmt>) {
-    delete_fields(id, stmts);
+    delete_fields(&[id], stmts);
     delete_bodies(&[id], stmts);
 }
-fn delete_fields(id: &[u8], stmts: &mut Vec<Stmt>) {
-    for table in ["st_field", "st_qrecord", "st_qmtime", "st_qtype"] {
-        stmts.push(Stmt::new(
-            format!("DELETE FROM {table} WHERE id=?"),
-            vec![blob(id)],
-        ));
+const MAX_BINDINGS: usize = crate::index_codec::CodecLimits::HOSTED.max_parameters;
+
+fn delete_fields(ids: &[&[u8]], stmts: &mut Vec<Stmt>) {
+    delete_ids(
+        &["st_field", "st_qrecord", "st_qmtime", "st_qtype"],
+        ids,
+        stmts,
+    );
+}
+
+/// A projection page contains distinct record IDs. Replace old rows for a
+/// whole page in the same transaction, including memberships it has lost.
+pub(crate) fn delete_ids(tables: &[&str], ids: &[&[u8]], stmts: &mut Vec<Stmt>) {
+    for chunk in ids.chunks(MAX_BINDINGS) {
+        let marks = vec!["?"; chunk.len()].join(",");
+        for table in tables {
+            stmts.push(Stmt::new(
+                format!("DELETE FROM {table} WHERE id IN ({marks})"),
+                chunk.iter().map(|id| blob(id)).collect(),
+            ));
+        }
     }
 }
-/// IDs per body statement: a hosted statement binds at most 100 values.
-const BODY_IDS: usize = 100;
+
+/// Group complete tuples under the strictest backend parameter ceiling.
+/// Only the number of placeholders varies. All values are bound parameters.
+pub(crate) fn insert_rows<const N: usize>(
+    insert: &str,
+    rows: impl IntoIterator<Item = [SqlValue; N]>,
+    out: &mut Vec<Stmt>,
+) {
+    let mut rows = rows.into_iter().peekable();
+    let tuple = format!("({})", ["?"; N].join(","));
+    while rows.peek().is_some() {
+        let params: Vec<_> = rows.by_ref().take(MAX_BINDINGS / N).flatten().collect();
+        let values = vec![tuple.as_str(); params.len() / N].join(",");
+        out.push(Stmt::new(format!("{insert} VALUES{values}"), params));
+    }
+}
 fn delete_bodies(ids: &[&[u8]], stmts: &mut Vec<Stmt>) {
-    for chunk in ids.chunks(BODY_IDS) {
+    for chunk in ids.chunks(MAX_BINDINGS) {
         let marks = vec!["?"; chunk.len()].join(",");
         let params: Vec<_> = chunk.iter().map(|id| blob(id)).collect();
         stmts.push(Stmt::new(
@@ -202,21 +231,21 @@ fn delete_bodies(ids: &[&[u8]], stmts: &mut Vec<Stmt>) {
 /// Replace these records' bodies: a few multi-row statements per hundred
 /// records, not several per record.
 fn put_bodies(rows: &[(&[u8], &str)], stmts: &mut Vec<Stmt>) {
-    let ids: Vec<_> = rows.iter().map(|(id, _)| *id).collect();
-    delete_bodies(&ids, stmts);
-    for chunk in ids.chunks(BODY_IDS) {
+    // Contentless-delete FTS5 supports REPLACE. Keep the rowid for existing
+    // bodies so a backfill can write directly without querying FTS first.
+    for chunk in rows.chunks(MAX_BINDINGS) {
         stmts.push(Stmt::new(
             format!(
-                "INSERT INTO st_qbody_n(id) VALUES {}",
+                "INSERT INTO st_qbody_n(id) VALUES {} ON CONFLICT(id) DO NOTHING",
                 vec!["(?)"; chunk.len()].join(",")
             ),
-            chunk.iter().map(|id| blob(id)).collect(),
+            chunk.iter().map(|(id, _)| blob(id)).collect(),
         ));
     }
-    for chunk in rows.chunks(BODY_IDS / 2) {
+    for chunk in rows.chunks(MAX_BINDINGS / 2) {
         stmts.push(Stmt::new(
             format!(
-                "INSERT INTO st_qbody(rowid,t) VALUES {}",
+                "INSERT OR REPLACE INTO st_qbody(rowid,t) VALUES {}",
                 vec!["((SELECT n FROM st_qbody_n WHERE id=?),?)"; chunk.len()].join(",")
             ),
             chunk
@@ -226,9 +255,9 @@ fn put_bodies(rows: &[(&[u8], &str)], stmts: &mut Vec<Stmt>) {
         ));
     }
 }
-/// Statements [`put_bodies`] writes for `n` records, at most.
+/// Preserve the existing projection admission budget across SQL batching.
 fn body_statements(n: usize) -> usize {
-    4 * n.div_ceil(BODY_IDS) + n.div_ceil(BODY_IDS / 2)
+    4 * n.div_ceil(MAX_BINDINGS) + n.div_ceil(MAX_BINDINGS / 2)
 }
 
 /// Plan ONLY optional derived statements; storage errors remain genuine errors.
@@ -383,8 +412,11 @@ pub(crate) fn maintenance<I: IndexStorage>(
         // Old catalogue projection cannot survive a resource change.
         return Ok(invalidate());
     }
+    let row_ids: Vec<_> = update.rows.iter().map(|r| r.id.0.as_slice()).collect();
+    if update.replace_specs.is_none() {
+        delete_fields(&row_ids, &mut out);
+    }
     for r in &update.rows {
-        delete_fields(&r.id.0, &mut out);
         out.push(Stmt::new(
             "INSERT INTO st_qrecord(id,path) VALUES(?,?)",
             vec![blob(&r.id.0), blob(r.path.as_bytes())],
@@ -406,10 +438,12 @@ pub(crate) fn maintenance<I: IndexStorage>(
                 vec![SqlValue::Text(name), blob(&r.id.0)],
             ));
         }
-        for v in &r.fields {
-            out.push(Stmt::new(
-                "INSERT INTO st_field(id,source,field,kind,sort,hint,path) VALUES(?,?,?,?,?,?,?)",
-                vec![
+    }
+    insert_rows(
+        "INSERT INTO st_field(id,source,field,kind,sort,hint,path)",
+        update.rows.iter().flat_map(|r| {
+            r.fields.iter().map(move |v| {
+                [
                     blob(&r.id.0),
                     SqlValue::Integer(i64::from(v.field.source)),
                     blob(&v.field.path_key),
@@ -417,10 +451,11 @@ pub(crate) fn maintenance<I: IndexStorage>(
                     blob(&v.atom.key),
                     SqlValue::Integer(i64::from(v.temporal_hint)),
                     blob(r.path.as_bytes()),
-                ],
-            ));
-        }
-    }
+                ]
+            })
+        }),
+        &mut out,
+    );
     let bodies: Vec<(&[u8], &str)> = update
         .rows
         .iter()
@@ -495,9 +530,22 @@ pub(crate) fn maintenance<I: IndexStorage>(
             ));
             return Ok(out);
         }
-        // Exact cardinality + unique PK + declared-field/live-record membership
-        // establish complete coverage, not a caller-provided ready boolean.
-        out.push(Stmt::new("UPDATE st_qstate SET ready=CASE WHEN (SELECT count(*) FROM st_qrecord)=(SELECT count(*) FROM st_rec) AND NOT EXISTS(SELECT 1 FROM st_qrecord q LEFT JOIN st_rec r ON r.id=q.id WHERE r.id IS NULL) AND (SELECT count(*) FROM st_qmtime)=(SELECT count(*) FROM st_rec) AND NOT EXISTS(SELECT 1 FROM st_qmtime m LEFT JOIN st_rec r ON r.id=m.id WHERE r.id IS NULL) AND (SELECT count(*) FROM st_field)=(SELECT count(*) FROM st_rec)*(SELECT count(*) FROM st_qspec) AND NOT EXISTS(SELECT 1 FROM st_field f LEFT JOIN st_qspec s ON s.source=f.source AND s.field=f.field LEFT JOIN st_rec r ON r.id=f.id WHERE s.field IS NULL OR r.id IS NULL) THEN 1 ELSE 0 END WHERE slot=0 AND generation=?", vec![blob(&update.generation)]));
+        // Primary-key uniqueness and equal cardinality mean one ordered set
+        // difference per table proves equality. Walking the keys in order
+        // avoids a random lookup into the document table for every field.
+        out.push(Stmt::new(
+            "UPDATE st_qstate SET ready=CASE WHEN
+               (SELECT count(*) FROM st_qrecord)=(SELECT count(*) FROM st_rec)
+               AND NOT EXISTS(SELECT id FROM st_qrecord EXCEPT SELECT id FROM st_rec ORDER BY 1)
+               AND (SELECT count(*) FROM st_qmtime)=(SELECT count(*) FROM st_rec)
+               AND NOT EXISTS(SELECT id FROM st_qmtime EXCEPT SELECT id FROM st_rec ORDER BY 1)
+               AND (SELECT count(*) FROM st_field)=(SELECT count(*) FROM st_rec)*(SELECT count(*) FROM st_qspec)
+               AND NOT EXISTS(
+                 SELECT r.id,s.source,s.field FROM st_rec r CROSS JOIN st_qspec s
+                 EXCEPT SELECT id,source,field FROM st_field ORDER BY 1,2,3)
+               THEN 1 ELSE 0 END WHERE slot=0 AND generation=?",
+            vec![blob(&update.generation)],
+        ));
     }
     Ok(out)
 }

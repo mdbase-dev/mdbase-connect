@@ -8,13 +8,8 @@ use mdbn_core::views::bases::{
 const MAX_FACTS: usize = 64;
 const MAX_FACT_BYTES: usize = 65_536;
 
-pub(super) fn delete(id: &[u8], out: &mut Vec<Stmt>) {
-    for table in ["st_qraw_fact", "st_qraw_atom", "st_qraw_tag"] {
-        out.push(Stmt::new(
-            format!("DELETE FROM {table} WHERE id=?"),
-            vec![blob(id)],
-        ));
-    }
+pub(super) fn delete(ids: &[&[u8]], out: &mut Vec<Stmt>) {
+    crate::sql_fields::delete_ids(&["st_qraw_fact", "st_qraw_atom", "st_qraw_tag"], ids, out);
 }
 pub(super) fn clear(out: &mut Vec<Stmt>) {
     for table in ["st_qraw_fact", "st_qraw_atom", "st_qraw_tag"] {
@@ -27,7 +22,6 @@ pub(super) fn capture(
     tags: Option<&SourceTags>,
     out: &mut Vec<Stmt>,
 ) -> usize {
-    delete(&row.id.0, out);
     let map = document.frontmatter();
     // A bound cannot decide a match, so its row stays a candidate for evaluation.
     let exact = tags.is_none_or(SourceTags::is_exact);
@@ -49,25 +43,26 @@ pub(super) fn capture(
     if !known {
         return 64;
     }
-    for (name, value) in map.iter() {
-        let (kind, text) = match BasesCandidateAtom::capture(value) {
-            BasesCandidateAtom::Null => (0, ""),
-            BasesCandidateAtom::Scalar => (1, ""),
-            BasesCandidateAtom::Text(s) => (2, s),
-            BasesCandidateAtom::DateOnly(s) => (3, s),
-            BasesCandidateAtom::EmptyContainer => (4, ""),
-            BasesCandidateAtom::Unknown => (5, ""),
-        };
-        out.push(Stmt::new(
-            "INSERT INTO st_qraw_atom(id,name,kind,text) VALUES(?,?,?,?)",
-            vec![
+    crate::sql_fields::insert_rows(
+        "INSERT INTO st_qraw_atom(id,name,kind,text)",
+        map.iter().map(|(name, value)| {
+            let (kind, text) = match BasesCandidateAtom::capture(value) {
+                BasesCandidateAtom::Null => (0, ""),
+                BasesCandidateAtom::Scalar => (1, ""),
+                BasesCandidateAtom::Text(s) => (2, s),
+                BasesCandidateAtom::DateOnly(s) => (3, s),
+                BasesCandidateAtom::EmptyContainer => (4, ""),
+                BasesCandidateAtom::Unknown => (5, ""),
+            };
+            [
                 blob(&row.id.0),
                 blob(name.as_bytes()),
                 SqlValue::Integer(kind),
                 blob(text.as_bytes()),
-            ],
-        ));
-    }
+            ]
+        }),
+        out,
+    );
     if let Some(tags) = tags {
         for tag in tags {
             out.push(Stmt::new(
