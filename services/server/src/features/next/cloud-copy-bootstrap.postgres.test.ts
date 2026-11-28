@@ -123,7 +123,7 @@ class Log {
 /** Both deployments: each device request generates a candidate; the CP's first stored record wins. */
 class Deployments {
   readonly devices = new Map<string, Record<string, string>>();
-  readonly initializations: Array<{ collection: string; request_id: string; timezone: string }> = [];
+  readonly initializations: Array<{ collection: string; request_id: string; timezone: string | null }> = [];
   calls = 0;
   failing: "down" | "wrong-kind" | undefined;
   /** Runs once, while the route awaits generation. */
@@ -238,7 +238,7 @@ describePg("cloud-copy bootstrap", () => {
     expect((await app.inject({method:"POST",url:`${base}/attest`,headers:bearer,payload:proof})).statusCode).toBe(200);
     return {who,headers,original,base,bearer,fingerprint:clientFingerprint(Buffer.from(signPk))};
   }
-  const named=(p:Awaited<ReturnType<typeof nativePortal>>,display_name:unknown)=>app.inject({method:"POST",url:`${p.base}/collections`,headers:p.headers,payload:{display_name}});
+  const named=(p:Awaited<ReturnType<typeof nativePortal>>,display_name:unknown,timezone?:string)=>app.inject({method:"POST",url:`${p.base}/collections`,headers:p.headers,payload:{display_name,timezone}});
   const picked=(p:Awaited<ReturnType<typeof nativePortal>>,collection:string)=>app.inject({method:"POST",url:`${p.base}/approve`,headers:p.headers,payload:{fingerprint:p.fingerprint,collection_ids:[collection],selected_collection_id:collection}});
   const nativeReceipt=(p:Awaited<ReturnType<typeof nativePortal>>)=>app.inject({method:"POST",url:`${p.base}/exchange`,headers:p.bearer});
 
@@ -256,11 +256,12 @@ describePg("cloud-copy bootstrap", () => {
   });
 
   it("uses the canonical creator for one named portal collection and exact final creation provenance",async()=>{
-    const p=await nativePortal(),created=await named(p," My tasks ");
+    const p=await nativePortal(),created=await named(p," My tasks ", "Australia/Melbourne");
     expect(created.statusCode).toBe(200);
     const {collection_id,display_name}=created.json(); expect(display_name).toBe("My tasks");
+    expect(deployments.initializations.at(-1)).toEqual({collection:collection_id,request_id:p.original.request_id,timezone:"Australia/Melbourne"});
     const generated=deployments.calls;
-    expect((await named(p,"My tasks")).json()).toEqual(created.json());
+    expect((await named(p,"My tasks", "Europe/London")).json()).toEqual(created.json());
     expect(deployments.calls).toBe(generated);
     const state=(await app.inject({method:"GET",url:p.base,headers:p.headers})).json().pairing;
     expect(state).toMatchObject({account_selection_confirmed:true,creation:{collection_id,display_name:"My tasks",completed:true}});
@@ -282,12 +283,23 @@ describePg("cloud-copy bootstrap", () => {
   });
   it("retains one original named target through a failed canonical creation and explicit same-target retry",async()=>{
     const p=await nativePortal(); deployments.failing="down";
-    try {expect((await named(p,"Work journal")).statusCode).toBe(503);} finally {deployments.failing=undefined;}
-    const intent=(await db.query("SELECT collection_id,display_name,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1",[p.original.request_id])).rows[0];
+    try {expect((await named(p,"Work journal","Australia/Melbourne")).statusCode).toBe(503);} finally {deployments.failing=undefined;}
+    const intent=(await db.query("SELECT collection_id,display_name,timezone,completed_at FROM installation_pairing_collection_creations WHERE pairing_id=$1",[p.original.request_id])).rows[0];
     expect(intent.completed_at).toBeNull();
     const calls=deployments.calls;
     expect((await named(p,"Replacement name")).statusCode).toBe(409); expect(deployments.calls).toBe(calls);
-    const completed=await named(p,"Work journal");expect(completed.statusCode).toBe(200);expect(completed.json().collection_id).toBe(intent.collection_id);
+    expect(intent.timezone).toBe("Australia/Melbourne");
+    const completed=await named(p,"Work journal","Europe/London");expect(completed.statusCode).toBe(200);expect(completed.json().collection_id).toBe(intent.collection_id);
+    expect(deployments.initializations.at(-1)).toEqual({collection:intent.collection_id,request_id:p.original.request_id,timezone:intent.timezone});
+  });
+  it("creates a pairing collection with the zone unset when detection was unavailable", async () => {
+    const p = await nativePortal();
+    expect((await named(p, "New notes", "local")).statusCode).toBe(400);
+    const created = await named(p, "New notes");
+    expect(created.statusCode).toBe(200);
+    expect(deployments.initializations.at(-1)).toEqual({
+      collection: created.json().collection_id, request_id: p.original.request_id, timezone: null,
+    });
   });
   it.each(["session","request"])("rechecks %s withdrawal after service generation without publishing or completing creation",async withdrawal=>{
     const p=await nativePortal();

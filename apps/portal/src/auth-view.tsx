@@ -1,3 +1,4 @@
+import { browserCollectionTimezone } from "@mdbase/connect-management";
 import { select, t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
@@ -595,7 +596,7 @@ export function Signup({
           ...(externalSignup || publicSignup
             ? { product_updates: productUpdates }
             // Only invited beta accounts get a starter collection, dated in this zone.
-            : { timezone: Intl.DateTimeFormat().resolvedOptions().timeZone })
+            : { timezone: browserCollectionTimezone() ?? undefined })
         })
       });
       location.href = result.redirect_to ?? (result.onboarding?.starter_collection === "pending"

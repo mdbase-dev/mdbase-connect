@@ -555,6 +555,10 @@ msgctxt "Desktop application"
 msgid "Collection name must be between 1 and 100 characters."
 msgstr "コレクション名は 1～100 文字にしてください。"
 
+#: src/renderer/collections-view.tsx
+msgid "Collection settings"
+msgstr "コレクション設定"
+
 #: src/renderer/home-view.tsx
 #: src/renderer/main.tsx
 #: src/renderer/ui-components.tsx
@@ -662,6 +666,11 @@ msgstr "レコードとファイルを作成する"
 #: src/renderer/main.tsx
 msgid "Create the folder in"
 msgstr "フォルダーの作成先"
+
+#. placeholder {0}: settings.timezone
+#: src/renderer/collections-view.tsx
+msgid "Current time zone is {0}."
+msgstr "現在のタイムゾーンは {0} です。"
 
 #: src/renderer/approval-prompt.tsx
 msgid "Decline"
@@ -939,6 +948,10 @@ msgid "Link Obsidian"
 msgstr "Obsidian をリンク"
 
 #: src/renderer/collections-view.tsx
+msgid "Loading collection settings…"
+msgstr "コレクション設定を読み込み中…"
+
+#: src/renderer/collections-view.tsx
 msgid "Loading…"
 msgstr "読み込み中…"
 
@@ -1182,6 +1195,10 @@ msgstr "アプリはまだありません"
 msgctxt "Local collection management"
 msgid "No collections yet"
 msgstr "コレクションはまだありません"
+
+#: src/renderer/collections-view.tsx
+msgid "No time zone is set for this collection."
+msgstr "このコレクションにはタイムゾーンが設定されていません。"
 
 #: src/main/update-coordinator.ts
 msgctxt "Desktop application"
@@ -1461,6 +1478,10 @@ msgstr "保存"
 msgctxt "Local collection management"
 msgid "Save details"
 msgstr "詳細を保存"
+
+#: src/renderer/collections-view.tsx
+msgid "Save time zone"
+msgstr "タイムゾーンを保存"
 
 #: src/renderer/daemon-view.mts
 msgctxt "Local connection status"
@@ -1857,6 +1878,14 @@ msgstr "このバージョンの mdbase はサポート対象外です。バー�
 msgid "This version of mdbase is too old for the service. Update mdbase."
 msgstr "このバージョンの mdbase は古すぎるためサービスを利用できません。mdbase を更新してください。"
 
+#: src/renderer/collections-view.tsx
+msgid "Time zone"
+msgstr "タイムゾーン"
+
+#: src/renderer/collections-view.tsx
+msgid "Times without an offset will be read in the new time zone."
+msgstr "オフセットのない時刻は新しいタイムゾーンで解釈されます。"
+
 #: src/main/confirmation.ts
 msgctxt "Confirmation dialog"
 msgid "Turn off approval"
@@ -1941,6 +1970,11 @@ msgstr "インストール済みビルドでは更新を利用できます。"
 msgctxt "Desktop application"
 msgid "Updates have not been checked yet."
 msgstr "更新はまだ確認されていません。"
+
+#. placeholder {0}: settings.detected_timezone
+#: src/renderer/collections-view.tsx
+msgid "Use {0}"
+msgstr "{0} を使用"
 
 #: src/renderer/collections-view.tsx
 msgid "Use my unsent edit"

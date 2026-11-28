@@ -1,7 +1,6 @@
 //! The collection handle.
 
 use std::cell::RefCell;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use mdbn_core::types::Catalog;
@@ -90,7 +89,7 @@ impl OpenOptions {
 pub struct InitOptions {
     /// `name` in `mdbase.yaml`.
     pub name: Option<String>,
-    /// `settings.timezone`.
+    /// `settings.timezone`. Defaults to the detected machine zone if available.
     pub timezone: Option<String>,
 }
 
@@ -143,33 +142,11 @@ impl Collection {
     /// and open it. Existing files are left alone.
     pub fn init(root: impl AsRef<Path>, options: InitOptions) -> Result<Collection> {
         let root = root.as_ref();
-        std::fs::create_dir_all(root)?;
-        let config = root.join(CONFIG_FILE);
-        if !config.exists() {
-            let mut text = String::from("spec_version: \"0.3.0\"\n");
-            if let Some(name) = &options.name {
-                text.push_str(&format!("name: {}\n", yaml_quote(name)));
-            }
-            text.push_str(
-                "settings:\n  types_folder: _mdbase/types\n  contracts_folder: _mdbase/contracts\n",
-            );
-            if let Some(tz) = &options.timezone {
-                text.push_str(&format!("  timezone: {}\n", yaml_quote(tz)));
-            }
-            std::fs::write(&config, text)?;
-            std::fs::create_dir_all(root.join("_mdbase"))?;
-            match std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(root.join("_mdbase/README.md"))
-            {
-                Ok(mut file) => {
-                    file.write_all(include_bytes!("../../../../templates/mdbase/README.md"))?
-                }
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {}
-                Err(e) => return Err(e.into()),
-            }
-        }
+        mdbn_local_host::init_collection_config(
+            root,
+            options.name.as_deref(),
+            options.timezone.as_deref(),
+        )?;
         Collection::open(root)
     }
 
@@ -755,8 +732,4 @@ fn validate_doc(catalog: &Catalog, path: &str, doc: &str) -> Vec<Issue> {
     .iter()
     .map(Issue::from_core)
     .collect()
-}
-
-fn yaml_quote(s: &str) -> String {
-    format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }

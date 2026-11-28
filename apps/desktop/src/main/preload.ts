@@ -19,6 +19,8 @@ contextBridge.exposeInMainWorld("mdbaseConnect", {
     ipcRenderer.invoke("connect:collections:set-enabled", { collectionId, enabled }),
   enableSync: (collectionId: string, mode: "private" | "cloud-copy") =>
     ipcRenderer.invoke("connect:collections:sync-enable", { collectionId, mode }),
+  collectionTimezone: (collectionId: string, timezone?: string) =>
+    ipcRenderer.invoke("connect:collections:timezone", collectionId, timezone),
   collectionModeStatus: (collectionId: string) => ipcRenderer.invoke("connect:collections:mode-status", collectionId),
   changeCollectionMode: (collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }) =>
     ipcRenderer.invoke("connect:collections:mode-change", {

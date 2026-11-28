@@ -1,3 +1,4 @@
+import { browserCollectionTimezone } from "@mdbase/connect-management";
 import { StatusGlyph } from "@mdbase/connect-ui/status-glyph";
 import { isLoopbackHttpOrigin } from "@mdbase-dev/connect-protocol/manifest";
 import { t, plural } from "@lingui/core/macro";
@@ -805,7 +806,7 @@ function SupportedApprovalForm({
       const { user } = await api<{ user: { id: string } }>("/v1/me");
       // Add collection's retry-safe intent: a lost response retries the original request.
       const original: CollectionCreationIntent = readCollectionCreation(user.id)
-        ?? { accountId: user.id, requestId: crypto.randomUUID(), displayName, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone };
+        ?? { accountId: user.id, requestId: crypto.randomUUID(), displayName, timezone: browserCollectionTimezone() };
       keepCollectionCreation(original);
       const { collection: created } = await api<{ collection: { id: string; display_name: string } }>("/v1/account/collections", {
         method: "POST",

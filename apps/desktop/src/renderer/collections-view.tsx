@@ -95,6 +95,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
   const previousSyncNotices = collection.notices.filter((notice) => notice.code === "resource_ingest_deferred" || notice.code === "resource_ingest_paths_omitted");
   const [holdsOpen, setHoldsOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(false);
   const [modeOpen, setModeOpen] = useState(false);
   const [modeStatus, setModeStatus] = useState<CollectionModeStatus | null>(null);
@@ -183,6 +184,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
       <Menu open={menuOpen} triggerRef={menuTrigger} onClose={closeMenu} id={menuId} label={collection.name}>
         <button role="menuitem" className="mdbase-menu-item" disabled={busy} onClick={() => { closeMenu(true); void onAct(() => window.mdbaseConnect.openCollectionFolder(collection.id)); }}><Trans>Open folder</Trans></button>
         <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setDetailsOpen((open) => !open); }}><Trans>Details</Trans></button>
+        <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setSettingsOpen((open) => !open); }}><Trans>Collection settings</Trans></button>
         {isSynced && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setFilesOpen((open) => !open); }}><Trans>Synced files</Trans></button>}
         {isSynced && modeStatus?.execution_available === true && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setModeOpen((open) => !open); }}>{t(i18n)({ message: "Storage mode", context: "Local collection management" })}</button>}
         {view.holds > 0 && <button role="menuitem" className="mdbase-menu-item" onClick={() => { closeMenu(true); setHoldsOpen((open) => !open); }}>{holdsOpen ? t(i18n)`Hide ${plural(view.holds, { one: "# file", other: "# files" })}` : t(i18n)`Review ${plural(view.holds, { one: "# file", other: "# files" })}`}</button>}
@@ -198,6 +200,7 @@ function CollectionCard({ collection, deviceNames, computerName, busy, onAct, on
         setRemoveOpen(false);
       }} />
       {detailsOpen && <Details collection={collection} onDone={(saved) => { setDetailsOpen(false); if (saved) onNotice(t(i18n)`${saved.name} was saved.`); }} />}
+      {settingsOpen && <CollectionSettings collectionId={collection.id} onClose={() => setSettingsOpen(false)} />}
       {modeOpen && isSynced && (
         <div className="collection-mode-panel">
           <CollectionModeControl
@@ -252,6 +255,66 @@ function Details({ collection, onDone }: { collection: DaemonCollection; onDone(
       </div>
     </div>
   );
+}
+
+function CollectionSettings({ collectionId, onClose }: { collectionId: string; onClose(): void }) {
+  useLocaleRevision();
+  const zonesId = useId();
+  const explanationId = useId();
+  const [settings, setSettings] = useState<Awaited<ReturnType<Window["mdbaseConnect"]["collectionTimezone"]>> | null>(null);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
+  useEffect(() => {
+    let current = true;
+    window.mdbaseConnect.collectionTimezone(collectionId).then((value) => {
+      if (!current) return;
+      setSettings(value);
+      setDraft(value.timezone ?? "");
+    }, (reason) => {
+      if (current) setFailure(message(reason));
+    });
+    return () => { current = false; };
+  }, [collectionId]);
+
+  async function save(timezone: string) {
+    setSaving(true);
+    setFailure(null);
+    try {
+      const value = await window.mdbaseConnect.collectionTimezone(collectionId, timezone);
+      setSettings(value);
+      setDraft(value.timezone ?? "");
+    } catch (reason) {
+      setFailure(message(reason));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return <div className="collection-details">
+    {failure && <p className="mdbase-message is-error" role="alert">{failure}</p>}
+    {!settings && !failure && <p role="status"><Trans>Loading collection settings…</Trans></p>}
+    {settings && <>
+      <p>{settings.timezone ? <Trans>Current time zone is {settings.timezone}.</Trans> : <Trans>No time zone is set for this collection.</Trans>}</p>
+      <label>
+        <span><Trans>Time zone</Trans></span>
+        <input className="mdbase-field" list={zonesId} value={draft} maxLength={100} disabled={saving}
+          aria-describedby={explanationId} onChange={(event) => setDraft(event.target.value)} />
+      </label>
+      <datalist id={zonesId}>
+        {[...new Set(["UTC", ...(settings.detected_timezone ? [settings.detected_timezone] : []), ...Intl.supportedValuesOf("timeZone")])]
+          .map((zone) => <option key={zone} value={zone} />)}
+      </datalist>
+      <small id={explanationId}><Trans>Times without an offset will be read in the new time zone.</Trans></small>
+    </>}
+    <div className="row-actions">
+      <button type="button" className="mdbase-button" disabled={saving} onClick={onClose}><Trans>Close</Trans></button>
+      {settings && !settings.timezone && settings.detected_timezone && <button type="button" className="mdbase-button" disabled={saving}
+        onClick={() => void save(settings.detected_timezone!)}><Trans>Use {settings.detected_timezone}</Trans></button>}
+      {settings && <button type="button" className="mdbase-button is-primary" disabled={saving || !draft.trim() || draft.trim() === settings.timezone}
+        onClick={() => void save(draft.trim())}>{saving ? t(i18n)({ message: "Saving…", context: "Local collection management" }) : <Trans>Save time zone</Trans>}</button>}
+    </div>
+  </div>;
 }
 
 const FILE_CLASSES: Array<{ id: SyncFiles["include"][number]; label(): string }> = [

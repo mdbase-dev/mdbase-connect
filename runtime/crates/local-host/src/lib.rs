@@ -25,6 +25,7 @@ pub mod folder;
 pub mod host;
 pub mod host_lock;
 pub mod identity;
+mod init;
 pub mod replica;
 pub mod store;
 
@@ -32,6 +33,7 @@ pub use folder::{CONFIG_FILE, FolderError, FolderOptions, OpenFolder, open_folde
 pub use host::{OsEntropy, SystemClock, SystemZones};
 pub use host_lock::{Descriptor, DescriptorState, HostKind, HostLock, LockError};
 pub use identity::Identity;
+pub use init::init_collection_config;
 pub use replica::{LocalReplica, NativeReplica, ReplicaOptions};
 pub use store::{NativeStore, StoreOptions, open_store};
 

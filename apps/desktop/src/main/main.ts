@@ -299,7 +299,7 @@ function registerIpc(): void {
       throw error;
     }
     try {
-      return await requestReadyAgent("collection.add", { path: folder, name }, 60_000);
+      return await requestReadyAgent("collection.add", { path: folder, name, initialize: true }, 60_000);
     } catch (error) {
       await rm(folder, { recursive: false }).catch(() => undefined);
       throw error;
@@ -326,6 +326,13 @@ function registerIpc(): void {
       params[key] = value[key] as string;
     }
     return requestReadyAgent("collection.update", params);
+  });
+  ipcMain.handle("connect:collections:timezone", async (event, collectionId: unknown, timezone: unknown) => {
+    trustedIpc(event);
+    if (timezone !== undefined && (typeof timezone !== "string" || timezone.length > 100)) {
+      throw new Error("Invalid collection time zone input.");
+    }
+    return requestReadyAgent("collection.timezone", { collection: collectionIdOf(collectionId), timezone }, 25_000);
   });
   // Privileged (it moves the log to mdbase): through the CLI.
   ipcMain.handle("connect:collections:sync-enable", async (event, input: unknown) => {

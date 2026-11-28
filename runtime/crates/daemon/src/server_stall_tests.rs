@@ -7,6 +7,7 @@ use crate::testutil::TestDir;
 async fn serving(dir: &TestDir, folder: &TestDir) -> Arc<Daemon> {
     let d = paired_daemon(dir).await;
     d.add(AddCollection {
+        initialize: false,
         path: folder.path().to_owned(),
         name: None,
         remove_legacy_identity: false,

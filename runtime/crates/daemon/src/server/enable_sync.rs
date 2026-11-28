@@ -100,6 +100,24 @@ impl Daemon {
                 "this account does not own the local registration",
             ));
         }
+        if journal.is_none()
+            && !entry.paused
+            && !entry
+                .root
+                .join(mdbn_local_host::CONFIG_FILE)
+                .try_exists()
+                .map_err(|e| ControlError::internal(e.to_string()))?
+        {
+            let rt = self.runtime_of(&entry.id).await?;
+            if super::timezone::read_collection_config(&rt)
+                .await?
+                .is_none()
+            {
+                let timezone = mdbn_local_host::SystemZones::detected_machine_zone();
+                let config = super::timezone::config_for_existing_folder(timezone.as_deref());
+                super::timezone::put_collection_config(&rt, config, None).await?;
+            }
+        }
         let adopting = journal.is_some() || !local_bootstrap_folder_is_empty(&entry.root)?;
         let migrated = entry.origin == crate::registry::Origin::MigratedLocal;
         let e2e = sync_e2e(

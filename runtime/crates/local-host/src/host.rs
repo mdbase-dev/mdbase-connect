@@ -58,23 +58,40 @@ impl SystemZones {
         SystemZones { default }
     }
 
-    /// The machine's zone: `$TZ`, then the `/etc/localtime` link target, then UTC.
+    /// The machine's zone for evaluation, with UTC as its default.
     pub fn machine_zone() -> String {
+        Self::machine_zone_from_env_or_link(|zone| NamedZone::get(zone).is_ok())
+            .unwrap_or_else(|| "UTC".into())
+    }
+
+    /// The detected IANA zone. Creation uses this without an evaluation default.
+    pub fn detected_machine_zone() -> Option<String> {
+        let valid = |zone: &str| {
+            mdbn_core::types::is_plausible_iana_zone(zone) && NamedZone::get(zone).is_ok()
+        };
+        Self::machine_zone_from_env_or_link(valid).or_else(|| {
+            iana_time_zone::get_timezone()
+                .ok()
+                .filter(|zone| valid(zone))
+        })
+    }
+
+    fn machine_zone_from_env_or_link(valid: impl Fn(&str) -> bool) -> Option<String> {
         if let Ok(tz) = std::env::var("TZ")
-            && NamedZone::get(&tz).is_ok()
+            && valid(&tz)
         {
-            return tz;
+            return Some(tz);
         }
         if let Ok(target) = std::fs::read_link("/etc/localtime")
             && let Some(s) = target.to_str()
             && let Some(i) = s.find("zoneinfo/")
         {
             let name = &s[i + "zoneinfo/".len()..];
-            if NamedZone::get(name).is_ok() {
-                return name.to_owned();
+            if valid(name) {
+                return Some(name.to_owned());
             }
         }
-        "UTC".into()
+        None
     }
 }
 

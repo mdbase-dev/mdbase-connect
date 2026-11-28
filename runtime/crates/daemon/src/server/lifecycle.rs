@@ -85,6 +85,10 @@ impl Daemon {
         if orphaned {
             remove_legacy_identity(&entry.root)?;
         }
+        if p.initialize {
+            mdbn_local_host::init_collection_config(&entry.root, Some(&entry.name), None)
+                .map_err(|e| ControlError::internal(format!("mdbase.yaml: {e}")))?;
+        }
         self.save_registry(&next)?;
         inner.registry = next;
         self.authority.publish_registry(&inner.registry);

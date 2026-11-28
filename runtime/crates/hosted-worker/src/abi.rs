@@ -236,11 +236,16 @@ pub unsafe extern "C" fn hd_initialize_collection(ptr: *mut u8, len: usize, star
     let Ok(Cbor::Array(fields)) = cbor::decode(&input) else {
         return 2;
     };
-    let [id, Cbor::Text(timezone)] = fields.as_slice() else {
+    let [id, timezone] = fields.as_slice() else {
         return 2;
     };
     let Ok(request) = B16::from_cbor(id) else {
         return 2;
+    };
+    let timezone = match timezone {
+        Cbor::Null => None,
+        Cbor::Text(timezone) => Some(timezone.as_str()),
+        _ => return 2,
     };
     with(|state| {
         state

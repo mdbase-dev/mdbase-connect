@@ -165,6 +165,7 @@ interface Window {
     removeCollection(collectionId: string): Promise<unknown>;
     setCollectionEnabled(collectionId: string, enabled: boolean): Promise<unknown>;
     enableSync(collectionId: string, mode: "private" | "cloud-copy"): Promise<unknown>;
+    collectionTimezone(collectionId: string, timezone?: string): Promise<{ timezone: string | null; detected_timezone: string | null }>;
     collectionModeStatus(collectionId: string): Promise<unknown>;
     changeCollectionMode(collectionId: string, targetMode?: "private" | "cloud_copy", options?: { cancel?: boolean }): Promise<unknown>;
     syncFiles(collectionId: string): Promise<SyncFiles>;

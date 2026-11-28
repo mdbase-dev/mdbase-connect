@@ -56,6 +56,18 @@ pub(super) enum ConflictCmd {
 
 #[derive(Debug, Subcommand)]
 pub(super) enum Command {
+    /// Initialize a Markdown collection in a folder.
+    Init {
+        /// Folder (defaults to the current folder).
+        #[arg(default_value = ".")]
+        path: PathBuf,
+        /// Name to record in mdbase.yaml.
+        #[arg(long)]
+        name: Option<String>,
+        /// IANA time zone (defaults to the machine's zone).
+        #[arg(long)]
+        timezone: Option<String>,
+    },
     /// Pair a web app with a local collection. Guided, foreground, no account.
     #[cfg(unix)]
     PairApp {

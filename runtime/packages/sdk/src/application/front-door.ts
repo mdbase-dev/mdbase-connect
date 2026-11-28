@@ -101,8 +101,9 @@ export interface Mdbase {
   readonly unsynced: {
     /** Open the app's unsynced collection in this tab, creating it on first
      * use: for "Continue without connecting". Signed out with nothing
-     * requested, `start()` already does this. */
-    open(options?: MdbaseApplicationRequestOptions): Promise<MdbaseSnapshot>;
+     * requested, `start()` already does this. A new collection uses the browser's
+     * IANA time zone unless an explicit zone is provided. */
+    open(options?: MdbaseApplicationRequestOptions & {readonly timezone?: string}): Promise<MdbaseSnapshot>;
     /** Compare the unsynced collection with the open (ready) collection: what
      * would be created, what an earlier transfer already brought, what `map`
      * leaves out, renamed paths and types the destination lacks. Writes nothing. */

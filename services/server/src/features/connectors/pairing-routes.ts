@@ -4,6 +4,7 @@ import { z } from "zod";
 import type { DatabasePool } from "../../database-types.js";
 import { randomToken, tokenHash } from "../../security.js";
 import { audit } from "../../platform/audit-events.js";
+import { ianaTimezoneSchema } from "../../platform/timezones.js";
 import { apiError } from "../../platform/http-errors.js";
 import {
   bearerToken,
@@ -333,9 +334,9 @@ export function registerConnectorPairingRoutes(
         const session = await requireSessionContext(request,reply,options.db);
         if (!session) return;
         const {pairingId} = z.object({pairingId:originalUuid}).parse(request.params);
-        const {display_name} = z.object({display_name:z.string()}).strict().parse(request.body);
+        const {display_name, timezone} = z.object({display_name:z.string(), timezone:ianaTimezoneSchema.nullish()}).strict().parse(request.body);
         return installationResult(reply,()=>createInstallationPairingCollection(cloudCopy,{
-          requestId:pairingId,user:session.user.id,session:session.sessionId,displayName:display_name,serverEnvironment:options.installationEnvironment,
+          requestId:pairingId,user:session.user.id,session:session.sessionId,displayName:display_name,timezone:timezone ?? null,serverEnvironment:options.installationEnvironment,
         }));
       });
     }

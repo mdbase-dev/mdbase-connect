@@ -10,6 +10,7 @@ async fn dismiss_conflict_clears_list_without_changing_files() {
     let d = paired_daemon(&dir).await;
     let added = d
         .add(crate::control::AddCollection {
+            initialize: false,
             path: folder.path().to_path_buf(),
             name: Some("Notes".into()),
             remove_legacy_identity: false,

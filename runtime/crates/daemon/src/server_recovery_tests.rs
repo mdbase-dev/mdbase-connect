@@ -9,6 +9,7 @@ async fn failed_host(
 ) -> (Entry, Arc<crate::runtime::Runtime>, watch::Sender<bool>) {
     let value = daemon
         .add(AddCollection {
+            initialize: false,
             path: folder.path().to_owned(),
             name: None,
             remove_legacy_identity: false,

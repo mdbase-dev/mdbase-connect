@@ -4,6 +4,7 @@
  * collection. No account, sign-in, log, control plane or stored keys: its
  * identifiers are random, kept in one IndexedDB row, and never leave this
  * browser. One per app storage scope; it is never listed as a collection. */
+import { collectionTimezone, initializeAppCollectionConfig, isCollectionTimezoneName } from "./collection-timezone.js";
 import { appPoolNames } from "../app-storage/app-sqlite-index.js";
 import { createAppCollectionSql, type AppCollectionSqlOptions, type AppLedgerRows } from "../app-storage/collection-sql.js";
 import { AppCollectionSetupJournal, type AppCollectionSetupJournalOptions } from "./collection-setup-journal.js";
@@ -34,6 +35,8 @@ export interface AppUnsyncedIdentity {
   readonly collection: string;
   readonly replica: string;
   readonly device: string;
+  /** Captured at identity creation. Absent on collections created by older SDKs. */
+  readonly timezone?: string | null;
 }
 /** Set once something has been saved in the unsynced collection (not by its
  * automatic setup): the app may then offer to connect it. A marker, not a
@@ -82,10 +85,11 @@ export interface AppUnsyncedConnection extends AppWebNativeCollection {
 
 function identity(value: unknown): AppUnsyncedIdentity {
   if (!value || typeof value !== "object" || Array.isArray(value) ||
-    Object.keys(value).sort().join() !== "account,collection,device,installation,replica,version") throw fail();
+    Object.keys(value).some(key => !["version", "account", "installation", "collection", "replica", "device", "timezone"].includes(key))) throw fail();
   const row = value as AppUnsyncedIdentity;
   const ids = [row.account, row.installation, row.collection, row.replica, row.device];
   if (row.version !== 1 || ids.some(id => typeof id !== "string" || !UUID.test(id)) || new Set(ids).size !== ids.length) throw fail();
+  if ("timezone" in row && row.timezone !== null && !isCollectionTimezoneName(row.timezone)) throw fail();
   return Object.freeze({...row});
 }
 function work(value: unknown): AppUnsyncedWork {
@@ -144,9 +148,9 @@ async function row<T>(databaseName: string, key: string, parse: (value: unknown)
   } finally { db.close(); }
 }
 /** Read this scope's identity; with `create`, make it first. */
-export function appUnsyncedIdentity(databaseName: string, create: boolean, signal: AbortSignal): Promise<AppUnsyncedIdentity | null> {
+export function appUnsyncedIdentity(databaseName: string, create: boolean, signal: AbortSignal, timezone?: string): Promise<AppUnsyncedIdentity | null> {
   return row(databaseName, KEY, identity, create ? () => ({version: 1, account: crypto.randomUUID(), installation: crypto.randomUUID(),
-    collection: crypto.randomUUID(), replica: crypto.randomUUID(), device: crypto.randomUUID()}) : null, signal);
+    collection: crypto.randomUUID(), replica: crypto.randomUUID(), device: crypto.randomUUID(), timezone: collectionTimezone(timezone)}) : null, signal);
 }
 /** Whether this scope's unsynced collection holds work, without opening it or
  * creating its database. Null where the browser cannot list databases. */
@@ -285,10 +289,10 @@ export async function eraseAppUnsyncedStorage(id: AppUnsyncedIdentity): Promise<
 
 /** Open (creating if needed) this scope's unsynced collection. Busy (another
  * Worker holds it) rejects with the replica owner's `busy`. */
-export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOptions, displayName: string, parent: AbortSignal): Promise<AppUnsyncedConnection> {
+export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOptions, displayName: string, parent: AbortSignal, timezone?: string): Promise<AppUnsyncedConnection> {
   if (typeof options.loadRuntime !== "function" || typeof displayName !== "string" || !displayName.trim()) throw fail("binding");
   const openSql = createAppCollectionSql(options.sql);
-  const id = await appUnsyncedIdentity(options.databaseName, true, parent);
+  const id = await appUnsyncedIdentity(options.databaseName, true, parent, timezone);
   if (!id) throw fail();
   const scope: Readonly<AppReplicaScope> = Object.freeze({account: id.account, installation: id.installation, collection: id.collection});
   const life = new AbortController(), signal = AbortSignal.any([parent, life.signal]);
@@ -359,6 +363,9 @@ export async function openAppUnsyncedCollection(options: AppUnsyncedCollectionOp
     runtime = await AppWasmRuntime.create(new Uint8Array(artifact), sql.sql);
     if (!current()) throw fail("fenced");
     runtime.openUnsyncedConsuming({collection: id.collection, replicaId: id.replica, deviceId: id.device, opened: sql.opened, sqliteVersion: sql.sqliteVersion});
+    if (id.timezone !== undefined) {
+      await initializeAppCollectionConfig(runtime, id.collection, id.timezone, signal);
+    }
     // As for a synced collection: an interrupted setup is reconciled, never redone.
     const intent = await journal.load(signal);
     if (!current()) throw fail("fenced");

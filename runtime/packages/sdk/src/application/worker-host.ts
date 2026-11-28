@@ -139,12 +139,12 @@ export class ApplicationWorkerHost {
   /** The open collection with this id: the unsynced one or the session's. */
   private connectionOf(id:string):AppWebNativeCollection|null{return this.unsynced?.scope.collection===id?this.unsynced:this.session.connection(id);}
   /** The unsynced collection, opening it (creating it on first use) if needed. */
-  private async ensureUnsynced():Promise<AppUnsyncedConnection>{
+  private async ensureUnsynced(timezone?:string):Promise<AppUnsyncedConnection>{
     let connection=this.unsynced?.isCurrent()?this.unsynced:null;
     if(!connection){
       const previous=this.unsynced;this.unsynced=null;await previous?.close().catch(()=>{});
       this.unsyncedProblem=null;
-      try{connection=await openAppUnsyncedCollection(this.unsyncedOptions,this.unsyncedName,this.lifetime.signal);}
+      try{connection=await openAppUnsyncedCollection(this.unsyncedOptions,this.unsyncedName,this.lifetime.signal,timezone);}
       catch(error){this.unsyncedProblem=applicationWorkerReplyProblem(error).code;throw error;}
       if(this.stopping||this.lifetime.signal.aborted){await connection.close().catch(()=>{});throw new ApplicationWorkerError("application_worker_fenced");}
       this.unsynced=connection;
@@ -153,8 +153,8 @@ export class ApplicationWorkerHost {
     }
     return connection;
   }
-  private async openUnsynced(client:HostClient,id:number):Promise<void>{
-    const connection=await this.ensureUnsynced();
+  private async openUnsynced(client:HostClient,id:number,timezone?:string):Promise<void>{
+    const connection=await this.ensureUnsynced(timezone);
     const collection=connection.scope.collection;
     if(client.selected!==collection){this.leave(client);client.selected=collection;}
     if(client.generation===connection.generation)return;
@@ -525,7 +525,7 @@ export class ApplicationWorkerHost {
         break;
       }
       case "clearSelection":this.leave(client);this.collect();break;
-      case "openUnsynced":try{await this.openUnsynced(client,request[2]);}finally{this.collect();}break;
+      case "openUnsynced":try{await this.openUnsynced(client,request[2],typeof request[4]==="string"?request[4]:undefined);}finally{this.collect();}break;
       case "attachUnsynced":try{await this.attachUnsynced(client,request[2]);}finally{this.collect();}break;
       case "detachUnsynced":this.releaseSource(client);this.collect();break;
       case "retireUnsynced":{const [source,destination]=payload as readonly[string,string];try{await this.retireUnsynced(client,source,destination);}finally{this.collect();}break;}

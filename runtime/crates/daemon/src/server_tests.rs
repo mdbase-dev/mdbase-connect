@@ -254,14 +254,21 @@ async fn shutdown_aborts_and_awaits_every_daemon_task() {
     );
 }
 
+const TEST_PAIRING_ORIGIN: &str = "http://127.0.0.1:9";
+
 async fn paired_daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
     let d = daemon(dir);
+    pair_daemon(&d).await;
+    d
+}
+
+async fn pair_daemon(d: &Arc<Daemon>) {
     let epoch = d.begin_pairing().await.unwrap();
     let cfg = crate::cloud::CloudConfig {
         schema_version: 1,
         account_epoch: epoch,
         connector_id: Some("connector".into()),
-        server_url: "http://127.0.0.1:9".into(),
+        server_url: TEST_PAIRING_ORIGIN.into(),
         ..Default::default()
     };
     d.publish_pairing(
@@ -272,7 +279,6 @@ async fn paired_daemon(dir: &crate::testutil::TestDir) -> Arc<Daemon> {
     )
     .await
     .unwrap();
-    d
 }
 
 fn grant(pk: u8) -> CachedGrant {
@@ -1064,6 +1070,7 @@ async fn added_empty_folder_stays_empty_for_sync_enable_with_the_host_lock() {
     let d = paired_daemon(&dir).await;
     let status = d
         .add(crate::control::AddCollection {
+            initialize: false,
             path: folder.path().to_path_buf(),
             name: None,
             remove_legacy_identity: false,
@@ -1104,29 +1111,149 @@ async fn added_empty_folder_stays_empty_for_sync_enable_with_the_host_lock() {
 #[tokio::test]
 async fn enable_right_after_add_waits_for_the_open() {
     let dir = crate::testutil::TestDir::new("enable-after-add");
-    let folder = crate::testutil::TestDir::new("enable-after-add-folder");
-    std::fs::write(folder.path().join("note.md"), b"synthetic").unwrap();
+    let mut d = daemon(&dir);
+    let mut trust = crate::trust::fixture_trust();
+    trust.cp_origin = TEST_PAIRING_ORIGIN.into();
+    Arc::get_mut(&mut d).unwrap().trust = Some(Arc::new(trust));
+    pair_daemon(&d).await;
+
+    for original in [None, Some("spec_version: '0.3.0'\n# Keep this config\n")] {
+        let folder = crate::testutil::TestDir::new("enable-after-add-folder");
+        std::fs::write(folder.path().join("note.md"), b"synthetic").unwrap();
+        let path = folder.path().join("mdbase.yaml");
+        if let Some(source) = original {
+            std::fs::write(&path, source).unwrap();
+        }
+        let status = d
+            .add(crate::control::AddCollection {
+                initialize: false,
+                path: folder.path().into(),
+                name: None,
+                remove_legacy_identity: false,
+            })
+            .await
+            .unwrap();
+        let id = status["id"].as_str().unwrap().to_owned();
+        let result = d
+            .enable_sync(crate::control::EnableSync {
+                collection: id.clone(),
+                mode: None,
+            })
+            .await;
+        let yaml = std::fs::read_to_string(&path)
+            .unwrap_or_else(|error| panic!("config missing after {result:?}: {error}"));
+        if let Some(source) = original {
+            assert_eq!(yaml, source);
+        } else {
+            let catalog = mdbn_core::types::Catalog::load([("mdbase.yaml", yaml.as_str())]);
+            assert_eq!(
+                catalog.settings().timezone,
+                mdbn_local_host::SystemZones::detected_machine_zone()
+            );
+            assert_eq!(catalog.settings().types_folder, "_types");
+        }
+        if let Err(error) = result {
+            assert_ne!(error.reason.as_deref(), Some("not_serving"), "{error:?}");
+        }
+        d.inner
+            .lock()
+            .await
+            .hosts
+            .iter_mut()
+            .find(|host| host.entry().id == id)
+            .unwrap()
+            .close()
+            .await;
+    }
+}
+
+#[tokio::test]
+async fn desktop_initialize_and_explicit_timezone_update_use_collection_config() {
+    let dir = crate::testutil::TestDir::new("timezone");
+    let folder = crate::testutil::TestDir::new("timezone-folder");
+    let original = "# Collection config\nspec_version: '0.3.0'\nsettings:\n  types_folder: Types # custom folder\nx-example: retained # comment\n";
+    let config = folder.path().join("mdbase.yaml");
+    std::fs::write(&config, original).unwrap();
     let d = paired_daemon(&dir).await;
-    let status = d
+    let added = d
         .add(crate::control::AddCollection {
-            path: folder.path().to_path_buf(),
+            path: folder.path().into(),
             name: None,
+            initialize: true,
             remove_legacy_identity: false,
         })
         .await
         .unwrap();
-    let id = status["id"].as_str().unwrap().to_string();
-    let out = d
-        .enable_sync(crate::control::EnableSync {
+    let id = added["id"].as_str().unwrap().to_owned();
+    d.settled_status(&id, std::time::Duration::from_secs(20))
+        .await
+        .unwrap();
+
+    let read = d
+        .collection_timezone(crate::control::CollectionTimezone {
             collection: id.clone(),
-            mode: None,
+            timezone: None,
         })
-        .await;
-    if let Err(e) = &out {
-        assert_ne!(e.reason.as_deref(), Some("not_serving"), "{e:?}");
+        .await
+        .unwrap();
+    assert_eq!(read["timezone"], serde_json::Value::Null);
+    assert_eq!(
+        read["detected_timezone"],
+        json!(mdbn_local_host::SystemZones::detected_machine_zone())
+    );
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), original);
+    let invalid = d
+        .collection_timezone(crate::control::CollectionTimezone {
+            collection: id.clone(),
+            timezone: Some("Mars/Olympus".into()),
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(invalid.reason.as_deref(), Some("invalid_timezone"));
+    assert_eq!(std::fs::read_to_string(&config).unwrap(), original);
+
+    for zone in ["Australia/Melbourne", "Europe/London"] {
+        let updated = d
+            .collection_timezone(crate::control::CollectionTimezone {
+                collection: id.clone(),
+                timezone: Some(zone.into()),
+            })
+            .await
+            .unwrap();
+        assert_eq!(updated["timezone"], zone);
+        let yaml = std::fs::read_to_string(&config).unwrap();
+        assert!(yaml.contains("# Collection config"));
+        assert!(yaml.contains("x-example: retained # comment"));
+        assert!(yaml.contains("  types_folder: Types # custom folder"));
+        let catalog = mdbn_core::types::Catalog::load([("mdbase.yaml", yaml.as_str())]);
+        assert_eq!(catalog.settings().types_folder, "Types");
+        assert_eq!(catalog.settings().timezone.as_deref(), Some(zone));
     }
-    let mut inner = d.inner.lock().await;
-    for host in inner.hosts.iter_mut() {
+    for host in &mut d.inner.lock().await.hosts {
+        host.close().await;
+    }
+}
+
+#[tokio::test]
+async fn desktop_initialize_records_detected_timezone_in_a_new_folder() {
+    let dir = crate::testutil::TestDir::new("timezone-init");
+    let folder = crate::testutil::TestDir::new("timezone-init-folder");
+    let d = paired_daemon(&dir).await;
+    d.add(crate::control::AddCollection {
+        path: folder.path().into(),
+        name: Some("New notes".into()),
+        initialize: true,
+        remove_legacy_identity: false,
+    })
+    .await
+    .unwrap();
+    let yaml = std::fs::read_to_string(folder.path().join("mdbase.yaml")).unwrap();
+    let catalog = mdbn_core::types::Catalog::load([("mdbase.yaml", yaml.as_str())]);
+    assert_eq!(
+        catalog.settings().timezone,
+        mdbn_local_host::SystemZones::detected_machine_zone()
+    );
+    for host in &mut d.inner.lock().await.hosts {
         host.close().await;
     }
 }
@@ -1141,6 +1268,7 @@ async fn resume_returns_once_the_collection_serves_again() {
     let d = paired_daemon(&dir).await;
     let status = d
         .add(crate::control::AddCollection {
+            initialize: false,
             path: folder.path().to_path_buf(),
             name: None,
             remove_legacy_identity: false,
@@ -1346,6 +1474,7 @@ async fn update_renames_and_describes_and_persists() {
     let d = paired_daemon(&dir).await;
     let added = d
         .add(crate::control::AddCollection {
+            initialize: false,
             path: folder.path().to_path_buf(),
             name: None,
             remove_legacy_identity: false,

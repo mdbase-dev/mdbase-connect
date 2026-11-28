@@ -1,3 +1,4 @@
+import { browserCollectionTimezone } from "@mdbase/connect-management";
 import { t } from "@lingui/core/macro";
 import { Trans } from "@lingui/react/macro";
 import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
@@ -198,7 +199,7 @@ export function Pairing({ pairingId }: { pairingId: string }) {
       }
       if (action === "approve" && pairing.installation_device && selected === NEW_COLLECTION) {
         approvalAttempted = true;
-        const created = await api<{collection_id:string}>(`/v1/pairing-requests/${pairingId}/collections`, {method:"POST",body:JSON.stringify({display_name:newCollectionName})});
+        const created = await api<{collection_id:string}>(`/v1/pairing-requests/${pairingId}/collections`, {method:"POST",body:JSON.stringify({display_name:newCollectionName, timezone:browserCollectionTimezone()})});
         if (current !== generation.current) return;
         const inspected = await api<{pairing:DevicePairing}>(inspectionPath);
         if (current !== generation.current) return;

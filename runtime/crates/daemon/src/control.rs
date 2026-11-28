@@ -223,6 +223,8 @@ impl Method {
     /// [`DeleteCollection`] → `{collection_id, deleted}`. Deletes the synced
     /// collection in the account; local registration and files stay here.
     pub const COLLECTION_DELETE: &'static str = "collection.delete";
+    /// [`CollectionTimezone`] → current and device-detected collection time zones.
+    pub const COLLECTION_TIMEZONE: &'static str = "collection.timezone";
     /// [`UpdateCollection`] → [`CollectionStatus`]: rename or describe a collection.
     /// Files and other devices are untouched; a local collection's new name reaches
     /// the account with the next inventory.
@@ -707,6 +709,9 @@ pub struct HoldResolved {
 /// `collection.add` params.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AddCollection {
+    /// Initialize the folder as a collection if it has no config.
+    #[serde(skip_serializing_if = "std::ops::Not::not", default)]
+    pub initialize: bool,
     /// Folder path (absolute, or relative to the client's working directory; the
     /// client resolves it before sending).
     pub path: PathBuf,
@@ -718,6 +723,15 @@ pub struct AddCollection {
     /// is refused as `orphaned_legacy_identity`.
     #[serde(skip_serializing_if = "std::ops::Not::not", default)]
     pub remove_legacy_identity: bool,
+}
+
+/// `collection.timezone` params. Omit the zone to read settings.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CollectionTimezone {
+    /// Collection ID.
+    pub collection: String,
+    /// IANA zone to save.
+    pub timezone: Option<String>,
 }
 
 /// `collection.delete` params. The server checks the current shared name.

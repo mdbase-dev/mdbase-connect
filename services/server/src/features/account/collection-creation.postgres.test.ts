@@ -23,12 +23,13 @@ describePg("account creation migration and transactional legacy receipt",()=>{
   it("the standard runner fills genuine missing 0076 after 0081, preserving applied SQL and immutable intent",async()=>{
     const directory=resolve(import.meta.dirname,"../../../migrations");
     const missing="0076_account_collection_creations";
+    const followup="0111_collection_creation_timezones";
     const baseline=await mkdtemp(join(tmpdir(),"account-creation-migrations-"));
     const gapSchema=`account_gap_${randomUUID().replaceAll("-","")}`;
     let gap:DatabasePool|undefined;
     try {
       // Build the actual predecessor migration directory, not a forged ledger.
-      for(const file of await readdir(directory))if(file.endsWith(".sql")&&file!==`${missing}.sql`)await copyFile(join(directory,file),join(baseline,file));
+      for(const file of await readdir(directory))if(file.endsWith(".sql")&&file<`${followup}.sql`&&file!==`${missing}.sql`)await copyFile(join(directory,file),join(baseline,file));
       await admin.query(`CREATE SCHEMA "${gapSchema}"`);
       const url=new URL(testUrl!);url.searchParams.set("options",`-csearch_path=${gapSchema}`);
       gap=await openDatabase(url.toString());
@@ -42,9 +43,10 @@ describePg("account creation migration and transactional legacy receipt",()=>{
       await expect(assertControlPlaneMigrationsCurrent(gap)).rejects.toThrow(`migration ${missing} has not been applied`);
       await runControlPlaneMigrations(gap,options);
       const after=await ledger();
-      expect(after.filter(row=>row.id!==missing)).toEqual(before);
+      expect(after.filter(row=>row.id!==missing && row.id!==followup)).toEqual(before);
       const sql=await readFile(join(directory,`${missing}.sql`),"utf8");
       expect(after.filter(row=>row.id===missing)).toEqual([{id:missing,checksum:createHash("sha256").update(sql).digest("hex"),applied_at:expect.any(Date)}]);
+      expect(after.some(row=>row.id===followup)).toBe(true);
       await assertControlPlaneMigrationsCurrent(gap);
       const owner=randomUUID(),request=randomUUID(),collection=randomUUID();
       await gap.query("INSERT INTO users(id,email,name) VALUES($1,$2,'Owner')",[owner,`${owner}@example.test`]);

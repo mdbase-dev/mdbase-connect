@@ -70,6 +70,7 @@ async fn capture_fixture(tag: &str) -> CaptureFixture {
         .unwrap();
     let added = daemon
         .add(crate::control::AddCollection {
+            initialize: false,
             path: folder.path().to_path_buf(),
             name: Some("[test] original source".into()),
             remove_legacy_identity: false,

@@ -67,8 +67,8 @@ export async function collectionRegion(client: DatabaseQueryable, collectionId: 
 
 /** A new collection's placement: the timezone its owner's device reported at signup. */
 async function ownerPlacement(client: DatabaseQueryable, ownerUserId: string): Promise<LogPlacement | undefined> {
-  const row = (await client.query<{ timezone: string }>("SELECT timezone FROM account_onboarding WHERE user_id = $1", [ownerUserId])).rows[0];
-  return row ? { timezone: row.timezone } : undefined;
+  const row = (await client.query<{ timezone: string | null }>("SELECT timezone FROM account_onboarding WHERE user_id = $1", [ownerUserId])).rows[0];
+  return row?.timezone ? { timezone: row.timezone } : undefined;
 }
 
 /**

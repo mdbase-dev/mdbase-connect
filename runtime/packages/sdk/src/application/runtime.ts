@@ -239,7 +239,7 @@ export class ApplicationRuntime {
   }
   /** Open this app's unsynced collection in this tab (work before connecting).
    * The Worker creates it on first use; the sign-in session is unchanged. */
-  openUnsynced(options:MdbaseApplicationRequestOptions={}):Promise<MdbaseApplicationSnapshot>{
+  openUnsynced(options:MdbaseApplicationRequestOptions & {readonly timezone?:string}={}):Promise<MdbaseApplicationSnapshot>{
     const caller=this.signal(options);return this.action(async()=>{
       const shown=this.raw.unsynced?.collectionId??null;
       if(shown!==null&&this.raw.selectedCollectionId===shown&&(this.raw.status==="ready"||this.raw.status==="setup_required")&&this.scope.connection(shown)?.isCurrent()){
@@ -248,7 +248,7 @@ export class ApplicationRuntime {
       }
       ++this.epoch;const retired=this.retireOwn();this.publish();await retired;
       if(this.closed||caller.aborted)throw new ApplicationRuntimeError("application_fenced");
-      return this.complete(await this.worker.request("openUnsynced",null,caller),caller);
+      return this.complete(await this.worker.request("openUnsynced",options.timezone??null,caller),caller);
     },caller);
   }
   /** After a complete transfer into this tab's open collection: keep the
