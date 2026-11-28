@@ -447,15 +447,21 @@ impl Store for DiskStore {
         d.publish_attempts += publish.len() as u64;
         // Acknowledged observations must not be reoffered by an earlier deferral.
         d.queued.retain(|o| !acks.contains(&o.token));
-        // Acknowledged observations: their bytes are now known.
-        for a in acks {
-            d.outstanding.remove(&a);
-        }
-        let paths: Vec<String> = d.files.keys().cloned().collect();
-        d.known.retain(|path, _| paths.contains(path));
-        for p in paths {
-            let r = h(&d.files[&p]);
-            d.known.insert(p, r);
+        // Like FileStore, acknowledge only the observed revisions in this commit.
+        for token in acks {
+            let Some(observation) = d.outstanding.remove(&token) else {
+                continue;
+            };
+            if let Some(from) = observation.moved_from {
+                d.known.remove(&from);
+            }
+            match observation.now {
+                Some(Observed::Text(text)) => d.known.insert(observation.path, h(&text)),
+                Some(Observed::Attachment { digest, .. }) => {
+                    d.known.insert(observation.path, digest)
+                }
+                None => d.known.remove(&observation.path),
+            };
         }
         let mut report = CommitReport::default();
         if !publish.is_empty() && d.drop_publishes > 0 {
