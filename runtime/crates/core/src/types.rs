@@ -64,6 +64,28 @@ pub struct Settings {
     pub exclude: Vec<String>,
 }
 
+impl Settings {
+    /// The effective spec settings exposed by catalog inspection and replica describe.
+    pub fn value(&self) -> Value {
+        let strings =
+            |list: &[String]| Value::List(list.iter().cloned().map(Value::Text).collect());
+        let optional = |text: &Option<String>| text.clone().map_or(Value::Null, Value::Text);
+        let mut fields = Map::new();
+        fields.insert("timezone", optional(&self.timezone));
+        fields.insert("types_folder", Value::Text(self.types_folder.clone()));
+        fields.insert(
+            "contracts_folder",
+            Value::Text(self.contracts_folder.clone()),
+        );
+        fields.insert("record_extensions", strings(&self.record_extensions));
+        fields.insert("validation", self.validation.as_str().into());
+        fields.insert("explicit_type_keys", strings(&self.explicit_type_keys));
+        fields.insert("id_field", optional(&self.id_field));
+        fields.insert("exclude", strings(&self.exclude));
+        Value::Map(fields)
+    }
+}
+
 impl Default for Settings {
     fn default() -> Self {
         Settings {

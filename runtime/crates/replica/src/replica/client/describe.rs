@@ -130,7 +130,7 @@ impl<S: crate::store::Store> super::Replica<S> {
             spec_version: cat.spec_version().unwrap_or("").to_string(),
             types,
             contracts,
-            settings: mdbn_wire::common::Value::Null,
+            settings: convert::wvalue(&cat.settings().value()),
             inclusion: self
                 .store
                 .settings()
