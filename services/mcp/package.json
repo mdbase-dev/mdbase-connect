@@ -16,18 +16,18 @@
     "typecheck": "pnpm i18n:compile && tsc -p tsconfig.json --noEmit && tsc -p view/tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@fastify/cors": "^11.3.0",
-    "@fastify/formbody": "^9.0.0",
-    "@fastify/helmet": "^13.1.1",
-    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/cors": "^11.4.3",
+    "@fastify/formbody": "^9.0.2",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/rate-limit": "^11.3.0",
     "@mdbase-dev/connect-protocol": "workspace:*",
     "@mdbase-dev/sdk": "file:../../apps/editor/vendor/sdk-12c8a3bb-production-0.2.47.tgz",
     "@modelcontextprotocol/ext-apps": "^1.7.5",
-    "@modelcontextprotocol/sdk": "^1.31.0",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "fastify": "^5.12.5",
-    "pg": "^8.23.0",
+    "pg": "^8.23.1",
     "pg-mem": "^3.0.14",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
