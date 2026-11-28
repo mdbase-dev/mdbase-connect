@@ -151,7 +151,7 @@ export async function runTrials({ context, page, appOrigin, collectionId, folder
   const body = page.getByRole("textbox", { name: "Note body" });
   const url = new URL("/tests/fixtures/editor-regressions.html", appOrigin);
   url.search = new URLSearchParams({ scenario: "local-stack", collection: collectionId });
-  await page.goto(url.href);
+  await page.goto(url.href, { waitUntil: "domcontentloaded", timeout: 90_000 });
   await page.evaluate(() => navigator.serviceWorker.register("/mdbase-shell-sw.js", { type: "module" }).then(() => undefined));
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   for (const [trial, reload, concurrent] of trials) {
@@ -170,7 +170,7 @@ export async function runTrials({ context, page, appOrigin, collectionId, folder
       await page.waitForFunction(() => !navigator.onLine);
       mutationId = await poll(() => pendingWrite(page, collectionId, path, local), "missing pending receipt for the edited record");
       if (reload) {
-        await page.reload();
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 });
         await body.filter({ hasText: local }).waitFor({ timeout: 30_000 });
         assert.equal(await pendingWrite(page, collectionId, path, local), mutationId, "reload must preserve the exact pending write");
       }
@@ -211,7 +211,7 @@ export async function runTrials({ context, page, appOrigin, collectionId, folder
       } else {
         await recovery.getByRole("button", { name: "Discard recovered edits" }).click();
         await recovery.waitFor({ state: "detached" });
-        await page.reload();
+        await page.reload({ waitUntil: "domcontentloaded", timeout: 90_000 });
         await body.filter({ hasText: remote }).waitFor();
         assert.equal(await recovery.count(), 0, "the discarded edit returned after reload");
       }

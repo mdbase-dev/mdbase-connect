@@ -470,7 +470,7 @@ async function runStack() {
     const browserLog = createWriteStream(join(run, `browser-${profile}.log`), { flags: "a" });
     page.on("console", message => browserLog.write(`${message.type()}: ${message.text()}\n`));
     page.on("pageerror", error => browserLog.write(`pageerror: ${error?.stack ?? error}\n`));
-    await page.goto(`${appOrigin}/`);
+    await page.goto(`${appOrigin}/`, { waitUntil: "commit", timeout: 90_000 });
     await page.waitForFunction(() => window.e2eReady === true || typeof window.e2eFailed === "string", null, { timeout: 60_000 });
     const broken = await page.evaluate(() => window.e2eFailed ?? null);
     if (broken) throw Error(`the app page failed to load: ${broken}`);
