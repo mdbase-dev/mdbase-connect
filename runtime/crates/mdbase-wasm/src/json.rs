@@ -3,7 +3,7 @@
 use mdbn_core::contracts::{Contract, Implementation};
 use mdbn_core::ids::Hash;
 use mdbn_core::packs::{Assessment, Lock, Pack, Receipt};
-use mdbn_core::types::{Catalog, Settings, TypeDef};
+use mdbn_core::types::{Catalog, TypeDef};
 use mdbn_core::validate::{Issue, Severity, Tier};
 use mdbn_core::value::Value as CoreValue;
 use serde_json::{Map, Value, json};
@@ -90,29 +90,6 @@ pub fn issues(list: &[Issue]) -> Value {
     Value::Array(list.iter().map(issue).collect())
 }
 
-/// `settings` with defaults applied.
-pub fn settings(s: &Settings) -> Value {
-    json!({
-        "timezone": s.timezone,
-        "types_folder": s.types_folder,
-        "contracts_folder": s.contracts_folder,
-        "record_extensions": s.record_extensions,
-        "validation": level(s.validation),
-        "explicit_type_keys": s.explicit_type_keys,
-        "id_field": s.id_field,
-        "exclude": s.exclude,
-    })
-}
-
-fn level(l: mdbn_core::intent::Level) -> &'static str {
-    use mdbn_core::intent::Level;
-    match l {
-        Level::Off => "off",
-        Level::Warn => "warn",
-        Level::Error => "error",
-    }
-}
-
 /// A type definition: `name`, `path`, `version`?, `schema {document, entry}`,
 /// `merge`, `link_fields`, `path_pattern`?, and `raw` (the whole frontmatter).
 pub fn type_def(t: &TypeDef) -> Value {
@@ -174,7 +151,7 @@ pub fn catalog(c: &Catalog) -> Value {
     json!({
         "valid": c.is_valid(),
         "spec_version": c.spec_version(),
-        "settings": settings(c.settings()),
+        "settings": from_core(&c.settings().value()),
         "types": c.types().iter().map(type_def).collect::<Vec<_>>(),
         "contracts": c.contracts().iter().map(contract).collect::<Vec<_>>(),
         "implementations": c.implementations().iter().map(implementation).collect::<Vec<_>>(),

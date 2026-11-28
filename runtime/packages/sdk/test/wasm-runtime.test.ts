@@ -21,6 +21,39 @@ if (!WebAssembly.Module.exports(mod).some(e => e.name === "rt_info") ||
 }
 
 describe("runtime.wasm", () => {
+  it("returns effective collection settings after edits to mdbase.yaml", async () => {
+    const rt = await WasmRuntime.instantiate(readFileSync(path));
+    rt.open({collection: uuidv7(), replicaId: uuidv7(), deviceId: uuidv7(), mode: "local_only", signSecretKey: crypto.getRandomValues(new Uint8Array(32)), kemSecretKey: crypto.getRandomValues(new Uint8Array(32))});
+    const client = await connect({app: {name: "catalog-settings", version: "1"}, connector: inProcessConnector(rt), reconnect: false});
+    const config = (timezone: string) => `spec_version: '0.3.0'
+x-private: internal
+settings:
+  timezone: ${timezone}
+  types_folder: Types
+  contracts_folder: Contracts
+  record_extensions: [.md, .markdown]
+  validation: warn
+  explicit_type_keys: [kind]
+  id_field: uid
+  exclude: ['drafts/**']
+  x-private: internal
+`;
+    try {
+      expect((await client.describe()).settings).toMatchObject({timezone: null});
+      for (const timezone of ["Australia/Melbourne", "Asia/Tokyo"]) {
+        const write = await client.resources.put("mdbase.yaml", config(timezone));
+        await write.confirmed;
+        expect((await client.describe()).settings).toEqual({
+          timezone, types_folder: "Types", contracts_folder: "Contracts", record_extensions: ["md", "markdown"],
+          validation: "warn", explicit_type_keys: ["kind"], id_field: "uid", exclude: ["drafts/**"],
+        });
+      }
+    } finally {
+      client.close();
+      rt.dispose();
+    }
+  });
+
   it("refuses a guarded update of a deleted ID but still restores it for an ordinary update", async () => {
     const rt = await WasmRuntime.instantiate(readFileSync(path));
     rt.open({collection: uuidv7(), replicaId: uuidv7(), deviceId: uuidv7(), mode: "local_only", signSecretKey: crypto.getRandomValues(new Uint8Array(32)), kemSecretKey: crypto.getRandomValues(new Uint8Array(32))});

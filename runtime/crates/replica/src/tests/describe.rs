@@ -477,6 +477,31 @@ fn contract_query_empty_implementation_set_is_complete_without_raw_record_infere
 }
 
 #[test]
+fn describe_settings_follow_the_local_config() {
+    let config =
+        |timezone: &str| format!("spec_version: '0.3.0'\nsettings:\n  timezone: {timezone}\n");
+    let (_, mut a) = configured(vec![("mdbase.yaml".into(), config("Australia/Melbourne"))]);
+    let timezone = |a: &mut Node| {
+        let Value::Map(settings) = a.r.describe(a.s).unwrap().settings else {
+            panic!("expected a settings object");
+        };
+        settings
+            .into_iter()
+            .find(|(key, _)| key == "timezone")
+            .unwrap()
+            .1
+    };
+    assert_eq!(timezone(&mut a), Value::Text("Australia/Melbourne".into()));
+    pending_resources(&mut a, vec![("mdbase.yaml", config("Asia/Tokyo"))]);
+    assert_eq!(timezone(&mut a), Value::Text("Asia/Tokyo".into()));
+    pending_resources(
+        &mut a,
+        vec![("mdbase.yaml", "spec_version: '0.3.0'\n".into())],
+    );
+    assert_eq!(timezone(&mut a), Value::Null);
+}
+
+#[test]
 fn describe_empty_catalog_and_closed_session() {
     let (_, mut a) = configured(vec![(
         "mdbase.yaml".into(),

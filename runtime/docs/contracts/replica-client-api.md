@@ -644,7 +644,7 @@ encoder and SDK decoder:
 describe-result = {
   0: tstr,                   ; spec_version the collection declares
   1: [* type-summary],       ; valid types, in canonical catalog order
-  2: value,                  ; settings slot (currently null from the replica)
+  2: value,                  ; effective local catalog settings (older replicas return null)
   3: file-inclusion,         ; current file inclusion policy (§10.3)
   4: [* issue],              ; catalog issues
   5: [* contract-summary],   ; registered contracts, in canonical catalog order
