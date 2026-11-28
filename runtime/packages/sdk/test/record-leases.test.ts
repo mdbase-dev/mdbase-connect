@@ -267,6 +267,28 @@ describe("shared native record leases", () => {
         expect(update).toHaveBeenCalledTimes(1);
         lease.release();
     });
+    it("holds later typing for review when a peer edits the body between confirmation and readback", async () => {
+        const f = await fixture(true), lease = await f.client.records.open(f.record.id);
+        const update = vi.spyOn(f.client, "update");
+        vi.spyOn(f.client, "awaitReceipt").mockImplementationOnce(async mutation => {
+            lease.session.setBody("Later typing");
+            f.replica.confirmAll();
+            f.replica.editElsewhere(f.record.id, { body: "Peer after confirmation" });
+            return f.client.receipt(mutation);
+        });
+        lease.session.setBody("First draft");
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { code: "conflict" } });
+        expect(lease.session.getSnapshot()).toMatchObject({
+            state: "conflict", body: "Later typing", remote: { body: "Peer after confirmation" },
+            recovery: null, lastReceipt: { state: "confirmed" },
+        });
+        expect(await lease.session.flush()).toMatchObject({ ok: false });
+        expect(update).toHaveBeenCalledTimes(1);
+        expect((await f.client.get(f.record.id, { include: { body: true } })).body).toBe("Peer after confirmation");
+        lease.session.resolve({ keep: "mine" });
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "unsaved", body: "Later typing" });
+        lease.release();
+    });
     it("keeps matching readbacks editable on device until the exact receipt confirms", async () => {
         const f = await fixture(true), lease = await f.client.records.open(f.record.id);
         const get = f.client.get.bind(f.client);

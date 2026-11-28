@@ -732,9 +732,12 @@ export class RecordSessionImpl {
                 "record readback does not qualify the native receipt",
                 "unqualified_readback",
             );
-        this.charge(this.body, this.patch, current, null, receipt, null, edits);
-        this.pendingEdits = edits;
         const sameBody = this.body === captured.body;
+        // More typing was based on the submitted text. If a peer changed it
+        // after confirmation, the next save needs an explicit choice of body.
+        const conflict = !kept && !sameBody && current.body !== captured.body && current.body !== this.body;
+        this.charge(this.body, this.patch, current, conflict ? current : null, receipt, null, edits);
+        this.pendingEdits = edits;
         for (const [key, value] of captured.patch) {
             const latest = this.patch.get(key);
             if (
@@ -748,7 +751,9 @@ export class RecordSessionImpl {
         this.base = copy(current);
         if (sameBody) this.body = current.body!;
         this.captured = null;
-        this.remote = null;
+        this.remote = conflict ? copy(current) : null;
+        if (conflict)
+            throw refusal("conflict", "record body changed while saving an earlier draft", "record_session_conflict");
         this.state = this.dirty ? "unsaved" : this.restState;
         this.why = null;
         this.publish();
