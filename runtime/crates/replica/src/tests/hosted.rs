@@ -1149,6 +1149,7 @@ fn open_hosted_refuses_a_store_with_durable_pending_rows() {
                 grant: None,
                 uploads: Vec::new(),
                 refs: Vec::new(),
+                submitted: false,
             }],
             ..Tx::default()
         })
@@ -1280,6 +1281,7 @@ fn hosted_cache_never_reports_commit_aborted() {
         grant: None,
         uploads: Vec::new(),
         refs: Vec::new(),
+        submitted: false,
     };
     c.commit(Tx {
         pending_put: vec![row(1)],
@@ -1585,6 +1587,7 @@ fn growing_replan_closes_admission_until_drained() {
         grant: None,
         uploads: Vec::new(),
         refs: Vec::new(),
+        submitted: false,
     };
     let put = |c: &mut HostedCache<MemStore>, r| {
         c.commit(Tx {
@@ -1650,6 +1653,7 @@ fn replans_are_hard_capped_per_row() {
         grant: None,
         uploads: Vec::new(),
         refs: Vec::new(),
+        submitted: false,
     };
     let put = |c: &mut HostedCache<MemStore>, r| {
         c.commit(Tx {

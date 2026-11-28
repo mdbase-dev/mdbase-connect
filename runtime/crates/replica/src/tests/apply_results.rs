@@ -751,6 +751,7 @@ fn conflicts_aliases_and_dismissals_are_stored_with_the_entry() {
                 grant: None,
                 uploads: Vec::new(),
                 refs: Vec::new(),
+                submitted: false,
             }],
             ..Tx::default()
         },
@@ -855,6 +856,7 @@ fn own_conflicted_attachment_is_held_and_stops_its_fetch() {
                 grant: None,
                 uploads: Vec::new(),
                 refs: Vec::new(),
+                submitted: false,
             }],
             ..Tx::default()
         },
@@ -883,6 +885,7 @@ fn own_pending_mutation_is_confirmed() {
         grant: None,
         uploads: Vec::new(),
         refs: Vec::new(),
+        submitted: false,
     };
     seed(
         &mut n.r,
@@ -1132,6 +1135,7 @@ fn busy_setup(n: &mut Node) -> Case {
                 grant: None,
                 uploads: Vec::new(),
                 refs: Vec::new(),
+                submitted: false,
             }],
             ..Tx::default()
         },

@@ -212,6 +212,42 @@ fn a_delete_removes_the_file_everywhere() {
     assert!(a.r.store().att_disk().outstanding.is_empty());
 }
 
+/// A rejected delete of an attachment file (`refused.rs`) keeps the file
+/// deleted here: it is not fetched back, now or after a restart.
+#[test]
+fn a_refused_attachment_delete_is_not_fetched_back() {
+    use crate::log::{LogError, LogErrorCode};
+    let svc = FakeLogService::new();
+    let (mut a, data_rc) = ingest_node(&svc, 1);
+    user(&mut a, |d| d.user_write(PATH, &data(2 * CHUNK + 10)));
+    let id = file_at(&a, PATH).unwrap().id;
+    a.log.faults.fail_appends = vec![LogError::Service {
+        code: LogErrorCode::TooLarge,
+        reason: Some("item_bytes".into()),
+        retry_after_ms: None,
+        missing: Vec::new(),
+    }];
+    user(&mut a, |d| d.user_remove(PATH));
+    assert!(
+        a.r.store().file(&id).unwrap().is_some(),
+        "the delete was rejected"
+    );
+    let refused: Vec<_> =
+        a.r.refused_files()
+            .map(|(p, _, deleted)| (p.to_string(), deleted))
+            .collect();
+    assert_eq!(refused, vec![(PATH.to_string(), true)]);
+    assert!(!a.r.store().att_disk().files.contains_key(PATH));
+    assert_eq!(a.r.attachment_chunks_fetched(), 0);
+    drop(a);
+    let mut a = attach_node_with(&svc, 1, MemStore::shared(data_rc));
+    a.r.observe(None).unwrap();
+    sync(&mut a);
+    assert_eq!(a.r.refused_files().len(), 1);
+    assert!(!a.r.store().att_disk().files.contains_key(PATH));
+    assert_eq!(a.r.attachment_chunks_fetched(), 0);
+}
+
 #[test]
 fn an_interrupted_upload_resumes_from_its_checkpoint_after_a_restart() {
     let svc = FakeLogService::new();

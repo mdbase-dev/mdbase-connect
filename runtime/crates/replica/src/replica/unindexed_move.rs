@@ -381,6 +381,7 @@ impl<S: Store> Replica<S> {
                 grant: None,
                 uploads: vec![],
                 refs,
+                submitted: false,
             }],
             meta: fence_meta,
             ..Tx::default()

@@ -169,6 +169,7 @@ fn replanned_file_collision_fences_the_original_operation_path() {
                 grant: None,
                 uploads: Vec::new(),
                 refs: Vec::new(),
+                submitted: false,
             }],
             ..Tx::default()
         })

@@ -600,14 +600,47 @@ pub async fn run_private_approval(log: &str, dir: &Path) {
     assert!(
         matches!(approval(&ra, Op::Pending(sa)).await, Ok(Reply::Pending(list)) if list.is_empty())
     );
-    std::fs::write(dir.join(b.label).join("from-b.md"), "private on B\n").unwrap();
-    converge(
-        &dir.join(a.label).join("from-b.md"),
-        "private on B\n",
-        Duration::from_secs(60),
-    )
-    .await;
-    println!("PASS: B keyed by A; notes open both ways");
+    // A real file watcher, two Private replicas, and the sealed log limit.
+    let path = "from-b.md";
+    let local = dir.join(b.label).join(path);
+    let peer = dir.join(a.label).join(path);
+    let original = format!("{}\n", "x".repeat(99)).repeat(3450);
+    let edited = format!("{original}{}\n", "y".repeat(99));
+    let wait = Duration::from_secs(60);
+    for doc in [&original, &edited] {
+        std::fs::write(&local, doc).unwrap();
+        converge_bytes(&peer, doc.as_bytes(), wait).await;
+    }
+
+    let oversized = format!("{edited}{}", "z".repeat(400_000));
+    std::fs::write(&local, &oversized).unwrap();
+    tokio::time::timeout(wait, async {
+        loop {
+            let (_, notices) = rb.telemetry().await.unwrap();
+            if notices
+                .iter()
+                .any(|n| n.code == "edit_refused" && n.path.as_deref() == Some(path))
+            {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    })
+    .await
+    .expect("the refused Private edit must be visible in daemon status");
+    assert!(std::fs::read(&local).unwrap() == oversized.as_bytes());
+    assert!(std::fs::read(&peer).unwrap() == edited.as_bytes());
+
+    std::fs::write(&local, "corrected on B\n").unwrap();
+    converge_bytes(&peer, b"corrected on B\n", wait).await;
+    assert!(
+        !rb.telemetry()
+            .await
+            .unwrap()
+            .1
+            .iter()
+            .any(|n| n.code == "edit_refused" && n.path.as_deref() == Some(path))
+    );
     ra.stop().await;
     rb.stop().await;
 }

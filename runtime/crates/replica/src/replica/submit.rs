@@ -569,6 +569,7 @@ impl<S: Store> Replica<S> {
             grant,
             uploads: Vec::new(),
             refs: Vec::new(),
+            submitted: self.store.has_files(),
         };
         if local_owner.is_some() {
             self.session(session)?;

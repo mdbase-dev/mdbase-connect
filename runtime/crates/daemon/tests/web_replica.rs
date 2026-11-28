@@ -1207,6 +1207,7 @@ fn dormant_local_capture_is_rejected_on_ordinary_host_reopen() {
                 grant: Some(owner),
                 uploads: Vec::new(),
                 refs: Vec::new(),
+                submitted: true,
             }],
             ..Tx::default()
         })
