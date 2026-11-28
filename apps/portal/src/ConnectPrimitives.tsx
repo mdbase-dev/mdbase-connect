@@ -4,7 +4,6 @@ import { useLocaleRevision, i18n } from "@mdbase-dev/ui/i18n";
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { InfoIcon as Info } from "@phosphor-icons/react/Info";
 import { ManagementApiError } from "@mdbase/connect-management";
-import { collectionQuotaMessage } from "./collection-quota-copy.generated";
 import { Tooltip } from "@mdbase-dev/ui/tooltip";
 
 export function ConnectPreview({ title, rows, pending, error, retry }: {
@@ -143,7 +142,7 @@ export function isCollectionQuotaRefusal(value: unknown): boolean {
 
 export function errorMessage(value: unknown): string {
   if (value instanceof Error && "status" in value && typeof value.status === "number" && value.status >= 500) return t(i18n)`Something went wrong on mdbase. Try again.`;
-  if (isCollectionQuotaRefusal(value)) return collectionQuotaMessage();
+  if (isCollectionQuotaRefusal(value)) return t(i18n)`Your account has reached its synced collection limit.`;
   const detail = value instanceof Error ? value.message : String(value);
   return /failed to fetch|networkerror|network request failed/i.test(detail)
     ? t(i18n)({ message: "mdbase Connect could not be reached. Check your connection and try again." })

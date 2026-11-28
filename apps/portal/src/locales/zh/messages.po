@@ -380,6 +380,10 @@ msgid "<0>App origin unverified.</0> Continue only if you started this connectio
 msgstr "<0>无法验证应用来源。</0>只有在你主动发起此连接时才继续{1}。{3}"
 
 #: src/ConnectApp.tsx
+msgid "<0>Upgrade to Plus</0> to sync more collections."
+msgstr "<0>升级到 Plus</0>以同步更多集合。"
+
+#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "有人与你共享了一个集合"
 
@@ -1869,6 +1873,11 @@ msgstr "安装最新版本"
 msgid "Installation details"
 msgstr "安装详情"
 
+#. placeholder {0}: literal(reference)
+#: src/ApplicationAccess.tsx
+msgid "Installation reference {0}"
+msgstr "安装标识 {0}"
+
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
 msgstr "邀请已就绪"
@@ -2349,6 +2358,10 @@ msgstr "在编辑器中打开集合，或管理其同步方式。"
 msgid "Open an app, then choose which collections it can access."
 msgstr "打开应用，然后选择它可以访问的集合。"
 
+#: src/ConnectApp.tsx
+msgid "Open an existing collection or delete a synced collection you own if Delete is available."
+msgstr "打开现有集合，或者在有“删除”选项时删除你拥有的同步集合。"
+
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2693,8 +2706,13 @@ msgstr "移除此安装"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
-msgid "Remove only this installation of {0} from your account?"
-msgstr "仅从你的账户中移除 {0} 的这个安装实例吗？"
+msgid "Remove installation {reference} of {0}?"
+msgstr "要移除 {0} 的安装 {reference} 吗？"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+#~ msgid "Remove only this installation of {0} from your account?"
+#~ msgstr "仅从你的账户中移除 {0} 的这个安装实例吗？"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
@@ -3854,6 +3872,10 @@ msgstr "你已退订"
 msgid "Your account has been deleted."
 msgstr "你的账户已删除。"
 
+#: src/ConnectPrimitives.tsx
+msgid "Your account has reached its synced collection limit."
+msgstr "你的账户已达到同步集合数量上限。"
+
 #: src/collection-quota-copy.generated.ts
 msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page."
 msgstr "你的账户已达到同步集合数量上限。请打开现有集合；如果有删除功能，可删除你拥有的集合；如果你使用的是 Free 方案，也可以在 mdbase 账户页面升级到 Plus。"
@@ -3914,6 +3936,17 @@ msgstr "你的其他浏览器会话已退出登录。此浏览器现已使用新
 msgctxt "Connect interface"
 msgid "Your person record"
 msgstr "你的个人记录"
+
+#. placeholder {0}: countLabel(limit, "collection")
+#: src/ConnectApp.tsx
+msgid "Your plan allows {0} to sync."
+msgstr "你的套餐允许同步 {0}。"
+
+#. placeholder {0}: countLabel(limit, "collection")
+#. placeholder {1}: i18n.number(used)
+#: src/ConnectApp.tsx
+msgid "Your plan allows {0} to sync. You're using {1}."
+msgstr "你的套餐允许同步 {0}，目前已使用 {1} 个。"
 
 #: src/auth-view.tsx
 msgid "Your session expired. Sign in to pick up where you left off."

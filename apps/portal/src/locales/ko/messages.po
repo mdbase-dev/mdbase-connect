@@ -380,6 +380,10 @@ msgid "<0>App origin unverified.</0> Continue only if you started this connectio
 msgstr "<0>애플리케이션 출처를 확인할 수 없습니다.</0> 직접 시작한 연결인 경우에만 계속하세요{1}.{3}"
 
 #: src/ConnectApp.tsx
+msgid "<0>Upgrade to Plus</0> to sync more collections."
+msgstr "<0>Plus로 업그레이드</0>하여 더 많은 컬렉션을 동기화하세요."
+
+#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "컬렉션이 공유되었습니다"
 
@@ -1869,6 +1873,11 @@ msgstr "최신 버전 설치"
 msgid "Installation details"
 msgstr "설치 세부 정보"
 
+#. placeholder {0}: literal(reference)
+#: src/ApplicationAccess.tsx
+msgid "Installation reference {0}"
+msgstr "설치 참조 번호 {0}"
+
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
 msgstr "초대 준비됨"
@@ -2349,6 +2358,10 @@ msgstr "편집기에서 컬렉션을 열거나 동기화 방식을 관리하세�
 msgid "Open an app, then choose which collections it can access."
 msgstr "앱을 연 다음 접근을 허용할 컬렉션을 선택하세요."
 
+#: src/ConnectApp.tsx
+msgid "Open an existing collection or delete a synced collection you own if Delete is available."
+msgstr "기존 컬렉션을 열거나, 삭제 옵션이 있는 경우 소유한 동기화 컬렉션을 삭제하세요."
+
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2693,8 +2706,13 @@ msgstr "설치 삭제"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
-msgid "Remove only this installation of {0} from your account?"
-msgstr "계정에서 {0}의 이 설치만 삭제할까요?"
+msgid "Remove installation {reference} of {0}?"
+msgstr "{0}의 설치 {reference}을(를) 제거할까요?"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+#~ msgid "Remove only this installation of {0} from your account?"
+#~ msgstr "계정에서 {0}의 이 설치만 삭제할까요?"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
@@ -3854,6 +3872,10 @@ msgstr "수신이 거부되었습니다"
 msgid "Your account has been deleted."
 msgstr "계정이 삭제되었습니다."
 
+#: src/ConnectPrimitives.tsx
+msgid "Your account has reached its synced collection limit."
+msgstr "계정의 동기화 컬렉션 한도에 도달했습니다."
+
 #: src/collection-quota-copy.generated.ts
 msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page."
 msgstr "계정의 동기화된 컬렉션 수가 한도에 도달했습니다. 기존 컬렉션을 열거나, 삭제 기능을 사용할 수 있다면 소유한 컬렉션을 삭제하거나, Free 요금제를 사용 중이라면 mdbase 계정 페이지에서 Plus로 업그레이드하세요."
@@ -3914,6 +3936,17 @@ msgstr "다른 브라우저 세션에서 로그아웃되었습니다. 이제 이
 msgctxt "Connect interface"
 msgid "Your person record"
 msgstr "내 사람 레코드"
+
+#. placeholder {0}: countLabel(limit, "collection")
+#: src/ConnectApp.tsx
+msgid "Your plan allows {0} to sync."
+msgstr "현재 요금제에서는 {0}을(를) 동기화할 수 있습니다."
+
+#. placeholder {0}: countLabel(limit, "collection")
+#. placeholder {1}: i18n.number(used)
+#: src/ConnectApp.tsx
+msgid "Your plan allows {0} to sync. You're using {1}."
+msgstr "현재 요금제에서는 {0}을(를) 동기화할 수 있습니다. 현재 {1}개를 사용 중입니다."
 
 #: src/auth-view.tsx
 msgid "Your session expired. Sign in to pick up where you left off."

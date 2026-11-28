@@ -380,6 +380,10 @@ msgid "<0>App origin unverified.</0> Continue only if you started this connectio
 msgstr "<0>Origem do aplicativo não verificada.</0> Continue apenas se você iniciou esta conexão intencionalmente{1}.{3}"
 
 #: src/ConnectApp.tsx
+msgid "<0>Upgrade to Plus</0> to sync more collections."
+msgstr "<0>Atualize para o Plus</0> para sincronizar mais coleções."
+
+#: src/ConnectApp.tsx
 msgid "A collection was shared with you"
 msgstr "Uma coleção foi compartilhada com você"
 
@@ -1869,6 +1873,11 @@ msgstr "Instale a versão mais recente"
 msgid "Installation details"
 msgstr "Detalhes da instalação"
 
+#. placeholder {0}: literal(reference)
+#: src/ApplicationAccess.tsx
+msgid "Installation reference {0}"
+msgstr "Referência da instalação {0}"
+
 #: src/ConnectApp.tsx
 msgid "Invitation ready"
 msgstr "Convite pronto"
@@ -2349,6 +2358,10 @@ msgstr "Abra uma coleção no editor ou gira a forma como sincroniza."
 msgid "Open an app, then choose which collections it can access."
 msgstr "Abra um aplicativo e escolha quais coleções ele pode acessar."
 
+#: src/ConnectApp.tsx
+msgid "Open an existing collection or delete a synced collection you own if Delete is available."
+msgstr "Abra uma coleção existente ou exclua uma coleção sincronizada que você possui se a opção Excluir estiver disponível."
+
 #: src/authorization-view.tsx
 #: src/ConnectApp.tsx
 msgid "Open desktop app"
@@ -2693,8 +2706,13 @@ msgstr "Remover instalação"
 
 #. placeholder {0}: group.applicationName
 #: src/ApplicationAccess.tsx
-msgid "Remove only this installation of {0} from your account?"
-msgstr "Remover apenas esta instalação de {0} da sua conta?"
+msgid "Remove installation {reference} of {0}?"
+msgstr "Remover a instalação {reference} de {0}?"
+
+#. placeholder {0}: group.applicationName
+#: src/ApplicationAccess.tsx
+#~ msgid "Remove only this installation of {0} from your account?"
+#~ msgstr "Remover apenas esta instalação de {0} da sua conta?"
 
 #. placeholder {0}: member.name
 #. placeholder {1}: collection.display_name ?? collection.id
@@ -3854,6 +3872,10 @@ msgstr "Sua assinatura foi cancelada"
 msgid "Your account has been deleted."
 msgstr "Sua conta foi excluída."
 
+#: src/ConnectPrimitives.tsx
+msgid "Your account has reached its synced collection limit."
+msgstr "Sua conta atingiu o limite de coleções sincronizadas."
+
 #: src/collection-quota-copy.generated.ts
 msgid "Your account has reached its synced collection limit. Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page."
 msgstr "A sua conta atingiu o limite de coleções sincronizadas. Abra uma coleção existente, elimine uma de que seja proprietário se a opção Eliminar estiver disponível ou, se estiver no plano Free, faça upgrade para o Plus na página da sua conta mdbase."
@@ -3914,6 +3936,17 @@ msgstr "Suas outras sessões do navegador foram encerradas. Este navegador agora
 msgctxt "Connect interface"
 msgid "Your person record"
 msgstr "Seu registro de pessoa"
+
+#. placeholder {0}: countLabel(limit, "collection")
+#: src/ConnectApp.tsx
+msgid "Your plan allows {0} to sync."
+msgstr "Seu plano permite sincronizar {0}."
+
+#. placeholder {0}: countLabel(limit, "collection")
+#. placeholder {1}: i18n.number(used)
+#: src/ConnectApp.tsx
+msgid "Your plan allows {0} to sync. You're using {1}."
+msgstr "Seu plano permite sincronizar {0}. Você está usando {1}."
 
 #: src/auth-view.tsx
 msgid "Your session expired. Sign in to pick up where you left off."

@@ -189,7 +189,7 @@ function ConnectWorkspace({ onFeedbackContext }: { onFeedbackContext(view: Conne
     return request;
   }, [accountDeleted]);
 
-  useOverviewRefresh(refresh, view === "account");
+  useOverviewRefresh(refresh, view);
 
   useEffect(() => {
     const update = () => setView(viewFromPath());
@@ -763,7 +763,7 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
     </section>
     <Dialog open={creating} title={t(i18n)({ message: "Add collection", context: "Connect interface" })} closeDisabled={busy.has("create-collection")} onClose={() => setCreating(false)}>
       {!location && choices}
-      {location === "quota" && <p role="alert">{creationError}</p>}
+      {location === "quota" && <CollectionQuotaNotice data={data} message={creationError} />}
       {cloud && <form className="connect-edit-form" noValidate onSubmit={event => void create(event)}>
         <p className="connect-muted"><Trans>Starts with a cloud copy</Trans></p>
         <label><span><Trans>Collection name</Trans></span><input className="mdbase-field" autoFocus maxLength={200} value={name} disabled={intent !== null || busy.has("create-collection")} aria-invalid={Boolean(creationError)} aria-describedby="collection-create-error" onBlur={validateName} onChange={event => setName(event.target.value)} /></label>
@@ -775,6 +775,22 @@ function Collections({ error, data, busy, perform, navigate, editorOrigin }: {
       {location === "native" && <div className="connect-edit-form"><p><Trans>Choose or create a folder in the desktop app. Collection files stay on this computer.</Trans></p><DesktopLink href="mdbase-connect://open"><Trans>Open desktop app</Trans></DesktopLink></div>}
     </Dialog>
   </Page>;
+}
+
+function CollectionQuotaNotice({ data, message }: { data: ManagementOverview; message: string | null }) {
+  const limit = data.subscription?.limits.max_hosted_collections;
+  const used = data.subscription?.usage?.hosted_collections;
+  const billing = data.billing;
+  const canUpgrade = limit !== undefined && billing?.available && billing.plus_limits
+    && billing.plus_limits.max_hosted_collections > limit && (!billing.plus || billing.plus.status === "canceled");
+  return <div role="alert">
+    <p>{message}</p>
+    {limit !== undefined && <p>{used === undefined
+      ? t(i18n)`Your plan allows ${countLabel(limit, "collection")} to sync.`
+      : t(i18n)`Your plan allows ${countLabel(limit, "collection")} to sync. You're using ${i18n.number(used)}.`}</p>}
+    <p><Trans>Open an existing collection or delete a synced collection you own if Delete is available.</Trans></p>
+    {canUpgrade && <p><Trans><a href="/account">Upgrade to Plus</a> to sync more collections.</Trans></p>}
+  </div>;
 }
 
 function Computers({ error, data, busy, perform }: {

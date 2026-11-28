@@ -225,10 +225,12 @@ describe("ConnectApp", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("Something went wrong on mdbase. Try again.");
   });
 
-  it("offers deletion only where available alongside existing-collection and support recovery", async () => {
+  it("reports a quota refusal without assuming a plan when overview is unavailable", async () => {
     vi.mocked(fetch).mockResolvedValue(Response.json({ error: { code: "account_collection_quota_exceeded", message: "Delete a synced collection before creating another." } }, { status: 429 }));
     render(<ConnectApp />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("Open an existing collection, delete one you own if Delete is available, or, if you're on the Free plan, upgrade to Plus from your mdbase account page.");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your account has reached its synced collection limit.");
+    expect(alert).not.toHaveTextContent("Free");
   });
 
   it("names each collection launch link in the collection list", async () => {
@@ -831,6 +833,24 @@ describe("ConnectApp", () => {
     expect(vi.mocked(fetch).mock.calls.some(([input]) => new URL(String(input)).pathname.startsWith("/v1/grants"))).toBe(false);
   });
 
+  it("refreshes the Apps count when a collection was deleted since the last overview", async () => {
+    overview.installation_access = [installationFixture()];
+    const user = userEvent.setup();
+    render(<ConnectApp />);
+    const apps = await screen.findByRole("link", { name: "Apps" });
+    await user.click(apps);
+    expect(await screen.findByText("1 collection")).toBeInTheDocument();
+    await user.click(screen.getByRole("link", { name: "Collections" }));
+    await screen.findByRole("heading", { name: "Collections" });
+
+    overview.collections = [];
+    overview.installation_access = [{ ...installationFixture(), collection_id: null, collection_name: null, available: false, role: null }];
+    await user.click(screen.getByRole("link", { name: "Apps" }));
+
+    expect(await screen.findByText("0 collections")).toBeInTheDocument();
+    expect(screen.getByText("Reader app")).toBeInTheDocument();
+  });
+
   it("opens Reader's existing manage-access route on Applications", async () => {
     history.replaceState(null, "", "/account/applications");
     render(<ConnectApp />);
@@ -1381,8 +1401,19 @@ describe("ConnectApp", () => {
     }
   });
 
-  it("offers Close rather than Retry after a collection quota refusal", async () => {
+  it.each([
+    { plan: "beta", limit: 3, plusLimit: 3, upgrade: false },
+    { plan: "entitled", limit: 1, plusLimit: 10, upgrade: true },
+    { plan: "entitled", limit: 10, plusLimit: 10, upgrade: false }
+  ] as const)("shows the $plan collection allowance of $limit after a refusal", async ({ plan, limit, plusLimit, upgrade }) => {
     history.replaceState(null, "", "/collections");
+    overview.subscription!.kind = plan;
+    overview.subscription!.limits.max_hosted_collections = limit;
+    overview.subscription!.usage!.hosted_collections = limit;
+    overview.billing = {
+      available: true, plus: null,
+      plus_limits: { max_hosted_collections: plusLimit, hosted_storage_bytes: 0, max_single_file_bytes: 0, max_collection_member_seats: 0 }
+    };
     const user = userEvent.setup();
     render(<ConnectApp />);
     const add = await screen.findByRole("button", { name: "Add collection" });
@@ -1393,7 +1424,10 @@ describe("ConnectApp", () => {
     await user.click(screen.getByRole("button", { name: "Create" }));
 
     const dialog = within(screen.getByRole("dialog", { name: "Add collection" }));
-    expect(await dialog.findByRole("alert")).toHaveTextContent("Your account has reached its synced collection limit.");
+    const alert = await dialog.findByRole("alert");
+    expect(alert).toHaveTextContent(`Your plan allows ${limit} ${limit === 1 ? "collection" : "collections"} to sync. You're using ${limit}.`);
+    expect(alert).toHaveTextContent("delete a synced collection you own if Delete is available.");
+    expect(Boolean(dialog.queryByRole("link", { name: "Upgrade to Plus" }))).toBe(upgrade);
     expect(dialog.queryByText(/Your original request is kept/)).not.toBeInTheDocument();
     expect(dialog.queryByRole("button", { name: "Retry creation" })).not.toBeInTheDocument();
     await user.click(dialog.getByRole("button", { name: "Close" }));

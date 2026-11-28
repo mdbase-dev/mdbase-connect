@@ -1,5 +1,6 @@
 import type { ManagementOverview } from "@mdbase/connect-management";
 import { useEffect } from "react";
+import type { ConnectView } from "./ConnectPrimitives";
 
 /** `storageAgeMs`: include storage when the last successful storage read is at least this old. */
 type Refresh = (signal?: AbortSignal, animate?: boolean, storageAgeMs?: number) => Promise<void>;
@@ -28,8 +29,8 @@ export class NativeStorageReads {
   }
 }
 
-/** Refreshes on load, every 15 seconds and on focus, visibility or reconnection while visible, and when the account page opens. */
-export function useOverviewRefresh(refresh: Refresh, accountOpen: boolean): void {
+/** Refreshes on load, while visible, and when Account or Apps opens. */
+export function useOverviewRefresh(refresh: Refresh, view: ConnectView): void {
   useEffect(() => {
     const controller = new AbortController();
     void refresh(controller.signal, false, 0);
@@ -52,6 +53,7 @@ export function useOverviewRefresh(refresh: Refresh, accountOpen: boolean): void
   }, [refresh]);
 
   useEffect(() => {
-    if (accountOpen) void refresh(undefined, false, 0);
-  }, [accountOpen, refresh]);
+    if (view === "account") void refresh(undefined, false, 0);
+    if (view === "applications") void refresh();
+  }, [view, refresh]);
 }
