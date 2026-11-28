@@ -65,7 +65,8 @@ const RECEIPT_TIMEOUT_MS = 30_000;
 const HISTORY_TIMEOUT_MS = 330_000;
 /** Referring records per backlinks page; record views carry no body. */
 const BACKLINKS_PAGE = 500;
-const SEARCH_PAGE = 500;
+/** The replica caps a query page at 1,000 rows and may return a smaller page to fit its byte budget. */
+const SEARCH_PAGE = 1_000;
 const BACKLINKS_ATTEMPTS = 3;
 /** Links per resolve_links request (the replica's bound). */
 const RESOLVE_LINKS_BATCH = 512;
@@ -298,7 +299,12 @@ export class NativeEditorGateway implements CollectionGateway {
     const signal = this.signal(outer);
     const paths: string[] = [];
     let complete = false;
-    for await (const page of this.client.pages({ where, limit: SEARCH_PAGE }, { signal })) {
+    const onReset = () => {
+      this.check();
+      paths.length = 0;
+      complete = false;
+    };
+    for await (const page of this.client.pages({ where, limit: SEARCH_PAGE }, { signal, onReset })) {
       this.check();
       for (const record of page.records) paths.push(record.path);
       complete = page.complete && !page.cursor;

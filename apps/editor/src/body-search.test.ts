@@ -81,7 +81,7 @@ describe("BodySearch", () => {
     expect(search.getSnapshot().pending).toBe(true);
     searches[1].answer.resolve([]);
     await settle();
-    expect(search.getSnapshot()).toMatchObject({ pending: false, version: 2 });
+    expect(search.getSnapshot()).toMatchObject({ pending: false, matchesVersion: 2 });
     expect(listener).toHaveBeenCalled();
 
     // The same terms at the same revision are already answered.
@@ -147,15 +147,53 @@ describe("BodySearch", () => {
     expect(searches[1].signal?.aborted).toBe(true);
     expect(search.getSnapshot()).toMatchObject({ pending: false, error: failure });
 
-    // Typing more does not ask while the failure stands.
-    search.search(["launch", "plan", "pad"], [], 1);
+    // Rendering the same failed search again does not issue another request.
+    search.search(["launch", "plan"], [], 1);
     await settle();
     expect(searches).toHaveLength(2);
 
     search.retry();
     expect(search.getSnapshot().error).toBeUndefined();
-    expect(searches.slice(2).map((call) => call.term)).toEqual(["launch", "plan", "pad"]);
+    expect(searches.slice(2).map((call) => call.term)).toEqual(["launch", "plan"]);
     for (const call of searches.slice(2)) call.answer.resolve(["A.md"]);
+    await settle();
+    expect(search.getSnapshot().pending).toBe(false);
+  });
+
+  it.each(["new query", "new revision", "inventory completed"] as const)("recovers from a transient error after %s", async (change) => {
+    const { gateway, searches } = manualGateway();
+    const search = new BodySearch(gateway, 0);
+    search.search(["launch"], [], 1, false);
+    await settle();
+    const failure = new Error("The collection did not return a complete list of notes.");
+    searches[0].answer.reject(failure);
+    await settle();
+    expect(search.getSnapshot().error).toBe(failure);
+
+    const term = change === "new query" ? "needle" : "launch";
+    search.search([term], [], change === "new revision" ? 2 : 1, change === "inventory completed");
+    expect(search.getSnapshot()).toMatchObject({ pending: true, error: undefined });
+    await settle();
+    expect(searches.map((call) => call.term)).toEqual(["launch", term]);
+    searches[1].answer.resolve(["notes/09999.md"]);
+    await settle();
+    expect(search.paths(term)).toEqual(new Set(["notes/09999.md"]));
+    expect(search.getSnapshot().pending).toBe(false);
+  });
+
+  it("reasks if a search that started during inventory loading fails after it completes", async () => {
+    const { gateway, searches } = manualGateway();
+    const search = new BodySearch(gateway, 0);
+    search.search(["launch"], [], 1, false);
+    await settle();
+    search.search(["launch"], [], 1, true);
+    searches[0].answer.reject(new Error("old view"));
+    await settle();
+    expect(search.getSnapshot()).toMatchObject({ pending: true });
+    expect(search.getSnapshot().error).toBeUndefined();
+    await settle();
+    expect(searches).toHaveLength(2);
+    searches[1].answer.resolve([]);
     await settle();
     expect(search.getSnapshot().pending).toBe(false);
   });
@@ -163,12 +201,15 @@ describe("BodySearch", () => {
   it("reads excerpt text for leading matches the page lacks, at their revision", async () => {
     const { gateway, reads } = manualGateway();
     const search = new BodySearch(gateway, 0);
+    const before = search.getSnapshot();
     const many = Array.from({ length: EXCERPT_READS + 5 }, (_, index) => note(`N${index}.md`));
     search.readTexts([note("held.md", "r1", "already here"), ...many]);
     await settle();
     expect(reads).not.toContain("held.md");
     expect(reads).toHaveLength(EXCERPT_READS - 1);
     expect(search.text(note("N0.md"))).toBe("text of N0.md");
+    expect(search.getSnapshot()).not.toBe(before);
+    expect(search.getSnapshot().matchesVersion).toBe(before.matchesVersion);
     // A changed note's old text is not shown for it.
     expect(search.text(note("N0.md", "r2"))).toBeUndefined();
 

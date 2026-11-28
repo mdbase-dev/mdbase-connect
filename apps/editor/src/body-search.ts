@@ -44,8 +44,8 @@ export interface BodySearchSnapshot {
   /** Some term or tag of the current search has no answer yet. */
   pending: boolean;
   error?: unknown;
-  /** Advances whenever an answer or an excerpt arrives. */
-  version: number;
+  /** Advances when a match answer is received or discarded. */
+  matchesVersion: number;
 }
 
 /** Body matches and tag filters for the note list's search, asked of the
@@ -57,6 +57,7 @@ export class BodySearch {
    * `t:<tag>` for a tag filter. */
   private keys: string[] = [];
   private revision = 0;
+  private inventoryComplete = false;
   private answers = new Map<string, { revision: number; paths: ReadonlySet<string> }>();
   private running = new Map<string, AbortController>();
   private timer?: ReturnType<typeof setTimeout>;
@@ -64,7 +65,7 @@ export class BodySearch {
   private reading = new Set<string>();
   /** Advances on reset, so a read begun for an earlier collection is dropped. */
   private generation = 0;
-  private snapshot: BodySearchSnapshot = { pending: false, version: 0 };
+  private snapshot: BodySearchSnapshot = { pending: false, matchesVersion: 0 };
   private listeners = new Set<() => void>();
 
   constructor(
@@ -95,14 +96,22 @@ export class BodySearch {
   }
 
   /** Search for body `terms` and `tags` at index `revision`. */
-  search(terms: readonly string[], tags: readonly string[], revision: number): void {
+  search(terms: readonly string[], tags: readonly string[], revision: number, inventoryComplete = true): void {
     const keys = [...new Set([...terms.map((term) => `b:${term}`), ...tags.map((tag) => `t:${tag}`)])];
-    const clearBudgetError = searchBudgetExceeded(this.snapshot.error) &&
-      (revision !== this.revision || keys.length !== this.keys.length || keys.some(key => !this.keys.includes(key)));
-    if (clearBudgetError) this.snapshot = { ...this.snapshot, error: undefined };
+    const refreshed = revision !== this.revision || inventoryComplete && !this.inventoryComplete;
+    const changedQuery = keys.length !== this.keys.length || keys.some((key) => !this.keys.includes(key));
+    const clearError = this.snapshot.error !== undefined && (refreshed || changedQuery);
+    if (clearError) this.snapshot = { ...this.snapshot, error: undefined };
     this.keys = keys;
     this.revision = revision;
-    for (const key of this.answers.keys()) if (!keys.includes(key)) this.answers.delete(key);
+    this.inventoryComplete = inventoryComplete;
+    let removedAnswer = false;
+    for (const key of this.answers.keys()) {
+      if (!keys.includes(key)) {
+        this.answers.delete(key);
+        removedAnswer = true;
+      }
+    }
     for (const [key, controller] of this.running) {
       if (!keys.includes(key)) {
         controller.abort();
@@ -110,13 +119,13 @@ export class BodySearch {
       }
     }
     this.schedule();
-    this.publish(clearBudgetError);
+    this.publish(removedAnswer ? "matches" : clearError ? "state" : undefined);
   }
 
   retry(): void {
     this.snapshot = { ...this.snapshot, error: undefined };
     for (const key of this.keys) this.ask(key);
-    this.publish(true);
+    this.publish("state");
   }
 
   /** Read the text of matched notes the page does not hold, for their excerpts. */
@@ -131,7 +140,7 @@ export class BodySearch {
         // Kept against the listed revision it was read for: a later change to the note retires it.
         this.texts.set(note.path, { revision: note.revision, body: document.body ?? "" });
         if (this.texts.size > KEPT_TEXTS) this.texts.delete(this.texts.keys().next().value!);
-        this.publish(true);
+        this.publish("state");
       }, () => undefined).finally(() => { if (generation === this.generation) this.reading.delete(note.path); });
     }
   }
@@ -145,8 +154,9 @@ export class BodySearch {
     this.reading.clear();
     this.generation += 1;
     this.keys = [];
-    this.snapshot = { pending: false, version: this.snapshot.version };
-    this.publish(true);
+    this.inventoryComplete = false;
+    this.snapshot = { pending: false, matchesVersion: this.snapshot.matchesVersion };
+    this.publish("matches");
   }
 
   private stale(key: string): boolean {
@@ -166,6 +176,7 @@ export class BodySearch {
     if (!this.stale(key) || this.running.has(key)) return;
     const controller = new AbortController();
     const revision = this.revision;
+    const inventoryComplete = this.inventoryComplete;
     this.running.set(key, controller);
     const value = key.slice(2);
     const answer = key.startsWith("t:")
@@ -175,27 +186,27 @@ export class BodySearch {
       if (controller.signal.aborted) return;
       this.running.delete(key);
       this.answers.set(key, { revision, paths: new Set(paths) });
-      this.publish(true);
+      this.publish("matches");
       // Records changed while it ran: ask again.
       this.schedule();
     }, (error: unknown) => {
       if (controller.signal.aborted) return;
       this.running.delete(key);
-      if (revision !== this.revision && searchBudgetExceeded(error)) {
+      if (revision !== this.revision || !inventoryComplete && this.inventoryComplete) {
         this.schedule();
         return;
       }
       for (const other of this.running.values()) other.abort();
       this.running.clear();
       this.snapshot = { ...this.snapshot, error };
-      this.publish(true);
+      this.publish("state");
     });
   }
 
-  private publish(changed = false): void {
+  private publish(change?: "matches" | "state"): void {
     const pending = this.snapshot.error === undefined && this.keys.some((key) => !this.answers.has(key));
-    if (!changed && pending === this.snapshot.pending) return;
-    this.snapshot = { ...this.snapshot, pending, version: this.snapshot.version + (changed ? 1 : 0) };
+    if (!change && pending === this.snapshot.pending) return;
+    this.snapshot = { ...this.snapshot, pending, matchesVersion: this.snapshot.matchesVersion + (change === "matches" ? 1 : 0) };
     for (const listener of this.listeners) listener();
   }
 }

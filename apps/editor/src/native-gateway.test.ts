@@ -332,28 +332,41 @@ describe("NativeEditorGateway over the public SDK (MemoryReplica, not LAB)", () 
     expect(await f.gateway.backlinks("notes/beta.md")).toEqual([{ path: "notes/alpha.md", fields: [] }]);
   });
 
-  it("asks the replica's body query and collects every page of paths", async () => {
+  it("collects every path of broad and sparse body searches across 10,000 notes", async () => {
     // MemoryReplica is not the runtime: this evaluator stands in for its index
     // and only checks the query the gateway sends.
-    const asked: string[] = [];
     const where = (expr: string, record: { body: string }) => {
-      asked.push(expr);
       const term = JSON.parse(/^file\.body\.lower\(\)\.contains\((.*)\)$/.exec(expr)![1]) as string;
       return record.body.toLowerCase().includes(term);
     };
+    const paths = Array.from({ length: 10_000 }, (_, index) => `notes/${String(index).padStart(5, "0")}.md`);
     const f = await fixture({ where }, replica => {
-      for (let index = 0; index < 1002; index++) {
-        replica.seed({ path: `notes/${String(index).padStart(4, "0")}.md`, types: ["note"], frontmatter: {}, body: index % 2 ? "The Launch is near." : "Nothing here." });
+      for (const path of paths) {
+        replica.seed({ path, types: [], frontmatter: {}, body: path === paths.at(-1) ? 'Say "launch".' : "The Launch is near." });
       }
-      replica.seed({ path: "notes/quoted.md", types: ["note"], frontmatter: {}, body: 'Say "launch".' });
     });
-    const paths = await f.gateway.searchBodies("launch");
-    // More matches than one page holds.
-    expect(paths).toHaveLength(502);
-    expect(new Set(paths).size).toBe(502);
-    expect(paths).toContain("notes/quoted.md");
-    expect(asked.every((expr) => expr === 'file.body.lower().contains("launch")')).toBe(true);
-    expect(await f.gateway.searchBodies('"launch"')).toEqual(["notes/quoted.md"]);
+    const query = vi.spyOn(f.client, "query");
+    expect(await f.gateway.searchBodies("launch")).toEqual(paths);
+    // This fixture has small records. In production a page may return fewer
+    // than 1,000 records to fit the byte cap and still give us a cursor.
+    expect(query).toHaveBeenCalledTimes(10);
+    expect(query.mock.calls[0][0].where).toBe('file.body.lower().contains("launch")');
+    expect(await f.gateway.searchBodies('"launch"')).toEqual([paths.at(-1)]);
+    expect(await f.gateway.searchBodies("no matches")).toEqual([]);
+  });
+
+  it.each(["cursor_stale", "cursor_expired"])("discards partial search results and restarts on %s", async (reason) => {
+    const f = await fixture({ where: () => true }, seedNotes);
+    const realQuery = f.client.query.bind(f.client);
+    const query = vi.spyOn(f.client, "query").mockImplementationOnce(async () => {
+      const page = await realQuery({ limit: 1 });
+      return { ...page, records: [{ ...page.records[0], path: "retired.md" }], cursor: "old", hasMore: true };
+    }).mockRejectedValueOnce(new MdbaseError({
+      code: "invalid_request", reason, recovery: "fix_request", message: "Restart the query"
+    }));
+
+    expect(await f.gateway.searchBodies("needle")).toEqual(["notes/ideas.md", "notes/plan.md"]);
+    expect(query.mock.calls.map(([request]) => request.cursor)).toEqual([undefined, "old", undefined]);
   });
 
   it("finds a note whose only tag is inline by asking the replica's hasTag, since its record view has no tags", async () => {

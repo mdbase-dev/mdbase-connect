@@ -836,8 +836,8 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   useEffect(() => {
     if (phase !== "ready") return;
     const tags = parseSearchQuery(deferredSearch).tags;
-    bodySearch.search(bodySearchTerms(deferredSearch), filterTag === undefined ? tags : [...tags, filterTag], collectionRevision);
-  }, [bodySearch, collectionRevision, deferredSearch, filterTag, phase]);
+    bodySearch.search(bodySearchTerms(deferredSearch), filterTag === undefined ? tags : [...tags, filterTag], collectionRevision, structureComplete);
+  }, [bodySearch, collectionRevision, deferredSearch, filterTag, phase, structureComplete]);
 
   useEffect(() => {
     if (phase !== "ready" || !connectionSummary) return;
@@ -1101,7 +1101,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const searchIndex = useMemo(() => searchIndexCache.current.build(allNotes, typeDescriptors), [allNotes, typeDescriptors, i18n.locale]);
   const searchedResults = useMemo(() => {
     return deferredSearch.trim() ? searchNoteResults(searchIndex, deferredSearch, undefined, undefined, bodySearch) : undefined;
-  }, [bodySearch, bodySearchState.version, deferredSearch, searchIndex, i18n.locale]);
+  }, [bodySearch, bodySearchState.matchesVersion, deferredSearch, searchIndex, i18n.locale]);
   // Leading body matches show an excerpt, so their text is read when the page lacks it.
   useEffect(() => {
     if (searchedResults) bodySearch.readTexts(searchedResults.slice(0, EXCERPT_READS).filter((result) => result.context.kind === "body").map((result) => result.note));
@@ -1120,7 +1120,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
         : noteFilter.kind === "tag"
           ? searchedNotes.filter((note) => bodySearch.tagged(noteFilter.value)?.has(note.path) === true)
           : searchedNotes.filter((note) => noteHasType(note, noteFilter.value));
-  }, [bodySearch, bodySearchState.version, noteFilter, searchedNotes, i18n.locale]);
+  }, [bodySearch, bodySearchState.matchesVersion, noteFilter, searchedNotes, i18n.locale]);
   const noteSortFields = useMemo(() => sortableFields(visibleNotes, typeDescriptors), [visibleNotes, typeDescriptors, i18n.locale]);
   const noteSort = useMemo(() => resolveNoteSort(noteSortPreference, noteSortFields), [noteSortFields, noteSortPreference]);
   const chooseNoteSort = useCallback((preference: NoteSortPreference) => {

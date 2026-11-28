@@ -1873,12 +1873,22 @@ test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "
   expect(renderedRows).toBeLessThan(40);
 
   const searchStarted = Date.now();
-  await page.getByRole("combobox", { name: "Search notes and files" }).fill("quiet interface 51");
-  await expect(page.locator(".list-header p")).not.toHaveText("10,001 notes");
+  const search = page.getByRole("combobox", { name: "Search notes and files" });
+  await search.fill('"record 10000 remains"');
+  await expect(page.locator(".list-header p")).toHaveText("1 found · relevance");
+  await expect(page.getByRole("option", { name: /Reading list 10000/ })).toBeVisible();
   const searchReadyMs = Date.now() - searchStarted;
   expect(searchReadyMs).toBeLessThan(900);
 
-  const inputLatency = await page.getByRole("combobox", { name: "Search notes and files" }).evaluate((input) => {
+  const broadSearchStarted = Date.now();
+  await search.fill('"remains lightweight"');
+  await expect(page.locator(".list-header p")).toHaveText("9,998 found · relevance");
+  const broadSearchMs = Date.now() - broadSearchStarted;
+  expect(broadSearchMs).toBeLessThan(900);
+  await search.fill('"there is no such phrase"');
+  await expect(page.locator(".list-header p")).toHaveText("0 found · relevance");
+
+  const inputLatency = await search.evaluate((input) => {
     const samples: number[] = [];
     for (let index = 0; index < 30; index += 1) {
       const start = performance.now();
@@ -1890,7 +1900,7 @@ test("keeps a ten-thousand-note collection responsive and virtualized", { tag: "
   });
   expect(inputLatency).toBeLessThan(16);
 
-  console.log(JSON.stringify({ firstUsableMs, fullIndexMs, searchReadyMs, renderedRows, inputP95Ms: inputLatency }));
+  console.log(JSON.stringify({ firstUsableMs, fullIndexMs, searchReadyMs, broadSearchMs, renderedRows, inputP95Ms: inputLatency }));
 });
 
 test("uses one navigable pane at mobile width", async ({ page }) => {

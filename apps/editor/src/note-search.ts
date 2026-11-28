@@ -141,12 +141,22 @@ export function searchNoteResults(
     .filter((candidate) => Number.isFinite(candidate.score))
     .sort((left, right) => left.score - right.score || left.order - right.order)
     .slice(0, limit)
-    .map((candidate) => {
+    .map(({ entry }) => {
       let context: NoteSearchContext | undefined;
+      let excerptBody: string | undefined;
       return {
-        note: candidate.entry.note,
+        note: entry.note,
         get context() {
-          return context ??= bestSearchContext(candidate.entry, contextTokens, tokens, bodies);
+          context ??= bestSearchContext(entry, contextTokens, tokens, bodies);
+          // A newly cached excerpt can change this row's text without reranking the list.
+          if (context.kind === "body" && entry.note.body === undefined && bodies) {
+            const next = bodies.text(entry.note);
+            if (next !== excerptBody) {
+              excerptBody = next;
+              context = searchContext(next ?? "", contextTokens, "body", true);
+            }
+          }
+          return context;
         }
       };
     });
@@ -292,7 +302,7 @@ function bestSearchContext(entry: NoteSearchEntry, query: string[], tokens: Sear
       : combinedScore(entry.body, tokens, substringScore) + 4 }
   ].sort((left, right) => left.score - right.score);
   const best = fields.find((field) => Number.isFinite(field.score))?.kind;
-  if (best === "body") return searchContext(entry.note.body === undefined ? bodies?.text(entry.note) ?? "" : entry.bodyText, query, "body", true);
+  if (best === "body") return searchContext(entry.bodyText, query, "body", true);
   if (best === "metadata" || best === "alias") return searchContext(entry.metadataText, query, "metadata", true);
   if (best === "title" || best === "filename") return { kind: "title", text: "", ranges: [] };
   return searchContext(entry.note.path, query, "path");
