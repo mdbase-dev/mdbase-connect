@@ -1161,7 +1161,7 @@ fn plan_seed(
         p.origin = Some(r.digest);
         return;
     }
-    if preserved || r.baselines.is_empty() {
+    if preserved {
         return;
     }
     if let Some(b) = r
@@ -1175,7 +1175,17 @@ fn plan_seed(
         p.upgrade_baseline = Some((b.digest, b.version));
         return;
     }
-    if previous_origin == Some(r.digest) {
+    let declares_contracts =
+        || split_frontmatter(&r.document).is_some_and(|fm| fm.contains_key("implements"));
+    if entry.is_none() && declares_contracts() && !fits(live) {
+        p.action = Action::Conflict;
+        p.reason = Some(format!(
+            "{}: the existing type does not implement the pack's contracts",
+            r.target
+        ));
+        return;
+    }
+    if r.baselines.is_empty() || previous_origin == Some(r.digest) {
         return;
     }
     if let Some(b) = r
@@ -1219,8 +1229,7 @@ fn plan_seed(
         }
     }
     // It already implements the contracts the app needs: keeping it is enough.
-    if split_frontmatter(&r.document).is_some_and(|fm| fm.contains_key("implements")) && fits(live)
-    {
+    if declares_contracts() && fits(live) {
         return;
     }
     p.reason = Some(format!(

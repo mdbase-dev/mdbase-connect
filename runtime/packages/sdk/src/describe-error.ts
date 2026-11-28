@@ -209,7 +209,7 @@ const COPY = {
   configuration_unsupported: ["This app can't set up this collection", "This app's setup isn't supported by this version of mdbase. Contact the app's developer.", "contact_support", "warning"],
   setup_forbidden: ["You can't set up this collection", "Your access to this collection doesn't allow setting it up. Ask its owner to open it in this app first.", "choose_collection", "warning"],
   setup_conflict: ["Setup needs your decision", "Some things in this collection differ from what this app needs. Review them to continue.", "set_up", "warning", false, "Review setup"],
-  setup_unresolved: ["Setup can't finish", "This collection is missing something this app needs, and setup can't add it. A note type this app set up may have been changed or removed. Restore it, then try again.", "retry", "warning"],
+  setup_unresolved: ["Setup can't finish", "This collection is missing a note format this app needs. Add or update a note type that supports that format, then try setup again.", "retry", "warning"],
   // Setup would leave something already in the collection invalid; the API
   // problem's message names the cause and the definition's path.
   collection_setup_conflict: ["Collection setup conflicts", "Setting up this app would conflict with definitions already in this collection, so nothing was changed. A note type may have been renamed or customised and still use an older definition. Update or remove it, then try again.", "retry", "warning"],

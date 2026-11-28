@@ -111,7 +111,7 @@ export function setupRecords(records: unknown): readonly MdbaseSetupRecord[] {
   }));
 }
 
-const UNRESOLVED = "This collection is missing something this app needs, and setup can't add it. A note type this app set up may have been changed or removed. Restore it, then try again.";
+const UNRESOLVED = "This collection is missing a note format this app needs. Add or update a note type that supports that format, then try setup again.";
 
 /** A plan with nothing to write cannot open a collection whose required
  * contracts native readiness still finds missing or unimplemented (for example
@@ -181,7 +181,11 @@ export function setupPlan(assessed: AppResourceAssessment, input: {
         const canAdopt = r.currentDigest !== undefined;
         if (canAdopt) adoptable[r.target] = r.currentDigest!;
         conflicts.push({ target: r.target, ...(canAdopt ? { adoptable: { digest: r.currentDigest! } } : {}),
-          message: canAdopt && seed ? `Your ${thing.bare} has changes that can't be combined with the version this app needs. You can replace it with this app's version.`
+          message: seed && !r.installed
+            ? `This collection already has a note type named "${name(r.target)}". ${canAdopt
+              ? "You can replace it with this app's version."
+              : "Change the existing type to support this app, or rename it and update the notes that use it. Then run setup again."}`
+            : canAdopt && seed ? `Your ${thing.bare} has changes that can't be combined with the version this app needs. You can replace it with this app's version.`
             : canAdopt && r.installed ? `${The} was changed after this app set it up. You can replace it with this app's version.`
               : canAdopt ? `This collection already has a ${thing.bare} that differs from the one this app needs. You can replace it with this app's version.`
                 : r.installed ? `${The} was changed after this app set it up, so it can't be updated automatically.`
