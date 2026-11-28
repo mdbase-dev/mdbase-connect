@@ -1,9 +1,11 @@
 import type {AppWebSignInPortal,AppWebSignInSnapshot} from "../app-host/web-sign-in-session.js";
+import {isAppOpeningProgress} from "../app-host/opening-progress.js";
 import type {AppWebCollectionHandoff} from "../app-host/web-collection.js";
 import type {ApplicationDeclarationSnapshot} from "./declaration.js";
 import type {compileApplicationManifest} from "./manifest.js";
 import type {MdbaseApplicationConnection,MdbaseApplicationProblem,MdbaseApplicationReadinessSnapshot,MdbaseApplicationRequestOptions,MdbaseApplicationSnapshot as PublicSnapshot,MdbaseSignOutOptions,MdbaseUnlockSecret} from "./entry.js";
 import {mdbaseError} from "../errors.js";
+import {performanceMark} from "../performance-mark.js";
 import {APPLICATION_WORKER_MAX_SECRET_BYTES,type ApplicationWorkerUnlockPayload} from "./worker-protocol.js";
 import {pendingWrites,signOutPendingWritesError} from "./sign-out.js";
 import {ApplicationScope} from "./scope.js";
@@ -157,7 +159,14 @@ export class ApplicationRuntime {
       if(status==="blocked"&&problem&&diagnostic!==this.loggedProblem){this.loggedProblem=diagnostic;try{const cause=detail??nativeCause(native);if(cause)console.error("mdbase application blocked:",problem,cause);else console.error("mdbase application blocked:",problem);}catch{/* no console */}}
       else if(status!=="blocked")this.loggedProblem=null;
       const {problemDetail:_native,...raw}=this.raw;
-      this.snapshot=Object.freeze({...raw,...(native?{problemDetail:native}:{}),status,problem,openingProgress:status==="opening"?(readiness.checking?"checking_setup":this.raw.openingProgress??null):null,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
+      const openingProgress=status==="opening"?(raw.status==="opening"?raw.openingProgress??null:readiness.checking?"checking_setup":null):null;
+      const previous=this.snapshot;
+      this.snapshot=Object.freeze({...raw,...(native?{problemDetail:native}:{}),status,problem,openingProgress,collections:Object.freeze(this.raw.collections.map(value=>Object.freeze({...value}))),readiness});
+      // A consumer can batch or skip snapshot reads. Record each accepted
+      // tab-side transition when it arrives, before notifying observers.
+      if(id!==null&&isAppOpeningProgress(openingProgress)&&(previous.selectedCollectionId!==id||previous.openingProgress!==openingProgress)){
+        performanceMark(`mdbase:open:stage:${openingProgress}`);
+      }
     }
     for(const listener of [...this.listeners])try{listener();}catch{/* observers do not own lifecycle */}
   }

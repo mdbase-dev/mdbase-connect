@@ -95,6 +95,30 @@ describe("bounded contract query pages",()=>{
       await expect(client.queryContract(mContract,{pageSize:2,orderBy:[{field:"date",direction:"asc"}],cursor:p1.page.cursor})).rejects.toMatchObject({code:"invalid_request",reason:"invalid_query_cursor"});
     } finally {client.close();}
   });
+  it("requires a fresh contract page after the view changes, even outside the result set", async () => {
+    const replica = new MemoryReplica({
+      contracts: [{ ...contract, type: "person", fields: { name: "name" } }],
+    });
+    replica.seed({ path: "a.md", types: ["person"], frontmatter: { name: "A" } });
+    replica.seed({ path: "b.md", types: ["person"], frontmatter: { name: "B" } });
+    const client = await connect({ connector: replica.connector(), app: { name: "test", version: "0" }, reconnect: false });
+    try {
+      const options = { pageSize: 1 };
+      const first = await client.queryContract(contract, options);
+      expect(first.page.records.map(record => record.path)).toEqual(["a.md"]);
+      expect(first.page.cursor).toBeTruthy();
+      const next = (cursor: string | undefined) => client.queryContract(contract, { ...options, cursor });
+      expect((await next(first.page.cursor)).page.records.map(record => record.path)).toEqual(["b.md"]);
+
+      const write = await client.create({ path: "other.md", body: "An unrelated record" });
+      await write.confirmed;
+      await expect(next(first.page.cursor)).rejects.toMatchObject({ code: "invalid_request", reason: "cursor_stale" });
+
+      const restarted = await client.queryContract(contract, options);
+      expect(restarted.page.asOf).toBeGreaterThan(first.page.asOf);
+      expect((await next(restarted.page.cursor)).page.records.map(record => record.path)).toEqual(["b.md"]);
+    } finally { client.close(); }
+  });
   it.each([0,-1,1.5,NaN,Infinity])("rejects invalid page size %s before issuing a request",async pageSize=>{
     const replica=new MemoryReplica(),client=await connect({connector:replica.connector(),app:{name:"test",version:"0"},reconnect:false});
     try {

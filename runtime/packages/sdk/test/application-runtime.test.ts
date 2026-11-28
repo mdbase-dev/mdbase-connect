@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from "vitest";
-import {ApplicationRuntime} from "../src/application/runtime.js";
+import {ApplicationRuntime,type MdbaseApplicationSnapshot} from "../src/application/runtime.js";
 import {applicationDeclaration,rebindApplicationDeclaration} from "../src/application/declaration.js";
 import * as Manifest from "../src/application/manifest.js";
 import {APPLICATION_WORKER_PROTOCOL as schema} from "../src/application/worker-protocol.js";
@@ -16,6 +16,25 @@ function fixture(registered=declaration,compiledManifest=Manifest.compileApplica
 }
 afterEach(async()=>{for(const stop of cleanup.splice(0))await stop();vi.unstubAllGlobals();vi.restoreAllMocks();});
 describe("SDK singleton original lifecycle",()=>{
+ it("marks opening stages as worker snapshots arrive even when subscribers batch their reads",async()=>{
+  const f=fixture(),mark=vi.spyOn(performance,"mark"),changed=vi.fn();
+  const id="33333333-3333-4333-8333-333333333333",other="44444444-4444-4444-8444-444444444444";
+  f.app.subscribe(changed);
+  const stages=["joining","opening_store","connecting_log","syncing","replaying","waiting_for_key","loading_snapshot","replaying","verifying_read","checking_setup"];
+  for(const openingProgress of [...stages,"checking_setup","hidden-account-detail","checking_setup"]){
+    f.send("nativeSnapshot",0,{...snapshot,status:"opening",selectedCollectionId:id,openingProgress});
+  }
+  f.send("nativeSnapshot",0,{...snapshot,status:"opening",selectedCollectionId:other,openingProgress:"checking_setup"});
+  f.send("nativeSnapshot",0,{...snapshot,status:"unselected"});
+  await vi.waitFor(()=>expect(changed).toHaveBeenCalledTimes(stages.length+5));
+  expect(f.app.getSnapshot().status).toBe("unselected");
+  const {scope}=f.app as unknown as {scope:{getReadiness():MdbaseApplicationSnapshot["readiness"]}};
+  const readiness=f.app.getSnapshot().readiness;
+  scope.getReadiness=()=>({...readiness,checking:true});
+  f.send("nativeSnapshot",0,{...snapshot,status:"setup_required",selectedCollectionId:other});
+  await vi.waitFor(()=>expect(changed).toHaveBeenCalledTimes(stages.length+6));
+  expect(mark.mock.calls).toEqual([...stages,"checking_setup","checking_setup","checking_setup"].map(stage=>[`mdbase:open:stage:${stage}`]));
+ });
  it("never combines a native blocked code with a stale readiness detail",()=>{
   const f=fixture(),app=f.app as unknown as {scope:Record<string,unknown>;raw:unknown;publish():void},error=vi.spyOn(console,"error").mockImplementation(()=>{});
   app.scope.getReadiness=()=>({checking:false,assessment:null,problem:{code:"readiness_fenced",detail:"connection_not_current"},facets:f.app.getSnapshot().readiness.facets});
