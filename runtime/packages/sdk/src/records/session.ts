@@ -275,6 +275,11 @@ export class RecordSessionImpl {
         complete(record, this.id);
         return record;
     }
+    /** A pending local body may disappear from the projection before its
+     * rejection arrives. Keep it available for explicit resolution. */
+    private pendingBodyChanged(current: RecordView): boolean {
+        return this.base.state.state === "pending" && this.base.body !== current.body && this.body !== current.body;
+    }
     /** Native change notifications are hints only; hydrate the same UUID. */
     refresh = (): Promise<void> => {
         if (!this.active) return Promise.resolve();
@@ -297,7 +302,7 @@ export class RecordSessionImpl {
                         continue;
                     }
                     this.charge(this.body, this.patch, this.base, current);
-                    if (!this.dirty) {
+                    if (!this.dirty && !this.pendingBodyChanged(current)) {
                         this.base = copy(current);
                         this.body = current.body!;
                         this.remote = null;
@@ -422,7 +427,7 @@ export class RecordSessionImpl {
                         "the original record was deleted",
                         "record_deleted",
                     );
-                if (!this.dirty) {
+                if (!this.dirty && !this.pendingBodyChanged(current)) {
                     this.charge(current.body!, this.patch, current, null);
                     this.base = copy(current);
                     this.body = current.body!;
@@ -594,10 +599,11 @@ export class RecordSessionImpl {
         // Still pending after the wait: the write is kept on this device and the
         // ledger settles it. Not a failure, and nothing is resubmitted.
         const kept = receipt.state === "pending";
-        if (kept ? isProtected(current) : !confirmed(current))
+        const missingPendingBody = kept && captured.body !== this.base.body && current.body !== captured.body;
+        if (missingPendingBody || (kept ? isProtected(current) : !confirmed(current)))
             throw refusal(
                 "outcome_unknown",
-                "confirmed receipt has pending/protected current readback",
+                "record readback does not qualify the native receipt",
                 "unqualified_readback",
             );
         this.charge(this.body, this.patch, current, null);

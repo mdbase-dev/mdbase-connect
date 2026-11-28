@@ -134,6 +134,49 @@ describe("shared native record leases", () => {
         expect(update).toHaveBeenCalledTimes(1);
         lease.release();
     });
+    it.each([false, true])("keeps both bodies after a late rejection (reopen %s)", async (reopen) => {
+        const f = await fixture(true);
+        let lease = await f.client.records.open(f.record.id);
+        vi.spyOn(f.client, "awaitReceipt").mockImplementation(async mutation => ({ mutation, state: "pending" }));
+        lease.session.setBody("Offline body");
+        expect(await lease.session.flush()).toMatchObject({ ok: true, saved: "on_device" });
+        const { receipt } = (await f.client.pendingWrites())[0]!;
+        if (reopen) {
+            lease.release();
+            const client = await f.replica.client();
+            clients.push(client);
+            lease = await client.records.open(f.record.id);
+            expect(lease.session.getSnapshot().body).toBe("Offline body");
+        }
+        f.replica.reject(receipt.mutation);
+        f.replica.editElsewhere(f.record.id, { body: "Other device" });
+        await vi.waitFor(() => expect(lease.session.getSnapshot()).toMatchObject({
+            state: "conflict", body: "Offline body", remote: { body: "Other device" },
+        }));
+        expect(await lease.session.flush()).toMatchObject({ ok: false });
+        expect(lease.session.getSnapshot().body).toBe("Offline body");
+        lease.session.resolve({ keep: "mine" });
+        expect(lease.session.getSnapshot()).toMatchObject({ state: "unsaved", body: "Offline body" });
+        lease.release();
+    });
+    it("keeps the original mutation while its pending receipt and body readback disagree", async () => {
+        const f = await fixture(true);
+        const lease = await f.client.records.open(f.record.id);
+        const update = vi.spyOn(f.client, "update");
+        const receipt = vi.spyOn(f.client, "awaitReceipt").mockImplementationOnce(async mutation => {
+            f.replica.reject(mutation);
+            f.replica.editElsewhere(f.record.id, { body: "Other device" });
+            return { mutation, state: "pending" };
+        });
+        lease.session.setBody("Offline body");
+        expect(await lease.session.flush()).toMatchObject({ ok: false, problem: { reason: "unqualified_readback" } });
+        expect(lease.session.getSnapshot()).toMatchObject({ body: "Offline body", recovery: { mutationId: expect.any(String) } });
+        receipt.mockRestore();
+        expect(await lease.session.flush()).toMatchObject({ ok: false });
+        expect(lease.session.getSnapshot()).toMatchObject({ body: "Offline body", recovery: null });
+        expect(update).toHaveBeenCalledTimes(1);
+        lease.release();
+    });
     it("an offline autosave whose receipt wait runs out is saved on device, then saved once online", async () => {
         const f = await fixture(false),
             update = vi.spyOn(f.client, "update");
