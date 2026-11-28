@@ -110,10 +110,14 @@ function entryTitle(entry: CollectionBrowserEntry, types: CollectionTypeDescript
 }
 
 export function browserGroupLabel(entry: CollectionBrowserEntry, sort: NoteSort, types: CollectionTypeDescriptor[] = [], now = new Date()): string {
+  return entryGroupLabel(entry, sort, types, startOfDay(now));
+}
+
+function entryGroupLabel(entry: CollectionBrowserEntry, sort: NoteSort, types: CollectionTypeDescriptor[], today: number): string {
   if (sort.key === "path") return entryPathFolder(entry.path);
   if (sort.key === "title") return titleGroupLabel(entryTitle(entry, types));
   if (sort.key === "field") return fieldGroupLabel(entryFieldValue(entry, sort.field), sort.field);
-  return modifiedGroupLabel(modifiedTime(entry), now);
+  return modifiedGroupLabel(modifiedTime(entry), today);
 }
 
 function fieldGroupLabel(value: number | string | undefined, field: SortField): string {
@@ -146,11 +150,13 @@ function titleGroupLabel(title: string): string {
   return letter && /\p{L}/u.test(letter) ? letter : "#";
 }
 
-function modifiedGroupLabel(timestamp: number | undefined, now: Date): string {
+const DAY_MS = 86_400_000;
+
+function modifiedGroupLabel(timestamp: number | undefined, today: number): string {
   if (timestamp === undefined) return t`Undated`;
-  const date = new Date(timestamp);
-  const startOfToday = startOfDay(now);
-  const day = Math.floor((startOfToday - startOfDay(date)) / 86_400_000);
+  // Old timestamps cannot move forward when rounded down to local midnight.
+  if (timestamp <= today - 30 * DAY_MS) return t`Older`;
+  const day = Math.floor((today - startOfDay(new Date(timestamp))) / DAY_MS);
   if (day <= 0) return t`Today`;
   if (day === 1) return t`Yesterday`;
   if (day < 7) return t`Previous 7 days`;
@@ -186,8 +192,9 @@ export function browserListItems(
   }
   let currentLabel: string | undefined;
   let headerCount = 0;
+  const today = startOfDay(now);
   entries.forEach((entry, entryIndex) => {
-    const label = entry.kind === "note" && pinnedPaths.has(entry.path) ? t`Pinned` : browserGroupLabel(entry, sort, types, now);
+    const label = entry.kind === "note" && pinnedPaths.has(entry.path) ? t`Pinned` : entryGroupLabel(entry, sort, types, today);
     if (label !== currentLabel) {
       currentLabel = label;
       items.push({ key: `header:${headerCount}:${label}`, kind: "header", label });

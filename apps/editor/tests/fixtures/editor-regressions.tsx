@@ -2,6 +2,7 @@ import "../../src/styles.css";
 import "@mdbase-dev/ui/tokens.css";
 import "@mdbase-dev/ui/controls.css";
 import "@mdbase-dev/ui/screens.css";
+import "@mdbase-dev/ui/toast.css";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { LocaleProvider } from "@mdbase-dev/i18n/react";

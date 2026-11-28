@@ -364,6 +364,7 @@
 }
 
 .conflict-resolver {
+  min-width: 0;
   max-height: min(48vh, 460px);
   overflow: auto;
   border-bottom: 1px solid var(--line-strong);
@@ -375,6 +376,7 @@
 .conflict-summary {
   min-height: 48px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   padding: 7px 18px 7px var(--space-6);
@@ -388,8 +390,8 @@
 }
 
 .conflict-summary > div:nth-child(2) {
-  min-width: 180px;
-  flex: 1;
+  min-width: 0;
+  flex: 1 1 180px;
   display: grid;
   gap: 1px;
 }
@@ -404,6 +406,7 @@
 
 .conflict-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 
@@ -426,11 +429,34 @@
 }
 
 .conflict-resolver > details > summary {
-  width: max-content;
+  width: fit-content;
   padding: var(--space-2) var(--space-6);
   color: var(--accent);
   font-size: var(--font-size-ui);
   font-weight: var(--font-weight-semibold);
+}
+
+.draft-recovery {
+  padding: var(--space-3) var(--space-6);
+  overflow-wrap: anywhere;
+}
+
+.draft-recovery > strong {
+  color: var(--ink);
+}
+
+.draft-recovery > details > summary {
+  padding-inline: 0;
+}
+
+.draft-recovery pre {
+  white-space: pre-wrap;
+}
+
+@media (max-width: 760px) {
+  .conflict-actions button {
+    min-height: 44px;
+  }
 }
 
 .conflict-diff {
@@ -518,7 +544,7 @@
 .diff-line-number {
   border-left: 1px solid var(--line);
   border-right: 1px solid var(--line);
-  color: var(--faint);
+  color: var(--muted);
 }
 
 .diff-line code {

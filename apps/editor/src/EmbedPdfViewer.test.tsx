@@ -14,7 +14,7 @@ describe("EmbedPdfViewer", () => {
     expect(pdfViewer).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
-          src: "blob:document",
+          documentManager: { initialDocuments: [{ url: "blob:document", name: "paper.pdf" }] },
           wasmUrl: new URL("/assets/pdfium-local.wasm", globalThis.location.href).href,
           fonts: {
             ui: {

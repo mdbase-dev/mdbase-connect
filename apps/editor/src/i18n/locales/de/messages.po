@@ -2031,6 +2031,7 @@ msgstr "Diese Version konnte nicht geladen werden. {0}"
 msgid "Couldn’t open “{path}”. {0}"
 msgstr "„{path}“ konnte nicht geöffnet werden. {0}"
 
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 msgid "Couldn’t preview {filename}"
 msgstr "Vorschau für {filename} konnte nicht angezeigt werden"
@@ -4227,6 +4228,7 @@ msgid "Opening “{pendingNotePath}”…"
 msgstr "„{pendingNotePath}“ wird geöffnet…"
 
 #: src/code-editor-file-embeds.ts
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 msgid "Opening {filename}"
 msgstr "{filename} wird geöffnet"
@@ -6406,6 +6408,7 @@ msgstr "Einbettung: {0}"
 msgid "True"
 msgstr "Wahr"
 
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 #: src/NoteHistoryPanel.tsx
 #: src/TypeBrowser.tsx

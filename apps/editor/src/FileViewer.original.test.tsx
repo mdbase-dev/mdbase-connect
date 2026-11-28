@@ -53,6 +53,6 @@ describe("Open original", () => {
   it("keeps the inline SVG image preview", () => {
     const asset = { status: "ready", file: upload("drawing.svg", "image", "image/svg+xml"), url: "blob:original" } as const;
     render(<FileViewer asset={asset} onClose={() => {}} />);
-    expect(screen.getByRole("img", { name: "drawing.svg" })).toHaveAttribute("src", "blob:original");
+    expect(screen.getByAltText("drawing.svg")).toHaveAttribute("src", "blob:original");
   });
 });

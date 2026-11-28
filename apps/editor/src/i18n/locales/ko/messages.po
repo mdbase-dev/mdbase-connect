@@ -2031,6 +2031,7 @@ msgstr "이 버전을 불러오지 못했습니다. {0}"
 msgid "Couldn’t open “{path}”. {0}"
 msgstr "“{path}”을(를) 열지 못했습니다. {0}"
 
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 msgid "Couldn’t preview {filename}"
 msgstr "{filename}의 미리보기를 표시하지 못했습니다."
@@ -4227,6 +4228,7 @@ msgid "Opening “{pendingNotePath}”…"
 msgstr "“{pendingNotePath}” 여는 중…"
 
 #: src/code-editor-file-embeds.ts
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 msgid "Opening {filename}"
 msgstr "{filename} 여는 중"
@@ -6406,6 +6408,7 @@ msgstr "삽입: {0}"
 msgid "True"
 msgstr "참"
 
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 #: src/NoteHistoryPanel.tsx
 #: src/TypeBrowser.tsx

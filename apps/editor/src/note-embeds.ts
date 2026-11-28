@@ -6,7 +6,7 @@ import type { MarkdownReference } from "./markdown-references";
 import type { ParsedEmbeds } from "./code-editor-embed-positions";
 import { markdownFragment } from "./markdown-fragments";
 import type { CollectionFile, CollectionGateway, NoteDocument, NoteSummary } from "./model";
-import { basename, noteTitle } from "./note";
+import { basename, notesByPath, noteTitle } from "./note";
 
 export type ResolvedNoteEmbed = MarkdownReference & {
   key: string;
@@ -87,7 +87,6 @@ export function useEmbeddedNoteReferences(
     if (raws.length) linkTargets?.resolveAll(raws).catch(() => undefined);
   }, [linkTargets, parsed.source, references]);
 
-  const notesByPath = useMemo(() => new Map(notes.map((note) => [note.path, note])), [notes]);
   const filePaths = useMemo(() => new Set(files.map((file) => file.path)), [files]);
   const resolved = useMemo(() => references.flatMap((reference): ResolvedNoteEmbed[] => {
     const key = `${reference.from}:${reference.to}`;
@@ -104,7 +103,7 @@ export function useEmbeddedNoteReferences(
       const matches = target.candidates;
       const areFiles = matches.length > 0 && (filePaths.size > 0
         ? matches.every((path) => filePaths.has(path))
-        : matches.every((path) => !notesByPath.has(path) && !/\.md$/iu.test(path)));
+        : matches.every((path) => !notesByPath(notes).has(path) && !/\.md$/iu.test(path)));
       const examples = matches.slice(0, 3).join(", ");
       return [{
         ...reference,
@@ -118,7 +117,7 @@ export function useEmbeddedNoteReferences(
     }
     if (target.kind !== "note") return [{ ...reference, key, status: "missing", title: named }];
     const path = target.path;
-    const note = notesByPath.get(path);
+    const note = notesByPath(notes).get(path);
     const title = note ? noteTitle(note) : basename(path);
     if (path === sourcePath) {
       return [{ ...reference, key, status: "cycle", path, title }];
@@ -148,7 +147,7 @@ export function useEmbeddedNoteReferences(
       revision: cached?.revision
     }];
     // eslint-disable-next-line react-hooks/exhaustive-deps -- targetsVersion marks new answers in linkTargets
-  }), [references, parsed.source, linkTargets, targetsVersion, sourcePath, notesByPath, filePaths, store, cache, errors, cacheVersion]);
+  }), [references, parsed.source, linkTargets, targetsVersion, sourcePath, notes, filePaths, store, cache, errors, cacheVersion]);
 
   const requests = resolved.filter((reference) => (
     reference.status === "loading"

@@ -177,8 +177,22 @@ function timestampFormats(locale: string) {
 }
 
 export function folder(path: string): string {
-  const parts = path.split("/");
-  return parts.length > 1 ? parts.slice(0, -1).join("/") : "";
+  const separator = path.lastIndexOf("/");
+  return separator < 0 ? "" : path.slice(0, separator);
+}
+
+const notePathIndexes = new WeakMap<readonly NoteSummary[], ReadonlyMap<string, NoteSummary>>();
+
+/** All panes share the index of the same collection snapshot. */
+export function notesByPath(notes: readonly NoteSummary[]): ReadonlyMap<string, NoteSummary> {
+  let index = notePathIndexes.get(notes);
+  if (!index) {
+    const byPath = new Map<string, NoteSummary>();
+    for (const note of notes) byPath.set(note.path, note);
+    notePathIndexes.set(notes, byPath);
+    index = byPath;
+  }
+  return index;
 }
 
 export function basename(path: string): string {
@@ -251,12 +265,25 @@ export function folderTree(notes: NoteSummary[], files: readonly { path: string 
   return freeze(roots);
 }
 
-export function noteTags(note: NoteSummary): string[] {
-  const fileTags = Array.isArray(note.file.tags) ? note.file.tags.filter((tag): tag is string => typeof tag === "string") : [];
-  const frontmatterTags = Array.isArray(note.effectiveFrontmatter.tags)
-    ? note.effectiveFrontmatter.tags.filter((tag): tag is string => typeof tag === "string")
-    : typeof note.effectiveFrontmatter.tags === "string" ? [note.effectiveFrontmatter.tags] : [];
-  return [...new Set([...fileTags, ...frontmatterTags].map((tag) => tag.replace(/^#/, "").trim()).filter(Boolean))];
+const noteTagCache = new WeakMap<NoteSummary, readonly string[]>();
+
+export function noteTags(note: NoteSummary): readonly string[] {
+  let tags = noteTagCache.get(note);
+  if (!tags) {
+    const unique = new Set<string>();
+    function add(tag: unknown) {
+      if (typeof tag !== "string") return;
+      const name = tag.replace(/^#/, "").trim();
+      if (name) unique.add(name);
+    }
+    if (Array.isArray(note.file.tags)) note.file.tags.forEach(add);
+    const frontmatterTags = note.effectiveFrontmatter.tags;
+    if (Array.isArray(frontmatterTags)) frontmatterTags.forEach(add);
+    else add(frontmatterTags);
+    tags = [...unique];
+    noteTagCache.set(note, tags);
+  }
+  return tags;
 }
 
 /** The note has `tag` or a tag nested under it (`project` covers

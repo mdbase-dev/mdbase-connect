@@ -4,11 +4,11 @@ import { linter, type Action, type Diagnostic } from "@codemirror/lint";
 import type { Extension } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import type { LinkTargets } from "./collection-links";
-import { internalLink, type LinkSuggestion } from "./links";
+import { internalLink, linkSuggestionAt, type LinkSuggestion } from "./links";
 import { markdownReferences, type MarkdownReference } from "./markdown-references";
 import { markdownFragment } from "./markdown-fragments";
 import type { NoteSummary } from "./model";
-import { basename } from "./note";
+import { basename, notesByPath } from "./note";
 
 /** Marks a link whose target matches no note or file. */
 export const MISSING_REFERENCE_CLASS = "cm-reference-missing";
@@ -43,9 +43,9 @@ export async function diagnosticsForReferences(
     // Unchecked rather than wrong; the next edit or collection change asks again.
     return [];
   }
-  const byPath = new Map(suggestions.map((suggestion) => [suggestion.path, suggestion]));
+  const suggestionAt = (path: string) => linkSuggestionAt(suggestions, path);
   const fix = (reference: MarkdownReference, path: string, useFullPathLabel = false): Action => {
-    const title = byPath.get(path)?.title ?? basename(path);
+    const title = suggestionAt(path)?.title ?? basename(path);
     return {
       name: useFullPathLabel ? t`Use ${path}` : t`Link to ${title}`,
       apply(view, from, to) {
@@ -63,7 +63,7 @@ export async function diagnosticsForReferences(
     switch (target?.kind) {
       case "ambiguous": {
         const matches = target.candidates;
-        const areFiles = matches.length > 0 && matches.every((path) => !byPath.has(path) && !/\.md$/iu.test(path));
+        const areFiles = matches.length > 0 && matches.every((path) => !suggestionAt(path) && !/\.md$/iu.test(path));
         return [{
           ...diagnostic(
             reference.from,
@@ -84,10 +84,10 @@ export async function diagnosticsForReferences(
         }];
       case "note": {
         if (!reference.anchor) return [];
-        const note = { title: byPath.get(target.path)?.title ?? basename(target.path) };
         const body = target.path === targets.from
           ? source
-          : notes.find((candidate) => candidate.path === target.path)?.body;
+          : notesByPath(notes).get(target.path)?.body;
+        const note = { title: suggestionAt(target.path)?.title ?? basename(target.path) };
         return body !== undefined && markdownFragment(body, reference.anchor) === undefined
           ? [diagnostic(reference.from, reference.to, t`“${note.title}” has no “${reference.anchor}” section or block.`)]
           : [];

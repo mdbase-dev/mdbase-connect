@@ -5,7 +5,7 @@ import type { JsonObject } from "./connect-types";
 import { collectionDisplayField } from "./field-reference";
 import { LinkIcon } from "./icons";
 import type { PropertyLinks } from "./LinkPropertyEditor";
-import { linkMatches } from "./links";
+import { linkMatches, linkSuggestionAt } from "./links";
 import { folder, typeDisplayName, typeNameInSentence } from "./note";
 import { linkValue, resolvableLinkValue } from "./record-links";
 import { TypeIcon } from "./TypeIcon";
@@ -30,10 +30,7 @@ export function usePropertyRecords(links: PropertyLinks | undefined, values: Jso
     if (targets && wanted.length) void targets.resolveAll(wanted).catch(() => undefined);
   }, [targets, asked]);
 
-  // The record index is as large as the collection: it is built when the collection changes, not on every draw.
-  const suggestions = links?.suggestions;
   const types = links?.types;
-  const byPath = useMemo(() => new Map((suggestions ?? []).map((suggestion) => [suggestion.path, suggestion])), [suggestions]);
   const icons = useMemo(() => new Map((types ?? []).map((type) => [type.name.toLocaleLowerCase(), collectionDisplayField(type, "icon")])), [types]);
   if (!links) return undefined;
   const icon = (types: readonly string[] | undefined) =>
@@ -41,16 +38,16 @@ export function usePropertyRecords(links: PropertyLinks | undefined, values: Jso
   const { onOpen, onCreate } = links;
   const records: PropertyRecords = {
     describe(path) {
-      const known = byPath.get(path);
+      const known = linkSuggestionAt(links.suggestions, path);
       return known && { title: known.title, icon: icon(known.types) };
     },
     search(query, property) {
       const rule = property === undefined ? undefined : links.properties.get(property);
-      const wanted = new Set(rule?.targetTypes.map((type) => type.toLocaleLowerCase()));
       // Only records of the property's types, and never the record itself.
-      const candidates = links.suggestions.filter((suggestion) => suggestion.path !== links.currentPath
-        && (!wanted.size || suggestion.types?.some((type) => wanted.has(type.toLocaleLowerCase()))));
-      return linkMatches(candidates, query, undefined, MATCH_LIMIT, { currentPath: links.currentPath, recentPaths: links.recentPaths })
+      return linkMatches(links.suggestions, query, undefined, MATCH_LIMIT, {
+        currentPath: links.currentPath, recentPaths: links.recentPaths, allowedTypes: rule?.targetTypes,
+        excludedPaths: links.currentPath ? new Set([links.currentPath]) : undefined
+      })
         .map(({ suggestion, label }) => ({
           path: suggestion.path,
           title: label,
@@ -61,7 +58,7 @@ export function usePropertyRecords(links: PropertyLinks | undefined, values: Jso
     },
     link: (path, title, property) => linkValue(path, title, links.properties.get(property)?.format ?? "wikilink"),
     // A link may lead to a file, which has no note to show.
-    ...(onOpen ? { open: (path: string) => { if (byPath.has(path)) onOpen(path); } } : {}),
+    ...(onOpen ? { open: (path: string) => { if (linkSuggestionAt(links.suggestions, path)) onOpen(path); } } : {}),
     ...(targets ? {
       resolve(link: string) {
         const raw = resolvableLinkValue(link);

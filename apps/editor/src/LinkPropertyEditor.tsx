@@ -7,7 +7,7 @@ import type { LinkTargets } from "./collection-links";
 import { collectionDisplayField } from "./field-reference";
 import { LinkIcon, PlusIcon } from "./icons";
 import { ChipRemoveButton } from "./InlineRemoveButton";
-import { linkMatches, type LinkSuggestion } from "./links";
+import { linkMatches, linkSuggestionAt, type LinkSuggestion } from "./links";
 import type { LinkTarget } from "./model";
 import { folder, typeDisplayName, typeNameInSentence } from "./note";
 import { linkValue, linkValueLabel, resolvableLinkValue, type LinkProperty } from "./record-links";
@@ -71,22 +71,17 @@ export function LinkPropertyEditor({ name, link, value, links, onChange }: {
   const [adding, setAdding] = useState(false);
   const [query, setQuery] = useState("");
   const resolved = useResolvedLinks(links.targets, values);
-  const byPath = useMemo(() => new Map(links.suggestions.map((suggestion) => [suggestion.path, suggestion])), [links.suggestions]);
   const icons = useMemo(() => new Map(links.types.map((type) => [type.name.toLocaleLowerCase(), collectionDisplayField(type, "icon")])), [links.types]);
   const iconOf = (types: readonly string[] | undefined) => types?.map((type) => icons.get(type.toLocaleLowerCase())).find(Boolean);
   const linkedPaths = new Set(resolved.flatMap((target) => target?.kind === "note" ? [target.path] : []));
+  if (links.currentPath) linkedPaths.add(links.currentPath);
 
   // Only records of the property's types, never the record itself or one already linked.
-  // Kept by the types' names: the rule is read afresh on each render, and matching indexes this list once.
-  const targetKey = link.targetTypes.map((type) => type.toLocaleLowerCase()).join("\n");
-  const candidates = useMemo(() => {
-    const wanted = new Set(targetKey ? targetKey.split("\n") : []);
-    return links.suggestions.filter((suggestion) => suggestion.path !== links.currentPath
-      && (!wanted.size || suggestion.types?.some((type) => wanted.has(type.toLocaleLowerCase()))));
-  }, [targetKey, links.currentPath, links.suggestions]);
-  const options: LinkPickerOption[] = linkMatches(candidates, query, undefined, MATCH_LIMIT + linkedPaths.size, { currentPath: links.currentPath, recentPaths: links.recentPaths })
-    .filter(({ suggestion }) => !linkedPaths.has(suggestion.path))
-    .slice(0, MATCH_LIMIT)
+  const picking = adding || !values.length;
+  const options: LinkPickerOption[] = (picking ? linkMatches(links.suggestions, query, undefined, MATCH_LIMIT, {
+    currentPath: links.currentPath, recentPaths: links.recentPaths,
+    allowedTypes: link.targetTypes, excludedPaths: linkedPaths
+  }) : [])
     .map(({ suggestion, label }) => ({
       id: suggestion.path,
       title: label,
@@ -128,7 +123,6 @@ export function LinkPropertyEditor({ name, link, value, links, onChange }: {
     onChange(link.many ? values.filter((_, position) => position !== index) : "");
   }
 
-  const picking = adding || !values.length;
   const onlyType = link.targetTypes.length === 1 ? typeNameInSentence(link.targetTypes[0]!) : undefined;
   const placeholder = links.onCreate
     ? onlyType ? t`Find or create a ${onlyType}` : t`Find or create a note`
@@ -136,7 +130,7 @@ export function LinkPropertyEditor({ name, link, value, links, onChange }: {
   return <div ref={root} className="link-property" role="group" aria-label={name}>
     {values.map((raw, index) => {
       const target = resolved[index];
-      const suggestion = target?.kind === "note" ? byPath.get(target.path) : undefined;
+      const suggestion = target?.kind === "note" ? linkSuggestionAt(links.suggestions, target.path) : undefined;
       const label = suggestion?.title ?? linkValueLabel(raw);
       const unresolved = target !== undefined && target.kind !== "note" && target.kind !== "file";
       const onOpen = links.onOpen;

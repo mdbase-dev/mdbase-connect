@@ -27,11 +27,11 @@ export function NoteSearchField({ search, filter, tags, types, onSearch, onFilte
   const token = /(?:^|\s)(type:|tag:#?|#)(\S*)$/i.exec(search);
   const kind = token ? token[1].toLowerCase() === "type:" ? "type" : "tag" : undefined;
   const needle = (token?.[2] ?? "").toLocaleLowerCase();
-  const suggestions: Array<{ filter: NoteFilter & { kind: "tag" | "type" }; count: number }> = [
+  const open = !dismissed && (browse || Boolean(token));
+  const suggestions: Array<{ filter: NoteFilter & { kind: "tag" | "type" }; count: number }> = open ? [
     ...(kind !== "type" ? tags.map(({ name, count }) => ({ filter: { kind: "tag" as const, value: name }, count })) : []),
     ...(kind !== "tag" ? types.map(({ name, count }) => ({ filter: { kind: "type" as const, value: name }, count })) : [])
-  ].filter(({ filter }) => !kind || filter.value.toLocaleLowerCase().includes(needle));
-  const open = !dismissed && (browse || Boolean(token));
+  ].filter(({ filter }) => !kind || filter.value.toLocaleLowerCase().includes(needle)) : [];
   const choose = (next: NoteFilter & { kind: "tag" | "type" }) => {
     noteFilterCommand(next, onFilter).run();
     if (token) onSearch(search.slice(0, token.index).trimEnd());
