@@ -51,20 +51,20 @@
     "verify": "pnpm typecheck && pnpm lint && pnpm build && pnpm test"
   },
   "dependencies": {
-    "@lingui/cli": "6.9.0",
-    "@lingui/conf": "6.9.0",
-    "@lingui/format-po": "6.9.0",
-    "@lingui/message-utils": "6.9.0",
+    "@lingui/cli": "6.12.0",
+    "@lingui/conf": "6.12.0",
+    "@lingui/format-po": "6.12.0",
+    "@lingui/message-utils": "6.12.0",
     "typescript": "6.0.3"
   },
   "peerDependencies": {
-    "@lingui/core": "6.9.0",
-    "@lingui/react": "6.9.0",
+    "@lingui/core": "6.12.0",
+    "@lingui/react": "6.12.0",
     "react": "^19.2.0"
   },
   "devDependencies": {
-    "@lingui/core": "6.9.0",
-    "@lingui/react": "6.9.0",
+    "@lingui/core": "6.12.0",
+    "@lingui/react": "6.12.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "react": "^19.3.0",
