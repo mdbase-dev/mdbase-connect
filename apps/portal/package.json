@@ -22,8 +22,8 @@
     "@mdbase/connect-management": "workspace:*",
     "@mdbase/connect-ui": "workspace:*",
     "@phosphor-icons/react": "^2.1.10",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1"
   },
   "devDependencies": {
     "@babel/core": "^7.29.7",
@@ -33,7 +33,7 @@
     "@testing-library/jest-dom": "7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
-    "@types/react": "^19.3.0",
+    "@types/react": "^19.3.1",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.0.3",
     "jsdom": "^29.1.1",

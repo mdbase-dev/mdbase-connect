@@ -28,8 +28,8 @@
     "@lingui/core": "6.9.0",
     "@lingui/react": "6.9.0",
     "@mdbase-dev/i18n": "workspace:*",
-    "@types/react": "^19.3.0",
-    "react": "^19.3.0",
+    "@types/react": "^19.3.1",
+    "react": "^19.3.1",
     "typescript": "^7.0.2"
   },
   "dependencies": {
