@@ -113,7 +113,13 @@ impl IndexStorage for Profiled {
         self.inner.reset()
     }
     fn defer_sync(&mut self, on: bool) -> Result<bool, IndexError> {
+        let start = Instant::now();
         let deferred = self.inner.defer_sync(on)?;
+        self.stats
+            .borrow_mut()
+            .entry("durability window".into())
+            .or_default()
+            .1 += start.elapsed();
         self.window = on && deferred;
         Ok(deferred)
     }
@@ -162,6 +168,22 @@ fn open(svc: &FakeLogService, store: Store, device: u8) -> Node {
     if svc.head(&COL).0 == 0 {
         TestControlPlane::new(COL).bootstrap(svc, mdbn_wire::policy::CState::E2e, &devices);
     }
+    open_with_sealer(
+        svc,
+        store,
+        device,
+        devices,
+        Box::new(PlainSealer::for_device(B16([device; 16]))),
+    )
+}
+
+fn open_with_sealer(
+    svc: &FakeLogService,
+    store: Store,
+    device: u8,
+    devices: Vec<B16>,
+    sealer: Box<dyn mdbn_replica::seal::Sealer>,
+) -> Node {
     let cfg = ReplicaConfig {
         collection: COL,
         replica_id: B16([device - 100; 16]),
@@ -188,7 +210,7 @@ fn open(svc: &FakeLogService, store: Store, device: u8) -> Node {
         cfg,
         store,
         Box::new(CorePlanner),
-        Box::new(PlainSealer::for_device(B16([device; 16]))),
+        sealer,
         host,
         DeviceSecrets {
             sign_sk: [device; 32],
@@ -312,12 +334,16 @@ fn task(n: u32) -> String {
 
 /// `count` tasks and 50 projects, in entries of 100 creates.
 fn seed(node: &mut Node, svc: &FakeLogService, count: u32) {
+    seed_docs(node, svc, count, task)
+}
+
+fn seed_docs(node: &mut Node, svc: &FakeLogService, count: u32, document: fn(u32) -> String) {
     node.submit(vec![put_type("_types/task.md", task_type("", ""))]);
     node.sync(svc);
     let mut docs: Vec<(String, String)> = (0..50)
         .map(|p| (format!("projects/p{p}.md"), format!("# Project {p}\n")))
         .collect();
-    docs.extend((1..=count).map(|n| (format!("tasks/t{n:05}.md"), task(n))));
+    docs.extend((1..=count).map(|n| (format!("tasks/t{n:05}.md"), document(n))));
     for (at, chunk) in docs.chunks(100).enumerate() {
         let ops = chunk
             .iter()
@@ -443,6 +469,16 @@ fn snapshot_then_tail(
     glob: &str,
 ) -> u64 {
     seed(writer, svc, count);
+    compact_then_tail(svc, writer, count, run, glob)
+}
+
+fn compact_then_tail(
+    svc: &FakeLogService,
+    writer: &mut Node,
+    count: u32,
+    run: u32,
+    glob: &str,
+) -> u64 {
     writer.r.build_snapshot_now().unwrap();
     writer.sync(svc);
     let snapshot = writer.r.head().seq;
@@ -532,6 +568,111 @@ fn device_cold_open_after_a_snapshot_at_10k() {
             );
         }
     }
+}
+
+/// Seven fresh device databases over the same compacted log. Fixture creation,
+/// replica open, and the result checks are outside the timed intervals.
+#[test]
+#[ignore = "manual release timing (#1648)"]
+fn seven_cold_opens_at_10k() {
+    let svc = FakeLogService::new();
+    let device_id = B16([101; 16]);
+    let state = mdbn_wire::policy::CState::E2e;
+    TestControlPlane::signed(COL).genesis_with_keys(&svc, state, device_id, &[101; 32], &[101; 32]);
+    let open_device = |store| {
+        open_with_sealer(
+            &svc,
+            store,
+            101,
+            vec![device_id],
+            Box::new(mdbn_replica::seal::KeyringSealer::new(
+                COL, device_id, &[101; 32], &[101; 32],
+            )),
+        )
+    };
+    let (writer_store, _) = store("seven_cold_writer", false);
+    let mut writer = open_device(writer_store);
+    writer.sync(&svc);
+    seed_docs(&mut writer, &svc, 10_000, |n| {
+        use std::fmt::Write;
+        let mut doc = task(n);
+        for line in 0..24 {
+            writeln!(doc, "Task {n} observation {line}: review the scheduled project work and record its outcome.").unwrap();
+        }
+        doc
+    });
+    let snapshot = compact_then_tail(&svc, &mut writer, 10_000, 10, "tasks/t01*.md");
+    write_browser_fixture(&svc, snapshot);
+    for run in 1..=7 {
+        let (device_store, stats) = store("seven_cold_device", false);
+        let mut device = open_device(device_store);
+        stats.borrow_mut().clear();
+        let started = Instant::now();
+        device.install_only();
+        let install = started.elapsed();
+        assert_eq!(device.r.head().seq, snapshot);
+        report(&format!("run {run} install"), install, &stats);
+        stats.borrow_mut().clear();
+        let started = Instant::now();
+        device.sync(&svc);
+        report(&format!("run {run} replay"), started.elapsed(), &stats);
+        assert_eq!(device.r.stats.snapshots_installed, 1);
+        assert_index_ready(&device);
+        assert_eq!(device.r.store().record_count().unwrap(), 10_080);
+        assert_eq!(
+            type_page(&mut device, "batch", 50, None)
+                .unwrap()
+                .records
+                .len(),
+            50
+        );
+    }
+}
+
+/// Export only the synthetic service's public replies and sealed objects. The
+/// browser opens with the same enrolled fixture device in a fresh database.
+fn write_browser_fixture(svc: &FakeLogService, snapshot: u64) {
+    use mdbn_replica::log::LogResponse;
+    use mdbn_wire::{
+        cbor::Cbor,
+        log_service::{ReadKinds, ReadParams},
+        schema::Wire,
+    };
+    let mut client = svc.client(B16([101; 16]));
+    let LogResponse::Head(head) = client.call(LogRequest::Head { collection: COL }).unwrap() else {
+        unreachable!()
+    };
+    let read = |client: &mut FakeLog, after, kinds| {
+        let LogResponse::Read(page) = client
+            .call(LogRequest::Read(ReadParams {
+                collection: COL,
+                after,
+                limit: 1000,
+                kinds,
+                max_bytes: None,
+            }))
+            .unwrap()
+        else {
+            unreachable!()
+        };
+        assert!(!page.more);
+        page.to_cbor()
+    };
+    let objects = svc
+        .objects(&COL)
+        .into_iter()
+        .map(|(id, bytes)| Cbor::Array(vec![id.to_cbor(), Cbor::Bytes(bytes)]))
+        .collect();
+    let fixture = Cbor::Array(vec![
+        mdbn_wire::hash::chain_hash(&svc.items(&COL)[0]).to_cbor(),
+        head.to_cbor(),
+        read(&mut client, 0, None),
+        read(&mut client, 0, Some(ReadKinds::Control)),
+        read(&mut client, snapshot, None),
+        Cbor::Array(objects),
+    ]);
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("cold-open.cbor");
+    std::fs::write(path, mdbn_wire::cbor::encode(&fixture).unwrap()).unwrap();
 }
 
 /// The log while the device is offline: nothing reaches the service.
