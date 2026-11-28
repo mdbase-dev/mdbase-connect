@@ -243,7 +243,7 @@ export function registerNextRouteRoutes(app: FastifyInstance, options: { db: Dat
        FROM grants g
        LEFT JOIN collections col ON col.id = g.collection_id
        LEFT JOIN hosted_collections hc ON hc.id = g.hosted_collection_id
-       LEFT JOIN next_collections nc ON nc.collection_id::text = COALESCE(col.local_id::text, hc.id::text, g.next_collection_id::text)
+       LEFT JOIN next_collections nc ON nc.collection_id = COALESCE(col.local_id, hc.id, g.next_collection_id)
        LEFT JOIN next_grant_client_keys k ON k.grant_id = g.id
        LEFT JOIN next_grant_bindings binding ON binding.grant_id = g.id
        WHERE g.user_id = $1 AND g.application_id = $2 AND g.application_installation_id = $3
