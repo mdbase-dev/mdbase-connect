@@ -1794,9 +1794,13 @@ impl<S: Store> Replica<S> {
             grant,
             uploads: Vec::new(),
             refs: f.refs.clone(),
+            submitted: !up.origin.external && self.store.has_files(),
         };
         check_row_refs(&row)?;
-        let committed = self.store.commit(Tx {
+        // A disk edit ends the fence of a refused one there (`refused.rs`).
+        let mutation = row.mutation.clone();
+        let submitted = row.submitted;
+        let mut tx = Tx {
             pending_put: vec![row],
             meta: std::iter::once((
                 meta_keys::COUNTERS.into(),
@@ -1813,7 +1817,11 @@ impl<S: Store> Replica<S> {
             .collect(),
             ack_observations: up.origin.acks.clone(),
             ..Tx::default()
-        });
+        };
+        let refused = self
+            .release_refused(&mutation, submitted, &mut tx)
+            .map_err(store_problem)?;
+        let committed = self.store.commit(tx);
         if let Err(error) = committed {
             if up.origin.delegated.is_some() {
                 if matches!(error, crate::store::StoreError::CommitAborted(_)) {
@@ -1826,6 +1834,7 @@ impl<S: Store> Replica<S> {
             }
             return Err(store_problem(error));
         }
+        self.refused_released(refused);
         self.touch.add(order, &touches);
         self.pending_keys.insert(order, touches);
         self.status_dirty = true;

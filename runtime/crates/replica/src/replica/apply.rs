@@ -135,6 +135,7 @@ struct ChangeStage {
     legacy_effects: Vec<Effect>,
     attachment_files: Vec<Uuid>,
     holds_changed: bool,
+    refused: Option<super::refused::RefusedApply>,
 }
 
 impl<S: Store> Replica<S> {
@@ -2008,6 +2009,10 @@ impl<S: Store> Replica<S> {
         if own_match && payload.mutation.origin == self.cfg.replica_id {
             self.prepare_conflict_holds(&payload.mutation, conflicts, tx, &t)?;
         }
+        // A confirmed change of a record whose refused bytes the disk keeps.
+        let own_write = (own_match && payload.mutation.origin == self.cfg.replica_id)
+            .then_some(&payload.mutation);
+        let refused = self.prepare_refused_holds(own_write, &legacy_effects, tx)?;
         let holds_changed = !tx.holds_put.is_empty()
             || self.store.holds()?.iter().any(|hold| {
                 hold.reason == mdbn_wire::client::HoldReason::ReadOnly
@@ -2019,6 +2024,7 @@ impl<S: Store> Replica<S> {
             legacy_effects,
             attachment_files,
             holds_changed,
+            refused,
         })
     }
 
@@ -2055,6 +2061,7 @@ impl<S: Store> Replica<S> {
             legacy_effects,
             attachment_files,
             holds_changed,
+            refused,
         } = changes;
         for (key, shown) in before {
             self.before.entry(key).or_insert(shown);
@@ -2108,6 +2115,9 @@ impl<S: Store> Replica<S> {
             return Ok(Outcome::Applied);
         }
         self.query_context = query_context;
+        if let Some(rest) = refused {
+            self.refused_applied(rest);
+        }
         self.log_time = log_time;
         self.sem_ratchet_set(ratchet);
         // The entry is committed: a later typed abort cannot certify that the

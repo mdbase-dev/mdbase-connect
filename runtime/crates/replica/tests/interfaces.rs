@@ -50,9 +50,29 @@ fn pending_row_round_trips() {
         grant: Some(B16([5; 16])),
         uploads: vec![],
         refs: Vec::new(),
+        submitted: false,
     };
     let back = PendingRow::from_bytes(&row.to_bytes()).expect("decodes");
     assert_eq!(back, row);
+    // An app's submission keeps its provenance, with or without refs; a
+    // captured row keeps the earlier bytes.
+    let submitted = PendingRow {
+        submitted: true,
+        ..row.clone()
+    };
+    assert_ne!(submitted.to_bytes(), row.to_bytes());
+    assert_eq!(
+        PendingRow::from_bytes(&submitted.to_bytes()).unwrap(),
+        submitted
+    );
+    let with_refs = PendingRow {
+        refs: vec![B32([6; 32])],
+        ..submitted
+    };
+    assert_eq!(
+        PendingRow::from_bytes(&with_refs.to_bytes()).unwrap(),
+        with_refs
+    );
 }
 
 #[test]

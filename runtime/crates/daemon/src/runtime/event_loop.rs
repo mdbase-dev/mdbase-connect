@@ -26,6 +26,9 @@ pub(super) fn run(
     mut lock: mdbn_local_host::HostLock,
 ) {
     let GrantSignals { grants, changes } = signals;
+    rep.set_oversized_file_warning(|path| {
+        tracing::warn!(path = ?path, code = "too_large", "file change refused by sync");
+    });
     let mut ingest = VecDeque::new();
     let mut active_log = None;
     let mut last_heartbeat = std::time::Instant::now();

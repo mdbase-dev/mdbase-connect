@@ -180,6 +180,7 @@ fn pending(r: &mut Replica<MemStore>, granted: bool) -> Uuid {
                 grant: granted.then_some(GRANT),
                 uploads: vec![],
                 refs: Vec::new(),
+                submitted: false,
             }],
             ..Tx::default()
         })
@@ -644,6 +645,7 @@ fn existing_local_backlog_drains_all_pages_in_one_pump() {
             grant: None,
             uploads: vec![],
             refs: Vec::new(),
+            submitted: false,
         });
     }
     r.store_mut()

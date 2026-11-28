@@ -1530,6 +1530,7 @@ mod retained_boundary_tests {
             grant: None,
             uploads: Vec::new(),
             refs: Vec::new(),
+            submitted: false,
         }
     }
 
