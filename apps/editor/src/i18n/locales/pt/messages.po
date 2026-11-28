@@ -2031,6 +2031,7 @@ msgstr "Não foi possível carregar esta versão. {0}"
 msgid "Couldn’t open “{path}”. {0}"
 msgstr "Não foi possível abrir “{path}”. {0}"
 
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 msgid "Couldn’t preview {filename}"
 msgstr "Não foi possível visualizar {filename}"
@@ -4227,6 +4228,7 @@ msgid "Opening “{pendingNotePath}”…"
 msgstr "Abrindo “{pendingNotePath}”…"
 
 #: src/code-editor-file-embeds.ts
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 msgid "Opening {filename}"
 msgstr "Abrindo {filename}"
@@ -6406,6 +6408,7 @@ msgstr "Transclusão: {0}"
 msgid "True"
 msgstr "Verdadeiro"
 
+#: src/EmbedPdfViewer.tsx
 #: src/FileViewer.tsx
 #: src/NoteHistoryPanel.tsx
 #: src/TypeBrowser.tsx

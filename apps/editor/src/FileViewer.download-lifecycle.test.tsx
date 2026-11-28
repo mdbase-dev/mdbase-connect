@@ -168,7 +168,7 @@ describe("production file workspace download lifetime (test source adapter)", ()
     await waitFor(() => expect(successor.read).toHaveBeenCalledTimes(2));
     expect(URL.createObjectURL).not.toHaveBeenCalled(); // Whole stream not complete.
     await act(async () => { successor.controller.close(); });
-    expect(await screen.findByRole("img", { name: successor.file.path })).toHaveAttribute("src", "blob:successor");
+    expect(await screen.findByAltText(successor.file.path)).toHaveAttribute("src", "blob:successor");
     expect(published).toHaveBeenCalledTimes(1);
     expect(published).toHaveBeenCalledWith(successor.file.id, expect.any(Blob));
     expect(URL.createObjectURL).toHaveBeenCalledTimes(1);

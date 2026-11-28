@@ -110,7 +110,10 @@ export function saveNoteSort(collectionId: string, preference: NoteSortPreferenc
  * A name declared differently by two types has no single order, so it is left out.
  */
 export function sortableFields(notes: readonly NoteSummary[], types: readonly CollectionTypeDescriptor[]): SortField[] {
-  const scopedTypes = new Set(notes.flatMap((note) => note.types.map((name) => name.toLowerCase())));
+  const scopedTypes = new Set<string>();
+  for (const note of notes) {
+    for (const name of note.types) scopedTypes.add(name.toLowerCase());
+  }
   const declared = new Map<string, JsonObject | null>();
   for (const type of types) {
     if (!scopedTypes.has(type.name.toLowerCase())) continue;

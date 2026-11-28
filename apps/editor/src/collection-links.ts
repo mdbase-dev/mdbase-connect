@@ -6,7 +6,7 @@ import type { CollectionTypeDescriptor } from "./connect-types";
 import { gatewayError } from "./gateway";
 import { collectionDisplayField } from "./field-reference";
 import type { Backlink, CollectionFile, CollectionGateway, LinkTarget, NoteSummary } from "./model";
-import { noteTitle } from "./note";
+import { notesByPath, noteTitle } from "./note";
 import { internalLink } from "./links";
 
 /** A listed note that links to the open one. */
@@ -58,16 +58,16 @@ interface Loaded { path?: string; links: Backlink[]; loading: boolean; error?: s
 export function useBacklinks(gateway: CollectionGateway, path: string | undefined, revision: number,
   listed: NoteSummary[], types: CollectionTypeDescriptor[]): Backlinks {
   const { i18n } = useLingui();
-  const [loaded, setLoaded] = useState<Loaded>({ links: [], loading: false });
+  const [loaded, setLoaded] = useState<Loaded>({ links: EMPTY_LINKS, loading: false });
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     if (!path) {
-      setLoaded({ links: [], loading: false });
+      setLoaded(current => current.path ? { links: EMPTY_LINKS, loading: false } : current);
       return;
     }
     const controller = new AbortController();
     // Keep the previous answer for the same note visible while it refreshes.
-    setLoaded(current => ({ path, links: current.path === path ? current.links : [], loading: true }));
+    setLoaded(current => ({ path, links: current.path === path ? current.links : EMPTY_LINKS, loading: true }));
     gateway.backlinks(path, { signal: controller.signal }).then(
       links => { if (!controller.signal.aborted) setLoaded({ path, links, loading: false }); },
       (error: unknown) => { if (!controller.signal.aborted) setLoaded({ path, links: [], loading: false, error: gatewayError(error) }); }
@@ -78,14 +78,15 @@ export function useBacklinks(gateway: CollectionGateway, path: string | undefine
   const current = loaded.path === path;
   const links = current ? loaded.links : EMPTY_LINKS;
   const notes = useMemo(() => {
-    const byPath = new Map(listed.map(note => [note.path, note]));
+    if (!links.length) return [];
+    const byPath = notesByPath(listed);
     return links.flatMap(({ path, fields }) => {
       const note = byPath.get(path);
-      return note ? [{ note, fields }] : [];
-    }).sort((a, b) => noteTitle(a.note, types).localeCompare(noteTitle(b.note, types)) || a.note.path.localeCompare(b.note.path));
+      return note ? [{ note, fields, title: noteTitle(note, types) }] : [];
+    }).sort((a, b) => a.title.localeCompare(b.title) || a.note.path.localeCompare(b.note.path));
     // eslint-disable-next-line react-hooks/exhaustive-deps -- titles follow the locale
   }, [listed, links, types, i18n.locale]);
-  return { notes, loading: loaded.loading, error: current ? loaded.error : undefined, retry };
+  return { notes, loading: Boolean(path) && (!current || loaded.loading), error: current ? loaded.error : undefined, retry };
 }
 
 /** Where the links written in one note lead, resolved by the collection in
@@ -118,11 +119,11 @@ export class LinkTargets {
 
   /** Resolve every link not yet confirmed at this revision, in one request. */
   resolveAll(raws: Iterable<string>): Promise<void> {
-    const waits: Promise<void>[] = [];
+    const waits = new Set<Promise<void>>();
     const wanted: string[] = [];
     for (const raw of new Set(raws)) {
       const pending = this.pending.get(raw);
-      if (pending) waits.push(pending);
+      if (pending) waits.add(pending);
       else if (!this.confirmed.has(raw)) wanted.push(raw);
     }
     if (wanted.length) {
@@ -138,9 +139,9 @@ export class LinkTargets {
         for (const listener of this.listeners) listener();
       });
       for (const raw of wanted) this.pending.set(raw, request);
-      waits.push(request);
+      waits.add(request);
     }
-    return Promise.all(waits).then(() => undefined);
+    return waits.size ? Promise.all(waits).then(() => undefined) : Promise.resolve();
   }
 
   /** Compatibility for attachments linked by Editor builds before 2026-11,

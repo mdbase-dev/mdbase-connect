@@ -108,6 +108,21 @@ function HtmlFilePreview({ source, filename, mode }: { source: string; filename:
   />;
 }
 
+function ImagePreview({ src, filename }: { src: string; filename: string }) {
+  const [loaded, setLoaded] = useState<number | "error">();
+  if (loaded === "error") return <div className="file-workspace-message" role="alert"><strong><Trans>Couldn’t preview {filename}</Trans></strong></div>;
+  return <>
+    {loaded === undefined && <div className="file-workspace-message" role="status"><strong><Trans>Opening {filename}</Trans></strong></div>}
+    <img className={loaded ? "file-preview-enlarged" : undefined} src={src} alt={filename} hidden={loaded === undefined} width={loaded || undefined}
+      onLoad={({ currentTarget: { naturalWidth, naturalHeight } }) => {
+        // Enlarge small swatches and pixels without stretching their aspect ratio.
+        const longestSide = Math.max(naturalWidth, naturalHeight);
+        setLoaded(longestSide > 0 && longestSide < 32 ? Math.ceil(naturalWidth * 32 / longestSide) : 0);
+      }}
+      onError={() => setLoaded("error")} />
+  </>;
+}
+
 function FileContent({ asset, htmlView }: { asset: Extract<FileAssetSnapshot, { status: "ready" }>; htmlView: HtmlViewMode }) {
   useLingui();
   const filename = collectionFileTitle(asset.file);
@@ -116,7 +131,7 @@ function FileContent({ asset, htmlView }: { asset: Extract<FileAssetSnapshot, { 
   if (isReadOnlyMarkdownFile(asset.file)) return asset.sourceText !== undefined
     ? <ReadOnlyMarkdown source={asset.sourceText} byteLength={asset.file.size} />
     : <div className="file-workspace-message"><Trans>Markdown preview unavailable.</Trans></div>;
-  if (asset.file.mediaClass === "image") return <img src={asset.url} alt={filename} />;
+  if (asset.file.mediaClass === "image") return <ImagePreview key={asset.url} src={asset.url} filename={filename} />;
   if (asset.file.mediaClass === "pdf") return <EmbedPdfViewer src={asset.url} filename={filename} />;
   if (asset.file.mediaClass === "audio") return <audio src={asset.url} controls preload="metadata" aria-label={filename} />;
   if (asset.file.mediaClass === "video") return <video src={asset.url} controls preload="metadata" aria-label={filename} />;

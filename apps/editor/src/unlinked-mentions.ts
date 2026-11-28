@@ -43,15 +43,17 @@ export function unlinkedMentions(notes: readonly NoteSummary[], targetPath: stri
   // Most notes do not contain the title. Check the literal before testing Unicode word boundaries.
   const candidate = new RegExp(escaped, "iu");
   const pattern = new RegExp(`(?<![\\p{L}\\p{N}_])${escaped}${wordEnd}`, "giu");
-  return notes.flatMap((note) => {
+  const titlePrefix = new RegExp(`^${escaped}${wordEnd}`, "iu");
+  const mentions: UnlinkedMention[] = [];
+  for (const note of notes) {
     const body = note.body;
-    if (note.path === targetPath || !body || !candidate.test(body)) return [];
+    if (note.path === targetPath || !body || !candidate.test(body)) continue;
     pattern.lastIndex = 0;
     let match = pattern.exec(body);
-    if (!match) return [];
+    if (!match) continue;
     const { excluded, paragraphs } = mentionContext(note, body);
     const sourceTitle = markdownPlainText(noteTitle(note, types));
-    const longerSourceTitle = sourceTitle.length > title.length && new RegExp(`^${escapePattern(title)}${wordEnd}`, "iu").test(sourceTitle)
+    const longerSourceTitle = sourceTitle.length > title.length && titlePrefix.test(sourceTitle)
       ? new RegExp(`^${escapePattern(sourceTitle)}${wordEnd}`, "iu") : undefined;
     do {
       const from = match.index, to = from + match[0].length;
@@ -73,11 +75,12 @@ export function unlinkedMentions(notes: readonly NoteSummary[], targetPath: stri
       const start = Math.max(0, anchor - 40), end = Math.min(plain.length, anchor + phrase.length + 65);
       const leading = start ? "…" : "";
       const snippet = `${leading}${plain.slice(start, end)}${end < plain.length ? "…" : ""}`;
-      return [{ note, body, from, to, snippet,
-        snippetRanges: [{ from: leading.length + anchor - start, to: leading.length + anchor - start + phrase.length }] }];
+      mentions.push({ note, body, from, to, snippet,
+        snippetRanges: [{ from: leading.length + anchor - start, to: leading.length + anchor - start + phrase.length }] });
+      break;
     } while ((match = pattern.exec(body)));
-    return [];
-  });
+  }
+  return mentions;
 }
 export function linkMention(mention: UnlinkedMention, targetPath: string, body: string): { body: string; inserted: string } {
   if (body !== mention.body) throw new Error(t`That note changed. Find its mentions again before linking.`);

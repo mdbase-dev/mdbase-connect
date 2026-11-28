@@ -205,7 +205,7 @@ describe("verified inert Markdown in both production viewers", () => {
     const blob = new Blob([new Uint8Array([0xff])], { type: "image/png" });
     const store = new FileAssetStore({ readFile: vi.fn().mockResolvedValue(blob) });
     render(<Preview store={store} selected={selected} />);
-    expect(await screen.findByRole("img", { name: "image.png" })).toHaveAttribute("src", "blob:verified");
+    expect(await screen.findByAltText("image.png")).toHaveAttribute("src", "blob:verified");
     expect(URL.createObjectURL).toHaveBeenCalledWith(blob);
   });
 });

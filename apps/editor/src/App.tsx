@@ -1135,15 +1135,16 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
   const searchContexts = useMemo(() => new Map(
     searchedResults?.map((result) => [result.note.path, result]) ?? []
   ), [searchedResults, i18n.locale]);
+  const taggedPaths = noteFilter?.kind === "tag" ? bodySearch.tagged(noteFilter.value) : undefined;
   const visibleNotes = useMemo(() => {
-    return !noteFilter
-      ? searchedNotes
-      : noteFilter.kind === "folder"
-        ? searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(`${noteFilter.value}/`))
-        : noteFilter.kind === "tag"
-          ? searchedNotes.filter((note) => bodySearch.tagged(noteFilter.value)?.has(note.path) === true)
-          : searchedNotes.filter((note) => noteHasType(note, noteFilter.value));
-  }, [bodySearch, bodySearchState.matchesVersion, noteFilter, searchedNotes, i18n.locale]);
+    if (!noteFilter) return searchedNotes;
+    if (noteFilter.kind === "folder") {
+      const prefix = `${noteFilter.value}/`;
+      return searchedNotes.filter((note) => note.path === noteFilter.value || note.path.startsWith(prefix));
+    }
+    if (noteFilter.kind === "tag") return taggedPaths ? searchedNotes.filter((note) => taggedPaths.has(note.path)) : [];
+    return searchedNotes.filter((note) => noteHasType(note, noteFilter.value));
+  }, [taggedPaths, noteFilter, searchedNotes, i18n.locale]);
   const noteSortFields = useMemo(() => sortableFields(visibleNotes, typeDescriptors), [visibleNotes, typeDescriptors, i18n.locale]);
   const noteSort = useMemo(() => resolveNoteSort(noteSortPreference, noteSortFields), [noteSortFields, noteSortPreference]);
   const chooseNoteSort = useCallback((preference: NoteSortPreference) => {
@@ -1156,15 +1157,20 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     const pins = new Set(!deferredSearch.trim() && !noteFilter ? pinnedPaths : []);
     return pins.size ? [...browserEntries.filter((entry) => entry.kind === "note" && pins.has(entry.path)), ...browserEntries.filter((entry) => entry.kind !== "note" || !pins.has(entry.path))] : browserEntries;
   }, [browserEntries, deferredSearch, noteFilter, pinnedPaths]);
-  const visibleNotePaths = useMemo(() => new Set(visibleBrowserEntries.filter((entry) => entry.kind === "note").map((entry) => entry.path)), [visibleBrowserEntries, i18n.locale]);
+  const visibleNotePaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const entry of visibleBrowserEntries) if (entry.kind === "note") paths.add(entry.path);
+    return paths;
+  }, [visibleBrowserEntries]);
   const listSelection = useMemo(() => selectedCollectionFile || openNew ? { paths: [] } : selection ? { ...selection, paths: selection.paths.filter((path) => visibleNotePaths.has(path)) } : { paths: selectedPath && visibleNotePaths.has(selectedPath) ? [selectedPath] : [], anchor: selectedPath, focus: selectedPath }, [openNew, selectedCollectionFile, selectedPath, selection, visibleNotePaths, i18n.locale]);
   // Selection mode ends with its selection: after a bulk action, or when the last note is deselected.
   const selectionEmpty = listSelection.paths.length === 0;
   useEffect(() => { if (selectionEmpty) setSelectingNotes(false); }, [selectionEmpty]);
   const selectionFields = useMemo(() => {
+    if (listSelection.paths.length < 2 && !selectingNotes) return [];
     const paths = new Set(listSelection.paths);
     return bulkFields(allNotes.filter((note) => paths.has(note.path)), typeDescriptors);
-  }, [allNotes, listSelection.paths, typeDescriptors, i18n.locale]);
+  }, [allNotes, listSelection.paths, selectingNotes, typeDescriptors, i18n.locale]);
   const linkTypeNames = useMemo(() => description?.types.map((type) => type.name) ?? [], [description, i18n.locale]);
   const linkOptions = useMemo(() => linkSuggestions(allNotes, linkTypeNames, typeDescriptors), [allNotes, linkTypeNames, typeDescriptors, i18n.locale]);
   const takenPaths = useMemo(() => occupiedPaths([...allNotes.map((note) => note.path), ...fileInventory.files.map((file) => file.path)]), [allNotes, fileInventory.files]);
@@ -2267,7 +2273,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
     } : {})
   }, { focus: focusMode ? t`Exit focus mode` : t`Focus mode`, "attach-file": attachFileAction.label }).concat(canCreateNotes && !mutationsFrozen ? newNoteTypes.slice(1).map(({ id, name, type, detail }) => ({
     id, label: t`New ${name}`, hint: detail, run: () => openNewNoteOfType(type)
-  })) : [], noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, tagFacets, typeFacets, noteSortFields));
+  })) : [], noteViewCommands(chooseNoteSort, setNoteFilter, () => { setSearch(""); setNoteFilter(undefined); }, quickOpen ? tagFacets : [], quickOpen ? typeFacets : [], noteSortFields));
   const activeToasts = buildToastItems({ notice, recoveryId: recoveryToastId, recoveryMessage, recoveryPending: recoveryAction?.kind === "delete" && recoveryAction.pending, recoveryBusy, onUndo: () => void undoRecovery(), hasPendingRename: Boolean(activePendingRename), onResumeRename: () => { if (activePendingRename) void performRename(activePendingRename.plan, activePendingRename.updateRefs, activePendingRename.requestId); } });
   const liveUndo = activeToasts.find(toast => toast.id === recoveryToastId)?.action;
   const commandContext = multipleSelected ? t`Selected notes` : document && !openNew ? noteTitle(document, typeDescriptors) : undefined;
@@ -2464,14 +2470,14 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
             <span>{session.error}</span>
           </div>}
           {focused && !isNew && noteSessions.current.active?.recoveryError && <p role="alert">{noteSessions.current.active.recoveryError}</p>}
-          {focused && !isNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver" role="status" aria-label={t`Unsaved draft found`}>
+          {focused && !isNew && noteSessions.current.active?.recoveryDraft && <section className="conflict-resolver draft-recovery" role="status" aria-label={t`Unsaved draft found`}>
             <strong>{noteSessions.current.active.recoveryDraft.awaitingSync
               ? <Trans>This note changed elsewhere</Trans> : <Trans>Unsaved edits from an earlier session are available.</Trans>}</strong>
             {!noteSessions.current.active.recoveryDraft.awaitingSync && <p><Trans>Editing is paused until you restore or discard these edits. They stay in this browser for up to seven days, or until saved or discarded. Restoring does not overwrite a newer version without review.</Trans></p>}
             <details><summary><Trans>Review recovered text</Trans></summary><pre>{noteSessions.current.active.recoveryDraft.body}</pre>
               {Object.keys(noteSessions.current.active.recoveryDraft.patch).length > 0 && <pre>{JSON.stringify(noteSessions.current.active.recoveryDraft.patch, null, 2)}</pre>}
             </details>
-            <button disabled={!canEditNotes || mutationsFrozen || pendingNoteMutations.length > 0} onClick={() => {
+            <div className="conflict-actions"><button disabled={!canEditNotes || mutationsFrozen || pendingNoteMutations.length > 0} onClick={() => {
               const session = noteSessions.current.active!;
               const recovered = session.recoveryDraft!;
               session.recoveryDraft = undefined;
@@ -2490,7 +2496,7 @@ export function App({ gateway, collectionSwitcher, onFeedbackContext }: Collecti
                 session.recoveryDraft = undefined;
                 touchSession(session);
               } catch { setNotice(t`The recovery copy could not be removed from this browser.`); }
-            }}><Trans>Discard recovered edits</Trans></button>
+            }}><Trans>Discard recovered edits</Trans></button></div>
           </section>}
           {deletedElsewhere && session && <section className="conflict-resolver" role="status" aria-label={t`Note deleted elsewhere`}>
             <strong><Trans>This note was deleted in another app or on another device.</Trans></strong>
