@@ -373,11 +373,9 @@ fn an_unreadable_record_is_covered_but_never_served() {
         [.., SqlValue::Blob(fields), SqlValue::Blob(tags)] if fields.is_empty() && tags.is_empty()
     ));
     // Stale candidate facts go; none are written, and coverage is certified.
-    assert!(
-        statements
-            .iter()
-            .any(|s| s.sql == "DELETE FROM st_qraw_fact WHERE id=?")
-    );
+    assert!(statements.iter().any(
+        |s| s.sql == "DELETE FROM st_qraw_fact WHERE id IN (?)" && s.params == [blob(&[1; 16])]
+    ));
     assert!(
         statements
             .iter()
